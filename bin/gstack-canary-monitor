@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# gstack-canary-monitor — deterministic post-deploy browser canary runner.
+set -uo pipefail
+
+usage() {
+  printf '%s\n' 'Usage: gstack-canary-monitor <url> [--duration 10m] [--baseline] [--pages /,/dashboard] [--quick] [--browse /path/to/browse] [--plan]' '' 'Modes:' '  --baseline   Capture baseline.json and stop.' '  --quick      Single-pass health check, no sleep loop.' '  --plan       Print parsed execution plan JSON without running browse.' '' 'Outputs:' '  .gstack/canary-reports/baseline.json' '  .gstack/canary-reports/<timestamp>-canary.json' '  .gstack/canary-reports/<timestamp>-canary.md'
+}
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+REPORT_DIR="$ROOT/.gstack/canary-reports"
+BASELINE_DIR="$REPORT_DIR/baselines"
+SHOT_DIR="$REPORT_DIR/screenshots"
+URL=""; DURATION="10m"; MODE="monitor"; PAGES_RAW=""; BROWSE=""; PLAN_ONLY=0
+INTERVAL="${GSTACK_CANARY_INTERVAL:-60}"; MAX_PAGES=5
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --duration) DURATION="${2:-}"; shift 2 ;;
+    --baseline) MODE="baseline"; shift ;;
+    --quick) MODE="quick"; shift ;;
+    --pages) PAGES_RAW="${2:-}"; shift 2 ;;
+    --browse) BROWSE="${2:-}"; shift 2 ;;
+    --plan) PLAN_ONLY=1; shift ;;
+    --interval) INTERVAL="${2:-}"; shift 2 ;;
+    --max-pages) MAX_PAGES="${2:-}"; shift 2 ;;
+    --*) echo "gstack-canary-monitor: unknown flag $1" >&2; usage >&2; exit 2 ;;
+    *) if [ -z "$URL" ]; then URL="$1"; shift; else echo "gstack-canary-monitor: unexpected arg $1" >&2; exit 2; fi ;;
+  esac
+done
+
+if [ -z "$URL" ]; then echo "gstack-canary-monitor: missing URL" >&2; usage >&2; exit 2; fi
+case "$URL" in http://*|https://*) ;; *) echo "gstack-canary-monitor: URL must start with http:// or https://" >&2; exit 2 ;; esac
+
+parse_duration_s() {
+  python3 - "$1" <<'PY_DUR'
+import re, sys
+m=re.fullmatch(r'(\d+)([sm]?)', sys.argv[1] or '')
+if not m: raise SystemExit(2)
+n=int(m.group(1)); unit=m.group(2) or 's'
+sec=n*(60 if unit=='m' else 1)
+if sec < 60 or sec > 1800: raise SystemExit(3)
+print(sec)
+PY_DUR
+}
+DURATION_S="$(parse_duration_s "$DURATION")" || { echo "gstack-canary-monitor: duration must be 1m..30m (or 60..1800s)" >&2; exit 2; }
+if ! [[ "$INTERVAL" =~ ^[0-9]+$ ]] || [ "$INTERVAL" -lt 1 ]; then echo "gstack-canary-monitor: --interval must be positive seconds" >&2; exit 2; fi
+if ! [[ "$MAX_PAGES" =~ ^[0-9]+$ ]] || [ "$MAX_PAGES" -lt 1 ]; then echo "gstack-canary-monitor: --max-pages must be positive" >&2; exit 2; fi
+
+if [ -z "$BROWSE" ]; then
+  if [ -x "$ROOT/.claude/skills/gstack/browse/dist/browse" ]; then BROWSE="$ROOT/.claude/skills/gstack/browse/dist/browse"
+  elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse" ]; then BROWSE="$HOME/.claude/skills/gstack/browse/dist/browse"
+  elif command -v browse >/dev/null 2>&1; then BROWSE="$(command -v browse)"
+  elif [ -x "$ROOT/browse/dist/browse" ]; then BROWSE="$ROOT/browse/dist/browse"
+  fi
+fi
+
+json_plan() {
+  python3 - "$URL" "$MODE" "$DURATION_S" "$PAGES_RAW" "$INTERVAL" "$MAX_PAGES" "$BROWSE" <<'PY_PLAN'
+import json, sys
+url,mode,dur,pages,interval,max_pages,browse=sys.argv[1:8]
+print(json.dumps({"url":url,"mode":mode,"duration_s":int(dur),"pages_raw":pages,"interval_s":int(interval),"max_pages":int(max_pages),"browse":browse}, indent=2))
+PY_PLAN
+}
+if [ "$PLAN_ONLY" = 1 ]; then json_plan; exit 0; fi
+if [ -z "$BROWSE" ] || [ ! -x "$BROWSE" ]; then echo "gstack-canary-monitor: browse binary not found/executable; pass --browse" >&2; exit 3; fi
+
+mkdir -p "$BASELINE_DIR" "$SHOT_DIR"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+CHECKS_JSONL="$REPORT_DIR/$RUN_ID-checks.jsonl"; ALERTS_JSONL="$REPORT_DIR/$RUN_ID-alerts.jsonl"
+REPORT_JSON="$REPORT_DIR/$RUN_ID-canary.json"; REPORT_MD="$REPORT_DIR/$RUN_ID-canary.md"; BASELINE_JSON="$REPORT_DIR/baseline.json"
+: > "$CHECKS_JSONL"; : > "$ALERTS_JSONL"
+
+normalize_pages() {
+  python3 - "$URL" "$PAGES_RAW" "$MAX_PAGES" <<'PY_PAGES'
+import sys, urllib.parse
+base, raw, max_pages = sys.argv[1], sys.argv[2], int(sys.argv[3]); seen=[]
+def add(p):
+    if not p: return
+    u=urllib.parse.urljoin(base, p); b=urllib.parse.urlparse(base); x=urllib.parse.urlparse(u)
+    if x.scheme not in ('http','https') or x.netloc != b.netloc: return
+    path=x.path or '/'
+    if x.query: path += '?' + x.query
+    if path not in seen: seen.append(path)
+for p in (raw.split(',') if raw else ['/']): add(p.strip())
+print('\n'.join(seen[:max_pages]))
+PY_PAGES
+}
+slug_page() { python3 - "$1" <<'PY_SLUG'
+import re, sys
+p=sys.argv[1].strip() or '/'
+print('home' if p == '/' else (re.sub(r'[^A-Za-z0-9._-]+','-',p.strip('/'))[:80] or 'page'))
+PY_SLUG
+}
+page_url() { python3 - "$URL" "$1" <<'PY_URL'
+import sys, urllib.parse
+print(urllib.parse.urljoin(sys.argv[1], sys.argv[2]))
+PY_URL
+}
+count_console_errors() { awk 'BEGIN{n=0} /\(no console errors\)/{next} /^\[/{n++} END{print n+0}' "$1" 2>/dev/null || echo 0; }
+perf_total_ms() { awk '/^total[[:space:]]+[0-9]+ms/{gsub("ms","",$2); print $2; found=1} END{if(!found) print 0}' "$1" 2>/dev/null || echo 0; }
+
+capture_one() {
+  local phase="$1" page="$2" check_no="$3" name purl shot console_file perf_file goto_file goto_ok errors load_ms ts
+  name="$(slug_page "$page")"; purl="$(page_url "$page")"; ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  shot="$SHOT_DIR/${phase}-${name}-${check_no}.png"; console_file="$REPORT_DIR/${RUN_ID}-${phase}-${name}-${check_no}.console.txt"; perf_file="$REPORT_DIR/${RUN_ID}-${phase}-${name}-${check_no}.perf.txt"; goto_file="$REPORT_DIR/${RUN_ID}-${phase}-${name}-${check_no}.goto.txt"
+  if "$BROWSE" goto "$purl" >"$goto_file" 2>&1; then goto_ok=true; else goto_ok=false; fi
+  "$BROWSE" snapshot -i -a -o "$shot" >/dev/null 2>&1 || true
+  "$BROWSE" console --errors >"$console_file" 2>&1 || true
+  "$BROWSE" perf >"$perf_file" 2>&1 || true
+  errors="$(count_console_errors "$console_file")"; load_ms="$(perf_total_ms "$perf_file")"
+  python3 - "$CHECKS_JSONL" "$ts" "$phase" "$check_no" "$page" "$purl" "$shot" "$goto_ok" "$errors" "$load_ms" "$console_file" "$perf_file" <<'PY_CHECK'
+import json, sys
+out,ts,phase,check,page,url,shot,goto_ok,errors,load_ms,console_file,perf_file=sys.argv[1:]
+obj={"ts":ts,"phase":phase,"check":int(check),"page":page,"url":url,"screenshot":shot,"goto_ok":goto_ok=="true","console_errors":int(errors),"load_time_ms":int(load_ms or 0),"console_file":console_file,"perf_file":perf_file}
+with open(out,'a') as f: f.write(json.dumps(obj)+"\n")
+PY_CHECK
+}
+
+discover_pages() {
+  if [ -n "$PAGES_RAW" ]; then normalize_pages; return; fi
+  local links_file="$REPORT_DIR/$RUN_ID-links.txt"
+  "$BROWSE" goto "$URL" >/dev/null 2>&1 || true; "$BROWSE" links >"$links_file" 2>&1 || true
+  python3 - "$URL" "$MAX_PAGES" "$links_file" <<'PY_DISCOVER'
+import re, sys, urllib.parse
+base=sys.argv[1]; max_pages=int(sys.argv[2]); text=open(sys.argv[3], errors='ignore').read(); b=urllib.parse.urlparse(base); seen=['/']
+for m in re.finditer(r"https?://[^\s\)\]\}\"']+|href=[\"']([^\"']+)", text):
+    raw=m.group(1) or m.group(0); u=urllib.parse.urljoin(base, raw); x=urllib.parse.urlparse(u)
+    if x.scheme not in ('http','https') or x.netloc != b.netloc: continue
+    path=x.path or '/'
+    if x.query: path += '?' + x.query
+    if path not in seen: seen.append(path)
+    if len(seen) >= max_pages: break
+print('\n'.join(seen))
+PY_DISCOVER
+}
+
+mapfile -t PAGES < <(discover_pages); [ "${#PAGES[@]}" -gt 0 ] || PAGES=("/")
+
+if [ "$MODE" = "baseline" ]; then
+  for page in "${PAGES[@]}"; do capture_one baseline "$page" 0; done
+  python3 - "$URL" "$BASELINE_JSON" "$CHECKS_JSONL" <<'PY_BASE'
+import json, sys, datetime
+url,out,checks=sys.argv[1:]; pages={}
+for line in open(checks):
+    o=json.loads(line); pages[o['page']]={"screenshot":o['screenshot'],"console_errors":o['console_errors'],"load_time_ms":o['load_time_ms']}
+open(out,'w').write(json.dumps({"url":url,"timestamp":datetime.datetime.utcnow().replace(microsecond=0).isoformat()+"Z","pages":pages}, indent=2)+"\n")
+print(f"Baseline captured: {out}")
+PY_BASE
+  exit 0
+fi
+
+if [ ! -f "$BASELINE_JSON" ]; then for page in "${PAGES[@]}"; do capture_one pre "$page" 0; done; fi
+checks=$(( DURATION_S / INTERVAL )); [ "$checks" -lt 1 ] && checks=1; [ "$MODE" = "quick" ] && checks=1
+PREV_ALERTS=""
+for ((i=1; i<=checks; i++)); do
+  for page in "${PAGES[@]}"; do capture_one check "$page" "$i"; done
+  CURRENT_ALERTS="$(python3 - "$BASELINE_JSON" "$CHECKS_JSONL" "$i" <<'PY_ALERTS'
+import json, sys, os
+baseline_path, checks_path, check_no = sys.argv[1], sys.argv[2], int(sys.argv[3]); base={}
+if os.path.exists(baseline_path):
+    try: base=json.load(open(baseline_path)).get('pages',{})
+    except Exception: base={}
+rows=[json.loads(l) for l in open(checks_path) if l.strip()]
+if not base:
+    for r in rows:
+        if r['phase']=='pre': base[r['page']]={"console_errors":r['console_errors'],"load_time_ms":r['load_time_ms']}
+for r in rows:
+    if r['phase']!='check' or r['check']!=check_no: continue
+    b=base.get(r['page'], {"console_errors":0,"load_time_ms":0})
+    if not r['goto_ok']: print(f"CRITICAL|{r['page']}|goto|Page failed to load")
+    if r['console_errors'] > int(b.get('console_errors') or 0): print(f"HIGH|{r['page']}|console|Console errors {r['console_errors']} > baseline {b.get('console_errors',0)}")
+    bl=int(b.get('load_time_ms') or 0); cur=int(r.get('load_time_ms') or 0)
+    if bl > 0 and cur > bl*2: print(f"MEDIUM|{r['page']}|perf|Load time {cur}ms > 2x baseline {bl}ms")
+PY_ALERTS
+)"
+  if [ -n "$CURRENT_ALERTS" ] && [ -n "$PREV_ALERTS" ]; then
+    while IFS= read -r alert; do
+      [ -n "$alert" ] || continue; key="$(printf "%s" "$alert" | cut -d'|' -f1-3)"
+      if printf "%s\n" "$PREV_ALERTS" | grep -Fqx "$key"; then
+        python3 - "$ALERTS_JSONL" "$i" "$alert" <<'PY_FIRE'
+import json, sys, datetime
+out,check,alert=sys.argv[1:]; sev,page,kind,msg=alert.split('|',3)
+with open(out,'a') as f: f.write(json.dumps({"ts":datetime.datetime.utcnow().replace(microsecond=0).isoformat()+"Z","check":int(check),"severity":sev,"page":page,"kind":kind,"message":msg})+"\n")
+PY_FIRE
+      fi
+    done <<EOF_ALERTS
+$CURRENT_ALERTS
+EOF_ALERTS
+  fi
+  PREV_ALERTS="$(printf "%s\n" "$CURRENT_ALERTS" | cut -d'|' -f1-3 | sed '/^$/d')"
+  if [ "$i" -lt "$checks" ]; then sleep "$INTERVAL"; fi
+done
+
+python3 - "$URL" "$DURATION_S" "$CHECKS_JSONL" "$ALERTS_JSONL" "$REPORT_JSON" "$REPORT_MD" <<'PY_REPORT'
+import json, sys, collections, os
+url,duration_s,checks_path,alerts_path,out_json,out_md=sys.argv[1:]
+rows=[json.loads(l) for l in open(checks_path) if l.strip()]
+alerts=[]
+if os.path.getsize(alerts_path)>0: alerts=[json.loads(l) for l in open(alerts_path) if l.strip()]
+check_rows=[r for r in rows if r['phase']=='check']; pages=collections.defaultdict(list)
+for r in check_rows: pages[r['page']].append(r)
+status='HEALTHY'
+if any(a['severity'] in ('CRITICAL','HIGH') for a in alerts): status='BROKEN'
+elif alerts: status='DEGRADED'
+summary={"url":url,"duration_s":int(duration_s),"pages":len(pages),"checks":len(set(r['check'] for r in check_rows)),"status":status,"alerts":alerts,"report_md":out_md,"checks_jsonl":checks_path}
+open(out_json,'w').write(json.dumps(summary, indent=2)+"\n")
+lines=[f"CANARY REPORT — {url}","="*40,f"Duration:     {int(duration_s)//60} minutes",f"Pages:        {len(pages)}",f"Checks:       {summary['checks']}",f"Status:       {status}","","Per-Page Results:","-----------------"]
+for page, rs in sorted(pages.items()):
+    errs=max(r['console_errors'] for r in rs) if rs else 0; loads=[r['load_time_ms'] for r in rs if r['load_time_ms']]; avg=round(sum(loads)/len(loads)) if loads else 0; ok=all(r['goto_ok'] for r in rs)
+    pstatus='HEALTHY' if ok and errs==0 else ('BROKEN' if not ok else 'DEGRADED')
+    lines.append(f"  {page:<24} {pstatus:<9} errors={errs:<3} avg_load={avg}ms")
+lines += ["", f"Alerts Fired:  {len(alerts)}", f"Screenshots:   {os.path.dirname(out_md)}/screenshots/", "", f"VERDICT: {'DEPLOY IS HEALTHY' if status=='HEALTHY' else 'DEPLOY HAS ISSUES'}"]
+if alerts:
+    lines += ["", "Alerts:"]
+    for a in alerts: lines.append(f"- {a['severity']} {a['page']} {a['kind']}: {a['message']} (check {a['check']})")
+open(out_md,'w').write('\n'.join(lines)+"\n")
+print(f"{status}: {out_md}")
+PY_REPORT
+
+if [ -x "$ROOT/bin/gstack-slug" ]; then eval "$("$ROOT/bin/gstack-slug" 2>/dev/null || echo SLUG=unknown)"; else SLUG=unknown; fi
+mkdir -p "$HOME/.gstack/projects/$SLUG" 2>/dev/null || true
+python3 - "$REPORT_JSON" "$HOME/.gstack/projects/$SLUG/canary.jsonl" <<'PY_DASH' 2>/dev/null || true
+import json, sys, datetime
+r=json.load(open(sys.argv[1])); e={"skill":"canary","timestamp":datetime.datetime.utcnow().replace(microsecond=0).isoformat()+"Z","status":r.get('status'),"url":r.get('url'),"duration_min":round(r.get('duration_s',0)/60),"alerts":len(r.get('alerts',[]))}
+with open(sys.argv[2],'a') as f: f.write(json.dumps(e)+"\n")
+PY_DASH

@@ -44,175 +44,110 @@ When the user types `/canary`, run this skill.
 
 ## Instructions
 
-### Phase 1: Setup
+### Phase 1: Setup and plan
+
+Run the browse setup check above first. Then use the deterministic canary runner instead of hand-rolling a polling loop in chat:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || echo "SLUG=unknown")"
-mkdir -p .gstack/canary-reports
-mkdir -p .gstack/canary-reports/baselines
-mkdir -p .gstack/canary-reports/screenshots
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CANARY="$_ROOT/.claude/skills/gstack/bin/gstack-canary-monitor"
+[ -x "$CANARY" ] || CANARY="$HOME/.claude/skills/gstack/bin/gstack-canary-monitor"
+[ -x "$CANARY" ] || CANARY="$_ROOT/bin/gstack-canary-monitor"
+"$CANARY" <url> --duration <duration> --pages <pages-if-any> --plan
 ```
 
-Parse the user's arguments. Default duration is 10 minutes. Default pages: auto-discover from the app's navigation.
+Use the plan output to confirm URL, duration, mode, pages, and browse binary. Default duration is 10 minutes. Default discovery is homepage plus top internal links, capped at 5 pages. The script writes all receipts under `.gstack/canary-reports/`.
 
-### Phase 2: Baseline Capture (--baseline mode)
+### Phase 2: Baseline Capture (`--baseline` mode)
 
-If the user passed `--baseline`, capture the current state BEFORE deploying.
-
-For each page (either from `--pages` or the homepage):
+If the user passed `--baseline`, run:
 
 ```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/baselines/<page-name>.png"
-$B console --errors
-$B perf
-$B text
+"$CANARY" <url> --baseline --pages <pages-if-any>
 ```
 
-Collect for each page: screenshot path, console error count, page load time from `perf`, and a text content snapshot.
+Then STOP and tell the user the exact `baseline.json` path plus: "Baseline captured. Deploy your changes, then run `/canary <url>` to monitor."
 
-Save the baseline manifest to `.gstack/canary-reports/baseline.json`:
+### Phase 3: Monitoring
 
-```json
-{
-  "url": "<url>",
-  "timestamp": "<ISO>",
-  "branch": "<current branch>",
-  "pages": {
-    "/": {
-      "screenshot": "baselines/home.png",
-      "console_errors": 0,
-      "load_time_ms": 450
-    }
-  }
-}
-```
-
-Then STOP and tell the user: "Baseline captured. Deploy your changes, then run `/canary <url>` to monitor."
-
-### Phase 3: Page Discovery
-
-If no `--pages` were specified, auto-discover pages to monitor:
+For normal post-deploy monitoring, run one command:
 
 ```bash
-$B goto <url>
-$B links
-$B snapshot -i
+"$CANARY" <url> --duration <duration> --pages <pages-if-any>
 ```
 
-Extract the top 5 internal navigation links from the `links` output. Always include the homepage. Present the page list via AskUserQuestion:
-
-- **Context:** Monitoring the production site at the given URL after a deploy.
-- **Question:** Which pages should the canary monitor?
-- **RECOMMENDATION:** Choose A — these are the main navigation targets.
-- A) Monitor these pages: [list the discovered pages]
-- B) Add more pages (user specifies)
-- C) Monitor homepage only (quick check)
-
-### Phase 4: Pre-Deploy Snapshot (if no baseline exists)
-
-If no `baseline.json` exists, take a quick snapshot now as a reference point.
-
-For each page to monitor:
+For `/canary <url> --quick`, run:
 
 ```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/screenshots/pre-<page-name>.png"
-$B console --errors
-$B perf
+"$CANARY" <url> --quick --pages <pages-if-any>
 ```
 
-Record the console error count and load time for each page. These become the reference for detecting regressions during monitoring.
+The runner deterministically does the mechanical work:
 
-### Phase 5: Continuous Monitoring Loop
+1. Creates `.gstack/canary-reports/{baselines,screenshots}`
+2. Discovers pages or uses `--pages`
+3. Captures a pre-snapshot when no saved baseline exists
+4. Polls each page every 60 seconds for the requested duration
+5. Captures screenshots, console errors, and load timings
+6. Compares against `baseline.json` or the pre-snapshot
+7. Fires alerts only after the same finding appears in 2 consecutive checks
+8. Writes:
+   - `.gstack/canary-reports/<timestamp>-canary.md`
+   - `.gstack/canary-reports/<timestamp>-canary.json`
+   - `.gstack/canary-reports/<timestamp>-checks.jsonl`
 
-Monitor for the specified duration. Every 60 seconds, check each page:
+### Phase 4: Alert handling
 
-```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/screenshots/<page-name>-<check-number>.png"
-$B console --errors
-$B perf
-```
+If the runner reports `BROKEN` or `DEGRADED`, read the markdown report and surface the highest-severity alert with this format:
 
-After each check, compare results against the baseline (or pre-deploy snapshot):
-
-1. **Page load failure** — `goto` returns error or timeout → CRITICAL ALERT
-2. **New console errors** — errors not present in baseline → HIGH ALERT
-3. **Performance regression** — load time exceeds 2x baseline → MEDIUM ALERT
-4. **Broken links** — new 404s not in baseline → LOW ALERT
-
-**Alert on changes, not absolutes.** A page with 3 console errors in the baseline is fine if it still has 3. One NEW error is an alert.
-
-**Don't cry wolf.** Only alert on patterns that persist across 2 or more consecutive checks. A single transient network blip is not an alert.
-
-**If a CRITICAL or HIGH alert is detected**, immediately notify the user via AskUserQuestion:
-
-```
+```text
 CANARY ALERT
 ════════════
-Time:     [timestamp, e.g., check #3 at 180s]
+Time:     [timestamp/check]
 Page:     [page URL]
 Type:     [CRITICAL / HIGH / MEDIUM]
-Finding:  [what changed — be specific]
-Evidence: [screenshot path]
-Baseline: [baseline value]
+Finding:  [specific delta]
+Evidence: [screenshot/report path]
+Baseline: [baseline value if available]
 Current:  [current value]
 ```
 
+Then ask:
+
 - **Context:** Canary monitoring detected an issue on [page] after [duration].
-- **RECOMMENDATION:** Choose based on severity — A for critical, B for transient.
+- **RECOMMENDATION:** Choose based on severity — A for critical/high, B for uncertain medium.
 - A) Investigate now — stop monitoring, focus on this issue
-- B) Continue monitoring — this might be transient (wait for next check)
+- B) Continue monitoring — this might be transient
 - C) Rollback — revert the deploy immediately
 - D) Dismiss — false positive, continue monitoring
 
-### Phase 6: Health Report
+### Phase 5: Health Report
 
-After monitoring completes (or if the user stops early), produce a summary:
-
-```
-CANARY REPORT — [url]
-═════════════════════
-Duration:     [X minutes]
-Pages:        [N pages monitored]
-Checks:       [N total checks performed]
-Status:       [HEALTHY / DEGRADED / BROKEN]
-
-Per-Page Results:
-─────────────────────────────────────────────────────
-  Page            Status      Errors    Avg Load
-  /               HEALTHY     0         450ms
-  /dashboard      DEGRADED    2 new     1200ms (was 400ms)
-  /settings       HEALTHY     0         380ms
-
-Alerts Fired:  [N] (X critical, Y high, Z medium)
-Screenshots:   .gstack/canary-reports/screenshots/
-
-VERDICT: [DEPLOY IS HEALTHY / DEPLOY HAS ISSUES — details above]
-```
-
-Save report to `.gstack/canary-reports/{date}-canary.md` and `.gstack/canary-reports/{date}-canary.json`.
-
-Log the result for the review dashboard:
+After monitoring completes, report the runner's verdict and receipt paths. Do not invent a status from prose; use the JSON or markdown receipt.
 
 ```bash
-{{SLUG_EVAL}}
-mkdir -p ~/.gstack/projects/$SLUG
+python3 - <<'PY'
+import json, glob
+p=max(glob.glob('.gstack/canary-reports/*-canary.json'))
+r=json.load(open(p))
+print(r['status'], p, r.get('report_md'))
+PY
 ```
 
-Write a JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","url":"<url>","duration_min":<N>,"alerts":<N>}`
+### Phase 6: Baseline Update
 
-### Phase 7: Baseline Update
-
-If the deploy is healthy, offer to update the baseline:
+If the deploy is `HEALTHY`, offer to update the baseline:
 
 - **Context:** Canary monitoring completed. The deploy is healthy.
 - **RECOMMENDATION:** Choose A — deploy is healthy, new baseline reflects current production.
 - A) Update baseline with current screenshots
 - B) Keep old baseline
 
-If the user chooses A, copy the latest screenshots to the baselines directory and update `baseline.json`.
+If the user chooses A, rerun baseline mode against the same URL/pages:
+
+```bash
+"$CANARY" <url> --baseline --pages <same-pages>
+```
 
 ## Important Rules
 
