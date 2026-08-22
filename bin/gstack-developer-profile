@@ -20,6 +20,9 @@
 #   --log-session    append a session entry (from /office-hours) to
 #                       sessions[] and update aggregates. Required fields:
 #                       date, mode. Silent skip on invalid input.
+#   --reconcile         backfill count-only sessions[] entries from
+#                       timeline.jsonl office-hours history (#2657).
+#                       Idempotent; backfilled rows count for tenure only.
 #
 # Profile file: ~/.gstack/developer-profile.json (unified schema — see
 # docs/designs/PLAN_TUNING_V0.md). Event file: ~/.gstack/projects/{SLUG}/
@@ -218,6 +221,151 @@ do_log_session() {
 }
 
 # -----------------------------------------------------------------------
+# Reconcile: backfill sessions[] from timeline.jsonl history (#2657).
+# sessions[] historically had exactly one writer (office-hours Phase 4.5
+# --log-session), so early-exit runs and pre-feature history were invisible
+# to the tier system even though timeline.jsonl holds the complete per-run
+# record.
+# Root note: this binary resolves state via GSTACK_STATE_ROOT before
+# GSTACK_HOME (D16), while gstack-timeline-log writes under GSTACK_HOME
+# only — timeline discovery here assumes the two point at the same root.
+# Backfill count-only entries from it: {date, mode, project_slug,
+# signal_count: 0, signals: [], backfilled: true}. Never fabricates
+# signals — the reader counts backfilled rows for tenure and excludes
+# them from reflections. Idempotent: a run whose hour is already covered
+# by any sessions[] entry is skipped, and backfilled rows carry the run's
+# exact timestamp so a re-run matches at distance zero.
+# -----------------------------------------------------------------------
+do_reconcile() {
+  ensure_profile
+
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.tmp.XXXXXX")
+  trap 'rm -f "$TMPOUT"' EXIT
+
+  PROFILE_FILE_PATH="$PROFILE_FILE" GSTACK_HOME_PATH="$GSTACK_HOME" TMPOUT_PATH="$TMPOUT" bun -e "
+    const fs = require('fs');
+    const path = require('path');
+
+    const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_FILE_PATH, 'utf-8'));
+    profile.sessions = profile.sessions || [];
+
+    // Gather office-hours completed events across all project timelines.
+    const projectsDir = path.join(process.env.GSTACK_HOME_PATH, 'projects');
+    const runs = [];
+    let slugs = [];
+    try { slugs = fs.readdirSync(projectsDir); } catch { slugs = []; }
+    for (const slug of slugs) {
+      const tl = path.join(projectsDir, slug, 'timeline.jsonl');
+      if (!fs.existsSync(tl)) continue;
+      // One unreadable timeline (permissions, a directory with that name)
+      // must not abort the whole reconcile.
+      let content;
+      try { content = fs.readFileSync(tl, 'utf-8'); } catch { continue; }
+      for (const line of content.split('\n')) {
+        if (!line.trim()) continue;
+        let e;
+        try { e = JSON.parse(line); } catch { continue; }
+        if (e.skill !== 'office-hours' || e.event !== 'completed' || !e.ts) continue;
+        // Timeline completed events don't currently carry a mode; the
+        // passthrough is for forward-compat and falls back to 'unknown'.
+        runs.push({ ts: e.ts, project_slug: slug, mode: e.mode, duration_s: e.duration_s });
+      }
+    }
+    runs.sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0));
+
+    // 'Same hour' = an entry within 60 minutes of the run's timestamp —
+    // proximity, not clock-hour bucketing, so a Phase 4.5 write minutes
+    // before the timeline's completed event still matches across a :00
+    // boundary. Legacy date-only entries parse to midnight UTC and can't
+    // match tighter than the data allows.
+    //
+    // Coverage comes from tenure-counting rows only: a Phase 6 resources
+    // row must not cover the hour, or a run whose Phase 4.5 write failed
+    // but whose resources append succeeded would never backfill — exactly
+    // the partial-run gap this command exists to close. Backfilled rows
+    // always cover their own run regardless of mode (anything else breaks
+    // idempotency). Logged-session coverage is global (no slug scoping):
+    // timeline directory names and logged project_slug values can drift
+    // apart over a repo's life, and a missed backfill is cheaper than a
+    // double-count. Rows reconcile itself wrote keep their slug, so the
+    // cross-project behavior is the same whether two timelines arrive in
+    // one invocation or across two.
+    const HOUR = 60 * 60 * 1000;
+    const covered = profile.sessions
+      .filter(s => s && (s.mode !== 'resources' || s.backfilled))
+      .map(s => ({
+        t: Date.parse(s.date || s.ts || ''),
+        slug: s.backfilled ? s.project_slug || null : null,
+      }))
+      .filter(c => !Number.isNaN(c.t));
+
+    let added = 0;
+    for (const run of runs) {
+      const t = Date.parse(run.ts);
+      if (Number.isNaN(t)) continue;
+      // Phase 4.5 logs the session mid-run, potentially hours before the
+      // completed event fires at skill end. When the event carries a sane
+      // duration, extend the match window back across the run's actual
+      // span so a long session doesn't double-count. Garbage or missing
+      // durations fall back to the plain +/-60-minute window.
+      // Cap at a plausible session ceiling (8h): timeline duration_s values
+      // include multi-hour garbage, and a wider span would let yesterday's
+      // session suppress today's backfill.
+      const dur = Number(run.duration_s);
+      const span = dur > 0 && dur < 8 * 3600 ? dur * 1000 : 0;
+      // A backfilled run covers only its own project's hour (slug set), so
+      // a resumed run collapses to one session while genuine back-to-back
+      // runs on different projects each count.
+      const matched = covered.some(c =>
+        c.slug === null
+          ? t - c.t <= span + HOUR && c.t - t <= HOUR
+          : c.slug === run.project_slug && Math.abs(c.t - t) <= HOUR);
+      if (matched) continue;
+      covered.push({ t, slug: run.project_slug });
+      profile.sessions.push({
+        date: run.ts,
+        // 'resources' is reserved for Phase 6 bookkeeping rows, which the
+        // reader excludes from tenure — a backfilled row must never take it.
+        mode: run.mode === 'resources' ? 'unknown' : run.mode || 'unknown',
+        project_slug: run.project_slug,
+        signal_count: 0,
+        signals: [],
+        backfilled: true,
+      });
+      added++;
+    }
+
+    // Only touch the file when something was backfilled — a no-op reconcile
+    // must not churn the mtime, resort entries, or trigger cross-machine sync.
+    if (added > 0) {
+      // Keep sessions chronological — the reader takes last/prev positionally,
+      // and backfilled history is usually older than what was already logged.
+      // Unparseable dates sort to the tail (stable, preserving their relative
+      // order) rather than to epoch zero.
+      const key = (s) => {
+        const t = Date.parse(s.date || s.ts || '');
+        return Number.isNaN(t) ? Infinity : t;
+      };
+      profile.sessions.sort((a, b) => key(a) - key(b));
+      fs.writeFileSync(process.env.TMPOUT_PATH, JSON.stringify(profile, null, 2));
+    }
+    console.log('RECONCILE: ok — ' + added + ' backfilled from ' + runs.length + ' timeline run(s)');
+  "
+
+  # bun writes TMPOUT only when it backfilled something; an empty temp file
+  # must never be moved over the profile.
+  if [ -s "$TMPOUT" ]; then
+    mv "$TMPOUT" "$PROFILE_FILE"
+    trap - EXIT
+    "$SCRIPT_DIR/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
+  else
+    rm -f "$TMPOUT"
+    trap - EXIT
+  fi
+}
+
+# -----------------------------------------------------------------------
 # Read: emit legacy KEY: VALUE output for /office-hours compat.
 # -----------------------------------------------------------------------
 do_read() {
@@ -233,19 +381,25 @@ do_read() {
     // and pushes NUDGE_ELIGIBLE over its threshold from bookkeeping alone.
     const realSessions = sessions.filter(e => e.mode !== 'resources');
 
+    // #2657: backfilled rows (--reconcile from timeline.jsonl) record THAT a
+    // session happened, not what it contained — they count toward tenure
+    // (SESSION_COUNT/TIER) but are excluded from every reflection the greeting
+    // asserts as fact: LAST_*, CROSS_PROJECT, DESIGN_*, and the nudge.
+    const reflective = realSessions.filter(e => !e.backfilled);
+
     const count = realSessions.length;
     let tier = 'introduction';
     if (count >= 8) tier = 'inner_circle';
     else if (count >= 4) tier = 'regular';
     else if (count >= 1) tier = 'welcome_back';
-    const last = realSessions[realSessions.length - 1] || {};
-    const prev = realSessions[realSessions.length - 2] || {};
+    const last = reflective[reflective.length - 1] || {};
+    const prev = reflective[reflective.length - 2] || {};
     const crossProject = prev.project_slug && last.project_slug
       ? prev.project_slug !== last.project_slug
       : false;
 
-    const designs = realSessions.map(e => e.design_doc || '').filter(Boolean);
-    const designTitles = realSessions
+    const designs = reflective.map(e => e.design_doc || '').filter(Boolean);
+    const designTitles = reflective
       .map(e => (e.design_doc ? (e.project_slug || 'unknown') : ''))
       .filter(Boolean);
 
@@ -258,7 +412,7 @@ do_read() {
     // someone who keeps returning to *build*, not startup-mode diagnostics and not
     // resources bookkeeping. (Was \`e.mode !== 'startup'\`, which counted resources
     // entries and excluded real startup sessions.)
-    const builderSessions = realSessions.filter(e => e.mode === 'builder').length;
+    const builderSessions = reflective.filter(e => e.mode === 'builder').length;
     const nudgeEligible = builderSessions >= 3 && totalSignals >= 5;
 
     const resources = p.resources_shown || [];
@@ -516,6 +670,7 @@ case "$CMD" in
   --check-mismatch) do_check_mismatch ;;
   --migrate) do_migrate ;;
   --log-session) do_log_session "$@" ;;
+  --reconcile) do_reconcile ;;
   --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
   *)
     echo "gstack-developer-profile: unknown subcommand '$CMD'" >&2

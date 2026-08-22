@@ -1691,6 +1691,12 @@ The session entry is appended to `developer-profile.json`'s `sessions[]` array. 
 session entry with `mode: "resources"` is appended via `--log-session` after resource
 selection in Phase 6 Beat 3.5.
 
+One more `sessions[]` writer exists outside this skill: `gstack-developer-profile
+--reconcile` (#2657) backfills count-only entries (`backfilled: true`) from
+timeline.jsonl office-hours history. Backfilled rows count toward SESSION_COUNT
+and TIER but are excluded from every reflection the greeting asserts as fact
+(LAST_*, DESIGN_*, CROSS_PROJECT, the builder nudge).
+
 ---
 
 > **STOP.** Before writing the design doc and running the tiered relationship handoff (Phases 5-6, after the conversation and alternatives are done), Read `~/.claude/skills/gstack/office-hours/sections/design-and-handoff.md` and execute it

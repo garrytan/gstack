@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.70.0.0] - 2026-08-22
+
+**`/office-hours` now greets long-tenure users by their real history: `gstack-developer-profile --reconcile` backfills session tenure from timeline.jsonl (#2657).**
+
+A user who had run gstack daily since April was greeted with "this is your third session." `sessions[]` had exactly one writer, the office-hours Phase 4.5 `--log-session` call, so early-exit runs and history predating the feature never counted toward the relationship tier, while timeline.jsonl held the complete per-run record all along. `--reconcile` walks every project timeline for office-hours `completed` events and appends count-only entries (`{date, mode, project_slug, signal_count: 0, signals: [], backfilled: true}`) for runs with no session entry in the same hour. Idempotent, and it never fabricates signals: the reader counts backfilled rows for SESSION_COUNT and TIER but excludes them from everything the greeting asserts as fact (LAST_PROJECT, LAST_ASSIGNMENT, DESIGN_*, CROSS_PROJECT, the builder nudge). A profile whose whole tenure is backfilled gets a tenure-aware greeting instead of a sentence interpolating an empty assignment (guard in the office-hours handoff template).
+
+### The numbers that matter
+
+Source: the reporter's real machine (issue #2657) re-run against this branch, and the 24 new regression tests in `test/gstack-developer-profile.test.ts`.
+
+| Property | Before | After |
+|--------|--------|-------|
+| Daily-since-April user's greeting | "this is your third session" (welcome_back) | inner_circle from 9 real runs |
+| Early-exit / pre-feature runs | invisible to the tier forever | counted; content never invented |
+| Long session (Phase 4.5 write hours before `completed`) | would double-count | matched through the event's `duration_s` span |
+| Back-to-back runs on two projects | second run lost to the dedupe | each counts (backfilled rows' coverage is slug-scoped) |
+| Run whose Phase 4.5 write failed but Phase 6 resources row landed | never backfillable | backfills (resources rows don't cover the hour) |
+| Re-running `--reconcile` | n/a | 0 new rows, file untouched (no mtime churn, no sync enqueue) |
+
+### Added
+
+- `--reconcile` subcommand in `bin/gstack-developer-profile`: timeline.jsonl tenure backfill with proximity matching (not clock-hour buckets), duration-aware long-session windows, resumed-run collapse, and per-file corruption tolerance.
+
+### Changed
+
+- `--read` reflections (LAST_*, DESIGN_*, CROSS_PROJECT, nudge) now come from non-backfilled sessions only; tenure (SESSION_COUNT, TIER) counts every real session including backfilled ones.
+- The office-hours greeting templates skip "last time" sentences when tenure is backfilled history with no logged content.
+
+### Fixed
+
+- Test harness isolation: an ambient `GSTACK_STATE_ROOT` no longer points `gstack-developer-profile` tests at the developer's real state directory.
+
 ## [1.68.3.0] - 2026-08-20
 
 **Re-pairing a browser agent to narrow its access now revokes the old access on**

@@ -32,8 +32,12 @@ afterEach(() => {
 });
 
 function runDev(...args: string[]): { stdout: string; stderr: string; status: number } {
+  // GSTACK_STATE_ROOT outranks GSTACK_HOME in the script; an ambient value
+  // would point every test at the developer's real state dir.
+  const env = { ...process.env, GSTACK_HOME: tmpHome };
+  delete env.GSTACK_STATE_ROOT;
   const res = spawnSync(BIN_DEV, args, {
-    env: { ...process.env, GSTACK_HOME: tmpHome },
+    env,
     encoding: 'utf-8',
     cwd: ROOT,
   });
@@ -45,8 +49,10 @@ function runDev(...args: string[]): { stdout: string; stderr: string; status: nu
 }
 
 function logQuestion(payload: Record<string, unknown>): number {
+  const env = { ...process.env, GSTACK_HOME: tmpHome };
+  delete env.GSTACK_STATE_ROOT;
   const res = spawnSync(BIN_LOG, [JSON.stringify(payload)], {
-    env: { ...process.env, GSTACK_HOME: tmpHome },
+    env,
     encoding: 'utf-8',
     cwd: ROOT,
   });
@@ -693,6 +699,366 @@ describe('gstack-developer-profile resources entries do not inflate count/tier/n
     const r = runDev('--read');
     expect(r.stdout).toContain('CROSS_PROJECT: false');
     expect(r.stdout).toContain('LAST_PROJECT: samep');
+  });
+});
+
+// -----------------------------------------------------------------------
+// --reconcile (#2657: backfill tenure from timeline.jsonl)
+// -----------------------------------------------------------------------
+
+function writeTimeline(slug: string, events: Array<Record<string, unknown>>) {
+  const dir = path.join(tmpHome, 'projects', slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'timeline.jsonl'),
+    events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+  );
+}
+
+describe('gstack-developer-profile --reconcile (#2657)', () => {
+  test('backfills office-hours completed runs missing from sessions[]', () => {
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'started', ts: '2026-04-30T15:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', outcome: 'success', ts: '2026-04-30T16:00:00.000Z' },
+    ]);
+    writeTimeline('proj-b', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-05-12T10:00:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RECONCILE: ok — 2 backfilled from 2 timeline run(s)');
+    const p = readProfile() as { sessions: Array<Record<string, unknown>> };
+    expect(p.sessions.length).toBe(2);
+    const [first, second] = p.sessions;
+    expect(first.date).toBe('2026-04-30T16:00:00.000Z');
+    expect(first.project_slug).toBe('proj-a');
+    expect(first.backfilled).toBe(true);
+    expect(first.signal_count).toBe(0);
+    expect(first.signals).toEqual([]);
+    expect(first.mode).toBe('unknown');
+    expect(second.project_slug).toBe('proj-b');
+  });
+
+  test('skips a project directory with no timeline.jsonl', () => {
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'empty-proj'), { recursive: true });
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T16:00:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 1 timeline run(s)');
+  });
+
+  test('survives malformed and incomplete timeline lines', () => {
+    const dir = path.join(tmpHome, 'projects', 'proj-a');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'timeline.jsonl'),
+      [
+        'not json at all {{{',
+        JSON.stringify({ skill: 'office-hours', event: 'completed' }), // no ts
+        JSON.stringify({ skill: 'office-hours', event: 'completed', ts: 'not-a-date' }),
+        JSON.stringify({ skill: 'office-hours', event: 'completed', ts: '2026-04-30T16:00:00.000Z' }),
+        '',
+      ].join('\n') + '\n',
+    );
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    // The no-ts line is filtered at harvest; the unparseable-ts line survives
+    // harvest but is skipped by the NaN guard in the backfill loop.
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 2 timeline run(s)');
+    const p = readProfile() as { sessions: unknown[] };
+    expect(p.sessions.length).toBe(1);
+  });
+
+  test('passes a timeline event mode through to the backfilled row', () => {
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', mode: 'startup', ts: '2026-04-30T16:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const p = readProfile() as { sessions: Array<Record<string, unknown>> };
+    expect(p.sessions[0].mode).toBe('startup');
+  });
+
+  test('legacy date-only session entries cover nearby runs at midnight UTC', () => {
+    // A migrated legacy entry may carry a date-only string; it parses to
+    // midnight UTC and covers a completed event 30 minutes later.
+    runDev('--log-session', JSON.stringify({ date: '2026-04-30', mode: 'startup', project_slug: 'p' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T00:30:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled from 1 timeline run(s)');
+  });
+
+  test('keeps sessions[] chronological after interleaved backfill', () => {
+    runDev('--log-session', JSON.stringify({ date: '2026-05-10T10:00:00.000Z', mode: 'startup', project_slug: 'mid' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-01T10:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const p = readProfile() as { sessions: Array<{ date: string }> };
+    const dates = p.sessions.map((s) => Date.parse(s.date));
+    expect(dates).toEqual([...dates].sort((a, b) => a - b));
+    expect(p.sessions[1].date).toBe('2026-05-10T10:00:00.000Z');
+  });
+
+  test('backfilled builder-mode rows do not push NUDGE_ELIGIBLE over its threshold', () => {
+    // 2 real builder sessions + 5 signals: one more builder session would arm
+    // the nudge. A backfilled builder row must not be that third session.
+    runDev('--log-session', JSON.stringify({
+      date: '2026-07-01T10:00:00.000Z', mode: 'builder', project_slug: 'p', signals: ['a', 'b', 'c'],
+    }));
+    runDev('--log-session', JSON.stringify({
+      date: '2026-07-08T10:00:00.000Z', mode: 'builder', project_slug: 'p', signals: ['d', 'e'],
+    }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', mode: 'builder', ts: '2026-06-01T10:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 3');
+    expect(r.stdout).toContain('TOTAL_SIGNAL_COUNT: 5');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('a backfilled-only profile reads back with tenure but empty reflections', () => {
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-05-07T10:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 2');
+    expect(r.stdout).toContain('TIER: welcome_back');
+    expect(r.stdout).toContain('LAST_PROJECT: \n');
+    expect(r.stdout).toContain('DESIGN_COUNT: 0');
+    expect(r.stdout).toContain('TOTAL_SIGNAL_COUNT: 0');
+    expect(r.stdout).toContain('CROSS_PROJECT: false');
+  });
+
+  test('is idempotent — a second run backfills nothing', () => {
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T16:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled');
+    const p = readProfile() as { sessions: unknown[] };
+    expect(p.sessions.length).toBe(1);
+  });
+
+  test('skips a run already covered by a sessions[] entry in the same hour', () => {
+    // Phase 4.5 logged at 15:50; the timeline completed event landed at 16:05.
+    // Proximity matching must catch this across the :00 clock boundary.
+    runDev('--log-session', JSON.stringify({
+      date: '2026-06-01T15:50:00.000Z', mode: 'startup', project_slug: 'proj-a',
+      signal_count: 2, signals: ['s1', 's2'],
+    }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T16:05:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled from 1 timeline run(s)');
+    const p = readProfile() as { sessions: unknown[] };
+    expect(p.sessions.length).toBe(1);
+  });
+
+  test('ignores started-only events and other skills', () => {
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'started', ts: '2026-04-30T15:00:00.000Z' },
+      { skill: 'ship', event: 'completed', ts: '2026-05-01T10:00:00.000Z' },
+      { skill: 'review', event: 'completed', ts: '2026-05-02T10:00:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled from 0 timeline run(s)');
+  });
+
+  test('collapses two completions minutes apart into one session', () => {
+    // A resumed run can log completed twice; that is one session, not two.
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T16:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T16:20:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 2 timeline run(s)');
+    const p = readProfile() as { sessions: Array<{ date: string }> };
+    expect(p.sessions.length).toBe(1);
+    expect(p.sessions[0].date).toBe('2026-04-30T16:00:00.000Z');
+  });
+
+  test('proximity window boundary: 60 minutes matches, 61 minutes backfills', () => {
+    runDev('--log-session', JSON.stringify({ date: '2026-06-01T15:00:00.000Z', mode: 'startup', project_slug: 'p' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T16:00:00.000Z' },
+    ]);
+    const r1 = runDev('--reconcile');
+    expect(r1.stdout).toContain('RECONCILE: ok — 0 backfilled from 1 timeline run(s)');
+    writeTimeline('proj-b', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T16:01:00.000Z' },
+    ]);
+    const r2 = runDev('--reconcile');
+    expect(r2.stdout).toContain('RECONCILE: ok — 1 backfilled from 2 timeline run(s)');
+  });
+
+  test('a resources bookkeeping row does not cover the hour (failed Phase 4.5)', () => {
+    // Phase 4.5 can fail silently (its call site swallows errors) while the
+    // Phase 6 resources append succeeds. The resources row is excluded from
+    // tenure, so it must not block the backfill of that session either.
+    runDev('--log-session', JSON.stringify({
+      date: '2026-06-01T16:10:00.000Z', mode: 'resources', project_slug: 'proj-a',
+      resources_shown: ['url1'],
+    }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T16:05:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 1 timeline run(s)');
+    const read = runDev('--read');
+    expect(read.stdout).toContain('SESSION_COUNT: 1');
+  });
+
+  test('a long session matches through its duration span', () => {
+    // Phase 4.5 logs mid-session; the completed event fires at skill end.
+    // With a sane duration on the event, a 2.5-hour session still matches
+    // its own Phase 4.5 write instead of double-counting.
+    runDev('--log-session', JSON.stringify({ date: '2026-06-01T15:00:00.000Z', mode: 'startup', project_slug: 'p' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', duration_s: '9000', ts: '2026-06-01T17:30:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled from 1 timeline run(s)');
+  });
+
+  test('a garbage duration falls back to the plain 60-minute window', () => {
+    // Real timelines carry corrupt duration_s values (e.g. a year in
+    // seconds); those must not widen the window to cover everything.
+    runDev('--log-session', JSON.stringify({ date: '2026-06-01T15:00:00.000Z', mode: 'startup', project_slug: 'p' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', duration_s: '31540492', ts: '2026-06-01T17:30:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 1 timeline run(s)');
+  });
+
+  test('back-to-back runs on different projects both backfill', () => {
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T10:00:00.000Z' },
+    ]);
+    writeTimeline('proj-b', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T10:45:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 2 backfilled from 2 timeline run(s)');
+  });
+
+  test('a directory named timeline.jsonl is skipped, not fatal', () => {
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'weird', 'timeline.jsonl'), { recursive: true });
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T16:00:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 1 timeline run(s)');
+  });
+
+  test('a resources-mode timeline event backfills as unknown and stays idempotent', () => {
+    // 'resources' is reserved for Phase 6 bookkeeping rows. If a backfilled
+    // row took that mode it would neither count for tenure nor cover its
+    // own run — every reconcile would append another duplicate.
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', mode: 'resources', ts: '2026-06-01T10:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled from 1 timeline run(s)');
+    const p = readProfile() as { sessions: Array<Record<string, unknown>> };
+    expect(p.sessions.length).toBe(1);
+    expect(p.sessions[0].mode).toBe('unknown');
+    const read = runDev('--read');
+    expect(read.stdout).toContain('SESSION_COUNT: 1');
+  });
+
+  test('slug scoping survives across invocations (late-arriving timeline)', () => {
+    // A second project's timeline can arrive after the first reconcile
+    // (cross-machine sync). The persisted backfilled row keeps its slug, so
+    // the outcome matches what a single invocation would have produced.
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T10:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    writeTimeline('proj-b', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-06-01T10:45:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 2 timeline run(s)');
+  });
+
+  test('a multi-hour duration beyond the 8h ceiling cannot suppress a later run', () => {
+    // Yesterday evening's logged session must not swallow today's run just
+    // because the event carries a huge (but sub-day) duration.
+    runDev('--log-session', JSON.stringify({ date: '2026-06-01T20:00:00.000Z', mode: 'startup', project_slug: 'p' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', duration_s: '82800', ts: '2026-06-02T19:00:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 1 timeline run(s)');
+  });
+
+  test('documents the accepted same-day double-count for date-only entries', () => {
+    // A legacy date-only entry parses to midnight UTC. A run at 16:00Z the
+    // same day is more than an hour away, so it backfills as a second
+    // session — the data can't support tighter matching, and this test pins
+    // that accepted behavior so a silent change to day-granularity matching
+    // shows up.
+    runDev('--log-session', JSON.stringify({ date: '2026-04-30', mode: 'startup', project_slug: 'p' }));
+    writeTimeline('proj-a', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T16:00:00.000Z' },
+    ]);
+    const r = runDev('--reconcile');
+    expect(r.stdout).toContain('RECONCILE: ok — 1 backfilled from 1 timeline run(s)');
+  });
+
+  test('backfilled rows count for tenure but are excluded from reflections', () => {
+    // 3 real sessions → welcome_back on their own.
+    runDev('--log-session', JSON.stringify({
+      date: '2026-07-01T10:00:00.000Z', mode: 'startup', project_slug: 'real-p',
+      signals: ['a'], design_doc: 'DESIGN_A.md',
+    }));
+    runDev('--log-session', JSON.stringify({
+      date: '2026-07-08T10:00:00.000Z', mode: 'startup', project_slug: 'real-p', signals: ['b'],
+    }));
+    runDev('--log-session', JSON.stringify({
+      date: '2026-07-15T10:00:00.000Z', mode: 'startup', project_slug: 'real-p',
+      signals: ['c'], assignment: 'ship the thing',
+    }));
+    // 6 pre-feature timeline runs, each in its own hour — including one NEWER
+    // than the last real session, which must not become LAST_PROJECT.
+    writeTimeline('old-proj', [
+      { skill: 'office-hours', event: 'completed', ts: '2026-04-30T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-05-05T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-05-12T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-05-19T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-05-26T10:00:00.000Z' },
+      { skill: 'office-hours', event: 'completed', ts: '2026-08-01T10:00:00.000Z' },
+    ]);
+    runDev('--reconcile');
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 9');
+    expect(r.stdout).toContain('TIER: inner_circle');
+    // Reflections stay anchored to real sessions only.
+    expect(r.stdout).toContain('LAST_PROJECT: real-p');
+    expect(r.stdout).toContain('LAST_ASSIGNMENT: ship the thing');
+    expect(r.stdout).toContain('DESIGN_COUNT: 1');
+    expect(r.stdout).toContain('TOTAL_SIGNAL_COUNT: 3');
+    expect(r.stdout).toContain('CROSS_PROJECT: false');
+  });
+
+  test('no projects directory → ok with zero backfilled', () => {
+    const r = runDev('--reconcile');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('RECONCILE: ok — 0 backfilled from 0 timeline run(s)');
   });
 });
 
