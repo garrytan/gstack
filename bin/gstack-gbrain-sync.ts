@@ -1342,7 +1342,13 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     ran: true,
     ok: result.status === 0,
     duration_ms: Date.now() - t0,
-    summary: result.status === 0 ? "curated artifacts pushed" : `gstack-brain-sync exited ${result.status}`,
+    // Exit 0 means the git-sync command completed; it does NOT mean gbrain
+    // indexed the artifacts. gstack-brain-sync records the exact git outcome
+    // and its bounded page-count verification in --status, and exits nonzero
+    // for a maintained source that reports zero pages.
+    summary: result.status === 0
+      ? "artifact git-sync command finished; gbrain indexing is not performed by this stage (see gstack-brain-sync --status)"
+      : `gstack-brain-sync exited ${result.status}`,
   };
 }
 
