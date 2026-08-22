@@ -1620,6 +1620,19 @@ Identify candidates: a worktree is stale if (a) it is checked out on the base br
 - If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
 - Do NOT use `--force`. Do NOT remove the user's primary working tree.
 
+Remote-branch reconciliation — the failed `gh pr merge` carried `--delete-branch`, and this recovery path must not silently drop that half. The success path above says "The branch has been cleaned up"; this path states the branch outcome explicitly instead of staying silent:
+
+```bash
+BRANCH=$(gh pr view --json headRefName -q .headRefName)
+git ls-remote --heads origin "$BRANCH"
+```
+
+Three outcomes — never read a failed check as a clean branch:
+
+- **Exit 0, empty output** — the remote branch is already gone (GitHub's post-merge deletion or a concurrent actor got there). Tell the user: "The remote branch has already been cleaned up." This makes re-runs of the recovery idempotent.
+- **Exit 0, one ref line** — the branch survived: the failed merge command never reached its `--delete-branch` half. OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<BRANCH>` still exists — the failed merge never ran its --delete-branch half. Delete it?" Only on confirmation: `git push origin --delete "$BRANCH"`. If a local branch of the same name exists, offer `git branch -d "$BRANCH"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
+- **Non-zero exit** — the check ITSELF failed (network, auth). Tell the user: "Couldn't verify remote branch state — leaving it alone." and skip the deletion offer entirely; a failed check is unknown state, not a clean branch.
+
 Record `MERGE_PATH=direct`, then continue to §4a (CI auto-deploy detection).
 
 **If `state == "OPEN"`:**

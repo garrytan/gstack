@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.69.0.0] - 2026-08-22
+
+**The silent-failure wave: tools that reported success while doing nothing —**
+**or the wrong thing — now do what they say, or say loudly that they couldn't.**
+
+Every fix in this wave closes the same failure shape. `gstack-evidence` — the tool other tools believe — certified runs whose environment differed from CI's, because bun auto-loaded the repo's `.env` files into every child it spawned. The gbrain wireup's first sync targeted the brain's *default* source, which could silently repoint a user's primary knowledge source at the gstack worktree while the just-registered source got zero pages — and still print a success line. `./setup --host slate` exited 0 having installed nothing. `land-and-deploy`'s merge recovery re-established everything except the `--delete-branch` half it had promised, and said nothing. A `_unattributed → deny` ingest policy never applied to exactly the pages it names. Skill-dir cleanup structurally could not find orphans. And a false-green test fixture meant the "gbrain missing" case could never fail on any machine with a real gbrain installed. Six fixes are new; five community PRs are absorbed with credit; ~17 tracker items close with receipts.
+
+### The numbers that matter
+
+Source: the regression tests named in each commit — every one verified to FAIL on a scratch worktree of v1.68.3.0 during the wave (the receipts standard), plus the live pre-fix probes quoted in the PR.
+
+| Property | Before | After |
+|--------|--------|-------|
+| `gstack-evidence run` in a repo with `.env`/`.env.local` | child inherits bun-injected vars; ledger certifies a run CI never performs | value-equality scrub (shell-exported overrides survive), names-only warning, `GSTACK_EVIDENCE_KEEP_DOTENV=1` opt-out. Contributed by @namtrok (#2652) |
+| Wireup first sync | `sync --repo` resolves against the DEFAULT source; can repoint its anchor, registered source gets 0 pages, prints success | `sync --source <id>`; `--help`-probed with `--repo`+warning fallback for old gbrains |
+| `./setup --host slate` | exit 0, installs nothing | explains Slate (use `--host claude`), exit 0 informational; any future accepted-but-unwired host exits 1 loudly; accept-list ⊆ dispatch-arms is test-pinned |
+| land-and-deploy merge recovery | `--delete-branch` half silently dropped | `ls-remote` reconciliation: already-clean (idempotent) / confirm-first delete / "couldn't verify" — a failed check is never read as a clean branch |
+| Orphaned skill dirs after the payload is gone | cleanup scanned the payload → structurally can't reap | destination scan, dangling-symlink aware, path-segment provenance. Contributed by @szsunyuan (#2634) |
+| `gstack-redact install-prepush-hook` on bun/Windows | EEXIST crash — credential guard silently absent | `mkdirpSync` tolerates dir-EEXIST only. Contributed by @Lockyer228 (#2641); swept to decision-log, evidence, and the prepush skip-log |
+| "gbrain missing" test on a box with real gbrain | saw the host's gbrain, exited 0 — could never fail where the bug exists | hermetic root-owned-dirs-only PATH + determinism check. Contributed by @SomSamantray (#2615) |
+| Heredoc bodies ≥512B under Homebrew bash 5.2+ | child deadlocks (macOS 512-byte pipe buffer) | `BASH_COMPAT=50` guard in the 11 in-window scripts + a repo-wide scanner ratchet. Contributed by @BenjaminDSmithy (#2640) |
+| `_unattributed → deny` policy under `--include-unattributed` | never applied — raw `""` remote bypassed the filter | stored remote matches the frontmatter sentinel; deny/read-only now bite |
+| Brains on gbrain's ZeroEntropy recipe | embedding dies silently after Sept 4, 2026 | wireup warns on config detection (fail-open); setup-gbrain + docs advisories (#2365, gbrain-side migration stays open) |
+| make-pdf sibling browse resolution | cwd-dependent (`dirname(argv[0])` is `.` in compiled binaries) | `process.execPath`-based; a decoy `browse/` directory can never win |
+
+### What this means for you
+
+Evidence verdicts are the run CI would perform — your shell-exported overrides still win, and the scrub tells you (key names only) what it removed. Revoking, cleaning up, and installing now either do the thing or name the thing they couldn't do. If your gbrain is on the dying ZeroEntropy recipe, gstack tells you before September 4 instead of letting search quietly rot. And five contributors' PRs are in this release with their authorship on the commits and their handles below.
+
+### Itemized changes
+
+#### Added
+- Zero-dispatch guard in `setup`: a host that passes `--host` validation without an install arm errors loudly (names the host and the valid targets) instead of exiting 0 having configured nothing; cross-check test pins the accept-list against `hosts/index.ts` and every accept-listed host to a dispatch arm (#2361).
+- ZeroEntropy sunset advisory: fail-open config detection in the wireup, provider-comment warnings in `/setup-gbrain`, and a troubleshooting entry in `USING_GBRAIN_WITH_GSTACK.md` (#2365 — refs; the gbrain-side migration remains open).
+- `lib/fs-utils.ts` `mkdirpSync` (dir-confirmed EEXIST tolerance) with a bun-Windows-emulating preload fixture, applied to `gstack-redact`, `gstack-redact-prepush`, `gstack-decision-log`, and `gstack-evidence`. Contributed by @Lockyer228 (#2641; fixes #2635).
+- Repo-wide heredoc scanner: any tracked shell script with an unguarded 512B–64KiB heredoc fails the free suite. Contributed by @BenjaminDSmithy (#2640).
+
+#### Changed
+- `land-and-deploy` §4a-postfail MERGED recovery reconciles the remote branch (three-way: already-clean / confirm-first delete / couldn't-verify) and states the outcome instead of staying silent (#2656).
+- `make-pdf` resolves the sibling browse binary from `process.execPath` with an injectable test seam; the `about:blank` half of #2156 was already fixed in v1.64.0.0 (`browse/src/url-validation.ts` exact-match allow).
+- `./setup --host slate` is an informational exit pointing at `--host claude` (per `docs/designs/SLATE_HOST.md`, Slate reads `.claude/skills` as a compatibility fallback) (#2361).
+
+#### Fixed
+- `gstack-evidence` scrubs bun-auto-loaded dotenv vars from the child env by value equality — a shell-exported override with a different value survives, `NODE_ENV=test` semantics mirror bun's, and an unreadable `.env` fails open (test-pinned). Known limitation documented in-code: bun-expanded `${VAR}` values are left in place (fails open). Contributed by @namtrok (#2652; fixes #2624; @harjothkhara's #2630 credited for the parallel diagnosis).
+- Wireup first sync targets the registered source id, never the default source (#2662); support-probed with a warning fallback so gbrains at the 0.18.0 floor keep working.
+- `cleanup_old_claude_symlinks` reaps orphans from the DESTINATION skills dir (dangling symlinks included) with path-segment provenance instead of a bare `*gstack*` substring. Contributed by @szsunyuan (#2634; fixes #2204).
+- `gstack-memory-ingest` stores the normalized `_unattributed` remote so repo policies keyed to it actually apply under `--include-unattributed` (#2353).
+- Hermetic gbrain-missing PATH fixture kills a false green on every machine with a real gbrain install. Contributed by @SomSamantray (#2615; fixes #2255).
+
+#### For contributors
+- Tests: 8,036 → 8,078 (+42 across the wave; every behavior fix carries a regression test proven red on v1.68.3.0).
+- The heredoc scanner now gates every tracked shell script — new scripts with 512B–64KiB heredoc bodies need the `BASH_COMPAT=50` guard (or smaller/file-based bodies).
+- On bash 4.3/4.4 (e.g. Git Bash), `BASH_COMPAT=50` prints a non-fatal `invalid value` stderr warning; those bashes never took the pipe path, so the guard is a no-op there.
+
 ## [1.68.3.0] - 2026-08-20
 
 **Re-pairing a browser agent to narrow its access now revokes the old access on**

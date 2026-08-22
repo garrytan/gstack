@@ -788,7 +788,11 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     source_path: path,
     session_id: session.session_id,
     cwd: session.cwd,
-    git_remote: remote,
+    // Store the normalized sentinel, matching the frontmatter above: a raw ""
+    // is falsy and slid through the policy filter's !p.git_remote fast-path,
+    // so under --include-unattributed a `_unattributed → deny` policy never
+    // applied to exactly the pages it names (#2353).
+    git_remote: remote || "_unattributed",
     start_time: session.start_time,
     end_time: session.end_time,
     partial: session.partial,

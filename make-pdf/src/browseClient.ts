@@ -10,7 +10,11 @@
  * Binary resolution order (Codex round 2 #4, v1.24-aligned):
  *   1. $GSTACK_BROWSE_BIN env override (preferred, matches v1.24 GSTACK_*_BIN pattern)
  *   2. $BROWSE_BIN env override (back-compat alias)
- *   3. sibling dir: dirname(argv[0])/../browse/dist/browse[.exe]
+ *   3. sibling dir: dirname(execPath)/../browse/dist/browse[.exe]
+ *      (execPath, NOT argv[0]: in a bun-compiled binary argv[0] is the raw
+ *      invocation string — often relative, so dirname() yields "." and the
+ *      sibling candidates resolve against the CWD instead of the install
+ *      dir; #2156. execPath is always the absolute binary path.)
  *   4. ~/.claude/skills/gstack/browse/dist/browse[.exe]
  *   5. PATH lookup via Bun.which('browse') — handles Windows PATHEXT natively
  *   6. error with setup hint
@@ -101,14 +105,21 @@ export function findExecutable(base: string): string | null {
  * Locate the browse binary. Throws a BrowseClientError with a
  * canonical setup message if not found. See header for resolution order.
  */
-export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveBrowseBin(
+  env: NodeJS.ProcessEnv = process.env,
+  // Injectable for tests: under `bun test` the process path is the bun
+  // runtime, so the compiled-binary shapes are unreachable without a seam.
+  selfPath: string = process.execPath || process.argv[0],
+): string {
   // 1 + 2: env overrides (GSTACK_BROWSE_BIN preferred, BROWSE_BIN back-compat).
   const overrideRaw = env.GSTACK_BROWSE_BIN ?? env.BROWSE_BIN;
   const override = resolveOverride(overrideRaw, env);
   if (override) return override;
 
-  // 3: sibling — make-pdf and browse co-located in dist/.
-  const selfDir = path.dirname(process.argv[0]);
+  // 3: sibling — make-pdf and browse co-located in dist/. execPath, not
+  // argv[0] (#2156): see the header — argv[0] in a compiled binary is the
+  // invocation string, and a relative one resolved candidates against CWD.
+  const selfDir = path.dirname(selfPath);
   const siblingCandidates = [
     path.resolve(selfDir, "../browse/dist/browse"),
     path.resolve(selfDir, "../../browse/dist/browse"),

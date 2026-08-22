@@ -3,6 +3,16 @@
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
+# Heredoc delivery guard. bash 5.2+ writes a heredoc body <=64KiB through a
+# pipe in the forked child before exec, with no reader on the other end. On
+# macOS under pipe-KVA pressure a fresh pipe gets a 512-byte buffer, so any
+# body >=512B blocks write() forever — ./setup --help would hang with no
+# output. Compat level 50 restores the tempfile path. This script is
+# bash-3.2-clean, so the compat level costs it nothing. Not exported: the
+# guard is per-script, and it survives `bash setup` call sites that bypass
+# the shebang.
+BASH_COMPAT=50
+
 usage() {
   cat <<'EOF'
 gstack setup — install gstack skills + build browse binary
@@ -195,7 +205,17 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|cursor|slate|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|auto) ;;
+  slate)
+    echo ""
+    echo "Slate is not yet a first-class install target (docs/designs/SLATE_HOST.md —"
+    echo "blocked on the host-config refactor). Slate discovers skills from"
+    echo ".claude/skills as a compatibility fallback, so a Slate user is served by"
+    echo "the Claude install today:"
+    echo ""
+    echo "  ./setup --host claude"
+    echo ""
+    exit 0 ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -321,6 +341,14 @@ elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
 elif [ "$HOST" = "cursor" ]; then
   INSTALL_CURSOR=1
+fi
+
+# A host that passes --host validation but sets no INSTALL_* flag would
+# silently configure nothing and exit 0 (the #2361 slate failure class).
+# Fail loudly if a future host lands in the accept-list without a dispatch arm.
+if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ]; then
+  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor (informational: slate, openclaw, hermes, gbrain)." >&2
+  exit 1
 fi
 
 if [ "$MODEL_OVERRIDE_SET" -eq 1 ] && [ "$INSTALL_CODEX" -eq 0 ]; then
@@ -973,45 +1001,67 @@ link_claude_root_skill_alias() {
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
 # Migration: when switching from flat names to gstack- prefixed names,
 # clean up stale symlinks or directories that point into the gstack directory.
+# Scan $skills_dir (not $gstack_dir): orphans live next to the payload, so a
+# missing payload must still be able to reap leftover flat names (#2204).
 cleanup_old_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
-      case "$skill_name" in gstack-*) continue ;; esac
-      old_target="$skills_dir/$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$old_target" ]; then
-        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
-        link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md (no symlink
-      # available, so we can't readlink to verify provenance). The outer loop
-      # iterates known gstack skill names from "$gstack_dir"/*, so a name match
-      # plus IS_WINDOWS is safe to treat as gstack-managed during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
-        rm -rf "$old_target"
-        removed+=("$skill_name")
-      fi
+  local old_target skill_name link_dest skill_dir
+  # Destination scan. The glob already yields dangling dir symlinks; [ -e ]
+  # alone would skip them, so [ -L ] keeps those entries. An unmatched `*`
+  # literal (empty skills_dir) is rejected by the same guard.
+  for old_target in "$skills_dir"/*; do
+    [ -e "$old_target" ] || [ -L "$old_target" ] || continue
+    skill_name="$(basename "$old_target")"
+    [ "$skill_name" = "node_modules" ] && continue
+    [ "$skill_name" = "gstack" ] && continue
+    # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
+    case "$skill_name" in gstack-*) continue ;; esac
+    # Remove directory symlinks pointing into gstack/
+    if [ -L "$old_target" ]; then
+      link_dest="$(readlink "$old_target" 2>/dev/null || true)"
+      case "$link_dest" in
+        gstack/*|*/gstack/*)
+          rm -f "$old_target"
+          removed+=("$skill_name")
+          ;;
+      esac
+    # Remove real directories with symlinked SKILL.md pointing into gstack/
+    elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
+      link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
+      # Anchored path segments (same as the dir-symlink arm and
+      # gstack-uninstall #2563). A bare *gstack* substring would wipe a
+      # user skill under e.g. ~/tools/gstack-fork/. Also accept the #2569
+      # render prefix (~/.gstack/render/claude/...), which is not `/gstack/`.
+      case "$link_dest" in
+        gstack/*|*/gstack/*|*/.gstack/render/claude/*)
+          rm -rf "$old_target"
+          removed+=("$skill_name")
+          ;;
+      esac
     fi
   done
+  # Windows install pattern: real dir with real-file SKILL.md (no symlink
+  # available, so we can't readlink to verify provenance). Iterate known
+  # gstack skill names from "$gstack_dir"/*, so a name match plus IS_WINDOWS
+  # is safe to treat as gstack-managed during a mode flip. When the payload
+  # is gone this branch is a no-op — a real file has no proven owner.
+  if [ "${IS_WINDOWS:-0}" -eq 1 ] && [ -d "$gstack_dir" ]; then
+    for skill_dir in "$gstack_dir"/*/; do
+      if [ -f "$skill_dir/SKILL.md" ]; then
+        skill_name="$(basename "$skill_dir")"
+        [ "$skill_name" = "node_modules" ] && continue
+        case "$skill_name" in gstack-*) continue ;; esac
+        old_target="$skills_dir/$skill_name"
+        if [ -d "$old_target" ] && [ ! -L "$old_target" ] \
+          && [ -f "$old_target/SKILL.md" ] && [ ! -L "$old_target/SKILL.md" ]; then
+          rm -rf "$old_target"
+          removed+=("$skill_name")
+        fi
+      fi
+    done
+  fi
   if [ ${#removed[@]} -gt 0 ]; then
     echo "  cleaned up old entries: ${removed[*]}"
   fi
