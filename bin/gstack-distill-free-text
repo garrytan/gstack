@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# /bin/bash, not env bash: Homebrew bash 5.3 heredocs >511B deadlock on macOS (512-byte pipe buffers, no F_GETPIPE_SZ)
 # gstack-distill-free-text — Layer 8 "dream cycle" batch distiller.
 #
 # Reads auq-other free-text events from this project's question-log.jsonl,
@@ -37,7 +38,7 @@ case "${1:-}" in
   --dry-run)    MODE="dry-run" ;;
   --status)     MODE="status" ;;
   --help|-h)
-    sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||'
+    sed -n '3,/^set -euo/p' "$0" | sed 's|^# \?||'
     exit 0
     ;;
   '') ;;
