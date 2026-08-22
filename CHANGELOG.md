@@ -8,7 +8,7 @@ A user who had run gstack daily since April was greeted with "this is your third
 
 ### The numbers that matter
 
-Source: the reporter's real machine (issue #2657) re-run against this branch, and the 16 new regression tests in `test/gstack-developer-profile.test.ts`.
+Source: the reporter's real machine (issue #2657) re-run against this branch, and the 24 new regression tests in `test/gstack-developer-profile.test.ts`.
 
 | Property | Before | After |
 |--------|--------|-------|
