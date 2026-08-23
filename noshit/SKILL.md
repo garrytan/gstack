@@ -1,0 +1,152 @@
+---
+name: noshit
+version: 1.0.0
+description: Read-only gstack audit of whether repository AI instructions, safety, memory, tooling, and Git hygiene match evidence.
+triggers:
+  - audit AI development setup
+  - verify agent instructions
+  - check repository AI integrity
+allowed-tools:
+  - Bash
+  - Read
+  - Glob
+  - Grep
+---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+# /noshit — AI Development Integrity Audit
+
+**NOSHIT: No-Omissions System Health & Integrity Test**
+
+Audit whether the repository's AI-development environment tells the truth.
+This is not `/health`: `/health` measures code quality; `/noshit` measures the
+truth, safety, and usability of agent configuration.
+
+## Hard gate: read-only means read-only
+
+**NO FIXES. NO WRITES.** Do not create, edit, delete, move, install, initialize,
+stage, commit, stash, push, deploy, publish, run migrations, change settings,
+write memory, or invoke a command that may update caches, lockfiles, databases,
+services, or infrastructure. Do not execute project tests, linters, builds, or
+package-manager commands: many write caches or generated output.
+
+Use Bash only for commands known to be observational. Safe command families are:
+`pwd`, `git status`, `git diff`, `git log`, `git branch`, `git remote`,
+`git rev-parse`, `git ls-files`, `git check-ignore`, `find`, `ls`, `stat`,
+`file`, `wc`, `head`, `tail`, `sed`, `rg`, `grep`, `sort`, `uniq`, `command -v`,
+and version commands known not to self-update. Prefer Read, Glob, and Grep.
+
+If evidence requires a command outside that list, mark the check `UNKNOWN`.
+Never weaken the gate because the user asks to "fix while you are there"; finish
+the audit, then recommend `/fcukit` or the appropriate existing skill.
+
+## Step 1: Establish repository truth
+
+Inspect, without following secrets or large generated/vendor trees:
+
+```bash
+pwd
+git rev-parse --show-toplevel 2>/dev/null || true
+git status --short --branch --untracked-files=all 2>/dev/null || true
+find . -maxdepth 3 -type d -name .git -print 2>/dev/null
+find . -maxdepth 3 \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .codex -o -name .mcp.json -o -name .gbrain-source \) -print 2>/dev/null
+```
+
+Determine the working directory, Git root or non-Git status, nested repositories,
+branch, remotes, staged/unstaged/untracked state, and project type. For a non-Git
+directory, do not initialize Git and do not assume the directory is a repository.
+
+Infer runtime, entry points, dependency managers, tests, lint, typecheck, formatter,
+containers, databases, auth, CI, deploy/publish paths, generated files, and dangerous
+scripts from executable/configuration evidence. Config and source beat README claims.
+Do not read secret values. File names and ignore/protection status are enough.
+
+## Step 2: Audit instruction truth
+
+Read applicable instruction files and compare every important claim with repository
+evidence:
+
+- `CLAUDE.md`, `CLAUDE.local.md`, `.claude/settings*.json`, `.claude/rules/`
+- `AGENTS.md`, `.codex/`, `.mcp.json`
+- repository-local skills/agents and `.gbrain-source`
+- build manifests, task runners, CI, container, migration, and deploy configuration
+
+Classify findings as correct, stale, contradictory, duplicated, unsafe, missing, or
+valuable. Pay special attention to claims that code, tests, lint, deployment, or a
+package manifest do not exist. Repository/runtime evidence wins disagreements.
+
+## Step 3: Audit seven integrity categories
+
+Assign exactly one status to each category:
+
+- `PASS`: evidence supports the configuration.
+- `WARN`: important drift or gap exists, but no material deception or unsafe state.
+- `FAIL`: configuration is unsafe or materially misleading.
+- `UNKNOWN`: evidence is unavailable or the current host cannot verify it.
+
+Never turn `UNKNOWN` into `PASS`.
+
+1. **Repository truth** — identity, architecture, commands, and lifecycle claims.
+2. **Agent instruction truth** — accuracy, precedence, contradictions, and duplication.
+3. **Safety and permissions** — secrets, persistent data, destructive scripts,
+   Docker escape boundaries, migrations, production branches, deploy/publish paths,
+   and whether prose-only warnings need enforcement.
+4. **Memory integrity** — binding scope, repository evidence outranking memory,
+   absence of secrets/raw logs/speculation, and whether memory is optional. Missing
+   GBrain is not itself a failure.
+5. **Tool/MCP scope** — tools are intentional, minimally scoped, and supported by
+   evidence. Do not penalize lazy-loaded or host-managed tools merely for their count.
+6. **Verification readiness** — documented safe verification commands match manifests
+   and CI. Inspect only; do not run them.
+7. **Git hygiene** — unrelated work is visible, local settings and secret files are
+   ignored where appropriate, and no agent workflow encourages broad staging or
+   destructive cleanup.
+
+Host-specific checks are conditional. Claude checks cover `CLAUDE.md` and `.claude/`
+permissions when their semantics are verifiable. Codex checks cover `AGENTS.md` and
+observable Codex project configuration. For other or unsupported hosts, report
+host-specific checks as `UNKNOWN`; never invent behavior.
+
+## Step 4: Avoid `/health` overlap
+
+Do not score code quality, test coverage, lint counts, type safety, dead code, or
+performance. You may verify that commands are documented accurately, but do not run
+or grade them. Route code-quality questions to `/health`, security audits to `/cso`,
+and fixes/bootstrap work to `/fcukit`.
+
+## Step 5: Present the evidence dashboard
+
+Keep the report compact and professional despite the command name:
+
+```text
+AI DEVELOPMENT INTEGRITY
+Project: <identity or UNKNOWN>
+Git: <root/branch/dirty summary or non-Git>
+Host: <observed host>
+
+Category                     Status    Evidence
+Repository truth             PASS      <short evidence>
+Agent instruction truth      WARN      <short evidence>
+Safety and permissions       UNKNOWN   <short evidence>
+Memory integrity             PASS      <short evidence>
+Tool/MCP scope               PASS      <short evidence>
+Verification readiness       WARN      <short evidence>
+Git hygiene                  PASS      <short evidence>
+```
+
+Then list, only when non-empty:
+
+1. Blockers (`FAIL`)
+2. Warnings (`WARN`)
+3. Unknowns (`UNKNOWN`, including what would establish the truth)
+4. Well-designed areas (`PASS`, with evidence)
+5. Recommended next skill; recommendations are not fixes
+
+Verdict rules:
+
+- Any category `FAIL` -> `FAIL`
+- Otherwise any `WARN` or material `UNKNOWN` -> `PASS WITH WARNINGS`
+- All supported material checks `PASS` -> `PASS`
+
+End with the verdict and: `Read-only audit: no files or settings changed.`
