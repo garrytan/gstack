@@ -14,9 +14,16 @@
 # trusting this comment, which is the only thing keeping it honest.
 #
 # Usage:
-#   gstack-outside-voice exec --phase <loop|final_gate> --prompt-file <f> [opts]
+#   gstack-outside-voice exec --phase <loop|final_gate|auto> --prompt-file <f> [opts]
 #   gstack-outside-voice backend --phase <loop|final_gate>   — print resolved backend
 #   gstack-outside-voice probe   --phase <loop|final_gate>   — print readiness mode
+#   gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>]
+#                                                            — print the phase `auto` would pick
+#
+# `--phase auto` derives the phase from the round ledger instead of requiring the caller to
+# know it (VAS-2371). Config: `outside_voice_gate_threshold` (default 4 — the round at which
+# the frontier gate takes over) and `outside_voice_size_ceiling` (default 0 = OFF). Every
+# degraded path resolves to `final_gate`, never `loop`; see resolve_phase for why.
 #
 # exec options:
 #   --repo-root <dir>       repo to run against (default: git toplevel)
@@ -395,27 +402,106 @@ with_timeout() {
 #
 # Scope: ONLY the first round (nothing logged yet). Once the loop is underway this never
 # fires again, so it cannot interrupt a run in progress.
+# The round ledger is fleet tooling, not gstack's. Upstream installs have no such file and
+# must be unaffected — this adapter is headed for a third-party PR, so it cannot hard-depend
+# on a claude-fleet-config binary. Absent tool => callers degrade, never fail.
+#
+# $GSTACK_ROUND_LEDGER first, so this is configurable rather than fleet-only. Five separate
+# review rounds filed the hardcoded list as a defect — correctly, in the sense that a reader
+# cannot tell "deliberately fleet-scoped" from "nobody considered other installs".
+#
+# Extracted from preflight_gate by VAS-2371 because phase derivation needs the same lookup.
+# Two copies of a search path is the two-variables-that-must-agree bug waiting for someone to
+# add a fourth candidate to one of them.
+find_round_ledger() {
+  local _c
+  for _c in ${GSTACK_ROUND_LEDGER:+"$GSTACK_ROUND_LEDGER"} \
+            "${HOME:-}/Development/cfc-live/claude/bin/codex-round-log.sh" \
+            "${HOME:-}/Development/claude-fleet-config/claude/bin/codex-round-log.sh"; do
+    [ -x "$_c" ] && { printf '%s' "$_c"; return 0; }
+  done
+  return 1
+}
+
+# --- phase derivation (VAS-2371) --------------------------------------------
+#
+# WHY THIS EXISTS. `/codex review --loop` was opt-in per invocation, and nothing any session
+# reads ever told it to opt in: a grep for `--loop` across the fleet's own doctrine, commands
+# and skills returns one unrelated hit. So the cheap tier ran for ~28 hours during its own
+# commissioning (2-3 Aug 2026) and was invoked ZERO times in the 19 days after, while 96.5%
+# of 850 rounds took the frontier gate. The mechanism was built, wired and configured
+# correctly; the instruction that drives the behaviour was never pointed at it.
+#
+# Doctrine is the weaker lever here — it depends on every session reading and obeying it.
+# Deriving the phase from state the ledger already holds does not.
+#
+# WHAT IS DELIBERATELY *NOT* DONE: the default is not flipped to `loop`. VAS-1964's design is
+# explicit that "codex reviews only the converged artefact", so a wholesale flip would send
+# converged-artefact gate rounds to the cheap tier — the one thing the design forbids. `auto`
+# is opt-in per call site; every existing caller keeps the phase it passes today.
+#
+# FALLBACK POLARITY IS LOAD-BEARING. With no ledger, an unreadable one, or an unparseable
+# round count, this returns `final_gate` — the frontier reviewer, i.e. pre-adapter behaviour.
+# Never `loop`. A silent downgrade of the reviewer is exactly the failure this file refuses
+# elsewhere ("Refusing to silently fall back to a paid frontier backend" has a mirror image,
+# and this is it: refusing to silently fall back to a CHEAPER one).
+resolve_phase() {
+  local repo_root="$1" base="${2:-origin/main}"
+  local threshold ceiling rl json rounds insertions
+
+  threshold=$(_cfg outside_voice_gate_threshold)
+  case "$threshold" in ''|*[!0-9]*) threshold=4 ;; esac
+
+  # SIZE CEILING — default OFF (0). VAS-2371 measured catch rate falling with diff size
+  # (123 ins -> 75%, 209 -> 100%, 217 -> 50%, 477 -> 33%, 1851 -> 25%) on FIVE data points.
+  # Five points do not support a threshold, so this ships disabled and the number below is
+  # indicative only.
+  #
+  # READ THIS BEFORE REACHING FOR A SIZE GATE: the same study found FP rate does NOT correlate
+  # with size — the two largest diffs produced zero false positives. What degrades is RECALL,
+  # not noise: the model does not hallucinate more on a big diff, it finds less of it. That is
+  # an OUTPUT-BUDGET symptom (completion tokens climbed 37k, 39k, 47k, 63k across successive
+  # rounds and then stopped dead on minimax-m3's 65536 cap), and its real remedy is almost
+  # certainly `--pathspec` input scoping, which this adapter already supports — not routing the
+  # diff away to the frontier tier. Revisit once VAS-2373 makes catch rate continuously
+  # measurable rather than a hand-run study.
+  ceiling=$(_cfg outside_voice_size_ceiling)
+  case "$ceiling" in ''|*[!0-9]*) ceiling=0 ;; esac
+
+  rl=$(find_round_ledger) || { printf 'final_gate'; return 0; }
+  json=$("$rl" -C "$repo_root" --json 2>/dev/null) || { printf 'final_gate'; return 0; }
+
+  rounds=$(printf '%s' "$json" | "$_PY" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    n = d.get("rounds_logged")
+    print(int(n) if isinstance(n, int) else -1)
+except Exception:
+    print(-1)
+' 2>/dev/null)
+  case "$rounds" in ''|*[!0-9-]*) rounds=-1 ;; esac
+  [ "$rounds" -lt 0 ] && { printf 'final_gate'; return 0; }
+
+  # rounds_logged counts COMPLETED rounds, so the round about to run is rounds+1.
+  [ $((rounds + 1)) -ge "$threshold" ] && { printf 'final_gate'; return 0; }
+
+  if [ "$ceiling" -gt 0 ]; then
+    insertions=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null \
+      | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
+    case "$insertions" in ''|*[!0-9]*) insertions=0 ;; esac
+    [ "$insertions" -gt "$ceiling" ] && { printf 'final_gate'; return 0; }
+  fi
+
+  printf 'loop'
+}
+
 preflight_gate() {
   local phase="$1" repo_root="$2"
   [ "$phase" = "loop" ] || return 0
 
-  # The round ledger is fleet tooling, not gstack's. Upstream installs have no such file and
-  # must be unaffected — this adapter is headed for a third-party PR, so it cannot hard-depend
-  # on a claude-fleet-config binary. Absent tool => no gate, silently.
   local _rl=""
-  local _c
-  # $GSTACK_ROUND_LEDGER first, so this is configurable rather than fleet-only. Five separate
-  # review rounds filed the hardcoded list as a defect — correctly, in the sense that a reader
-  # cannot tell "deliberately fleet-scoped" from "nobody considered other installs". The
-  # absent-tool behaviour is unchanged and still deliberate: an upstream install has no such
-  # binary and must be unaffected, since this adapter is headed for a third-party PR and cannot
-  # hard-depend on a claude-fleet-config script.
-  for _c in ${GSTACK_ROUND_LEDGER:+"$GSTACK_ROUND_LEDGER"} \
-            "${HOME:-}/Development/cfc-live/claude/bin/codex-round-log.sh" \
-            "${HOME:-}/Development/claude-fleet-config/claude/bin/codex-round-log.sh"; do
-    [ -x "$_c" ] && { _rl="$_c"; break; }
-  done
-  [ -n "$_rl" ] || return 0
+  _rl=$(find_round_ledger) || return 0
 
   local _json
   _json=$("$_rl" -C "$repo_root" --json 2>/dev/null) || {
@@ -526,12 +612,21 @@ cmd_exec() {
   esac
   [ "$timeout_s" -gt 0 ] || die "--timeout must be greater than 0 — 'timeout 0' means NO limit, which is the opposite of what a cap is for."
   case "$codex_mode" in review|exec) ;; *) die "--codex-mode must be review|exec" ;; esac
-  [ -n "$label" ] || label="$phase"
-
   if [ -z "$repo_root" ]; then
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
       || die "not in a git repo and --repo-root not given"
   fi
+
+  # `--phase auto` (VAS-2371) resolves AFTER repo_root, because derivation reads the ledger for
+  # that repo, and BEFORE `label` defaults, because a label of "auto" would put every derived
+  # round in a usage-log bucket named after the flag rather than the phase that ran. Callers
+  # passing an explicit phase are untouched.
+  if [ "$phase" = "auto" ]; then
+    phase="$(resolve_phase "$repo_root" "$base")"
+    echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
+  fi
+
+  [ -n "$label" ] || label="$phase"
 
   # The master switch is enforced HERE, not only in probe(). A caller that invokes `exec`
   # directly — which the skill bodies do — otherwise bypasses `codex_reviews=disabled`
@@ -605,6 +700,13 @@ cmd_exec() {
 
   preflight_gate "$phase" "$repo_root"
 
+  # `|| _rc=$?` on both backend calls, not `_rc=$?` after the esac. This file runs under
+  # `set -euo pipefail`, so an untested non-zero return from exec_codex/exec_openrouter exits
+  # the shell AT THAT POINT — which would make the convergence guard below unreachable on
+  # exactly the rounds where a reader most needs to be told what did and did not happen. Putting
+  # the call in a tested context suspends set -e for it and preserves the status verbatim.
+  local _rc=0
+
   case "$backend" in
     codex)
       # --pathspec is meaningless here and must not pass silently. The codex backend explores
@@ -625,7 +727,7 @@ cmd_exec() {
         rm -f "$findings_out"
         echo "gstack-outside-voice: note — the codex backend does not emit a structured findings block; no findings file written. Read codex's own output for severities." >&2
       fi
-      exec_codex "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$codex_mode" ;;
+      exec_codex "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$codex_mode" || _rc=$? ;;
     openrouter)
       # An openrouter FINAL GATE is not the thing the name promises, and the config accepts it
       # without saying so. exec_openrouter always uses outside_voice_loop_model and always
@@ -637,8 +739,58 @@ cmd_exec() {
       if [ "$phase" = "final_gate" ]; then
         echo "gstack-outside-voice: WARNING — outside_voice_gate=openrouter runs the gate as a DIFF-SCOPED review on the loop model ($(_cfg outside_voice_loop_model)), not a repository-scoped one. Defects that live in files this branch did not touch cannot be found this way. This is a degraded gate; do not report it as equivalent to the codex gate." >&2
       fi
-      exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} ;;
+      exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
   esac
+  convergence_guard "$phase" "$findings_out"
+  return "$_rc"
+}
+
+# --- convergence guard (VAS-2371) -------------------------------------------
+#
+# THE LOOP MUST NEVER DECLARE CONVERGENCE. Only the gate does.
+#
+# This is not belt-and-braces around the routing change; it is what makes the routing change
+# safe, and it should not be shipped separately from it.
+#
+# The measured reason: on a corpus of six real round-1 artefacts the cheap tier matched codex
+# on eight findings and UNDER-RATED severity on roughly five of them — a security gate that
+# silently fails open came back P2; codex P1s came back P2 and P3. Its false-positive rate was
+# fine (12.9%) and its catch rate was acceptable for early rounds (53%), so none of the
+# obvious quality metrics see this. Severity calibration is the one that matters here, because
+# THE LOOP'S STOP CONDITION READS SEVERITY: doctrine stops the loop at "no P1 and no P2". A
+# reviewer that rates real P1s as P3 therefore reports a clean round on an artefact that has
+# not converged, and every quality metric stays green while it happens.
+#
+# Under phase routing the consequence is bounded — the gate still runs on the converged
+# artefact, so a false convergence costs gate rounds rather than shipping a defect. That
+# bound is only real while this guard exists. Remove it and the loop's own clean round becomes
+# an end state, which is the one path by which the cheap tier can damage an artefact.
+#
+# Two channels, deliberately. The stderr line is for the human; the JSON field is for anything
+# that reads the findings file programmatically and would otherwise treat p1=0,p2=0 as done.
+# One without the other leaves half the callers unguarded — the same "making a failure explicit
+# at one layer only MOVES the silence" shape this file guards against elsewhere.
+convergence_guard() {
+  local phase="$1" findings_out="${2:-}"
+  [ "$phase" = "loop" ] || return 0
+
+  echo "gstack-outside-voice: NOT CONVERGENCE — this was a LOOP round. A loop round with no P1 and no P2 is a signal to RUN THE GATE, not a clean bill of health. The cheap tier under-rates severity (VAS-2371), and the loop's stop condition reads severity. Only the final_gate phase can end a lane." >&2
+
+  [ -n "$findings_out" ] && [ -f "$findings_out" ] || return 0
+  # Stamp in place. A failure to stamp must not fail the round — the review already happened
+  # and was already billed — but it must not pass silently either, or a consumer reads an
+  # unstamped file as a gate result.
+  "$_PY" - "$findings_out" <<'PY' || echo "gstack-outside-voice: WARNING — could not stamp convergence_declarable into the findings file; do not read it as a gate result." >&2
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    d = json.load(f)
+d["phase"] = "loop"
+d["convergence_declarable"] = False
+with open(p, "w") as f:
+    json.dump(d, f)
+PY
+  return 0
 }
 
 exec_codex() {
@@ -934,5 +1086,24 @@ case "$_CMD" in
     [ "${1:-}" = "--phase" ] || die "usage: gstack-outside-voice probe [--explicit] --phase <loop|final_gate>"
     probe "${2:?}" "$_pexp"
     ;;
-  *) die "unknown command '$_CMD' (want: exec|backend|probe)" ;;
+  resolve-phase)
+    # Inspection surface for `--phase auto` (VAS-2371). Exists so the derivation can be
+    # asserted by a test and eyeballed by an operator without spending a review round to find
+    # out which phase would have run. STDOUT is exactly one word, same contract as `backend`.
+    _rp_root=""; _rp_base="origin/main"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo-root) _rp_root="${2:?--repo-root needs a value}"; shift 2 ;;
+        --base)      _rp_base="${2:?--base needs a value}"; shift 2 ;;
+        *) die "usage: gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>]" ;;
+      esac
+    done
+    if [ -z "$_rp_root" ]; then
+      _rp_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+        || die "not in a git repo and --repo-root not given"
+    fi
+    resolve_phase "$_rp_root" "$_rp_base"
+    printf '\n'
+    ;;
+  *) die "unknown command '$_CMD' (want: exec|backend|probe|resolve-phase)" ;;
 esac
