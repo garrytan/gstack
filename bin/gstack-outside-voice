@@ -432,6 +432,12 @@ lane_marker_path() {
   #
   # Sorted, so two callers naming the same scopes in a different order share a lane rather than
   # opening two that can disagree.
+  # The BASE is part of the review subject (codex r7 P2): the same HEAD reviewed against main and
+  # against a release branch are different diffs, and a clean verdict on one says nothing about
+  # the other. Third instance of the r6 sweep's class — routing state must be keyed by everything
+  # the verdict is contingent on — which is the tell that the sweep enumerated the ROUTING inputs
+  # and stopped short of the KEY's inputs.
+  local base_key="${1:-}"; shift 2>/dev/null || true
   scope=$(printf '%s\n' "$@" | LC_ALL=C sort | tr '\n' ':')
   top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || return 1
   branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
@@ -445,8 +451,30 @@ lane_marker_path() {
   # was formed against, so staleness is handled there, and keying the FILE on a sha would strand
   # a new marker file per commit.
   [ -n "$branch" ] || branch="detached"
-  key=$(printf '%s|%s|%s' "$top" "$branch" "$scope" | cksum | tr -d ' \t')
+  key=$(printf '%s|%s|%s|%s' "$top" "$branch" "$base_key" "$scope" | cksum | tr -d ' \t')
   printf '%s/outside-voice/last-loop-%s' "$_STATE_DIR" "$key"
+}
+
+# ONE base resolver for BOTH the routing decision and the review itself (codex r7 P2).
+# resolve_phase validated `$base` with a bare rev-parse while exec_openrouter carried an
+# `origin/X -> X` fallback for clones that hold the local branch but not the remote ref. So on
+# exactly those installs the review would have run fine and `auto` refused to select it —
+# silently disabling the cheap tier. Two places answering "does this base resolve" differently
+# is the two-instruments-must-agree bug; extracting it is the fix that stops it recurring rather
+# than the one that patches this instance.
+#
+# Prints the resolved ref on success, nothing on failure. Callers decide what a failure means:
+# routing degrades to the gate, the review refuses outright.
+resolve_base_ref() {
+  local repo_root="$1" base="$2" local_base
+  if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
+    printf '%s' "$base"; return 0
+  fi
+  local_base="${base#origin/}"
+  if [ "$local_base" != "$base" ] && git -C "$repo_root" rev-parse --verify --quiet "$local_base" >/dev/null 2>&1; then
+    printf '%s' "$local_base"; return 0
+  fi
+  return 1
 }
 
 find_round_ledger() {
@@ -521,7 +549,7 @@ resolve_phase() {
   # lets the runaway cap bound it. It must NOT route to the gate: a lane whose marker cannot be
   # read has not earned a gate round, and spending frontier money on an unanswerable question is
   # the wrong direction to fail in.
-  marker="$(lane_marker_path "$repo_root" ${pathspecs[@]+"${pathspecs[@]}"} 2>/dev/null || true)"
+  marker="$(lane_marker_path "$repo_root" "$base" ${pathspecs[@]+"${pathspecs[@]}"} 2>/dev/null || true)"
   # A CLEAN VERDICT IS ABOUT A REVISION, NOT A BRANCH (codex r3 P2). The marker is keyed on
   # repo+branch, so once a loop round came back clean, every later `auto` on that branch promoted
   # to the gate — including after new commits landed, which is precisely when fresh work most
@@ -568,8 +596,9 @@ resolve_phase() {
   # fetched origin/main, a mistyped --base — still resolved to `loop`, and exec_openrouter then
   # died instead of taking the degrade-to-final_gate path this function documents. Same class as
   # the two gaps above: something the REVIEW depends on, not applied to the ROUTING.
-  git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1 \
-    || { printf 'final_gate'; return 0; }
+  local _rbase
+  _rbase="$(resolve_base_ref "$repo_root" "$base")" || { printf 'final_gate'; return 0; }
+  base="$_rbase"
 
   # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
   # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
@@ -917,7 +946,7 @@ cmd_exec() {
       fi
       exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
   esac
-  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc" ${pathspecs[@]+"${pathspecs[@]}"}
+  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc" "$base" ${pathspecs[@]+"${pathspecs[@]}"}
   return "$_rc"
 }
 
@@ -947,10 +976,10 @@ cmd_exec() {
 # One without the other leaves half the callers unguarded — the same "making a failure explicit
 # at one layer only MOVES the silence" shape this file guards against elsewhere.
 convergence_guard() {
-  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" marker=""
-  shift 4 2>/dev/null || true
+  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" gbase="${5:-}" marker=""
+  shift 5 2>/dev/null || true
   local guard_paths=("$@")
-  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" ${guard_paths[@]+"${guard_paths[@]}"} 2>/dev/null || true)"
+  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" "$gbase" ${guard_paths[@]+"${guard_paths[@]}"} 2>/dev/null || true)"
 
   # A SUCCESSFUL gate round clears the marker, so a gate that finds P1/P2 sends the lane back to
   # the loop for the fixes rather than pinning every subsequent round on the frontier tier. A

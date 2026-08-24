@@ -99,7 +99,7 @@ afterAll(() => {
 function markerPath(): string {
   const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
   const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-  const key = spawnSync('sh', ['-c', `printf '%s|%s|%s' '${top}' '${branch}' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+  const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
   return path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
 }
 function headSha(): string {
@@ -309,7 +309,7 @@ describe('resolve-phase — a detached lane is keyable, so it can still converge
   test('a clean verdict on a detached lane promotes to the gate', () => {
     const top = spawnSync('git', ['-C', det, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const head = spawnSync('git', ['-C', det, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-    const key = spawnSync('sh', ['-c', `printf '%s|detached|%s' '${top}' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const key = spawnSync('sh', ['-c', `printf '%s|detached|%s|%s' '${top}' 'origin/main' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${head}`);
@@ -361,7 +361,7 @@ describe('resolve-phase — routing honours what the review honours', () => {
     const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
     const keyFor = (scope: string) =>
-      spawnSync('sh', ['-c', `printf '%s|%s|%s' '${top}' '${branch}' '${scope}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' '${scope}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('seed.txt:')}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${headSha()}`);
@@ -373,6 +373,43 @@ describe('resolve-phase — routing honours what the review honours', () => {
     // feature.txt has never had a clean pass and must not inherit seed.txt's verdict.
     expect((run('feature.txt').stdout ?? '').trim()).toBe('loop');
     fs.rmSync(mp, { force: true });
+  });
+});
+
+// REGRESSION (codex r7 P2). Third and fourth instances of the r6 sweep's class, which is the
+// interesting part: that sweep enumerated the ROUTING's inputs and stopped short of the marker
+// KEY's inputs, so it closed two gaps and left two open. A sweep is only as complete as the
+// boundary it draws.
+describe('resolve-phase — the base is part of the review subject', () => {
+  test('a clean verdict against one base does not promote a review against another', () => {
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
+    const keyFor = (b: string) =>
+      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' '${b}' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('origin/main')}`);
+    fs.mkdirSync(path.dirname(mp), { recursive: true });
+    fs.writeFileSync(mp, `clean ${headSha()}`);
+    const run = (b: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', b], {
+      encoding: 'utf8',
+      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((run('origin/main').stdout ?? '').trim()).toBe('final_gate');
+    // Same HEAD, different review subject — must not inherit the other base's verdict.
+    expect((run('main').stdout ?? '').trim()).toBe('loop');
+    fs.rmSync(mp, { force: true });
+  });
+
+  test('a base that resolves only as a local branch still selects the loop', () => {
+    setMarker(null);
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    // The fixture repo has a local `origin/main` ref; `origin/origin/main` does not exist but
+    // strips to `origin/main`, exercising the same fallback exec_openrouter uses.
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/origin/main'], {
+      encoding: 'utf8',
+      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((r.stdout ?? '').trim()).toBe('loop');
   });
 });
 
