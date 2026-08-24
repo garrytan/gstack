@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.69.1.0] - 2026-08-24
+
+**Slim runtime installs now carry every asset their commands load.**
+
+Setup now keeps `bin/`, `lib/`, and `scripts/` together in Agents sidecars and
+the Codex, Factory, OpenCode, Cursor, and Kiro runtime roots. Commands such as
+`gstack-question-preference`, `gstack-developer-profile`, and
+`gstack-brain-cache` no longer fail because classifiers, registries, profile
+data, or cache schema files were left behind.
+
+Regression coverage exercises real commands through Unix symlink installs and
+Windows copy installs, including Cursor's repository sidecar and negative
+controls for both missing `lib/` and missing `scripts/` layouts. The declarative
+host defaults and host-authoring documentation now describe the same runtime
+asset contract.
+
 ## [1.68.3.0] - 2026-08-20
 
 **Re-pairing a browser agent to narrow its access now revokes the old access on**
