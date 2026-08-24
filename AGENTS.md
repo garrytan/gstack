@@ -43,6 +43,7 @@ Invoke them by name (e.g., `/office-hours`).
 
 | Skill | What it does |
 |-------|-------------|
+| `/pr-prep` | Pre-PR upstream duplicate audit. Scores each commit against upstream issues + PRs; blocks on exact duplicates. Hooks into `/ship` as Step 0. |
 | `/ship` | Run tests, review, push, open PR. Workspace-aware version queue. |
 | `/land-and-deploy` | Merge the PR, wait for CI and deploy, verify production health. |
 | `/canary` | Post-deploy monitoring loop using the browse daemon. |
