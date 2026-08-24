@@ -33,6 +33,11 @@ function resolveTmpRoot(env: Record<string, string | undefined> = process.env): 
 // runner carrying an invalid GSTACK_OUTSIDE_VOICE_BASE_URL: probe returned misconfigured and
 // every `loop` expectation silently became `final_gate` for environment reasons. Spread AFTER
 // process.env so the fixture outranks the machine rather than the machine outranking it.
+// resolve-phase invoked without --prompt-file has an EMPTY context fingerprint, so the test
+// markers are keyed with '' in that position. cmd_exec computes a real one from the prompt's
+// CONTENT plus --repo-context.
+const CTX = '';
+
 const LOOP_FIXTURE_ENV = {
   OPENROUTER_API_KEY: 'test-fixture-not-a-real-key',
   GSTACK_OUTSIDE_VOICE_BASE_URL: '',
@@ -111,7 +116,7 @@ afterAll(() => {
 function markerPath(): string {
   const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
   const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-  const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+  const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
   return path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
 }
 function headSha(): string {
@@ -151,9 +156,15 @@ describe('resolve-phase — loop is the default, the gate is for the converged a
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
   });
 
+  // The fake HOME hides the fleet ledger, but it also hid ~/.codex/auth.json — and since r11 a
+  // clean marker only promotes when the GATE can actually run, so this began (correctly) staying
+  // on the loop. A gate-capable fake HOME keeps the test about what it claims to be about.
   test('the clean marker outranks the ledger — it works with no round count at all', () => {
     setMarker(`clean ${headSha()}`);
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: path.join(tmp, 'nope'), HOME: path.join(tmp, 'no-home') })).toBe('final_gate');
+    const fakeHome = fs.mkdtempSync(path.join(tmp, 'home-'));
+    fs.mkdirSync(path.join(fakeHome, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.codex', 'auth.json'), '{}');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: path.join(tmp, 'nope'), HOME: fakeHome })).toBe('final_gate');
   });
 });
 
@@ -321,7 +332,7 @@ describe('resolve-phase — a detached lane is keyable, so it can still converge
   test('a clean verdict on a detached lane promotes to the gate', () => {
     const top = spawnSync('git', ['-C', det, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const head = spawnSync('git', ['-C', det, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-    const key = spawnSync('sh', ['-c', `printf '%s|detached|%s|%s' '${top}' 'origin/main' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const key = spawnSync('sh', ['-c', `printf '%s|detached|%s|%s|%s' '${top}' 'origin/main' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${head}`);
@@ -373,7 +384,7 @@ describe('resolve-phase — routing honours what the review honours', () => {
     const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
     const keyFor = (scope: string) =>
-      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' '${scope}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' '${scope}' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('seed.txt:')}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${headSha()}`);
@@ -398,7 +409,7 @@ describe('resolve-phase — the base is part of the review subject', () => {
     const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
     const keyFor = (b: string) =>
-      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' '${b}' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' '${b}' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('origin/main')}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${headSha()}`);
@@ -431,7 +442,7 @@ describe('resolve-phase — equivalent base spellings share one verdict', () => 
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
     const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-    const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${headSha()}`);

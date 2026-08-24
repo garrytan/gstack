@@ -423,6 +423,7 @@ with_timeout() {
 # nor to a loop the lane has already finished with.
 lane_marker_path() {
   local repo_root="$1"; shift
+  local ctx="$1"; shift ||:
   local top branch key scope
   # THE KEY CARRIES THE REVIEW'S SCOPE (codex r6 P1). Once the size ceiling started honouring
   # --pathspec, the persisted verdict stopped being about "this branch" and became about "this
@@ -464,7 +465,13 @@ lane_marker_path() {
   # was formed against, so staleness is handled there, and keying the FILE on a sha would strand
   # a new marker file per commit.
   [ -n "$branch" ] || branch="detached"
-  key=$(printf '%s|%s|%s|%s' "$top" "$branch" "$base_key" "$scope" | cksum | tr -d ' \t')
+  # CONTEXT is part of the key (codex r11 P2). A verdict is contingent on the question that was
+  # asked, not only on the diff it was asked about: a loop round run with a narrower
+  # --prompt-file, or with --repo-context none, would otherwise write the same `clean <sha>` that
+  # a full diff-scoped round writes, and the next auto call would skip the loop for a review
+  # question that has never had one. Fifth instance of the r6 class, and the boundary keeps
+  # moving outward — routing state must be keyed by everything the verdict is contingent on.
+  key=$(printf '%s|%s|%s|%s|%s' "$top" "$branch" "$base_key" "$scope" "$ctx" | cksum | tr -d ' \t')
   printf '%s/outside-voice/last-loop-%s' "$_STATE_DIR" "$key"
 }
 
@@ -544,8 +551,8 @@ find_round_ledger() {
 # per-lane marker under the adapter's own state dir, which has the side benefit of working on
 # an install with no round ledger at all.
 resolve_phase() {
-  local repo_root="$1" base="${2:-origin/main}" explicit="${3:-no}"
-  shift 3 ||:
+  local repo_root="$1" base="${2:-origin/main}" explicit="${3:-no}" ctx_fp="${4:-}"
+  shift 4 ||:
   local pathspecs=("$@")
   local cap ceiling rl json rounds insertions marker
 
@@ -562,7 +569,7 @@ resolve_phase() {
   # lets the runaway cap bound it. It must NOT route to the gate: a lane whose marker cannot be
   # read has not earned a gate round, and spending frontier money on an unanswerable question is
   # the wrong direction to fail in.
-  marker="$(lane_marker_path "$repo_root" "$base" ${pathspecs[@]+"${pathspecs[@]}"} 2>/dev/null || true)"
+  marker="$(lane_marker_path "$repo_root" "$ctx_fp" "$base" ${pathspecs[@]+"${pathspecs[@]}"} 2>/dev/null || true)"
   # A CLEAN VERDICT IS ABOUT A REVISION, NOT A BRANCH (codex r3 P2). The marker is keyed on
   # repo+branch, so once a loop round came back clean, every later `auto` on that branch promoted
   # to the gate — including after new commits landed, which is precisely when fresh work most
@@ -573,7 +580,14 @@ resolve_phase() {
     local _rec _head
     _rec=$(cat "$marker" 2>/dev/null || true)
     _head=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)
-    [ -n "$_head" ] && [ "$_rec" = "clean $_head" ] && { printf 'final_gate'; return 0; }
+    # NEVER PROMOTE INTO A GATE THAT CANNOT RUN (codex r11 P2). cmd_exec exits on the gate's
+    # readiness error BEFORE convergence_guard can clear the marker, so a lane whose gate is
+    # disabled or unrunnable would fail identically on every subsequent auto call — permanently
+    # stuck, with no path back to the loop. Staying on the loop is the recoverable side.
+    if [ -n "$_head" ] && [ "$_rec" = "clean $_head" ]; then
+      if [ "$(probe final_gate "$explicit")" = "ready" ]; then printf 'final_gate'; return 0; fi
+      echo "gstack-outside-voice: this lane's loop reported clean, but the final_gate backend is not ready — staying on the loop rather than promoting into a gate that cannot run. Fix the gate configuration; the clean verdict is preserved." >&2
+    fi
   fi
 
   # A LOOP BACKEND THAT CANNOT EMIT A FINDINGS BLOCK CAN NEVER PROMOTE (codex r1 P1).
@@ -837,6 +851,12 @@ cmd_exec() {
   # that repo, and BEFORE `label` defaults, because a label of "auto" would put every derived
   # round in a usage-log bucket named after the flag rather than the phase that ran. Callers
   # passing an explicit phase are untouched.
+  # Fingerprints the review QUESTION: the prompt's content and the repo-context mode. Content,
+  # not path — two callers writing the same prompt to different tempfiles are asking the same
+  # question and should share a lane.
+  local _ctx_fp
+  _ctx_fp="$( { cksum < "$prompt_file" 2>/dev/null || echo noprompt; } | tr -d ' \t' )-$repo_context"
+
   local _auto_resolved=no
   if [ "$phase" = "auto" ]; then
     _auto_resolved=yes
@@ -862,7 +882,7 @@ cmd_exec() {
     # documented and their combination is meaningless, so saying so is the only honest option.
     [ "$repo_context" != "none" ] || die "--phase auto cannot be combined with --repo-context none: the mode decides convergence from what the loop round FOUND, and a round given no diff has not reviewed anything — a clean result from it would promote an unreviewed artefact to the gate. Name the phase explicitly if you meant to run a context-free review."
     [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides when a lane has converged by reading the loop round's severities from that file, and without it every clean round records as 'not converged' and the lane runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
-    phase="$(resolve_phase "$repo_root" "$base" "$explicit" ${pathspecs[@]+"${pathspecs[@]}"})"
+    phase="$(resolve_phase "$repo_root" "$base" "$explicit" "$_ctx_fp" ${pathspecs[@]+"${pathspecs[@]}"})"
     echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
   fi
 
@@ -981,7 +1001,7 @@ cmd_exec() {
       fi
       exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
   esac
-  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc" "$base" ${pathspecs[@]+"${pathspecs[@]}"}
+  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc" "$base" "$_ctx_fp" ${pathspecs[@]+"${pathspecs[@]}"}
   return "$_rc"
 }
 
@@ -1011,10 +1031,10 @@ cmd_exec() {
 # One without the other leaves half the callers unguarded — the same "making a failure explicit
 # at one layer only MOVES the silence" shape this file guards against elsewhere.
 convergence_guard() {
-  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" gbase="${5:-}" marker=""
-  shift 5 ||:
+  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" gbase="${5:-}" gctx="${6:-}" marker=""
+  shift 6 ||:
   local guard_paths=("$@")
-  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" "$gbase" ${guard_paths[@]+"${guard_paths[@]}"} 2>/dev/null || true)"
+  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" "$gctx" "$gbase" ${guard_paths[@]+"${guard_paths[@]}"} 2>/dev/null || true)"
 
   # A SUCCESSFUL gate round clears the marker, so a gate that finds P1/P2 sends the lane back to
   # the loop for the fixes rather than pinning every subsequent round on the frontier tier. A
@@ -1389,7 +1409,7 @@ case "$_CMD" in
     # Inspection surface for `--phase auto` (VAS-2371). Exists so the derivation can be
     # asserted by a test and eyeballed by an operator without spending a review round to find
     # out which phase would have run. STDOUT is exactly one word, same contract as `backend`.
-    _rp_root=""; _rp_base="origin/main"; _rp_explicit=no; _rp_paths=()
+    _rp_root=""; _rp_base="origin/main"; _rp_explicit=no; _rp_ctx=""; _rp_paths=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo-root) _rp_root="${2:?--repo-root needs a value}"; shift 2 ;;
@@ -1403,7 +1423,7 @@ case "$_CMD" in
       _rp_root=$(git rev-parse --show-toplevel 2>/dev/null) \
         || die "not in a git repo and --repo-root not given"
     fi
-    resolve_phase "$_rp_root" "$_rp_base" "$_rp_explicit" ${_rp_paths[@]+"${_rp_paths[@]}"}
+    resolve_phase "$_rp_root" "$_rp_base" "$_rp_explicit" "$_rp_ctx" ${_rp_paths[@]+"${_rp_paths[@]}"}
     printf '\n'
     ;;
   *) die "unknown command '$_CMD' (want: exec|backend|probe|resolve-phase)" ;;
