@@ -505,6 +505,21 @@ resolve_phase() {
     printf 'final_gate'; return 0
   fi
 
+  # A LOOP BACKEND THAT CANNOT EMIT A FINDINGS BLOCK CAN NEVER PROMOTE (codex r1 P1).
+  # convergence_guard learns "the loop reported clean" by reading p1/p2 out of the findings file,
+  # and the codex branch of cmd_exec deletes that file by design — codex owns its output format
+  # and cannot honour the block contract. `outside_voice_loop` DEFAULTS to codex, so on an
+  # unconfigured install every clean loop round read as "no clean loop recorded" and the lane
+  # ground on until the runaway cap without ever reaching the gate. That is the exact
+  # never-converges failure this design exists to prevent, shipped in the mechanism meant to
+  # prevent it.
+  #
+  # Routing to a codex-backed loop buys nothing anyway: it is a frontier round at frontier price
+  # wearing the loop's name. So `auto` gates instead. Only openrouter emits the block today;
+  # anything else — misconfigured, disabled, or a future backend that does not implement the
+  # contract — takes the same safe branch rather than being enumerated optimistically.
+  if [ "$(resolve_backend loop)" != "openrouter" ]; then printf 'final_gate'; return 0; fi
+
   # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
   # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
   # disagree; a cap of 4 here against a breaker of 20 would have meant the two alarms described
@@ -547,8 +562,14 @@ except Exception:
   [ $((rounds + 1)) -ge "$cap" ] && { printf 'final_gate'; return 0; }
 
   if [ "$ceiling" -gt 0 ]; then
+    # `|| true` because `set -o pipefail` is in force: an unresolvable base — no origin/main, a
+    # mistyped --base — makes git non-zero, the pipeline non-zero, and the assignment fatal, so
+    # routing ABORTED instead of degrading (codex r1 P2). Same class as the detached-HEAD death
+    # fixed one commit earlier, which is the tell that the pattern rather than the line was the
+    # defect: every command substitution in this function needs the guard, not just the ones
+    # someone happened to think about.
     insertions=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null \
-      | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
+      | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }' || true)
     case "$insertions" in ''|*[!0-9]*) insertions=0 ;; esac
     [ "$insertions" -gt "$ceiling" ] && { printf 'final_gate'; return 0; }
   fi
@@ -801,7 +822,7 @@ cmd_exec() {
       fi
       exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
   esac
-  convergence_guard "$phase" "$findings_out" "$repo_root"
+  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc"
   return "$_rc"
 }
 
@@ -831,14 +852,24 @@ cmd_exec() {
 # One without the other leaves half the callers unguarded — the same "making a failure explicit
 # at one layer only MOVES the silence" shape this file guards against elsewhere.
 convergence_guard() {
-  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" marker=""
+  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" marker=""
   [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" 2>/dev/null || true)"
 
-  # A GATE round clears the marker, so a gate that finds P1/P2 sends the lane back to the loop
-  # for the fixes rather than pinning every subsequent round on the frontier tier. A gate that
-  # finds nothing ends the lane, so the cleared marker is never read again.
+  # A SUCCESSFUL gate round clears the marker, so a gate that finds P1/P2 sends the lane back to
+  # the loop for the fixes rather than pinning every subsequent round on the frontier tier. A
+  # gate that finds nothing ends the lane, so the cleared marker is never read again.
+  #
+  # A FAILED gate round must NOT clear it (codex r1 P2). cmd_exec calls this guard on every exit
+  # path, so a gate that timed out or died upstream was demoting the lane back to the loop having
+  # never reviewed the converged artefact — turning a transient failure into a silent extra loop
+  # round instead of a gate retry. The marker survives, so the next `auto` call re-attempts the
+  # gate, which is what a lane that has earned a gate round is owed.
   if [ "$phase" = "final_gate" ]; then
-    [ -n "$marker" ] && rm -f "$marker"
+    if [ "$rc" -eq 0 ]; then
+      [ -n "$marker" ] && rm -f "$marker"
+    else
+      echo "gstack-outside-voice: the gate round did not complete (exit $rc) — keeping this lane's clean-loop marker so the NEXT round retries the gate rather than dropping back to the loop." >&2
+    fi
     return 0
   fi
 

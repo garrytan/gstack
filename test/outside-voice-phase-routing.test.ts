@@ -61,6 +61,12 @@ beforeAll(() => {
   tmp = fs.mkdtempSync(path.join(resolveTmpRoot(), 'ov-phase-'));
   stateRoot = path.join(tmp, 'gstack-state');
   fs.mkdirSync(stateRoot, { recursive: true });
+  // resolve_phase refuses to route to a loop backend that cannot emit a findings block, because
+  // such a lane can never record a clean loop round and so can never promote to the gate. The
+  // default is codex, so every test wanting `loop` has to configure a findings-emitting backend.
+  spawnSync(CONFIG, ['set', 'outside_voice_loop', 'openrouter'], {
+    encoding: 'utf8', env: { ...process.env, GSTACK_STATE_ROOT: stateRoot },
+  });
 
   // A real git repo with a real branch diff, so the size axis has something to measure.
   repo = path.join(tmp, 'repo');
@@ -186,6 +192,30 @@ describe('resolve-phase — unidentifiable lane (detached HEAD)', () => {
       env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((r.stdout ?? '').trim()).toBe('final_gate');
+  });
+});
+
+// REGRESSION (codex r1 P1). `outside_voice_loop` DEFAULTS to codex, and the codex branch of
+// cmd_exec deletes the findings file by design — so a codex-backed loop round leaves no verdict
+// to read, every clean round reads as "no clean loop recorded", and the lane grinds to the
+// runaway cap without ever reaching the gate. On the default configuration the whole auto mode
+// silently never converged. Routing there buys nothing anyway: it is a frontier round at
+// frontier price wearing the loop's name.
+describe('resolve-phase — a loop backend that cannot emit findings is never selected', () => {
+  test('the default codex loop backend routes straight to the gate', () => {
+    setMarker(null);
+    setCfg('outside_voice_loop', 'codex');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
+    setCfg('outside_voice_loop', 'openrouter');
+  });
+
+  test('a disabled loop backend routes to the gate rather than being enumerated optimistically', () => {
+    setMarker(null);
+    setCfg('outside_voice_loop', 'disabled');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
+    setCfg('outside_voice_loop', 'openrouter');
   });
 });
 
