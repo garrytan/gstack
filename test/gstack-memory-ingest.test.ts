@@ -484,6 +484,44 @@ describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)",
     expect(stagedList).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
   });
 
+  // #2353: buildTranscriptPage stored the RAW resolved remote ("" when
+  // unresolvable) while the frontmatter wrote the normalized "_unattributed".
+  // The policy filter fast-paths !p.git_remote, so under --include-unattributed
+  // a `_unattributed → deny` policy never applied to exactly the pages it
+  // names. Uses the REAL bin/gstack-gbrain-repo-policy (resolved by the client
+  // relative to lib/, and seeded here through its own `set` verb) — a fake
+  // echoing tiers would pass on both sides of the fix.
+  it("a deny policy keyed _unattributed applies to unattributable transcripts (#2353)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, logFile } = installFakeGbrain(home);
+
+    const POLICY = join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy");
+    const seeded = spawnSync("bash", [POLICY, "set", "_unattributed", "deny"], {
+      encoding: "utf-8",
+      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
+    });
+    expect(seeded.status).toBe(0);
+    expect(existsSync(join(gstackHome, "gbrain-repo-policy.json"))).toBe(true);
+
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "abc123", session);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    // The only candidate page is policy-denied, so nothing may reach gbrain:
+    // pre-fix, the "" remote bypassed the filter and gbrain import ran.
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(logFile)).toBe(false);
+  });
+
   // Silent-data-loss regression: gbrain accepts the import call, exits 0, and
   // reports imported=0 because collect_files found nothing in the staging dir
   // (real-world cause: gstack-artifacts-init writes `.gitignore = "*"` into

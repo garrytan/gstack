@@ -5,13 +5,17 @@
 ### P1: ZeroEntropy sunset — gbrain's default embedding provider dies Sept 4, 2026 (#2365)
 
 **What:** ZeroEntropy (acquired by Notion) shuts down September 4, 2026. gbrain's
-default embedding provider needs a migration path before then; gstack's
-setup-gbrain flow should stop recommending it and detect/warn existing installs.
+zeroentropyai recipe needs a migration path before then (the recipe + gateway
+shim are gbrain-internal — nothing in gstack ever recommended the provider).
 
-**Why:** Hard external deadline. After Sept 4, fresh setup-gbrain runs against the
-default provider fail, and existing brains stop embedding new pages silently.
+**Why:** Hard external deadline. After Sept 4, brains on the recipe stop
+embedding new pages silently.
 
-**Effort:** M (human ~2d, CC ~1h — mostly gbrain-side; gstack side is detect+warn).
+**Done (gstack side, v1.69.0.0):** wireup warns when ~/.gbrain/config.json names
+the recipe (fail-open grep), setup-gbrain provider comments say never to select
+it, USING_GBRAIN_WITH_GSTACK.md gained a troubleshooting entry (#2365).
+
+**Effort:** M (remaining work is gbrain-side provider support).
 **Priority:** P1 (calendar-driven). **Depends on:** gbrain upstream provider support.
 
 ### P2: v1.67 fix-wave deferrals — next-wave queue
@@ -44,6 +48,30 @@ wave"). Each was explicitly deferred with rationale, not dropped:
   (gbrain MCP routing), #2535 (outside voice for /investigate,/cso,/devex),
   #2576 (fast-ship rework — re-evaluate against v1.66's CI speedup),
   #2580 (land-and-deploy CI tiers — human-gate UX needs maintainer call).
+
+### P2: v1.69 fix-wave residuals (filed at wave time, each deferred with rationale)
+
+- **`cleanup_prefixed_claude_symlinks` symmetric conversion** — PR #2634 fixed
+  `cleanup_old_claude_symlinks` (destination scan, dangling-symlink aware,
+  path-segment provenance); the prefixed-mode sibling still iterates the
+  payload dir (same structural hole: can't reap orphans once the payload is
+  gone) and still uses a bare `*gstack*` substring match the sibling's own
+  tests forbid. Kept out of the contributor's absorbed commit for scope
+  discipline. Effort S→S with CC. **Priority:** P2.
+- **#2163 legacy-slug checkpoint heal** — the gstack-slug refactor unified
+  save/restore slugs, but checkpoints written under a pre-fix degraded slug
+  are still invisible; `bin/gstack-slug`'s own MIGRATION NOTE defers data
+  moves. Cheap heal: restore-side probe of the alternate slug dir before
+  printing NO_CHECKPOINTS. Effort S. **Priority:** P3.
+- **#2657 developer-profile `--reconcile`** — office-hours tenure undercounts
+  ~3x (Phase-4.5-only logging; no timeline.jsonl reconciliation). The
+  arithmetic reproduces; the reporter offered the PR — invited on the issue.
+  Track and review when it lands. Effort S (review). **Priority:** P3.
+- **Table-driven setup host dispatch from `hosts/index.ts`** — root-cause fix
+  for the accept-list/dispatch drift class behind #2361; v1.69.0.0 ships the
+  interim ratchet (accept-list ⊆ dispatch-arms cross-check test + a loud
+  zero-dispatch guard). The refactor needs its own PR with bake time (setup is
+  the riskiest file in the repo). Effort M. **Priority:** P3.
 
 ### P2: v1.67 adversarial-review residuals (verified, deferred with rationale)
 
@@ -848,14 +876,6 @@ TOML lookup.
 **Why:** Explicit user choices should survive upgrades or say loudly that they
 will not (the hint covers the second half today).
 **Priority:** P3. **Effort:** S.
-
-### P4: `./setup --host slate` accepted but installs nothing
-
-**What:** `slate` passes the host-arg validation case but sets no INSTALL_* flag,
-so the run configures nothing and exits successfully. Either wire a slate branch
-or reject the value with guidance like openclaw/hermes/gbrain get.
-**Why:** Silent success with zero effect is the worst failure shape.
-**Priority:** P4. **Effort:** S.
 
 ---
 
@@ -2785,6 +2805,31 @@ needs one paid run to validate, so it didn't ride the ship.
 **Effort:** S (human ~2h, CC ~15min + one paid run).
 
 ## Completed
+
+### ✅ DONE (v1.69.0.0): `./setup --host slate` accepted but installs nothing
+
+**Priority:** P4 (was filed as slate-only — shipped with the whole drift class gated)
+
+**What:** `slate` passed host-arg validation but set no INSTALL_* flag, so the
+run configured nothing and exited 0. Now an informational arm (points at
+`--host claude`; per docs/designs/SLATE_HOST.md Slate reads `.claude/skills`
+as a compatibility fallback), plus a zero-dispatch guard that errors loudly if
+any future host is accepted without an install arm, plus a cross-check test
+pinning accept-list ⊆ dispatch-arms against the hosts/index.ts registry.
+
+**Completed:** v1.69.0.0 (2026-08-22)
+
+### ✅ DONE (v1.69.0.0, gstack side): ZeroEntropy sunset detect + advisory
+
+**Priority:** P1 (calendar-driven; gbrain-side migration remains open — see
+NEXT PRIORITY)
+
+**What:** Wireup warns when ~/.gbrain/config.json names the zeroentropyai
+recipe (fail-open grep — never blocks a working setup); setup-gbrain provider
+comments say never to select the legacy recipe; USING_GBRAIN_WITH_GSTACK.md
+troubleshooting entry names the Sept 4, 2026 deadline and #2365.
+
+**Completed:** v1.69.0.0 (2026-08-22)
 
 ### ✅ DONE (v1.68.1.0): Stop-hook registration pins the setup-time absolute path
 

@@ -87,6 +87,26 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/continue to §4a/);
   });
 
+  // #2656: the failed merge carried --delete-branch; the recovery path must
+  // reconcile the remote branch instead of silently dropping that half.
+  test("MERGED branch reconciles the remote branch (ls-remote, confirm-first delete)", () => {
+    const body = readTmpl();
+    expect(body).toMatch(/git ls-remote --heads origin "\$BRANCH"/);
+    expect(body).toMatch(/gh pr view --json headRefName -q \.headRefName/);
+    expect(body).toMatch(/git push origin --delete "\$BRANCH"/);
+    // Confirm-first: deletion is offered, never unilateral.
+    expect(body).toMatch(/Delete it\?/);
+  });
+
+  test("MERGED branch reconciliation distinguishes branch-absent from check-failed", () => {
+    const body = readTmpl();
+    // exit 0 + empty output = already clean (idempotent re-runs)...
+    expect(body).toMatch(/already been cleaned up/);
+    // ...non-zero exit = unknown state, never read as a clean branch.
+    expect(body).toMatch(/Couldn't verify remote branch state/);
+    expect(body).toMatch(/never read a failed check as a clean branch/);
+  });
+
   test("OPEN branch checks autoMergeRequest before treating as failure", () => {
     const body = readTmpl();
     expect(body).toMatch(/gh pr view --json autoMergeRequest/);
