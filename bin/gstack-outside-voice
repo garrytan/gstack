@@ -422,7 +422,17 @@ with_timeout() {
 # routes to the loop and lets the runaway cap bound it — never to a gate the lane has not earned
 # nor to a loop the lane has already finished with.
 lane_marker_path() {
-  local repo_root="$1" top branch key
+  local repo_root="$1"; shift
+  local top branch key scope
+  # THE KEY CARRIES THE REVIEW'S SCOPE (codex r6 P1). Once the size ceiling started honouring
+  # --pathspec, the persisted verdict stopped being about "this branch" and became about "this
+  # branch, reviewed through this scope" — but the key did not follow, so a clean `--pathspec foo`
+  # round promoted the next `--pathspec bar` round to the gate on a scope that had never had a
+  # clean pass. State must be keyed by everything the verdict is contingent on.
+  #
+  # Sorted, so two callers naming the same scopes in a different order share a lane rather than
+  # opening two that can disagree.
+  scope=$(printf '%s\n' "$@" | LC_ALL=C sort | tr '\n' ':')
   top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || return 1
   branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
   # A DETACHED LANE MUST STILL BE KEYABLE (codex r5 P1). Refusing a key without a branch left
@@ -435,7 +445,7 @@ lane_marker_path() {
   # was formed against, so staleness is handled there, and keying the FILE on a sha would strand
   # a new marker file per commit.
   [ -n "$branch" ] || branch="detached"
-  key=$(printf '%s|%s' "$top" "$branch" | cksum | tr -d ' \t')
+  key=$(printf '%s|%s|%s' "$top" "$branch" "$scope" | cksum | tr -d ' \t')
   printf '%s/outside-voice/last-loop-%s' "$_STATE_DIR" "$key"
 }
 
@@ -511,7 +521,7 @@ resolve_phase() {
   # lets the runaway cap bound it. It must NOT route to the gate: a lane whose marker cannot be
   # read has not earned a gate round, and spending frontier money on an unanswerable question is
   # the wrong direction to fail in.
-  marker="$(lane_marker_path "$repo_root" 2>/dev/null || true)"
+  marker="$(lane_marker_path "$repo_root" ${pathspecs[@]+"${pathspecs[@]}"} 2>/dev/null || true)"
   # A CLEAN VERDICT IS ABOUT A REVISION, NOT A BRANCH (codex r3 P2). The marker is keyed on
   # repo+branch, so once a loop round came back clean, every later `auto` on that branch promoted
   # to the gate — including after new commits landed, which is precisely when fresh work most
@@ -552,6 +562,14 @@ resolve_phase() {
   # the gate while cmd_exec's own explicit-aware check then happily ran it — silently promoting
   # an explicitly-requested review to the frontier tier it was configured to avoid.
   if [ "$(probe loop "$explicit")" != "ready" ]; then printf 'final_gate'; return 0; fi
+
+  # THE BASE IS VALIDATED UNCONDITIONALLY (codex r6 P2). It was checked only inside the
+  # size-ceiling branches, so on the DEFAULT ceiling=0 an unresolvable base — a clone that never
+  # fetched origin/main, a mistyped --base — still resolved to `loop`, and exec_openrouter then
+  # died instead of taking the degrade-to-final_gate path this function documents. Same class as
+  # the two gaps above: something the REVIEW depends on, not applied to the ROUTING.
+  git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1 \
+    || { printf 'final_gate'; return 0; }
 
   # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
   # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
@@ -899,7 +917,7 @@ cmd_exec() {
       fi
       exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
   esac
-  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc"
+  convergence_guard "$phase" "$findings_out" "$repo_root" "$_rc" ${pathspecs[@]+"${pathspecs[@]}"}
   return "$_rc"
 }
 
@@ -930,7 +948,9 @@ cmd_exec() {
 # at one layer only MOVES the silence" shape this file guards against elsewhere.
 convergence_guard() {
   local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" marker=""
-  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" 2>/dev/null || true)"
+  shift 4 2>/dev/null || true
+  local guard_paths=("$@")
+  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" ${guard_paths[@]+"${guard_paths[@]}"} 2>/dev/null || true)"
 
   # A SUCCESSFUL gate round clears the marker, so a gate that finds P1/P2 sends the lane back to
   # the loop for the fixes rather than pinning every subsequent round on the frontier tier. A

@@ -99,7 +99,7 @@ afterAll(() => {
 function markerPath(): string {
   const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
   const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-  const key = spawnSync('sh', ['-c', `printf '%s|%s' '${top}' '${branch}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+  const key = spawnSync('sh', ['-c', `printf '%s|%s|%s' '${top}' '${branch}' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
   return path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
 }
 function headSha(): string {
@@ -309,7 +309,7 @@ describe('resolve-phase — a detached lane is keyable, so it can still converge
   test('a clean verdict on a detached lane promotes to the gate', () => {
     const top = spawnSync('git', ['-C', det, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
     const head = spawnSync('git', ['-C', det, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-    const key = spawnSync('sh', ['-c', `printf '%s|detached' '${top}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const key = spawnSync('sh', ['-c', `printf '%s|detached|%s' '${top}' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
     const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
     fs.mkdirSync(path.dirname(mp), { recursive: true });
     fs.writeFileSync(mp, `clean ${head}`);
@@ -338,6 +338,41 @@ describe('resolve-phase — the size ceiling measures the scoped diff', () => {
     });
     expect((r.stdout ?? '').trim()).toBe('loop');
     setCfg('outside_voice_size_ceiling', '0');
+  });
+});
+
+// REGRESSION (codex r6, found as a CLASS by the sweep the trigger demanded rather than one per
+// round). Both gaps are the same shape: something the REVIEW is validated or scoped by, not
+// applied to the ROUTING decision or the state it persists.
+describe('resolve-phase — routing honours what the review honours', () => {
+  test('an unresolvable base gates even with the ceiling OFF', () => {
+    setMarker(null);
+    setCfg('outside_voice_size_ceiling', '0');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/never-fetched'], {
+      encoding: 'utf8',
+      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((r.stdout ?? '').trim()).toBe('final_gate');
+  });
+
+  test("one scope's clean verdict does not promote a different scope", () => {
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
+    const keyFor = (scope: string) =>
+      spawnSync('sh', ['-c', `printf '%s|%s|%s' '${top}' '${branch}' '${scope}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('seed.txt:')}`);
+    fs.mkdirSync(path.dirname(mp), { recursive: true });
+    fs.writeFileSync(mp, `clean ${headSha()}`);
+    const run = (spec: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--pathspec', spec], {
+      encoding: 'utf8',
+      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((run('seed.txt').stdout ?? '').trim()).toBe('final_gate');
+    // feature.txt has never had a clean pass and must not inherit seed.txt's verdict.
+    expect((run('feature.txt').stdout ?? '').trim()).toBe('loop');
+    fs.rmSync(mp, { force: true });
   });
 });
 
