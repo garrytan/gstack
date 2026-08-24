@@ -562,14 +562,21 @@ except Exception:
   [ $((rounds + 1)) -ge "$cap" ] && { printf 'final_gate'; return 0; }
 
   if [ "$ceiling" -gt 0 ]; then
-    # `|| true` because `set -o pipefail` is in force: an unresolvable base — no origin/main, a
-    # mistyped --base — makes git non-zero, the pipeline non-zero, and the assignment fatal, so
-    # routing ABORTED instead of degrading (codex r1 P2). Same class as the detached-HEAD death
-    # fixed one commit earlier, which is the tell that the pattern rather than the line was the
-    # defect: every command substitution in this function needs the guard, not just the ones
-    # someone happened to think about.
-    insertions=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null \
-      | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }' || true)
+    # THE STATUS IS CHECKED, NOT SUPPRESSED. Two wrong answers were tried here before this one.
+    # Unguarded, `set -o pipefail` made an unresolvable base fatal and routing ABORTED (r1 P2).
+    # Guarding the whole pipeline with `|| true` fixed the abort and introduced something worse
+    # (r2 P2): git's failure fell through to `insertions=0`, which compares below any ceiling and
+    # returns `loop` — so a base that does not resolve SILENTLY BYPASSED the size ceiling, the
+    # exact opposite of the degrade-to-the-gate polarity every other path in this function holds.
+    #
+    # An abort is loud and a bypass is silent, so the second fix was a regression wearing the
+    # shape of a fix. Split the pipeline: git's status is tested on its own, and awk — which
+    # cannot meaningfully fail on text already in hand — runs after.
+    local _numstat
+    if ! _numstat=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null); then
+      printf 'final_gate'; return 0
+    fi
+    insertions=$(printf '%s\n' "$_numstat" | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
     case "$insertions" in ''|*[!0-9]*) insertions=0 ;; esac
     [ "$insertions" -gt "$ceiling" ] && { printf 'final_gate'; return 0; }
   fi
@@ -703,6 +710,13 @@ cmd_exec() {
   # round in a usage-log bucket named after the flag rather than the phase that ran. Callers
   # passing an explicit phase are untouched.
   if [ "$phase" = "auto" ]; then
+    # REFUSE rather than degrade (codex r2 P2). `auto` promotes a lane to the gate by reading the
+    # loop round's severities out of the findings file; with no --findings-out there is nothing to
+    # read, every clean loop round records as "no clean loop recorded", and the lane grinds to the
+    # runaway cap without ever converging. That is silent and it looks exactly like a lane that is
+    # simply taking a while, so it must be a refusal at the door rather than a surprise 20 rounds
+    # later. The requirement is a property of the MODE, not of the caller's diligence.
+    [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides when a lane has converged by reading the loop round's severities from that file, and without it every clean round records as 'not converged' and the lane runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
     phase="$(resolve_phase "$repo_root" "$base")"
     echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
   fi

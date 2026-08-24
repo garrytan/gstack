@@ -219,6 +219,36 @@ describe('resolve-phase — a loop backend that cannot emit findings is never se
   });
 });
 
+// REGRESSION (codex r2). Both of these were introduced by the r1 fixes, which is the reason
+// they get their own tests rather than a comment: a fix is new code and earns the same scrutiny.
+describe('resolve-phase — the size ceiling must not be bypassed by a base it cannot resolve', () => {
+  test('an unresolvable base gates rather than falling through to insertions=0', () => {
+    setMarker(null);
+    setCfg('outside_voice_size_ceiling', '100');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/does-not-exist'], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect(r.status).toBe(0);
+    // NOT 'loop': git failing must degrade toward the frontier reviewer, never quietly skip the
+    // ceiling. The first fix here turned a loud abort into a silent bypass.
+    expect((r.stdout ?? '').trim()).toBe('final_gate');
+    setCfg('outside_voice_size_ceiling', '0');
+  });
+});
+
+describe('exec — auto refuses without the file the mode depends on', () => {
+  test('--phase auto without --findings-out fails loudly rather than never converging', () => {
+    const r = spawnSync(ADAPTER, ['exec', '--phase', 'auto', '--prompt-file', __filename, '--repo-root', repo, '--explicit'], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_STATE_ROOT: stateRoot },
+    });
+    expect(r.status).not.toBe(0);
+    expect(`${r.stderr}`).toMatch(/requires --findings-out/);
+  });
+});
+
 // THE POLARITY IS THE POINT. Every degraded path must land on final_gate — the frontier
 // reviewer, i.e. pre-adapter behaviour. Landing on `loop` would silently downgrade the
 // reviewer, which is the mirror image of the "refusing to silently fall back to a paid
