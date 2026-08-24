@@ -560,8 +560,34 @@ resolve_phase() {
   ceiling=$(_cfg outside_voice_size_ceiling)
   case "$ceiling" in ''|*[!0-9]*) ceiling=0 ;; esac
 
-  rl=$(find_round_ledger) || { printf 'final_gate'; return 0; }
-  json=$("$rl" -C "$repo_root" --json 2>/dev/null) || { printf 'final_gate'; return 0; }
+  # NO LEDGER MEANS NO CAP — IT DOES NOT MEAN NO LOOP (codex r4 P2). Returning final_gate here
+  # made `auto` dead on every install without the fleet's codex-round-log.sh: a fresh lane has no
+  # marker, so it never reached the loop, and only a loop round can create the marker that would
+  # have let it. The mode was self-extinguishing precisely on the installs this adapter takes
+  # care not to hard-depend on — and this file's own header claimed the opposite.
+  #
+  # What is actually lost without a ledger is the RUNAWAY CAP, not the reviewer's quality: the
+  # convergence guard still holds and the gate still runs on the converged artefact, so the lane
+  # remains bounded by convergence rather than by a round count. Say so once rather than silently
+  # dropping a bound someone may be relying on.
+  local rl_missing=no
+  rl=$(find_round_ledger) || rl_missing=yes
+  if [ "$rl_missing" = "no" ]; then
+    json=$("$rl" -C "$repo_root" --json 2>/dev/null) || rl_missing=yes
+  fi
+  if [ "$rl_missing" = "yes" ]; then
+    echo "gstack-outside-voice: note — no readable round ledger, so the runaway cap is not enforced on this lane. Convergence still bounds it: the loop cannot declare it, and the gate still reviews the converged artefact." >&2
+    if [ "$ceiling" -gt 0 ]; then
+      local _ns
+      if ! _ns=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null); then
+        printf 'final_gate'; return 0
+      fi
+      insertions=$(printf '%s\n' "$_ns" | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
+      case "$insertions" in ''|*[!0-9]*) insertions=0 ;; esac
+      [ "$insertions" -gt "$ceiling" ] && { printf 'final_gate'; return 0; }
+    fi
+    printf 'loop'; return 0
+  fi
 
   rounds=$(printf '%s' "$json" | "$_PY" -c '
 import json, sys
