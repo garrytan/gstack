@@ -294,6 +294,53 @@ describe('resolve-phase — a named-but-unrunnable loop backend gates', () => {
   });
 });
 
+// REGRESSION (codex r5 P1). Reached through the INTERSECTION of two earlier fixes rather than
+// one bug: no ledger meant no runaway cap, and a detached HEAD meant no marker to persist a
+// clean verdict — so such a lane looped forever with nothing able to promote it. Every
+// `git worktree add --detach` lane on a non-fleet install was in that state.
+describe('resolve-phase — a detached lane is keyable, so it can still converge', () => {
+  let det: string;
+  beforeAll(() => {
+    det = path.join(tmp, 'det-conv');
+    const head = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+    spawnSync('git', ['-C', repo, 'worktree', 'add', '--detach', '-q', det, head], { encoding: 'utf8' });
+  });
+
+  test('a clean verdict on a detached lane promotes to the gate', () => {
+    const top = spawnSync('git', ['-C', det, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+    const head = spawnSync('git', ['-C', det, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+    const key = spawnSync('sh', ['-c', `printf '%s|detached' '${top}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
+    fs.mkdirSync(path.dirname(mp), { recursive: true });
+    fs.writeFileSync(mp, `clean ${head}`);
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', det], {
+      encoding: 'utf8',
+      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: path.join(tmp, 'no-ledger') },
+    });
+    expect((r.stdout ?? '').trim()).toBe('final_gate');
+    fs.rmSync(mp, { force: true });
+  });
+});
+
+// REGRESSION (codex r5 P2). The ceiling must measure what the REVIEW measures. Scoped to the
+// whole branch, a small focused slice was forced to the gate because unrelated files changed
+// elsewhere — defeating the pathspec scoping the code's own comments name as the remedy.
+describe('resolve-phase — the size ceiling measures the scoped diff', () => {
+  test('a scoped slice under the ceiling loops even when the branch is over it', () => {
+    setMarker(null);
+    setCfg('outside_voice_size_ceiling', '20');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    // feature.txt is 40 lines; seed.txt is unchanged on the branch.
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--pathspec', 'seed.txt'], {
+      encoding: 'utf8',
+      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((r.stdout ?? '').trim()).toBe('loop');
+    setCfg('outside_voice_size_ceiling', '0');
+  });
+});
+
 // THE POLARITY IS THE POINT. Every degraded path must land on final_gate — the frontier
 // reviewer, i.e. pre-adapter behaviour. Landing on `loop` would silently downgrade the
 // reviewer, which is the mirror image of the "refusing to silently fall back to a paid

@@ -424,8 +424,17 @@ with_timeout() {
 lane_marker_path() {
   local repo_root="$1" top branch key
   top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || return 1
-  branch=$(git -C "$repo_root" branch --show-current 2>/dev/null) || return 1
-  [ -n "$branch" ] || return 1
+  branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
+  # A DETACHED LANE MUST STILL BE KEYABLE (codex r5 P1). Refusing a key without a branch left
+  # `git worktree add --detach` lanes with nowhere to persist a clean-loop verdict — so on an
+  # install with no ledger (hence no runaway cap either) such a lane looped forever and could
+  # never promote, which is the never-converges failure this whole design exists to prevent,
+  # reached this time through the intersection of two earlier fixes rather than one bug.
+  #
+  # Keyed on the literal "detached" rather than the sha: the verdict already embeds the HEAD it
+  # was formed against, so staleness is handled there, and keying the FILE on a sha would strand
+  # a new marker file per commit.
+  [ -n "$branch" ] || branch="detached"
   key=$(printf '%s|%s' "$top" "$branch" | cksum | tr -d ' \t')
   printf '%s/outside-voice/last-loop-%s' "$_STATE_DIR" "$key"
 }
@@ -484,7 +493,9 @@ find_round_ledger() {
 # per-lane marker under the adapter's own state dir, which has the side benefit of working on
 # an install with no round ledger at all.
 resolve_phase() {
-  local repo_root="$1" base="${2:-origin/main}"
+  local repo_root="$1" base="${2:-origin/main}" explicit="${3:-no}"
+  shift 3 2>/dev/null || true
+  local pathspecs=("$@")
   local cap ceiling rl json rounds insertions marker
 
   # A clean loop round is the trigger to GATE. The marker is cleared when a gate round runs, so
@@ -535,7 +546,12 @@ resolve_phase() {
   # not_authed/misconfigured. Auto mode produced no review at all on a misconfigured loop
   # install, which is worse than the frontier-priced review it was avoiding. Probe first and gate
   # on anything short of ready: a degraded review beats an absent one.
-  if [ "$(probe loop no)" != "ready" ]; then printf 'final_gate'; return 0; fi
+  # `$explicit` is threaded through, not hardcoded (codex r5 P2). `codex_reviews=disabled`
+  # governs the AUTOMATIC passes; a review the user asked for by name is exempt. Probing in
+  # non-explicit mode returned `disabled` for such a caller, so resolve_phase forced the lane to
+  # the gate while cmd_exec's own explicit-aware check then happily ran it — silently promoting
+  # an explicitly-requested review to the frontier tier it was configured to avoid.
+  if [ "$(probe loop "$explicit")" != "ready" ]; then printf 'final_gate'; return 0; fi
 
   # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
   # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
@@ -579,7 +595,7 @@ resolve_phase() {
     echo "gstack-outside-voice: note — no readable round ledger, so the runaway cap is not enforced on this lane. Convergence still bounds it: the loop cannot declare it, and the gate still reviews the converged artefact." >&2
     if [ "$ceiling" -gt 0 ]; then
       local _ns
-      if ! _ns=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null); then
+      if ! _ns=$(git -C "$repo_root" diff --numstat "$base"...HEAD ${pathspecs[@]+-- "${pathspecs[@]}"} 2>/dev/null); then
         printf 'final_gate'; return 0
       fi
       insertions=$(printf '%s\n' "$_ns" | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
@@ -616,7 +632,11 @@ except Exception:
     # shape of a fix. Split the pipeline: git's status is tested on its own, and awk — which
     # cannot meaningfully fail on text already in hand — runs after.
     local _numstat
-    if ! _numstat=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null); then
+    # SCOPED, like the review itself (codex r5 P2). exec_openrouter builds a pathspec-scoped
+    # diff, so measuring the whole branch here forced a small focused slice to the gate because
+    # unrelated files changed elsewhere — defeating the very pathspec scoping this function's own
+    # comments name as the remedy for a large diff.
+    if ! _numstat=$(git -C "$repo_root" diff --numstat "$base"...HEAD ${pathspecs[@]+-- "${pathspecs[@]}"} 2>/dev/null); then
       printf 'final_gate'; return 0
     fi
     insertions=$(printf '%s\n' "$_numstat" | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
@@ -760,7 +780,7 @@ cmd_exec() {
     # simply taking a while, so it must be a refusal at the door rather than a surprise 20 rounds
     # later. The requirement is a property of the MODE, not of the caller's diligence.
     [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides when a lane has converged by reading the loop round's severities from that file, and without it every clean round records as 'not converged' and the lane runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
-    phase="$(resolve_phase "$repo_root" "$base")"
+    phase="$(resolve_phase "$repo_root" "$base" "$explicit" ${pathspecs[@]+"${pathspecs[@]}"})"
     echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
   fi
 
@@ -1285,19 +1305,21 @@ case "$_CMD" in
     # Inspection surface for `--phase auto` (VAS-2371). Exists so the derivation can be
     # asserted by a test and eyeballed by an operator without spending a review round to find
     # out which phase would have run. STDOUT is exactly one word, same contract as `backend`.
-    _rp_root=""; _rp_base="origin/main"
+    _rp_root=""; _rp_base="origin/main"; _rp_explicit=no; _rp_paths=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo-root) _rp_root="${2:?--repo-root needs a value}"; shift 2 ;;
         --base)      _rp_base="${2:?--base needs a value}"; shift 2 ;;
-        *) die "usage: gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>]" ;;
+        --explicit)  _rp_explicit=yes; shift ;;
+        --pathspec)  _rp_paths+=("${2:?--pathspec needs a value}"); shift 2 ;;
+        *) die "usage: gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>] [--explicit] [--pathspec <spec>]" ;;
       esac
     done
     if [ -z "$_rp_root" ]; then
       _rp_root=$(git rev-parse --show-toplevel 2>/dev/null) \
         || die "not in a git repo and --repo-root not given"
     fi
-    resolve_phase "$_rp_root" "$_rp_base"
+    resolve_phase "$_rp_root" "$_rp_base" "$_rp_explicit" ${_rp_paths[@]+"${_rp_paths[@]}"}
     printf '\n'
     ;;
   *) die "unknown command '$_CMD' (want: exec|backend|probe|resolve-phase)" ;;
