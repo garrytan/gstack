@@ -196,7 +196,9 @@ esac
     // detectAutopilot's PATH-resolved `pgrep -f "gbrain autopilot"`. A live
     // host autopilot is a correct #1734 refuse — the test cannot inject
     // processRunning. Stub pgrep to "no match" so the pin is about the
-    // symlink, not the operator's daemon. Do not add a production env hatch.
+    // symlink, not the operator's daemon. Blank GBRAIN_HOME so an inherited
+    // lock under $GBRAIN_HOME/.gbrain cannot refuse before pgrep. Do not add
+    // a production env hatch.
     writeFileSync(join(bindir, "pgrep"), "#!/bin/sh\nexit 1\n");
     chmodSync(join(bindir, "pgrep"), 0o755);
 
@@ -208,6 +210,7 @@ esac
         ...process.env,
         HOME: home,
         GSTACK_HOME: gstackHome,
+        GBRAIN_HOME: "",
         GSTACK_TEST_GBRAIN_LOG: commandLog,
         PATH: `${bindir}:${process.env.PATH || ""}`,
       },
