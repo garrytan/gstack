@@ -28,6 +28,16 @@ function resolveTmpRoot(env: Record<string, string | undefined> = process.env): 
   throw new Error('no writable temp root found (TMPDIR, TMP, .gstack/tmp all unusable)');
 }
 
+// EVERY ambient input the loop probe reads is neutralised, not just the API key (codex r8 P3).
+// The first attempt fixtured OPENROUTER_API_KEY alone and still failed 17 assertions under a
+// runner carrying an invalid GSTACK_OUTSIDE_VOICE_BASE_URL: probe returned misconfigured and
+// every `loop` expectation silently became `final_gate` for environment reasons. Spread AFTER
+// process.env so the fixture outranks the machine rather than the machine outranking it.
+const LOOP_FIXTURE_ENV = {
+  OPENROUTER_API_KEY: 'test-fixture-not-a-real-key',
+  GSTACK_OUTSIDE_VOICE_BASE_URL: '',
+};
+
 // The ledger is STUBBED rather than read from the machine's real one (VAS-2371). A test that
 // asserted against `~/.claude/codex-rounds` would pass or fail on whatever lanes happen to
 // exist on the runner, and would read as a routing bug the first time someone logged a round
@@ -49,8 +59,10 @@ function resolvePhase(env: Record<string, string> = {}): string {
     // probes the loop backend before returning `loop`, so on a runner without the developer's key
     // every `loop` assertion would silently get `final_gate` and the suite would pass for the
     // wrong reason on this machine and fail for the wrong reason on CI. A test that depends on an
-    // ambient secret is not testing what it claims to.
-    env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, ...env },
+    // ambient secret is not testing what it claims to. The fixture is spread AFTER process.env
+    // so it OUTRANKS an ambient value — placed before, a runner holding an empty or invalid key
+    // would still win and the assertions would be machine-dependent in the other direction.
+    env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, ...env },
   });
   return (r.stdout ?? '').trim();
 }
@@ -58,7 +70,7 @@ function resolvePhase(env: Record<string, string> = {}): string {
 function setCfg(key: string, value: string) {
   spawnSync(CONFIG, ['set', key, value], {
     encoding: 'utf8',
-    env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot },
+    env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
   });
 }
 
@@ -70,7 +82,7 @@ beforeAll(() => {
   // such a lane can never record a clean loop round and so can never promote to the gate. The
   // default is codex, so every test wanting `loop` has to configure a findings-emitting backend.
   spawnSync(CONFIG, ['set', 'outside_voice_loop', 'openrouter'], {
-    encoding: 'utf8', env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot },
+    encoding: 'utf8', env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
   });
 
   // A real git repo with a real branch diff, so the size axis has something to measure.
@@ -187,7 +199,7 @@ describe('resolve-phase — unidentifiable lane (detached HEAD)', () => {
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', detached], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect(r.status).toBe(0);
     expect((r.stdout ?? '').trim()).toBe('loop');
@@ -197,7 +209,7 @@ describe('resolve-phase — unidentifiable lane (detached HEAD)', () => {
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":19}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', detached], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((r.stdout ?? '').trim()).toBe('final_gate');
   });
@@ -236,7 +248,7 @@ describe('resolve-phase — the size ceiling must not be bypassed by a base it c
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/does-not-exist'], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect(r.status).toBe(0);
     // NOT 'loop': git failing must degrade toward the frontier reviewer, never quietly skip the
@@ -250,7 +262,7 @@ describe('exec — auto refuses without the file the mode depends on', () => {
   test('--phase auto without --findings-out fails loudly rather than never converging', () => {
     const r = spawnSync(ADAPTER, ['exec', '--phase', 'auto', '--prompt-file', __filename, '--repo-root', repo, '--explicit'], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
     });
     expect(r.status).not.toBe(0);
     expect(`${r.stderr}`).toMatch(/requires --findings-out/);
@@ -287,7 +299,7 @@ describe('resolve-phase — a named-but-unrunnable loop backend gates', () => {
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led, OPENROUTER_API_KEY: '' },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led, OPENROUTER_API_KEY: '' },
     });
     expect(r.status).toBe(0);
     expect((r.stdout ?? '').trim()).toBe('final_gate');
@@ -315,7 +327,7 @@ describe('resolve-phase — a detached lane is keyable, so it can still converge
     fs.writeFileSync(mp, `clean ${head}`);
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', det], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: path.join(tmp, 'no-ledger') },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: path.join(tmp, 'no-ledger') },
     });
     expect((r.stdout ?? '').trim()).toBe('final_gate');
     fs.rmSync(mp, { force: true });
@@ -334,7 +346,7 @@ describe('resolve-phase — the size ceiling measures the scoped diff', () => {
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--pathspec', 'seed.txt'], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((r.stdout ?? '').trim()).toBe('loop');
     setCfg('outside_voice_size_ceiling', '0');
@@ -351,7 +363,7 @@ describe('resolve-phase — routing honours what the review honours', () => {
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/never-fetched'], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((r.stdout ?? '').trim()).toBe('final_gate');
   });
@@ -367,7 +379,7 @@ describe('resolve-phase — routing honours what the review honours', () => {
     fs.writeFileSync(mp, `clean ${headSha()}`);
     const run = (spec: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--pathspec', spec], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((run('seed.txt').stdout ?? '').trim()).toBe('final_gate');
     // feature.txt has never had a clean pass and must not inherit seed.txt's verdict.
@@ -392,7 +404,7 @@ describe('resolve-phase — the base is part of the review subject', () => {
     fs.writeFileSync(mp, `clean ${headSha()}`);
     const run = (b: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', b], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((run('origin/main').stdout ?? '').trim()).toBe('final_gate');
     // Same HEAD, different review subject — must not inherit the other base's verdict.
@@ -407,7 +419,7 @@ describe('resolve-phase — the base is part of the review subject', () => {
     // strips to `origin/main`, exercising the same fallback exec_openrouter uses.
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/origin/main'], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
     });
     expect((r.stdout ?? '').trim()).toBe('loop');
   });
@@ -429,7 +441,7 @@ describe('resolve-phase — fallback polarity', () => {
   test('an absent ledger costs the cap, not the loop — and says so', () => {
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: path.join(tmp, 'does-not-exist'), HOME: path.join(tmp, 'no-home') },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: path.join(tmp, 'does-not-exist'), HOME: path.join(tmp, 'no-home') },
     });
     expect((r.stdout ?? '').trim()).toBe('loop');
     expect(`${r.stderr}`).toMatch(/runaway cap is not enforced/);
@@ -487,7 +499,7 @@ describe('unresolved phase fails loudly', () => {
   test('backend rejects the literal string auto', () => {
     const r = spawnSync(ADAPTER, ['backend', '--phase', 'auto'], {
       encoding: 'utf8',
-      env: { OPENROUTER_API_KEY: 'test-fixture-not-a-real-key', ...process.env, GSTACK_STATE_ROOT: stateRoot },
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
     });
     expect(r.status).not.toBe(0);
     expect(`${r.stderr}`).toMatch(/unknown phase/i);

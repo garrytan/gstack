@@ -437,7 +437,11 @@ lane_marker_path() {
   # the other. Third instance of the r6 sweep's class — routing state must be keyed by everything
   # the verdict is contingent on — which is the tell that the sweep enumerated the ROUTING inputs
   # and stopped short of the KEY's inputs.
-  local base_key="${1:-}"; shift 2>/dev/null || true
+  # `shift ||:` NOT `shift 2>/dev/null` — the latter shifts ONE (the 2 is a file descriptor,
+  # not a count) and a codex round misread it as `shift 2` and filed a pathspec-dropping bug that
+  # does not exist. It was disproved in one command, but a construct that costs a round to
+  # re-prove is cheaper to rewrite than to defend.
+  local base_key="${1:-}"; shift ||:
   scope=$(printf '%s\n' "$@" | LC_ALL=C sort | tr '\n' ':')
   top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || return 1
   branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
@@ -532,7 +536,7 @@ find_round_ledger() {
 # an install with no round ledger at all.
 resolve_phase() {
   local repo_root="$1" base="${2:-origin/main}" explicit="${3:-no}"
-  shift 3 2>/dev/null || true
+  shift 3 ||:
   local pathspecs=("$@")
   local cap ceiling rl json rounds insertions marker
 
@@ -977,7 +981,7 @@ cmd_exec() {
 # at one layer only MOVES the silence" shape this file guards against elsewhere.
 convergence_guard() {
   local phase="$1" findings_out="${2:-}" repo_root="${3:-}" rc="${4:-0}" gbase="${5:-}" marker=""
-  shift 5 2>/dev/null || true
+  shift 5 ||:
   local guard_paths=("$@")
   [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" "$gbase" ${guard_paths[@]+"${guard_paths[@]}"} 2>/dev/null || true)"
 
