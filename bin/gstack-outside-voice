@@ -21,8 +21,8 @@
 #                                                            — print the phase `auto` would pick
 #
 # `--phase auto` derives the phase from the round ledger instead of requiring the caller to
-# know it (VAS-2371). Config: `outside_voice_gate_threshold` (default 4 — the round at which
-# the frontier gate takes over) and `outside_voice_size_ceiling` (default 0 = OFF). Every
+# know it (VAS-2371). Config: `outside_voice_runaway_cap` (default 20, aligned to the
+# runaway breaker — a bound on the loop, not the mechanism) and `outside_voice_size_ceiling` (default 0 = OFF). Every
 # degraded path resolves to `final_gate`, never `loop`; see resolve_phase for why.
 #
 # exec options:
@@ -413,6 +413,23 @@ with_timeout() {
 # Extracted from preflight_gate by VAS-2371 because phase derivation needs the same lookup.
 # Two copies of a search path is the two-variables-that-must-agree bug waiting for someone to
 # add a fourth candidate to one of them.
+# Per-lane marker holding the verdict of the most recent LOOP round. Keyed on repo toplevel +
+# branch, the same pair the skill's own tempfiles use, because a fixed name would let a second
+# lane in another terminal read this one's verdict and gate a branch that never converged.
+#
+# Prints nothing and returns non-zero when the lane cannot be identified (no git, detached HEAD
+# with no branch). Callers treat an unavailable marker as "no clean loop round recorded", which
+# routes to the loop and lets the runaway cap bound it — never to a gate the lane has not earned
+# nor to a loop the lane has already finished with.
+lane_marker_path() {
+  local repo_root="$1" top branch key
+  top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || return 1
+  branch=$(git -C "$repo_root" branch --show-current 2>/dev/null) || return 1
+  [ -n "$branch" ] || return 1
+  key=$(printf '%s|%s' "$top" "$branch" | cksum | tr -d ' \t')
+  printf '%s/outside-voice/last-loop-%s' "$_STATE_DIR" "$key"
+}
+
 find_round_ledger() {
   local _c
   for _c in ${GSTACK_ROUND_LEDGER:+"$GSTACK_ROUND_LEDGER"} \
@@ -445,12 +462,55 @@ find_round_ledger() {
 # Never `loop`. A silent downgrade of the reviewer is exactly the failure this file refuses
 # elsewhere ("Refusing to silently fall back to a paid frontier backend" has a mirror image,
 # and this is it: refusing to silently fall back to a CHEAPER one).
+#
+# SEMANTICS. Loop is the DEFAULT; the gate runs on the CONVERGED artefact. Concretely:
+#
+#   loop, loop, loop ... -> loop reports no P1 and no P2 -> GATE
+#   gate finds P1/P2 -> fixes land -> back to the loop -> ... -> loop clean -> GATE again
+#
+# The round count is a RUNAWAY CAP, not the mechanism. An earlier draft of this function used
+# "first N rounds go to the loop, then gate forever", which is a different design wearing the
+# same words and it does not do what VAS-1964 asked for. Measured on August's real lanes, a
+# first-4-rounds rule sends 30% of rounds to the loop overall — and only 14% of the rounds on
+# the 20 lanes holding 54% of all rounds, because a 68-round lane gets 3 cheap rounds and 65
+# frontier ones. It saves least on exactly the lanes that cost most, and it contradicted the
+# 7.6x reduction this work was projected to deliver, which assumes the loop carries the
+# iterative work rather than a fixed prefix of it.
+#
+# HOW "the loop reported clean" IS KNOWN. Not from the ledger: `--json` exposes lane aggregates
+# (`rounds_logged`, `by_voice`, totals) and no per-round or last-round severity, so the question
+# cannot be asked of it without reaching into its storage format — a coupling this file
+# deliberately refuses. Instead convergence_guard records the verdict of each loop round in a
+# per-lane marker under the adapter's own state dir, which has the side benefit of working on
+# an install with no round ledger at all.
 resolve_phase() {
   local repo_root="$1" base="${2:-origin/main}"
-  local threshold ceiling rl json rounds insertions
+  local cap ceiling rl json rounds insertions marker
 
-  threshold=$(_cfg outside_voice_gate_threshold)
-  case "$threshold" in ''|*[!0-9]*) threshold=4 ;; esac
+  # A clean loop round is the trigger to GATE. The marker is cleared when a gate round runs, so
+  # gate findings send the lane back to the loop rather than pinning it on the frontier tier.
+  # `|| true` is load-bearing under `set -e`. lane_marker_path returns non-zero when the lane
+  # cannot be identified — a DETACHED HEAD is the common case, and every git worktree created
+  # with `--detach` is one, including the ones this project's own study harness makes. Without
+  # the guard the assignment's non-zero status killed the whole script HERE, so `resolve-phase`
+  # exited 1 printing nothing at all: no phase, no error, no clue. A routing function that dies
+  # silently is strictly worse than one that picks the wrong phase loudly.
+  #
+  # An unidentifiable lane means "no clean loop round recorded", which routes to the loop and
+  # lets the runaway cap bound it. It must NOT route to the gate: a lane whose marker cannot be
+  # read has not earned a gate round, and spending frontier money on an unanswerable question is
+  # the wrong direction to fail in.
+  marker="$(lane_marker_path "$repo_root" 2>/dev/null || true)"
+  if [ -n "$marker" ] && [ -f "$marker" ] && [ "$(cat "$marker" 2>/dev/null)" = "clean" ]; then
+    printf 'final_gate'; return 0
+  fi
+
+  # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
+  # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
+  # disagree; a cap of 4 here against a breaker of 20 would have meant the two alarms described
+  # different worlds.
+  cap=$(_cfg outside_voice_runaway_cap)
+  case "$cap" in ''|*[!0-9]*) cap=20 ;; esac
 
   # SIZE CEILING — default OFF (0). VAS-2371 measured catch rate falling with diff size
   # (123 ins -> 75%, 209 -> 100%, 217 -> 50%, 477 -> 33%, 1851 -> 25%) on FIVE data points.
@@ -484,7 +544,7 @@ except Exception:
   [ "$rounds" -lt 0 ] && { printf 'final_gate'; return 0; }
 
   # rounds_logged counts COMPLETED rounds, so the round about to run is rounds+1.
-  [ $((rounds + 1)) -ge "$threshold" ] && { printf 'final_gate'; return 0; }
+  [ $((rounds + 1)) -ge "$cap" ] && { printf 'final_gate'; return 0; }
 
   if [ "$ceiling" -gt 0 ]; then
     insertions=$(git -C "$repo_root" diff --numstat "$base"...HEAD 2>/dev/null \
@@ -741,7 +801,7 @@ cmd_exec() {
       fi
       exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
   esac
-  convergence_guard "$phase" "$findings_out"
+  convergence_guard "$phase" "$findings_out" "$repo_root"
   return "$_rc"
 }
 
@@ -771,7 +831,17 @@ cmd_exec() {
 # One without the other leaves half the callers unguarded — the same "making a failure explicit
 # at one layer only MOVES the silence" shape this file guards against elsewhere.
 convergence_guard() {
-  local phase="$1" findings_out="${2:-}"
+  local phase="$1" findings_out="${2:-}" repo_root="${3:-}" marker=""
+  [ -n "$repo_root" ] && marker="$(lane_marker_path "$repo_root" 2>/dev/null || true)"
+
+  # A GATE round clears the marker, so a gate that finds P1/P2 sends the lane back to the loop
+  # for the fixes rather than pinning every subsequent round on the frontier tier. A gate that
+  # finds nothing ends the lane, so the cleared marker is never read again.
+  if [ "$phase" = "final_gate" ]; then
+    [ -n "$marker" ] && rm -f "$marker"
+    return 0
+  fi
+
   [ "$phase" = "loop" ] || return 0
 
   echo "gstack-outside-voice: NOT CONVERGENCE — this was a LOOP round. A loop round with no P1 and no P2 is a signal to RUN THE GATE, not a clean bill of health. The cheap tier under-rates severity (VAS-2371), and the loop's stop condition reads severity. Only the final_gate phase can end a lane." >&2
@@ -790,6 +860,37 @@ d["convergence_declarable"] = False
 with open(p, "w") as f:
     json.dump(d, f)
 PY
+
+  # Record this loop round's verdict for resolve_phase. "clean" (no P1, no P2) is what promotes
+  # the NEXT round to the gate — which is the whole point of the guard: a clean loop round is a
+  # trigger to gate, never an end state.
+  #
+  # A round with findings, or one whose severities cannot be read, writes "dirty" rather than
+  # removing the marker. Absence and dirtiness both route to the loop, so the distinction does
+  # not change routing — but a file that says what the last round found is readable by a human
+  # debugging a lane, and a missing file is not.
+  if [ -n "$marker" ]; then
+    mkdir -p "$(dirname "$marker")" 2>/dev/null || true
+    local _verdict=dirty
+    if [ -n "$findings_out" ] && [ -f "$findings_out" ]; then
+      _verdict=$("$_PY" - "$findings_out" <<'PY' 2>/dev/null || echo dirty
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    p1, p2 = d.get("p1"), d.get("p2")
+    # Absent counts are NOT zero. A findings file missing its severities is unreadable, not
+    # clean — reading it as clean would promote an unreviewed artefact to the gate.
+    print("clean" if (p1 == 0 and p2 == 0) else "dirty")
+except Exception:
+    print("dirty")
+PY
+)
+    fi
+    printf '%s' "$_verdict" > "$marker" 2>/dev/null || \
+      echo "gstack-outside-voice: WARNING — could not record the loop verdict at $marker; the next round will default to the loop." >&2
+    [ "$_verdict" = "clean" ] && \
+      echo "gstack-outside-voice: loop reported no P1 and no P2 — the NEXT round on this lane resolves to final_gate. Convergence is the gate's to declare." >&2
+  fi
   return 0
 }
 

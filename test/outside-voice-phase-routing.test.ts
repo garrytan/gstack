@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -82,25 +82,110 @@ afterAll(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('resolve-phase — round axis', () => {
-  test('below the gate threshold routes to the cheap loop', () => {
+// The lane marker is keyed on `<toplevel>|<branch>` through cksum, the same pair the skill's
+// own tempfiles use. Recomputed here rather than hardcoded so a change to the keying breaks
+// these tests loudly instead of leaving them asserting against a file nothing writes.
+function markerPath(): string {
+  const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+  const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
+  const key = spawnSync('sh', ['-c', `printf '%s|%s' '${top}' '${branch}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+  return path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
+}
+function setMarker(v: string | null) {
+  const p = markerPath();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  if (v === null) fs.rmSync(p, { force: true });
+  else fs.writeFileSync(p, v);
+}
+
+describe('resolve-phase — loop is the default, the gate is for the converged artefact', () => {
+  test('with no clean loop round recorded, routes to the loop', () => {
+    setMarker(null);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
   });
 
-  test('at or above the gate threshold routes to the frontier gate', () => {
-    // Default threshold is 4, and rounds_logged counts COMPLETED rounds, so 3 logged means
-    // the round about to run is the 4th.
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":3}\'\n');
+  test('stays on the loop deep into a lane — the round count is not the mechanism', () => {
+    // The superseded design gated from round 4 onward, which sent only 14% of the rounds on
+    // long lanes to the cheap tier. Round 12 of a lane must still be a loop round.
+    setMarker(null);
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":11}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
+  });
+
+  test('a CLEAN loop round promotes the next round to the gate', () => {
+    setMarker('clean');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
   });
 
-  test('the threshold is configurable', () => {
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
-    setCfg('outside_voice_gate_threshold', '1');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
-    setCfg('outside_voice_gate_threshold', '4');
+  test('a DIRTY loop round keeps the lane on the loop', () => {
+    setMarker('dirty');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
+  });
+
+  test('the clean marker outranks the ledger — it works with no round count at all', () => {
+    setMarker('clean');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: path.join(tmp, 'nope'), HOME: path.join(tmp, 'no-home') })).toBe('final_gate');
+  });
+});
+
+describe('resolve-phase — runaway cap', () => {
+  test('a lane at the cap is forced to the gate even with no clean round', () => {
+    setMarker(null);
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":19}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
+  });
+
+  test('defaults to 20, matching the runaway breaker rather than disagreeing with it', () => {
+    setMarker(null);
+    const below = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":18}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: below })).toBe('loop');
+  });
+
+  test('is configurable', () => {
+    setMarker(null);
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    setCfg('outside_voice_runaway_cap', '1');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
+    setCfg('outside_voice_runaway_cap', '20');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
+  });
+});
+
+// REGRESSION (VAS-2371). A detached HEAD has no branch, so the lane cannot be keyed. Before
+// this was guarded, the non-zero return from lane_marker_path killed the script under `set -e`
+// and `resolve-phase` exited 1 printing NOTHING — no phase, no error. Every worktree made with
+// `git worktree add --detach` hits this, including the ones this project's own study harness
+// creates, so it is a live path rather than a corner case. It must degrade to `loop` (bounded
+// by the runaway cap), never die and never silently reach for the frontier tier.
+describe('resolve-phase — unidentifiable lane (detached HEAD)', () => {
+  let detached: string;
+
+  beforeAll(() => {
+    detached = path.join(tmp, 'detached');
+    const head = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+    spawnSync('git', ['-C', repo, 'worktree', 'add', '--detach', '-q', detached, head], { encoding: 'utf8' });
+  });
+
+  test('exits 0 and prints a phase rather than dying silently', () => {
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', detached], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect(r.status).toBe(0);
+    expect((r.stdout ?? '').trim()).toBe('loop');
+  });
+
+  test('the runaway cap still bounds a lane it cannot key', () => {
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":19}\'\n');
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', detached], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((r.stdout ?? '').trim()).toBe('final_gate');
   });
 });
 
@@ -109,6 +194,7 @@ describe('resolve-phase — round axis', () => {
 // reviewer, which is the mirror image of the "refusing to silently fall back to a paid
 // frontier backend" rule the adapter already enforces in the other direction.
 describe('resolve-phase — fallback polarity', () => {
+  beforeEach(() => setMarker(null));
   test('no ledger on the machine falls back to the gate, never the loop', () => {
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: path.join(tmp, 'does-not-exist'), HOME: path.join(tmp, 'no-home') })).toBe('final_gate');
   });
@@ -130,6 +216,7 @@ describe('resolve-phase — fallback polarity', () => {
 });
 
 describe('resolve-phase — size ceiling', () => {
+  beforeEach(() => setMarker(null));
   test('is OFF by default: a large diff still routes to the loop', () => {
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     setCfg('outside_voice_gate_threshold', '4');
