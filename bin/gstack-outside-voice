@@ -501,8 +501,17 @@ resolve_phase() {
   # read has not earned a gate round, and spending frontier money on an unanswerable question is
   # the wrong direction to fail in.
   marker="$(lane_marker_path "$repo_root" 2>/dev/null || true)"
-  if [ -n "$marker" ] && [ -f "$marker" ] && [ "$(cat "$marker" 2>/dev/null)" = "clean" ]; then
-    printf 'final_gate'; return 0
+  # A CLEAN VERDICT IS ABOUT A REVISION, NOT A BRANCH (codex r3 P2). The marker is keyed on
+  # repo+branch, so once a loop round came back clean, every later `auto` on that branch promoted
+  # to the gate — including after new commits landed, which is precisely when fresh work most
+  # needs loop rounds. The verdict now carries the HEAD it was formed against and is honoured
+  # only while that HEAD still stands; anything else falls through to the loop, which is the
+  # cheap side to be wrong on.
+  if [ -n "$marker" ] && [ -f "$marker" ]; then
+    local _rec _head
+    _rec=$(cat "$marker" 2>/dev/null || true)
+    _head=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)
+    [ -n "$_head" ] && [ "$_rec" = "clean $_head" ] && { printf 'final_gate'; return 0; }
   fi
 
   # A LOOP BACKEND THAT CANNOT EMIT A FINDINGS BLOCK CAN NEVER PROMOTE (codex r1 P1).
@@ -519,6 +528,14 @@ resolve_phase() {
   # anything else — misconfigured, disabled, or a future backend that does not implement the
   # contract — takes the same safe branch rather than being enumerated optimistically.
   if [ "$(resolve_backend loop)" != "openrouter" ]; then printf 'final_gate'; return 0; fi
+
+  # CONFIGURED IS NOT RUNNABLE (codex r3 P2). resolve_backend answers "which backend is named",
+  # not "can it run" — so `outside_voice_loop=openrouter` with no API key, a blank model or an
+  # unusable base URL still resolved to `loop`, and cmd_exec then DIED in probe() with
+  # not_authed/misconfigured. Auto mode produced no review at all on a misconfigured loop
+  # install, which is worse than the frontier-priced review it was avoiding. Probe first and gate
+  # on anything short of ready: a degraded review beats an absent one.
+  if [ "$(probe loop no)" != "ready" ]; then printf 'final_gate'; return 0; fi
 
   # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
   # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
@@ -931,9 +948,15 @@ except Exception:
 PY
 )
     fi
+    # Stamped with the revision the verdict is about, so resolve_phase can refuse a verdict that
+    # has been overtaken by new commits. A head we cannot read writes the bare verdict, which
+    # never matches the "clean <sha>" form and so can only ever route to the loop.
+    local _head_now
+    _head_now=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)
+    [ "$_verdict" = "clean" ] && [ -n "$_head_now" ] && _verdict="clean $_head_now"
     printf '%s' "$_verdict" > "$marker" 2>/dev/null || \
       echo "gstack-outside-voice: WARNING — could not record the loop verdict at $marker; the next round will default to the loop." >&2
-    [ "$_verdict" = "clean" ] && \
+    case "$_verdict" in clean*) : ;; *) false ;; esac && \
       echo "gstack-outside-voice: loop reported no P1 and no P2 — the NEXT round on this lane resolves to final_gate. Convergence is the gate's to declare." >&2
   fi
   return 0

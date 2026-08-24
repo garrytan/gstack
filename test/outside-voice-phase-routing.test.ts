@@ -97,6 +97,9 @@ function markerPath(): string {
   const key = spawnSync('sh', ['-c', `printf '%s|%s' '${top}' '${branch}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
   return path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
 }
+function headSha(): string {
+  return spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+}
 function setMarker(v: string | null) {
   const p = markerPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -120,7 +123,7 @@ describe('resolve-phase — loop is the default, the gate is for the converged a
   });
 
   test('a CLEAN loop round promotes the next round to the gate', () => {
-    setMarker('clean');
+    setMarker(`clean ${headSha()}`);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
   });
@@ -132,7 +135,7 @@ describe('resolve-phase — loop is the default, the gate is for the converged a
   });
 
   test('the clean marker outranks the ledger — it works with no round count at all', () => {
-    setMarker('clean');
+    setMarker(`clean ${headSha()}`);
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: path.join(tmp, 'nope'), HOME: path.join(tmp, 'no-home') })).toBe('final_gate');
   });
 });
@@ -246,6 +249,43 @@ describe('exec — auto refuses without the file the mode depends on', () => {
     });
     expect(r.status).not.toBe(0);
     expect(`${r.stderr}`).toMatch(/requires --findings-out/);
+  });
+});
+
+// REGRESSION (codex r3 P2). A clean verdict is a statement about a REVISION. Keyed on branch
+// alone, one clean round promoted every later round on that branch to the gate — including after
+// new commits landed, which is exactly when fresh work most needs loop rounds.
+describe('resolve-phase — a clean verdict expires when HEAD moves', () => {
+  test('a verdict recorded against the current HEAD promotes', () => {
+    setMarker(`clean ${headSha()}`);
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
+  });
+
+  test('a verdict recorded against a different HEAD does not', () => {
+    setMarker('clean 0000000000000000000000000000000000000000');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
+  });
+
+  test('a bare legacy "clean" marker is not honoured', () => {
+    setMarker('clean');
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
+  });
+});
+
+// REGRESSION (codex r3 P2). resolve_backend answers "which backend is named", not "can it run".
+describe('resolve-phase — a named-but-unrunnable loop backend gates', () => {
+  test('openrouter with no API key routes to the gate rather than dying later in probe', () => {
+    setMarker(null);
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led, OPENROUTER_API_KEY: '' },
+    });
+    expect(r.status).toBe(0);
+    expect((r.stdout ?? '').trim()).toBe('final_gate');
   });
 });
 
