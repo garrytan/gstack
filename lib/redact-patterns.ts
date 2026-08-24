@@ -95,6 +95,47 @@ export function luhnValid(span: string): boolean {
   return sum % 10 === 0;
 }
 
+/**
+ * A bare 14-digit `YYYYMMDDhhmmss` stamp — the shape every Supabase/Rails/Flyway
+ * migration filename uses (`20260823000001_reap_stale_notifications.sql`).
+ *
+ * Same collision class as the digit-only UUID `insideUuid` already guards: a
+ * 14-digit run passes Luhn roughly one time in ten, so a repo with a hundred
+ * migrations reliably ships a handful of "credit cards" on every branch that
+ * touches them. The noise is not incidental — it recurs on each push and trains
+ * people to wave the scanner through.
+ *
+ * NARROW BY CONSTRUCTION, in three ways that keep real cards flagged:
+ *   1. EXACTLY 14 digits. 13/15/16/19-digit cards never reach this check.
+ *   2. The digits must parse as a real date AND time — month 01-12, a day that
+ *      exists in that month, hh<24, mm<60, ss<60. Random 14-digit runs fail.
+ *   3. Year 1900-2099. So the span always begins "19" or "20", and the only
+ *      14-digit card family in circulation is Diners Club, whose IINs are
+ *      300-305, 3095, 36, 38 and 39 — every one begins "30", "36", "38" or
+ *      "39". The two sets cannot intersect.
+ *
+ * Separators are deliberately NOT stripped: a card written "1234 5678 9012 34"
+ * must not become timestamp-shaped by having its spaces removed.
+ */
+export function looksLikeDatetimeStamp(span: string): boolean {
+  if (!/^\d{14}$/.test(span)) return false;
+
+  const year = Number(span.slice(0, 4));
+  const month = Number(span.slice(4, 6));
+  const day = Number(span.slice(6, 8));
+  const hour = Number(span.slice(8, 10));
+  const minute = Number(span.slice(10, 12));
+  const second = Number(span.slice(12, 14));
+
+  if (year < 1900 || year > 2099) return false;
+  if (month < 1 || month > 12) return false;
+  if (hour > 23 || minute > 59 || second > 59) return false;
+
+  // Real day-of-month, leap years included.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day >= 1 && day <= daysInMonth;
+}
+
 /** Shannon entropy in bits/char. Used to gate env-style KV (skip placeholders). */
 export function shannonEntropy(s: string): number {
   if (!s.length) return 0;
@@ -693,12 +734,23 @@ export const PATTERNS: RedactPattern[] = [
     tier: "MEDIUM",
     category: "pii",
     description: "Credit-card number (Luhn-valid)",
-    regex: /\b((?:\d[ \-]?){13,19})\b/,
+    // The trailing `\d` is load-bearing. `(?:\d[ \-]?){13,19}` let the LAST
+    // digit absorb the separator after it, so the captured span came back as
+    // "4111 1111 1111 1111 " — trailing space included. That span is what the
+    // engine hands to `allow.has(span)`, to maskPreview and to the redactor,
+    // so an --allowlist entry written as the number itself could never match
+    // (the documented "exact spans" contract was unusable for this pattern),
+    // the preview was off by a character, and an auto-redaction ate the
+    // following space. Requiring a digit at the end keeps every spaced and
+    // hyphenated card matching while ending the span ON the number.
+    regex: /\b((?:\d[ \-]?){12,18}\d)\b/,
     autoRedactable: true,
     redactToken: "<REDACTED-CC>",
     // A 13-19 digit slice of a digit-only UUID passes Luhn often enough to
     // matter; the enclosing-UUID check runs first so it never reaches Luhn.
-    validate: (span, match) => !insideUuid(match) && luhnValid(span),
+    // Datetime stamps are the same collision class — see looksLikeDatetimeStamp.
+    validate: (span, match) =>
+      !insideUuid(match) && !looksLikeDatetimeStamp(span) && luhnValid(span),
   },
   {
     id: "pii.ip_public",
