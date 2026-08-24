@@ -465,6 +465,36 @@ describe('exec — a disabled install no-ops rather than erroring on auto', () =
   });
 });
 
+// REGRESSION (codex r10 P2).
+describe('exec — auto refuses a combination that makes its own signal meaningless', () => {
+  test('--phase auto with --repo-context none is refused', () => {
+    const r = spawnSync(ADAPTER, ['exec', '--phase', 'auto', '--prompt-file', __filename,
+      '--repo-root', repo, '--repo-context', 'none', '--findings-out', path.join(tmp, 'f.json'), '--explicit'], {
+      encoding: 'utf8',
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
+    });
+    expect(r.status).not.toBe(0);
+    expect(`${r.stderr}`).toMatch(/cannot be combined with --repo-context none/);
+  });
+});
+
+// REGRESSION (codex r10 P2). The pre-flight sweep gate was scoped to `loop` back when only the
+// loop could start a lane. `auto` can send a FRESH lane straight to the gate, and that round is
+// still the lane's round 1.
+describe('exec — an auto-resolved round is pre-flight gated whichever phase it lands on', () => {
+  test('a fresh auto lane routed to final_gate still requires the sweep', () => {
+    const led = path.join(tmp, 'fresh-ledger');
+    const r = spawnSync(ADAPTER, ['exec', '--phase', 'auto', '--prompt-file', __filename,
+      '--repo-root', repo, '--findings-out', path.join(tmp, 'g.json'), '--explicit'], {
+      encoding: 'utf8',
+      // No OpenRouter key -> the loop is unrunnable -> auto resolves to final_gate on a lane
+      // that has never recorded a sweep.
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, OPENROUTER_API_KEY: '', GSTACK_STATE_ROOT: stateRoot, CODEX_ROUND_DIR: led },
+    });
+    expect(`${r.stderr}`).toMatch(/pre-flight|sweep/i);
+  });
+});
+
 // THE POLARITY IS THE POINT. Every degraded path must land on final_gate — the frontier
 // reviewer, i.e. pre-adapter behaviour. Landing on `loop` would silently downgrade the
 // reviewer, which is the mirror image of the "refusing to silently fall back to a paid

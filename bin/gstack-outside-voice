@@ -708,8 +708,13 @@ except Exception:
 }
 
 preflight_gate() {
-  local phase="$1" repo_root="$2"
-  [ "$phase" = "loop" ] || return 0
+  local phase="$1" repo_root="$2" auto_resolved="${3:-no}"
+  # Scoped to `loop` when the loop was the only thing that could start a lane. `--phase auto` can
+  # now send a FRESH lane straight to final_gate — on the default codex loop backend, or whenever
+  # the loop is disabled or unrunnable — and that round is still the lane's round 1, so skipping
+  # the structural sweep there reintroduces exactly the self-contradiction class this gate exists
+  # to delete (codex r10 P2). An auto-resolved round is gated whichever phase it landed on.
+  [ "$phase" = "loop" ] || [ "$auto_resolved" = "yes" ] || return 0
 
   local _rl=""
   _rl=$(find_round_ledger) || return 0
@@ -832,7 +837,9 @@ cmd_exec() {
   # that repo, and BEFORE `label` defaults, because a label of "auto" would put every derived
   # round in a usage-log bucket named after the flag rather than the phase that ran. Callers
   # passing an explicit phase are untouched.
+  local _auto_resolved=no
   if [ "$phase" = "auto" ]; then
+    _auto_resolved=yes
     # REFUSE rather than degrade (codex r2 P2). `auto` promotes a lane to the gate by reading the
     # loop round's severities out of the findings file; with no --findings-out there is nothing to
     # read, every clean loop round records as "no clean loop recorded", and the lane grinds to the
@@ -848,6 +855,12 @@ cmd_exec() {
       echo "OUTSIDE_VOICE_DISABLED codex_reviews=disabled" >&2
       return 3
     fi
+    # `--repo-context none` sends a TOOL-LESS backend the prompt and no diff, so a loop round
+    # under it reviews nothing and can return "no P1, no P2" — which convergence_guard would
+    # record as clean and promote the next round to the gate on an artefact no reviewer has seen
+    # (codex r10 P2). Refused rather than silently downgraded: the two flags are individually
+    # documented and their combination is meaningless, so saying so is the only honest option.
+    [ "$repo_context" != "none" ] || die "--phase auto cannot be combined with --repo-context none: the mode decides convergence from what the loop round FOUND, and a round given no diff has not reviewed anything — a clean result from it would promote an unreviewed artefact to the gate. Name the phase explicitly if you meant to run a context-free review."
     [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides when a lane has converged by reading the loop round's severities from that file, and without it every clean round records as 'not converged' and the lane runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
     phase="$(resolve_phase "$repo_root" "$base" "$explicit" ${pathspecs[@]+"${pathspecs[@]}"})"
     echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
@@ -925,7 +938,7 @@ cmd_exec() {
     disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
   esac
 
-  preflight_gate "$phase" "$repo_root"
+  preflight_gate "$phase" "$repo_root" "$_auto_resolved"
 
   # `|| _rc=$?` on both backend calls, not `_rc=$?` after the esac. This file runs under
   # `set -euo pipefail`, so an untested non-zero return from exec_codex/exec_openrouter exits
