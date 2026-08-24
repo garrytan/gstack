@@ -69,8 +69,8 @@ That expands to the full `HostConfig` with these defaults:
   (`~/.claude/skills/gstack` → `~/{globalRoot}`, `.claude/skills/gstack` →
   `{localSkillRoot}`, `.claude/skills` → `{hostSubdir}/skills`)
 - `suppressedResolvers`: the GBrain pair (`GBRAIN_CONTEXT_LOAD`, `GBRAIN_SAVE_RESULTS`)
-- `runtimeRoot`: the shared asset list (`bin`, `browse/dist`, `browse/bin`,
-  `gstack-upgrade`, `ETHOS.md` + review checklist files)
+- `runtimeRoot`: the shared asset list (`bin`, `lib`, `scripts`, `browse/dist`,
+  `browse/bin`, `gstack-upgrade`, `ETHOS.md` + review checklist files)
 - `install`: `{ linkingStrategy: 'symlink-generated' }`
 - `learningsMode: 'basic'`
 

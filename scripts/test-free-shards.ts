@@ -260,6 +260,15 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
 // coverage, so auto-excluding them defeats the regression tests they carry.
 const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   {
+    file: 'test/setup-runtime-lib-command.test.ts',
+    // Trips the "spawns bin/ shebang script" pattern via installed fixture
+    // paths, but shell commands are invoked through spawnSync('bash', ...), and
+    // the TypeScript command through Bun. The Unix symlink cells self-skip on
+    // win32; the IS_WINDOWS=1 cells must run on windows-latest to cover copied
+    // lib/ and scripts/ runtime assets.
+    reason: 'installed bin/ fixture paths are launched explicitly with bash or Bun; Windows copy-install coverage must run on windows-latest',
+  },
+  {
     file: 'test/setup-windows-rerun-refresh.test.ts',
     // Trips the "spawns bin/ shebang script" pattern via path.join(..., 'bin',
     // 'tool.sh') fixture paths, but every spawn goes through spawnSync('bash',
