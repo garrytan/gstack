@@ -550,6 +550,27 @@ find_round_ledger() {
 # deliberately refuses. Instead convergence_guard records the verdict of each loop round in a
 # per-lane marker under the adapter's own state dir, which has the side benefit of working on
 # an install with no round ledger at all.
+# THE REVIEW QUESTION IS PART OF THE KEY, SO IT NEEDS ONE PRODUCER (codex r12 P2).
+# r11 put the prompt content and the repo-context mode into the marker key, and computed the
+# fingerprint inline in cmd_exec. `resolve-phase` -- the inspection surface for the same
+# derivation -- kept passing an empty context, so it looked up a DIFFERENT marker and printed
+# `loop` while a real `exec --phase auto` call on the same lane promoted to `final_gate`. The
+# tool that exists to tell an operator which phase will run was wrong precisely in the
+# converged-lane case it was added to diagnose.
+#
+# This is the r7 finding a second time -- two sites answering one question, each trusted to
+# answer it the same way -- so it takes the r7 remedy rather than a patch to the site that
+# happened to be noticed: ONE producer, called by both. CONTENT, not path: two callers writing
+# the same prompt to different tempfiles are asking the same question and share a lane. A
+# missing or unreadable prompt yields the `noprompt` sentinel rather than an empty string, so
+# "no prompt" and "an empty prompt" stay distinguishable in the key.
+review_context_fp() {
+  local prompt_file="${1:-}" repo_context="${2:-diff}"
+  printf '%s-%s' \
+    "$( { cksum < "$prompt_file" 2>/dev/null || echo noprompt; } | tr -d ' \t' )" \
+    "$repo_context"
+}
+
 resolve_phase() {
   local repo_root="$1" base="${2:-origin/main}" explicit="${3:-no}" ctx_fp="${4:-}"
   shift 4 ||:
@@ -855,7 +876,7 @@ cmd_exec() {
   # not path — two callers writing the same prompt to different tempfiles are asking the same
   # question and should share a lane.
   local _ctx_fp
-  _ctx_fp="$( { cksum < "$prompt_file" 2>/dev/null || echo noprompt; } | tr -d ' \t' )-$repo_context"
+  _ctx_fp="$(review_context_fp "$prompt_file" "$repo_context")"
 
   local _auto_resolved=no
   if [ "$phase" = "auto" ]; then
@@ -1409,16 +1430,30 @@ case "$_CMD" in
     # Inspection surface for `--phase auto` (VAS-2371). Exists so the derivation can be
     # asserted by a test and eyeballed by an operator without spending a review round to find
     # out which phase would have run. STDOUT is exactly one word, same contract as `backend`.
-    _rp_root=""; _rp_base="origin/main"; _rp_explicit=no; _rp_ctx=""; _rp_paths=()
+    # --prompt-file / --repo-context exist because the marker key carries the review QUESTION
+    # (codex r11), so an inspection that cannot name the question cannot look up the right
+    # marker. Defaults mirror `exec`: repo-context diff, and an absent prompt fingerprints to
+    # the `noprompt` sentinel, which is what a caller inspecting a lane without a prompt to
+    # hand actually asked about.
+    _rp_root=""; _rp_base="origin/main"; _rp_explicit=no; _rp_paths=()
+    _rp_prompt=""; _rp_repo_context="diff"
     while [ $# -gt 0 ]; do
       case "$1" in
-        --repo-root) _rp_root="${2:?--repo-root needs a value}"; shift 2 ;;
-        --base)      _rp_base="${2:?--base needs a value}"; shift 2 ;;
-        --explicit)  _rp_explicit=yes; shift ;;
-        --pathspec)  _rp_paths+=("${2:?--pathspec needs a value}"); shift 2 ;;
-        *) die "usage: gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>] [--explicit] [--pathspec <spec>]" ;;
+        --repo-root)    _rp_root="${2:?--repo-root needs a value}"; shift 2 ;;
+        --base)         _rp_base="${2:?--base needs a value}"; shift 2 ;;
+        --explicit)     _rp_explicit=yes; shift ;;
+        --pathspec)     _rp_paths+=("${2:?--pathspec needs a value}"); shift 2 ;;
+        --prompt-file)  _rp_prompt="${2:?--prompt-file needs a value}"; shift 2 ;;
+        --repo-context) _rp_repo_context="${2:?--repo-context needs a value}"; shift 2 ;;
+        *) die "usage: gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>] [--explicit] [--pathspec <spec>] [--prompt-file <path>] [--repo-context diff|none]" ;;
       esac
     done
+    case "$_rp_repo_context" in diff|none) ;; *) die "--repo-context must be diff|none" ;; esac
+    # `exec --phase auto` REFUSES --repo-context none (codex r10), so an inspection that
+    # cheerfully printed a phase for that combination would be reporting on a call that cannot
+    # happen. The inspection surface refuses exactly what the thing it inspects refuses.
+    [ "$_rp_repo_context" != "none" ] || die "resolve-phase --repo-context none has no answer: exec --phase auto refuses that combination, because a round given no diff has not reviewed anything and a clean result from it would promote an unreviewed artefact to the gate."
+    _rp_ctx="$(review_context_fp "$_rp_prompt" "$_rp_repo_context")"
     if [ -z "$_rp_root" ]; then
       _rp_root=$(git rev-parse --show-toplevel 2>/dev/null) \
         || die "not in a git repo and --repo-root not given"

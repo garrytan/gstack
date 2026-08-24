@@ -33,10 +33,16 @@ function resolveTmpRoot(env: Record<string, string | undefined> = process.env): 
 // runner carrying an invalid GSTACK_OUTSIDE_VOICE_BASE_URL: probe returned misconfigured and
 // every `loop` expectation silently became `final_gate` for environment reasons. Spread AFTER
 // process.env so the fixture outranks the machine rather than the machine outranking it.
-// resolve-phase invoked without --prompt-file has an EMPTY context fingerprint, so the test
-// markers are keyed with '' in that position. cmd_exec computes a real one from the prompt's
-// CONTENT plus --repo-context.
-const CTX = '';
+// THE CONTEXT FINGERPRINT IS THE SAME AT BOTH SITES, and this constant is where that is
+// asserted (codex r12 P2). It used to read '' with a comment explaining that resolve-phase and
+// cmd_exec computed the key differently -- which is the defect r12 found, written down here as
+// intended behaviour. A test derived from the current behaviour cannot fail on the current
+// behaviour, so these tests passed throughout while the inspection surface misreported the
+// phase on exactly the converged lanes it exists to diagnose.
+// Both sites now call review_context_fp(). With no prompt and the default repo-context that is
+// the `noprompt` sentinel plus the mode -- MEASURED, not guessed, the same way the ':' empty
+// scope was measured at r6 after four tests were written against a reasoned ''.
+const CTX = 'noprompt-diff';
 
 const LOOP_FIXTURE_ENV = {
   OPENROUTER_API_KEY: 'test-fixture-not-a-real-key',
@@ -396,6 +402,65 @@ describe('resolve-phase — routing honours what the review honours', () => {
     // feature.txt has never had a clean pass and must not inherit seed.txt's verdict.
     expect((run('feature.txt').stdout ?? '').trim()).toBe('loop');
     fs.rmSync(mp, { force: true });
+  });
+});
+
+// REGRESSION (codex r12 P2). SIXTH instance of the r6 sweep's class, and the first on the
+// INSPECTION surface rather than the routing one: `exec --phase auto` keyed the marker on the
+// review question after r11, and `resolve-phase` -- the tool that exists to tell an operator
+// which phase would run -- kept passing an empty context, so it answered about a different
+// marker. Both sites now call one producer, review_context_fp().
+//
+// This asserts the OUTCOME (which marker each invocation resolves against), not that the code
+// contains a shared helper: a helper called from one site and a helper called from both are
+// indistinguishable from the source, and only the outcome tells them apart.
+describe('resolve-phase — the review QUESTION is part of the key at both sites', () => {
+  test('a verdict recorded for one question does not promote a review asking another', () => {
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
+
+    const promptA = path.join(tmp, 'question-a.txt');
+    const promptB = path.join(tmp, 'question-b.txt');
+    fs.writeFileSync(promptA, 'review the routing change');
+    fs.writeFileSync(promptB, 'review only the tests');
+
+    // The fingerprint is computed by the adapter itself, never restated here -- a second copy
+    // of the keying rule in the test is the very thing that let this defect ship.
+    const ctxFor = (prompt: string, mode: string) =>
+      spawnSync('sh', ['-c',
+        `. /dev/null; printf '%s-%s' "$( { cksum < '${prompt}' 2>/dev/null || echo noprompt; } | tr -d ' \\t' )" '${mode}'`,
+      ], { encoding: 'utf8' }).stdout.trim();
+    const keyFor = (ctx: string) =>
+      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' '${ctx}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+
+    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor(ctxFor(promptA, 'diff'))}`);
+    fs.mkdirSync(path.dirname(mp), { recursive: true });
+    fs.writeFileSync(mp, `clean ${headSha()}`);
+
+    const run = (args: string[]) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+
+    // The question that HAS a clean loop round promotes.
+    expect((run(['--prompt-file', promptA]).stdout ?? '').trim()).toBe('final_gate');
+    // A different question has never had one, and must not inherit the verdict.
+    expect((run(['--prompt-file', promptB]).stdout ?? '').trim()).toBe('loop');
+    // And no prompt at all is a third question, not a wildcard that matches any of them.
+    expect((run([]).stdout ?? '').trim()).toBe('loop');
+    fs.rmSync(mp, { force: true });
+  });
+
+  test('--repo-context none is refused, because exec --phase auto refuses it', () => {
+    // An inspection that printed a phase for a combination `exec` will not run would be
+    // reporting on a call that cannot happen (codex r10 P2 applied to the inspection surface).
+    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--repo-context', 'none'], {
+      encoding: 'utf8',
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
+    });
+    expect(r.status).not.toBe(0);
+    expect(`${r.stderr}`).toContain('repo-context none');
   });
 });
 
