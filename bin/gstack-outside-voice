@@ -441,7 +441,16 @@ lane_marker_path() {
   # not a count) and a codex round misread it as `shift 2` and filed a pathspec-dropping bug that
   # does not exist. It was disproved in one command, but a construct that costs a round to
   # re-prove is cheaper to rewrite than to defend.
+  # CANONICALISED HERE, not at the call sites (codex r9 P2). resolve_base_ref deliberately
+  # treats `origin/main`, `main` and `origin/origin/main` as one review base, but the key was
+  # built from the RAW --base string — so a clean verdict recorded under one spelling was
+  # invisible to the next call using an equivalent one, and the lane looped to the cap purely
+  # because the caller renamed the same base. Canonicalising in the keyer means the two callers
+  # cannot drift apart, which is the same reason resolve_base_ref itself was extracted.
   local base_key="${1:-}"; shift ||:
+  if [ -n "$base_key" ]; then
+    base_key="$(resolve_base_ref "$repo_root" "$base_key" 2>/dev/null || printf '%s' "$base_key")"
+  fi
   scope=$(printf '%s\n' "$@" | LC_ALL=C sort | tr '\n' ':')
   top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || return 1
   branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
@@ -830,6 +839,15 @@ cmd_exec() {
     # runaway cap without ever converging. That is silent and it looks exactly like a lane that is
     # simply taking a while, so it must be a refusal at the door rather than a surprise 20 rounds
     # later. The requirement is a property of the MODE, not of the caller's diligence.
+    # Checked AFTER the master switch below? No — it cannot be, because the phase must be known
+    # before the backend is resolved. So the DISABLED case is short-circuited here instead
+    # (codex r9 P2): with codex_reviews=disabled an automatic caller is supposed to get the
+    # existing no-op exit, and making `auto` die with exit 2 first would regress every user who
+    # deliberately switched outside review off the moment a skill adopted the mode.
+    if [ "$explicit" != "yes" ] && [ "$(_cfg codex_reviews)" = "disabled" ]; then
+      echo "OUTSIDE_VOICE_DISABLED codex_reviews=disabled" >&2
+      return 3
+    fi
     [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides when a lane has converged by reading the loop round's severities from that file, and without it every clean round records as 'not converged' and the lane runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
     phase="$(resolve_phase "$repo_root" "$base" "$explicit" ${pathspecs[@]+"${pathspecs[@]}"})"
     echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2

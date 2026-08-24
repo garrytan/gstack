@@ -425,6 +425,46 @@ describe('resolve-phase — the base is part of the review subject', () => {
   });
 });
 
+// REGRESSION (codex r9 P2).
+describe('resolve-phase — equivalent base spellings share one verdict', () => {
+  test('a verdict recorded as origin/main is honoured for origin/origin/main', () => {
+    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
+    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
+    const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
+    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
+    fs.mkdirSync(path.dirname(mp), { recursive: true });
+    fs.writeFileSync(mp, `clean ${headSha()}`);
+    const run = (b: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', b], {
+      encoding: 'utf8',
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
+    });
+    expect((run('origin/main').stdout ?? '').trim()).toBe('final_gate');
+    expect((run('origin/origin/main').stdout ?? '').trim()).toBe('final_gate');
+    fs.rmSync(mp, { force: true });
+  });
+});
+
+describe('exec — a disabled install no-ops rather than erroring on auto', () => {
+  // ITS OWN STATE ROOT, not a set-then-restore on the shared one. The first version toggled
+  // codex_reviews on `stateRoot` and restored it afterwards, which made every other test in the
+  // file order-dependent on that restore — and it flaked exactly once before being caught. A
+  // test that mutates shared state and puts it back is a race with a cleanup step, not isolation.
+  test('codex_reviews=disabled short-circuits before the findings-out requirement', () => {
+    const ownRoot = fs.mkdtempSync(path.join(tmp, 'disabled-state-'));
+    spawnSync(CONFIG, ['set', 'codex_reviews', 'disabled'], {
+      encoding: 'utf8', env: { ...process.env, GSTACK_STATE_ROOT: ownRoot },
+    });
+    const r = spawnSync(ADAPTER, ['exec', '--phase', 'auto', '--prompt-file', __filename, '--repo-root', repo], {
+      encoding: 'utf8',
+      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: ownRoot },
+    });
+    expect(r.status).toBe(3);
+    expect(`${r.stderr}`).toMatch(/OUTSIDE_VOICE_DISABLED/);
+    expect(`${r.stderr}`).not.toMatch(/requires --findings-out/);
+  });
+});
+
 // THE POLARITY IS THE POINT. Every degraded path must land on final_gate — the frontier
 // reviewer, i.e. pre-adapter behaviour. Landing on `loop` would silently downgrade the
 // reviewer, which is the mirror image of the "refusing to silently fall back to a paid
