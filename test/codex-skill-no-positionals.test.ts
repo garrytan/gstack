@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TMPL = path.join(ROOT, 'codex', 'SKILL.md.tmpl');
@@ -96,17 +97,109 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     }
   }
 
-  test.each(FILES)('%s: no path is spliced into text the inner shell re-parses', (_label, file) => {
+  // DERIVED FROM THE TABLE, not hand-listed. The hand-listed version named four of the six and a
+  // review round found the gap: reintroducing `--effort '"$_OV_EFFORT"'` or `2>'"$TMPERR"'` would
+  // have been green on the only test that names them. A criterion you never wrote down cannot be
+  // audited for what it excluded, so the exclusion here is impossible by construction — add a row
+  // to ENV_PAIRS and it is covered.
+  test.each(FILES)('%s: no outer variable is spliced into text the inner shell re-parses', (_label, file) => {
     const text = fs.readFileSync(file as string, 'utf8');
-    // The splice this whole lineage exists to keep out: a single quote closed mid-string so the
-    // VALUE lands in text `bash -c` then parses. Kept as its own case rather than folded into the
-    // table above, because it is a DIFFERENT property — the table proves the values arrive, this
-    // proves they arrive without being re-parsed, and a fix for one has twice been mistaken for
-    // the other.
-    expect(text).not.toContain(`'"$_LOOP_PROMPT"'`);
-    expect(text).not.toContain(`'"$_REPO_ROOT"'`);
-    expect(text).not.toContain(`'"$_OV_FINDINGS"'`);
-    expect(text).not.toContain(`'"$_OV_DONE"'`);
+    for (const [, assignment] of ENV_PAIRS) {
+      // 'GSTACK_OV_PROMPT="$_LOOP_PROMPT"' -> '$_LOOP_PROMPT', the OUTER variable whose VALUE the
+      // dangerous idiom would paste into text `bash -c` then parses.
+      const outer = assignment.slice(assignment.indexOf('"') + 1, assignment.lastIndexOf('"'));
+      expect(text).not.toContain(`'"${outer}"'`);
+    }
+  });
+
+  // ── CONNECTEDNESS ──────────────────────────────────────────────────────────────────────────
+  // The table above proves each literal EXISTS. It cannot prove the two halves are connected
+  // across the shell boundary, and a review round said so precisely: a launcher writing
+  // `GSTACK_OV_PROMPT="$_LOOP_PROMPT"` as a plain local statement — not as a command prefix on the
+  // `nohup` — would satisfy every assertion above while the inner shell expanded the variable to
+  // the empty string. That is the same silent-empty-path failure this file exists to prevent, so
+  // the guard has to reach past text.
+  //
+  // Two checks, because they fail differently. This one pins the STRUCTURE: the six assignments
+  // form one unbroken command prefix immediately ahead of `nohup bash -c`, with nothing but
+  // line-continuations between them. The next one RUNS it.
+  test.each(FILES)('%s: the assignments are a command prefix on the nohup, not loose statements', (_label, file) => {
+    const text = fs.readFileSync(file as string, 'utf8');
+    // Built as a literal contiguous block rather than a regex: the thing being asserted is that
+    // these lines are ADJACENT and end in a continuation, and a regex over shell metacharacters
+    // needs escaping that is itself a place to get this wrong.
+    const CONT = ' \\\n';
+    const block = ENV_PAIRS.map(([, assignment]) => assignment).join(CONT) + CONT + 'nohup bash -c';
+    expect(text).toContain(block);
+  });
+
+  // ...and the behavioural one. EXTRACT the real launcher out of the shipped file, point it at a
+  // stub that records the argv it receives, and run it. This is the only check here that proves
+  // DELIVERY rather than shape — every assertion above is about text, and text is what was correct
+  // on disk while the thing that ran was wrong.
+  //
+  // The temp paths are deliberately HOSTILE: they contain `$(id -u)` and a backtick, the two
+  // constructs measured EXECUTING under the splice idiom this lineage replaced. So one run proves
+  // both properties at once — the values arrive, and they arrive literally.
+  test('the extracted launcher delivers hostile paths to the adapter literally', () => {
+    const text = fs.readFileSync(TMPL, 'utf8');
+    const start = text.indexOf('GSTACK_OV_PROMPT="$_LOOP_PROMPT"');
+    const end = text.indexOf(`' > "$_OV_OUT" 2>&1 &`, start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const launcher = text.slice(start, end + `' > "$_OV_OUT" 2>&1 &`.length);
+
+    const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'ov-launch-'));
+    // A directory name carrying the two constructs that were measured executing.
+    const hostile = path.join(tmp, 'p $(id -u) `id -u` d');
+    fs.mkdirSync(hostile, { recursive: true });
+
+    const stub = path.join(tmp, 'stub-adapter');
+    // Records argv one-per-line so an empty value is visible as an empty line rather than
+    // vanishing into whitespace — an empty path is exactly the failure being hunted.
+    fs.writeFileSync(stub, '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "' + tmp + '/argv.txt"\n');
+    fs.chmodSync(stub, 0o755);
+
+    const promptFile = path.join(hostile, 'prompt.txt');
+    fs.writeFileSync(promptFile, 'x');
+    const findings = path.join(hostile, 'f.json');
+    const errFile = path.join(hostile, 'e.txt');
+    const doneFile = path.join(hostile, 'd');
+    const outFile = path.join(hostile, 'o.txt');
+
+    // Substitute only the adapter path; the launcher's own shape is used verbatim.
+    const body = launcher.replace('~/.claude/skills/gstack/bin/gstack-outside-voice', stub);
+    const script = [
+      `_LOOP_PROMPT='${promptFile}'`,
+      `_REPO_ROOT='${hostile}'`,
+      `_OV_FINDINGS='${findings}'`,
+      `TMPERR='${errFile}'`,
+      `_OV_DONE='${doneFile}'`,
+      `_OV_EFFORT='medium'`,
+      `_OV_OUT='${outFile}'`,
+      body,
+      'wait',
+    ].join('\n');
+
+    const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+
+    const argv = fs.readFileSync(path.join(tmp, 'argv.txt'), 'utf8').split('\n');
+    // The paths arrive, and they arrive LITERALLY — no expansion, no word splitting.
+    expect(argv).toContain(promptFile);
+    expect(argv).toContain(hostile);
+    expect(argv).toContain(findings);
+    expect(argv).toContain('medium');
+    // ...and nothing arrived empty, which is the shape a referenced-but-unassigned var produces.
+    const flags = ['--prompt-file', '--repo-root', '--findings-out', '--effort'];
+    for (const flag of flags) {
+      const i = argv.indexOf(flag);
+      expect(i).toBeGreaterThan(-1);
+      expect(argv[i + 1]).not.toBe('');
+    }
+    // The hostile constructs were NOT evaluated: `id -u` would have produced a bare uid.
+    expect(argv.join('\n')).toContain('$(id -u)');
+    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   // The regex is the whole guard, so prove it BITES rather than assuming it does. A guard asserted
