@@ -1602,12 +1602,36 @@ elif [ -s "$TMPERR" ]; then
   echo "[outside-voice notes — the review SUCCEEDED; these qualify it]"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 fi
-# Printed under the SAME label the default gate uses, so step 4's rule — prefer the validated
-# block, fall back to markers only when none was printed and the exit was 0 — covers this path
-# too, with no second rule to keep in step.
-echo "GATE_BACKEND: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown)"
-if [ "$_CODEX_EXIT" = "0" ] && [ -s "$_FOCUS_FINDINGS" ]; then
-  echo "GATE_FINDINGS_JSON: $(cat "$_FOCUS_FINDINGS")"
+# THE LABEL MUST MATCH THE PHASE THAT ACTUALLY RAN (codex r19 P1, self-inflicted by r18).
+#
+# This block printed GATE_BACKEND and GATE_FINDINGS_JSON unconditionally, which was correct
+# while the branch was hardcoded to final_gate. r18 made the phase honour --loop and did not
+# follow the reporting, so a focused `--loop` round announced itself as a GATE round. Step 4
+# grades the two labels by DIFFERENT rules — `GATE_*` is the final-gate verdict (p1 only, with
+# degraded-gate detection from the backend) while `OV_FINDINGS_JSON` is the loop stop condition
+# (p1 OR p2) — so a degraded openrouter loop round with outstanding P2s could be graded a clean
+# codex gate pass. A fix is new code, and this is the half of it I did not write.
+#
+# Same shape as r15/r17 one file over: one side of a pair updated and the other left, so two
+# readers of one fact disagree. The phase is the single producer here; both the backend line and
+# the findings label are derived from it rather than each deciding for itself.
+if [ "$_FOCUS_PHASE" = "loop" ]; then
+  # Lower-case and unlabelled ON PURPOSE. `GATE_BACKEND:` is a MARKER step 4 parses; the Step 2A
+  # loop path emits no backend marker at all, and inventing a `LOOP_BACKEND:` one would add a
+  # machine-looking label nothing reads — the same "asserts something nothing checks" shape as
+  # the defect this block is fixing. Informational for a human, invisible to the grader.
+  echo "loop backend: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase loop 2>/dev/null || echo unknown)"
+  if [ "$_CODEX_EXIT" = "0" ] && [ -s "$_FOCUS_FINDINGS" ]; then
+    echo "OV_FINDINGS_JSON: $(cat "$_FOCUS_FINDINGS")"
+  fi
+else
+  # Printed under the SAME label the default gate uses, so step 4's rule — prefer the validated
+  # block, fall back to markers only when none was printed and the exit was 0 — covers this path
+  # too, with no second rule to keep in step.
+  echo "GATE_BACKEND: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown)"
+  if [ "$_CODEX_EXIT" = "0" ] && [ -s "$_FOCUS_FINDINGS" ]; then
+    echo "GATE_FINDINGS_JSON: $(cat "$_FOCUS_FINDINGS")"
+  fi
 fi
 rm -f "$_FOCUS_FINDINGS"
 ```
