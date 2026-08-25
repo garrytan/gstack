@@ -435,6 +435,41 @@ case "${1:-}" in
       echo "Error: outside_voice_loop_model must be a single token with no whitespace (got '$VALUE'). Existing value left unchanged." >&2
       exit 1
     fi
+    # THE NUMERIC ROUTING KNOBS ARE VALIDATED HERE, not only reported (codex r17 P2).
+    #
+    # This is the r15 finding's other half, and it is worth naming as such: r15 made the config
+    # tool REPORT these two keys, and left the WRITE path accepting anything. So the surface and
+    # the router could still disagree — just in the opposite direction. Making a failure explicit
+    # at one layer only MOVES the silence; the read side and the write side are one decision.
+    #
+    # Measured before this guard: `set outside_voice_size_ceiling banana` and `... -5` both
+    # succeeded, `list` displayed them as configured, and resolve_phase coerced each back to its
+    # built-in default — so an operator could read their own ceiling off `list` while the router
+    # ignored it entirely.
+    #
+    # A CAP OF 0 IS THE SHARP ONE and is refused separately. It is numerically valid, so the
+    # router HONOURS it — and `[ $((rounds + 1)) -ge 0 ]` is true for every round, which gates
+    # the whole lane on the frontier tier for ever. That silently switches off the cheap loop
+    # this entire feature exists to enable, while `list` shows a cap that looks deliberate.
+    case "$KEY" in
+      outside_voice_runaway_cap)
+        case "$VALUE" in
+          ''|*[!0-9]*)
+            echo "Error: $KEY must be a positive whole number of rounds (got '$VALUE'). Existing value left unchanged." >&2
+            exit 1 ;;
+        esac
+        if [ "$VALUE" -lt 1 ]; then
+          echo "Error: $KEY must be at least 1 (got '$VALUE'). A cap of 0 gates EVERY round, which switches the cheap loop off entirely rather than bounding it — if that is what you want, set outside_voice_loop=disabled so it says so. Existing value left unchanged." >&2
+          exit 1
+        fi ;;
+      outside_voice_size_ceiling)
+        # 0 is legitimate here and means OFF, which is the shipped default.
+        case "$VALUE" in
+          ''|*[!0-9]*)
+            echo "Error: $KEY must be a whole number of insertions, or 0 to disable it (got '$VALUE'). Existing value left unchanged." >&2
+            exit 1 ;;
+        esac ;;
+    esac
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then

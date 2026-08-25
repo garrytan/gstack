@@ -945,3 +945,67 @@ describe('base URL validation — a scheme alone is not an endpoint', () => {
     expect(checkBaseUrl('http://127.0.0.1:9/v1').status).toBe(0);
   });
 });
+
+// REGRESSION (codex r17 P2). THE OTHER HALF OF r15, and that is the point rather than a detail:
+// r15 made gstack-config REPORT the two numeric routing keys and left the WRITE path accepting
+// anything, so the config surface and the router could still disagree — just in the opposite
+// direction. Making a failure explicit at one layer only moves the silence.
+//
+// Measured before the guard: `set outside_voice_size_ceiling banana` and `... -5` both exited 0
+// and `list` showed them as configured, while resolve_phase coerced each back to its built-in
+// default. A cap of 0 was worse — numerically valid, so the router HONOURS it, and
+// `[ $((rounds + 1)) -ge 0 ]` gates every round, switching off the cheap loop this whole
+// feature exists to enable while looking deliberate on `list`.
+describe('outside_voice numeric knobs — the write path refuses what the router cannot honour', () => {
+  function withRoot<T>(fn: (env: NodeJS.ProcessEnv, root: string) => T): T {
+    const root = fs.mkdtempSync(path.join(TMP_ROOT, 'ovnum-'));
+    try { return fn({ ...process.env, GSTACK_STATE_ROOT: root }, root); }
+    finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+  const set = (env: NodeJS.ProcessEnv, k: string, v: string) =>
+    spawnSync(CONFIG, ['set', k, v], { encoding: 'utf8', env });
+  const get = (env: NodeJS.ProcessEnv, k: string) =>
+    spawnSync(CONFIG, ['get', k], { encoding: 'utf8', env }).stdout.trim();
+
+  for (const [key, bad] of [
+    ['outside_voice_runaway_cap', 'banana'],
+    ['outside_voice_runaway_cap', '-5'],
+    ['outside_voice_size_ceiling', 'banana'],
+    ['outside_voice_size_ceiling', '-5'],
+  ] as const) {
+    test(`${key} rejects ${JSON.stringify(bad)} and leaves the old value`, () => {
+      withRoot((env) => {
+        const before = get(env, key);
+        expect(set(env, key, bad).status).not.toBe(0);
+        // "Existing value left unchanged" is part of the contract, not just the message.
+        expect(get(env, key)).toBe(before);
+      });
+    });
+  }
+
+  // The asymmetry is deliberate and is asserted BOTH ways, because a guard written from the
+  // cap's rule alone would break the ceiling's documented "0 = off" default.
+  test('a runaway cap of 0 is refused — it gates every round rather than bounding them', () => {
+    withRoot((env) => {
+      const r = set(env, 'outside_voice_runaway_cap', '0');
+      expect(r.status).not.toBe(0);
+      expect(`${r.stderr}`).toMatch(/gates EVERY round/);
+    });
+  });
+
+  test('a size ceiling of 0 is ACCEPTED — 0 means off, and it is the shipped default', () => {
+    withRoot((env) => {
+      expect(set(env, 'outside_voice_size_ceiling', '0').status).toBe(0);
+      expect(get(env, 'outside_voice_size_ceiling')).toBe('0');
+    });
+  });
+
+  test('legitimate values still round-trip', () => {
+    withRoot((env) => {
+      expect(set(env, 'outside_voice_runaway_cap', '30').status).toBe(0);
+      expect(get(env, 'outside_voice_runaway_cap')).toBe('30');
+      expect(set(env, 'outside_voice_size_ceiling', '500').status).toBe(0);
+      expect(get(env, 'outside_voice_size_ceiling')).toBe('500');
+    });
+  });
+});
