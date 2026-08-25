@@ -51,6 +51,16 @@ function resolveTmpRoot(env: Record<string, string | undefined> = process.env): 
   throw new Error('no writable temp root: tried TMPDIR, TMP and the project-local .gstack/tmp');
 }
 
+// Single-quote a value for safe embedding in shell source: wrap in single quotes and close/reopen
+// around each embedded quote. This is the idiom for anything assembled by string concatenation
+// into a command, and it belongs HERE more than most places — an earlier version of the test
+// below spliced host paths into shell source raw, so a checkout or TMPDIR holding a space or an
+// apostrophe made the guard report a false regression. A test whose whole subject is "values must
+// not be spliced into text a shell re-parses" was doing exactly that.
+function sq(value: string): string {
+  return `'` + value.split(`'`).join(`'\\''`) + `'`;
+}
+
 const POSITIONAL = /\$[0-9]/;
 
 // Match the whole token so a failure names what it found rather than making the reader grep.
@@ -180,14 +190,17 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     const launcher = text.slice(start, end + `' > "$_OV_OUT" 2>&1 &`.length);
 
     const tmp = fs.mkdtempSync(path.join(resolveTmpRoot(), 'ov-launch-'));
-    // A directory name carrying the two constructs that were measured executing.
-    const hostile = path.join(tmp, 'p $(id -u) `id -u` d');
+    // A directory name carrying every construct that has broken this lineage: the two that were
+    // measured EXECUTING under the old splice idiom, plus the space and apostrophe that broke the
+    // first version of this very test. The fixture is the failing input, not a tidy stand-in.
+    const hostile = path.join(tmp, `p $(id -u) \`id -u\` it's d`);
     fs.mkdirSync(hostile, { recursive: true });
 
     const stub = path.join(tmp, 'stub-adapter');
     // Records argv one-per-line so an empty value is visible as an empty line rather than
     // vanishing into whitespace — an empty path is exactly the failure being hunted.
-    fs.writeFileSync(stub, '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "' + tmp + '/argv.txt"\n');
+    const argvFile = path.join(tmp, 'argv.txt');
+    fs.writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${sq(argvFile)}\n`);
     fs.chmodSync(stub, 0o755);
 
     const promptFile = path.join(hostile, 'prompt.txt');
@@ -198,15 +211,17 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     const outFile = path.join(hostile, 'o.txt');
 
     // Substitute only the adapter path; the launcher's own shape is used verbatim.
-    const body = launcher.replace('~/.claude/skills/gstack/bin/gstack-outside-voice', stub);
+    // EVERY interpolated value is single-quoted, including the stub path substituted into the
+    // launcher body. Raw interpolation is what the finding above caught.
+    const body = launcher.replace('~/.claude/skills/gstack/bin/gstack-outside-voice', sq(stub));
     const script = [
-      `_LOOP_PROMPT='${promptFile}'`,
-      `_REPO_ROOT='${hostile}'`,
-      `_OV_FINDINGS='${findings}'`,
-      `TMPERR='${errFile}'`,
-      `_OV_DONE='${doneFile}'`,
-      `_OV_EFFORT='medium'`,
-      `_OV_OUT='${outFile}'`,
+      `_LOOP_PROMPT=${sq(promptFile)}`,
+      `_REPO_ROOT=${sq(hostile)}`,
+      `_OV_FINDINGS=${sq(findings)}`,
+      `TMPERR=${sq(errFile)}`,
+      `_OV_DONE=${sq(doneFile)}`,
+      `_OV_EFFORT=${sq('medium')}`,
+      `_OV_OUT=${sq(outFile)}`,
       body,
       'wait',
     ].join('\n');
@@ -214,7 +229,7 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
     expect(r.status).toBe(0);
 
-    const argv = fs.readFileSync(path.join(tmp, 'argv.txt'), 'utf8').split('\n');
+    const argv = fs.readFileSync(argvFile, 'utf8').split('\n');
     // The paths arrive, and they arrive LITERALLY — no expansion, no word splitting.
     expect(argv).toContain(promptFile);
     expect(argv).toContain(hostile);
