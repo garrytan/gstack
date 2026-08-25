@@ -945,6 +945,13 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # that the agent runs verbatim just compares two literals — the branch was always false, so
 # the bypass never fired and the feature stayed unreachable on the machines it was added for.
 # A placeholder that fails silently in a test is worse than one that fails loudly in a string.
+# ⚠ REVIEWERS: THE SUBSTITUTER IS THE AGENT RUNNING THIS SKILL, NOT ANYTHING IN THIS REPO.
+# Grepping the repository for something that rewrites this line finds nothing, and that is the
+# design, not a defect — the same convention as `<base>` and the `_XHIGH` lines below. FIVE
+# review rounds have now reported this block as unreachable or dead on exactly that reading
+# (four noted below, plus codex r16 P1). The self-validating check on the next lines is what
+# makes an unsubstituted placeholder fail LOUDLY instead of silently, which is the whole point;
+# it firing is the mechanism working, not proof that nobody fills the value in.
 _OV_PHASE="<<SET-ME: loop | final_gate | none>>"   # ← SUBSTITUTE THIS WHOLE STRING
 # A placeholder that VALIDATES ITSELF, checked BEFORE anything reads it.
 #

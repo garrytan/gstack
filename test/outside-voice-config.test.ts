@@ -899,3 +899,49 @@ describe('outside_voice routing knobs — the config tool and the adapter agree'
     });
   }
 });
+
+// REGRESSION (codex r16 P2). `_validate_base_url` accepted any `https` scheme without checking
+// that a host was present, so `https://` and `https:///v1` passed the readiness probe as ready.
+// resolve_phase then selects `loop` on the strength of that, and the failure surfaces only once
+// exec builds `https:/chat/completions` and the request dies mid-review — breaking the
+// probe/exec contract the whole routing design leans on. Same class as r3's "configured is not
+// runnable", one layer down: a scheme is not an endpoint.
+//
+// Driven through `--check-base-url`, which is the seam the ADAPTER itself calls (bin/
+// gstack-outside-voice:303), rather than reaching into the function. Testing the private
+// helper would pass while the entry point diverged, which is the two-readers bug this branch
+// has now paid for twice.
+describe('base URL validation — a scheme alone is not an endpoint', () => {
+  const REQUEST_PY = path.join(ROOT, 'bin', 'gstack-outside-voice-request.py');
+
+  function checkBaseUrl(url: string) {
+    return spawnSync('python3', [REQUEST_PY, '--check-base-url'], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_OUTSIDE_VOICE_BASE_URL: url },
+    });
+  }
+
+  // REFUSED — hostless, and the point of the finding.
+  for (const url of ['https://', 'https:///v1']) {
+    test(`refuses ${JSON.stringify(url)} — no hostname`, () => {
+      const r = checkBaseUrl(url);
+      expect(r.status).not.toBe(0);
+      expect(`${r.stderr}`).toMatch(/no hostname/);
+    });
+  }
+
+  // REFUSED for the PRE-EXISTING reason, asserted so the new check cannot be credited with
+  // work the old one was already doing — and so a later tidy-up cannot delete one and keep
+  // the other passing.
+  test('still refuses plain http to a non-loopback host, for the key-exposure reason', () => {
+    const r = checkBaseUrl('http://evil.example/v1');
+    expect(r.status).not.toBe(0);
+    expect(`${r.stderr}`).toMatch(/plain http/);
+  });
+
+  // ACCEPTED — the loopback seam these tests themselves depend on must keep working. A
+  // hostname check written carelessly would take this with it.
+  test('still accepts http on loopback, which the test stubs rely on', () => {
+    expect(checkBaseUrl('http://127.0.0.1:9/v1').status).toBe(0);
+  });
+});
