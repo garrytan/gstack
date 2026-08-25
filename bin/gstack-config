@@ -114,6 +114,16 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   Backend for the FINAL gate on the converged artefact.
 #                           #   Keep on codex: it has repo access and a different training
 #                           #   lineage, which is precisely what the gate is buying.
+# outside_voice_runaway_cap: 20
+#                           #   Hard stop for `--phase auto`: the lane gates once this many
+#                           #   rounds are logged, so a lane that never converges is bounded.
+#                           #   Defaulted to 20 to AGREE with the fleet runaway breaker rather
+#                           #   than describe a different world.
+# outside_voice_size_ceiling: 0
+#                           #   0 = OFF. Above 0, a branch with more insertions than this
+#                           #   gates instead of looping. Ships disabled: the catch-rate study
+#                           #   behind it had five data points, and the real remedy for a large
+#                           #   diff is --pathspec input scoping, not routing it to the frontier.
 # outside_voice_loop_model: minimax/minimax-m3
 #                           #   Model id for an openrouter loop. Needs a LARGE context
 #                           #   window: an openrouter backend has no tools, so the diff is
@@ -151,6 +161,18 @@ lookup_default() {
     outside_voice_loop) echo "codex" ;;
     outside_voice_gate) echo "codex" ;;
     outside_voice_loop_model) echo "minimax/minimax-m3" ;;
+    # THE ADAPTER READS THESE, SO THIS TABLE HAS TO KNOW THEM (codex r15 P2). Both were live
+    # config keys in gstack-outside-voice — `_cfg outside_voice_runaway_cap` and
+    # `_cfg outside_voice_size_ceiling` — and absent here, so `get`, `list` and `defaults`
+    # reported them empty or omitted them while resolve-phase was applying 20 and 0. An
+    # operator could not tell whether auto routing looped because of configuration or because
+    # of a hardcoded fallback, which is the same two-instruments-must-agree bug this file
+    # already carries scars from.
+    #
+    # THE VALUES BELOW MUST EQUAL THE ADAPTER'S OWN FALLBACKS. They are 20 and 0 there; a
+    # different number here would not fix the disagreement, it would move it.
+    outside_voice_runaway_cap) echo "20" ;;
+    outside_voice_size_ceiling) echo "0" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
@@ -453,7 +475,8 @@ case "${1:-}" in
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
-               outside_voice_loop outside_voice_gate outside_voice_loop_model; do
+               outside_voice_loop outside_voice_gate outside_voice_loop_model \
+               outside_voice_runaway_cap outside_voice_size_ceiling; do
       # Ask `get`, do not re-parse. This loop used to run its own
       # `grep | awk '{print $2}' | tr -d [:space:]`, which is a SECOND reader of the same file
       # and disagreed with the first exactly where it mattered most: a blank
@@ -496,7 +519,8 @@ case "${1:-}" in
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
-               outside_voice_loop outside_voice_gate outside_voice_loop_model; do
+               outside_voice_loop outside_voice_gate outside_voice_loop_model \
+               outside_voice_runaway_cap outside_voice_size_ceiling; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

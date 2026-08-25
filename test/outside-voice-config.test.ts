@@ -845,3 +845,57 @@ describe('the retry prompt cannot feed a live fence back to the model', () => {
     expect(py).not.toMatch(/replace\(FENCE,\s*FENCE\s*\+/);
   });
 });
+
+// REGRESSION (codex r15 P2). The adapter treated `outside_voice_runaway_cap` and
+// `outside_voice_size_ceiling` as real config keys while gstack-config had never heard of them,
+// so `get`, `list` and `defaults` reported them empty or omitted them entirely — and an operator
+// could not tell whether auto routing looped because of configuration or because of a hardcoded
+// fallback.
+//
+// THE ASSERTION IS THE AGREEMENT, not the presence. Both numbers are READ from their two
+// sources and compared, so this fails if EITHER side moves without the other. Asserting that
+// gstack-config merely lists the key would pass while the two disagreed, which is the defect —
+// and hardcoding the expected 20 and 0 here would just be a third copy to drift.
+describe('outside_voice routing knobs — the config tool and the adapter agree', () => {
+  const KEYS = ['outside_voice_runaway_cap', 'outside_voice_size_ceiling'] as const;
+
+  // The adapter's own fallback, read out of the shipped script rather than restated.
+  function adapterFallback(key: string): string {
+    const src = fs.readFileSync(ADAPTER, 'utf8');
+    const varName = key === 'outside_voice_runaway_cap' ? 'cap' : 'ceiling';
+    // Located by indexOf, then a narrow regex over the slice. Built as one escaped RegExp
+    // first and it silently matched nothing — the shape being searched for is full of `$`,
+    // `(` and `)`, so the escaping is the hard part and a miss looks identical to "the
+    // fallback is gone". Splitting it removes the escaping entirely.
+    const anchor = `${varName}=$(_cfg ${key})`;
+    const at = src.indexOf(anchor);
+    if (at < 0) throw new Error(`the adapter no longer reads ${key} — this test is stale`);
+    // The coercion right below it decides the effective default:
+    //   case "$x" in ''|*[!0-9]*) x=N ;; esac
+    const m = src.slice(at, at + 400).match(new RegExp(varName + '=([0-9]+)'));
+    if (!m) throw new Error(`could not read the adapter's fallback for ${key}`);
+    return m[1];
+  }
+
+  for (const key of KEYS) {
+    test(`${key} is reported by gstack-config and matches the adapter's fallback`, () => {
+      const stateRoot = fs.mkdtempSync(path.join(TMP_ROOT, 'ovcfg-'));
+      const env = { ...process.env, GSTACK_STATE_ROOT: stateRoot };
+      const got = spawnSync(CONFIG, ['get', key], { encoding: 'utf8', env }).stdout.trim();
+
+      // Reported at all — the half the finding named.
+      expect(got).not.toBe('');
+      // And it AGREES with what the adapter would have fallen back to.
+      expect(got).toBe(adapterFallback(key));
+
+      // Both listing paths surface it too; `get` alone would leave an operator scripting
+      // against a key that `list` still omits.
+      const listed = spawnSync(CONFIG, ['list'], { encoding: 'utf8', env }).stdout;
+      const defaults = spawnSync(CONFIG, ['defaults'], { encoding: 'utf8', env }).stdout;
+      expect(listed).toContain(key);
+      expect(defaults).toContain(key);
+
+      fs.rmSync(stateRoot, { recursive: true, force: true });
+    });
+  }
+});
