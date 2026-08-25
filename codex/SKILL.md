@@ -1122,6 +1122,14 @@ if [ "$_GATE_RAN" != "yes" ]; then
   echo "Skipping the gate invocation: $_GATE_MODE."
 else
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+# TELEMETRY IS BEST-EFFORT AND MUST NOT BECOME THE FAILURE (codex r20 P2). When the gate
+# resolves to a HOSTED backend, Step 0.4 legitimately prints `NEEDS_CODEX: no` and Step 0.5 is
+# skipped — so `gstack-codex-probe` is never sourced and these helpers do not exist. The
+# adapter-exit branches below call them, which turned a clean "gate not run" report into a
+# trailing `command not found` and exit 127, on exactly the path an operator needs when the
+# review cannot start. Step 0.5's own call already uses the defensive form; these did not.
+command -v _gstack_codex_log_event >/dev/null 2>&1 || _gstack_codex_log_event() { :; }
+command -v _gstack_codex_log_hang  >/dev/null 2>&1 || _gstack_codex_log_hang()  { :; }
 _GATE_PROMPT=$(mktemp "$TMP_ROOT/gstack-gate-prompt-XXXXXX.txt")
 # Asking for a VALIDATED block rather than trusting the prose. Round 1 of the gate fixed the
 # same false-PASS by telling the model to write [P1]; that is the weaker half of the pair,
@@ -1214,6 +1222,14 @@ is not a licence to stop early.
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+# TELEMETRY IS BEST-EFFORT AND MUST NOT BECOME THE FAILURE (codex r20 P2). When the gate
+# resolves to a HOSTED backend, Step 0.4 legitimately prints `NEEDS_CODEX: no` and Step 0.5 is
+# skipped — so `gstack-codex-probe` is never sourced and these helpers do not exist. The
+# adapter-exit branches below call them, which turned a clean "gate not run" report into a
+# trailing `command not found` and exit 127, on exactly the path an operator needs when the
+# review cannot start. Step 0.5's own call already uses the defensive form; these did not.
+command -v _gstack_codex_log_event >/dev/null 2>&1 || _gstack_codex_log_event() { :; }
+command -v _gstack_codex_log_hang  >/dev/null 2>&1 || _gstack_codex_log_hang()  { :; }
 _LOOP_PROMPT=$(mktemp "$TMP_ROOT/gstack-ov-prompt-XXXXXX.txt")
 cat > "$_LOOP_PROMPT" <<'PROMPT'
 IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/,
@@ -1544,6 +1560,14 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX.txt")
 # diff therefore turned focused review into an unscoped repo review on the default path. The
 # prompt now carries the same dual-backend wording the gate uses: run git diff if you can,
 # otherwise the diff is below.
+# TELEMETRY IS BEST-EFFORT AND MUST NOT BECOME THE FAILURE (codex r20 P2). When the gate
+# resolves to a HOSTED backend, Step 0.4 legitimately prints `NEEDS_CODEX: no` and Step 0.5 is
+# skipped — so `gstack-codex-probe` is never sourced and these helpers do not exist. The
+# adapter-exit branches below call them, which turned a clean "gate not run" report into a
+# trailing `command not found` and exit 127, on exactly the path an operator needs when the
+# review cannot start. Step 0.5's own call already uses the defensive form; these did not.
+command -v _gstack_codex_log_event >/dev/null 2>&1 || _gstack_codex_log_event() { :; }
+command -v _gstack_codex_log_hang  >/dev/null 2>&1 || _gstack_codex_log_hang()  { :; }
 _FOCUS_FINDINGS=$(mktemp "$TMP_ROOT/gstack-focus-findings-XXXXXX.json")
 # SET THIS LINE: `yes` if the user typed --xhigh anywhere, otherwise `no` (Step 0.3).
 # One flag, and the effort is DERIVED from it rather than typed. Three sites each re-decided
@@ -1575,15 +1599,26 @@ case "$_FOCUS_PHASE" in
   *) echo "STOP: _FOCUS_PHASE was not substituted (still '$_FOCUS_PHASE'). Step 0.3 resolved the mode already — carry it here: 'loop' when the user typed --loop, otherwise 'final_gate'." >&2; return 2 2>/dev/null || exit 2 ;;
 esac
 echo "FOCUS_PHASE: $_FOCUS_PHASE"   # printed so an unapplied --loop is visible, not inferred
+# THE BUDGET FOLLOWS THE PHASE (codex r20 P2, self-inflicted by r18). r18 routed this branch to
+# the loop backend and left it on the GATE's 330s budget. Loop rounds are the ones that run long
+# — that is why the dedicated loop path backgrounds and re-polls at 900s — so a focused --loop
+# round on a large diff timed out at 5.5 minutes on the very inputs the cheap tier exists for.
+#
+# ⚠ THIS BRANCH RUNS INLINE, so its ceiling is the HOST call cap, not the loop's 900s. 540s is
+# the most that fits. That is a real limit, stated rather than papered over: a focused loop
+# round that needs longer should be run as plain `/codex review --loop`, which has the
+# backgrounded poller. Duplicating that poller here would mean a second copy of the launch,
+# liveness and re-entry machinery — the kind of second copy this branch has spent rounds deleting.
+if [ "$_FOCUS_PHASE" = "loop" ]; then _FOCUS_TIMEOUT=540; else _FOCUS_TIMEOUT=330; fi
 ~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
   --phase "$_FOCUS_PHASE" --codex-mode exec \
   --prompt-file "$_PROMPT_FILE" --repo-root "$_REPO_ROOT" \
   --base "origin/<base>" \
-  --effort "$_REVIEW_EFFORT" --timeout 330 --findings-out "$_FOCUS_FINDINGS" < /dev/null 2>"$TMPERR"
+  --effort "$_REVIEW_EFFORT" --timeout "$_FOCUS_TIMEOUT" --findings-out "$_FOCUS_FINDINGS" < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_FOCUS_PHASE" 2>/dev/null || echo unknown):330"
+  _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_FOCUS_PHASE" 2>/dev/null || echo unknown):$_FOCUS_TIMEOUT"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "The review stalled past 5.5 minutes. NOT a clean review."
 elif [ "$_CODEX_EXIT" = "2" ] || [ "$_CODEX_EXIT" = "3" ] || [ "$_CODEX_EXIT" = "4" ] || [ "$_CODEX_EXIT" = "5" ]; then
