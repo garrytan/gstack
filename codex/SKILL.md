@@ -1172,8 +1172,17 @@ if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "outside_voice_timeout" "gate:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown):330"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 5.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+elif [ "$_CODEX_EXIT" = "6" ]; then
+  # BLOCKED — the lane cannot converge because the final_gate backend cannot run. Enumerated
+  # here by a structural sweep, not by a round: the adapter grew this exit with the VAS-2373
+  # redesign and all three of this file's exit tables still listed 2/3/4/5, so a blocked lane
+  # would have been reported as an unexpected failure. NOT a clean round and NOT a reviewer
+  # failure — the adapter's own stderr names what is unavailable and how to fix it.
+  echo "LANE BLOCKED — the gate backend cannot run, so this lane cannot reach a verdict. NOT a clean round; nothing was established. The adapter's message below names the cause and the fix."
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 elif [ "$_CODEX_EXIT" = "2" ] || [ "$_CODEX_EXIT" = "3" ] || [ "$_CODEX_EXIT" = "4" ] || [ "$_CODEX_EXIT" = "5" ]; then
-  # The ADAPTER's own exit codes, not codex's: 2 refused input (unrecognised backend,
+  # The ADAPTER's own exit codes, not codex's (6 is handled in its own branch above):
+  # 2 refused input (unrecognised backend,
   # unreadable config, bad base ref), 3 outside-voice disabled for this phase, 5 no pre-flight
   # sweep recorded, 4 findings block unusable. Reporting these as "[codex exit N]" sends the
   # reader to codex's logs for a problem the adapter already named on stderr. 4 cannot occur
@@ -1402,6 +1411,11 @@ if [ "$_OV_EXIT" = "124" ]; then
   # a wrong row in gstack's own analytics, and a wrong row is worse than a missing one because
   # nothing distinguishes it from a right one at read time.
   _gstack_codex_log_event "outside_voice_timeout" "loop:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase loop 2>/dev/null || echo unknown):900"
+elif [ "$_OV_EXIT" = "6" ]; then
+  # BLOCKED — see the gate path's note. Same adapter exit, same meaning, enumerated here too so
+  # the three tables agree with the adapter's contract rather than with each other.
+  echo "LANE BLOCKED — the gate backend cannot run, so this lane cannot reach a verdict. This is NOT a clean round; nothing was established."
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 elif [ "$_OV_EXIT" = "4" ]; then
   # The reviewer ran but its severity block could not be parsed. This is NOT a clean round.
   echo "ROUND INVALID — findings block unusable. Do NOT count this as satisfying the stop condition; re-run the round."
@@ -1610,6 +1624,19 @@ echo "FOCUS_PHASE: $_FOCUS_PHASE"   # printed so an unapplied --loop is visible,
 # backgrounded poller. Duplicating that poller here would mean a second copy of the launch,
 # liveness and re-entry machinery — the kind of second copy this branch has spent rounds deleting.
 if [ "$_FOCUS_PHASE" = "loop" ]; then _FOCUS_TIMEOUT=540; else _FOCUS_TIMEOUT=330; fi
+# AND THE EFFORT FOLLOWS IT TOO (structural sweep, VAS-2373). Found by sweeping the family
+# rather than by a round: this branch kept _REVIEW_EFFORT (`high`) whatever the phase, while
+# this file's OWN rule says the loop path runs at `medium` — "deliberately NOT review's high.
+# This is the cheap tier and its value is many rounds at low cost." So a focused --loop round
+# was buying frontier-grade effort on the cheap tier, contradicting the stated rule.
+#
+# That makes FOUR things that must follow the phase, not the three r18-r20 chased one per round:
+# the phase itself, the findings labels, the timeout budget, and the effort. --xhigh still
+# overrides, exactly as it does on the other two paths.
+if [ "$_XHIGH" = yes ]; then _REVIEW_EFFORT=xhigh
+elif [ "$_FOCUS_PHASE" = "loop" ]; then _REVIEW_EFFORT=medium
+else _REVIEW_EFFORT=high; fi
+echo "FOCUS_EFFORT: $_REVIEW_EFFORT"
 ~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
   --phase "$_FOCUS_PHASE" --codex-mode exec \
   --prompt-file "$_PROMPT_FILE" --repo-root "$_REPO_ROOT" \
@@ -1621,6 +1648,14 @@ if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_FOCUS_PHASE" 2>/dev/null || echo unknown):$_FOCUS_TIMEOUT"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "The review stalled past 5.5 minutes. NOT a clean review."
+elif [ "$_CODEX_EXIT" = "6" ]; then
+  # BLOCKED — the lane cannot converge because the final_gate backend cannot run. Enumerated
+  # here by a structural sweep, not by a round: the adapter grew this exit with the VAS-2373
+  # redesign and all three of this file's exit tables still listed 2/3/4/5, so a blocked lane
+  # would have been reported as an unexpected failure. NOT a clean round and NOT a reviewer
+  # failure — the adapter's own stderr names what is unavailable and how to fix it.
+  echo "LANE BLOCKED — the gate backend cannot run, so this lane cannot reach a verdict. NOT a clean round; nothing was established. The adapter's message below names the cause and the fix."
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 elif [ "$_CODEX_EXIT" = "2" ] || [ "$_CODEX_EXIT" = "3" ] || [ "$_CODEX_EXIT" = "4" ] || [ "$_CODEX_EXIT" = "5" ]; then
   # The adapter's own exits. Without this branch they fell through to the "review SUCCEEDED"
   # notes below, so a disabled or misconfigured gate, or a findings block that failed
