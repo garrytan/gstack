@@ -571,3 +571,52 @@ describe('exec --phase auto — an unrunnable gate blocks BEFORE anything is pai
     } finally { stub.server.stop(true); }
   }, 30000);
 });
+
+// VAS-2373 ACCEPTANCE CRITERION, asserted by OUTCOME rather than by structure.
+//
+// The criterion is that `resolve-phase` and `exec --phase auto` return the same answer for the
+// same inputs — and it is deliberately worded as an outcome assertion, because a helper called
+// from ONE site and a helper called from BOTH are indistinguishable from the source. r12 was
+// exactly that divergence: the inspection surface and the routing path computed the review
+// context differently while both "used a helper", and every test passed throughout.
+//
+// Costs nothing to run. `exec --phase auto` is driven with the gate disabled, so it announces
+// the phase it resolved and is then refused BEFORE any round is dispatched — the pre-spend
+// block from r21. The stub is asserted to have received nothing, so a future change that made
+// this test dispatch would fail here rather than quietly start billing.
+describe('resolve-phase and exec --phase auto agree — one producer, asserted by outcome', () => {
+  test('both surfaces report the same phase for the same inputs, spending nothing', async () => {
+    STUB_VERDICT = { p1: 0, p2: 0, p3: 0, findings: [] };
+    const stub = startStubBackend();
+    try {
+      const sr = freshStateRoot('disabled', stub.url);
+      const led = stubLedger(fs.mkdtempSync(path.join(tmp, 'led-')),
+        '#!/bin/sh\necho \'{"lane":"agree","rounds_logged":0,"preflight_done":true}\'\n');
+      const env = {
+        ...process.env, ...LOOP_FIXTURE_ENV,
+        GSTACK_STATE_ROOT: sr,
+        GSTACK_OUTSIDE_VOICE_BASE_URL: stub.url,
+        GSTACK_ROUND_LEDGER: led,
+      };
+
+      // Surface 1: the inspection command.
+      const inspected = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo], {
+        encoding: 'utf8', env,
+      }).stdout.trim();
+
+      // Surface 2: what `exec --phase auto` actually resolved, read from its own announcement.
+      const proc = Bun.spawn([ADAPTER, 'exec', '--phase', 'auto', '--prompt-file', __filename,
+        '--repo-root', repo, '--findings-out', path.join(tmp, 'agree.json'), '--explicit',
+        '--timeout', '30'], { env, stdout: 'pipe', stderr: 'pipe' });
+      const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+      const m = stderr.match(/phase resolved to '([a-z_]+)' \(--phase auto\)/);
+
+      expect(m).not.toBeNull();
+      expect(inspected).not.toBe('');
+      // THE ASSERTION. Divergence here is the r12 defect returning in any form.
+      expect(m![1]).toBe(inspected);
+      // And it cost nothing: the gate is disabled, so auto refused before dispatching.
+      expect(stub.posts()).toBe(0);
+    } finally { stub.server.stop(true); }
+  }, 30000);
+});
