@@ -191,7 +191,14 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     // Records argv one-per-line so an empty value is visible as an empty line rather than
     // vanishing into whitespace — an empty path is exactly the failure being hunted. Its output
     // path arrives by ENVIRONMENT, so this script is static text with no host path in it.
-    fs.writeFileSync(stub, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$T_ARGV"\n');
+    // Emits a stderr marker and exits with a distinctive code so the two vars that never reach
+    // argv — the stderr redirect and the exit-marker write — can be observed by their EFFECTS.
+    fs.writeFileSync(stub, [
+      '#!/usr/bin/env bash',
+      'printf \'%s\\n\' "$@" > "$T_ARGV"',
+      'echo stub-stderr-marker >&2',
+      'exit 7',
+    ].join('\n') + '\n');
     fs.chmodSync(stub, 0o755);
 
     const promptFile = path.join(hostile, 'prompt.txt');
@@ -271,6 +278,14 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     }
     // The hostile constructs were NOT evaluated: `id -u` would have produced a bare uid.
     expect(argv.join('\n')).toContain('$(id -u)');
+
+    // GSTACK_OV_ERR and GSTACK_OV_DONE are the two names that never reach argv — one is a stderr
+    // redirect, the other an exit-marker write — so argv assertions are structurally blind to
+    // them. Observed by EFFECT instead. A regression that rebinds either name inside the quoted
+    // body, or hard-codes its path, leaves the live loop silently unable to record adapter stderr
+    // or child exit status, and every argv assertion above would still pass.
+    expect(fs.readFileSync(errFile, 'utf8')).toContain('stub-stderr-marker');
+    expect(fs.readFileSync(doneFile, 'utf8').trim()).toBe('7');
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
