@@ -118,7 +118,8 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # in the other direction too: the default gate path was blocked by a hosted LOOP setting.
 #
 # SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED — do not re-derive it from what the
-# user typed: `loop` for review --loop, `final_gate` for a default or focused review, `none`
+# user typed: `loop` for review --loop (focused or not), `final_gate` for a review without
+# the flag, `none`
 # for challenge/consult/plan, which call codex directly and must keep their gating.
 #
 # Step 0.3 runs BEFORE this step, and that ordering is load-bearing rather than cosmetic.
@@ -160,7 +161,7 @@ _OV_PHASE="<<SET-ME: loop | final_gate | none>>"   # ← SUBSTITUTE THIS WHOLE S
 # the line the reader actually has to edit.
 case "$_OV_PHASE" in
   loop|final_gate|none) ;;
-  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for review --loop, 'final_gate' for a default or focused review, 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
+  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for review --loop whether or not it carries instructions, 'final_gate' for a review without the flag, 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
      return 2 2>/dev/null || exit 2 ;;
 esac
 # `none` means this invocation calls codex directly (challenge/consult/plan) and must keep its
@@ -746,15 +747,34 @@ _XHIGH=no
 case "$_XHIGH" in yes|no) ;; *) echo "STOP: _XHIGH must be yes or no (got '$_XHIGH'). Step 0.3 resolves it: yes when the user typed --xhigh." >&2; return 2 2>/dev/null || exit 2 ;; esac
 if [ "$_XHIGH" = yes ]; then _REVIEW_EFFORT=xhigh; else _REVIEW_EFFORT=high; fi
 echo "REVIEW_EFFORT: $_REVIEW_EFFORT"   # printed so an unapplied --xhigh is visible, not inferred
+# --loop IS HONOURED HERE TOO (codex r18 P1). This branch hardcoded `--phase final_gate`, and
+# "any words after `/codex review` take this branch" — so `/codex review --loop <instructions>`
+# landed here and the flag the user typed was silently discarded, billing a frontier round for
+# one they had explicitly asked to be cheap. Same class as r5's dropped `--explicit`: a flag
+# dropped on the way to the thing it governs, with the two halves of the system disagreeing
+# about what the user asked for.
+#
+# Uses the SAME validated-placeholder form as _OV_PHASE rather than a bare default, and for the
+# same reason this file records there: a silent default makes "the user did not type --loop" and
+# "the agent forgot to substitute" produce identical output, which is how that path stayed
+# unreachable for four rounds. One convention, not two.
+# SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED: `loop` if the user typed --loop,
+# otherwise `final_gate`. Do not re-derive it from the instructions.
+_FOCUS_PHASE="<<SET-ME: loop | final_gate>>"   # ← SUBSTITUTE THIS WHOLE STRING
+case "$_FOCUS_PHASE" in
+  loop|final_gate) ;;
+  *) echo "STOP: _FOCUS_PHASE was not substituted (still '$_FOCUS_PHASE'). Step 0.3 resolved the mode already — carry it here: 'loop' when the user typed --loop, otherwise 'final_gate'." >&2; return 2 2>/dev/null || exit 2 ;;
+esac
+echo "FOCUS_PHASE: $_FOCUS_PHASE"   # printed so an unapplied --loop is visible, not inferred
 ~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
-  --phase final_gate --codex-mode exec \
+  --phase "$_FOCUS_PHASE" --codex-mode exec \
   --prompt-file "$_PROMPT_FILE" --repo-root "$_REPO_ROOT" \
   --base "origin/<base>" \
   --effort "$_REVIEW_EFFORT" --timeout 330 --findings-out "$_FOCUS_FINDINGS" < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown):330"
+  _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_FOCUS_PHASE" 2>/dev/null || echo unknown):330"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "The review stalled past 5.5 minutes. NOT a clean review."
 elif [ "$_CODEX_EXIT" = "2" ] || [ "$_CODEX_EXIT" = "3" ] || [ "$_CODEX_EXIT" = "4" ] || [ "$_CODEX_EXIT" = "5" ]; then
