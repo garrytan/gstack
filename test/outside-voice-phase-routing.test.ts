@@ -537,8 +537,8 @@ describe('exec --phase auto — the gate runs in THIS invocation when the loop c
 // the same unchanged artefact reviewed again on every invocation, the same verdict written again,
 // no forward progress and no signal, until the runaway cap. Both are one missing idea — a
 // two-state machine has to spell "cannot proceed" as one of its two PRODUCTIVE states.
-describe('exec --phase auto — a converged lane with an unavailable gate is BLOCKED, not looped', () => {
-  test('exits 6, says why, and does NOT run a second loop round', async () => {
+describe('exec --phase auto — an unrunnable gate blocks BEFORE anything is paid for', () => {
+  test('exits 6, spends NOTHING, and names the configured backend', async () => {
     STUB_VERDICT = { p1: 0, p2: 0, p3: 0, findings: [] };
     const stub = startStubBackend();
     try {
@@ -546,10 +546,28 @@ describe('exec --phase auto — a converged lane with an unavailable gate is BLO
       const r = await runAuto(sr, stub.url, path.join(tmp, 'conv-blocked.json'));
       expect(r.status).toBe(6);
       expect(`${r.stderr}`).toMatch(/BLOCKED/);
-      // The one behaviour the r13 P1 was about: it must not silently become another loop round.
-      expect(stub.posts()).toBe(1);
-      // And the remediation must name the actual cause rather than a generic config hint.
+      // THE ASSERTION THAT CHANGED, and it is strictly stronger (codex r21 P2). This used to
+      // expect ONE call: the lane ran a paid loop round and only then discovered the gate was
+      // impossible. A lane routed to the loop can only ever END at the gate, so an unrunnable
+      // gate means it can never converge however many rounds it buys — the refusal belongs
+      // before the spend, not after it. Zero is the whole point.
+      expect(stub.posts()).toBe(0);
+      // And the remediation must name what is actually wrong, not a generic hint.
       expect(`${r.stderr}`).toMatch(/switched OFF/);
+    } finally { stub.server.stop(true); }
+  }, 30000);
+
+  // The gate is checked at BOTH moments and they are not redundant: this one covers a gate that
+  // was fine at the start. Asserting only the up-front check would let the promotion-time one be
+  // deleted with the suite still green, which is how a guard loses half its coverage silently.
+  test('a clean loop round still promotes when the gate IS runnable', async () => {
+    STUB_VERDICT = { p1: 0, p2: 0, p3: 0, findings: [] };
+    const stub = startStubBackend();
+    try {
+      const sr = freshStateRoot('openrouter', stub.url);
+      const r = await runAuto(sr, stub.url, path.join(tmp, 'conv-ok.json'));
+      expect(stub.posts()).toBe(2);
+      expect(r.status).toBe(0);
     } finally { stub.server.stop(true); }
   }, 30000);
 });

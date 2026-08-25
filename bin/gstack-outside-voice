@@ -800,6 +800,12 @@ cmd_exec() {
     [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides convergence by reading the loop round's severities out of that file, in this same invocation, and promotes to the gate on the strength of it. With no file there is nothing to read, so the lane can never converge and runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
     phase="$(resolve_phase "$repo_root" "$base" "$explicit" ${pathspecs[@]+"${pathspecs[@]}"})"
     echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
+    # REFUSE BEFORE SPENDING (codex r21 P2). A lane routed to the loop can only ever END at the
+    # gate, so if the gate is already unrunnable this lane cannot converge no matter how many
+    # rounds it buys. Checked here, before the first paid round, rather than only at promotion —
+    # which is where it was, and meant the operator learned the gate was impossible only after
+    # paying for work that could never reach a verdict.
+    [ "$phase" != "loop" ] || gate_blocked_or_ready "$explicit" || return 6
   fi
 
   [ -n "$label" ] || label="$phase"
@@ -977,23 +983,7 @@ cmd_exec() {
     # is a third state, and it is derived fresh from the gate's own probe on every invocation --
     # never persisted, because a persisted blocked-state would need a key and the key is the
     # thing being deleted (D2).
-    local _gate_ready
-    _gate_ready="$(probe final_gate "$explicit")"
-    if [ "$_gate_ready" != "ready" ]; then
-      # The remediation branches on WHY. A disabled gate is a decision someone took and the
-      # fix is to reverse it; an unrunnable one is a config or install fault and the fix names
-      # the key. Handing a "check your model id" hint to someone who deliberately switched the
-      # gate off is the kind of wrong-key remediation this file already learned to avoid.
-      local _fix
-      case "$_gate_ready" in
-        disabled)      _fix="The gate is switched OFF (outside_voice_gate=disabled, or codex_reviews=disabled). A lane cannot converge without it: re-enable the gate, or run the phases by name if you meant to review without one." ;;
-        not_installed) _fix="The gate backend's client is not installed. For codex: npm install -g @openai/codex." ;;
-        not_authed)    _fix="The gate backend has no credentials. For codex: codex login, or set \$CODEX_API_KEY." ;;
-        *)             _fix="$(unusable_config_message "$(resolve_backend final_gate)")" ;;
-      esac
-      echo "gstack-outside-voice: BLOCKED — the loop reported no P1 and no P2, so this lane has converged and is owed a gate round, but the final_gate backend is '$_gate_ready'. NOT falling back to the loop: the artefact is unchanged, so another loop round would review the same thing and report the same result, for ever — burning rounds while looking like progress. $_fix Nothing about this lane is remembered, so the next invocation starts clean." >&2
-      return 6
-    fi
+    gate_blocked_or_ready "$explicit" || return 6
 
     echo "gstack-outside-voice: the loop reported no P1 and no P2 — running the final_gate round now, in this same invocation. Convergence is the gate's to declare." >&2
     phase="final_gate"
@@ -1053,6 +1043,41 @@ except Exception:
 p1, p2 = d.get("p1"), d.get("p2")
 sys.exit(0 if (p1 == 0 and p2 == 0) else 1)
 PY
+}
+
+# THE ONE PRODUCER OF "CAN THE GATE RUN, AND WHAT DO I TELL THEM IF NOT" (codex r21).
+#
+# Called at TWO moments and that is the point: once BEFORE `--phase auto` spends anything, and
+# again at promotion. r21 P2: checking only at promotion meant a lane whose gate was already
+# known unrunnable still burned one or more PAID loop rounds before anyone found out it could
+# never converge. Failing before spending is what `blocked` was for; it was simply placed too
+# late. Both call sites share this function rather than each deciding, per the branch's
+# one-producer rule — two copies of a remediation message is exactly how they drift.
+#
+# r21 P3: the remediation NAMES THE CONFIGURED BACKEND. It said "For codex: codex login" even
+# when the gate was openrouter, sending an operator to fix a tool that was not the one failing —
+# the wrong-key remediation this file already learned to avoid once.
+gate_blocked_or_ready() {
+  local explicit="${1:-no}" _ready _be _fix
+  _ready="$(probe final_gate "$explicit")"
+  [ "$_ready" = "ready" ] && return 0
+  _be="$(resolve_backend final_gate 2>/dev/null || echo unknown)"
+  case "$_ready" in
+    disabled)      _fix="The gate is switched OFF (outside_voice_gate=disabled, or codex_reviews=disabled). A lane cannot converge without it: re-enable the gate, or name the phases explicitly if you meant to review without one." ;;
+    not_installed) case "$_be" in
+                     codex)      _fix="The gate backend 'codex' is not installed: npm install -g @openai/codex." ;;
+                     openrouter) _fix="The gate backend 'openrouter' needs python3, which is not installed." ;;
+                     *)          _fix="The gate backend '$_be' is not installed." ;;
+                   esac ;;
+    not_authed)    case "$_be" in
+                     codex)      _fix="The gate backend 'codex' has no credentials: run codex login, or set \$CODEX_API_KEY." ;;
+                     openrouter) _fix="The gate backend 'openrouter' has no credentials: set \$OPENROUTER_API_KEY." ;;
+                     *)          _fix="The gate backend '$_be' has no credentials." ;;
+                   esac ;;
+    *)             _fix="$(unusable_config_message "$_be")" ;;
+  esac
+  echo "gstack-outside-voice: BLOCKED — this lane cannot converge, because the final_gate backend is '$_ready'. NOT running or continuing the loop: only the gate can end a lane, so loop rounds here would review the same artefact for ever, burning rounds while looking like progress. $_fix Nothing about this lane is remembered, so the next invocation starts clean." >&2
+  return 6
 }
 
 # Reports the loop round's status to both channels and stamps the findings file. It no longer
