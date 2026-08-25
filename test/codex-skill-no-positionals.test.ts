@@ -141,8 +141,13 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
   // The temp paths are deliberately HOSTILE: they contain `$(id -u)` and a backtick, the two
   // constructs measured EXECUTING under the splice idiom this lineage replaced. So one run proves
   // both properties at once — the values arrive, and they arrive literally.
-  test('the extracted launcher delivers hostile paths to the adapter literally', () => {
-    const text = fs.readFileSync(TMPL, 'utf8');
+  // Run against BOTH files. An earlier version extracted from the template only, while its own
+  // comment called it the one check that proves delivery — so the file that actually SHIPS was the
+  // one never executed. The structural checks already cover both; running only one here left the
+  // generated copy proven in shape and unproven in behaviour, which is the weaker half of exactly
+  // the distinction this test exists to draw.
+  test.each(FILES)('%s: the extracted launcher delivers hostile paths to the adapter literally', (_label, file) => {
+    const text = fs.readFileSync(file as string, 'utf8');
     const start = text.indexOf('GSTACK_OV_PROMPT="$_LOOP_PROMPT"');
     const end = text.indexOf(`' > "$_OV_OUT" 2>&1 &`, start);
     expect(start).toBeGreaterThan(-1);

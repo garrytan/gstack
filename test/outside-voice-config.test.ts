@@ -528,7 +528,11 @@ describe('the loop launcher passes paths as exported env vars, not as shell text
     expect(text).toContain('GSTACK_OV_PROMPT="$_LOOP_PROMPT"');
     expect(text).toContain('GSTACK_OV_REPO="$_REPO_ROOT"');
     expect(text).toContain('GSTACK_OV_FINDINGS="$_OV_FINDINGS"');
-    expect(text).toContain('--prompt-file "$GSTACK_OV_PROMPT" --repo-root "$GSTACK_OV_REPO"');
+    // NOT asserted as one combined line. That form required both references to sit on a single
+    // line separated by one space, so a purely cosmetic reflow would fail a test whose property
+    // still held — and codex-skill-no-positionals.test.ts already asserts each reference
+    // individually, from a table, so the combined check was redundant as well as brittle. It was
+    // brittle in the positional form too and was carried forward unexamined; fixed on the way past.
     // ...including the effort, which was hard-coded to medium and silently dropped --xhigh.
     expect(text).toContain('--effort "$GSTACK_OV_EFFORT"');
     expect(text).toContain('GSTACK_OV_EFFORT="$_OV_EFFORT"');
