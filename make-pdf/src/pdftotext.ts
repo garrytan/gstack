@@ -26,7 +26,7 @@
  * Only the CI gate and unit tests invoke pdftotext.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -154,19 +154,25 @@ function isExecutable(p: string): boolean {
 function describeBinary(bin: string): PdftotextInfo {
   let version = "unknown";
   let flavor: PdftotextInfo["flavor"] = "unknown";
-  try {
-    // pdftotext -v writes to stderr and exits 0 on poppler, 99 on some xpdf builds.
-    const result = execFileSync(bin, ["-v"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    version = (result || "").trim().split("\n")[0] || "unknown";
-  } catch (err: any) {
-    // Many pdftotext builds exit non-zero on -v but still write to stderr.
-    const stderr = err?.stderr?.toString?.() ?? "";
-    version = stderr.trim().split("\n")[0] || "unknown";
-  }
-  const v = version.toLowerCase();
+
+  // spawnSync, not execFileSync: poppler writes -v output to STDERR and exits 0,
+  // so execFileSync neither returns it (it returns stdout, which is empty) nor
+  // throws (which is what made the stderr fallback below reachable). The result
+  // was version="unknown" flavor="unknown" on every poppler install. spawnSync
+  // hands back both streams regardless of exit status, which also covers the
+  // xpdf builds that exit 99.
+  const res = spawnSync(bin, ["-v"], { encoding: "utf8" });
+  const raw = `${res.stdout ?? ""}\n${res.stderr ?? ""}`;
+
+  // The version banner is not reliably the first line once both streams are in
+  // play, so match it rather than taking line 0.
+  const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+  version = lines.find(l => /pdftotext\s+version/i.test(l)) ?? lines[0] ?? "unknown";
+
+  // Flavor comes from the WHOLE banner, never the version line alone: poppler
+  // prints "pdftotext version 26.06.0" on line 1 and only identifies itself on
+  // line 2, "Copyright ... The Poppler Developers".
+  const v = raw.toLowerCase();
   if (v.includes("poppler")) flavor = "poppler";
   else if (v.includes("xpdf")) flavor = "xpdf";
   return { bin, version, flavor };
