@@ -51,16 +51,6 @@ function resolveTmpRoot(env: Record<string, string | undefined> = process.env): 
   throw new Error('no writable temp root: tried TMPDIR, TMP and the project-local .gstack/tmp');
 }
 
-// Single-quote a value for safe embedding in shell source: wrap in single quotes and close/reopen
-// around each embedded quote. This is the idiom for anything assembled by string concatenation
-// into a command, and it belongs HERE more than most places — an earlier version of the test
-// below spliced host paths into shell source raw, so a checkout or TMPDIR holding a space or an
-// apostrophe made the guard report a false regression. A test whose whole subject is "values must
-// not be spliced into text a shell re-parses" was doing exactly that.
-function sq(value: string): string {
-  return `'` + value.split(`'`).join(`'\\''`) + `'`;
-}
-
 const POSITIONAL = /\$[0-9]/;
 
 // Match the whole token so a failure names what it found rather than making the reader grep.
@@ -197,10 +187,11 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     fs.mkdirSync(hostile, { recursive: true });
 
     const stub = path.join(tmp, 'stub-adapter');
-    // Records argv one-per-line so an empty value is visible as an empty line rather than
-    // vanishing into whitespace — an empty path is exactly the failure being hunted.
     const argvFile = path.join(tmp, 'argv.txt');
-    fs.writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${sq(argvFile)}\n`);
+    // Records argv one-per-line so an empty value is visible as an empty line rather than
+    // vanishing into whitespace — an empty path is exactly the failure being hunted. Its output
+    // path arrives by ENVIRONMENT, so this script is static text with no host path in it.
+    fs.writeFileSync(stub, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$T_ARGV"\n');
     fs.chmodSync(stub, 0o755);
 
     const promptFile = path.join(hostile, 'prompt.txt');
@@ -211,22 +202,58 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     const outFile = path.join(hostile, 'o.txt');
 
     // Substitute only the adapter path; the launcher's own shape is used verbatim.
-    // EVERY interpolated value is single-quoted, including the stub path substituted into the
-    // launcher body. Raw interpolation is what the finding above caught.
-    const body = launcher.replace('~/.claude/skills/gstack/bin/gstack-outside-voice', sq(stub));
+    // THE STUB PATH NEVER ENTERS THE QUOTED BODY. The launcher is `bash -c '...'`, already inside
+    // single quotes, so a quoted path injected there yields `''/path/stub'` and the stub simply
+    // never runs — a quoting fix that introduced a quoting defect one context inward, which is how
+    // the previous attempt at this failed. Substitute a VARIABLE REFERENCE instead and deliver the
+    // path the same way the launcher delivers its own: exported into the environment. Inside single
+    // quotes the reference is literal text; the inner bash expands it from the environment.
+    //
+    // That makes this test dogfood the property under test, deliberately. If exported-env delivery
+    // ever breaks, the stub does not run and this test fails — which is the correct direction to
+    // fail in, and strictly better than a wrapper that keeps working while the mechanism does not.
+    const body = launcher.replace(
+      '~/.claude/skills/gstack/bin/gstack-outside-voice', '"$GSTACK_OV_ADAPTER"');
+    // NO HOST PATH IS CONCATENATED INTO SHELL SOURCE AT ALL. Every value arrives through
+    // spawnSync's `env`, which is never shell-parsed, and the script below is static text that
+    // only ever REFERENCES those names.
+    //
+    // This replaced a quoted-interpolation version, and it is worth saying why rather than leaving
+    // the next editor to rediscover it: three consecutive gate rounds each found a distinct quoting
+    // defect in this wrapper while confirming the launcher itself was correct. Escaping was fixing
+    // them one at a time — a raw splice, then a quote landing INSIDE an already single-quoted
+    // `bash -c` body. Anything assembled by string concatenation into a shell command is that
+    // defect waiting for input nobody wrote, and the fix for a class is to remove the class, not to
+    // quote more carefully. There is nothing left here to escape.
     const script = [
-      `_LOOP_PROMPT=${sq(promptFile)}`,
-      `_REPO_ROOT=${sq(hostile)}`,
-      `_OV_FINDINGS=${sq(findings)}`,
-      `TMPERR=${sq(errFile)}`,
-      `_OV_DONE=${sq(doneFile)}`,
-      `_OV_EFFORT=${sq('medium')}`,
-      `_OV_OUT=${sq(outFile)}`,
+      '_LOOP_PROMPT="$T_PROMPT"',
+      '_REPO_ROOT="$T_REPO"',
+      '_OV_FINDINGS="$T_FINDINGS"',
+      'TMPERR="$T_ERR"',
+      '_OV_DONE="$T_DONE"',
+      '_OV_EFFORT="$T_EFFORT"',
+      '_OV_OUT="$T_OUT"',
       body,
       'wait',
     ].join('\n');
+    const scriptFile = path.join(tmp, 'harness.sh');
+    fs.writeFileSync(scriptFile, script);
 
-    const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const r = spawnSync('bash', [scriptFile], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GSTACK_OV_ADAPTER: stub,
+        T_ARGV: argvFile,
+        T_PROMPT: promptFile,
+        T_REPO: hostile,
+        T_FINDINGS: findings,
+        T_ERR: errFile,
+        T_DONE: doneFile,
+        T_EFFORT: 'medium',
+        T_OUT: outFile,
+      },
+    });
     expect(r.status).toBe(0);
 
     const argv = fs.readFileSync(argvFile, 'utf8').split('\n');
