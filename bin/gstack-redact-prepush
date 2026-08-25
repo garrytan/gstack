@@ -83,18 +83,42 @@ function defaultRemoteBranch(): string {
 /** Return the added-line text for a ref update being pushed. */
 function addedLinesFor(localSha: string, remoteSha: string): string {
   let range: string;
-  if (ZERO.test(remoteSha)) {
-    // New branch: prefer what's unique to localSha vs the remote default branch.
-    // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
-    // branch content is scanned as added — fail-safe (scans more, never less).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
-  } else if (!objectExists(remoteSha)) {
-    // Remote tip object absent locally (shallow clone, force-push without a
-    // prior fetch, CI checkout): remote..local can't resolve. Fall back to
-    // the merge-base/empty-tree path — scans MORE, never less — instead of
-    // hard-blocking a legitimate push (adversarial review finding 8).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
+    // New branch, or the remote tip object is absent locally (shallow clone,
+    // force-push without a prior fetch, CI checkout) so remote..local cannot
+    // resolve. Either way, scan what this ref adds on top of every remote we
+    // know about: the commits not reachable from ANY remote-tracking branch.
+    //
+    // NOT merge-base against origin/HEAD. On a repo with a long-lived
+    // integration branch (staging, develop) sitting ahead of the default
+    // branch, every feature branch forks from the integration branch, so
+    // merge-base(local, origin/HEAD) lands where that branch itself diverged —
+    // hundreds of commits back. The hook then scans that whole delta instead of
+    // the branch's own content and trips the engine's 1 MiB fail-closed ceiling
+    // with engine.input_too_large. Measured on a real repo: 217 commits and
+    // 1.43 MB scanned for a branch whose own diff was 0 bytes. A guardrail that
+    // blocks every push trains people to keep a bypass in their fingers, which
+    // costs more than it buys.
+    //
+    // Content already on a remote is skipped, which was already out of scope
+    // (see the header: this hook does not scan history). With no boundary at
+    // all, diff against the empty tree so ALL branch content is scanned as
+    // added — fail-safe (scans more, never less).
+    // gitStrict, not git (#1946): the permissive wrapper returns "" both when
+    // rev-list finds nothing new AND when it fails outright (bogus sha, broken
+    // repo), and those must not be treated the same — "nothing to scan" would
+    // let an uncomputable push through. A throw here is caught in main() and
+    // blocks, which is the same fail-closed path the diff itself uses.
+    const boundary = gitStrict(["rev-list", "--boundary", localSha, "--not", "--remotes"])
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const fresh = boundary.filter((l) => !l.startsWith("-"));
+    const bases = boundary.filter((l) => l.startsWith("-")).map((l) => l.slice(1));
+    if (fresh.length === 0) return ""; // already on a remote; nothing new to scan
+    let base = bases.length === 1 ? bases[0] : "";
+    if (!base && bases.length > 1) base = git(["merge-base", "--octopus", ...bases]).trim();
+    if (!base) base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
     range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
