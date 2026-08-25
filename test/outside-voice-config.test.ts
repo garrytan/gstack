@@ -845,3 +845,167 @@ describe('the retry prompt cannot feed a live fence back to the model', () => {
     expect(py).not.toMatch(/replace\(FENCE,\s*FENCE\s*\+/);
   });
 });
+
+// REGRESSION (codex r15 P2). The adapter treated `outside_voice_runaway_cap` and
+// `outside_voice_size_ceiling` as real config keys while gstack-config had never heard of them,
+// so `get`, `list` and `defaults` reported them empty or omitted them entirely — and an operator
+// could not tell whether auto routing looped because of configuration or because of a hardcoded
+// fallback.
+//
+// THE ASSERTION IS THE AGREEMENT, not the presence. Both numbers are READ from their two
+// sources and compared, so this fails if EITHER side moves without the other. Asserting that
+// gstack-config merely lists the key would pass while the two disagreed, which is the defect —
+// and hardcoding the expected 20 and 0 here would just be a third copy to drift.
+describe('outside_voice routing knobs — the config tool and the adapter agree', () => {
+  const KEYS = ['outside_voice_runaway_cap', 'outside_voice_size_ceiling'] as const;
+
+  // The adapter's own fallback, read out of the shipped script rather than restated.
+  function adapterFallback(key: string): string {
+    const src = fs.readFileSync(ADAPTER, 'utf8');
+    const varName = key === 'outside_voice_runaway_cap' ? 'cap' : 'ceiling';
+    // Located by indexOf, then a narrow regex over the slice. Built as one escaped RegExp
+    // first and it silently matched nothing — the shape being searched for is full of `$`,
+    // `(` and `)`, so the escaping is the hard part and a miss looks identical to "the
+    // fallback is gone". Splitting it removes the escaping entirely.
+    const anchor = `${varName}=$(_cfg ${key})`;
+    const at = src.indexOf(anchor);
+    if (at < 0) throw new Error(`the adapter no longer reads ${key} — this test is stale`);
+    // The coercion right below it decides the effective default:
+    //   case "$x" in ''|*[!0-9]*) x=N ;; esac
+    const m = src.slice(at, at + 400).match(new RegExp(varName + '=([0-9]+)'));
+    if (!m) throw new Error(`could not read the adapter's fallback for ${key}`);
+    return m[1];
+  }
+
+  for (const key of KEYS) {
+    test(`${key} is reported by gstack-config and matches the adapter's fallback`, () => {
+      const stateRoot = fs.mkdtempSync(path.join(TMP_ROOT, 'ovcfg-'));
+      const env = { ...process.env, GSTACK_STATE_ROOT: stateRoot };
+      const got = spawnSync(CONFIG, ['get', key], { encoding: 'utf8', env }).stdout.trim();
+
+      // Reported at all — the half the finding named.
+      expect(got).not.toBe('');
+      // And it AGREES with what the adapter would have fallen back to.
+      expect(got).toBe(adapterFallback(key));
+
+      // Both listing paths surface it too; `get` alone would leave an operator scripting
+      // against a key that `list` still omits.
+      const listed = spawnSync(CONFIG, ['list'], { encoding: 'utf8', env }).stdout;
+      const defaults = spawnSync(CONFIG, ['defaults'], { encoding: 'utf8', env }).stdout;
+      expect(listed).toContain(key);
+      expect(defaults).toContain(key);
+
+      fs.rmSync(stateRoot, { recursive: true, force: true });
+    });
+  }
+});
+
+// REGRESSION (codex r16 P2). `_validate_base_url` accepted any `https` scheme without checking
+// that a host was present, so `https://` and `https:///v1` passed the readiness probe as ready.
+// resolve_phase then selects `loop` on the strength of that, and the failure surfaces only once
+// exec builds `https:/chat/completions` and the request dies mid-review — breaking the
+// probe/exec contract the whole routing design leans on. Same class as r3's "configured is not
+// runnable", one layer down: a scheme is not an endpoint.
+//
+// Driven through `--check-base-url`, which is the seam the ADAPTER itself calls (bin/
+// gstack-outside-voice:303), rather than reaching into the function. Testing the private
+// helper would pass while the entry point diverged, which is the two-readers bug this branch
+// has now paid for twice.
+describe('base URL validation — a scheme alone is not an endpoint', () => {
+  const REQUEST_PY = path.join(ROOT, 'bin', 'gstack-outside-voice-request.py');
+
+  function checkBaseUrl(url: string) {
+    return spawnSync('python3', [REQUEST_PY, '--check-base-url'], {
+      encoding: 'utf8',
+      env: { ...process.env, GSTACK_OUTSIDE_VOICE_BASE_URL: url },
+    });
+  }
+
+  // REFUSED — hostless, and the point of the finding.
+  for (const url of ['https://', 'https:///v1']) {
+    test(`refuses ${JSON.stringify(url)} — no hostname`, () => {
+      const r = checkBaseUrl(url);
+      expect(r.status).not.toBe(0);
+      expect(`${r.stderr}`).toMatch(/no hostname/);
+    });
+  }
+
+  // REFUSED for the PRE-EXISTING reason, asserted so the new check cannot be credited with
+  // work the old one was already doing — and so a later tidy-up cannot delete one and keep
+  // the other passing.
+  test('still refuses plain http to a non-loopback host, for the key-exposure reason', () => {
+    const r = checkBaseUrl('http://evil.example/v1');
+    expect(r.status).not.toBe(0);
+    expect(`${r.stderr}`).toMatch(/plain http/);
+  });
+
+  // ACCEPTED — the loopback seam these tests themselves depend on must keep working. A
+  // hostname check written carelessly would take this with it.
+  test('still accepts http on loopback, which the test stubs rely on', () => {
+    expect(checkBaseUrl('http://127.0.0.1:9/v1').status).toBe(0);
+  });
+});
+
+// REGRESSION (codex r17 P2). THE OTHER HALF OF r15, and that is the point rather than a detail:
+// r15 made gstack-config REPORT the two numeric routing keys and left the WRITE path accepting
+// anything, so the config surface and the router could still disagree — just in the opposite
+// direction. Making a failure explicit at one layer only moves the silence.
+//
+// Measured before the guard: `set outside_voice_size_ceiling banana` and `... -5` both exited 0
+// and `list` showed them as configured, while resolve_phase coerced each back to its built-in
+// default. A cap of 0 was worse — numerically valid, so the router HONOURS it, and
+// `[ $((rounds + 1)) -ge 0 ]` gates every round, switching off the cheap loop this whole
+// feature exists to enable while looking deliberate on `list`.
+describe('outside_voice numeric knobs — the write path refuses what the router cannot honour', () => {
+  function withRoot<T>(fn: (env: NodeJS.ProcessEnv, root: string) => T): T {
+    const root = fs.mkdtempSync(path.join(TMP_ROOT, 'ovnum-'));
+    try { return fn({ ...process.env, GSTACK_STATE_ROOT: root }, root); }
+    finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+  const set = (env: NodeJS.ProcessEnv, k: string, v: string) =>
+    spawnSync(CONFIG, ['set', k, v], { encoding: 'utf8', env });
+  const get = (env: NodeJS.ProcessEnv, k: string) =>
+    spawnSync(CONFIG, ['get', k], { encoding: 'utf8', env }).stdout.trim();
+
+  for (const [key, bad] of [
+    ['outside_voice_runaway_cap', 'banana'],
+    ['outside_voice_runaway_cap', '-5'],
+    ['outside_voice_size_ceiling', 'banana'],
+    ['outside_voice_size_ceiling', '-5'],
+  ] as const) {
+    test(`${key} rejects ${JSON.stringify(bad)} and leaves the old value`, () => {
+      withRoot((env) => {
+        const before = get(env, key);
+        expect(set(env, key, bad).status).not.toBe(0);
+        // "Existing value left unchanged" is part of the contract, not just the message.
+        expect(get(env, key)).toBe(before);
+      });
+    });
+  }
+
+  // The asymmetry is deliberate and is asserted BOTH ways, because a guard written from the
+  // cap's rule alone would break the ceiling's documented "0 = off" default.
+  test('a runaway cap of 0 is refused — it gates every round rather than bounding them', () => {
+    withRoot((env) => {
+      const r = set(env, 'outside_voice_runaway_cap', '0');
+      expect(r.status).not.toBe(0);
+      expect(`${r.stderr}`).toMatch(/gates EVERY round/);
+    });
+  });
+
+  test('a size ceiling of 0 is ACCEPTED — 0 means off, and it is the shipped default', () => {
+    withRoot((env) => {
+      expect(set(env, 'outside_voice_size_ceiling', '0').status).toBe(0);
+      expect(get(env, 'outside_voice_size_ceiling')).toBe('0');
+    });
+  });
+
+  test('legitimate values still round-trip', () => {
+    withRoot((env) => {
+      expect(set(env, 'outside_voice_runaway_cap', '30').status).toBe(0);
+      expect(get(env, 'outside_voice_runaway_cap')).toBe('30');
+      expect(set(env, 'outside_voice_size_ceiling', '500').status).toBe(0);
+      expect(get(env, 'outside_voice_size_ceiling')).toBe('500');
+    });
+  });
+});

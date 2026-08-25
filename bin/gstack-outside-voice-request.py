@@ -86,7 +86,25 @@ def _validate_base_url(base_url):
     """
     split = urllib.parse.urlsplit(base_url)
     scheme = (split.scheme or "").lower()
+    # A SCHEME IS NOT AN ENDPOINT (codex r16 P2). `https://` and `https:///v1` parse with the
+    # right scheme and NO HOSTNAME, and returning True for them made the readiness probe answer
+    # `ready` for a URL nothing can be sent to. resolve_phase then selects `loop` on the
+    # strength of that, and the failure surfaces only when exec builds `https:/chat/completions`
+    # and the request dies — which is the probe/exec contract the routing design leans on,
+    # broken by an input the check never looked at.
+    #
+    # Same class as r3's "configured is not runnable", one layer down: this function answers
+    # "may I send a key here", and a URL with no host is one the question does not even apply to.
+    #
+    # ORDERED AFTER THE SCHEME TEST, deliberately. Placed before it, `file:///etc/passwd` was
+    # refused for having no hostname instead of for not being https — a true statement and a
+    # worse message, since the scheme is the thing the operator has to change. The existing
+    # scheme-allowlist test caught that within one run, which is the argument for it existing.
     if scheme == "https":
+        if not split.hostname:
+            return False, ("GSTACK_OUTSIDE_VOICE_BASE_URL has no hostname (%r) — a scheme alone "
+                           "is not an endpoint, and a probe that called this 'ready' would fail "
+                           "only once a review was already under way" % base_url)
         return True, ""
     if scheme == "http":
         if _is_loopback(split.hostname or ""):

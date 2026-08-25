@@ -14,9 +14,16 @@
 # trusting this comment, which is the only thing keeping it honest.
 #
 # Usage:
-#   gstack-outside-voice exec --phase <loop|final_gate> --prompt-file <f> [opts]
+#   gstack-outside-voice exec --phase <loop|final_gate|auto> --prompt-file <f> [opts]
 #   gstack-outside-voice backend --phase <loop|final_gate>   — print resolved backend
 #   gstack-outside-voice probe   --phase <loop|final_gate>   — print readiness mode
+#   gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>]
+#                                                            — print the phase `auto` would pick
+#
+# `--phase auto` derives the phase from the round ledger instead of requiring the caller to
+# know it (VAS-2371). Config: `outside_voice_runaway_cap` (default 20, aligned to the
+# runaway breaker — a bound on the loop, not the mechanism) and `outside_voice_size_ceiling` (default 0 = OFF). Every
+# degraded path resolves to `final_gate`, never `loop`; see resolve_phase for why.
 #
 # exec options:
 #   --repo-root <dir>       repo to run against (default: git toplevel)
@@ -50,6 +57,12 @@
 #                     diff truncated to nothing)
 #   3  disabled    4  findings block unusable after one retry — NOT a clean round
 #   5  no pre-flight sweep recorded for this lane (first loop round only)
+#   6  blocked — the lane converged and is owed a gate round, but the final_gate
+#      backend cannot run. TERMINAL and deliberate: it is not a failure of the
+#      review and it must never degrade to another loop round, because the
+#      artefact is unchanged and the next loop round would report the same
+#      thing for ever. Derived fresh from the gate's probe every invocation;
+#      nothing about it is persisted (VAS-2373).
 #   124 timeout (from the timeout wrapper)
 #
 # Backends:
@@ -395,27 +408,258 @@ with_timeout() {
 #
 # Scope: ONLY the first round (nothing logged yet). Once the loop is underway this never
 # fires again, so it cannot interrupt a run in progress.
-preflight_gate() {
-  local phase="$1" repo_root="$2"
-  [ "$phase" = "loop" ] || return 0
+# The round ledger is fleet tooling, not gstack's. Upstream installs have no such file and
+# must be unaffected — this adapter is headed for a third-party PR, so it cannot hard-depend
+# on a claude-fleet-config binary. Absent tool => callers degrade, never fail.
+#
+# $GSTACK_ROUND_LEDGER first, so this is configurable rather than fleet-only. Five separate
+# review rounds filed the hardcoded list as a defect — correctly, in the sense that a reader
+# cannot tell "deliberately fleet-scoped" from "nobody considered other installs".
+#
+# Extracted from preflight_gate by VAS-2371 because phase derivation needs the same lookup.
+# Two copies of a search path is the two-variables-that-must-agree bug waiting for someone to
+# add a fourth candidate to one of them.
 
-  # The round ledger is fleet tooling, not gstack's. Upstream installs have no such file and
-  # must be unaffected — this adapter is headed for a third-party PR, so it cannot hard-depend
-  # on a claude-fleet-config binary. Absent tool => no gate, silently.
-  local _rl=""
+# ONE base resolver for BOTH the routing decision and the review itself (codex r7 P2).
+# resolve_phase validated `$base` with a bare rev-parse while exec_openrouter carried an
+# `origin/X -> X` fallback for clones that hold the local branch but not the remote ref. So on
+# exactly those installs the review would have run fine and `auto` refused to select it —
+# silently disabling the cheap tier. Two places answering "does this base resolve" differently
+# is the two-instruments-must-agree bug; extracting it is the fix that stops it recurring rather
+# than the one that patches this instance.
+#
+# Prints the resolved ref on success, nothing on failure. Callers decide what a failure means:
+# routing degrades to the gate, the review refuses outright.
+resolve_base_ref() {
+  local repo_root="$1" base="$2" local_base
+  if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
+    printf '%s' "$base"; return 0
+  fi
+  local_base="${base#origin/}"
+  if [ "$local_base" != "$base" ] && git -C "$repo_root" rev-parse --verify --quiet "$local_base" >/dev/null 2>&1; then
+    printf '%s' "$local_base"; return 0
+  fi
+  return 1
+}
+
+find_round_ledger() {
   local _c
-  # $GSTACK_ROUND_LEDGER first, so this is configurable rather than fleet-only. Five separate
-  # review rounds filed the hardcoded list as a defect — correctly, in the sense that a reader
-  # cannot tell "deliberately fleet-scoped" from "nobody considered other installs". The
-  # absent-tool behaviour is unchanged and still deliberate: an upstream install has no such
-  # binary and must be unaffected, since this adapter is headed for a third-party PR and cannot
-  # hard-depend on a claude-fleet-config script.
   for _c in ${GSTACK_ROUND_LEDGER:+"$GSTACK_ROUND_LEDGER"} \
             "${HOME:-}/Development/cfc-live/claude/bin/codex-round-log.sh" \
             "${HOME:-}/Development/claude-fleet-config/claude/bin/codex-round-log.sh"; do
-    [ -x "$_c" ] && { _rl="$_c"; break; }
+    [ -x "$_c" ] && { printf '%s' "$_c"; return 0; }
   done
-  [ -n "$_rl" ] || return 0
+  return 1
+}
+
+# --- phase derivation (VAS-2371) --------------------------------------------
+#
+# WHY THIS EXISTS. `/codex review --loop` was opt-in per invocation, and nothing any session
+# reads ever told it to opt in: a grep for `--loop` across the fleet's own doctrine, commands
+# and skills returns one unrelated hit. So the cheap tier ran for ~28 hours during its own
+# commissioning (2-3 Aug 2026) and was invoked ZERO times in the 19 days after, while 96.5%
+# of 850 rounds took the frontier gate. The mechanism was built, wired and configured
+# correctly; the instruction that drives the behaviour was never pointed at it.
+#
+# Doctrine is the weaker lever here — it depends on every session reading and obeying it.
+# Deriving the phase from state the ledger already holds does not.
+#
+# WHAT IS DELIBERATELY *NOT* DONE: the default is not flipped to `loop`. VAS-1964's design is
+# explicit that "codex reviews only the converged artefact", so a wholesale flip would send
+# converged-artefact gate rounds to the cheap tier — the one thing the design forbids. `auto`
+# is opt-in per call site; every existing caller keeps the phase it passes today.
+#
+# FALLBACK POLARITY IS LOAD-BEARING. With no ledger, an unreadable one, or an unparseable
+# round count, this returns `final_gate` — the frontier reviewer, i.e. pre-adapter behaviour.
+# Never `loop`. A silent downgrade of the reviewer is exactly the failure this file refuses
+# elsewhere ("Refusing to silently fall back to a paid frontier backend" has a mirror image,
+# and this is it: refusing to silently fall back to a CHEAPER one).
+#
+# SEMANTICS. Loop is the DEFAULT; the gate runs on the CONVERGED artefact. Concretely:
+#
+#   loop, loop, loop ... -> loop reports no P1 and no P2 -> GATE
+#   gate finds P1/P2 -> fixes land -> back to the loop -> ... -> loop clean -> GATE again
+#
+# The round count is a RUNAWAY CAP, not the mechanism. An earlier draft of this function used
+# "first N rounds go to the loop, then gate forever", which is a different design wearing the
+# same words and it does not do what VAS-1964 asked for. Measured on August's real lanes, a
+# first-4-rounds rule sends 30% of rounds to the loop overall — and only 14% of the rounds on
+# the 20 lanes holding 54% of all rounds, because a 68-round lane gets 3 cheap rounds and 65
+# frontier ones. It saves least on exactly the lanes that cost most, and it contradicted the
+# 7.6x reduction this work was projected to deliver, which assumes the loop carries the
+# iterative work rather than a fixed prefix of it.
+#
+# HOW "the loop reported clean" IS KNOWN. Not from the ledger: `--json` exposes lane aggregates
+# (`rounds_logged`, `by_voice`, totals) and no per-round or last-round severity, so the question
+# cannot be asked of it without reaching into its storage format — a coupling this file
+# deliberately refuses. AND IT IS NO LONGER ASKED: under VAS-2373 a single `--phase auto`
+# invocation runs the loop round, reads the findings file it just wrote, and -- if that round
+# reported no P1 and no P2 -- runs the gate itself, in the same process. Nothing is persisted
+# between invocations, so there is nothing to key and nothing to look up. The property the
+# marker was chosen for (works on an install with no round ledger at all) survives, because a
+# findings file is a run artefact rather than ledger state.
+
+resolve_phase() {
+  # WHICH PHASE DOES THIS INVOCATION START ON? That is the whole question now.
+  #
+  # It used to also answer "has this lane already converged", by consulting a per-lane marker
+  # keyed on everything the verdict was contingent on. Seven review findings across rounds 6-13
+  # each widened that key -- scope, then base, then the base's SPELLING, then the review question
+  # itself, then the readers of the key diverged from its writer -- because the set of things a
+  # verdict depends on is not closed and a hand-assembled key can never be complete. VAS-2373
+  # deletes the question rather than the eighth key: convergence is now decided IN-PROCESS by
+  # cmd_exec, from the findings file the same invocation just wrote, so nothing is persisted
+  # between calls and there is nothing to key.
+  #
+  # What remains is a pure function of the CURRENT invocation's inputs and the environment.
+  local repo_root="$1" base="${2:-origin/main}" explicit="${3:-no}"
+  shift 3 ||:
+  local pathspecs=("$@")
+  local cap ceiling rl json rounds insertions
+
+
+  # A LOOP BACKEND THAT CANNOT EMIT A FINDINGS BLOCK CAN NEVER PROMOTE (codex r1 P1).
+  # convergence_guard learns "the loop reported clean" by reading p1/p2 out of the findings file,
+  # and the codex branch of cmd_exec deletes that file by design — codex owns its output format
+  # and cannot honour the block contract. `outside_voice_loop` DEFAULTS to codex, so on an
+  # unconfigured install every clean loop round read as "no clean loop recorded" and the lane
+  # ground on until the runaway cap without ever reaching the gate. That is the exact
+  # never-converges failure this design exists to prevent, shipped in the mechanism meant to
+  # prevent it.
+  #
+  # Routing to a codex-backed loop buys nothing anyway: it is a frontier round at frontier price
+  # wearing the loop's name. So `auto` gates instead. Only openrouter emits the block today;
+  # anything else — misconfigured, disabled, or a future backend that does not implement the
+  # contract — takes the same safe branch rather than being enumerated optimistically.
+  if [ "$(resolve_backend loop)" != "openrouter" ]; then printf 'final_gate'; return 0; fi
+
+  # CONFIGURED IS NOT RUNNABLE (codex r3 P2). resolve_backend answers "which backend is named",
+  # not "can it run" — so `outside_voice_loop=openrouter` with no API key, a blank model or an
+  # unusable base URL still resolved to `loop`, and cmd_exec then DIED in probe() with
+  # not_authed/misconfigured. Auto mode produced no review at all on a misconfigured loop
+  # install, which is worse than the frontier-priced review it was avoiding. Probe first and gate
+  # on anything short of ready: a degraded review beats an absent one.
+  # `$explicit` is threaded through, not hardcoded (codex r5 P2). `codex_reviews=disabled`
+  # governs the AUTOMATIC passes; a review the user asked for by name is exempt. Probing in
+  # non-explicit mode returned `disabled` for such a caller, so resolve_phase forced the lane to
+  # the gate while cmd_exec's own explicit-aware check then happily ran it — silently promoting
+  # an explicitly-requested review to the frontier tier it was configured to avoid.
+  if [ "$(probe loop "$explicit")" != "ready" ]; then printf 'final_gate'; return 0; fi
+
+  # THE BASE IS VALIDATED UNCONDITIONALLY (codex r6 P2). It was checked only inside the
+  # size-ceiling branches, so on the DEFAULT ceiling=0 an unresolvable base — a clone that never
+  # fetched origin/main, a mistyped --base — still resolved to `loop`, and exec_openrouter then
+  # died instead of taking the degrade-to-final_gate path this function documents. Same class as
+  # the two gaps above: something the REVIEW depends on, not applied to the ROUTING.
+  local _rbase
+  _rbase="$(resolve_base_ref "$repo_root" "$base")" || { printf 'final_gate'; return 0; }
+  base="$_rbase"
+
+  # RUNAWAY CAP, deliberately defaulted to 20 to agree with claude/hooks/codex-round-breaker.sh,
+  # which blocks the 21st round on a lane. Two instruments measuring the same quantity must not
+  # disagree; a cap of 4 here against a breaker of 20 would have meant the two alarms described
+  # different worlds.
+  cap=$(_cfg outside_voice_runaway_cap)
+  case "$cap" in ''|*[!0-9]*) cap=20 ;; esac
+
+  # SIZE CEILING — default OFF (0). VAS-2371 measured catch rate falling with diff size
+  # (123 ins -> 75%, 209 -> 100%, 217 -> 50%, 477 -> 33%, 1851 -> 25%) on FIVE data points.
+  # Five points do not support a threshold, so this ships disabled and the number below is
+  # indicative only.
+  #
+  # READ THIS BEFORE REACHING FOR A SIZE GATE: the same study found FP rate does NOT correlate
+  # with size — the two largest diffs produced zero false positives. What degrades is RECALL,
+  # not noise: the model does not hallucinate more on a big diff, it finds less of it. That is
+  # an OUTPUT-BUDGET symptom (completion tokens climbed 37k, 39k, 47k, 63k across successive
+  # rounds and then stopped dead on minimax-m3's 65536 cap), and its real remedy is almost
+  # certainly `--pathspec` input scoping, which this adapter already supports — not routing the
+  # diff away to the frontier tier. Revisit once VAS-2373 makes catch rate continuously
+  # measurable rather than a hand-run study.
+  ceiling=$(_cfg outside_voice_size_ceiling)
+  case "$ceiling" in ''|*[!0-9]*) ceiling=0 ;; esac
+
+  # NO LEDGER MEANS NO CAP — IT DOES NOT MEAN NO LOOP (codex r4 P2). Returning final_gate here
+  # made `auto` dead on every install without the fleet's codex-round-log.sh: a fresh lane has no
+  # marker, so it never reached the loop, and only a loop round can create the marker that would
+  # have let it. The mode was self-extinguishing precisely on the installs this adapter takes
+  # care not to hard-depend on — and this file's own header claimed the opposite.
+  #
+  # What is actually lost without a ledger is the RUNAWAY CAP, not the reviewer's quality: the
+  # convergence guard still holds and the gate still runs on the converged artefact, so the lane
+  # remains bounded by convergence rather than by a round count. Say so once rather than silently
+  # dropping a bound someone may be relying on.
+  local rl_missing=no
+  rl=$(find_round_ledger) || rl_missing=yes
+  if [ "$rl_missing" = "no" ]; then
+    json=$("$rl" -C "$repo_root" --json 2>/dev/null) || rl_missing=yes
+  fi
+  if [ "$rl_missing" = "yes" ]; then
+    echo "gstack-outside-voice: note — no readable round ledger, so the runaway cap is not enforced on this lane. Convergence still bounds it: the loop cannot declare it, and the gate still reviews the converged artefact." >&2
+    if [ "$ceiling" -gt 0 ]; then
+      local _ns
+      if ! _ns=$(git -C "$repo_root" diff --numstat "$base"...HEAD ${pathspecs[@]+-- "${pathspecs[@]}"} 2>/dev/null); then
+        printf 'final_gate'; return 0
+      fi
+      insertions=$(printf '%s\n' "$_ns" | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
+      case "$insertions" in ''|*[!0-9]*) insertions=0 ;; esac
+      [ "$insertions" -gt "$ceiling" ] && { printf 'final_gate'; return 0; }
+    fi
+    printf 'loop'; return 0
+  fi
+
+  rounds=$(printf '%s' "$json" | "$_PY" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    n = d.get("rounds_logged")
+    print(int(n) if isinstance(n, int) else -1)
+except Exception:
+    print(-1)
+' 2>/dev/null)
+  case "$rounds" in ''|*[!0-9-]*) rounds=-1 ;; esac
+  [ "$rounds" -lt 0 ] && { printf 'final_gate'; return 0; }
+
+  # rounds_logged counts COMPLETED rounds, so the round about to run is rounds+1.
+  [ $((rounds + 1)) -ge "$cap" ] && { printf 'final_gate'; return 0; }
+
+  if [ "$ceiling" -gt 0 ]; then
+    # THE STATUS IS CHECKED, NOT SUPPRESSED. Two wrong answers were tried here before this one.
+    # Unguarded, `set -o pipefail` made an unresolvable base fatal and routing ABORTED (r1 P2).
+    # Guarding the whole pipeline with `|| true` fixed the abort and introduced something worse
+    # (r2 P2): git's failure fell through to `insertions=0`, which compares below any ceiling and
+    # returns `loop` — so a base that does not resolve SILENTLY BYPASSED the size ceiling, the
+    # exact opposite of the degrade-to-the-gate polarity every other path in this function holds.
+    #
+    # An abort is loud and a bypass is silent, so the second fix was a regression wearing the
+    # shape of a fix. Split the pipeline: git's status is tested on its own, and awk — which
+    # cannot meaningfully fail on text already in hand — runs after.
+    local _numstat
+    # SCOPED, like the review itself (codex r5 P2). exec_openrouter builds a pathspec-scoped
+    # diff, so measuring the whole branch here forced a small focused slice to the gate because
+    # unrelated files changed elsewhere — defeating the very pathspec scoping this function's own
+    # comments name as the remedy for a large diff.
+    if ! _numstat=$(git -C "$repo_root" diff --numstat "$base"...HEAD ${pathspecs[@]+-- "${pathspecs[@]}"} 2>/dev/null); then
+      printf 'final_gate'; return 0
+    fi
+    insertions=$(printf '%s\n' "$_numstat" | awk '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }')
+    case "$insertions" in ''|*[!0-9]*) insertions=0 ;; esac
+    [ "$insertions" -gt "$ceiling" ] && { printf 'final_gate'; return 0; }
+  fi
+
+  printf 'loop'
+}
+
+preflight_gate() {
+  local phase="$1" repo_root="$2" auto_resolved="${3:-no}"
+  # Scoped to `loop` when the loop was the only thing that could start a lane. `--phase auto` can
+  # now send a FRESH lane straight to final_gate — on the default codex loop backend, or whenever
+  # the loop is disabled or unrunnable — and that round is still the lane's round 1, so skipping
+  # the structural sweep there reintroduces exactly the self-contradiction class this gate exists
+  # to delete (codex r10 P2). An auto-resolved round is gated whichever phase it landed on.
+  [ "$phase" = "loop" ] || [ "$auto_resolved" = "yes" ] || return 0
+
+  local _rl=""
+  _rl=$(find_round_ledger) || return 0
 
   local _json
   _json=$("$_rl" -C "$repo_root" --json 2>/dev/null) || {
@@ -526,12 +770,45 @@ cmd_exec() {
   esac
   [ "$timeout_s" -gt 0 ] || die "--timeout must be greater than 0 — 'timeout 0' means NO limit, which is the opposite of what a cap is for."
   case "$codex_mode" in review|exec) ;; *) die "--codex-mode must be review|exec" ;; esac
-  [ -n "$label" ] || label="$phase"
-
   if [ -z "$repo_root" ]; then
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
       || die "not in a git repo and --repo-root not given"
   fi
+
+  # `--phase auto` (VAS-2371) resolves AFTER repo_root, because derivation reads the ledger for
+  # that repo, and BEFORE `label` defaults, because a label of "auto" would put every derived
+  # round in a usage-log bucket named after the flag rather than the phase that ran. Callers
+  # passing an explicit phase are untouched.
+  local _auto_resolved=no
+  if [ "$phase" = "auto" ]; then
+    _auto_resolved=yes
+    # REFUSE rather than degrade (codex r2 P2). `auto` promotes a lane to the gate by reading the
+    # loop round's severities out of the findings file; with no --findings-out there is nothing to
+    # read, every clean loop round records as "no clean loop recorded", and the lane grinds to the
+    # runaway cap without ever converging. That is silent and it looks exactly like a lane that is
+    # simply taking a while, so it must be a refusal at the door rather than a surprise 20 rounds
+    # later. The requirement is a property of the MODE, not of the caller's diligence.
+    # Checked AFTER the master switch below? No — it cannot be, because the phase must be known
+    # before the backend is resolved. So the DISABLED case is short-circuited here instead
+    # (codex r9 P2): with codex_reviews=disabled an automatic caller is supposed to get the
+    # existing no-op exit, and making `auto` die with exit 2 first would regress every user who
+    # deliberately switched outside review off the moment a skill adopted the mode.
+    if [ "$explicit" != "yes" ] && [ "$(_cfg codex_reviews)" = "disabled" ]; then
+      echo "OUTSIDE_VOICE_DISABLED codex_reviews=disabled" >&2
+      return 3
+    fi
+    [ -n "$findings_out" ] || die "--phase auto requires --findings-out: the mode decides convergence by reading the loop round's severities out of that file, in this same invocation, and promotes to the gate on the strength of it. With no file there is nothing to read, so the lane can never converge and runs to the runaway cap. Pass --findings-out, or name the phase explicitly."
+    phase="$(resolve_phase "$repo_root" "$base" "$explicit" ${pathspecs[@]+"${pathspecs[@]}"})"
+    echo "gstack-outside-voice: phase resolved to '$phase' (--phase auto)" >&2
+    # REFUSE BEFORE SPENDING (codex r21 P2). A lane routed to the loop can only ever END at the
+    # gate, so if the gate is already unrunnable this lane cannot converge no matter how many
+    # rounds it buys. Checked here, before the first paid round, rather than only at promotion —
+    # which is where it was, and meant the operator learned the gate was impossible only after
+    # paying for work that could never reach a verdict.
+    [ "$phase" != "loop" ] || gate_blocked_or_ready "$explicit" || return 6
+  fi
+
+  [ -n "$label" ] || label="$phase"
 
   # The master switch is enforced HERE, not only in probe(). A caller that invokes `exec`
   # directly — which the skill bodies do — otherwise bypasses `codex_reviews=disabled`
@@ -557,88 +834,278 @@ cmd_exec() {
     return 3
   fi
 
-  local backend
-  backend="$(resolve_backend "$phase")"
+  # ONE ROUND, RUN HERE. Extracted so this invocation can run a SECOND one -- the gate -- when
+  # the loop converges, which is what VAS-2373's (c2) resolution requires and what removed the
+  # need for any persisted verdict. Everything it reads (phase, backend, label, the exec
+  # parameters) is a local of cmd_exec, so it is deliberately a nested function rather than an
+  # eleven-parameter signature: positional arguments at that width are the r5/r7 class waiting
+  # to happen, and there is exactly one caller.
+  #
+  # It returns a REFUSAL code (3) when no round could start, and 0 when one ran -- in which case
+  # the round's own status is in $_rc. Those are different facts and sharing one channel is how
+  # "the gate was disabled" becomes indistinguishable from "the gate failed".
+  _round() {
+    local backend
+    backend="$(resolve_backend "$phase")"
 
-  # Settle whether a review will happen AT ALL before demanding a pre-flight sweep. The gate
-  # refuses round 1 until a structural sweep is on record — sound when a round is about to run,
-  # absurd when the backend is `disabled` or misnamed: the operator is told to go do a
-  # repo-wide consistency sweep as the price of a review that was never going to happen, and
-  # the message says nothing about the backend, which is the actual problem.
-  case "$backend" in
-    misconfigured)
-      # Refuse rather than fall back. Naming the key and the phase is the whole fix — the
-      # operator has one line to correct and no way to find it from a generic error.
-      local _key="outside_voice_loop"
-      [ "$phase" = "final_gate" ] && _key="outside_voice_gate"
-      die "$_key is set to an unrecognised value (want: codex|openrouter|disabled). Refusing to guess a backend — a wrong guess either bills the frontier price for every loop round or quietly weakens the gate. Fix ~/.gstack/config.yaml, or run: gstack-config set $_key <codex|openrouter|disabled>" ;;
-    disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
-  esac
+    # Settle whether a review will happen AT ALL before demanding a pre-flight sweep. The gate
+    # refuses round 1 until a structural sweep is on record — sound when a round is about to run,
+    # absurd when the backend is `disabled` or misnamed: the operator is told to go do a
+    # repo-wide consistency sweep as the price of a review that was never going to happen, and
+    # the message says nothing about the backend, which is the actual problem.
+    case "$backend" in
+      misconfigured)
+        # Refuse rather than fall back. Naming the key and the phase is the whole fix — the
+        # operator has one line to correct and no way to find it from a generic error.
+        local _key="outside_voice_loop"
+        [ "$phase" = "final_gate" ] && _key="outside_voice_gate"
+        die "$_key is set to an unrecognised value (want: codex|openrouter|disabled). Refusing to guess a backend — a wrong guess either bills the frontier price for every loop round or quietly weakens the gate. Fix ~/.gstack/config.yaml, or run: gstack-config set $_key <codex|openrouter|disabled>" ;;
+      disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
+    esac
+
+    # AT THE CHOKEPOINT, NOT AT THE CALL SITE THAT WAS NOTICED (closes the VAS-2371 r13 P2).
+  #
+  # `--repo-context none` means "send no diff at all", and exec_openrouter is the only backend it
+  # reaches — codex reads the repository and ignores it entirely. So an openrouter round under
+  # `none` gets the prompt and nothing to review, and can come back `p1=0,p2=0` on an artefact
+  # the reviewer never saw. That is a vacuous review reported as a successful one, on either
+  # phase: the loop's zero counts are what promote a lane to the gate, and a `final_gate` round
+  # that reviewed nothing is a gate round in name only.
+  #
+  # This guard has now been placed three times, one call site at a time — `auto` at r10,
+  # `resolve-phase` at r12, and the explicit `exec` path was still open at r13. That is the
+  # pattern rather than the fix. It lives HERE because every round passes through this point
+  # once the backend is known, which is the property a call-site guard never has. gstack's own
+  # codex/SKILL.md records that the skill SHIPPED this combination at a live call site until a
+  # sweep removed it, so the reachable set is not the set of sites a reviewer happens to name.
+  if [ "$backend" = "openrouter" ] && [ "$repo_context" = "none" ]; then
+    die "--repo-context none cannot be used with the openrouter backend (phase '$phase'): it sends the prompt with NO DIFF, so the round reviews nothing and can return no P1 and no P2 about an artefact it never saw. On the loop that result is what promotes a lane to the gate; on the gate it is a gate round in name only. Drop --repo-context none, or scope the input with --pathspec instead."
+  fi
 
   # Readiness BEFORE the sweep gate. preflight_gate refuses round 1 until a structural sweep is
-  # recorded — correct, and useless as a first message when the real problem is that codex is
-  # not installed or $OPENROUTER_API_KEY is unset: the operator is sent to do a repo-wide
-  # consistency sweep to fix an install error. Same ordering mistake as the disabled/misconfigured
-  # cases in round 21, one class further along: ask "can this run at all" before "is it allowed to".
-  _readiness="$(probe "$phase" "$explicit")"
-  case "$_readiness" in
-    not_installed) die "the $backend backend's client is not installed. For codex: npm install -g @openai/codex. For openrouter: install python3." ;;
-    not_authed)    die "the $backend backend has no credentials. For codex: codex login, or set \$CODEX_API_KEY. For openrouter: set \$OPENROUTER_API_KEY." ;;
-    # `misconfigured` is a SECOND, narrower thing here than the backend check above. That one
-    # catches an unrecognised backend NAME; probe also returns this word for RUNTIME settings a
-    # valid backend still cannot run with — a blank model id, or a base URL the request layer
-    # will refuse. Those fell through to preflight_gate, so the operator was told to record a
-    # structural sweep as the price of a round that could not run afterwards either. Exactly the
-    # ordering the comment above claims to have fixed, on the one state it did not enumerate.
-    misconfigured)
-      # ONE model key serves BOTH phases — exec_openrouter reads outside_voice_loop_model
-      # whatever the phase, and there is no outside_voice_gate_model anywhere in gstack-config.
-      # The first version of this message branched on phase and named that key for final_gate,
-      # inventing a setting the operator would have searched for and never found: a remediation
-      # message is only as good as the key it names, and a wrong key is worse than a vague one.
-      die "$(unusable_config_message "$backend") Refusing to start a round that would fail after the pre-flight gate." ;;
-    # Unreachable today — codex_reviews=disabled and a disabled backend both return earlier —
-    # but enumerated so the branch table stays total. A state probe can emit and this case does
-    # not name is a silent fall-through to preflight_gate, which is the bug being fixed here.
-    disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
-  esac
+    # recorded — correct, and useless as a first message when the real problem is that codex is
+    # not installed or $OPENROUTER_API_KEY is unset: the operator is sent to do a repo-wide
+    # consistency sweep to fix an install error. Same ordering mistake as the disabled/misconfigured
+    # cases in round 21, one class further along: ask "can this run at all" before "is it allowed to".
+    _readiness="$(probe "$phase" "$explicit")"
+    case "$_readiness" in
+      not_installed) die "the $backend backend's client is not installed. For codex: npm install -g @openai/codex. For openrouter: install python3." ;;
+      not_authed)    die "the $backend backend has no credentials. For codex: codex login, or set \$CODEX_API_KEY. For openrouter: set \$OPENROUTER_API_KEY." ;;
+      # `misconfigured` is a SECOND, narrower thing here than the backend check above. That one
+      # catches an unrecognised backend NAME; probe also returns this word for RUNTIME settings a
+      # valid backend still cannot run with — a blank model id, or a base URL the request layer
+      # will refuse. Those fell through to preflight_gate, so the operator was told to record a
+      # structural sweep as the price of a round that could not run afterwards either. Exactly the
+      # ordering the comment above claims to have fixed, on the one state it did not enumerate.
+      misconfigured)
+        # ONE model key serves BOTH phases — exec_openrouter reads outside_voice_loop_model
+        # whatever the phase, and there is no outside_voice_gate_model anywhere in gstack-config.
+        # The first version of this message branched on phase and named that key for final_gate,
+        # inventing a setting the operator would have searched for and never found: a remediation
+        # message is only as good as the key it names, and a wrong key is worse than a vague one.
+        die "$(unusable_config_message "$backend") Refusing to start a round that would fail after the pre-flight gate." ;;
+      # Unreachable today — codex_reviews=disabled and a disabled backend both return earlier —
+      # but enumerated so the branch table stays total. A state probe can emit and this case does
+      # not name is a silent fall-through to preflight_gate, which is the bug being fixed here.
+      disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
+    esac
 
-  preflight_gate "$phase" "$repo_root"
+    preflight_gate "$phase" "$repo_root" "$_auto_resolved"
 
-  case "$backend" in
-    codex)
-      # --pathspec is meaningless here and must not pass silently. The codex backend explores
-      # the REPOSITORY; it is never handed the inlined diff that a pathspec scopes. A caller
-      # that scoped the loop and then ran the gate the same way would believe both were
-      # reviewing the same slice while the gate reviewed everything — a scope mismatch that
-      # looks like agreement between the tiers and is the opposite of it.
-      if [ ${#pathspecs[@]} -gt 0 ]; then
-        echo "gstack-outside-voice: WARNING — --pathspec is ignored by the codex backend, which reads the repository rather than an inlined diff. This review is NOT scoped to ${pathspecs[*]}." >&2
-      fi
-      # WARN and continue, never die. The loop path always passes --findings-out, and
-      # outside_voice_loop DEFAULTS to codex — so dying here made `/codex review --loop` fail
-      # on every unconfigured install, i.e. the documented command was broken by the default
-      # configuration. Codex owns its own output format and cannot honour the block contract,
-      # so no findings file is written; the absence of the file is the signal to read codex's
-      # own output rather than a structured count.
-      if [ -n "$findings_out" ]; then
-        rm -f "$findings_out"
-        echo "gstack-outside-voice: note — the codex backend does not emit a structured findings block; no findings file written. Read codex's own output for severities." >&2
-      fi
-      exec_codex "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$codex_mode" ;;
-    openrouter)
-      # An openrouter FINAL GATE is not the thing the name promises, and the config accepts it
-      # without saying so. exec_openrouter always uses outside_voice_loop_model and always
-      # inlines a diff — so the "final gate" silently becomes a second loop-style pass on the
-      # cheap model, and repo-scoped defects in untouched files stop being discoverable while
-      # the run is still reported as the gate. That is the exact class this tier exists to
-      # catch: the gate found a sibling-path drift in this very repo that 21 diff-scoped loop
-      # rounds could not see. Configuring it this way is allowed, but it must not be silent.
-      if [ "$phase" = "final_gate" ]; then
-        echo "gstack-outside-voice: WARNING — outside_voice_gate=openrouter runs the gate as a DIFF-SCOPED review on the loop model ($(_cfg outside_voice_loop_model)), not a repository-scoped one. Defects that live in files this branch did not touch cannot be found this way. This is a degraded gate; do not report it as equivalent to the codex gate." >&2
-      fi
-      exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} ;;
+    # `|| _rc=$?` on both backend calls, not `_rc=$?` after the esac. This file runs under
+    # `set -euo pipefail`, so an untested non-zero return from exec_codex/exec_openrouter exits
+    # the shell AT THAT POINT — which would make the convergence guard below unreachable on
+    # exactly the rounds where a reader most needs to be told what did and did not happen. Putting
+    # the call in a tested context suspends set -e for it and preserves the status verbatim.
+    _rc=0
+
+    case "$backend" in
+      codex)
+        # --pathspec is meaningless here and must not pass silently. The codex backend explores
+        # the REPOSITORY; it is never handed the inlined diff that a pathspec scopes. A caller
+        # that scoped the loop and then ran the gate the same way would believe both were
+        # reviewing the same slice while the gate reviewed everything — a scope mismatch that
+        # looks like agreement between the tiers and is the opposite of it.
+        if [ ${#pathspecs[@]} -gt 0 ]; then
+          echo "gstack-outside-voice: WARNING — --pathspec is ignored by the codex backend, which reads the repository rather than an inlined diff. This review is NOT scoped to ${pathspecs[*]}." >&2
+        fi
+        # WARN and continue, never die. The loop path always passes --findings-out, and
+        # outside_voice_loop DEFAULTS to codex — so dying here made `/codex review --loop` fail
+        # on every unconfigured install, i.e. the documented command was broken by the default
+        # configuration. Codex owns its own output format and cannot honour the block contract,
+        # so no findings file is written; the absence of the file is the signal to read codex's
+        # own output rather than a structured count.
+        if [ -n "$findings_out" ]; then
+          rm -f "$findings_out"
+          echo "gstack-outside-voice: note — the codex backend does not emit a structured findings block; no findings file written. Read codex's own output for severities." >&2
+        fi
+        exec_codex "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$codex_mode" || _rc=$? ;;
+      openrouter)
+        # An openrouter FINAL GATE is not the thing the name promises, and the config accepts it
+        # without saying so. exec_openrouter always uses outside_voice_loop_model and always
+        # inlines a diff — so the "final gate" silently becomes a second loop-style pass on the
+        # cheap model, and repo-scoped defects in untouched files stop being discoverable while
+        # the run is still reported as the gate. That is the exact class this tier exists to
+        # catch: the gate found a sibling-path drift in this very repo that 21 diff-scoped loop
+        # rounds could not see. Configuring it this way is allowed, but it must not be silent.
+        if [ "$phase" = "final_gate" ]; then
+          echo "gstack-outside-voice: WARNING — outside_voice_gate=openrouter runs the gate as a DIFF-SCOPED review on the loop model ($(_cfg outside_voice_loop_model)), not a repository-scoped one. Defects that live in files this branch did not touch cannot be found this way. This is a degraded gate; do not report it as equivalent to the codex gate." >&2
+        fi
+        exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
+    esac
+  }
+
+  local _rc=0
+  _round || return $?
+  convergence_guard "$phase" "$findings_out"
+
+  # --- CONVERGENCE, DECIDED IN THIS PROCESS (VAS-2373) ------------------------
+  #
+  # The loop reported no P1 and no P2, so the lane has converged and the gate is owed a round.
+  # It runs HERE, in the same invocation, reading the findings file this same process just
+  # wrote. That is the whole of the redesign: nothing is persisted between calls, so there is
+  # no key, so there is no eighth member of the class that seven review rounds kept widening.
+  #
+  # Guarded on _auto_resolved: an explicitly-named `--phase loop` is the caller asking for one
+  # cheap round, not for a lane to be driven to convergence. Promoting it would spend frontier
+  # money the caller did not ask for.
+  if [ "$_auto_resolved" = "yes" ] && [ "$phase" = "loop" ] && [ "$_rc" -eq 0 ] \
+     && loop_reported_clean "$findings_out"; then
+
+    # BLOCKED IS TERMINAL AND LOUD (VAS-2373 D2; closes the r13 P1). The previous design fell
+    # back to `loop` here, calling that "the recoverable side" -- and it was, in the sense that
+    # the lane was no longer permanently stuck at a dead gate. What it became instead was a
+    # permanent TREADMILL: the same unchanged artefact reviewed again every invocation, the same
+    # clean verdict written again, no forward progress and no signal, until the runaway cap.
+    #
+    # Both are the same missing idea. A two-state machine has to spell "cannot proceed" as one
+    # of its two PRODUCTIVE states, and either choice is wrong in the other direction. So there
+    # is a third state, and it is derived fresh from the gate's own probe on every invocation --
+    # never persisted, because a persisted blocked-state would need a key and the key is the
+    # thing being deleted (D2).
+    gate_blocked_or_ready "$explicit" || return 6
+
+    echo "gstack-outside-voice: the loop reported no P1 and no P2 — running the final_gate round now, in this same invocation. Convergence is the gate's to declare." >&2
+    phase="final_gate"
+    label="final_gate"
+    _round || return $?
+  fi
+
+  return "$_rc"
+}
+
+# --- convergence guard (VAS-2371) -------------------------------------------
+#
+# THE LOOP MUST NEVER DECLARE CONVERGENCE. Only the gate does.
+#
+# This is not belt-and-braces around the routing change; it is what makes the routing change
+# safe, and it should not be shipped separately from it.
+#
+# The measured reason: on a corpus of six real round-1 artefacts the cheap tier matched codex
+# on eight findings and UNDER-RATED severity on roughly five of them — a security gate that
+# silently fails open came back P2; codex P1s came back P2 and P3. Its false-positive rate was
+# fine (12.9%) and its catch rate was acceptable for early rounds (53%), so none of the
+# obvious quality metrics see this. Severity calibration is the one that matters here, because
+# THE LOOP'S STOP CONDITION READS SEVERITY: doctrine stops the loop at "no P1 and no P2". A
+# reviewer that rates real P1s as P3 therefore reports a clean round on an artefact that has
+# not converged, and every quality metric stays green while it happens.
+#
+# Under phase routing the consequence is bounded — the gate still runs on the converged
+# artefact, so a false convergence costs gate rounds rather than shipping a defect. That
+# bound is only real while this guard exists. Remove it and the loop's own clean round becomes
+# an end state, which is the one path by which the cheap tier can damage an artefact.
+#
+# Two channels, deliberately. The stderr line is for the human; the JSON field is for anything
+# that reads the findings file programmatically and would otherwise treat p1=0,p2=0 as done.
+# One without the other leaves half the callers unguarded — the same "making a failure explicit
+# at one layer only MOVES the silence" shape this file guards against elsewhere.
+# ONE PRODUCER FOR ANY VALUE TWO SITES READ (VAS-2373 acceptance criterion; the r7 and r12
+# findings promoted to a rule). Two sites need this verdict: convergence_guard, which reports it
+# to a human, and cmd_exec, which ACTS on it by running the gate. r7 found two sites answering
+# "does this base resolve" differently; r12 found two sites computing the review context
+# differently. Both were fixed by extracting a single producer, and this is that remedy applied
+# before the fact rather than after the round that finds it.
+#
+# ABSENT COUNTS ARE NOT ZERO, and a MISSING FILE IS NOT A CLEAN ROUND. A findings file without
+# its severities is unreadable, not clean; a review that never ran has reported nothing at all.
+# `p1=0,p2=0` from a round that never happened is byte-identical to a genuinely clean one unless
+# something refuses to invent it, and under this design that value promotes an artefact to the
+# gate -- so the refusal lives here, in the only place that answers the question.
+loop_reported_clean() {
+  local findings="${1:-}"
+  [ -n "$findings" ] && [ -f "$findings" ] || return 1
+  "$_PY" - "$findings" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+p1, p2 = d.get("p1"), d.get("p2")
+sys.exit(0 if (p1 == 0 and p2 == 0) else 1)
+PY
+}
+
+# THE ONE PRODUCER OF "CAN THE GATE RUN, AND WHAT DO I TELL THEM IF NOT" (codex r21).
+#
+# Called at TWO moments and that is the point: once BEFORE `--phase auto` spends anything, and
+# again at promotion. r21 P2: checking only at promotion meant a lane whose gate was already
+# known unrunnable still burned one or more PAID loop rounds before anyone found out it could
+# never converge. Failing before spending is what `blocked` was for; it was simply placed too
+# late. Both call sites share this function rather than each deciding, per the branch's
+# one-producer rule — two copies of a remediation message is exactly how they drift.
+#
+# r21 P3: the remediation NAMES THE CONFIGURED BACKEND. It said "For codex: codex login" even
+# when the gate was openrouter, sending an operator to fix a tool that was not the one failing —
+# the wrong-key remediation this file already learned to avoid once.
+gate_blocked_or_ready() {
+  local explicit="${1:-no}" _ready _be _fix
+  _ready="$(probe final_gate "$explicit")"
+  [ "$_ready" = "ready" ] && return 0
+  _be="$(resolve_backend final_gate 2>/dev/null || echo unknown)"
+  case "$_ready" in
+    disabled)      _fix="The gate is switched OFF (outside_voice_gate=disabled, or codex_reviews=disabled). A lane cannot converge without it: re-enable the gate, or name the phases explicitly if you meant to review without one." ;;
+    not_installed) case "$_be" in
+                     codex)      _fix="The gate backend 'codex' is not installed: npm install -g @openai/codex." ;;
+                     openrouter) _fix="The gate backend 'openrouter' needs python3, which is not installed." ;;
+                     *)          _fix="The gate backend '$_be' is not installed." ;;
+                   esac ;;
+    not_authed)    case "$_be" in
+                     codex)      _fix="The gate backend 'codex' has no credentials: run codex login, or set \$CODEX_API_KEY." ;;
+                     openrouter) _fix="The gate backend 'openrouter' has no credentials: set \$OPENROUTER_API_KEY." ;;
+                     *)          _fix="The gate backend '$_be' has no credentials." ;;
+                   esac ;;
+    *)             _fix="$(unusable_config_message "$_be")" ;;
   esac
+  echo "gstack-outside-voice: BLOCKED — this lane cannot converge, because the final_gate backend is '$_ready'. NOT running or continuing the loop: only the gate can end a lane, so loop rounds here would review the same artefact for ever, burning rounds while looking like progress. $_fix Nothing about this lane is remembered, so the next invocation starts clean." >&2
+  return 6
+}
+
+# Reports the loop round's status to both channels and stamps the findings file. It no longer
+# persists anything: under VAS-2373 the promotion decision is made by cmd_exec, in this same
+# invocation, from `loop_reported_clean` above. There is no marker, no key, and no `final_gate`
+# branch here -- a gate round has nothing to clear because nothing was ever written.
+convergence_guard() {
+  local phase="$1" findings_out="${2:-}"
+
+  [ "$phase" = "loop" ] || return 0
+
+  echo "gstack-outside-voice: NOT CONVERGENCE — this was a LOOP round. A loop round with no P1 and no P2 is a signal to RUN THE GATE, not a clean bill of health. The cheap tier under-rates severity (VAS-2371), and the loop's stop condition reads severity. Only the final_gate phase can end a lane." >&2
+
+  [ -n "$findings_out" ] && [ -f "$findings_out" ] || return 0
+  # Stamp in place. A failure to stamp must not fail the round — the review already happened
+  # and was already billed — but it must not pass silently either, or a consumer reads an
+  # unstamped file as a gate result.
+  "$_PY" - "$findings_out" <<'PY' || echo "gstack-outside-voice: WARNING — could not stamp convergence_declarable into the findings file; do not read it as a gate result." >&2
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    d = json.load(f)
+d["phase"] = "loop"
+d["convergence_declarable"] = False
+with open(p, "w") as f:
+    json.dump(d, f)
+PY
+  return 0
 }
 
 exec_codex() {
@@ -934,5 +1401,32 @@ case "$_CMD" in
     [ "${1:-}" = "--phase" ] || die "usage: gstack-outside-voice probe [--explicit] --phase <loop|final_gate>"
     probe "${2:?}" "$_pexp"
     ;;
-  *) die "unknown command '$_CMD' (want: exec|backend|probe)" ;;
+  resolve-phase)
+    # Inspection surface for `--phase auto`. Reports which phase this invocation would START
+    # on -- and under VAS-2373 that is the whole of what the derivation decides, because
+    # convergence is no longer looked up, it is discovered in-process after the loop round runs.
+    #
+    # --prompt-file and --repo-context are GONE, and their absence is the point. They existed
+    # only because the marker key carried the review question (r11), so an inspection that could
+    # not name the question looked up the wrong marker (r12). With no marker there is no key,
+    # no question to name, and no way for this surface to disagree with `exec --phase auto` --
+    # they now call one function with one set of inputs. STDOUT is one word, as `backend` is.
+    _rp_root=""; _rp_base="origin/main"; _rp_explicit=no; _rp_paths=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo-root) _rp_root="${2:?--repo-root needs a value}"; shift 2 ;;
+        --base)      _rp_base="${2:?--base needs a value}"; shift 2 ;;
+        --explicit)  _rp_explicit=yes; shift ;;
+        --pathspec)  _rp_paths+=("${2:?--pathspec needs a value}"); shift 2 ;;
+        *) die "usage: gstack-outside-voice resolve-phase [--repo-root <dir>] [--base <ref>] [--explicit] [--pathspec <spec>]" ;;
+      esac
+    done
+    if [ -z "$_rp_root" ]; then
+      _rp_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+        || die "not in a git repo and --repo-root not given"
+    fi
+    resolve_phase "$_rp_root" "$_rp_base" "$_rp_explicit" ${_rp_paths[@]+"${_rp_paths[@]}"}
+    printf '\n'
+    ;;
+  *) die "unknown command '$_CMD' (want: exec|backend|probe|resolve-phase)" ;;
 esac

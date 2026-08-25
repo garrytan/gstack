@@ -118,7 +118,8 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # in the other direction too: the default gate path was blocked by a hosted LOOP setting.
 #
 # SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED — do not re-derive it from what the
-# user typed: `loop` for review --loop, `final_gate` for a default or focused review, `none`
+# user typed: `loop` for review --loop (focused or not), `final_gate` for a review without
+# the flag, `none`
 # for challenge/consult/plan, which call codex directly and must keep their gating.
 #
 # Step 0.3 runs BEFORE this step, and that ordering is load-bearing rather than cosmetic.
@@ -136,6 +137,13 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # that the agent runs verbatim just compares two literals — the branch was always false, so
 # the bypass never fired and the feature stayed unreachable on the machines it was added for.
 # A placeholder that fails silently in a test is worse than one that fails loudly in a string.
+# ⚠ REVIEWERS: THE SUBSTITUTER IS THE AGENT RUNNING THIS SKILL, NOT ANYTHING IN THIS REPO.
+# Grepping the repository for something that rewrites this line finds nothing, and that is the
+# design, not a defect — the same convention as `<base>` and the `_XHIGH` lines below. FIVE
+# review rounds have now reported this block as unreachable or dead on exactly that reading
+# (four noted below, plus codex r16 P1). The self-validating check on the next lines is what
+# makes an unsubstituted placeholder fail LOUDLY instead of silently, which is the whole point;
+# it firing is the mechanism working, not proof that nobody fills the value in.
 _OV_PHASE="<<SET-ME: loop | final_gate | none>>"   # ← SUBSTITUTE THIS WHOLE STRING
 # A placeholder that VALIDATES ITSELF, checked BEFORE anything reads it.
 #
@@ -153,7 +161,7 @@ _OV_PHASE="<<SET-ME: loop | final_gate | none>>"   # ← SUBSTITUTE THIS WHOLE S
 # the line the reader actually has to edit.
 case "$_OV_PHASE" in
   loop|final_gate|none) ;;
-  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for review --loop, 'final_gate' for a default or focused review, 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
+  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for review --loop whether or not it carries instructions, 'final_gate' for a review without the flag, 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
      return 2 2>/dev/null || exit 2 ;;
 esac
 # `none` means this invocation calls codex directly (challenge/consult/plan) and must keep its
@@ -305,6 +313,14 @@ if [ "$_GATE_RAN" != "yes" ]; then
   echo "Skipping the gate invocation: $_GATE_MODE."
 else
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+# TELEMETRY IS BEST-EFFORT AND MUST NOT BECOME THE FAILURE (codex r20 P2). When the gate
+# resolves to a HOSTED backend, Step 0.4 legitimately prints `NEEDS_CODEX: no` and Step 0.5 is
+# skipped — so `gstack-codex-probe` is never sourced and these helpers do not exist. The
+# adapter-exit branches below call them, which turned a clean "gate not run" report into a
+# trailing `command not found` and exit 127, on exactly the path an operator needs when the
+# review cannot start. Step 0.5's own call already uses the defensive form; these did not.
+command -v _gstack_codex_log_event >/dev/null 2>&1 || _gstack_codex_log_event() { :; }
+command -v _gstack_codex_log_hang  >/dev/null 2>&1 || _gstack_codex_log_hang()  { :; }
 _GATE_PROMPT=$(mktemp "$TMP_ROOT/gstack-gate-prompt-XXXXXX.txt")
 # Asking for a VALIDATED block rather than trusting the prose. Round 1 of the gate fixed the
 # same false-PASS by telling the model to write [P1]; that is the weaker half of the pair,
@@ -347,8 +363,17 @@ if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "outside_voice_timeout" "gate:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown):330"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 5.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+elif [ "$_CODEX_EXIT" = "6" ]; then
+  # BLOCKED — the lane cannot converge because the final_gate backend cannot run. Enumerated
+  # here by a structural sweep, not by a round: the adapter grew this exit with the VAS-2373
+  # redesign and all three of this file's exit tables still listed 2/3/4/5, so a blocked lane
+  # would have been reported as an unexpected failure. NOT a clean round and NOT a reviewer
+  # failure — the adapter's own stderr names what is unavailable and how to fix it.
+  echo "LANE BLOCKED — the gate backend cannot run, so this lane cannot reach a verdict. NOT a clean round; nothing was established. The adapter's message below names the cause and the fix."
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 elif [ "$_CODEX_EXIT" = "2" ] || [ "$_CODEX_EXIT" = "3" ] || [ "$_CODEX_EXIT" = "4" ] || [ "$_CODEX_EXIT" = "5" ]; then
-  # The ADAPTER's own exit codes, not codex's: 2 refused input (unrecognised backend,
+  # The ADAPTER's own exit codes, not codex's (6 is handled in its own branch above):
+  # 2 refused input (unrecognised backend,
   # unreadable config, bad base ref), 3 outside-voice disabled for this phase, 5 no pre-flight
   # sweep recorded, 4 findings block unusable. Reporting these as "[codex exit N]" sends the
   # reader to codex's logs for a problem the adapter already named on stderr. 4 cannot occur
@@ -397,6 +422,14 @@ is not a licence to stop early.
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+# TELEMETRY IS BEST-EFFORT AND MUST NOT BECOME THE FAILURE (codex r20 P2). When the gate
+# resolves to a HOSTED backend, Step 0.4 legitimately prints `NEEDS_CODEX: no` and Step 0.5 is
+# skipped — so `gstack-codex-probe` is never sourced and these helpers do not exist. The
+# adapter-exit branches below call them, which turned a clean "gate not run" report into a
+# trailing `command not found` and exit 127, on exactly the path an operator needs when the
+# review cannot start. Step 0.5's own call already uses the defensive form; these did not.
+command -v _gstack_codex_log_event >/dev/null 2>&1 || _gstack_codex_log_event() { :; }
+command -v _gstack_codex_log_hang  >/dev/null 2>&1 || _gstack_codex_log_hang()  { :; }
 _LOOP_PROMPT=$(mktemp "$TMP_ROOT/gstack-ov-prompt-XXXXXX.txt")
 cat > "$_LOOP_PROMPT" <<'PROMPT'
 IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/,
@@ -474,13 +507,51 @@ echo "LOOP_EFFORT: $_OV_EFFORT"   # printed so an unapplied --xhigh is visible, 
 # could in principle make a dead round look alive; that only costs another poll cycle, whereas
 # the failure this replaces was permanent.
 _OV_PID="$TMP_ROOT/gstack-ov-pid-$_OV_LANE"
+# THE REVIEW SUBJECT IS RECORDED AS DATA, NOT ENCODED IN THE KEY (codex r14 P1; VAS-2373 D6).
+#
+# The finding is real: $_OV_LANE hashes only repo+branch, so committing fixes and re-running
+# attached to the round still reviewing the OLD tree and reported its findings as this one's.
+# The prescribed fix was to put HEAD and the base into the key. That is the eighth instance of
+# the class this branch exists to delete, and it is also WORSE here: a key gives every tree
+# state its own slot, so re-running after a commit would silently launch a SECOND paid round
+# and orphan the live one — the very thing the stable name was chosen to prevent.
+#
+# So the slot stays one-per-lane and the subject is written INSIDE the launch marker and
+# compared on re-entry. One slot means a live round is always found; a recorded subject means a
+# moved tree is REFUSED rather than silently inherited. A key has to be complete or it collides
+# silently, and the set of things distinguishing two reviews is not closed — that is the whole
+# finding of this arc. A comparison only has to be sound, and its failure is loud.
+#
+# SUBJECT = HEAD + base, which is exactly what `git diff base...HEAD` yields: what the child is
+# REVIEWING. The prompt is the question, not the subject, and it cannot be compared anyway —
+# $_LOOP_PROMPT is a per-invocation mktemp. Hashing its content instead would re-create the
+# review_context_fp this branch just deleted. If a later round asks to add pathspec, prompt or
+# model to this comparison, that is the class returning: remove the comparison, do not widen it.
+_OV_SUBJECT="$(git rev-parse HEAD 2>/dev/null || echo no-head)|origin/<base>"
 if [ -f "$_OV_LAUNCHED" ] && [ ! -f "$_OV_DONE" ] && [ -s "$_OV_PID" ] \
    && ! kill -0 "$(cat "$_OV_PID")" 2>/dev/null; then
   echo "note — the previous round's process is gone and never wrote an exit marker (killed, or its shell was terminated). Clearing the stale launch marker and starting a fresh round."
   rm -f "$_OV_LAUNCHED" "$_OV_DONE" "$_OV_OUT" "$_OV_PID"
 fi
+# A LIVE child reviewing a DIFFERENT subject is refused, never attached to and never duplicated.
+# Refusing rather than superseding is deliberate: the live round is already paid for and only
+# the operator can decide whether to abandon it, so this names the PID and stops. An EMPTY
+# marker is a pre-D6 launch with no subject recorded — it cannot be compared, so it is left to
+# poll as before rather than refused on a mismatch that cannot be established.
+if [ -s "$_OV_LAUNCHED" ] && [ ! -f "$_OV_DONE" ] && [ -s "$_OV_PID" ] \
+   && kill -0 "$(cat "$_OV_PID")" 2>/dev/null \
+   && [ "$(cat "$_OV_LAUNCHED" 2>/dev/null)" != "$_OV_SUBJECT" ]; then
+  echo "STOP: a loop round is still running on this branch, but it is reviewing a DIFFERENT tree."
+  echo "  in flight (pid $(cat "$_OV_PID")): $(cat "$_OV_LAUNCHED")"
+  echo "  you are on               : $_OV_SUBJECT"
+  echo "The tree moved after that round was launched — a commit, a rebase, or a different --base."
+  echo "Polling it would report ITS findings as a review of YOUR code, which is a wrong-diff verdict."
+  echo "Nothing has been started or deleted. Either wait for it and re-run this block, or kill it"
+  echo "(kill $(cat "$_OV_PID")) and re-run to review the current tree."
+  return 2 2>/dev/null || exit 2
+fi
 if [ ! -f "$_OV_LAUNCHED" ]; then
-touch "$_OV_LAUNCHED"
+printf '%s' "$_OV_SUBJECT" > "$_OV_LAUNCHED"
 # Paths travel as ARGV, never spliced into the script text. The `'"$VAR"'` idiom this replaced
 # closed the quote and pasted each VALUE into the string `bash -c` then parses, so the inner
 # shell re-evaluated it inside double quotes. Measured, rather than reasoned about: a path
@@ -531,6 +602,11 @@ if [ "$_OV_EXIT" = "124" ]; then
   # a wrong row in gstack's own analytics, and a wrong row is worse than a missing one because
   # nothing distinguishes it from a right one at read time.
   _gstack_codex_log_event "outside_voice_timeout" "loop:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase loop 2>/dev/null || echo unknown):900"
+elif [ "$_OV_EXIT" = "6" ]; then
+  # BLOCKED — see the gate path's note. Same adapter exit, same meaning, enumerated here too so
+  # the three tables agree with the adapter's contract rather than with each other.
+  echo "LANE BLOCKED — the gate backend cannot run, so this lane cannot reach a verdict. This is NOT a clean round; nothing was established."
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 elif [ "$_OV_EXIT" = "4" ]; then
   # The reviewer ran but its severity block could not be parsed. This is NOT a clean round.
   echo "ROUND INVALID — findings block unusable. Do NOT count this as satisfying the stop condition; re-run the round."
@@ -689,6 +765,14 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX.txt")
 # diff therefore turned focused review into an unscoped repo review on the default path. The
 # prompt now carries the same dual-backend wording the gate uses: run git diff if you can,
 # otherwise the diff is below.
+# TELEMETRY IS BEST-EFFORT AND MUST NOT BECOME THE FAILURE (codex r20 P2). When the gate
+# resolves to a HOSTED backend, Step 0.4 legitimately prints `NEEDS_CODEX: no` and Step 0.5 is
+# skipped — so `gstack-codex-probe` is never sourced and these helpers do not exist. The
+# adapter-exit branches below call them, which turned a clean "gate not run" report into a
+# trailing `command not found` and exit 127, on exactly the path an operator needs when the
+# review cannot start. Step 0.5's own call already uses the defensive form; these did not.
+command -v _gstack_codex_log_event >/dev/null 2>&1 || _gstack_codex_log_event() { :; }
+command -v _gstack_codex_log_hang  >/dev/null 2>&1 || _gstack_codex_log_hang()  { :; }
 _FOCUS_FINDINGS=$(mktemp "$TMP_ROOT/gstack-focus-findings-XXXXXX.json")
 # SET THIS LINE: `yes` if the user typed --xhigh anywhere, otherwise `no` (Step 0.3).
 # One flag, and the effort is DERIVED from it rather than typed. Three sites each re-decided
@@ -701,17 +785,68 @@ _XHIGH=no
 case "$_XHIGH" in yes|no) ;; *) echo "STOP: _XHIGH must be yes or no (got '$_XHIGH'). Step 0.3 resolves it: yes when the user typed --xhigh." >&2; return 2 2>/dev/null || exit 2 ;; esac
 if [ "$_XHIGH" = yes ]; then _REVIEW_EFFORT=xhigh; else _REVIEW_EFFORT=high; fi
 echo "REVIEW_EFFORT: $_REVIEW_EFFORT"   # printed so an unapplied --xhigh is visible, not inferred
+# --loop IS HONOURED HERE TOO (codex r18 P1). This branch hardcoded `--phase final_gate`, and
+# "any words after `/codex review` take this branch" — so `/codex review --loop <instructions>`
+# landed here and the flag the user typed was silently discarded, billing a frontier round for
+# one they had explicitly asked to be cheap. Same class as r5's dropped `--explicit`: a flag
+# dropped on the way to the thing it governs, with the two halves of the system disagreeing
+# about what the user asked for.
+#
+# Uses the SAME validated-placeholder form as _OV_PHASE rather than a bare default, and for the
+# same reason this file records there: a silent default makes "the user did not type --loop" and
+# "the agent forgot to substitute" produce identical output, which is how that path stayed
+# unreachable for four rounds. One convention, not two.
+# SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED: `loop` if the user typed --loop,
+# otherwise `final_gate`. Do not re-derive it from the instructions.
+_FOCUS_PHASE="<<SET-ME: loop | final_gate>>"   # ← SUBSTITUTE THIS WHOLE STRING
+case "$_FOCUS_PHASE" in
+  loop|final_gate) ;;
+  *) echo "STOP: _FOCUS_PHASE was not substituted (still '$_FOCUS_PHASE'). Step 0.3 resolved the mode already — carry it here: 'loop' when the user typed --loop, otherwise 'final_gate'." >&2; return 2 2>/dev/null || exit 2 ;;
+esac
+echo "FOCUS_PHASE: $_FOCUS_PHASE"   # printed so an unapplied --loop is visible, not inferred
+# THE BUDGET FOLLOWS THE PHASE (codex r20 P2, self-inflicted by r18). r18 routed this branch to
+# the loop backend and left it on the GATE's 330s budget. Loop rounds are the ones that run long
+# — that is why the dedicated loop path backgrounds and re-polls at 900s — so a focused --loop
+# round on a large diff timed out at 5.5 minutes on the very inputs the cheap tier exists for.
+#
+# ⚠ THIS BRANCH RUNS INLINE, so its ceiling is the HOST call cap, not the loop's 900s. 540s is
+# the most that fits. That is a real limit, stated rather than papered over: a focused loop
+# round that needs longer should be run as plain `/codex review --loop`, which has the
+# backgrounded poller. Duplicating that poller here would mean a second copy of the launch,
+# liveness and re-entry machinery — the kind of second copy this branch has spent rounds deleting.
+if [ "$_FOCUS_PHASE" = "loop" ]; then _FOCUS_TIMEOUT=540; else _FOCUS_TIMEOUT=330; fi
+# AND THE EFFORT FOLLOWS IT TOO (structural sweep, VAS-2373). Found by sweeping the family
+# rather than by a round: this branch kept _REVIEW_EFFORT (`high`) whatever the phase, while
+# this file's OWN rule says the loop path runs at `medium` — "deliberately NOT review's high.
+# This is the cheap tier and its value is many rounds at low cost." So a focused --loop round
+# was buying frontier-grade effort on the cheap tier, contradicting the stated rule.
+#
+# That makes FOUR things that must follow the phase, not the three r18-r20 chased one per round:
+# the phase itself, the findings labels, the timeout budget, and the effort. --xhigh still
+# overrides, exactly as it does on the other two paths.
+if [ "$_XHIGH" = yes ]; then _REVIEW_EFFORT=xhigh
+elif [ "$_FOCUS_PHASE" = "loop" ]; then _REVIEW_EFFORT=medium
+else _REVIEW_EFFORT=high; fi
+echo "FOCUS_EFFORT: $_REVIEW_EFFORT"
 ~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
-  --phase final_gate --codex-mode exec \
+  --phase "$_FOCUS_PHASE" --codex-mode exec \
   --prompt-file "$_PROMPT_FILE" --repo-root "$_REPO_ROOT" \
   --base "origin/<base>" \
-  --effort "$_REVIEW_EFFORT" --timeout 330 --findings-out "$_FOCUS_FINDINGS" < /dev/null 2>"$TMPERR"
+  --effort "$_REVIEW_EFFORT" --timeout "$_FOCUS_TIMEOUT" --findings-out "$_FOCUS_FINDINGS" < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown):330"
+  _gstack_codex_log_event "outside_voice_timeout" "focus:$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_FOCUS_PHASE" 2>/dev/null || echo unknown):$_FOCUS_TIMEOUT"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "The review stalled past 5.5 minutes. NOT a clean review."
+elif [ "$_CODEX_EXIT" = "6" ]; then
+  # BLOCKED — the lane cannot converge because the final_gate backend cannot run. Enumerated
+  # here by a structural sweep, not by a round: the adapter grew this exit with the VAS-2373
+  # redesign and all three of this file's exit tables still listed 2/3/4/5, so a blocked lane
+  # would have been reported as an unexpected failure. NOT a clean round and NOT a reviewer
+  # failure — the adapter's own stderr names what is unavailable and how to fix it.
+  echo "LANE BLOCKED — the gate backend cannot run, so this lane cannot reach a verdict. NOT a clean round; nothing was established. The adapter's message below names the cause and the fix."
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 elif [ "$_CODEX_EXIT" = "2" ] || [ "$_CODEX_EXIT" = "3" ] || [ "$_CODEX_EXIT" = "4" ] || [ "$_CODEX_EXIT" = "5" ]; then
   # The adapter's own exits. Without this branch they fell through to the "review SUCCEEDED"
   # notes below, so a disabled or misconfigured gate, or a findings block that failed
@@ -728,12 +863,36 @@ elif [ -s "$TMPERR" ]; then
   echo "[outside-voice notes — the review SUCCEEDED; these qualify it]"
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
 fi
-# Printed under the SAME label the default gate uses, so step 4's rule — prefer the validated
-# block, fall back to markers only when none was printed and the exit was 0 — covers this path
-# too, with no second rule to keep in step.
-echo "GATE_BACKEND: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown)"
-if [ "$_CODEX_EXIT" = "0" ] && [ -s "$_FOCUS_FINDINGS" ]; then
-  echo "GATE_FINDINGS_JSON: $(cat "$_FOCUS_FINDINGS")"
+# THE LABEL MUST MATCH THE PHASE THAT ACTUALLY RAN (codex r19 P1, self-inflicted by r18).
+#
+# This block printed GATE_BACKEND and GATE_FINDINGS_JSON unconditionally, which was correct
+# while the branch was hardcoded to final_gate. r18 made the phase honour --loop and did not
+# follow the reporting, so a focused `--loop` round announced itself as a GATE round. Step 4
+# grades the two labels by DIFFERENT rules — `GATE_*` is the final-gate verdict (p1 only, with
+# degraded-gate detection from the backend) while `OV_FINDINGS_JSON` is the loop stop condition
+# (p1 OR p2) — so a degraded openrouter loop round with outstanding P2s could be graded a clean
+# codex gate pass. A fix is new code, and this is the half of it I did not write.
+#
+# Same shape as r15/r17 one file over: one side of a pair updated and the other left, so two
+# readers of one fact disagree. The phase is the single producer here; both the backend line and
+# the findings label are derived from it rather than each deciding for itself.
+if [ "$_FOCUS_PHASE" = "loop" ]; then
+  # Lower-case and unlabelled ON PURPOSE. `GATE_BACKEND:` is a MARKER step 4 parses; the Step 2A
+  # loop path emits no backend marker at all, and inventing a `LOOP_BACKEND:` one would add a
+  # machine-looking label nothing reads — the same "asserts something nothing checks" shape as
+  # the defect this block is fixing. Informational for a human, invisible to the grader.
+  echo "loop backend: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase loop 2>/dev/null || echo unknown)"
+  if [ "$_CODEX_EXIT" = "0" ] && [ -s "$_FOCUS_FINDINGS" ]; then
+    echo "OV_FINDINGS_JSON: $(cat "$_FOCUS_FINDINGS")"
+  fi
+else
+  # Printed under the SAME label the default gate uses, so step 4's rule — prefer the validated
+  # block, fall back to markers only when none was printed and the exit was 0 — covers this path
+  # too, with no second rule to keep in step.
+  echo "GATE_BACKEND: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown)"
+  if [ "$_CODEX_EXIT" = "0" ] && [ -s "$_FOCUS_FINDINGS" ]; then
+    echo "GATE_FINDINGS_JSON: $(cat "$_FOCUS_FINDINGS")"
+  fi
 fi
 rm -f "$_FOCUS_FINDINGS"
 ```
