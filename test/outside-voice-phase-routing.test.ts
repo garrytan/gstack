@@ -33,16 +33,6 @@ function resolveTmpRoot(env: Record<string, string | undefined> = process.env): 
 // runner carrying an invalid GSTACK_OUTSIDE_VOICE_BASE_URL: probe returned misconfigured and
 // every `loop` expectation silently became `final_gate` for environment reasons. Spread AFTER
 // process.env so the fixture outranks the machine rather than the machine outranking it.
-// THE CONTEXT FINGERPRINT IS THE SAME AT BOTH SITES, and this constant is where that is
-// asserted (codex r12 P2). It used to read '' with a comment explaining that resolve-phase and
-// cmd_exec computed the key differently -- which is the defect r12 found, written down here as
-// intended behaviour. A test derived from the current behaviour cannot fail on the current
-// behaviour, so these tests passed throughout while the inspection surface misreported the
-// phase on exactly the converged lanes it exists to diagnose.
-// Both sites now call review_context_fp(). With no prompt and the default repo-context that is
-// the `noprompt` sentinel plus the mode -- MEASURED, not guessed, the same way the ':' empty
-// scope was measured at r6 after four tests were written against a reasoned ''.
-const CTX = 'noprompt-diff';
 
 const LOOP_FIXTURE_ENV = {
   OPENROUTER_API_KEY: 'test-fixture-not-a-real-key',
@@ -116,28 +106,9 @@ afterAll(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-// The lane marker is keyed on `<toplevel>|<branch>` through cksum, the same pair the skill's
-// own tempfiles use. Recomputed here rather than hardcoded so a change to the keying breaks
-// these tests loudly instead of leaving them asserting against a file nothing writes.
-function markerPath(): string {
-  const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
-  const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-  const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
-  return path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
-}
-function headSha(): string {
-  return spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-}
-function setMarker(v: string | null) {
-  const p = markerPath();
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  if (v === null) fs.rmSync(p, { force: true });
-  else fs.writeFileSync(p, v);
-}
 
 describe('resolve-phase — loop is the default, the gate is for the converged artefact', () => {
   test('with no clean loop round recorded, routes to the loop', () => {
-    setMarker(null);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
   });
@@ -145,50 +116,24 @@ describe('resolve-phase — loop is the default, the gate is for the converged a
   test('stays on the loop deep into a lane — the round count is not the mechanism', () => {
     // The superseded design gated from round 4 onward, which sent only 14% of the rounds on
     // long lanes to the cheap tier. Round 12 of a lane must still be a loop round.
-    setMarker(null);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":11}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
   });
 
-  test('a CLEAN loop round promotes the next round to the gate', () => {
-    setMarker(`clean ${headSha()}`);
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
-  });
-
-  test('a DIRTY loop round keeps the lane on the loop', () => {
-    setMarker('dirty');
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
-  });
-
-  // The fake HOME hides the fleet ledger, but it also hid ~/.codex/auth.json — and since r11 a
-  // clean marker only promotes when the GATE can actually run, so this began (correctly) staying
-  // on the loop. A gate-capable fake HOME keeps the test about what it claims to be about.
-  test('the clean marker outranks the ledger — it works with no round count at all', () => {
-    setMarker(`clean ${headSha()}`);
-    const fakeHome = fs.mkdtempSync(path.join(tmp, 'home-'));
-    fs.mkdirSync(path.join(fakeHome, '.codex'), { recursive: true });
-    fs.writeFileSync(path.join(fakeHome, '.codex', 'auth.json'), '{}');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: path.join(tmp, 'nope'), HOME: fakeHome })).toBe('final_gate');
-  });
 });
 
 describe('resolve-phase — runaway cap', () => {
   test('a lane at the cap is forced to the gate even with no clean round', () => {
-    setMarker(null);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":19}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
   });
 
   test('defaults to 20, matching the runaway breaker rather than disagreeing with it', () => {
-    setMarker(null);
     const below = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":18}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: below })).toBe('loop');
   });
 
   test('is configurable', () => {
-    setMarker(null);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     setCfg('outside_voice_runaway_cap', '1');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
@@ -197,12 +142,16 @@ describe('resolve-phase — runaway cap', () => {
   });
 });
 
-// REGRESSION (VAS-2371). A detached HEAD has no branch, so the lane cannot be keyed. Before
-// this was guarded, the non-zero return from lane_marker_path killed the script under `set -e`
-// and `resolve-phase` exited 1 printing NOTHING — no phase, no error. Every worktree made with
-// `git worktree add --detach` hits this, including the ones this project's own study harness
-// creates, so it is a live path rather than a corner case. It must degrade to `loop` (bounded
-// by the runaway cap), never die and never silently reach for the frontier tier.
+// REGRESSION (VAS-2371). Kept, and its ROOT CAUSE is now gone rather than guarded — which is
+// worth saying, because the original bug no longer has a mechanism to reproduce it. A detached
+// HEAD could not be KEYED, and the keying function's non-zero return killed the script under
+// `set -e`, so `resolve-phase` exited 1 printing NOTHING: no phase, no error. VAS-2373 deleted
+// the keying entirely, so there is nothing left to fail that way.
+//
+// The test stays because the PROPERTY still matters and is cheap to hold: every worktree made
+// with `git worktree add --detach` takes this path, including the ones this project's own study
+// harness creates. A detached lane must still route sanely and print a phase, whatever the
+// mechanism underneath.
 describe('resolve-phase — unidentifiable lane (detached HEAD)', () => {
   let detached: string;
 
@@ -240,7 +189,6 @@ describe('resolve-phase — unidentifiable lane (detached HEAD)', () => {
 // frontier price wearing the loop's name.
 describe('resolve-phase — a loop backend that cannot emit findings is never selected', () => {
   test('the default codex loop backend routes straight to the gate', () => {
-    setMarker(null);
     setCfg('outside_voice_loop', 'codex');
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
@@ -248,7 +196,6 @@ describe('resolve-phase — a loop backend that cannot emit findings is never se
   });
 
   test('a disabled loop backend routes to the gate rather than being enumerated optimistically', () => {
-    setMarker(null);
     setCfg('outside_voice_loop', 'disabled');
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
@@ -260,7 +207,6 @@ describe('resolve-phase — a loop backend that cannot emit findings is never se
 // they get their own tests rather than a comment: a fix is new code and earns the same scrutiny.
 describe('resolve-phase — the size ceiling must not be bypassed by a base it cannot resolve', () => {
   test('an unresolvable base gates rather than falling through to insertions=0', () => {
-    setMarker(null);
     setCfg('outside_voice_size_ceiling', '100');
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/does-not-exist'], {
@@ -286,33 +232,9 @@ describe('exec — auto refuses without the file the mode depends on', () => {
   });
 });
 
-// REGRESSION (codex r3 P2). A clean verdict is a statement about a REVISION. Keyed on branch
-// alone, one clean round promoted every later round on that branch to the gate — including after
-// new commits landed, which is exactly when fresh work most needs loop rounds.
-describe('resolve-phase — a clean verdict expires when HEAD moves', () => {
-  test('a verdict recorded against the current HEAD promotes', () => {
-    setMarker(`clean ${headSha()}`);
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('final_gate');
-  });
-
-  test('a verdict recorded against a different HEAD does not', () => {
-    setMarker('clean 0000000000000000000000000000000000000000');
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
-  });
-
-  test('a bare legacy "clean" marker is not honoured', () => {
-    setMarker('clean');
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    expect(resolvePhase({ GSTACK_ROUND_LEDGER: led })).toBe('loop');
-  });
-});
-
 // REGRESSION (codex r3 P2). resolve_backend answers "which backend is named", not "can it run".
 describe('resolve-phase — a named-but-unrunnable loop backend gates', () => {
   test('openrouter with no API key routes to the gate rather than dying later in probe', () => {
-    setMarker(null);
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo], {
       encoding: 'utf8',
@@ -323,40 +245,11 @@ describe('resolve-phase — a named-but-unrunnable loop backend gates', () => {
   });
 });
 
-// REGRESSION (codex r5 P1). Reached through the INTERSECTION of two earlier fixes rather than
-// one bug: no ledger meant no runaway cap, and a detached HEAD meant no marker to persist a
-// clean verdict — so such a lane looped forever with nothing able to promote it. Every
-// `git worktree add --detach` lane on a non-fleet install was in that state.
-describe('resolve-phase — a detached lane is keyable, so it can still converge', () => {
-  let det: string;
-  beforeAll(() => {
-    det = path.join(tmp, 'det-conv');
-    const head = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-    spawnSync('git', ['-C', repo, 'worktree', 'add', '--detach', '-q', det, head], { encoding: 'utf8' });
-  });
-
-  test('a clean verdict on a detached lane promotes to the gate', () => {
-    const top = spawnSync('git', ['-C', det, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
-    const head = spawnSync('git', ['-C', det, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-    const key = spawnSync('sh', ['-c', `printf '%s|detached|%s|%s|%s' '${top}' 'origin/main' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
-    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
-    fs.mkdirSync(path.dirname(mp), { recursive: true });
-    fs.writeFileSync(mp, `clean ${head}`);
-    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', det], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: path.join(tmp, 'no-ledger') },
-    });
-    expect((r.stdout ?? '').trim()).toBe('final_gate');
-    fs.rmSync(mp, { force: true });
-  });
-});
-
 // REGRESSION (codex r5 P2). The ceiling must measure what the REVIEW measures. Scoped to the
 // whole branch, a small focused slice was forced to the gate because unrelated files changed
 // elsewhere — defeating the pathspec scoping the code's own comments name as the remedy.
 describe('resolve-phase — the size ceiling measures the scoped diff', () => {
   test('a scoped slice under the ceiling loops even when the branch is over it', () => {
-    setMarker(null);
     setCfg('outside_voice_size_ceiling', '20');
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     // feature.txt is 40 lines; seed.txt is unchanged on the branch.
@@ -367,157 +260,6 @@ describe('resolve-phase — the size ceiling measures the scoped diff', () => {
     });
     expect((r.stdout ?? '').trim()).toBe('loop');
     setCfg('outside_voice_size_ceiling', '0');
-  });
-});
-
-// REGRESSION (codex r6, found as a CLASS by the sweep the trigger demanded rather than one per
-// round). Both gaps are the same shape: something the REVIEW is validated or scoped by, not
-// applied to the ROUTING decision or the state it persists.
-describe('resolve-phase — routing honours what the review honours', () => {
-  test('an unresolvable base gates even with the ceiling OFF', () => {
-    setMarker(null);
-    setCfg('outside_voice_size_ceiling', '0');
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
-    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/never-fetched'], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
-    });
-    expect((r.stdout ?? '').trim()).toBe('final_gate');
-  });
-
-  test("one scope's clean verdict does not promote a different scope", () => {
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
-    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-    const keyFor = (scope: string) =>
-      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' '${scope}' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
-    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('seed.txt:')}`);
-    fs.mkdirSync(path.dirname(mp), { recursive: true });
-    fs.writeFileSync(mp, `clean ${headSha()}`);
-    const run = (spec: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--pathspec', spec], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
-    });
-    expect((run('seed.txt').stdout ?? '').trim()).toBe('final_gate');
-    // feature.txt has never had a clean pass and must not inherit seed.txt's verdict.
-    expect((run('feature.txt').stdout ?? '').trim()).toBe('loop');
-    fs.rmSync(mp, { force: true });
-  });
-});
-
-// REGRESSION (codex r12 P2). SIXTH instance of the r6 sweep's class, and the first on the
-// INSPECTION surface rather than the routing one: `exec --phase auto` keyed the marker on the
-// review question after r11, and `resolve-phase` -- the tool that exists to tell an operator
-// which phase would run -- kept passing an empty context, so it answered about a different
-// marker. Both sites now call one producer, review_context_fp().
-//
-// This asserts the OUTCOME (which marker each invocation resolves against), not that the code
-// contains a shared helper: a helper called from one site and a helper called from both are
-// indistinguishable from the source, and only the outcome tells them apart.
-describe('resolve-phase — the review QUESTION is part of the key at both sites', () => {
-  test('a verdict recorded for one question does not promote a review asking another', () => {
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
-    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-
-    const promptA = path.join(tmp, 'question-a.txt');
-    const promptB = path.join(tmp, 'question-b.txt');
-    fs.writeFileSync(promptA, 'review the routing change');
-    fs.writeFileSync(promptB, 'review only the tests');
-
-    // The fingerprint is computed by the adapter itself, never restated here -- a second copy
-    // of the keying rule in the test is the very thing that let this defect ship.
-    const ctxFor = (prompt: string, mode: string) =>
-      spawnSync('sh', ['-c',
-        `. /dev/null; printf '%s-%s' "$( { cksum < '${prompt}' 2>/dev/null || echo noprompt; } | tr -d ' \\t' )" '${mode}'`,
-      ], { encoding: 'utf8' }).stdout.trim();
-    const keyFor = (ctx: string) =>
-      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' '${ctx}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
-
-    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor(ctxFor(promptA, 'diff'))}`);
-    fs.mkdirSync(path.dirname(mp), { recursive: true });
-    fs.writeFileSync(mp, `clean ${headSha()}`);
-
-    const run = (args: string[]) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, ...args], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
-    });
-
-    // The question that HAS a clean loop round promotes.
-    expect((run(['--prompt-file', promptA]).stdout ?? '').trim()).toBe('final_gate');
-    // A different question has never had one, and must not inherit the verdict.
-    expect((run(['--prompt-file', promptB]).stdout ?? '').trim()).toBe('loop');
-    // And no prompt at all is a third question, not a wildcard that matches any of them.
-    expect((run([]).stdout ?? '').trim()).toBe('loop');
-    fs.rmSync(mp, { force: true });
-  });
-
-  test('--repo-context none is refused, because exec --phase auto refuses it', () => {
-    // An inspection that printed a phase for a combination `exec` will not run would be
-    // reporting on a call that cannot happen (codex r10 P2 applied to the inspection surface).
-    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--repo-context', 'none'], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
-    });
-    expect(r.status).not.toBe(0);
-    expect(`${r.stderr}`).toContain('repo-context none');
-  });
-});
-
-// REGRESSION (codex r7 P2). Third and fourth instances of the r6 sweep's class, which is the
-// interesting part: that sweep enumerated the ROUTING's inputs and stopped short of the marker
-// KEY's inputs, so it closed two gaps and left two open. A sweep is only as complete as the
-// boundary it draws.
-describe('resolve-phase — the base is part of the review subject', () => {
-  test('a clean verdict against one base does not promote a review against another', () => {
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
-    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-    const keyFor = (b: string) =>
-      spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' '${b}' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
-    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${keyFor('origin/main')}`);
-    fs.mkdirSync(path.dirname(mp), { recursive: true });
-    fs.writeFileSync(mp, `clean ${headSha()}`);
-    const run = (b: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', b], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
-    });
-    expect((run('origin/main').stdout ?? '').trim()).toBe('final_gate');
-    // Same HEAD, different review subject — must not inherit the other base's verdict.
-    expect((run('main').stdout ?? '').trim()).toBe('loop');
-    fs.rmSync(mp, { force: true });
-  });
-
-  test('a base that resolves only as a local branch still selects the loop', () => {
-    setMarker(null);
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
-    // The fixture repo has a local `origin/main` ref; `origin/origin/main` does not exist but
-    // strips to `origin/main`, exercising the same fallback exec_openrouter uses.
-    const r = spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', 'origin/origin/main'], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
-    });
-    expect((r.stdout ?? '').trim()).toBe('loop');
-  });
-});
-
-// REGRESSION (codex r9 P2).
-describe('resolve-phase — equivalent base spellings share one verdict', () => {
-  test('a verdict recorded as origin/main is honoured for origin/origin/main', () => {
-    const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":2}\'\n');
-    const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
-    const branch = spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim();
-    const key = spawnSync('sh', ['-c', `printf '%s|%s|%s|%s|%s' '${top}' '${branch}' 'origin/main' ':' '${CTX}' | cksum | tr -d ' \\t'`], { encoding: 'utf8' }).stdout.trim();
-    const mp = path.join(stateRoot, 'outside-voice', `last-loop-${key}`);
-    fs.mkdirSync(path.dirname(mp), { recursive: true });
-    fs.writeFileSync(mp, `clean ${headSha()}`);
-    const run = (b: string) => spawnSync(ADAPTER, ['resolve-phase', '--repo-root', repo, '--base', b], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot, GSTACK_ROUND_LEDGER: led },
-    });
-    expect((run('origin/main').stdout ?? '').trim()).toBe('final_gate');
-    expect((run('origin/origin/main').stdout ?? '').trim()).toBe('final_gate');
-    fs.rmSync(mp, { force: true });
   });
 });
 
@@ -542,16 +284,39 @@ describe('exec — a disabled install no-ops rather than erroring on auto', () =
 });
 
 // REGRESSION (codex r10 P2).
-describe('exec — auto refuses a combination that makes its own signal meaningless', () => {
-  test('--phase auto with --repo-context none is refused', () => {
-    const r = spawnSync(ADAPTER, ['exec', '--phase', 'auto', '--prompt-file', __filename,
-      '--repo-root', repo, '--repo-context', 'none', '--findings-out', path.join(tmp, 'f.json'), '--explicit'], {
-      encoding: 'utf8',
-      env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: stateRoot },
+// REGRESSION — closes the VAS-2371 r13 P2 AT THE CHOKEPOINT.
+//
+// The refusal used to live in the `auto` branch alone, so an EXPLICIT `--phase loop` or
+// `--phase final_gate` with --repo-context none still ran a round that reviewed nothing and
+// reported success. It has now been placed three times one call site at a time — auto at r10,
+// resolve-phase at r12, explicit exec still open at r13 — which is the pattern, not the fix.
+//
+// EVERY PHASE IS ASSERTED, not just the one a round happened to report. A guard that covers the
+// reported call site and not its siblings is the defect this closes, so a test that checked only
+// `auto` would be the same mistake in test form.
+describe('exec — --repo-context none is refused for every openrouter-backed phase', () => {
+  // BOTH phases are pointed at openrouter on a state root of this test's own. On the SHARED
+  // root the gate is codex, and codex ignores --repo-context entirely — so `--phase final_gate`
+  // would fall past the guard (correctly) and start a REAL, BILLED codex round against the
+  // fixture repo. It did exactly that once while this test was being written. A test that can
+  // reach a paid backend is a defect in the test, not a stronger assertion.
+  //
+  // The refusal fires immediately after the backend is resolved and before any probe or
+  // dispatch, so none of these cases touches the network at all.
+  let orRoot: string;
+  beforeAll(() => { orRoot = freshStateRoot('openrouter', ''); });
+
+  for (const phase of ['auto', 'loop', 'final_gate']) {
+    test(`--phase ${phase} with --repo-context none is refused`, () => {
+      const r = spawnSync(ADAPTER, ['exec', '--phase', phase, '--prompt-file', __filename,
+        '--repo-root', repo, '--repo-context', 'none', '--findings-out', path.join(tmp, 'f.json'), '--explicit'], {
+        encoding: 'utf8',
+        env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: orRoot },
+      });
+      expect(r.status).not.toBe(0);
+      expect(`${r.stderr}`).toMatch(/--repo-context none cannot be used with the openrouter backend/);
     });
-    expect(r.status).not.toBe(0);
-    expect(`${r.stderr}`).toMatch(/cannot be combined with --repo-context none/);
-  });
+  }
 });
 
 // REGRESSION (codex r10 P2). The pre-flight sweep gate was scoped to `loop` back when only the
@@ -576,7 +341,6 @@ describe('exec — an auto-resolved round is pre-flight gated whichever phase it
 // reviewer, which is the mirror image of the "refusing to silently fall back to a paid
 // frontier backend" rule the adapter already enforces in the other direction.
 describe('resolve-phase — fallback polarity', () => {
-  beforeEach(() => setMarker(null));
 
   // THE LEDGER GOVERNS THE CAP, NOT THE REVIEWER (codex r4 P2). An absent or broken ledger costs
   // the runaway cap and nothing else — the convergence guard still holds and the gate still
@@ -610,7 +374,6 @@ describe('resolve-phase — fallback polarity', () => {
 });
 
 describe('resolve-phase — size ceiling', () => {
-  beforeEach(() => setMarker(null));
   test('is OFF by default: a large diff still routes to the loop', () => {
     const led = stubLedger(tmp, '#!/bin/sh\necho \'{"lane":"x","rounds_logged":0}\'\n');
     setCfg('outside_voice_gate_threshold', '4');
@@ -650,4 +413,143 @@ describe('unresolved phase fails loudly', () => {
     expect(r.status).not.toBe(0);
     expect(`${r.stderr}`).toMatch(/unknown phase/i);
   });
+});
+
+// ===========================================================================================
+// CONVERGENCE HAPPENS IN THIS INVOCATION (VAS-2373, Fork A reading (c2))
+//
+// These are the tests the redesign is FOR, and they replace every test that asserted the marker
+// key carried some input. There is no marker and no key, so those tests have no subject; these
+// assert the property that replaced them — one `exec --phase auto` call runs the loop, reads the
+// findings file IT JUST WROTE, and runs the gate itself when that round reported nothing.
+//
+// They drive the REAL request layer against a loopback stub rather than mocking the adapter's
+// own functions. GSTACK_OUTSIDE_VOICE_BASE_URL is an existing, documented seam (https, or http
+// on loopback for exactly this purpose), so the code under test is the shipped path — including
+// the findings-block contract and its per-request nonce, which the stub has to honour by
+// echoing the fence back. A stub that invented its own fence would be ignored by the parser and
+// the round would read as failed, so this also pins the contract end to end.
+//
+// EACH TEST BUILDS ITS OWN STATE ROOT. Toggling `outside_voice_gate` on the shared one and
+// restoring it afterwards is a race with a cleanup step rather than isolation — that flaked
+// once already on this branch (r9) and was fixed the same way.
+// ===========================================================================================
+
+function startStubBackend() {
+  let posts = 0;
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    async fetch(req) {
+      // The request layer HEADs the endpoint to detect a redirecting gateway before it will
+      // send the key. Answer it plainly, or every round dies before it starts.
+      if (req.method === 'HEAD') return new Response(null, { status: 200 });
+      posts += 1;
+      const body = await req.text();
+      // COPY THE FENCE BACK CHARACTER FOR CHARACTER. It is a per-request nonce and a block
+      // under any other fence is ignored entirely — which the parser reports as a failed
+      // review, never as a clean one. Echoing it is what makes this stub a valid reviewer.
+      const m = body.match(/findings-json-[0-9a-f]+/);
+      const fence = m ? m[0] : 'findings-json-missing';
+      const content = '```' + fence + '\n' + JSON.stringify(STUB_VERDICT) + '\n```\n\nStub review.';
+      return Response.json({
+        choices: [{ message: { content } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1`, posts: () => posts };
+}
+
+// Mutable so a test can choose what the stub reviewer "finds" without a second server.
+let STUB_VERDICT: Record<string, unknown> = { p1: 0, p2: 0, p3: 0, findings: [] };
+
+function freshStateRoot(gate: string, base: string): string {
+  const sr = fs.mkdtempSync(path.join(tmp, 'sr-'));
+  const env = { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: sr };
+  spawnSync(CONFIG, ['set', 'outside_voice_loop', 'openrouter'], { encoding: 'utf8', env });
+  spawnSync(CONFIG, ['set', 'outside_voice_gate', gate], { encoding: 'utf8', env });
+  spawnSync(CONFIG, ['set', 'outside_voice_loop_model', 'stub/stub-model'], { encoding: 'utf8', env });
+  return sr;
+}
+
+// Bun.spawn (ASYNC), never spawnSync — and this is not a style preference. spawnSync BLOCKS the
+// Bun event loop, so a Bun.serve stub cannot respond while it is waiting: every request hits the
+// adapter's own timeout instead of round-tripping, and the test reads as "the backend was never
+// called" when in fact the server was never allowed to answer. This repo already documents it in
+// test/gbrain-supabase-provision.test.ts; it cost one run here before that note was found.
+async function runAuto(sr: string, baseUrl: string, findings: string) {
+  const proc = Bun.spawn([ADAPTER, 'exec', '--phase', 'auto', '--prompt-file', __filename,
+    '--repo-root', repo, '--findings-out', findings, '--explicit', '--timeout', '30'], {
+    env: {
+      ...process.env, ...LOOP_FIXTURE_ENV,
+      GSTACK_STATE_ROOT: sr,
+      GSTACK_OUTSIDE_VOICE_BASE_URL: baseUrl,
+      // A STUBBED ledger reporting the sweep as done. Pointing this at a nonexistent path does
+      // NOT disable the gate — find_round_ledger falls back to a search path and finds the real
+      // fleet tool on a developer machine, so the round dies at the pre-flight gate with exit 5
+      // and the test reads as "the backend was never called". rounds_logged stays 0 so the
+      // runaway cap is not what any of these tests are measuring.
+      GSTACK_ROUND_LEDGER: stubLedger(fs.mkdtempSync(path.join(tmp, 'led-')),
+        '#!/bin/sh\necho \'{"lane":"stub","rounds_logged":0,"preflight_done":true}\'\n'),
+    },
+    stdout: 'pipe', stderr: 'pipe',
+  });
+  const [stderr, status] = await Promise.all([
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { stderr, status };
+}
+
+describe('exec --phase auto — the gate runs in THIS invocation when the loop converges', () => {
+  test('a clean loop round is followed by a gate round, in one call', async () => {
+    STUB_VERDICT = { p1: 0, p2: 0, p3: 0, findings: [] };
+    const stub = startStubBackend();
+    try {
+      const sr = freshStateRoot('openrouter', stub.url);
+      const r = await runAuto(sr, stub.url, path.join(tmp, 'conv-clean.json'));
+      // TWO backend calls from ONE invocation is the whole property. One would mean the loop
+      // ran and the lane was left to remember its verdict for next time — which is the design
+      // that produced seven findings.
+      expect(stub.posts()).toBe(2);
+      expect(`${r.stderr}`).toMatch(/running the final_gate round now, in this same invocation/);
+      expect(r.status).toBe(0);
+    } finally { stub.server.stop(true); }
+  }, 30000);
+
+  test('a loop round WITH findings does not run the gate', async () => {
+    STUB_VERDICT = { p1: 0, p2: 1, p3: 0, findings: [{ severity: 'P2', title: 'x', location: 'a.ts:1' }] };
+    const stub = startStubBackend();
+    try {
+      const sr = freshStateRoot('openrouter', stub.url);
+      await runAuto(sr, stub.url, path.join(tmp, 'conv-dirty.json'));
+      // Exactly one call: the lane has not converged, so the gate is not owed a round.
+      expect(stub.posts()).toBe(1);
+    } finally { stub.server.stop(true); }
+  }, 30000);
+});
+
+// REGRESSION — closes the VAS-2371 r13 P1 BY THE DESIGN, not by a guard at bin/gstack-outside-voice:608.
+//
+// The superseded code fell back to `loop` when a converged lane met an unavailable gate, calling
+// that the recoverable side. It removed a permanent dead end and installed a permanent TREADMILL:
+// the same unchanged artefact reviewed again on every invocation, the same verdict written again,
+// no forward progress and no signal, until the runaway cap. Both are one missing idea — a
+// two-state machine has to spell "cannot proceed" as one of its two PRODUCTIVE states.
+describe('exec --phase auto — a converged lane with an unavailable gate is BLOCKED, not looped', () => {
+  test('exits 6, says why, and does NOT run a second loop round', async () => {
+    STUB_VERDICT = { p1: 0, p2: 0, p3: 0, findings: [] };
+    const stub = startStubBackend();
+    try {
+      const sr = freshStateRoot('disabled', stub.url);
+      const r = await runAuto(sr, stub.url, path.join(tmp, 'conv-blocked.json'));
+      expect(r.status).toBe(6);
+      expect(`${r.stderr}`).toMatch(/BLOCKED/);
+      // The one behaviour the r13 P1 was about: it must not silently become another loop round.
+      expect(stub.posts()).toBe(1);
+      // And the remediation must name the actual cause rather than a generic config hint.
+      expect(`${r.stderr}`).toMatch(/switched OFF/);
+    } finally { stub.server.stop(true); }
+  }, 30000);
 });
