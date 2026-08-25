@@ -561,13 +561,55 @@ printf '%s' "$_OV_SUBJECT" > "$_OV_LAUNCHED"
 # one usually reported, was in fact harmless here: the value sits inside inner double quotes.
 # That mismatch is the lesson — the idiom's real hazard is expansion, not quote-breaking, so
 # escaping quotes would have fixed the symptom people notice and left execution wide open.
-# With "$1".."$5" the values are passed as arguments and are never parsed as shell at all.
-# The `_` is argv[0] for the inner shell; without it, "$1" would silently be $0 and be lost.
+# The values travel as EXPORTED ENVIRONMENT VARIABLES, which keeps the property above and fixes
+# a second defect the positional form had (VAS-2403).
+#
+# THE POSITIONAL FORM WAS CORRECT ON DISK AND CORRUPTED IN FLIGHT. This block passed the paths as
+# argv and read them back as shell positionals. That is sound shell, and it is unsafe HERE for a
+# reason that has nothing to do with shell: the harness substitutes a dollar sign followed by a
+# single digit, anywhere in a skill body, with the ARGUMENTS THE SKILL WAS INVOKED WITH, before the
+# model ever reads the file.
+#
+# ⚠ NOTE THAT THIS COMMENT NAMES THOSE TOKENS IN WORDS RATHER THAN WRITING THEM. That is not
+# fussiness — an earlier draft of this very comment spelled them literally and was itself rewritten
+# by the substitution, so the explanation of the defect arrived corrupted by the defect. If you edit
+# this block, keep the prose free of the syntax it describes.
+#
+# Measured on a real `/codex review --loop` invocation: the delivered text carried
+# `--prompt-file "--loop"`, and an unrelated display line elsewhere in this file reading
+# `Est. cost: ~` dollar-zero `.12` arrived as `~review.12`. Two facts follow, and the second is the
+# dangerous one. The substitution is ZERO-INDEXED over the argument string — dollar-zero is the
+# FIRST token, dollar-one the second — which is why dollar-one became `--loop` rather than `review`,
+# and why the higher ones survived here (there was no third token). And therefore WHICH of them get
+# rewritten depends on how many arguments the invocation carries, so the corruption is not
+# reproducible across invocations: a block that works when tested one way breaks when typed another.
+#
+# Run verbatim, the adapter received a prompt file named `--loop`, exited 2, and this file's own
+# table reported ROUND NOT RUN. Honest at the adapter, misleading to a human: the message names a
+# prompt-file problem and the prompt file is fine. The cheap tier silently does not run, which is
+# the exact failure the tiering work exists to end.
+#
+# Environment variables are the fix because they keep BOTH properties at once. The name is not a
+# positional, so nothing rewrites it in flight; and `"$GSTACK_OV_PROMPT"` is a parameter expansion,
+# whose result is NOT re-parsed as shell — so a path holding `$(id -u)` or a backtick stays literal,
+# exactly as argv did. A command-prefix assignment is exported to the command's environment and
+# `nohup` passes it through, so the inner shell reads them by name.
+#
+# ⚠ DO NOT "SIMPLIFY" THIS BACK TO THE QUOTE-CLOSING `VAR` SPLICE, OR BACK TO POSITIONALS. The
+# first splices VALUES into text the inner shell re-parses and was measured EXECUTING a path
+# (`/home/$(id -u)/p` arrived as `/home/1000/p`); the second is the in-flight corruption above.
+# Both failures are silent. There is a contract test — `test/codex-skill-no-positionals.test.ts`.
+GSTACK_OV_PROMPT="$_LOOP_PROMPT" \
+GSTACK_OV_REPO="$_REPO_ROOT" \
+GSTACK_OV_FINDINGS="$_OV_FINDINGS" \
+GSTACK_OV_ERR="$TMPERR" \
+GSTACK_OV_DONE="$_OV_DONE" \
+GSTACK_OV_EFFORT="$_OV_EFFORT" \
 nohup bash -c '~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
-  --phase loop --prompt-file "$1" --repo-root "$2" \
-  --base "origin/<base>" --effort "$6" --timeout 900 \
-  --findings-out "$3" < /dev/null 2>"$4"
-echo $? > "$5"' _ "$_LOOP_PROMPT" "$_REPO_ROOT" "$_OV_FINDINGS" "$TMPERR" "$_OV_DONE" "$_OV_EFFORT" > "$_OV_OUT" 2>&1 &
+  --phase loop --prompt-file "$GSTACK_OV_PROMPT" --repo-root "$GSTACK_OV_REPO" \
+  --base "origin/<base>" --effort "$GSTACK_OV_EFFORT" --timeout 900 \
+  --findings-out "$GSTACK_OV_FINDINGS" < /dev/null 2>"$GSTACK_OV_ERR"
+echo $? > "$GSTACK_OV_DONE"' > "$_OV_OUT" 2>&1 &
 # Record the child so a later re-entry can tell "still running" from "died silently".
 echo $! > "$_OV_PID"
 fi
@@ -957,7 +999,7 @@ CODEX SAYS (code review):
 ════════════════════════════════════════════════════════════
 <full codex output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
-GATE: PASS                    Tokens: 14,331 | Est. cost: ~$0.12
+GATE: PASS                    Tokens: 14,331 | Est. cost: ~0.12 USD
 ```
 
 or

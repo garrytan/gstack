@@ -502,7 +502,7 @@ describe('probe enforces the request layer base-url rule rather than a copy of i
   });
 });
 
-describe('the loop launcher passes paths as argv, not as shell text', () => {
+describe('the loop launcher passes paths as exported env vars, not as shell text', () => {
   // The `'"$VAR"'` idiom closed the quote and pasted each VALUE into the string `bash -c` then
   // parses. Measured against the real idiom: a path holding `$(id -u)` or a backtick EXECUTED,
   // and one holding a double quote was silently corrupted (the quotes vanished and the round
@@ -513,16 +513,32 @@ describe('the loop launcher passes paths as argv, not as shell text', () => {
   const SKILL = path.join(ROOT, 'codex', 'SKILL.md');
   const TMPL = path.join(ROOT, 'codex', 'SKILL.md.tmpl');
 
-  test.each([['generated skill', SKILL], ['template', TMPL]])('%s launches via argv', (_l, f) => {
+  // ⚠ THIS BLOCK USED TO PIN THE ARGV FORM, AND THE ARGV FORM WAS RIGHT ON ITS OWN TERMS. It was
+  // replaced under VAS-2403 for a reason ORTHOGONAL to everything above: the harness rewrites a
+  // dollar sign followed by a single digit, anywhere in a skill body, with the arguments the skill
+  // was invoked with — before the model reads the file. So the positional references were correct
+  // on disk and corrupted in flight, and this test was pinning them there. Exported env vars keep
+  // the property this block exists to protect (a value reaches the inner shell without ever being
+  // spliced into text that shell re-parses) while carrying no token the harness rewrites.
+  // The dedicated guard is test/codex-skill-no-positionals.test.ts; this block keeps the
+  // anti-splice assertions, which are its own subject and are unaffected by that change.
+  test.each([['generated skill', SKILL], ['template', TMPL]])('%s launches via exported env', (_l, f) => {
     const text = fs.readFileSync(f as string, 'utf-8');
-    // The values arrive as positional parameters...
-    expect(text).toContain(
-      '_ "$_LOOP_PROMPT" "$_REPO_ROOT" "$_OV_FINDINGS" "$TMPERR" "$_OV_DONE" "$_OV_EFFORT"');
-    expect(text).toContain('--prompt-file "$1" --repo-root "$2"');
+    // The values arrive as a command-prefix assignment, exported into the child's environment...
+    expect(text).toContain('GSTACK_OV_PROMPT="$_LOOP_PROMPT"');
+    expect(text).toContain('GSTACK_OV_REPO="$_REPO_ROOT"');
+    expect(text).toContain('GSTACK_OV_FINDINGS="$_OV_FINDINGS"');
+    // NOT asserted as one combined line. That form required both references to sit on a single
+    // line separated by one space, so a purely cosmetic reflow would fail a test whose property
+    // still held — and codex-skill-no-positionals.test.ts already asserts each reference
+    // individually, from a table, so the combined check was redundant as well as brittle. It was
+    // brittle in the positional form too and was carried forward unexamined; fixed on the way past.
     // ...including the effort, which was hard-coded to medium and silently dropped --xhigh.
-    expect(text).toContain('--effort "$6"');
+    expect(text).toContain('--effort "$GSTACK_OV_EFFORT"');
+    expect(text).toContain('GSTACK_OV_EFFORT="$_OV_EFFORT"');
     expect(text).not.toContain('--effort medium --timeout 900');
-    // ...and no path is spliced into the quoted script text any more.
+    // ...and no path is spliced into the quoted script text any more. Unchanged subject, unchanged
+    // assertions: this is the hazard the argv form was chosen for and env vars inherit the fix.
     expect(text).not.toContain(`--prompt-file "'"$_LOOP_PROMPT"'"`);
     expect(text).not.toContain(`echo $? > "'"$_OV_DONE"'"`);
   });
@@ -664,9 +680,10 @@ describe('every adapter invocation carries a resolved effort, not a literal', ()
   test.each(files)('%s: no invocation hard-codes its effort', (_l, f) => {
     const text = fs.readFileSync(f, 'utf-8');
     expect(text).not.toMatch(/--effort (high|medium|low|xhigh)\b/);
-    // The two review paths share one variable; the loop passes its own through argv.
+    // The two review paths share one variable; the loop passes its own through the environment
+    // (was argv until VAS-2403 — see the launcher block above for why the form changed).
     expect(text).toContain('--effort "$_REVIEW_EFFORT"');
-    expect(text).toContain('--effort "$6"');
+    expect(text).toContain('--effort "$GSTACK_OV_EFFORT"');
   });
 });
 
