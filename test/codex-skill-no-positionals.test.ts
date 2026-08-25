@@ -60,25 +60,53 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
   // Env-var expansion satisfies that; a quote-closing splice does not. Assert the shape positively
   // rather than trusting the absence check above — "no positionals" is also true of the dangerous
   // splice, so the negative assertion alone would grade the worst option a pass.
-  test('the loop launcher passes paths as exported env vars, not as a re-parsed splice', () => {
-    const tmpl = fs.readFileSync(TMPL, 'utf8');
-    expect(tmpl).toContain('GSTACK_OV_PROMPT="$_LOOP_PROMPT"');
-    expect(tmpl).toContain('--prompt-file "$GSTACK_OV_PROMPT"');
-    expect(tmpl).toContain('--repo-root "$GSTACK_OV_REPO"');
-    expect(tmpl).toContain('--findings-out "$GSTACK_OV_FINDINGS"');
-    expect(tmpl).toContain('echo $? > "$GSTACK_OV_DONE"');
-    // The splice this whole lineage exists to keep out: a single quote closed mid-string so the
-    // VALUE lands in text `bash -c` then parses.
-    expect(tmpl).not.toContain(`'"$_LOOP_PROMPT"'`);
-    expect(tmpl).not.toContain(`'"$_REPO_ROOT"'`);
-  });
+  // EVERY variable is checked on BOTH halves — assigned AND referenced — and the pairs are driven
+  // from one table so a future addition cannot be half-covered.
+  //
+  // An earlier version of this test asserted the ASSIGNMENT for the prompt and only the REFERENCE
+  // for the rest. A review round pointed out what that permits: a launcher that references an env
+  // var nothing ever assigns. The inner shell then expands it to the empty string, the adapter
+  // receives an empty path, and this test passes while its own name claims the paths are exported.
+  // That is the same failure as the defect this file exists to prevent, and the same one recorded
+  // a hundred lines up in the skill itself, where `_OV_LANE` was assigned below its first use and
+  // every run quietly shared `gstack-ov-findings-.json`. An empty interpolation is not a loud
+  // failure; it is a silent collision.
+  const ENV_PAIRS: Array<[string, string, string]> = [
+    ['GSTACK_OV_PROMPT',   'GSTACK_OV_PROMPT="$_LOOP_PROMPT"',   '--prompt-file "$GSTACK_OV_PROMPT"'],
+    ['GSTACK_OV_REPO',     'GSTACK_OV_REPO="$_REPO_ROOT"',       '--repo-root "$GSTACK_OV_REPO"'],
+    ['GSTACK_OV_FINDINGS', 'GSTACK_OV_FINDINGS="$_OV_FINDINGS"', '--findings-out "$GSTACK_OV_FINDINGS"'],
+    ['GSTACK_OV_ERR',      'GSTACK_OV_ERR="$TMPERR"',            '2>"$GSTACK_OV_ERR"'],
+    ['GSTACK_OV_DONE',     'GSTACK_OV_DONE="$_OV_DONE"',         'echo $? > "$GSTACK_OV_DONE"'],
+    ['GSTACK_OV_EFFORT',   'GSTACK_OV_EFFORT="$_OV_EFFORT"',     '--effort "$GSTACK_OV_EFFORT"'],
+  ];
 
-  // The generated file must actually carry the fix, not merely lack the defect. A regeneration
-  // that silently dropped the block would pass both tests above.
-  test('the generated file carries the same launcher', () => {
-    const gen = fs.readFileSync(GEN, 'utf8');
-    expect(gen).toContain('--prompt-file "$GSTACK_OV_PROMPT"');
-    expect(gen).toContain('nohup bash -c');
+  // Both files, because the template is what a human edits and the generated copy is what ships.
+  // Asserting the pair on the GENERATED file is also what closes the "regeneration silently
+  // dropped part of the block" hole: a lost --repo-root or exit-marker line fails a named case
+  // here rather than slipping past a two-string spot check.
+  const FILES: Array<[string, string]> = [['template', TMPL], ['generated', GEN]];
+
+  for (const [label, file] of FILES) {
+    for (const [name, assignment, reference] of ENV_PAIRS) {
+      test(`${label}: ${name} is both assigned and referenced`, () => {
+        const text = fs.readFileSync(file, 'utf8');
+        expect(text).toContain(assignment);
+        expect(text).toContain(reference);
+      });
+    }
+  }
+
+  test.each(FILES)('%s: no path is spliced into text the inner shell re-parses', (_label, file) => {
+    const text = fs.readFileSync(file as string, 'utf8');
+    // The splice this whole lineage exists to keep out: a single quote closed mid-string so the
+    // VALUE lands in text `bash -c` then parses. Kept as its own case rather than folded into the
+    // table above, because it is a DIFFERENT property — the table proves the values arrive, this
+    // proves they arrive without being re-parsed, and a fix for one has twice been mistaken for
+    // the other.
+    expect(text).not.toContain(`'"$_LOOP_PROMPT"'`);
+    expect(text).not.toContain(`'"$_REPO_ROOT"'`);
+    expect(text).not.toContain(`'"$_OV_FINDINGS"'`);
+    expect(text).not.toContain(`'"$_OV_DONE"'`);
   });
 
   // The regex is the whole guard, so prove it BITES rather than assuming it does. A guard asserted
