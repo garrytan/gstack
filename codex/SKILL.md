@@ -1283,13 +1283,51 @@ echo "LOOP_EFFORT: $_OV_EFFORT"   # printed so an unapplied --xhigh is visible, 
 # could in principle make a dead round look alive; that only costs another poll cycle, whereas
 # the failure this replaces was permanent.
 _OV_PID="$TMP_ROOT/gstack-ov-pid-$_OV_LANE"
+# THE REVIEW SUBJECT IS RECORDED AS DATA, NOT ENCODED IN THE KEY (codex r14 P1; VAS-2373 D6).
+#
+# The finding is real: $_OV_LANE hashes only repo+branch, so committing fixes and re-running
+# attached to the round still reviewing the OLD tree and reported its findings as this one's.
+# The prescribed fix was to put HEAD and the base into the key. That is the eighth instance of
+# the class this branch exists to delete, and it is also WORSE here: a key gives every tree
+# state its own slot, so re-running after a commit would silently launch a SECOND paid round
+# and orphan the live one — the very thing the stable name was chosen to prevent.
+#
+# So the slot stays one-per-lane and the subject is written INSIDE the launch marker and
+# compared on re-entry. One slot means a live round is always found; a recorded subject means a
+# moved tree is REFUSED rather than silently inherited. A key has to be complete or it collides
+# silently, and the set of things distinguishing two reviews is not closed — that is the whole
+# finding of this arc. A comparison only has to be sound, and its failure is loud.
+#
+# SUBJECT = HEAD + base, which is exactly what `git diff base...HEAD` yields: what the child is
+# REVIEWING. The prompt is the question, not the subject, and it cannot be compared anyway —
+# $_LOOP_PROMPT is a per-invocation mktemp. Hashing its content instead would re-create the
+# review_context_fp this branch just deleted. If a later round asks to add pathspec, prompt or
+# model to this comparison, that is the class returning: remove the comparison, do not widen it.
+_OV_SUBJECT="$(git rev-parse HEAD 2>/dev/null || echo no-head)|origin/<base>"
 if [ -f "$_OV_LAUNCHED" ] && [ ! -f "$_OV_DONE" ] && [ -s "$_OV_PID" ] \
    && ! kill -0 "$(cat "$_OV_PID")" 2>/dev/null; then
   echo "note — the previous round's process is gone and never wrote an exit marker (killed, or its shell was terminated). Clearing the stale launch marker and starting a fresh round."
   rm -f "$_OV_LAUNCHED" "$_OV_DONE" "$_OV_OUT" "$_OV_PID"
 fi
+# A LIVE child reviewing a DIFFERENT subject is refused, never attached to and never duplicated.
+# Refusing rather than superseding is deliberate: the live round is already paid for and only
+# the operator can decide whether to abandon it, so this names the PID and stops. An EMPTY
+# marker is a pre-D6 launch with no subject recorded — it cannot be compared, so it is left to
+# poll as before rather than refused on a mismatch that cannot be established.
+if [ -s "$_OV_LAUNCHED" ] && [ ! -f "$_OV_DONE" ] && [ -s "$_OV_PID" ] \
+   && kill -0 "$(cat "$_OV_PID")" 2>/dev/null \
+   && [ "$(cat "$_OV_LAUNCHED" 2>/dev/null)" != "$_OV_SUBJECT" ]; then
+  echo "STOP: a loop round is still running on this branch, but it is reviewing a DIFFERENT tree."
+  echo "  in flight (pid $(cat "$_OV_PID")): $(cat "$_OV_LAUNCHED")"
+  echo "  you are on               : $_OV_SUBJECT"
+  echo "The tree moved after that round was launched — a commit, a rebase, or a different --base."
+  echo "Polling it would report ITS findings as a review of YOUR code, which is a wrong-diff verdict."
+  echo "Nothing has been started or deleted. Either wait for it and re-run this block, or kill it"
+  echo "(kill $(cat "$_OV_PID")) and re-run to review the current tree."
+  return 2 2>/dev/null || exit 2
+fi
 if [ ! -f "$_OV_LAUNCHED" ]; then
-touch "$_OV_LAUNCHED"
+printf '%s' "$_OV_SUBJECT" > "$_OV_LAUNCHED"
 # Paths travel as ARGV, never spliced into the script text. The `'"$VAR"'` idiom this replaced
 # closed the quote and pasted each VALUE into the string `bash -c` then parses, so the inner
 # shell re-evaluated it inside double quotes. Measured, rather than reasoned about: a path
