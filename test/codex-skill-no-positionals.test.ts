@@ -26,6 +26,31 @@ const GEN = path.join(ROOT, 'codex', 'SKILL.md');
 // The failure is silent at the point a human looks. The adapter receives a prompt file named
 // `--loop`, exits 2, and the skill reports ROUND NOT RUN — a message about prompt files, on a run
 // whose prompt file is fine. Nothing anywhere says "your skill text was rewritten".
+// Same resolution chain as bin/gstack-paths (TMPDIR -> TMP -> project-local .gstack/tmp), and
+// writability is PROBED rather than assumed — a directory named by TMPDIR is a claim, and an
+// existing-but-read-only one makes mkdirSync a no-op success. An earlier version of this file fell
+// back to a hardcoded '/tmp', which throws EROFS on a read-only-temp runner and would have failed
+// this contract test while the launcher it guards was perfectly correct.
+//
+// Copied rather than imported from outside-voice-config.test.ts, deliberately and for that file's
+// own stated reason: importing a *.test.ts for a helper makes bun execute its suite a second time
+// on every full run, and a test that runs twice reports its failures twice and no longer owns its
+// state assumptions.
+function resolveTmpRoot(env: Record<string, string | undefined> = process.env): string {
+  const candidates = [env.TMPDIR, env.TMP, path.join(ROOT, '.gstack', 'tmp')];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      fs.rmSync(fs.mkdtempSync(path.join(candidate, 'gstack-probe-')), { recursive: true, force: true });
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error('no writable temp root: tried TMPDIR, TMP and the project-local .gstack/tmp');
+}
+
 const POSITIONAL = /\$[0-9]/;
 
 // Match the whole token so a failure names what it found rather than making the reader grep.
@@ -154,7 +179,7 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     expect(end).toBeGreaterThan(start);
     const launcher = text.slice(start, end + `' > "$_OV_OUT" 2>&1 &`.length);
 
-    const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'ov-launch-'));
+    const tmp = fs.mkdtempSync(path.join(resolveTmpRoot(), 'ov-launch-'));
     // A directory name carrying the two constructs that were measured executing.
     const hostile = path.join(tmp, 'p $(id -u) `id -u` d');
     fs.mkdirSync(hostile, { recursive: true });
