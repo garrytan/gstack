@@ -297,6 +297,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | `cookie-import-browser [browser] [--domain d]` | Import from installed Chromium browsers (interactive picker, or `--domain` for direct import) |
 | `header <name>:<value>` | Set custom request header (sensitive values auto-redacted) |
 | `useragent <string>` | Set user agent (triggers context recreation, invalidates refs) |
+| `record start\|stop` | Toggle video recording (triggers context recreation, invalidates refs) |
 
 ### Tabs + frames
 
@@ -356,6 +357,9 @@ pass `--force-restart` to replace it explicitly (see "Daemon lifecycle" above).
 | `chain` (JSON via stdin) | Run a sequence of commands. Pipe `[["cmd","arg1",...],...]` to `$B chain`. Stops at first error. |
 | `inbox [--clear]` | List messages from sidebar scout inbox |
 | `watch [stop]` | Passive observation — periodic snapshots while user browses; `stop` returns summary |
+| `record start [dir] [--size WxH]` | Record video of browser activity; one `.webm` per tab that rendered. Rebuilds the context, so refs are invalidated. Headless only, control scope |
+| `record stop` | Flush and list the video files this recording produced |
+| `record status` | Report the active recording directory, or that none is running |
 
 ### Browser-skills runtime
 

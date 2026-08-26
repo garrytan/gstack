@@ -117,6 +117,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `domain-skill save|list|show|edit|promote-to-global|rollback|rm <host?>`: Per-site notes the agent writes for itself.
 - `frame <sel|@ref|--name n|--url pattern|main>`: Switch to iframe context (or main to return)
 - `inbox [--clear]`: List messages from sidebar scout inbox
+- `record start [dir] [--size WxH] | record stop | record status`: Record video of browser activity (interactive bug repros)
 - `skill list|show|run|test|rm <name?> [--arg k=v]... [--timeout=Ns]`: Run a browser-skill: deterministic Playwright script that drives the daemon over loopback HTTP.
 - `watch [stop]`: Passive observation — periodic snapshots while user browses
 

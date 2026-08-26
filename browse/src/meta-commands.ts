@@ -2,7 +2,7 @@
  * Meta commands — tabs, server control, screenshots, chain, diff, snapshot
  */
 
-import type { BrowserManager } from './browser-manager';
+import type { BrowserManager, RecordingResult } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand } from './commands';
@@ -22,6 +22,29 @@ import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
 import { filterSessionCookies } from './session-persist';
 import type { Frame } from 'playwright';
+
+/**
+ * Render a recording outcome. Shared by `record start` (for a take it
+ * superseded) and `record stop` so a superseded recording is reported the same
+ * way as one the caller stopped on purpose.
+ */
+function formatRecordingResult(result: RecordingResult, headline: string): string[] {
+  const lines: string[] = [];
+  if (result.videos.length > 0) {
+    lines.push(`${headline} — ${result.videos.length} video${result.videos.length === 1 ? '' : 's'}:`);
+    lines.push(...result.videos.map(v => `  ${v}`));
+  } else {
+    lines.push(`${headline} — no video was written. A recording only captures pages that rendered while it ran.`);
+  }
+  if (result.empty.length > 0) {
+    lines.push('Empty (never flushed) — missing evidence, not saved video:');
+    lines.push(...result.empty.map(v => `  ${v}`));
+  }
+  if (result.warning) {
+    lines.push(`⚠️  ${result.warning}`);
+  }
+  return lines;
+}
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
 function tokenizePipeSegment(segment: string): string[] {
@@ -834,6 +857,70 @@ export async function handleMetaCommand(
 
       bm.startWatch();
       return 'WATCHING — observing user browsing. Periodic snapshots every 5s.\nRun `$B watch stop` to stop and get summary.';
+    }
+
+    // ─── Record ─────────────────────────────────────────
+    case 'record': {
+      const action = args[0];
+      if (!action) throw new Error('Usage: record start [dir] [--size WxH] | record stop | record status');
+
+      if (action === 'status') {
+        const dir = bm.getRecordingDir();
+        return dir ? `Recording → ${dir}` : 'Not recording.';
+      }
+
+      if (action === 'stop') {
+        if (!bm.getRecordingDir()) return 'Not recording (nothing to stop).';
+        return [
+          ...formatRecordingResult(await bm.stopRecording(), 'Recording stopped'),
+          'Refs are stale after a recording stops — re-snapshot before acting on the page.',
+        ].join('\n');
+      }
+
+      if (action === 'start') {
+        let dirArg: string | undefined;
+        let size: { width: number; height: number } | undefined;
+
+        for (let i = 1; i < args.length; i++) {
+          const token = args[i];
+          if (token === '--size') {
+            const value = args[++i];
+            if (!value) throw new Error('record start --size: missing value (e.g. --size 1280x720)');
+            const match = /^(\d+)x(\d+)$/.exec(value);
+            if (!match) throw new Error(`record start --size: expected WxH, got '${value}'`);
+            const width = parseInt(match[1], 10);
+            const height = parseInt(match[2], 10);
+            if (width < 1 || height < 1) throw new Error(`record start --size: dimensions must be positive, got '${value}'`);
+            size = { width, height };
+          } else if (token.startsWith('--')) {
+            throw new Error(`record start: unknown flag '${token}'`);
+          } else if (dirArg === undefined) {
+            dirArg = token;
+          } else {
+            throw new Error(`record start: unexpected argument '${token}'. Usage: record start [dir] [--size WxH]`);
+          }
+        }
+
+        // Each recording gets its own directory: Playwright names videos by an
+        // internal id, so a shared directory makes the videos of two recordings
+        // indistinguishable after the fact.
+        const targetDir = dirArg
+          ? path.resolve(dirArg)
+          : path.join(TEMP_DIR, `browse-record-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+        validateOutputPath(targetDir);
+
+        const { superseded, warning } = await bm.startRecording(targetDir, size);
+        const lines: string[] = [];
+        if (superseded) {
+          lines.push(...formatRecordingResult(superseded, 'Stopped the recording already running'));
+        }
+        lines.push(`Recording → ${targetDir}`);
+        lines.push('Run `$B record stop` to flush and list the video files.');
+        if (warning) lines.push(`⚠️  ${warning}`);
+        return lines.join('\n');
+      }
+
+      throw new Error(`record: unknown action '${action}'. Usage: record start|stop|status`);
     }
 
     // ─── Inbox ──────────────────────────────────────────

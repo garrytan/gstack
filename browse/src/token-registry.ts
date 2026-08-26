@@ -69,6 +69,11 @@ export const SCOPE_ADMIN = new Set([
 /** Browser-wide destructive commands — can kill the server, disconnect headed mode */
 export const SCOPE_CONTROL = new Set([
   'state', 'handoff', 'resume', 'stop', 'restart', 'connect', 'disconnect',
+  // `record` sits here rather than in meta for two reasons: it rebuilds the
+  // context out from under every open tab (same blast radius as `state`), and it
+  // writes whatever is on screen — including anything typed into a login form —
+  // to disk as video.
+  'record',
 ]);
 
 /** Meta commands — generally safe but some need scope checking */
