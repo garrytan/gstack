@@ -3290,6 +3290,7 @@ synthetic-4,paying,39
     expect(gateWorkflow).toContain("if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository");
     expect(gateWorkflow).toContain('github.event.pull_request.head.repo.full_name == github.repository');
     expect(gateWorkflow).toContain('cache-to:');
+    expect(gateWorkflow).toMatch(/evals:\s+[\s\S]*?if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
     expect(gateWorkflow).not.toMatch(/pull_request_target/);
 
     const dockerfile = fs.readFileSync(path.join(ROOT, '.github', 'docker', 'Dockerfile.ci'), 'utf-8');
