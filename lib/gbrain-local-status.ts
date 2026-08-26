@@ -464,6 +464,17 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
         return configuredEngine(env) === "pglite" ? "engine-locked" : "broken-db";
       }
 
+      // gbrain >= 0.43 refuses the same held-lock case with exit 1 and its
+      // own message: "GBrain's local database is already open through `gbrain
+      // serve` (MCP, PID N). This brain uses PGLite, ...". That string matches
+      // none of the branches above, so without this check it falls through to
+      // the defensive broken-config default — whose remediation tells the user
+      // to move a perfectly healthy config.json aside and re-init the engine
+      // (#2194 follow-up).
+      if (stderr.includes("already open through")) {
+        return configuredEngine(env) === "pglite" ? "engine-locked" : "broken-db";
+      }
+
       // Probe killed by the timeout with no recognized error: the engine is
       // most likely healthy but slow (cold pooler connections measured at
       // 6.9-10.7s in #1964). Don't tell the user their config is malformed.
