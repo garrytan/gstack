@@ -48,6 +48,7 @@ interface CommandResult {
   runStderr: string;
   learningsWritten: boolean;
   libIsSymlink: boolean | null;
+  skillMdIsSymlink: boolean | null;
   supabaseConfigPresent: boolean;
 }
 
@@ -73,6 +74,7 @@ function buildRootAndRunCommand(
     );
 
     const libLst = fs.lstatSync(path.join(rootDir, 'lib'), { throwIfNoEntry: false });
+    const skillMdLst = fs.lstatSync(path.join(rootDir, 'SKILL.md'), { throwIfNoEntry: false });
     const run = spawnSync('bash', [path.join(rootDir, 'bin', 'gstack-learnings-log'), PAYLOAD], {
       cwd: project,
       encoding: 'utf-8',
@@ -94,6 +96,7 @@ function buildRootAndRunCommand(
       runStderr: run.stderr,
       learningsWritten,
       libIsSymlink: libLst ? libLst.isSymbolicLink() : null,
+      skillMdIsSymlink: skillMdLst ? skillMdLst.isSymbolicLink() : null,
       // Distinct defect (#2215): telemetry-class bin scripts source
       // $GSTACK_DIR/supabase/config.sh to resolve GSTACK_SUPABASE_URL. The
       // [ -f ... ] guard means a missing file degrades SILENTLY, so only a
@@ -161,6 +164,12 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       const r = buildRootAndRunCommand('0', buildScript);
       expect(r.buildStatus).toBe(0);
       expect(r.libIsSymlink).toBe(true);
+      if (host === 'codex') {
+        // Codex discovers leaf skills through directory symlinks, but the root
+        // router lives in a real runtime directory. Its SKILL.md must therefore
+        // be a real file rather than a file-level symlink.
+        expect(r.skillMdIsSymlink).toBe(false);
+      }
       expect(r.runStderr).not.toContain('lib/jsonl-store.ts');
       expect(r.runStatus).toBe(0);
       expect(r.learningsWritten).toBe(true);

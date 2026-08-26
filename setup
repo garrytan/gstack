@@ -1234,7 +1234,12 @@ create_codex_runtime_root() {
   mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
+    # Codex discovers leaf skills through directory symlinks, but this root
+    # router lives in a real runtime directory. Codex Desktop skips it when
+    # SKILL.md itself is a symlink, so refresh the generated root as a real
+    # file on every setup run. Runtime asset directories remain symlinked.
+    rm -f "$codex_gstack/SKILL.md"
+    cp -f "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
