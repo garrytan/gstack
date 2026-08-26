@@ -2,8 +2,7 @@
  * gstack browse — Side Panel
  *
  * Terminal pane (default): live claude PTY via xterm.js, driven by
- * sidepanel-terminal.js. The chat queue + sidebar-agent.ts were ripped
- * in favor of the interactive REPL — no more one-shot claude -p.
+ * sidepanel-terminal.js.
  *
  * Debug tabs (behind the `debug` toggle): activity feed (SSE) + refs +
  * inspector. Quick-actions toolbar (Cleanup / Screenshot / Cookies)
@@ -994,8 +993,7 @@ inspectorSendBtn.addEventListener('click', async () => {
   }
 
   // Inject into the running claude PTY so the user can ask claude to act
-  // on the inspector data. Replaces the old `sidebar-command` route which
-  // spawned a one-shot claude -p (sidebar-agent.ts is gone).
+  // on the inspector data.
   //
   // Pre-scan via /pty-inject-scan before injection (D6, closes #1370).
   // gstackScanForPTYInject is async; gstackInjectToTerminal stays sync.
@@ -1022,9 +1020,6 @@ inspectorSendBtn.addEventListener('click', async () => {
  * "Cleanup" injects a prompt into the running claude PTY. claude takes the
  * prompt, snapshots the page, hides ads/banners/popups, leaves article
  * content. The user watches it happen in the Terminal pane.
- *
- * Replaced the old chat-queue path (sidebar-agent.ts spawning a one-shot
- * claude -p) — we have a live REPL now, so route through that instead.
  */
 async function runCleanup(...buttons) {
   buttons.forEach(b => b?.classList.add('loading'));
@@ -1319,9 +1314,6 @@ async function tryConnect() {
             `token: yes (from /extension-token)\nStarting SSE + activity feed...`
           );
           updateConnection(`http://127.0.0.1:${port}`, tokenData.token);
-          // The SEC shield used to drive off /health.security via the chat
-          // path's classifier; with the chat path ripped, the indicator is
-          // not driven yet. Leaving the shield element hidden by default.
           return;
         }
         setLoadingStatus(

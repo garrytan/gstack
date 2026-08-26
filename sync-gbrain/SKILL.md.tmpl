@@ -336,6 +336,10 @@ if [ -f ~/.gbrain/config.json ] && \
   fi
 fi
 gbrain delete "$SLUG" 2>/dev/null || true
+# #2503: on worktree-pinned brains `gbrain put` can materialize the page as
+# <slug>.md in the CURRENT directory (the user's repo), and `gbrain delete`
+# removes the page, not the file. Remove the litter explicitly.
+rm -f "./${SLUG}.md" 2>/dev/null || true
 ```
 
 Then update CLAUDE.md based on capability state:

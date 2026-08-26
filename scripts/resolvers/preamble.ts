@@ -53,6 +53,7 @@ import { generateAskUserFormat } from './preamble/generate-ask-user-format';
 import { generateWritingStyle } from './preamble/generate-writing-style';
 import { generateCompletenessSection } from './preamble/generate-completeness-section';
 import { generateConfusionProtocol } from './preamble/generate-confusion-protocol';
+import { generateEvidenceDirective } from './preamble/generate-evidence-directive';
 import { generateContinuousCheckpoint } from './preamble/generate-continuous-checkpoint';
 import { generateContextHealth } from './preamble/generate-context-health';
 
@@ -71,13 +72,17 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 // T3: T2 + repo-mode + search
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
 //
-// Skills by tier:
-//   T1: browse, setup-cookies, benchmark
-//   T2: investigate, cso, retro, doc-release, setup-deploy, canary, context-save, context-restore, health
-//   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
-//   T4: ship, review, qa, qa-only, design-review, land-deploy
+// Which skill gets which tier lives in each template's frontmatter
+// (`preamble-tier: N`). Every template that resolves {{PREAMBLE}} must
+// declare it — there is no default.
 export function generatePreamble(ctx: TemplateContext): string {
-  const tier = ctx.preambleTier ?? 4;
+  const tier = ctx.preambleTier;
+  if (tier === undefined) {
+    throw new Error(
+      `Missing preamble-tier frontmatter in ${ctx.tmplPath}: every template that ` +
+      `resolves {{PREAMBLE}} must declare 'preamble-tier: N' (1-4).`
+    );
+  }
   if (tier < 1 || tier > 4) {
     throw new Error(`Invalid preamble-tier: ${tier} in ${ctx.tmplPath}. Must be 1-4.`);
   }
@@ -92,7 +97,7 @@ export function generatePreamble(ctx: TemplateContext): string {
     generatePlanModeInfo(ctx),
     generateUpgradeCheck(ctx),
     generateWritingStyleMigration(ctx),
-    generateLakeIntro(),
+    generateLakeIntro(ctx),
     generateTelemetryPrompt(ctx),
     generateProactivePrompt(ctx),
     generateFirstRunGuidance(ctx),
@@ -113,6 +118,7 @@ export function generatePreamble(ctx: TemplateContext): string {
       generateWritingStyle(ctx),
       generateCompletenessSection(ctx),
       generateConfusionProtocol(ctx),
+      generateEvidenceDirective(ctx),
       generateContinuousCheckpoint(),
       generateContextHealth(ctx),
       generateQuestionTuning(ctx),

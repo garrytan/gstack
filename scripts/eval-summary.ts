@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Aggregate summary of all eval runs from ~/.gstack-dev/evals/
+ * Aggregate summary of eval runs from the project eval dir
+ * (~/.gstack/projects/<slug>/evals; legacy fallback ~/.gstack-dev/evals)
  *
  * Usage: bun run eval:summary
  */

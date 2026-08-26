@@ -65,6 +65,18 @@ $B screenshot /tmp/bug.png                # plain screenshot
 $B console                                # error log
 ```
 
+Two behaviors that silently invalidate screenshots (#2445 — designed, but
+surprising):
+- **`hover` scrolls its target into view.** Hovering anything below the fold
+  scrolls the page first, so a "rest state" shot taken afterwards captures
+  the wrong section with exit 0. Before a rest-state screenshot, hover only
+  something already visible, and assert position when it matters:
+  `$B js "window.scrollY"` should be `0` (or your intended offset).
+- **The tab persists across sessions.** The daemon keeps its tab between your
+  sessions, so `reload` or `screenshot` without a preceding `goto` can act on
+  whatever page earlier work left open. Start verification passes with an
+  explicit `$B goto <url>`, never a bare `reload`.
+
 ### 5. Find all clickable elements (including non-ARIA)
 ```bash
 $B snapshot -C                   # finds divs with cursor:pointer, onclick, tabindex
@@ -215,6 +227,28 @@ should route through `browse` — `screenshot --selector` for visual output,
 `load-html` + `js --out` for bytes a function returns — instead of
 `npm i puppeteer` and downloading a second Chromium that drifts out of version sync.
 One install to pin, one daemon's lifecycle to manage.
+
+## Session Persistence (opt-in)
+
+By default the headless daemon's cookies and tab state die with it — a crash,
+version auto-restart, or `browse stop` logs you out of everything (#778).
+Opt in to persistence with `BROWSE_PERSIST_STATE=1` in the daemon's
+environment: the daemon then snapshots cookies + per-tab
+URL/localStorage/sessionStorage to `<stateDir>/session-state.json` (0600)
+every 30 seconds and at clean shutdown, and restores it on the next launch.
+
+Facts that matter:
+- **Default OFF.** Cookies on disk are a real cost; the user opts in.
+- **Headless only.** Headed mode's persistent Chromium profile already owns
+  its state; replaying tabs would clobber the user's window.
+- **Never persisted:** loaded HTML and tab ownership — a tampered state file
+  cannot smuggle content past load-html's checks or forge ownership. Cookies
+  for localhost, `.internal`, and cloud-metadata addresses are dropped on
+  restore.
+- **Corrupt state** is moved to `session-state.json.corrupt` (kept for
+  diagnosis) and the daemon boots fresh — persistence can never block a
+  launch. The boot log says which happened: `Session state restored: N
+  cookies / M tabs` or `fresh session`.
 
 ## User Handoff
 

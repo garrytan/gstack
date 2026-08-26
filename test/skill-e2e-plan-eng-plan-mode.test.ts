@@ -5,15 +5,15 @@
  * contract. This file exercises the same contract against /plan-eng-review.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
   planFileHasDecisionsSection,
   assertReportAtBottomIfPlanWritten,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 // SEED_PLAN_FORCING_FINDINGS: 8+ files + custom-vs-builtin smell forces the
 // Step 0 complexity check to trigger. Passed via runPlanSkillObservation's

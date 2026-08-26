@@ -66,8 +66,10 @@ export interface RenderResult {
  * Pure renderer. No side effects.
  */
 export function render(opts: RenderOptions): RenderResult {
-  // 1. Markdown → HTML
-  const rawHtml = marked.parse(opts.markdown, { async: false }) as string;
+  // 1. Markdown → HTML (strip a leading YAML frontmatter block first; marked
+  //    has no frontmatter awareness and would otherwise render it as a literal
+  //    paragraph of body text on its own first page).
+  const rawHtml = marked.parse(stripFrontmatter(opts.markdown), { async: false }) as string;
 
   // 1.5. Image directive suffixes: `![a](x.png){width=50%}` → data-gstack-*
   // attributes. Before the sanitizer (which keeps data- attrs) so the brace
@@ -206,6 +208,10 @@ function decodeTypographicEntities(html: string): string {
  *   - on* event handler attributes (onclick, ONCLICK, etc.).
  *   - href/src with javascript: scheme.
  *   - <svg> tags with <script> inside them.
+ *   - remote href/xlink:href inside <svg> (and on svg-only elements anywhere)
+ *     → "#" (offline posture: no fetch at print time).
+ *   - remote CSS fetch vectors in <style> blocks and style attributes
+ *     (@import, url(), image-set() with remote string candidates).
  */
 export function sanitizeUntrustedHtml(html: string): string {
   let s = html;
@@ -246,6 +252,139 @@ export function sanitizeUntrustedHtml(html: string): string {
 
   // style="url(javascript:..)" — strip javascript: inside style attrs.
   s = s.replace(/url\(\s*javascript:[^)]*\)/gi, "url(#)");
+
+  // ── Offline-posture fetch vectors (no --allow-network must mean no network
+  // at print time; the image inliner covers <img src> only, and must keep
+  // seeing remote <img src> so its blocked-remote placeholder still fires) ──
+
+  // Untrusted CSS neutralization. Scoped to <style> blocks and style
+  // attributes below so prose/code samples that mention URLs stay untouched.
+  //
+  // Chromium decodes CSS ident/string escapes (\69 → i, \68 → h) before
+  // fetching, so literal patterns alone are bypassable: @\69mport dodges
+  // /@import\b/, url("\68ttps://…") dodges the https?://-shaped remote-url
+  // pattern, and u\72l(…) dodges the url( prefix itself. Untrusted styling
+  // has no legitimate need for escaped url schemes or at-rule names, so any
+  // construct carrying a backslash escape is dropped/defanged (fail closed).
+  // In style ATTRIBUTES the HTML parser also entity-decodes before the CSS
+  // parser runs, so &#92; / &#x5c; / &bsol; spellings of the backslash count
+  // as escapes too. (<style> content is raw text — no entity layer there.)
+  const CSS_ESCAPE_MARKER = /\\|&#0*92(?![0-9])|&#x0*5c(?![0-9a-f])|&bsol;/i;
+  const neutralizeUntrustedCss = (css: string): string => {
+    // (a) At-rules whose keyword carries a backslash escape (@\69mport …):
+    //     drop the whole statement through `;`, `{`, or end-of-value.
+    let out = css.replace(
+      /@[-\w\\&#;]*?(?:\\|&#0*92(?![0-9]);?|&#x0*5c(?![0-9a-f]);?|&bsol;)[-\w\\&#;]*[^;{}]*(?:;|\{|$)/gi,
+      "");
+    // (b) Literal @import is always a fetch (relative ones can't resolve
+    //     under load-html either) — drop outright.
+    out = out.replace(/@import\b[^;]*(;|$)/gi, "");
+    // (c) Any function-like token whose name or arguments carry a backslash
+    //     escape → url(#). Covers escaped schemes (url("\68ttps://…")) and
+    //     escaped function names (u\72l(…)) in one fail-closed pass. The
+    //     end-of-value alternative closes the unterminated-url() dodge:
+    //     Chromium's CSS parser closes an open function token at EOF.
+    out = out.replace(/[-\w\\&#;][-\w \t\\&#;]*\(\s*[^)]*(?:\)|$)/g, (m) =>
+      CSS_ESCAPE_MARKER.test(m) ? "url(#)" : m);
+    // (d) Remote url(...) → url(#).
+    out = out.replace(
+      /url\(\s*(?:&quot;|&#0?39;|&#x27;|["'])?\s*(?:https?:)?\/\/[^)]*(?:\)|$)/gi,
+      "url(#)");
+    // (e) image-set() / -webkit-image-set() accept BARE quoted URL strings —
+    //     no url() token, no backslash — so passes (c)/(d) never fire on
+    //     `image-set("https://…" 1x)`. Any image-set whose arguments carry a
+    //     remote-scheme quoted string → url(#) (fail closed). Local string
+    //     candidates stay; url()-form arguments are already covered by (c)/(d).
+    out = out.replace(/(?:-webkit-)?image-set\(\s*[^)]*(?:\)|$)/gi, (m) =>
+      /(?:&quot;|&#0?39;|&#x27;|["'])\s*(?:https?:)?\/\//i.test(m) ? "url(#)" : m);
+    return out;
+  };
+
+  // Raw-HTML <style> blocks. Element content is RAW TEXT — the HTML parser
+  // never entity-decodes it — so unlike style attributes below, no entity
+  // decode step is needed (or correct) here.
+  s = s.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_m, open, css, close) =>
+    open + neutralizeUntrustedCss(css) + close);
+
+  // Style ATTRIBUTE values are entity-decoded by the HTML parser before the
+  // CSS parser ever runs, so &#104;ttps://… reaches Chromium as https://… and
+  // &#47;&#47; as // — dodging every literal pattern above. Decode the value
+  // the way the parser will (numeric dec/hex refs with the spec's optional
+  // semicolon; the syntax-significant named refs; the legacy semicolonless
+  // four), in ONE left-to-right pass so the sanitizer performs exactly the
+  // browser's single decode round — decoding recursively would turn a
+  // double-encoded &amp;#104; into a live scheme the browser never sees.
+  const NAMED_REFS: Record<string, string> = {
+    amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+    sol: "/", bsol: "\\", colon: ":", semi: ";", num: "#",
+    lpar: "(", rpar: ")", commat: "@", grave: "`",
+    Tab: "\t", NewLine: "\n",
+  };
+  const refCodePoint = (n: number): string =>
+    (!Number.isFinite(n) || n <= 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff))
+      ? "�" : String.fromCodePoint(n);
+  const decodeStyleAttrEntities = (v: string): string => v.replace(
+    /&(?:#[xX]([0-9a-fA-F]+);?|#(\d+);?|([a-zA-Z]+);|(amp|lt|gt|quot)(?![a-zA-Z0-9=;]))/g,
+    (m, hex, dec, named, legacy) => {
+      if (hex !== undefined) return refCodePoint(parseInt(hex, 16));
+      if (dec !== undefined) return refCodePoint(parseInt(dec, 10));
+      if (named !== undefined) return NAMED_REFS[named] ?? m;
+      return NAMED_REFS[legacy];
+    });
+
+  // Inline style attributes — quoted AND unquoted. HTML spec: an unquoted
+  // attribute value runs until whitespace or `>`, so
+  // <div style=background:url(https://…)> is live markup Chromium honors;
+  // a quoted-only pattern misses it. The value is unquoted, entity-decoded
+  // (see above), neutralized in decoded form, then RE-ENCODED and emitted
+  // double-quoted — never emit decoded text raw (a decoded `"` would break
+  // out of the attribute) and the re-encode also keeps once-decoded text like
+  // &#104; inert instead of granting it a second decode round.
+  s = s.replace(/(\s+style\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'>][^\s>]*))/gi,
+    (_m, pre, dq, sq, uq) => {
+      const raw = dq ?? sq ?? uq;
+      const cleaned = neutralizeUntrustedCss(decodeStyleAttrEntities(raw));
+      return `${pre}"${escapeHtml(cleaned)}"`;
+    });
+
+  // SVG remote-fetch vectors: <image href>, <use href>, <feImage href> (and
+  // their xlink:href spellings) fetch at print time — the svg handling above
+  // only strips <script>, and the javascript:-scheme rewrite doesn't touch a
+  // plain https:// href. Fail closed: inside an <svg> block, ANY href /
+  // xlink:href whose entity-decoded value is remote (https?:// or //) is
+  // rewritten to "#"; local fragment refs (href="#id") and local files stay
+  // intact. The tag-scoped second pass catches svg-only elements smuggled
+  // through an UNCLOSED <svg> (Chromium auto-closes at EOF and still
+  // fetches); outside foreign content those tags are inert or parser-mapped
+  // to <img> (href ignored), so the extra pass can't break plain HTML —
+  // regular <a href> hyperlinks are untouched (links don't fetch at print).
+  const neutralizeRemoteSvgHref = (fragment: string): string =>
+    fragment.replace(
+      /(\s(?:xlink:)?href\s*=\s*)("([^"]*)"|'([^']*)'|[^\s>]+)/gi,
+      (m, pre, val, dq, sq) => {
+        // Decode the value the way the HTML parser will (same single-round
+        // decode as style attributes above), then drop the tab/newline/CR
+        // characters URL parsing ignores, so &#104;ttps and h\nttps count.
+        const raw = dq ?? sq ?? String(val);
+        const decoded = decodeStyleAttrEntities(raw).replace(/[\t\n\r]/g, "");
+        return /^\s*(?:https?:)?\/\//i.test(decoded) ? `${pre}"#"` : m;
+      });
+  s = s.replace(/<svg\b[\s\S]*?<\/svg>/gi, neutralizeRemoteSvgHref);
+  s = s.replace(/<(?:image|use|feimage)\b[^>]*>/gi, neutralizeRemoteSvgHref);
+
+  // srcset with a remote candidate: Chromium prefers srcset over the inlined
+  // src, so a remote candidate fetches at print time. Strip the attribute;
+  // local/data: srcset values are left alone.
+  const remoteSrcsetCandidate = /(?:^|[,\s])\s*(?:https?:)?\/\//i;
+  s = s.replace(/\s+srcset\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, val) =>
+    remoteSrcsetCandidate.test(String(val).replace(/^["']|["']$/g, "")) ? "" : m);
+
+  // Remote src/poster on media elements (<video poster>, <source src>, …).
+  s = s.replace(/<(?:video|audio|source|track)\b[^>]*>/gi, (tag) =>
+    tag.replace(
+      /(\s(?:src|poster)\s*=\s*)(?:"(?:https?:)?\/\/[^"]*"|'(?:https?:)?\/\/[^']*'|(?:https?:)?\/\/[^\s>]+)/gi,
+      '$1"#"',
+    ));
 
   return s;
 }
@@ -357,15 +496,49 @@ function wrapChaptersByH1(html: string): string {
   }
   const chunks: string[] = [];
   const preamble = html.slice(0, matches[0]);
+  // A preamble that renders nothing visible (a leading <style> block, an HTML
+  // comment) must NOT become its own .chapter. That section would take the
+  // `.chapter:first-of-type { break-before: auto }` exception, so the first
+  // *real* chapter inherits `break-before: page` and starts on page 2 — leaving
+  // a blank page 1. Keep the non-rendering markup (so its styling still applies)
+  // but fold it into the first real chapter instead of giving it a page break.
+  let carriedPreamble = "";
   if (preamble.trim().length > 0) {
-    chunks.push(`<section class="chapter">${preamble}</section>`);
+    if (stripNonRendering(preamble).trim().length > 0) {
+      chunks.push(`<section class="chapter">${preamble}</section>`);
+    } else {
+      carriedPreamble = preamble;
+    }
   }
   for (let i = 0; i < matches.length; i++) {
     const start = matches[i];
     const end = i + 1 < matches.length ? matches[i + 1] : html.length;
-    chunks.push(`<section class="chapter">${html.slice(start, end)}</section>`);
+    const body = i === 0 ? carriedPreamble + html.slice(start, end) : html.slice(start, end);
+    chunks.push(`<section class="chapter">${body}</section>`);
   }
   return chunks.join("\n");
+}
+
+/**
+ * Strip leading YAML frontmatter (`---\n...\n---`). Only a block at the very
+ * start of the document is removed, so a `---` thematic break elsewhere is
+ * untouched.
+ */
+function stripFrontmatter(md: string): string {
+  return md.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "");
+}
+
+/**
+ * Remove non-rendering markup (style/script blocks, HTML comments) so an
+ * otherwise-empty preamble is recognized as visually empty. Used only to decide
+ * whether a preamble deserves its own page — the original markup is preserved in
+ * the output.
+ */
+function stripNonRendering(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "");
 }
 
 function extractFirstHeading(html: string): string | null {

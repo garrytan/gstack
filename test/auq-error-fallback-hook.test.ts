@@ -129,3 +129,36 @@ describe('hook integration — invoked as PostToolUse', () => {
     expect(out.additionalContext).toBeUndefined();
   });
 });
+
+// ----------------------------------------------------------------------
+// Registration + teardown wiring (static). Setup registers this hook under
+// its own source tag (sharing plan-tune-cathedral would overwrite the
+// question-log entry — same event+matcher); both teardown surfaces
+// (--no-team, uninstall) must remove it, which pre-v1.67.2 neither did.
+// ----------------------------------------------------------------------
+
+import * as fs from 'fs';
+
+describe('setup registration + teardown wiring (static)', () => {
+  const ROOT = path.resolve(__dirname, '..');
+  const setupSrc = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
+  const uninstallSrc = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-uninstall'), 'utf-8');
+
+  test('setup registers the hook via the canonical resolver under --source auq-error-fallback', () => {
+    expect(setupSrc).toMatch(
+      /AUQ_ERROR_FALLBACK_HOOK="\$\(_hook_command_path hosts\/claude\/hooks\/auq-error-fallback-hook/,
+    );
+    expect(setupSrc).toContain('--source auq-error-fallback');
+  });
+
+  test('--no-team tears the hook down', () => {
+    const idx = setupSrc.indexOf('# Also tear down plan-tune');
+    expect(idx).toBeGreaterThan(-1);
+    const slice = setupSrc.slice(idx, idx + 900);
+    expect(slice).toContain('remove-source --source auq-error-fallback');
+  });
+
+  test('gstack-uninstall tears the hook down', () => {
+    expect(uninstallSrc).toContain('remove-source --source auq-error-fallback');
+  });
+});

@@ -44,13 +44,18 @@ describe('gstack-config gbrain-refresh: machine-wide render guards', () => {
     expect(branch).toContain('command -v bun');
   });
 
-  test('renders the :user variant in place into the install', () => {
+  test('renders the :user variant for the claude host', () => {
     expect(branch).toContain('gen:skill-docs:user --host claude');
   });
 
-  test('is self-documenting about the reset --hard / re-run cycle', () => {
-    expect(branch).toContain('reset --hard');
-    expect(branch).toContain('gbrain-refresh');
+  // #2569: the render goes to an UNTRACKED out-dir, never in place — the old
+  // in-place render dirtied the install checkout on every refresh, and this
+  // branch used to self-document a reset --hard / re-run cycle as the
+  // workaround. The out-dir render makes that cycle unnecessary.
+  test('renders to an untracked out-dir, never in place (#2569)', () => {
+    expect(branch).toContain('--out-dir');
+    expect(branch).toContain('render/claude');
+    expect(branch).not.toContain('reset --hard');
   });
 });
 

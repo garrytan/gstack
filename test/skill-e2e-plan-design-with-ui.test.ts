@@ -19,7 +19,8 @@
  * contain "no UI scope".
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as path from 'path';
 import {
   launchClaudePty,
@@ -29,8 +30,7 @@ import {
   isPlanReadyVisible,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');

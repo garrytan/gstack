@@ -32,7 +32,8 @@
  * Sequential by default.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   runPlanSkillCounting,
@@ -40,8 +41,7 @@ import {
 } from './helpers/claude-pty-runner';
 import { FORCING_SPLIT_OVERFLOW_CEO } from './fixtures/forcing-finding-seeds';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const N = 5;
 const FLOOR = N - 1; // 4 — must fire at least one AUQ per non-dropped option

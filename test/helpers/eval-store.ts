@@ -65,6 +65,7 @@ export interface EvalTestEntry {
   prompt?: string;
   output?: string;
   turns_used?: number;
+  tokens_used?: number;
   browse_errors?: string[];
 
   // LLM judge

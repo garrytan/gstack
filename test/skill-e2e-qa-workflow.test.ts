@@ -406,7 +406,9 @@ Do NOT fix any bugs. Do NOT use AskUserQuestion — just pick vitest.`,
   }, 120_000);
 });
 
-// Module-level afterAll — finalize eval collector after all tests complete
+// Module-level afterAll — finalize eval collector after all tests complete.
+// Explicit 60s timeout: finalize does a JSON save + cross-run comparison and
+// has been observed at 6.26s, past bun's 5s default hook timeout.
 afterAll(async () => {
   await finalizeEvalCollector(evalCollector);
-});
+}, 60_000);

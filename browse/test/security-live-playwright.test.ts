@@ -42,7 +42,13 @@ const MODEL_CACHE = path.join(
   'onnx',
   'model.onnx',
 );
-const ML_AVAILABLE = fs.existsSync(MODEL_CACHE);
+// Opt-in only (SECURITY_BENCH=1), same rationale as security-bench.test.ts:
+// gating on model-cache existence alone auto-ran ONNX inference on any dev box
+// that ever warmed the classifier — and dlopen'ing onnxruntime inside a
+// `bun test --parallel` worker segfaults Bun intermittently (observed twice:
+// "panic: Segmentation fault ... a bug in Bun" followed by a crashed-worker
+// retry, sometimes wedging the run).
+const ML_AVAILABLE = process.env.SECURITY_BENCH === '1' && fs.existsSync(MODEL_CACHE);
 
 describe('defense-in-depth — live Playwright fixture', () => {
   let testServer: ReturnType<typeof startTestServer>;
@@ -56,9 +62,14 @@ describe('defense-in-depth — live Playwright fixture', () => {
     await bm.launch();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     try { testServer.server.stop(); } catch {}
-    setTimeout(() => process.exit(0), 500);
+    // Close only this file's own browser — never process.exit(): bun test
+    // runs all files in one process, so a delayed exit kills the whole suite
+    // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+    // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+    // so race it at 3s and abandon; the child is reaped at process exit.
+    try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
   });
 
   test('L2 — content-security.ts hidden-element stripper detects the .sneaky div', async () => {

@@ -5,7 +5,13 @@
  * Fetches /refs on snapshot completion, relays to content script.
  * Proxies commands from sidebar → browse server.
  * Updates badge: amber (connected), gray (disconnected).
+ * Denies token/port reads to content-script and foreign senders.
  */
+
+// Sender authorization for privileged message types (the token/port surface).
+// Classic (non-module) service worker: importScripts puts gstackSenderAuth on
+// the worker global. The same file is require()-able from bun tests.
+importScripts('sender-auth.js');
 
 const DEFAULT_PORT = 34567;  // Well-known port used by `$B connect`
 let serverPort = null;
@@ -81,8 +87,7 @@ async function checkHealth() {
       // already flips to disconnected on a 403.
       const gotToken = await loadAuthToken();
       if (!gotToken && !authToken) return;
-      // Forward chatEnabled so sidepanel can show/hide chat tab
-      setConnected({ ...data, chatEnabled: !!data.chatEnabled });
+      setConnected(data);
     } else {
       setDisconnected();
     }
@@ -297,7 +302,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   const ALLOWED_TYPES = new Set([
     'getPort', 'setPort', 'getServerUrl', 'getToken', 'fetchRefs',
-    'openSidePanel', 'sidebarOpened', 'command', 'sidebar-command',
+    'openSidePanel', 'sidebarOpened', 'command',
     'getTabState',
     // Inspector message types
     'startInspector', 'stopInspector', 'elementPicked', 'pickerCancelled',
@@ -307,6 +312,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!ALLOWED_TYPES.has(msg.type)) {
     console.warn('[gstack] Rejected unknown message type:', msg.type);
     return;
+  }
+
+  // Privileged types — anything that returns or spends the auth token or
+  // server port, or dumps the full tab list — are for this extension's own
+  // pages only (sidepanel/popup). Content scripts run inside web pages and
+  // can be influenced by page content; foreign extensions are foreign. Both
+  // get { error: 'unauthorized' } and nothing else — never the token, never
+  // the port. Policy + type list live in sender-auth.js.
+  const denial = gstackSenderAuth.denialFor(msg.type, sender, chrome.runtime.id);
+  if (denial) {
+    console.warn('[gstack] Rejected privileged message from unauthorized sender:', msg.type, sender.url || '(no sender url)');
+    sendResponse(denial);
+    return true;
   }
 
   if (msg.type === 'getPort') {
@@ -333,15 +351,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Token delivered via targeted sendResponse, not broadcast — limits exposure.
-  // Only respond to extension pages (sidepanel/popup) — content scripts have
-  // sender.tab set, so reject those to prevent token access from injected contexts.
+  // Only this extension's own pages reach here: the sender-auth gate above
+  // denies content scripts (sender.tab set) and foreign senders before any
+  // privileged handler runs.
   if (msg.type === 'getToken') {
-    if (sender.tab) {
-      console.warn('[gstack] Rejected getToken from content script context');
-      sendResponse({ token: null });
-    } else {
-      sendResponse({ token: authToken });
-    }
+    sendResponse({ token: authToken });
     return true;
   }
 
@@ -447,41 +461,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Sidebar → Claude Code (file-based message queue)
-  if (msg.type === 'sidebar-command') {
-    const base = getBaseUrl();
-    if (!base || !authToken) {
-      sendResponse({ error: 'Not connected' });
-      return true;
-    }
-    // Capture the active tab's URL so the sidebar agent knows what page
-    // the user is actually looking at (Playwright's page.url() can be stale
-    // if the user navigated manually in headed mode).
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const activeTabUrl = tabs?.[0]?.url || null;
-      fetch(`${base}/sidebar-command`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ message: msg.message, activeTabUrl }),
-      })
-        .then(r => {
-          if (!r.ok) {
-            console.error(`[gstack bg] sidebar-command failed: ${r.status} ${r.statusText}`);
-            return r.json().catch(() => ({ error: `Server returned ${r.status}` }));
-          }
-          return r.json();
-        })
-        .then(data => sendResponse(data))
-        .catch(err => {
-          console.error('[gstack bg] sidebar-command error:', err.message);
-          sendResponse({ error: err.message });
-        });
-    });
-    return true;
-  }
 });
 
 // ─── Side Panel ─────────────────────────────────────────────────

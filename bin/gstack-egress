@@ -9,6 +9,13 @@
  *
  * THREAT MODEL: the ledger is forensic observability — it records ATTEMPTED
  * egress so accidents are auditable; it is not an exfiltration control.
+ * `verify` detects in-place edits, reordering, and mid-chain deletion (the
+ * chain breaks). It does NOT detect tail-truncation, whole-file re-fabrication,
+ * or deletion of the ledger — a local actor with write access to the ledger can
+ * do those and `verify` still exits 0. That is by design: guarding against the
+ * same-machine same-user actor who owns the file is out of scope for a forensic
+ * log. Head-anchoring (a separate rotation-aware genesis chain) is tracked at
+ * lib/egress-receipt.ts (rotation TODO), not implemented here.
  *
  * The ledger is written by lib/egress-receipt.ts at every enumerated sink
  * (see test/egress-receipt-wiring.test.ts for the pinned list).
@@ -48,7 +55,11 @@ function usage(message: string): never {
   process.stderr.write(
     'Usage: gstack-egress list [--since <ISO>] [--host <host>] [--sink <sink>] [--json]\n' +
     '       gstack-egress verify [--json]\n' +
-    '       gstack-egress grants [--json]\n',
+    '       gstack-egress grants [--json]\n' +
+    '\n' +
+    'verify detects edits/reordering/mid-chain deletion; it does NOT detect\n' +
+    'tail-truncation or deletion of the whole ledger (out of scope — the ledger\n' +
+    'is forensic observability against accidents, not the same-user local actor).\n',
   );
   process.exit(2);
 }

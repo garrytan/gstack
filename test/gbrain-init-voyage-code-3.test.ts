@@ -53,6 +53,7 @@ function makeFakeEnv(): FakeEnv {
   // output for --version. Nothing else is needed for the shape test.
   const fake = `#!/bin/sh
 echo "$@" >> "${argvLog}"
+echo "$#" >> "${argvLog}.argc"
 case "$1" in
   --version)
     echo "gbrain 0.37.1.0"
@@ -90,14 +91,22 @@ exit 0
  * If the template changes the flag set or the env-var name, this test
  * should fail until the shell here is updated too — by design.
  */
-function runInitWithVoyageGate(env: FakeEnv, voyageKey: string | undefined): string[] {
+function runInitWithVoyageGate(
+  env: FakeEnv,
+  voyageKey: string | undefined,
+  shell: "bash" | "zsh" = "bash",
+): string[] {
+  // The template's #1798 shape: flags ride the positional params, because an
+  // unquoted $VAR does NOT word-split under zsh — the whole flag string
+  // arrived as ONE argv word and gbrain silently fell back to its default
+  // embedding model.
   const script = `
 set -u
-GBRAIN_EMBED_FLAGS=""
+set --
 if [ -n "\${VOYAGE_API_KEY:-}" ]; then
-  GBRAIN_EMBED_FLAGS="--embedding-model voyage:voyage-code-3 --embedding-dimensions 1024"
+  set -- --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024
 fi
-gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
+gbrain init --pglite --json "$@"
 `;
   const baseEnv: Record<string, string> = {
     ...process.env,
@@ -109,7 +118,7 @@ gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
   } else {
     baseEnv.VOYAGE_API_KEY = voyageKey;
   }
-  const result = spawnSync("bash", ["-c", script], {
+  const result = spawnSync(shell, ["-c", script], {
     encoding: "utf-8",
     env: baseEnv,
   });
@@ -118,6 +127,13 @@ gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
   }
   return readFileSync(env.argvLog, "utf-8").trim().split("\n");
 }
+
+function lastArgc(env: FakeEnv): number {
+  const lines = readFileSync(`${env.argvLog}.argc`, "utf-8").trim().split("\n");
+  return parseInt(lines[lines.length - 1], 10);
+}
+
+const HAVE_ZSH = spawnSync("zsh", ["-c", "true"]).status === 0;
 
 describe("voyage-code-3 default for gstack-driven PGLite init", () => {
   it("passes voyage-code-3 flags when VOYAGE_API_KEY is set", () => {
@@ -147,6 +163,54 @@ describe("voyage-code-3 default for gstack-driven PGLite init", () => {
     } finally {
       env.cleanup();
     }
+  });
+
+  it("zsh: flags arrive as SEPARATE argv words (#1798 — the shell that broke)", () => {
+    if (!HAVE_ZSH) return; // zsh ships on macOS; skip quietly elsewhere
+    const env = makeFakeEnv();
+    try {
+      const calls = runInitWithVoyageGate(env, "vk_test_set", "zsh");
+      expect(calls.length).toBe(1);
+      expect(calls[0]).toContain("--embedding-model voyage:voyage-code-3");
+      // init --pglite --json + 4 flag words = 7 argv entries. The pre-#1798
+      // unquoted-var shape produced 4 under zsh (the whole flag string as one
+      // word), and gbrain silently fell back to its default embedding model.
+      expect(lastArgc(env)).toBe(7);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("demonstrates the #1798 collision: an unquoted flags var is ONE word under zsh", () => {
+    if (!HAVE_ZSH) return;
+    const env = makeFakeEnv();
+    try {
+      const brokenShape = `
+set -u
+GBRAIN_EMBED_FLAGS="--embedding-model voyage:voyage-code-3 --embedding-dimensions 1024"
+gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
+`;
+      const result = spawnSync("zsh", ["-c", brokenShape], {
+        encoding: "utf-8",
+        env: { ...process.env, HOME: env.home, PATH: `${env.bindir}:/usr/bin:/bin` },
+      });
+      expect(result.status).toBe(0);
+      expect(lastArgc(env)).toBe(4); // init, --pglite, --json, "<entire flag string>"
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("template uses the positional-params shape, not an unquoted flags var", () => {
+    const tmpl = readFileSync(
+      join(import.meta.dir, "..", "setup-gbrain", "SKILL.md.tmpl"),
+      "utf-8",
+    );
+    expect(tmpl).not.toContain("$GBRAIN_EMBED_FLAGS");
+    const sites = tmpl.match(/gbrain init --pglite --json "\$@"/g) || [];
+    expect(sites.length).toBe(3);
+    const setSites = tmpl.match(/set -- --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024/g) || [];
+    expect(setSites.length).toBe(3);
   });
 
   it("treats empty-string VOYAGE_API_KEY the same as unset (no false positive)", () => {

@@ -1,4 +1,14 @@
 import type { TemplateContext } from './types';
+import { CODEX_WEB_SEARCH_FLAG } from './constants';
+
+/**
+ * {{CODEX_WEB_SEARCH_FLAG}} — the non-deprecated codex web-search flag
+ * (#2525). Templates with inline codex invocations reference this token so
+ * the flag has exactly one source of truth (scripts/resolvers/constants.ts).
+ */
+export function generateCodexWebSearchFlag(_ctx: TemplateContext): string {
+  return CODEX_WEB_SEARCH_FLAG;
+}
 
 export function generateSlugEval(ctx: TemplateContext): string {
   return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
@@ -57,8 +67,11 @@ echo "$DEPLOY_CONFIG"
 
 # If config exists, parse it
 if [ "$DEPLOY_CONFIG" != "NO_CONFIG" ]; then
-  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/.*: *//')
-  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/.*: *//')
+  # Cut at the FIRST ": ", not the last. A greedy 's/.*: *//' ate the scheme of
+  # any URL: "Production URL: https://x.com" became "//x.com", because the last
+  # ":" belongs to "https:".
+  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/^[^:]*: *//')
+  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/^[^:]*: *//')
   echo "PERSISTED_PLATFORM:$PLATFORM"
   echo "PERSISTED_URL:$PROD_URL"
 fi
@@ -370,6 +383,12 @@ export function generateCoAuthorTrailer(ctx: TemplateContext): string {
   const { getHostConfig } = require('../../hosts/index');
   const hostConfig = getHostConfig(ctx.host);
   return hostConfig.coAuthorTrailer || 'Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>';
+}
+
+export function generateSetupCommand(ctx: TemplateContext): string {
+  // Every non-claude host must reinstall ITSELF on upgrade — bare `./setup`
+  // defaults to the claude host and would leave the invoking host stale.
+  return ctx.host === 'claude' ? './setup' : `./setup --host ${ctx.host}`;
 }
 
 export function generateChangelogWorkflow(_ctx: TemplateContext): string {

@@ -339,15 +339,18 @@ describe('frame --url ReDoS fix', () => {
 // ─── Task 7: watch-mode guard in chain command ───────────────────────────────
 
 describe('chain command watch-mode guard', () => {
-  it('chain loop contains isWatching() guard before write dispatch', () => {
-    // Post-alias refactor: loop iterates over canonicalized `c of commands`.
-    const block = sliceBetween(META_SRC, 'for (const c of commands)', 'Wait for network to settle');
-    expect(block).toContain('isWatching');
+  // The direct-dispatch fallback (which carried its own isWatching() guard)
+  // was deleted — it skipped every OTHER server gate. Chain subcommands now
+  // route exclusively through executeCommand -> handleCommandInternal, whose
+  // watch-mode write gate covers them. Pin both halves of that contract.
+  it('chain has no direct-dispatch fallback (executeCommand is mandatory)', () => {
+    const block = sliceBetween(META_SRC, 'const executeCmd = opts?.executeCommand', 'Wait for network to settle');
+    expect(block).toContain('chain requires the browse server (no executeCommand context)');
+    expect(block).not.toContain('handleWriteCommand(');
   });
 
-  it('chain loop BLOCKED message appears for write commands in watch mode', () => {
-    const block = sliceBetween(META_SRC, 'for (const c of commands)', 'Wait for network to settle');
-    expect(block).toContain('BLOCKED: write commands disabled in watch mode');
+  it('server pipeline blocks write commands in watch mode (covers chain subcommands)', () => {
+    expect(SERVER_SRC).toMatch(/isWatching\(\)\s*&&\s*isWriteInvocation\(command, args\)/);
   });
 });
 

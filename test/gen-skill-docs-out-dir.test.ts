@@ -20,11 +20,17 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
     return createHash('sha256').update(fs.readFileSync(p)).digest('hex');
   }
 
+  function porcelain(): string {
+    const r = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf-8' });
+    return r.status === 0 ? r.stdout : '';
+  }
+
   test('renders :user to out-dir, rewrites section paths, leaves worktree canonical', () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-home-'));
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-out-'));
     const worktreeSkill = path.join(ROOT, 'ship', 'SKILL.md');
     const beforeHash = hashFile(worktreeSkill);
+    const beforePorcelain = porcelain();
     try {
       // Force gbrain detection ON for --respect-detection.
       fs.writeFileSync(
@@ -47,6 +53,11 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
       // (a) worktree byte-unchanged
       expect(hashFile(worktreeSkill)).toBe(beforeHash);
 
+      // (a2, #2569) the render adds ZERO new dirt to the source checkout —
+      // compared before/after rather than asserting empty, so a dev's own
+      // unrelated dirty files can't false-fail the suite.
+      expect(porcelain()).toBe(beforePorcelain);
+
       // (b) inline block present in the rendered SKILL.md
       expect(skillContent).toContain('Brain Context Load');
 
@@ -66,7 +77,7 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
     }
   });
 
-  test('global extras (proactive-suggestions.json) are NOT written in out-dir mode', () => {
+  test('retired global extras (proactive-suggestions.json) are not written anywhere', () => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-out-'));
     try {
       const res = spawnSync(
@@ -75,8 +86,10 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
         { cwd: ROOT, encoding: 'utf-8', timeout: 120_000 },
       );
       expect(res.status).toBe(0);
-      // proactive-suggestions.json lives at a repo path; out-dir mode must skip it.
+      // The proactive-suggestions registry was removed (never had a consumer).
+      // A gen run must not resurrect it in the out-dir or at the repo path.
       expect(fs.existsSync(path.join(outDir, 'scripts', 'proactive-suggestions.json'))).toBe(false);
+      expect(fs.existsSync(path.join(ROOT, 'scripts', 'proactive-suggestions.json'))).toBe(false);
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }

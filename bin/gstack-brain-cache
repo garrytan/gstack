@@ -126,13 +126,31 @@ function sha8(input: string): string {
  * Detects the active brain endpoint (MCP URL or 'local') and returns its
  * stable identity hash. Used to detect when the user switches brains
  * (different endpoint → different cache).
+ *
+ * Reads BOTH registration scopes in ~/.claude.json (#2499): project scope
+ * (.projects["/abs/path"].mcpServers.gbrain — what `claude mcp add`
+ * WITHOUT --scope user writes) first, preferring the nearest ancestor of
+ * cwd (longest matching project key) so nested repos resolve to their own
+ * brain, then user scope (.mcpServers.gbrain) as the fallback. That order
+ * is Claude Code's own name-conflict precedence (local beats user) —
+ * verified empirically against claude 2.1.233 with a hermetic fake $HOME:
+ * `claude mcp get gbrain` reports "Scope: Local config" and the
+ * project-local URL when both scopes define the name — so the hash tracks
+ * the endpoint the project actually talks to. Before the project-scope
+ * read, two different project-scoped brains both hashed to 'local', so
+ * switching between them never invalidated the cache — the exact scenario
+ * this function exists to catch.
+ *
+ * Params exist for tests; production callers use the defaults.
  */
-export function detectEndpointHash(): string {
-  const claudeJsonPath = join(homedir(), '.claude.json');
+export function detectEndpointHash(
+  claudeJsonPath: string = join(homedir(), '.claude.json'),
+  cwd: string = process.cwd(),
+): string {
   if (existsSync(claudeJsonPath)) {
     try {
       const cfg = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
-      const gbrainServer = cfg?.mcpServers?.gbrain;
+      const gbrainServer = resolveGbrainMcpEntry(cfg, cwd);
       const url = gbrainServer?.url || gbrainServer?.transport?.url;
       if (typeof url === 'string' && url.length > 0) {
         return sha8(url);
@@ -141,6 +159,43 @@ export function detectEndpointHash(): string {
   }
   // Local engine — no endpoint URL; use a stable literal hash.
   return 'local';
+}
+
+interface McpEntryish {
+  url?: unknown;
+  transport?: { url?: unknown };
+}
+
+/**
+ * Nearest-ancestor project-scope gbrain entry for cwd, else the user-scope
+ * entry (#2499). Project-local first — Claude Code's own precedence for a
+ * same-name conflict (see detectEndpointHash's docstring for the empirical
+ * evidence). Path-boundary-aware: /a/repo never matches /a/repo2. Both
+ * separators are accepted so Windows project keys resolve.
+ */
+function resolveGbrainMcpEntry(
+  cfg: unknown,
+  cwd: string,
+): McpEntryish | undefined {
+  const root = cfg as {
+    mcpServers?: Record<string, McpEntryish>;
+    projects?: Record<string, { mcpServers?: Record<string, McpEntryish> }>;
+  } | null;
+  const projects = root?.projects;
+  if (projects && typeof projects === 'object') {
+    let best: { key: string; entry: McpEntryish } | undefined;
+    for (const [key, val] of Object.entries(projects)) {
+      if (!val || typeof val !== 'object') continue;
+      const entry = val.mcpServers?.gbrain;
+      if (!entry || typeof entry !== 'object') continue;
+      const isAncestor =
+        cwd === key || cwd.startsWith(`${key}/`) || cwd.startsWith(`${key}\\`);
+      if (!isAncestor) continue;
+      if (!best || key.length > best.key.length) best = { key, entry };
+    }
+    if (best) return best.entry;
+  }
+  return root?.mcpServers?.gbrain;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -521,6 +576,21 @@ function fetchRecentDecisions(projectSlug: string | null): string | null {
     '--json',
   ]);
   if (!result?.pages) {
+    // F10 bug fix: this branch used to return the hardcoded
+    // "_No prior skill runs recorded._" string here, which is indistinguishable
+    // from a genuine zero-rows result. That silently converted a gbrain-
+    // unreachable FAILURE into a "successful" cached digest — refreshEntity()
+    // would write it and stamp last_refresh, so the false negative survived
+    // every subsequent TTL cycle forever. Returning null instead lets cmdGet's
+    // existing missing/stale-fallback machinery report the true state, exactly
+    // like every sibling fetcher (fetchGoals, fetchSimplePage) already does on
+    // failure.
+    return null;
+  }
+  // A malformed payload ({pages: {}} etc.) must classify as failure, not crash
+  // refreshEntity mid-refresh — same honest-missing polarity as the F10 fix.
+  if (!Array.isArray(result.pages)) return null;
+  if (result.pages.length === 0) {
     return `# Recent decisions (project: ${projectSlug})\n\n_No prior skill runs recorded._\n`;
   }
   const lines = result.pages.map((p) => `- ${p.title || p.slug}`);
@@ -576,7 +646,17 @@ function fetchSalience(projectSlug: string | null): string | null {
     '--limit', '10',
     '--json',
   ]);
-  if (!result?.pages) return `# Recent salience\n\n_No salient pages in last 14d._\n`;
+  // F10 bug fix (sibling of fetchRecentDecisions above): a gbrain-unreachable
+  // failure used to render the identical hardcoded "no salient pages" string
+  // as a genuine empty result, which refreshEntity() then cached as if it
+  // were verified truth. Unlike recent-decisions there is no project-local
+  // fallback for salience — it is specifically gbrain's emotional-weight-
+  // ranked *brain* pages, not project decision/work data, and conflating the
+  // two would defeat the D9 privacy allowlist's purpose. So on failure we
+  // return null and let the cache report 'missing' (same as product.md,
+  // goals.md, etc. already do on this machine) instead of asserting a claim
+  // we have no way to verify.
+  if (!result?.pages) return null;
 
   // D9 privacy gate: strip entries outside the allowlist BEFORE rendering.
   // Sensitive personal content (family, therapy, reflection) is never written

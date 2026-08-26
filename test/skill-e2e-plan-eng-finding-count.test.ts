@@ -8,7 +8,8 @@
  * Tier: periodic (~25 min, ~$5/run). Sequential by default per plan §D15.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   runPlanSkillCounting,
@@ -16,8 +17,7 @@ import {
   assertReviewReportAtBottom,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const N = 5;
 const FLOOR = N - 1; // 4

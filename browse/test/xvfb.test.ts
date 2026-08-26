@@ -63,8 +63,26 @@ describe('isOurXvfb (PID validation)', () => {
 
   test('returns false when cmdline does not contain Xvfb', () => {
     // Current bun process is not Xvfb. PID-correct, cmdline-wrong → reject.
+    // NOTE: this very suite's argv CONTAINS "xvfb.test.ts" — a substring
+    // match over the whole cmdline identified the test runner as our Xvfb
+    // on the first Linux CI run. Identity rests on argv[0]'s basename.
     const myStart = readPidStartTime(process.pid);
     expect(isOurXvfb(process.pid, myStart)).toBe(false);
+  });
+
+  test('a process whose ARGUMENTS mention xvfb is not ours (argv0 identity)', async () => {
+    // sh's $0 trick plants "xvfb" in the child's args while argv[0] stays sh.
+    // Killing this process because its arguments mention xvfb is the exact
+    // sibling-kill class the identity check exists to prevent.
+    const child = Bun.spawn(['/bin/sh', '-c', 'sleep 2', 'xvfb-lookalike-arg']);
+    try {
+      const start = readPidStartTime(child.pid);
+      // On non-Linux, /proc is absent and both reads return '' → false either way.
+      expect(isOurXvfb(child.pid, start || 'recorded')).toBe(false);
+    } finally {
+      child.kill();
+      await child.exited;
+    }
   });
 
   test('returns false when start-time differs (PID reuse defense)', () => {

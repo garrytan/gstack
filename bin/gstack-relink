@@ -36,6 +36,12 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
+# #2569: rendered :user variants (brain-aware blocks) live in an UNTRACKED
+# out-dir instead of the tracked install checkout. When a render exists for a
+# skill, relink serves it — otherwise a config change would silently flip
+# every skill back to the canonical (blockless) source.
+RENDER_DIR="${GSTACK_USER_RENDER_DIR:-${GSTACK_HOME:-$HOME/.gstack}/render/claude}"
+
 # Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
 _cleanup_skill_entry() {
   local entry="$1"
@@ -52,7 +58,13 @@ _link_root_skill_alias() {
   [ -f "$INSTALL_DIR/SKILL.md" ] || return 0
   [ -L "$target" ] && rm -f "$target"
   mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/SKILL.md" "$target/SKILL.md"
+  # Copy-then-rewrite, never a symlink (#2511): a symlinked alias re-serves
+  # the canonical `name: gstack`, Claude Code sees a duplicate skill name,
+  # and drops the ENTIRE personal-skills set. sed reads the source and writes
+  # a fresh copy — remove any prior symlink first so the redirect can never
+  # write through it into the generated source.
+  rm -f "$target/SKILL.md"
+  sed "1,/^---\$/ s/^name:[[:space:]].*/name: _gstack-command/" "$INSTALL_DIR/SKILL.md" > "$target/SKILL.md"
 }
 
 _link_root_skill_alias
@@ -61,6 +73,11 @@ _link_root_skill_alias
 SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do
   [ -d "$skill_dir" ] || continue
+  # Skip symlinked skill dirs (connect-chrome → open-gstack-browser): linking
+  # one under the symlink's basename would duplicate the canonical frontmatter
+  # name and collide in Claude Code's skill registry (#2201). setup owns the
+  # rewritten-copy alias for those.
+  [ -L "${skill_dir%/}" ] && continue
   skill=$(basename "$skill_dir")
   # Skip non-skill directories
   case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
@@ -87,7 +104,9 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   [ -L "$target" ] && rm -f "$target"
   # Create real directory with symlinked SKILL.md (absolute path)
   mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
+  [ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"
+  ln -snf "$skill_md_src" "$target/SKILL.md"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 

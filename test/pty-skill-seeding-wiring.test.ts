@@ -17,7 +17,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const ROOT = path.resolve(new URL(import.meta.url).pathname, '..', '..');
+const ROOT = path.resolve(import.meta.path, '..', '..');
 
 /** A PTY send whose payload starts with a slash command (`/name`, optionally
  * followed by `\r`, whitespace, or the closing quote). A second slash right

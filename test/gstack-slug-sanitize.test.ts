@@ -63,3 +63,44 @@ describe('gstack-slug cache-read sanitization', () => {
     }
   });
 });
+
+// The GSTACK_PROJECT_SLUG escape hatch is per-invocation, never durable: a
+// test exporting it from the repo root once rebound the ENTIRE repo's session
+// state (evals, decisions, timelines) to the test's slug via the cwd cache.
+// The cache is also GSTACK_HOME-aware now, matching lib/bin-context.ts's
+// native port — temp-home runs must not litter the real ~/.gstack (observed:
+// 2,528 stale temp-cwd entries).
+describe('slug cache hygiene', () => {
+  test('an env-override run never writes the cwd cache', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'slug-env-'));
+    try {
+      const r = spawnSync(['bash', SLUG_BIN], {
+        cwd: os.tmpdir(),
+        env: { ...process.env, GSTACK_HOME: home, GSTACK_PROJECT_SLUG: 'override-slug' },
+      });
+      expect(r.stdout.toString()).toContain('SLUG=override-slug');
+      expect(fs.existsSync(path.join(home, 'slug-cache'))).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('an env-less run caches under GSTACK_HOME, not $HOME', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'slug-home-'));
+    try {
+      // Strip any ambient override: a sibling test leaking
+      // GSTACK_PROJECT_SLUG in a shared-process shard would flip this run
+      // into override mode, which (correctly) skips the cache write.
+      const { GSTACK_PROJECT_SLUG: _drop, ...ambient } = process.env;
+      const r = spawnSync(['bash', SLUG_BIN], {
+        cwd: os.tmpdir(),
+        env: { ...ambient, GSTACK_HOME: home },
+      });
+      expect(r.exitCode).toBe(0);
+      const entries = fs.readdirSync(path.join(home, 'slug-cache'));
+      expect(entries.length).toBe(1);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

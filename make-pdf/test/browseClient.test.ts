@@ -59,6 +59,41 @@ describe("findExecutable", () => {
     const found = findExecutable("/nonexistent/path/to/nothing");
     expect(found).toBeNull();
   });
+
+  // access(X_OK) is TRUE for directories — they carry the execute/traverse bit — so a
+  // bare X_OK test returned ~/.claude/skills/browse, the skill's docs folder, as "the
+  // browse binary". Every browse call then failed with an empty error, which surfaced
+  // as make-pdf reporting "Chromium failed to launch".
+  test("rejects a DIRECTORY even though it passes access(X_OK)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-dir-"));
+    try {
+      // Prove the precondition: the directory really does pass the old test.
+      let passesXok = true;
+      try {
+        fs.accessSync(dir, fs.constants.X_OK);
+      } catch {
+        passesXok = false;
+      }
+      expect(passesXok).toBe(true);
+
+      expect(findExecutable(dir)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a directory that shadows a real binary name", () => {
+    // The exact shape of the bug: a directory named like the thing being looked for.
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-shadow-"));
+    const shadow = path.join(base, "browse");
+    fs.mkdirSync(shadow);
+    fs.writeFileSync(path.join(shadow, "SKILL.md"), "# not a binary\n");
+    try {
+      expect(findExecutable(shadow)).toBeNull();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("resolveBrowseBin", () => {
@@ -131,5 +166,53 @@ describe("BrowseClientError", () => {
     expect(err.message).toContain("browse pdf exited 127");
     expect(err.message).toContain("Chromium not found");
     expect(err.name).toBe("BrowseClientError");
+  });
+});
+
+describe("resolveBrowseBin — sibling resolution from execPath (#2156)", () => {
+  // In a bun-compiled binary argv[0] is the raw invocation string (often
+  // relative), so the old dirname(argv[0]) built sibling candidates against
+  // the CWD. Under `bun test` the process path is the bun runtime, so these
+  // shapes are only reachable through the selfPath seam.
+
+  test("sibling browse next to the install dir is found via selfPath", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-sib-"));
+    try {
+      const distDir = path.join(base, "browse", "dist");
+      fs.mkdirSync(distDir, { recursive: true });
+      const sibling = path.join(distDir, "browse");
+      fs.writeFileSync(sibling, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      const selfPath = path.join(base, "make-pdf", "dist", "pdf");
+      // Receipts: pre-fix code ignores the selfPath seam entirely, so it can
+      // never produce this sibling — it either finds a global install (wrong
+      // value) or throws (PATH is empty). Red on v1.68.3.0 either way.
+      const resolved = resolveBrowseBin({ PATH: "" }, selfPath);
+      expect(resolved).toBe(path.resolve(path.join(base, "make-pdf"), "../browse/dist/browse"));
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("a decoy browse DIRECTORY near selfPath never shadows a real PATH binary", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-decoy-"));
+    try {
+      // The ~/.claude/skills/browse alias-directory shape from #2156: a
+      // directory named exactly like the third sibling candidate.
+      fs.mkdirSync(path.join(base, "browse"), { recursive: true });
+      const pathDir = path.join(base, "pathbin");
+      fs.mkdirSync(pathDir, { recursive: true });
+      const onPath = path.join(pathDir, "browse");
+      fs.writeFileSync(onPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      const selfPath = path.join(base, "tools", "pdf");
+      // os.homedir() ignores a $HOME override under bun, so the global-install
+      // probe may legitimately win on boxes with a real ~/.claude install. The
+      // invariant under test is narrower: the decoy DIRECTORY never wins, and
+      // whatever wins is a regular file.
+      const resolved = resolveBrowseBin({ PATH: pathDir }, selfPath);
+      expect(resolved).not.toBe(path.join(base, "browse"));
+      expect(fs.statSync(resolved).isFile()).toBe(true);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   });
 });

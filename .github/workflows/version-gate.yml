@@ -14,13 +14,13 @@ concurrency:
 jobs:
   check:
     name: Check VERSION is not stale vs queue
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     permissions:
       contents: read
       pull-requests: read
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}

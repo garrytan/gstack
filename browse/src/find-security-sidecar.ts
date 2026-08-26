@@ -30,7 +30,7 @@ export interface SidecarLocation {
 
 function nodeOnPath(): string | null {
   try {
-    execFileSync("node", ["--version"], { stdio: "ignore", timeout: 2000 });
+    execFileSync("node", ["--version"], { stdio: "ignore", timeout: 2000, windowsHide: true });
     return "node";
   } catch {
     return null;

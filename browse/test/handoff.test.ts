@@ -26,9 +26,14 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
-  try { testServer.server.stop(); } catch {}
-  setTimeout(() => process.exit(0), 500);
+afterAll(async () => {
+  try { testServer.server.stop(true); } catch {}  // force-close keep-alives — a lingering Chromium connection otherwise blocks stop() forever
+  // Close only this file's own browser — never process.exit(): bun test runs
+  // all files in one process, so a delayed exit kills the whole suite
+  // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+  // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+  // so race it at 3s and abandon; the child is reaped at process exit.
+  try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
 });
 
 // ─── Unit Tests: Failure Tracking (no browser needed) ────────────
@@ -172,8 +177,15 @@ describe('handoff edge cases', () => {
 // Each handoff test creates its own BrowserManager since handoff swaps the browser.
 // These tests run sequentially (one browser at a time) to avoid resource issues.
 
+// Headed-mode launch is broken on current macOS (the rebrand invalidates the
+// Chrome-for-Testing bundle signature and XProtect kills the relaunch —
+// #2242, #2554, #2138). These three integration tests drive a real headed
+// handoff and fail ~5s in on any darwin box. They stay ENABLED on Linux CI.
+// Un-skip when the browse-daemon lifecycle wave lands the signature fix.
+const HEADED_BROKEN_ON_DARWIN = process.platform === 'darwin';
+
 describe('handoff integration', () => {
-  test('full handoff: cookies preserved, headed mode active, commands work', async () => {
+  test.skipIf(HEADED_BROKEN_ON_DARWIN)('full handoff: cookies preserved, headed mode active, commands work', async () => {
     const hbm = new BrowserManager();
     await hbm.launch();
 
@@ -206,7 +218,7 @@ describe('handoff integration', () => {
     }
   }, 45000);
 
-  test('multi-tab handoff preserves all tabs', async () => {
+  test.skipIf(HEADED_BROKEN_ON_DARWIN)('multi-tab handoff preserves all tabs', async () => {
     const hbm = new BrowserManager();
     await hbm.launch();
 
@@ -223,7 +235,7 @@ describe('handoff integration', () => {
     }
   }, 45000);
 
-  test('handoff meta command joins args as message', async () => {
+  test.skipIf(HEADED_BROKEN_ON_DARWIN)('handoff meta command joins args as message', async () => {
     const hbm = new BrowserManager();
     await hbm.launch();
 

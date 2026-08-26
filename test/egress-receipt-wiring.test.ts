@@ -28,7 +28,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const ROOT = path.resolve(new URL(import.meta.url).pathname, '..', '..');
+const ROOT = path.resolve(import.meta.path, '..', '..');
 
 function read(rel: string): string {
   return fs.readFileSync(path.join(ROOT, rel), 'utf-8');
@@ -67,10 +67,20 @@ const MODULE_SINKS = [
   'bin/gstack-gbrain-sync.ts',
   'bin/gstack-memory-ingest.ts',
   'browse/src/server.ts',
+  // Code-intelligence adapters (fork port wave 2): the gbrain adapter shells
+  // repo content to the user's gbrain DB and the Sourcebot adapter POSTs
+  // queries to a self-hosted HTTP endpoint — both sensitive-class
+  // (repo-content) sinks, fail-closed. Registered so a refactor that drops
+  // their writeReceipt calls fails CI, not just the tree-sweep scanner.
+  'lib/code-intelligence/gbrain-adapter.ts',
+  'lib/code-intelligence/sourcebot-adapter.ts',
   // Unconditional: context-bill ships in the same tree as this tripwire. A
   // missing file must fail loudly (a rename/move that drops its receipt wiring
   // is exactly what this pins), not silently soften the assertion.
   'lib/context-bill.ts',
+  // supabase-provision engine (bin/gstack-gbrain-supabase-provision is a thin
+  // bun-shebang entry over this module; the receipt lives at the api-call layer).
+  'lib/gbrain-supabase-provision.ts',
 ];
 
 /** Shell sinks: must source the shared lib; every network op receipted. */
@@ -81,7 +91,6 @@ const SHELL_SINKS = [
   'bin/gstack-gbrain-mcp-verify',
   'bin/gstack-security-dashboard',
   'bin/gstack-community-dashboard',
-  'bin/gstack-gbrain-supabase-provision',
   'bin/gstack-artifacts-init',
   'bin/gstack-brain-restore',
   'bin/gstack-session-update',
@@ -332,9 +341,15 @@ describe('egress receipt wiring tripwire', () => {
     // dashboards (open).
     expect(read('bin/gstack-security-dashboard')).toMatch(/_receipted_curl open security-dashboard/);
     expect(read('bin/gstack-community-dashboard')).toMatch(/_receipted_curl open community-dashboard/);
-    // mcp-verify + provision (closed).
+    // mcp-verify (closed).
     expect(read('bin/gstack-gbrain-mcp-verify')).toMatch(/_receipted_curl closed gbrain-mcp-verify/);
-    expect(read('bin/gstack-gbrain-supabase-provision')).toMatch(/_receipted_curl closed supabase-provision/);
+    // supabase-provision (closed): TS module — the receipt is written before
+    // the fetch, and a receipt failure refuses the send (fail-closed, exit 8).
+    const provision = read('lib/gbrain-supabase-provision.ts');
+    expect(provision).toMatch(/sink:\s*['"]supabase-provision['"]/);
+    expect(provision).toContain('fail-closed');
+    expect(provision.indexOf('writeReceipt(')).toBeGreaterThan(0);
+    expect(provision.indexOf('writeReceipt(')).toBeLessThan(provision.indexOf('ctx.fetchImpl('));
     // design (open): the wrapper catches receipt errors and proceeds.
     const rf = read('design/src/receipted-fetch.ts');
     expect(rf).toContain('fail-open');

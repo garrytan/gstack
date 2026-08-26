@@ -21,7 +21,7 @@ export function getCurrentProjectSlug(): string {
   }
   try {
     const slugBin = path.join(os.homedir(), '.claude/skills/gstack/bin/gstack-slug');
-    const out = execSync(slugBin, { encoding: 'utf8', timeout: 2000 }).trim();
+    const out = execSync(slugBin, { encoding: 'utf8', timeout: 2000, windowsHide: true }).trim();
     const m = out.match(/SLUG="?([^"\n]+)"?/);
     cachedSlug = m ? m[1]! : (out || 'unknown');
   } catch {

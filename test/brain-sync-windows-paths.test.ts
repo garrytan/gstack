@@ -48,11 +48,15 @@ describe('gstack-brain-sync — Windows path/exec invariants', () => {
     expect(SRC.indexOf(CR_STRIP)).toBeLessThan(SRC.indexOf('add -f -- "$p"'));
   });
 
-  test('inline enqueue appends one atomic record at a time (codex P2 #1)', () => {
-    expect(SRC).toContain('os.O_APPEND');
-    expect(SRC).toContain('os.write(fd');
-    // No buffered batch write to the queue (the interleave-corruption shape).
+  test('inline enqueue writes one atomic record at a time (codex P2 #1, spool form)', () => {
+    // The invariant is per-record write atomicity (no interleave corruption).
+    // Pre-spool this was O_APPEND on the shared queue file; the spool design
+    // satisfies it more strongly: one FILE per record, tmp write + atomic
+    // os.replace — nothing shared to interleave.
+    expect(SRC).toContain('os.replace(tmp');
+    // No shared-file append anywhere (the interleave-corruption shape).
     expect(SRC).not.toContain('open(queue_path, "a"');
+    expect(SRC).not.toContain('os.O_APPEND');
   });
 
   test('skip-list is normalized on BOTH discover and drain sides (codex P2 #2)', () => {

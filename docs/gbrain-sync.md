@@ -166,6 +166,14 @@ The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours
 (cached via `~/.gstack/.brain-last-pull`). You don't need to think about
 this — it happens automatically at the first skill invocation each day.
 
+Historical note (#2516): that daily pull refreshed only `~/.gstack` itself —
+NOT the detached worktree at `~/.gstack-brain-worktree` that gbrain actually
+indexes, so the brain silently served stale pages until the next
+setup-gbrain/sync-gbrain run. Since this fix, the daily sync also advances
+the brain worktree (`gstack-gbrain-source-wireup --advance-only`, throttled
+via `~/.gstack/.brain-worktree-last-advance`); a failed advance warns instead
+of failing silently, and never force-resets a dirty worktree.
+
 ## Uninstall
 
 ```bash

@@ -8,18 +8,17 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import * as fs from 'fs';
 import * as path from 'path';
 import { SKILL_COVERAGE, type SkillCoverage } from './skill-coverage-matrix';
+import { skillCensus } from './helpers/skill-census';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 
+// Canonical walk (skill-census.ts). This file and skill-coverage-floor
+// previously hand-rolled two DIFFERENT walks (one skipped node_modules/docs/
+// test, one didn't) — exactly the divergence class the census exists to kill.
 function discoverSkills(): string[] {
-  return fs.readdirSync(REPO_ROOT, { withFileTypes: true })
-    .filter(e => e.isDirectory() && !e.name.startsWith('.'))
-    .filter(e => fs.existsSync(path.join(REPO_ROOT, e.name, 'SKILL.md')))
-    .map(e => e.name)
-    .sort();
+  return skillCensus(REPO_ROOT).authoredSkills;
 }
 
 describe('skill coverage matrix', () => {
@@ -29,15 +28,22 @@ describe('skill coverage matrix', () => {
   });
 
   test('every entry has the right shape', () => {
+    const missingGate: string[] = [];
     for (const [skill, coverage] of Object.entries(SKILL_COVERAGE)) {
       expect(Array.isArray(coverage.gate)).toBe(true);
       expect(Array.isArray(coverage.periodic)).toBe(true);
-      expect(coverage.gate.length).toBeGreaterThan(0);
+      if (!coverage.gate || coverage.gate.length === 0) missingGate.push(skill);
       for (const p of [...coverage.gate, ...coverage.periodic]) {
         expect(typeof p).toBe('string');
         expect(p.startsWith('test/')).toBe(true);
         expect(p.endsWith('.test.ts')).toBe(true);
       }
+    }
+    if (missingGate.length > 0) {
+      throw new Error(
+        `Skills with no gate-tier eval: ${missingGate.join(', ')}. ` +
+        `Eval-first foundation requires at least one CI-blocking check per skill.`,
+      );
     }
   });
 

@@ -1,33 +1,51 @@
 name: Skill Docs Freshness
-on: [push, pull_request]
+# push is main-only: a push to a PR branch already fires the pull_request run;
+# the unrestricted push trigger double-ran every PR commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs for the same branch (matches evals.yml,
+# windows-free-tests.yml, etc.). head_ref is set on pull_request; ref_name is
+# the fallback for push so a rapid push series doesn't pile up stale runs.
+concurrency:
+  group: skill-docs-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   check-freshness:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install
-      - name: Check Claude host freshness
-        run: bun run gen:skill-docs
-      - name: Verify Claude skill docs are fresh
+      # One generation pass for ALL 10 hosts. gen-skill-docs --host all
+      # hard-fails on any per-host generation error (scripts/gen-skill-docs.ts
+      # aggregates failures and exits non-zero), so every host is gated on
+      # "generates cleanly." Known limitation, on purpose: the 9 gitignored
+      # host outputs (.agents/, .factory/, .kiro/, ...) are NOT byte-freshness
+      # checked — `git diff` on ignored untracked paths is always empty (the
+      # previous per-host `git diff -- .agents/` gates could never fail for
+      # exactly that reason). Byte-freshness is enforced only for tracked
+      # output (the Claude SKILL.md files), which the two steps below cover.
+      - name: Generate all host skill docs
+        run: bun run gen:skill-docs --host all
+      - name: Verify tracked skill docs are fresh
         run: |
           git diff --exit-code || {
-            echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs"
+            echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs --host all"
             exit 1
           }
-      - name: Check Codex host freshness
-        run: bun run gen:skill-docs --host codex
-      - name: Verify Codex skill docs are fresh
+      # git diff misses NEW untracked files (e.g. a freshly added skill whose
+      # generated SKILL.md was never committed). Fail on any untracked stray
+      # the generator produced outside the gitignored host dirs.
+      - name: Verify no untracked generated files
         run: |
-          git diff --exit-code -- .agents/ || {
-            echo "Generated Codex SKILL.md files are stale. Run: bun run gen:skill-docs --host codex"
+          STRAYS=$(git status --porcelain --untracked-files=all | grep '^??' || true)
+          if [ -n "$STRAYS" ]; then
+            echo "Generator produced untracked files that are neither committed nor gitignored:"
+            echo "$STRAYS"
+            echo "Commit them (bun run gen:skill-docs --host all) or gitignore them."
             exit 1
-          }
-      - name: Generate Factory skill docs
-        run: bun run gen:skill-docs --host factory
-      - name: Verify Factory skill docs are fresh
-        run: |
-          git diff --exit-code -- .factory/ || {
-            echo "Generated Factory SKILL.md files are stale. Run: bun run gen:skill-docs --host factory"
-            exit 1
-          }
+          fi

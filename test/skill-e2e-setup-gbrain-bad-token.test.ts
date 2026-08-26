@@ -8,7 +8,8 @@
 //
 // Cost: ~$0.30-$0.50 per run. Gate-tier (EVALS=1 EVALS_TIER=gate).
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -17,8 +18,7 @@ import { runAgentSdkTest, passThroughNonAskUserQuestion, resolveClaudeBinary } f
 
 // Periodic-tier (companion to skill-e2e-setup-gbrain-remote.test.ts).
 // Deterministic gate coverage lives in setup-gbrain-path4-structure.test.ts.
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 function startStub401(): Promise<{ url: string; close: () => Promise<void> }> {
   return new Promise((resolve) => {

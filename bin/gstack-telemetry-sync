@@ -81,15 +81,27 @@ while IFS= read -r LINE; do
   [ -z "$LINE" ] && continue
   echo "$LINE" | grep -q '^{' || continue
 
-  # Strip local-only fields (keep v, ts, sessions as-is for edge function)
-  CLEAN="$(echo "$LINE" | sed \
-    -e 's/,"_repo_slug":"[^"]*"//g' \
-    -e 's/,"_branch":"[^"]*"//g' \
-    -e 's/,"repo":"[^"]*"//g')"
-
-  # If anonymous tier, strip installation_id
-  if [ "$TIER" = "anonymous" ]; then
-    CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+  # Strip local-only fields (keep v, ts, sessions as-is for edge function).
+  # jq del() is structural — a value containing an escaped quote (repo names,
+  # branch names) can't smuggle the field past a regex or corrupt the strip.
+  # The sed path stays only as a jq-less fallback.
+  if command -v jq >/dev/null 2>&1; then
+    if [ "$TIER" = "anonymous" ]; then
+      CLEAN="$(printf '%s' "$LINE" | jq -c 'del(._repo_slug, ._branch, .repo, .installation_id)' 2>/dev/null)" || CLEAN=""
+    else
+      CLEAN="$(printf '%s' "$LINE" | jq -c 'del(._repo_slug, ._branch, .repo)' 2>/dev/null)" || CLEAN=""
+    fi
+    # A line jq can't parse is malformed telemetry — drop it rather than
+    # forwarding bytes the strip never touched.
+    [ -z "$CLEAN" ] && continue
+  else
+    CLEAN="$(echo "$LINE" | sed \
+      -e 's/,"_repo_slug":"[^"]*"//g' \
+      -e 's/,"_branch":"[^"]*"//g' \
+      -e 's/,"repo":"[^"]*"//g')"
+    if [ "$TIER" = "anonymous" ]; then
+      CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+    fi
   fi
 
   if [ "$FIRST" = "true" ]; then

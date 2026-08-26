@@ -17,7 +17,9 @@
  * helper warns once and returns an empty findings list — fail-safe defaults.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, appendFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "fs";
+import { appendJsonl } from "./jsonl-store";
+import { gbrainConfigDir } from "./gbrain-exec";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
 import { homedir } from "os";
@@ -255,12 +257,13 @@ export function detectEngineTier(): EngineDetect {
 }
 
 // Returns gbrain's config.json path, honoring GBRAIN_HOME env var with a
-// fallback to ~/.gbrain. gbrain >=0.25 dropped the top-level `engine` field
+// fallback to ~/.gbrain. Resolution matches gbrain's own configDir()
+// contract (#2521): GBRAIN_HOME is a parent dir, `.gbrain` is appended.
+// gbrain >=0.25 dropped the top-level `engine` field
 // from doctor output, so this file is the only reliable source for engine
 // detection on that version. See #1415.
 function gbrainConfigPath(): string {
-  const root = process.env.GBRAIN_HOME || join(homedir(), ".gbrain");
-  return join(root, "config.json");
+  return join(gbrainConfigDir(process.env), "config.json");
 }
 
 // Best-effort JSONL append to ~/.gstack/.gbrain-errors.jsonl. Never throws.
@@ -268,11 +271,7 @@ function logGbrainError(kind: string, detail: string): void {
   try {
     const path = errorLogPath();
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(
-      path,
-      JSON.stringify({ ts: new Date().toISOString(), kind, detail: detail.slice(0, 500) }) + "\n",
-      "utf-8"
-    );
+    appendJsonl(path, { ts: new Date().toISOString(), kind, detail: detail.slice(0, 500) });
   } catch { /* logging is best-effort */ }
 }
 
@@ -505,7 +504,7 @@ function logErrorContext(entry: ErrorContextEntry): void {
   try {
     const path = errorLogPath();
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + "\n", "utf-8");
+    appendJsonl(path, entry);
   } catch {
     // Logging failure is non-fatal — never block the op.
   }

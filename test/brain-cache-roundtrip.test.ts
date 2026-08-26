@@ -131,6 +131,64 @@ describe('brain-cache endpoint detection', () => {
     expect(typeof hash).toBe('string');
     expect(hash.length).toBeGreaterThan(0);
   });
+
+  // #2499: project-scoped registrations (.projects["/path"].mcpServers.gbrain)
+  // were never read — two different project-scoped brains both hashed to
+  // 'local', so switching between them never invalidated the cache.
+  test('detectEndpointHash resolves a project-scoped gbrain URL for a cwd inside the project (#2499)', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    writeFileSync(cj, JSON.stringify({
+      projects: {
+        '/w/repo': { mcpServers: { gbrain: { type: 'http', url: 'https://a.example/mcp' } } },
+      },
+    }));
+    const inside = mod.detectEndpointHash(cj, '/w/repo/src/deep');
+    expect(inside).not.toBe('local');
+    expect(inside).toHaveLength(8);
+    // Path-boundary check: /w/repo2 is NOT inside /w/repo.
+    expect(mod.detectEndpointHash(cj, '/w/repo2')).toBe('local');
+  });
+
+  test('detectEndpointHash prefers the nearest-ancestor project entry (#2499)', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    writeFileSync(cj, JSON.stringify({
+      projects: {
+        '/w/repo': { mcpServers: { gbrain: { url: 'https://outer.example/mcp' } } },
+        '/w/repo/nested': { mcpServers: { gbrain: { url: 'https://inner.example/mcp' } } },
+      },
+    }));
+    const inner = mod.detectEndpointHash(cj, '/w/repo/nested/sub');
+    const outer = mod.detectEndpointHash(cj, '/w/repo/other');
+    expect(inner).not.toBe(outer); // two brains → two hashes (the docstring scenario)
+    expect(inner).not.toBe('local');
+    expect(outer).not.toBe('local');
+  });
+
+  test('detectEndpointHash prefers project-local scope over user scope (#2392 wave)', async () => {
+    // Empirically verified against claude 2.1.233 with hermetic fixtures:
+    // `claude mcp get gbrain` reports "Scope: Local config" when both scopes
+    // define the server — project-local WINS. The old pin here encoded the
+    // opposite (user-first) assumption, which mis-hashed endpoints whenever
+    // the two scopes disagreed.
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    writeFileSync(cj, JSON.stringify({
+      mcpServers: { gbrain: { url: 'https://user.example/mcp' } },
+      projects: {
+        '/w/repo': { mcpServers: { gbrain: { url: 'https://proj.example/mcp' } } },
+      },
+    }));
+    const conflictHash = mod.detectEndpointHash(cj, '/w/repo');
+    // Same file minus the USER entry → identical hash proves project scope won.
+    writeFileSync(cj, JSON.stringify({
+      projects: {
+        '/w/repo': { mcpServers: { gbrain: { url: 'https://proj.example/mcp' } } },
+      },
+    }));
+    expect(mod.detectEndpointHash(cj, '/w/repo')).toBe(conflictHash);
+  });
 });
 
 describe('brain-cache schema mismatch behavior', () => {
@@ -153,7 +211,12 @@ describe('brain-cache schema mismatch behavior', () => {
     // the file gets deleted by the rebuild step. State should be 'missing' or
     // 'stale-fallback' depending on whether the rebuild left a file behind.
     expect(['missing', 'cold-refreshed', 'stale-fallback']).toContain(result.state);
-  });
+  }, 30000);
+  // ^ 30s: the schema-mismatch rebuild refreshes EVERY per-project entity,
+  // each spawning the real gbrain CLI (no mock here). With an unreachable
+  // brain each spawn runs to its own timeout, and under machine load the
+  // stack exceeds bun's 5s default — observed at 5.2-5.4s on a loaded box,
+  // identically on pre-fix binaries (load flake, not a code regression).
 });
 
 describe('brain-cache state machine', () => {

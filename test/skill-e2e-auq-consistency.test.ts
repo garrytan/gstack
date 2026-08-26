@@ -15,7 +15,8 @@
  * Reports per-run scores so drift is visible even on a pass. Periodic tier
  * (N SDK runs, ~$0.50-1 each).
  */
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   setupPlanCeoDir,
@@ -25,8 +26,7 @@ import {
 } from './helpers/auq-sdk-capture';
 import { judgeRecommendation } from './helpers/llm-judge';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const N_RUNS = Number(process.env.AUQ_CONSISTENCY_RUNS ?? '3');
 const runId = `auq-consistency-${process.env.EVALS_RUN_ID ?? 'local'}`;
 

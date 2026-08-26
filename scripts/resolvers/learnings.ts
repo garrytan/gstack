@@ -12,6 +12,7 @@
  * AskUserQuestion and persists the preference via gstack-config.
  */
 import type { TemplateContext } from './types';
+import { getHostConfig } from '../../hosts/index';
 
 // Whitelist for query= macro values. Allows alphanumeric, space, hyphen, underscore.
 // Anything else (e.g. $, backticks, quotes, ;) is a shell-injection vector when the
@@ -34,8 +35,10 @@ export function generateLearningsSearch(ctx: TemplateContext, args?: string[]): 
   }
   const queryFlag = queryArg ? ` --query "${queryArg}"` : '';
 
-  if (ctx.host === 'codex') {
-    // Codex: simpler version, no cross-project, uses $GSTACK_BIN
+  if (getHostConfig(ctx.host).learningsMode === 'basic') {
+    // Basic learnings mode (host config learningsMode: 'basic' — every host
+    // except claude and factory): simpler version, no cross-project prompt,
+    // uses $GSTACK_BIN (all basic hosts are env-var hosts)
     return `## Prior Learnings
 
 Search for relevant learnings from previous sessions on this project:
@@ -88,7 +91,7 @@ smarter on their codebase over time.`;
 }
 
 export function generateLearningsLog(ctx: TemplateContext): string {
-  const binDir = ctx.host === 'codex' ? '$GSTACK_BIN' : ctx.paths.binDir;
+  const binDir = ctx.paths.binDir; // env-var hosts already resolve to $GSTACK_BIN via types.ts
 
   return `## Capture Learnings
 

@@ -24,7 +24,8 @@
  * Tier: periodic (~25 min, ~$5/run). Sequential by default.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   runPlanSkillCounting,
@@ -32,8 +33,7 @@ import {
 } from './helpers/claude-pty-runner';
 import { FORCING_BATCHING_ENG } from './fixtures/forcing-finding-seeds';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const N = 4;
 const FLOOR = N - 1; // 3 — agent must fire at least one AUQ per non-batched finding

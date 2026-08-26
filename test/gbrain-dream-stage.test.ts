@@ -160,14 +160,30 @@ describe("CLI gate wiring (dry-run subprocess — never spawns a real dream)", (
 // Canned `gbrain dream` cycle logs (verbatim shapes observed against a real
 // 0.41.x brain). These let us test the post-flight guard WITHOUT a real cycle.
 const LOG = {
-  // Pack lacks the code-symbol phase: extract_atoms is undeclared AND the edge
-  // resolver matches nothing. Both signals present — pack message must win.
-  notCodeAware:
+  // #2341: the DEFAULT base packs legitimately skip the CONTENT phases
+  // (extract_atoms, synthesize_concepts) while resolve_symbol_edges still runs
+  // — gbrain's only emitters of "does not declare this phase" are those
+  // content phases, so the bare-phrase match fired on EVERY base-pack brain
+  // and told users to churn schema packs for nothing. This shape (content
+  // phase undeclared, resolver ran, resolved 0) must classify as the 0-edge
+  // outcome, not the pack-capability one.
+  basePackZeroEdges:
     "[cycle.extract] done\n" +
     "  - extract_atoms  extract_atoms: active pack does not declare this phase\n" +
     "[cycle.resolve_symbol_edges] start\n" +
     "[cycle.resolve_symbol_edges] done\n" +
     "  ✓ resolve_symbol_edges  3864 chunk(s) walked; resolved 0, ambiguous 0, unmatched 0\n" +
+    "  totals: extracted=0 embedded=1\n",
+  // #2341 headline shape: base pack skips content phases AND the graph built
+  // fine — a healthy run that used to WARN.
+  basePackBuiltEdges:
+    "  - extract_atoms  extract_atoms: active pack does not declare this phase\n" +
+    "  ✓ resolve_symbol_edges  6001 chunk(s) walked; resolved 42, ambiguous 0, unmatched 0\n" +
+    "  - synthesize_concepts  synthesize_concepts: active pack does not declare this phase\n",
+  // The GRAPH phase itself is undeclared: the one shape where the
+  // pack-capability WARN is the right diagnosis.
+  graphPhaseUndeclared:
+    "  - resolve_symbol_edges  resolve_symbol_edges: active pack does not declare this phase\n" +
     "  totals: extracted=0 embedded=1\n",
   // Embed phase failed for a missing key (isolated: no pack-capability line).
   embedFailed:
@@ -202,8 +218,19 @@ describe("parseResolvedEdges", () => {
 });
 
 describe("classifyDreamOutcome — post-flight truth guard", () => {
-  it("flags a non-code-aware schema pack (wins over the 0-edge signal)", () => {
-    const w = classifyDreamOutcome(LOG.notCodeAware);
+  it("base-pack content-phase skips classify as 0-edge, NOT pack-capability (#2341)", () => {
+    const w = classifyDreamOutcome(LOG.basePackZeroEdges);
+    expect(w).not.toBeNull();
+    expect(w).toContain("resolved 0");
+    expect(w).not.toContain("code-aware");
+  });
+
+  it("a healthy base-pack run with a built graph is clean (#2341 headline)", () => {
+    expect(classifyDreamOutcome(LOG.basePackBuiltEdges)).toBeNull();
+  });
+
+  it("flags pack capability only when the GRAPH phase itself is undeclared", () => {
+    const w = classifyDreamOutcome(LOG.graphPhaseUndeclared);
     expect(w).not.toBeNull();
     expect(w).toContain("schema pack");
     expect(w).toContain("code-aware");

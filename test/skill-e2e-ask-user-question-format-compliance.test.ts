@@ -22,7 +22,8 @@
  * hide; the model's composed question is. Shares the engine with the periodic
  * A/B and matrix evals (test/helpers/auq-sdk-capture.ts).
  */
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   setupPlanCeoDir,
@@ -32,8 +33,7 @@ import {
   carvedSkill,
 } from './helpers/auq-sdk-capture';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 const runId = `auq-format-gate-${process.env.EVALS_RUN_ID ?? 'local'}`;
 
 describeE2E('AskUserQuestion format compliance (gate)', () => {

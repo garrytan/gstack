@@ -112,7 +112,7 @@ End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-t
 
 ```bash
 bun install              # install dependencies
-bun test                 # run free tests (no API spend)
+bun run test             # run free tests via the strict shard runner (no API spend, ~90-100s)
 bun run test:windows     # curated Windows-safe subset (runs on windows-latest)
 bun run build            # generate docs + compile binaries
 bun run gen:skill-docs   # regenerate SKILL.md files from templates

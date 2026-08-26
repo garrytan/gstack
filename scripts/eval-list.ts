@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * List eval runs from ~/.gstack-dev/evals/
+ * List eval runs from the project eval dir (~/.gstack/projects/<slug>/evals;
+ * legacy fallback ~/.gstack-dev/evals)
  *
  * Usage: bun run eval:list [--branch <name>] [--tier e2e|llm-judge] [--limit N]
  */

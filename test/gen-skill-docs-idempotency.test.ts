@@ -7,10 +7,10 @@
  * timestamp, a random seed, or any other non-deterministic field into a
  * generated artifact.
  *
- * v1.45.0.0 shipped with a `generated_at` ISO timestamp in
- * scripts/proactive-suggestions.json that updated every run. CI freshness
- * checks failed because the committed file's timestamp never matched the
- * latest gen. Fixed in 43e18af4 — this test pins the contract going forward.
+ * v1.45.0.0 shipped a generated artifact with a `generated_at` ISO timestamp
+ * that updated every run. CI freshness checks failed because the committed
+ * file's timestamp never matched the latest gen. Fixed in 43e18af4 — this
+ * test pins the contract going forward.
  *
  * The test pays a small cost (~2 gen-skill-docs invocations, ~3s total) but
  * catches a class of bugs that's invisible until CI fails.
@@ -25,7 +25,6 @@ const REPO_ROOT = path.resolve(import.meta.dir, '..');
 
 /** Files that gen-skill-docs writes and that must be byte-stable across runs. */
 const STABLE_OUTPUTS = [
-  'scripts/proactive-suggestions.json',
   'SKILL.md',
   'ship/SKILL.md',
   'plan-ceo-review/SKILL.md',
@@ -40,7 +39,6 @@ const STABLE_OUTPUTS = [
  * non-determinism without paying the cost of snapshotting hundreds of files.
  */
 const STABLE_HOST_ALL_OUTPUTS = [
-  'scripts/proactive-suggestions.json',
   'SKILL.md',
   'ship/SKILL.md',
   '.agents/skills/gstack-ship/SKILL.md',
@@ -151,8 +149,8 @@ describe('gen-skill-docs idempotency', () => {
       throw new Error(
         `${flapping.length} file(s) changed between two consecutive --host all gen runs:\n` +
         flapping.map(f => `  - ${f}`).join('\n') +
-        `\nLikely cause: a non-deterministic field leaked into a non-Claude host adapter ` +
-        `(scripts/host-adapters/*.ts). CI freshness checks for that host will flap.`,
+        `\nLikely cause: a non-deterministic field leaked into a non-Claude host's ` +
+        `config or resolver output. CI freshness checks for that host will flap.`,
       );
     }
   }, 300_000); // ~5 min budget for two host-all runs

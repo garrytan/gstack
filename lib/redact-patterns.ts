@@ -108,6 +108,39 @@ export function shannonEntropy(s: string): number {
   return h;
 }
 
+// env.kv name-shape calibration: the regex's zero-or-more-prefix net matches
+// ANY identifier ending in a credential suffix, so `cacheKey:`, `sortKey:`,
+// `partitionKey:`, `hotkey:`, even `monkey:` with an 8+-char entropic value
+// all hit a MEDIUM confirm prompt — a gate that cries wolf gets ignored.
+// A matched name only counts when its shape is credential-semantic:
+//   (i)   suffix separated from the prefix by _ / - / .  (api_key, x-access-key,
+//         AUTH.TOKEN)
+//   (ii)  the whole name IS the bare suffix              (key:, token:)
+//   (iii) the name is ALL-CAPS env style                 (APIKEY=, MY_APIKEY=)
+//   (iv)  a lowercase/camel compound whose prefix ends in a credential word
+//         (apiKey, authToken, clientSecret, stripeApiKey) — cacheKey/sortKey/
+//         monkey have no credential prefix and are rejected.
+const ENV_KV_NAME =
+  /^[ \t]*(?:export[ \t]+)?["']?([A-Za-z0-9_.-]*?(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE))["']?[ \t]*[:=]/i;
+const ENV_KV_SUFFIX =
+  /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)$/i;
+const ENV_KV_CRED_PREFIX =
+  /(api|auth|access|secret|private|app|client|server|master|admin|signing|encryption|session|csrf|jwt|oauth|bearer)$/i;
+
+/** True when the full env.kv match starts with a credential-shaped name. */
+export function isCredentialShapedEnvName(fullMatch: string): boolean {
+  const nameMatch = ENV_KV_NAME.exec(fullMatch);
+  if (!nameMatch) return false;
+  const name = nameMatch[1];
+  const suffixMatch = ENV_KV_SUFFIX.exec(name);
+  if (!suffixMatch) return false;
+  const prefix = name.slice(0, name.length - suffixMatch[1].length);
+  if (prefix === "") return true; // (ii) bare suffix
+  if (/[_.\-]$/.test(prefix)) return true; // (i) separator before suffix
+  if (!/[a-z]/.test(name)) return true; // (iii) ALL-CAPS env style
+  return ENV_KV_CRED_PREFIX.test(prefix); // (iv) credential-semantic compound
+}
+
 /** True when an IPv4 string is a public address (not RFC1918/loopback/etc). */
 export function isPublicIPv4(ip: string): boolean {
   const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -138,6 +171,88 @@ function looksLikeWallet(span: string): boolean {
   return span.length >= 26 && span.length <= 62;
 }
 
+// Compact log/backup stamps (`20260727202423` = YYYYMMDDHHMMSS) are bare digit
+// runs that the phone regex happily eats. Only a SEPARATOR-FREE 14-digit span
+// qualifies: E.164 tops out at 15 digits and real numbers carry a + or spacing,
+// so rejecting this shape costs no phone coverage.
+function looksLikeCompactTimestamp(span: string): boolean {
+  if (!/^\d{14}$/.test(span)) {
+    return false;
+  }
+  const n = (from: number, to: number) => Number(span.slice(from, to));
+  const [year, month, day, hour, minute, second] = [
+    n(0, 4),
+    n(4, 6),
+    n(6, 8),
+    n(8, 10),
+    n(10, 12),
+    n(12, 14),
+  ];
+  return (
+    year >= 1900 &&
+    year <= 2999 &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= 31 &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59
+  );
+}
+
+/** Context window for pairing a normalized parcel ID with its punctuated form. */
+const PARCEL_CONTEXT_CHARS = 400;
+
+/**
+ * County tax-map parcel ID (APN). Ohio's dominant form is NN-NNNNNNN.NNN, and
+ * some counties use a hyphen before the 3-4 digit suffix instead of a dot.
+ */
+const PARCEL_PUNCT_RE = /\b\d{2}-\d{4,8}[.\-]\d{3,4}\b/g;
+
+/**
+ * A parcel ID reads as a national-format phone number to pii.phone.e164 — the
+ * same collision class as the digit-only UUID that `insideUuid` already guards.
+ * Land/title repos carry these by the hundred, so the false positives are not
+ * incidental: they arrive on every branch that touches title, and a guardrail
+ * that cries wolf on the domain's primary identifier trains people to wave the
+ * warning through, which is how a real HIGH finding eventually gets ignored.
+ *
+ * Deliberately narrow, in two tiers:
+ *
+ * 1. The DOTTED form is exempt on its own shape. No phone convention places a
+ *    dot before a trailing 3-4 digit group after a 4-8 digit middle, so this
+ *    cannot swallow a real number. The hyphen-only variants (22-0001-000) are
+ *    NOT exempted by shape — those genuinely are phone-shaped.
+ *
+ * 2. A DIGITS-ONLY span is phone-shaped in isolation, so it earns the exemption
+ *    only by evidence: it must be the exact digit-normalization of a punctuated
+ *    parcel ID within the surrounding window. Fixtures and marts always carry
+ *    the pair ({parcel_id: "12-3456789.000", norm: "123456789000"}), and a bare
+ *    phone number has no such twin nearby — so this reads the document's own
+ *    evidence rather than guessing from digits.
+ */
+export function looksLikeParcelId(span: string, match: RegExpExecArray): boolean {
+  if (/^\d{2}-\d{4,8}\.\d{3,4}$/.test(span)) return true;
+  if (!/^\d{10,14}$/.test(span)) return false;
+
+  const input = match.input ?? "";
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const spanStart = match.index + Math.max(0, spanStartInMatch);
+  const spanEnd = spanStart + span.length;
+  const window = input.slice(
+    Math.max(0, spanStart - PARCEL_CONTEXT_CHARS),
+    spanEnd + PARCEL_CONTEXT_CHARS,
+  );
+
+  PARCEL_PUNCT_RE.lastIndex = 0;
+  let p: RegExpExecArray | null;
+  while ((p = PARCEL_PUNCT_RE.exec(window)) !== null) {
+    if (p[0].replace(/\D/g, "") === span) return true;
+  }
+  return false;
+}
+
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
 
 /**
@@ -159,6 +274,7 @@ const PLACEHOLDER_STRUCTURAL = [
 // keys like AKIAIOSFODNN7EXAMPLE are bare tokens, so the guard still catches them.
 const PLACEHOLDER_SUBSTRING = [
   /example/i, // AKIAIOSFODNN7EXAMPLE etc — AWS docs convention
+  /^pass(word)?$/i, // literal PASSWORD/pass in URL-format doc comments
   /^changeme$/i,
   /^redacted/i,
   /^placeholder/i,
@@ -174,7 +290,98 @@ export function isPlaceholderSpan(span: string): boolean {
   return false;
 }
 
+/** Canonical 8-4-4-4-12 hex UUID. Global: a line may hold several. */
+const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+
+/** How far either side of a span to look for an enclosing UUID. A UUID is 36
+ * chars, so 40 covers one that starts immediately before the span. Bounded so
+ * this stays cheap on a multi-megabyte buffer. */
+const UUID_CONTEXT_CHARS = 40;
+
+/**
+ * True when the matched span sits ENTIRELY inside a UUID.
+ *
+ * Digit-only UUIDs — `00000000-0000-0000-0000-000000000000`,
+ * `11111111-1111-…` — are the standard fixture shape in test suites, and their
+ * digit runs collide with both the credit-card and phone patterns: a 16-digit
+ * slice of one is Luhn-valid often enough to matter, and the hyphen groups read
+ * as national phone formatting. Observed live: 14 of 21 MEDIUM findings on one
+ * ordinary branch were this, all from test files. That volume is what stops
+ * people reading MEDIUM output at all, so it costs real detection elsewhere.
+ *
+ * Containment must be TOTAL, deliberately. A span merely adjacent to or
+ * overlapping a UUID still reports — suppression is the exception, so it may
+ * only fire when the whole match is demonstrably UUID interior.
+ *
+ * Takes the match (not just the span) because the decision needs surrounding
+ * context; span offset is derived exactly as redact-engine.ts derives it, so
+ * the two cannot disagree about where the span begins.
+ */
+export function insideUuid(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  // Mirror the engine: capture group 1 when present, else the whole match.
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const spanStart = match.index + Math.max(0, spanStartInMatch);
+  const spanEnd = spanStart + (match[1] ?? match[0]).length;
+
+  const from = Math.max(0, spanStart - UUID_CONTEXT_CHARS);
+  const window = input.slice(from, spanEnd + UUID_CONTEXT_CHARS);
+
+  UUID_RE.lastIndex = 0;
+  let u: RegExpExecArray | null;
+  while ((u = UUID_RE.exec(window)) !== null) {
+    const uuidStart = from + u.index;
+    const uuidEnd = uuidStart + u[0].length;
+    if (spanStart >= uuidStart && spanEnd <= uuidEnd) return true;
+  }
+  return false;
+}
+
 // ── The taxonomy ─────────────────────────────────────────────────────────────
+
+/**
+ * URL-embedded passwords that are interpolation forms, not credentials:
+ * `${identifier}` (bash or JS template, any case) or bare `$UPPER_SNAKE`
+ * (shell convention). Bare lowercase `$word` stays BLOCKED — a real password
+ * that merely starts with `$` (e.g. `$` + a dictionary word) must not slip
+ * through the HIGH gate just because it looks vaguely variable-shaped.
+ * Shared by db.url_with_password and creds.basic_auth_url so the two
+ * validators cannot drift.
+ */
+// Fully-braced `${...}` spanning the whole password segment is template code
+// regardless of content — `${dbPass}` and `${encodeURIComponent(dbPass)}`
+// alike (the identifier-only form flagged the DSN-encoding call site as a
+// pushed secret). Bare `$word` stays uppercase-only: `$hunter2` must block.
+const INTERPOLATED_PASSWORD_RE = /^(\$\{.+\}|\$[A-Z_][A-Z0-9_]*)$/;
+// URL-password placeholders are matched by EXACT token, never by shape or
+// substring. A shape rule (`/^[A-Z][A-Z0-9_]*$/`) waved through real all-caps
+// secrets like `PROD2026SECRET`; a substring rule would let `PROD2026SECRET`
+// slip because it contains `SECRET`. So this is an anchored, hand-curated set
+// of the doc-comment conventions (postgres://USER:PASSWORD@host) only. Compared
+// case-sensitively against the raw span: the convention is ALL CAPS, and a
+// lowercase `password`/`pass` at this position is a real (terrible) credential
+// that must still block.
+export const URL_PASSWORD_PLACEHOLDER_WORDS = new Set([
+  "PASSWORD",
+  "PASS",
+  "PASSWD",
+  "YOUR_PASSWORD",
+  "DB_PASSWORD",
+  "MY_PASSWORD",
+  "CHANGEME",
+  "CHANGE_ME",
+  "PLACEHOLDER",
+  "REDACTED",
+  "EXAMPLE",
+]);
+function urlPasswordIsPlaceholder(span: string): boolean {
+  const m = span.match(/:\/\/[^:]+:([^@]+)@/);
+  const pw = m?.[1] ?? "";
+  if (pw === "") return true;
+  if (INTERPOLATED_PASSWORD_RE.test(pw)) return true;
+  if (URL_PASSWORD_PLACEHOLDER_WORDS.has(pw)) return true;
+  return PLACEHOLDER_STRUCTURAL.some((re) => re.test(pw));
+}
 
 export const PATTERNS: RedactPattern[] = [
   // ===== HIGH — genuinely-secret credentials (block) =====
@@ -328,6 +535,25 @@ export const PATTERNS: RedactPattern[] = [
     nearWindow: 200,
   },
   {
+    id: "google.oauth_client_secret",
+    tier: "HIGH",
+    category: "secret",
+    // Distinct from google.api_key (MEDIUM): an AIza key is often a public
+    // client key, but a GOCSPX- client secret is never publishable — leaking
+    // it lets anyone impersonate the OAuth app's token exchange.
+    description: "Google OAuth client secret (GOCSPX-…)",
+    regex: /\b(GOCSPX-[A-Za-z0-9_-]{20,40})(?![A-Za-z0-9_-])/,
+    validate: (span) => !isPlaceholderSpan(span),
+  },
+  {
+    id: "telegram.bot_token",
+    tier: "HIGH",
+    category: "secret",
+    description: "Telegram bot token (<bot-id>:AA…)",
+    regex: /\b([0-9]{6,16}:A[A-Za-z0-9_-]{34})(?![A-Za-z0-9_-])/,
+    validate: (span) => !isPlaceholderSpan(span),
+  },
+  {
     id: "pem.private_key",
     tier: "HIGH",
     category: "secret",
@@ -340,12 +566,8 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Database URL with embedded password",
     regex: /\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^:\s/@]+:[^@\s/]+@[^\s/]+)/,
-    // Skip when the password segment is itself a placeholder.
-    validate: (span) => {
-      const m = span.match(/:\/\/[^:]+:([^@]+)@/);
-      const pw = m?.[1] ?? "";
-      return !isPlaceholderSpan(pw) && pw !== "" && !/^\$\{?[A-Z_]+\}?$/.test(pw);
-    },
+    // Skip when the password segment is itself a placeholder/interpolation.
+    validate: (span) => !urlPasswordIsPlaceholder(span),
   },
   {
     id: "creds.basic_auth_url",
@@ -353,11 +575,8 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "HTTP(S) URL with embedded basic-auth credentials",
     regex: /(https?:\/\/[^:\s/@]+:[^@\s/]+@[^\s/]+)/,
-    validate: (span) => {
-      const m = span.match(/:\/\/[^:]+:([^@]+)@/);
-      const pw = m?.[1] ?? "";
-      return !isPlaceholderSpan(pw) && pw !== "" && !/^\$\{?[A-Z_]+\}?$/.test(pw);
-    },
+    // Skip when the password segment is itself a placeholder/interpolation.
+    validate: (span) => !urlPasswordIsPlaceholder(span),
   },
 
   // ===== MEDIUM — demoted credential-shaped (high-FP / context-variable) =====
@@ -386,10 +605,26 @@ export const PATTERNS: RedactPattern[] = [
     id: "env.kv",
     tier: "MEDIUM",
     category: "secret",
-    description: "Env-style SECRET assignment with high-entropy value",
-    regex: /^[ \t]*(?:export[ \t]+)?[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[ \t]*=[ \t]*['"]?([^\s'"]{8,})['"]?/,
-    // Only fire on high-entropy values — kills `FOO_KEY=changeme` FPs.
-    validate: (span) =>
+    description: "Secret-named assignment (env/YAML/JSON) with high-entropy value",
+    // #1946 gap 3: the original shape required an UPPERCASE name and an `=`
+    // assignment, so `api_key=…`, `apiKey: "…"`, and `password: …` (YAML/JSON
+    // colon form) produced NO finding at all — a detection fail-open on the
+    // most common config shapes. Now case-insensitive with `:` or `=`
+    // assignment and optional quotes around the key (JSON). Still MEDIUM and
+    // entropy-gated: this is the calibrated generic net, not a blocker.
+    // The name part is `[A-Za-z0-9_.-]*` + suffix (zero-or-more prefix, not
+    // one-or-more): a mandatory first char would swallow the suffix's own
+    // first letter and bare names like `password:` / `key:` would never match.
+    // The wide net is then calibrated by isCredentialShapedEnvName in
+    // validate — without it, any identifier that merely ENDS in a suffix
+    // (cacheKey:, sortKey:, monkey:) fires a MEDIUM confirm on entropic
+    // values. The value must stay capture group 1 (the engine masks group 1),
+    // so name-shape checking lives in validate, not in a second group.
+    regex: /^[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
+    // Only fire on credential-shaped names with high-entropy values — kills
+    // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs.
+    validate: (span, match) =>
+      isCredentialShapedEnvName(match[0]) &&
       !isPlaceholderSpan(span) &&
       !/^\$\{?[A-Za-z_]/.test(span) &&
       shannonEntropy(span) >= 3.0,
@@ -431,7 +666,13 @@ export const PATTERNS: RedactPattern[] = [
     regex: /(?<![\w.])(\+?[1-9]\d{0,2}[ \-.]?\(?\d{2,4}\)?[ \-.]?\d{3,4}[ \-.]?\d{3,4})(?![\w.])/,
     autoRedactable: true,
     redactToken: "<REDACTED-PHONE>",
-    validate: (span) => span.replace(/\D/g, "").length >= 10,
+    // A digit-only UUID's hyphen groups read as national phone formatting, and
+    // so does a county tax-map parcel ID (see looksLikeParcelId).
+    validate: (span, match) =>
+      !insideUuid(match) &&
+      span.replace(/\D/g, "").length >= 10 &&
+      !looksLikeCompactTimestamp(span) &&
+      !looksLikeParcelId(span, match),
   },
   {
     id: "pii.ssn",
@@ -455,7 +696,9 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b((?:\d[ \-]?){13,19})\b/,
     autoRedactable: true,
     redactToken: "<REDACTED-CC>",
-    validate: (span) => luhnValid(span),
+    // A 13-19 digit slice of a digit-only UUID passes Luhn often enough to
+    // matter; the enclosing-UUID check runs first so it never reaches Luhn.
+    validate: (span, match) => !insideUuid(match) && luhnValid(span),
   },
   {
     id: "pii.ip_public",

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -60,6 +60,14 @@ describe("gstack-gbrain-sync CLI", () => {
 
     expect(source).not.toContain('command -v gbrain');
     expect(source).toContain("localEngineStatus");
+  });
+
+  it("uses GBrain's config environment when resolving dream sources", () => {
+    const source = readFileSync(SCRIPT, "utf-8");
+
+    expect(source).not.toContain("resolveCodeSourceId(root, process.env)");
+    expect(source).toContain("resolveCodeSourceId(root, gbrainEnv)");
+    expect(source).toContain("cycleCompleted(resolveCodeSourceId(root, gbrainEnv), gbrainEnv)");
   });
 
   it("--dry-run with --code-only reports the code import preview only", () => {
@@ -119,6 +127,139 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
     expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("uses a local .gbrain-source in dry-run without spawning gbrain", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-pinned-source-bin-"));
+    const repo = mkdtempSync(join(tmpdir(), "gstack-pinned-source-repo-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    writeFileSync(join(repo, ".gbrain-source"), "client-acme-app\n");
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+exit 99
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+
+    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("gbrain sync --strategy code --source client-acme-app");
+    expect(r.stdout).not.toContain("gbrain sources add");
+    expect(r.stdout).not.toContain("--federated");
+    expect(existsSync(commandLog)).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("keeps a symlink-equivalent pinned source registered as-is", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-pinned-source-repo-"));
+    const linkDir = mkdtempSync(join(tmpdir(), "gstack-pinned-source-link-"));
+    const link = join(linkDir, "repo");
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-pinned-source-bin-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_url: "pglite:///test" }));
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    writeFileSync(join(repo, ".gbrain-source"), "client-acme-app\n");
+    symlinkSync(repo, link, "dir");
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+case "$*" in
+  --version) echo 'gbrain 0.42.0.0' ;;
+  "sources list --json") echo '{"sources":[{"id":"client-acme-app","local_path":"${link}","page_count":1}]}' ;;
+  "sync --strategy code --source client-acme-app"|"sources attach client-acme-app") ;;
+  *) echo "unexpected gbrain command: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+
+    const r = spawnSync("bun", [SCRIPT, "--code-only", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: link,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+
+    const commands = readFileSync(commandLog, "utf-8");
+    expect(r.status).toBe(0);
+    expect(commands).toContain("sync --strategy code --source client-acme-app");
+    expect(commands).toContain("sources attach client-acme-app");
+    expect(commands).not.toMatch(/^sources (add|remove) /m);
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(linkDir, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("uses a local pin for a dry-run dream without spawning gbrain", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-pinned-dream-bin-"));
+    const repo = mkdtempSync(join(tmpdir(), "gstack-pinned-dream-repo-"));
+    mkdirSync(gstackHome, { recursive: true });
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    writeFileSync(join(repo, ".gbrain-source"), "client-acme-app\n");
+    writeFileSync(join(bindir, "gbrain"), "#!/bin/sh\nexit 99\n");
+    chmodSync(join(bindir, "gbrain"), 0o755);
+
+    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--dream", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome, PATH: `${bindir}:${process.env.PATH || ""}` },
+    });
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("gbrain dream --source client-acme-app");
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("falls back to a derived source when .gbrain-source cannot be read", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-unreadable-pin-repo-"));
+    mkdirSync(gstackHome, { recursive: true });
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    mkdirSync(join(repo, ".gbrain-source"));
+
+    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
+    });
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/gbrain sources add gstack-code-/);
+    rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
 

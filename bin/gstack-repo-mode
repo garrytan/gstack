@@ -44,7 +44,15 @@ fi
 CACHE_DIR="$HOME/.gstack/projects/$SLUG"
 CACHE_FILE="$CACHE_DIR/repo-mode.json"
 if [ -f "$CACHE_FILE" ]; then
-  CACHE_AGE=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))
+  # GNU first (#2195): on GNU coreutils `stat -f` SUCCEEDS with filesystem
+  # status (not a format string), so the BSD-first fallback chain never fell
+  # over — it fed multi-word filesystem output into the arithmetic below and
+  # crashed under set -u on Windows Git Bash. `stat -c` fails cleanly on
+  # BSD/macOS, making GNU-first the deterministic order. Numeric-validate
+  # before arithmetic as the last line of defense.
+  CACHE_MTIME=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || echo 0)
+  case "$CACHE_MTIME" in ''|*[!0-9]*) CACHE_MTIME=0 ;; esac
+  CACHE_AGE=$(( $(date +%s) - CACHE_MTIME ))
   if [ "$CACHE_AGE" -lt 604800 ]; then  # 7 days in seconds
     MODE=$(grep -o '"mode":"[^"]*"' "$CACHE_FILE" | head -1 | cut -d'"' -f4)
     [ -n "$MODE" ] && echo "REPO_MODE=$(validate_mode "$MODE")" && exit 0

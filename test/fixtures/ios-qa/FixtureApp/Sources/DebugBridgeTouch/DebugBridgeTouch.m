@@ -20,7 +20,29 @@
 #import "DebugBridgeTouch.h"
 #import <TargetConditionals.h>
 
-#if TARGET_OS_IOS
+#if !defined(DEBUG)
+
+// RELEASE BUILD: this file deliberately emits NOTHING — no class, no symbols, no
+// private-API references. The header still declares the interface, which is inert
+// on its own; every consumer of DebugBridgeTouch is itself `#if DEBUG` guarded, so
+// nothing references it here and nothing fails to link.
+//
+// This guard was added because the comments at the top of this file and in the
+// header both PROMISED "DEBUG-only; never shipped to App Store" and "never link in
+// Release" — and nothing enforced it. Only `#if TARGET_OS_IOS` was tested, so a
+// Release build for iOS compiled the whole implementation in. Measured on a real
+// app (Seize Day, 2026-08-15), `nm -j` on a Release binary returned 15 DebugBridge
+// symbols including +[DebugBridgeTouch sendTapAtPoint:inWindow:], plus
+// IOHIDEventCreateDigitizer, AXSSetAutomationEnabled and IOKit.framework strings.
+// That is a Guideline 2.5.1 private-API exposure in a shippable binary.
+//
+// Package.swift's stated guard — `.when(configuration: .debug)` on the consuming
+// target's dependency — only exists for SwiftPM consumers. An app integrating this
+// as a local package inside an .xcodeproj cannot express it: Xcode's Filters column
+// in Frameworks/Libraries offers platform conditions only, never configuration. So
+// the guard has to live here, in the source, where it holds for every consumer.
+
+#elif TARGET_OS_IOS
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -340,4 +362,4 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
 }
 @end
 
-#endif // TARGET_OS_IOS
+#endif // !DEBUG / TARGET_OS_IOS

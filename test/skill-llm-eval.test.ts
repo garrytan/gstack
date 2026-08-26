@@ -10,53 +10,41 @@
  * Cost: ~$0.05-0.15 per run (sonnet)
  */
 
-import { describe, test, expect, afterAll } from 'bun:test';
+import { afterAll, expect } from 'bun:test';
 import Anthropic from '@anthropic-ai/sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { callJudge, judge } from './helpers/llm-judge';
 import type { JudgeScore } from './helpers/llm-judge';
-import { EvalCollector } from './helpers/eval-store';
-import { selectTests, detectBaseBranch, getChangedFiles, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
-
-const ROOT = path.resolve(import.meta.dir, '..');
-// Run when EVALS=1 is set (requires ANTHROPIC_API_KEY in env)
-const evalsEnabled = !!process.env.EVALS;
-const describeEval = evalsEnabled ? describe : describe.skip;
+import { LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles';
+// Runs when EVALS=1 is set (requires ANTHROPIC_API_KEY in env) — the EVALS
+// gate lives in the shared describeIfSelected. Selection machinery is shared
+// with the E2E suite; only the touchfiles table (LLM_JUDGE_TOUCHFILES, passed
+// explicitly below) differs. No EVALS_TIER filter applies here — LLM-judge
+// tests have no E2E_TIERS entries and run in both tier lanes.
+import {
+  ROOT,
+  computeDiffSelection,
+  createEvalCollector,
+  finalizeEvalCollector,
+  describeIfSelected as describeIfSelectedShared,
+  testConcurrentIfSelected,
+} from './helpers/e2e-helpers';
 
 // Eval result collector
-const evalCollector = evalsEnabled ? new EvalCollector('llm-judge') : null;
+const evalCollector = createEvalCollector('llm-judge');
 
-// --- Diff-based test selection ---
-let selectedTests: string[] | null = null;
+// --- Diff-based test selection (LLM_JUDGE_TOUCHFILES, not the E2E table) ---
+const selectedTests = computeDiffSelection(LLM_JUDGE_TOUCHFILES, 'LLM-judge');
 
-if (evalsEnabled && !process.env.EVALS_ALL) {
-  const baseBranch = process.env.EVALS_BASE
-    || detectBaseBranch(ROOT)
-    || 'main';
-  const changedFiles = getChangedFiles(baseBranch, ROOT);
-
-  if (changedFiles.length > 0) {
-    const selection = selectTests(changedFiles, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES);
-    selectedTests = selection.selected;
-    process.stderr.write(`\nLLM-judge selection (${selection.reason}): ${selection.selected.length}/${Object.keys(LLM_JUDGE_TOUCHFILES).length} tests\n`);
-    if (selection.skipped.length > 0) {
-      process.stderr.write(`  Skipped: ${selection.skipped.join(', ')}\n`);
-    }
-    process.stderr.write('\n');
-  }
-}
-
-/** Wrap a describe block to skip if none of its tests are selected. */
+/** Wrap a describe block to skip if none of THIS FILE's tests are selected. */
 function describeIfSelected(name: string, testNames: string[], fn: () => void) {
-  const anySelected = selectedTests === null || testNames.some(t => selectedTests!.includes(t));
-  (anySelected ? describeEval : describe.skip)(name, fn);
+  describeIfSelectedShared(name, testNames, fn, selectedTests);
 }
 
-/** Skip an individual test if not selected (for multi-test describe blocks). */
+/** Per-test gate against this file's selection (concurrent, as before). */
 function testIfSelected(testName: string, fn: () => Promise<void>, timeout: number) {
-  const shouldRun = selectedTests === null || selectedTests.includes(testName);
-  (shouldRun ? test.concurrent : test.skip)(testName, fn, timeout);
+  testConcurrentIfSelected(testName, fn, timeout, selectedTests);
 }
 
 describeIfSelected('LLM-as-judge quality evals', [
@@ -870,12 +858,4 @@ ${voiceSection}`);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete
-afterAll(async () => {
-  if (evalCollector) {
-    try {
-      await evalCollector.finalize();
-    } catch (err) {
-      console.error('Failed to save eval results:', err);
-    }
-  }
-});
+afterAll(() => finalizeEvalCollector(evalCollector));

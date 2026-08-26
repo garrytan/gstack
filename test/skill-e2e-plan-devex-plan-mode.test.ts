@@ -5,15 +5,15 @@
  * contract. Exercises the same contract against /plan-devex-review.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
   planFileHasDecisionsSection,
   assertReportAtBottomIfPlanWritten,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 
 describeE2E('plan-devex-review plan-mode smoke (gate)', () => {
   test('reaches a terminal outcome (asked or plan_ready) without silent writes', async () => {

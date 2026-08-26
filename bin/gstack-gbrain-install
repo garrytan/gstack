@@ -84,7 +84,14 @@ if ! $VALIDATE_ONLY; then
   # GitHub reachability — fail fast if offline rather than hanging `git clone`.
   # --max-time 10, --head (no body), quiet. Status code 200-4xx means we reached
   # the server (even 404 is reachability proof).
-  if ! curl -s --head --max-time 10 https://github.com >/dev/null 2>&1; then
+  #
+  # Skipped under --dry-run: a dry run prints a plan and exits without ever
+  # cloning, so requiring the network buys nothing and costs a real failure mode.
+  # It made `--dry-run` fail (exit 3, "cannot reach https://github.com") whenever
+  # the curl lost a race for sockets/DNS — reproducible at ~15% by running 60
+  # dry-runs concurrently, and the cause of intermittent red in the D5 tests,
+  # which call this exact path.
+  if ! $DRY_RUN && ! curl -s --head --max-time 10 https://github.com >/dev/null 2>&1; then
     fail "cannot reach https://github.com. Check your network and try again."
   fi
 fi
@@ -168,6 +175,26 @@ if ! $VALIDATE_ONLY; then
   ( cd "$INSTALL_DIR" && bun link --silent )
 fi
 
+# #2487: an npm-installed bun (`npm i -g bun`) puts a POSIX script + .cmd/.ps1
+# shims on %PATH% but never bun.exe — and the gbrain.exe shim that `bun link`
+# generates resolves bun.exe SPECIFICALLY. Link "succeeds", then every gbrain
+# call dies with bun's misleading "bun is not installed in %PATH%" (suggesting
+# a second parallel bun install). Detect the condition and name the real fix:
+# bun's own process.execPath IS the hidden bun.exe.
+_bun_exe_hint() {
+  [ "$IS_WINDOWS" -eq 1 ] || return 0
+  command -v bun.exe >/dev/null 2>&1 && return 0
+  local real_bun
+  real_bun=$(bun -e 'console.log(process.execPath)' 2>/dev/null | tr -d '\r' || true)
+  echo "  detected: bun was installed via npm — bun.exe is NOT on %PATH%, and the gbrain.exe shim needs it." >&2
+  if [ -n "$real_bun" ]; then
+    echo "  fix: add bun.exe's directory to PATH (persist it in your shell profile):" >&2
+    echo "       export PATH=\"$(dirname "$real_bun"):\$PATH\"" >&2
+  else
+    echo "  fix: install bun via the official installer (https://bun.sh) or add the directory containing bun.exe to %PATH%." >&2
+  fi
+}
+
 # --- D19 PATH-shadowing validation ---
 # Read the version from the install-dir's package.json; compare to
 # `gbrain --version`. If they disagree, PATH is returning a DIFFERENT
@@ -178,11 +205,13 @@ if [ -z "$expected_version" ]; then
 fi
 
 if ! command -v gbrain >/dev/null 2>&1; then
+  _bun_exe_hint
   fail "bun link completed but 'gbrain' is not on PATH. Ensure ~/.bun/bin is in your PATH."
 fi
 
 actual_version=$(gbrain --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]' || true)
 if [ -z "$actual_version" ]; then
+  _bun_exe_hint
   fail "gbrain is on PATH but 'gbrain --version' produced no output — the binary may be broken."
 fi
 
@@ -235,7 +264,14 @@ fi
 # a hard gate so a broken gbrain is caught at setup, not at data-loss time.
 # Pre-init installs skip this (config not written yet); the full
 # `/sync-gbrain --dry-run` self-test runs from /setup-gbrain after `gbrain init`.
-_GBRAIN_HOME_CHECK="${GBRAIN_HOME:-$HOME/.gbrain}"
+# #2521: GBRAIN_HOME is a PARENT dir per gbrain's configDir() contract —
+# gbrain appends `.gbrain` itself, so the config lives at
+# $GBRAIN_HOME/.gbrain/config.json (or ~/.gbrain/config.json when unset).
+if [ -n "${GBRAIN_HOME:-}" ]; then
+  _GBRAIN_HOME_CHECK="$GBRAIN_HOME/.gbrain"
+else
+  _GBRAIN_HOME_CHECK="$HOME/.gbrain"
+fi
 if [ -f "$_GBRAIN_HOME_CHECK/config.json" ]; then
   if ! gbrain doctor --fast >/dev/null 2>&1; then
     echo "" >&2

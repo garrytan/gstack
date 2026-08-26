@@ -31,7 +31,7 @@ import {
   writeReceipt,
 } from '../lib/egress-receipt';
 
-const ROOT = path.resolve(new URL(import.meta.url).pathname, '..', '..');
+const ROOT = path.resolve(import.meta.path, '..', '..');
 
 let home: string;
 

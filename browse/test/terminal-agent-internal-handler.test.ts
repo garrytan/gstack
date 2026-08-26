@@ -12,7 +12,7 @@ import * as path from 'path';
 // (token grant/revoke behavior) already live in
 // browse/test/terminal-agent-integration.test.ts.
 
-const AGENT_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'terminal-agent.ts');
+const AGENT_TS = path.resolve(import.meta.path, '..', '..', 'src', 'terminal-agent.ts');
 
 describe('terminal-agent internalHandler refactor (v1.44+)', () => {
   test('1. internalHandler<T> exists with the documented signature', () => {

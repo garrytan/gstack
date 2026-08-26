@@ -15,7 +15,8 @@
  * test/helpers/claude-pty-runner.ts for runPlanSkillCounting internals.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   runPlanSkillCounting,
@@ -51,8 +52,7 @@ function pickSkipInterview(fp: AskUserQuestionFingerprint): number {
   return 1;
 }
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const N_DISTINCT = 5;
 const FLOOR_DISTINCT = N_DISTINCT - 1; // 4 (D11)

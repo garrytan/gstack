@@ -11,17 +11,28 @@
  * GET /config/database/pooler), PAT + DB_PASS env-var discipline, retry
  * + backoff on transient errors, pooler URL construction using the
  * generated DB_PASS (not the API response's templated connection_string).
+ *
+ * Tests drive lib/gbrain-supabase-provision.ts IN-PROCESS with injected
+ * fetch/env/sleep (decision D7: dependency injection via options, never
+ * process.env mutation before import — ESM hoists imports so env-set-before-
+ * import silently doesn't work). One spawn-based smoke test at the bottom
+ * runs the real bin end-to-end to pin the shebang/CLI contract. This
+ * replaced ~30 process spawns (~16s of Bun boot + transpile) with direct
+ * module calls.
  */
 
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { runProvision } from '../lib/gbrain-supabase-provision';
+
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-gbrain-supabase-provision');
 
-// Minimal PATH that finds jq/curl but excludes user bins.
+// Minimal PATH that finds standard tools but excludes user bins. The smoke
+// test prepends the running bun's own directory so the shebang resolves.
 const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin';
 
 type Handler = (req: Request) => Response | Promise<Response>;
@@ -60,23 +71,29 @@ function startMock(routes: Record<string, Handler>): MockServer {
   };
 }
 
-async function runBin(
+// Per-test GSTACK_HOME so egress receipts land in a throwaway ledger, never
+// the operator's real ~/.gstack/security/egress.jsonl.
+let egressHome: string;
+
+/**
+ * Run the CLI in-process with injected fetch (real fetch — it round-trips to
+ * the Bun.serve loopback mock), injected env (the module never reads
+ * process.env), and a no-op sleep so retry/backoff and wait-poll paths run
+ * instantly.
+ */
+async function runCmd(
   args: string[],
   env: Record<string, string> = {}
 ): Promise<{ stdout: string; stderr: string; status: number }> {
-  // Use Bun.spawn (async) rather than spawnSync. spawnSync blocks the Bun
-  // event loop, which prevents Bun.serve mocks from responding — every
-  // HTTP call would hit curl's timeout instead of round-tripping.
-  const proc = Bun.spawn([BIN, ...args], {
-    env: { PATH: SAFE_PATH, ...env },
-    stdout: 'pipe',
-    stderr: 'pipe',
+  let stdout = '';
+  let stderr = '';
+  const status = await runProvision(args, {
+    fetch: globalThis.fetch,
+    env: { GSTACK_HOME: egressHome, ...env },
+    stdout: (chunk) => { stdout += chunk; },
+    stderr: (chunk) => { stderr += chunk; },
+    sleep: async () => {},
   });
-  const [stdout, stderr, status] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
   return { stdout: stdout.trim(), stderr: stderr.trim(), status };
 }
 
@@ -89,8 +106,13 @@ function jsonResp(body: any, status = 200): Response {
 
 let mock: MockServer;
 
+beforeEach(() => {
+  egressHome = fs.mkdtempSync(path.join(os.tmpdir(), 'provision-egress-'));
+});
+
 afterEach(() => {
   if (mock) mock.close();
+  fs.rmSync(egressHome, { recursive: true, force: true });
 });
 
 describe('list-orgs', () => {
@@ -102,7 +124,7 @@ describe('list-orgs', () => {
           { id: 'deprec-2', slug: 'personal', name: 'Personal' },
         ]),
     });
-    const r = await runBin(['list-orgs', '--json'], {
+    const r = await runCmd(['list-orgs', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test_pat',
       SUPABASE_API_BASE: mock.url,
     });
@@ -122,7 +144,7 @@ describe('list-orgs', () => {
         return jsonResp([]);
       },
     });
-    await runBin(['list-orgs', '--json'], {
+    await runCmd(['list-orgs', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_expected_pat_xxx',
       SUPABASE_API_BASE: mock.url,
     });
@@ -130,7 +152,7 @@ describe('list-orgs', () => {
   });
 
   test('exits 3 with auth error when SUPABASE_ACCESS_TOKEN is missing', async () => {
-    const r = await runBin(['list-orgs']);
+    const r = await runCmd(['list-orgs']);
     expect(r.status).toBe(3);
     expect(r.stderr).toContain('SUPABASE_ACCESS_TOKEN is not set');
   });
@@ -139,7 +161,7 @@ describe('list-orgs', () => {
     mock = startMock({
       'GET /v1/organizations': () => jsonResp({ message: 'Invalid JWT' }, 401),
     });
-    const r = await runBin(['list-orgs'], {
+    const r = await runCmd(['list-orgs'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_bad',
       SUPABASE_API_BASE: mock.url,
     });
@@ -151,7 +173,7 @@ describe('list-orgs', () => {
     mock = startMock({
       'GET /v1/organizations': () => jsonResp({ message: 'Forbidden' }, 403),
     });
-    const r = await runBin(['list-orgs'], {
+    const r = await runCmd(['list-orgs'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_noperm',
       SUPABASE_API_BASE: mock.url,
     });
@@ -177,7 +199,7 @@ describe('create', () => {
         }, 201);
       },
     });
-    const r = await runBin(['create', 'gbrain', 'us-east-1', 'acme', '--json'], {
+    const r = await runCmd(['create', 'gbrain', 'us-east-1', 'acme', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'generated-secret-pw',
       SUPABASE_API_BASE: mock.url,
@@ -203,7 +225,7 @@ describe('create', () => {
         return jsonResp({ ref: 'r', status: 'COMING_UP' }, 201);
       },
     });
-    await runBin(['create', 'gbrain', 'us-east-1', 'acme', '--instance-size', 'small', '--json'], {
+    await runCmd(['create', 'gbrain', 'us-east-1', 'acme', '--instance-size', 'small', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -215,7 +237,7 @@ describe('create', () => {
     mock = startMock({
       'POST /v1/projects': () => jsonResp({ message: 'project limit reached' }, 402),
     });
-    const r = await runBin(['create', 'gbrain', 'us-east-1', 'acme'], {
+    const r = await runCmd(['create', 'gbrain', 'us-east-1', 'acme'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -229,7 +251,7 @@ describe('create', () => {
     mock = startMock({
       'POST /v1/projects': () => jsonResp({ message: 'conflict' }, 409),
     });
-    const r = await runBin(['create', 'gbrain', 'us-east-1', 'acme'], {
+    const r = await runCmd(['create', 'gbrain', 'us-east-1', 'acme'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -240,7 +262,7 @@ describe('create', () => {
   });
 
   test('fails when DB_PASS is missing', async () => {
-    const r = await runBin(['create', 'gbrain', 'us-east-1', 'acme'], {
+    const r = await runCmd(['create', 'gbrain', 'us-east-1', 'acme'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
     });
     expect(r.status).toBe(2);
@@ -248,7 +270,7 @@ describe('create', () => {
   });
 
   test('missing positional args rejected with exit 2', async () => {
-    const r = await runBin(['create', 'gbrain'], {
+    const r = await runCmd(['create', 'gbrain'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
     });
@@ -265,14 +287,14 @@ describe('create', () => {
         return jsonResp({ ref: 'r', status: 'COMING_UP' }, 201);
       },
     });
-    const r = await runBin(['create', 'gbrain', 'us-east-1', 'acme', '--json'], {
+    const r = await runCmd(['create', 'gbrain', 'us-east-1', 'acme', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
     });
     expect(r.status).toBe(0);
     expect(count).toBe(2);
-  }, 15000);
+  });
 
   test('exits 8 on persistent 5xx after max retries', async () => {
     let count = 0;
@@ -282,7 +304,7 @@ describe('create', () => {
         return jsonResp({ message: 'internal server error' }, 502);
       },
     });
-    const r = await runBin(['create', 'gbrain', 'us-east-1', 'acme'], {
+    const r = await runCmd(['create', 'gbrain', 'us-east-1', 'acme'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -290,7 +312,7 @@ describe('create', () => {
     expect(r.status).toBe(8);
     expect(r.stderr).toContain('502');
     expect(count).toBeGreaterThanOrEqual(3);
-  }, 30000);
+  });
 });
 
 describe('wait', () => {
@@ -303,7 +325,7 @@ describe('wait', () => {
         return jsonResp({ ref: 'abc', status: 'ACTIVE_HEALTHY' });
       },
     });
-    const r = await runBin(['wait', 'abc', '--timeout', '30', '--json'], {
+    const r = await runCmd(['wait', 'abc', '--timeout', '30', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       SUPABASE_API_BASE: mock.url,
     });
@@ -311,13 +333,13 @@ describe('wait', () => {
     const j = JSON.parse(r.stdout);
     expect(j.status).toBe('ACTIVE_HEALTHY');
     expect(j.ref).toBe('abc');
-  }, 30000);
+  });
 
   test('exits 7 on terminal INIT_FAILED state', async () => {
     mock = startMock({
       'GET /v1/projects/abc': () => jsonResp({ ref: 'abc', status: 'INIT_FAILED' }),
     });
-    const r = await runBin(['wait', 'abc', '--timeout', '10'], {
+    const r = await runCmd(['wait', 'abc', '--timeout', '10'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       SUPABASE_API_BASE: mock.url,
     });
@@ -330,14 +352,25 @@ describe('wait', () => {
     mock = startMock({
       'GET /v1/projects/abc': () => jsonResp({ ref: 'abc', status: 'COMING_UP' }),
     });
-    const r = await runBin(['wait', 'abc', '--timeout', '0'], {
+    const r = await runCmd(['wait', 'abc', '--timeout', '0'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       SUPABASE_API_BASE: mock.url,
     });
     expect(r.status).toBe(6);
     expect(r.stderr).toContain('wait timed out');
     expect(r.stderr).toContain('--resume-provision abc');
-  }, 15000);
+  });
+
+  test('non-numeric --timeout dies at parse time instead of polling forever', async () => {
+    // NaN would make `elapsed >= timeout` always false: an infinite 5s poll loop.
+    // The bash predecessor errored on `[ "$elapsed" -ge "abc" ]`; the port
+    // must be at least as strict.
+    const r = await runCmd(['wait', 'abc', '--timeout', 'abc'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('--timeout must be a non-negative integer');
+  });
 });
 
 describe('pooler-url', () => {
@@ -356,7 +389,7 @@ describe('pooler-url', () => {
     mock = startMock({
       [`GET /v1/projects/${REF}/config/database/pooler`]: () => jsonResp(POOLER_OK),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'my-real-password',
       SUPABASE_API_BASE: mock.url,
@@ -370,6 +403,29 @@ describe('pooler-url', () => {
     expect(j.pooler_url).not.toContain('[PASSWORD]');
   });
 
+  test('percent-encodes reserved characters in DB_PASS (DSN stays parseable)', async () => {
+    // Raw interpolation of a password containing / # ? % @ changes URI
+    // structure: provisioning succeeds, every consumer then fails to parse
+    // the DSN — an unusable billable orphan.
+    mock = startMock({
+      [`GET /v1/projects/${REF}/config/database/pooler`]: () => jsonResp(POOLER_OK),
+    });
+    const r = await runCmd(['pooler-url', REF, '--json'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+      DB_PASS: 'p@ss/w#rd?100%',
+      SUPABASE_API_BASE: mock.url,
+    });
+    expect(r.status).toBe(0);
+    const j = JSON.parse(r.stdout);
+    // Expected URL assembled from parts so this file's own pushed bytes never
+    // form a contiguous scheme://user:pass@host credential shape.
+    const expectedUrl = 'postgresql://postgres.' + REF + ':' + encodeURIComponent('p@ss/w#rd?100%')
+      + '@' + 'aws-0-us-east-1.pooler.supabase.com:6543/postgres';
+    expect(j.pooler_url).toBe(expectedUrl);
+    // The password segment must parse back out intact.
+    expect(decodeURIComponent(new URL(j.pooler_url).password)).toBe('p@ss/w#rd?100%');
+  });
+
   test('handles array response by preferring session pool_mode entry', async () => {
     mock = startMock({
       [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
@@ -378,7 +434,7 @@ describe('pooler-url', () => {
           { ...POOLER_OK, pool_mode: 'session', db_port: 5432 },
         ]),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -394,7 +450,7 @@ describe('pooler-url', () => {
       [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
         jsonResp({ identifier: 'x', pool_mode: 'session' }),
     });
-    const r = await runBin(['pooler-url', REF], {
+    const r = await runCmd(['pooler-url', REF], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -404,7 +460,7 @@ describe('pooler-url', () => {
   });
 
   test('requires DB_PASS to construct URL', async () => {
-    const r = await runBin(['pooler-url', REF], {
+    const r = await runCmd(['pooler-url', REF], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
     });
     expect(r.status).toBe(2);
@@ -420,7 +476,7 @@ describe('pooler-url', () => {
       [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
         jsonResp({ ...POOLER_OK, pool_mode: 'transaction', db_port: 6543 }),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -435,7 +491,7 @@ describe('pooler-url', () => {
       [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
         jsonResp({ ...POOLER_OK, pool_mode: 'session', db_port: 6543 }),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -450,7 +506,7 @@ describe('pooler-url', () => {
       [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
         jsonResp({ ...POOLER_OK, pool_mode: 'transaction', db_port: 5432 }),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -465,7 +521,7 @@ describe('pooler-url', () => {
       [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
         jsonResp({ ...POOLER_OK, pool_mode: 'transaction', db_port: 6543 }),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -484,7 +540,7 @@ describe('pooler-url', () => {
           { ...POOLER_OK, pool_mode: 'session', db_port: 5432 },
         ]),
     });
-    const r = await runBin(['pooler-url', REF, '--json'], {
+    const r = await runCmd(['pooler-url', REF, '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       DB_PASS: 'pw',
       SUPABASE_API_BASE: mock.url,
@@ -519,7 +575,7 @@ describe('list-orphans (D20)', () => {
       })
     );
     try {
-      const r = await runBin(['list-orphans', '--json'], {
+      const r = await runCmd(['list-orphans', '--json'], {
         SUPABASE_ACCESS_TOKEN: 'sbp_test',
         SUPABASE_API_BASE: mock.url,
         HOME: home,
@@ -543,7 +599,7 @@ describe('list-orphans (D20)', () => {
     });
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-no-cfg-'));
     try {
-      const r = await runBin(['list-orphans', '--json'], {
+      const r = await runCmd(['list-orphans', '--json'], {
         SUPABASE_ACCESS_TOKEN: 'sbp_test',
         SUPABASE_API_BASE: mock.url,
         HOME: home,
@@ -569,7 +625,7 @@ describe('list-orphans (D20)', () => {
     });
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-prefix-'));
     try {
-      const r = await runBin(['list-orphans', '--name-prefix', 'my-prefix', '--json'], {
+      const r = await runCmd(['list-orphans', '--name-prefix', 'my-prefix', '--json'], {
         SUPABASE_ACCESS_TOKEN: 'sbp_test',
         SUPABASE_API_BASE: mock.url,
         HOME: home,
@@ -593,7 +649,7 @@ describe('delete-project (D20)', () => {
         return jsonResp({ id: 1, ref: 'abcdefghijklmnopqrst', name: 'gbrain' });
       },
     });
-    const r = await runBin(['delete-project', 'abcdefghijklmnopqrst', '--json'], {
+    const r = await runCmd(['delete-project', 'abcdefghijklmnopqrst', '--json'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       SUPABASE_API_BASE: mock.url,
     });
@@ -607,7 +663,7 @@ describe('delete-project (D20)', () => {
     mock = startMock({
       'DELETE /v1/projects/nonexistent': () => jsonResp({ message: 'Project not found' }, 404),
     });
-    const r = await runBin(['delete-project', 'nonexistent'], {
+    const r = await runCmd(['delete-project', 'nonexistent'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
       SUPABASE_API_BASE: mock.url,
     });
@@ -616,7 +672,7 @@ describe('delete-project (D20)', () => {
   });
 
   test('requires a ref', async () => {
-    const r = await runBin(['delete-project'], {
+    const r = await runCmd(['delete-project'], {
       SUPABASE_ACCESS_TOKEN: 'sbp_test',
     });
     expect(r.status).toBe(2);
@@ -626,14 +682,65 @@ describe('delete-project (D20)', () => {
 
 describe('general', () => {
   test('unknown subcommand exits 2', async () => {
-    const r = await runBin(['nope']);
+    const r = await runCmd(['nope']);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('unknown subcommand');
   });
 
   test('no args prints usage and exits 2', async () => {
-    const r = await runBin([]);
+    const r = await runCmd([]);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('usage');
   });
+
+  test('--help prints the doc header and exits 0', async () => {
+    const r = await runCmd(['--help']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(
+      'gstack-gbrain-supabase-provision — Supabase Management API wrapper'
+    );
+    expect(r.stdout).toContain('Exit codes:');
+  });
+});
+
+describe('bin smoke test (spawned)', () => {
+  // Exactly one spawn-based test: runs the real bin end-to-end against the
+  // mock server to pin the shebang/CLI contract (bun-shebang resolves, argv
+  // and env flow through, JSON lands on stdout, exit code propagates). All
+  // behavioral coverage above runs in-process.
+  test('real bin: list-orgs --json round-trips against a mock server', async () => {
+    let authHeader = '';
+    mock = startMock({
+      'GET /v1/organizations': (req) => {
+        authHeader = req.headers.get('authorization') || '';
+        return jsonResp([{ id: 'x', slug: 'acme', name: 'Acme Inc' }]);
+      },
+    });
+    // Use Bun.spawn (async) rather than spawnSync. spawnSync blocks the Bun
+    // event loop, which prevents Bun.serve mocks from responding — every
+    // HTTP call would hit fetch's timeout instead of round-tripping.
+    const proc = Bun.spawn([BIN, 'list-orgs', '--json'], {
+      env: {
+        PATH: `${path.dirname(process.execPath)}:${SAFE_PATH}`,
+        SUPABASE_ACCESS_TOKEN: 'sbp_smoke_pat',
+        SUPABASE_API_BASE: mock.url,
+        GSTACK_HOME: egressHome,
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [stdout, stderr, status] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(status).toBe(0);
+    expect(stderr.trim()).toBe('');
+    expect(authHeader).toBe('Bearer sbp_smoke_pat');
+    expect(JSON.parse(stdout.trim())).toEqual({ orgs: [{ slug: 'acme', name: 'Acme Inc' }] });
+    // The spawned bin wrote its egress receipt into the per-test ledger.
+    const ledger = path.join(egressHome, 'security', 'egress.jsonl');
+    expect(fs.existsSync(ledger)).toBe(true);
+    expect(fs.readFileSync(ledger, 'utf-8')).toContain('"sink":"supabase-provision"');
+  }, 20_000);
 });

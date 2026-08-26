@@ -6,6 +6,9 @@ import {
   revokeToken, rotateRoot, listTokens, recordCommand,
   serializeRegistry, restoreRegistry, checkConnectRateLimit,
   SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_CONTROL, SCOPE_META,
+  DEFAULT_PAIR_SCOPES, InvalidScopeError, ReservedClientIdError,
+  revokeSetupKeys, getClientSession, grantReducesAccess,
+  type TokenInfo, type ResolvedGrant,
   __resetRegistry,
 } from '../src/token-registry';
 
@@ -16,6 +19,92 @@ describe('token-registry', () => {
     // a UUID in rootToken and the guard would throw.
     __resetRegistry();
     initRegistry('root-token-for-tests');
+  });
+
+  // D2: `root` is the sentinel checkScope/checkDomain/checkRate use for the
+  // omnipotent caller; a scoped token carrying it bypasses all enforcement.
+  describe('reserved clientId (D2)', () => {
+    it('createToken rejects clientId "root" and lookalikes', () => {
+      expect(() => createToken({ clientId: 'root' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: 'ROOT' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: '  root  ' })).toThrow(ReservedClientIdError);
+    });
+
+    it('createToken rejects empty / whitespace clientId', () => {
+      expect(() => createToken({ clientId: '' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: '   ' })).toThrow(ReservedClientIdError);
+    });
+
+    it('createSetupKey rejects clientId "root" but allows an omitted one', () => {
+      expect(() => createSetupKey({ clientId: 'root' })).toThrow(ReservedClientIdError);
+      // Omitted clientId gets a safe generated default, not a throw.
+      const key = createSetupKey({});
+      expect(key.clientId.startsWith('remote-')).toBe(true);
+    });
+
+    it('revokeSetupKeys drops only PENDING keys, keeping the spent key and the session', () => {
+      const k1 = createSetupKey({ clientId: 'x' });   // pending
+      exchangeSetupKey(k1.token);                      // k1 now spent + a session exists
+      createSetupKey({ clientId: 'x' });               // pending k2
+      expect(revokeSetupKeys('x')).toBe(1);            // only the pending k2
+      expect(getClientSession('x')).not.toBeNull();    // session kept
+      // The spent key survives for idempotent re-exchange (#2646).
+      expect(exchangeSetupKey(k1.token)).not.toBeNull();
+    });
+
+    it('restoreRegistry skips a persisted "root" entry instead of injecting a bypass token', () => {
+      restoreRegistry({ agents: {
+        root: { token: 'gsk_sess_evil', type: 'session', scopes: ['read', 'write', 'admin', 'meta', 'control'], tabPolicy: 'shared', rateLimit: 0, expiresAt: null, createdAt: new Date().toISOString() } as any,
+        good: { token: 'gsk_sess_good', type: 'session', scopes: ['read'], tabPolicy: 'own-only', rateLimit: 10, expiresAt: null, createdAt: new Date().toISOString() } as any,
+      } });
+      // The evil root entry is dropped; the valid one still restores.
+      expect(validateToken('gsk_sess_evil')).toBeNull();
+      const good = validateToken('gsk_sess_good');
+      expect(good?.clientId).toBe('good');
+    });
+  });
+
+  // D1: drives the /pair supersede decision. Direction matters — dropping an
+  // allowlisted domain is the reduction, not adding one; 0 = unlimited rate.
+  describe('grantReducesAccess (D1)', () => {
+    const prior = (o: Partial<TokenInfo> = {}): TokenInfo => ({
+      token: 't', clientId: 'c', type: 'session',
+      scopes: ['read', 'write', 'admin', 'meta'], tabPolicy: 'own-only',
+      rateLimit: 10, expiresAt: null, createdAt: '', commandCount: 0, ...o,
+    });
+    const grant = (o: Partial<ResolvedGrant> = {}): ResolvedGrant => ({
+      scopes: ['read', 'write', 'admin', 'meta'], rateLimit: 10, tabPolicy: 'own-only', ...o,
+    });
+
+    it('scopes: drop → reduce; add/equal → not; dropping control → reduce', () => {
+      expect(grantReducesAccess(prior({ scopes: ['read', 'write', 'admin', 'meta'] }), grant({ scopes: ['read'] }))).toBe(true);
+      expect(grantReducesAccess(prior({ scopes: ['read'] }), grant({ scopes: ['read', 'write'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ scopes: ['read'] }), grant({ scopes: ['read'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ scopes: ['read', 'control'] }), grant({ scopes: ['read'] }))).toBe(true);
+    });
+
+    it('domains: drop → reduce; add/equal → not; unrestricted→restricted → reduce; glob narrowing → reduce', () => {
+      expect(grantReducesAccess(prior({ domains: ['a.com', 'b.com'] }), grant({ domains: ['a.com'] }))).toBe(true);
+      expect(grantReducesAccess(prior({ domains: ['a.com'] }), grant({ domains: ['a.com', 'b.com'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ domains: ['a.com'] }), grant({ domains: ['a.com'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ domains: undefined }), grant({ domains: ['a.com'] }))).toBe(true);
+      expect(grantReducesAccess(prior({ domains: ['a.com'] }), grant({ domains: undefined }))).toBe(false);
+      expect(grantReducesAccess(prior({ domains: ['*.example.com'] }), grant({ domains: ['*.com'] }))).toBe(false); // widen
+      expect(grantReducesAccess(prior({ domains: ['*.com'] }), grant({ domains: ['*.example.com'] }))).toBe(true);  // narrow
+    });
+
+    it('rate (0 = unlimited): unlimited→capped → reduce; lower cap → reduce; higher/equal → not', () => {
+      expect(grantReducesAccess(prior({ rateLimit: 0 }), grant({ rateLimit: 10 }))).toBe(true);
+      expect(grantReducesAccess(prior({ rateLimit: 10 }), grant({ rateLimit: 5 }))).toBe(true);
+      expect(grantReducesAccess(prior({ rateLimit: 5 }), grant({ rateLimit: 10 }))).toBe(false);
+      expect(grantReducesAccess(prior({ rateLimit: 10 }), grant({ rateLimit: 10 }))).toBe(false);
+      expect(grantReducesAccess(prior({ rateLimit: 10 }), grant({ rateLimit: 0 }))).toBe(false); // → unlimited = broaden
+    });
+
+    it('tabPolicy: shared → own-only → reduce; the reverse → not', () => {
+      expect(grantReducesAccess(prior({ tabPolicy: 'shared' }), grant({ tabPolicy: 'own-only' }))).toBe(true);
+      expect(grantReducesAccess(prior({ tabPolicy: 'own-only' }), grant({ tabPolicy: 'shared' }))).toBe(false);
+    });
   });
 
   describe('root token', () => {
@@ -298,12 +387,81 @@ describe('token-registry', () => {
   describe('revokeToken', () => {
     it('revokes existing token', () => {
       const info = createToken({ clientId: 'to-revoke' });
-      expect(revokeToken('to-revoke')).toBe(true);
+      // revokeToken returns the delete count, not a boolean (truthy for callers)
+      expect(revokeToken('to-revoke')).toBe(1);
       expect(validateToken(info.token)).toBeNull();
     });
 
-    it('returns false for non-existent client', () => {
-      expect(revokeToken('no-such-client')).toBe(false);
+    it('returns 0 for non-existent client', () => {
+      expect(revokeToken('no-such-client')).toBe(0);
+    });
+
+    // Regression: revokeToken deleted only the FIRST matching Map entry. The
+    // spent setup key (kept for idempotent re-exchange) is inserted before the
+    // session token, so it shadowed the session: revoke reported success while
+    // the live session survived and DELETE /token returned a false 200.
+    it('revokes the session even when a spent setup key precedes it (shape a)', () => {
+      const setup = createSetupKey({ clientId: 'shadowed' });
+      const session = exchangeSetupKey(setup.token)!;
+      expect(revokeToken('shadowed')).toBe(2);
+      expect(validateToken(session.token)).toBeNull();
+      expect(exchangeSetupKey(setup.token)).toBeNull();
+    });
+
+    // Regression: an UNSPENT setup key created after the session survived the
+    // old first-match revoke, so a "revoked" agent could POST /connect and
+    // mint a brand-new session within the key's 5-minute validity window.
+    it('closes the re-grant hole: unspent setup key dies with the revoke (shape b)', () => {
+      const first = createSetupKey({ clientId: 'regrant' });
+      exchangeSetupKey(first.token);
+      const second = createSetupKey({ clientId: 'regrant' });
+      expect(revokeToken('regrant')).toBe(3);
+      expect(exchangeSetupKey(second.token)).toBeNull();
+      expect(listTokens().filter(t => t.clientId === 'regrant')).toHaveLength(0);
+    });
+
+    it('revokes multiple pending setup keys for one clientId in a single call (shape c)', () => {
+      const keys = [1, 2, 3].map(() => createSetupKey({ clientId: 'multi' }));
+      expect(revokeToken('multi')).toBe(3);
+      for (const k of keys) expect(exchangeSetupKey(k.token)).toBeNull();
+      expect(revokeToken('multi')).toBe(0); // idempotent: second call finds nothing
+    });
+
+    it('does not touch other clients\' tokens', () => {
+      const bystander = createToken({ clientId: 'bystander' });
+      createSetupKey({ clientId: 'target' });
+      createToken({ clientId: 'target' });
+      expect(revokeToken('target')).toBe(2);
+      expect(validateToken(bystander.token)).not.toBeNull();
+    });
+  });
+
+  describe('pair defaults and option validation', () => {
+    it('DEFAULT_PAIR_SCOPES is exactly read,write,admin,meta (b73f3644: the ceremony is the trust boundary)', () => {
+      expect([...DEFAULT_PAIR_SCOPES]).toEqual(['read', 'write', 'admin', 'meta']);
+    });
+
+    // Regression: only createToken validated options, so a scope typo minted
+    // a poisoned setup key at /pair and surfaced to the REMOTE agent at
+    // /connect as a misleading "Invalid request body".
+    it('createSetupKey rejects an unknown scope with InvalidScopeError naming it', () => {
+      expect(() => createSetupKey({ scopes: ['raed' as never] }))
+        .toThrow(InvalidScopeError);
+      expect(() => createSetupKey({ scopes: ['raed' as never] }))
+        .toThrow('Invalid scope: raed');
+    });
+
+    it('createSetupKey rejects a negative rateLimit', () => {
+      expect(() => createSetupKey({ rateLimit: -5 })).toThrow(InvalidScopeError);
+    });
+
+    // Regression: `opts.rateLimit || 10` coerced the documented "0 = unlimited"
+    // into 10 on the /pair path while /token honored it.
+    it('createSetupKey preserves rateLimit 0 (unlimited)', () => {
+      const setup = createSetupKey({ rateLimit: 0 });
+      expect(setup.rateLimit).toBe(0);
+      const session = exchangeSetupKey(setup.token)!;
+      expect(session.rateLimit).toBe(0);
     });
   });
 
@@ -325,6 +483,18 @@ describe('token-registry', () => {
       createToken({ clientId: 'b' });
       createSetupKey({}); // setup keys not listed
       expect(listTokens()).toHaveLength(2);
+    });
+
+    it('includeSetup lists pending setup keys but hides spent ones', () => {
+      createToken({ clientId: 'sess' });
+      createSetupKey({ clientId: 'pending' });
+      const spent = createSetupKey({ clientId: 'spent' });
+      exchangeSetupKey(spent.token);
+      expect(listTokens().map(t => t.clientId).sort()).toEqual(['sess', 'spent']);
+      const withSetup = listTokens({ includeSetup: true });
+      // Pending key = a live grant the operator must see; the SPENT key is
+      // re-exchange bookkeeping for the already-listed session and stays hidden.
+      expect(withSetup.filter(t => t.type === 'setup').map(t => t.clientId)).toEqual(['pending']);
     });
   });
 

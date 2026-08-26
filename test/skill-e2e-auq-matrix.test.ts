@@ -22,7 +22,8 @@
  *
  * Run a subset in the foreground with AUQ_MATRIX_ONLY="plan-eng-review,cso".
  */
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   setupSkillDir,
@@ -32,8 +33,7 @@ import {
   gradeAuqRecommendation,
 } from './helpers/auq-sdk-capture';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const runId = `auq-matrix-${process.env.EVALS_RUN_ID ?? 'local'}`;
 const ONLY = (process.env.AUQ_MATRIX_ONLY ?? '').split(',').map(s => s.trim()).filter(Boolean);
 
@@ -67,6 +67,8 @@ interface MatrixSkill {
   skill: string;
   fixtures: Record<string, string>;
   scenario: string;
+  /** D1a regressor pin: explicit capture model when the Sonnet default measurably fails this entry. */
+  model?: string;
 }
 
 const MATRIX: MatrixSkill[] = [
@@ -99,6 +101,13 @@ const MATRIX: MatrixSkill[] = [
     skill: 'spec',
     fixtures: {},
     scenario: 'Turn this vague intent into a precise spec: "add email notifications when a task is assigned to someone." Walk the spec workflow until the first AskUserQuestion.',
+    // D1a pin-on-regressors, with receipts (2026-08-16 re-baseline): under
+    // the Sonnet capture default this entry failed twice ("never reached a
+    // question in budget", 242s) while the six sibling entries passed; the
+    // controlled Opus re-run passed cleanly (7/7 format, substance 5, 160s).
+    // The spec workflow's long pre-question phase needs the stronger model
+    // to reach its first AskUserQuestion inside the turn budget.
+    model: 'claude-opus-4-7',
   },
   {
     skill: 'design-consultation',
@@ -130,6 +139,7 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
             scenario: m.scenario,
             testName: `auq-matrix-${m.skill}`,
             runId,
+            model: m.model,
           });
         } finally {
           fs.rmSync(dir, { recursive: true, force: true });

@@ -15,12 +15,20 @@ const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-config');
 let stateDir: string;
 
 function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
+  // The script resolves its state dir as GSTACK_STATE_ROOT > GSTACK_HOME >
+  // GSTACK_STATE_DIR > $HOME/.gstack. Strip the higher-precedence vars so a
+  // stray value in the harness env (another test file's leftovers, operator
+  // shell) can never outrank the per-test GSTACK_STATE_DIR isolation.
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    GSTACK_STATE_DIR: stateDir,
+  };
+  delete env.GSTACK_STATE_ROOT;
+  delete env.GSTACK_HOME;
+  Object.assign(env, extraEnv); // per-test overrides always win, deliberately
+
   const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
-    env: {
-      ...process.env,
-      GSTACK_STATE_DIR: stateDir,
-      ...extraEnv,
-    },
+    env,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -48,9 +56,11 @@ describe('gstack-config', () => {
     expect(stdout).toBe('false');
   });
 
-  test('get unknown key on missing file returns empty, exit 0', () => {
+  test('get unknown key on missing file returns empty, exit 1 (#2611)', () => {
+    // #2611: an unknown key exits 1 so `|| echo fallback` callers can fire —
+    // "" with exit 0 was indistinguishable from a real empty value.
     const { exitCode, stdout } = run(['get', 'some_unknown_key']);
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(1);
     expect(stdout).toBe('');
   });
 
@@ -61,10 +71,10 @@ describe('gstack-config', () => {
     expect(stdout).toBe('true');
   });
 
-  test('get missing key returns empty', () => {
+  test('get missing key returns empty, exit 1 (#2611)', () => {
     writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\n');
     const { exitCode, stdout } = run(['get', 'nonexistent']);
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(1);
     expect(stdout).toBe('');
   });
 

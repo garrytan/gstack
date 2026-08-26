@@ -303,3 +303,69 @@ describe('stealth injected on every context-creation path', () => {
     expect(sites.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('close() launched-mode SIGKILL fallback', () => {
+  // The wedge this guards against: browser.close() hangs, the race times
+  // out, and pre-fix code nulled this.browser — ABANDONING a live Chromium
+  // whose sockets pinned the caller's event loop forever. The child must be
+  // captured before the race and SIGKILLed when graceful close loses.
+  type FakeChild = { exitCode: number | null; killed: boolean; kill: (sig: string) => void };
+  const makeCloseFakes = (closeBehavior: () => Promise<void>, child?: Partial<FakeChild>) => {
+    const kills: string[] = [];
+    const fakeChild: FakeChild = {
+      exitCode: null,
+      killed: false,
+      kill: (sig: string) => { kills.push(sig); },
+      ...child,
+    };
+    const fakeBrowser = {
+      removeAllListeners: () => fakeBrowser,
+      process: () => fakeChild,
+      close: closeBehavior,
+    };
+    return { kills, fakeBrowser };
+  };
+
+  const managerWith = async (fakeBrowser: unknown) => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const raw = bm as unknown as { browser: unknown; connectionMode: string; closeRaceMs: number };
+    raw.browser = fakeBrowser;
+    raw.connectionMode = 'launched';
+    raw.closeRaceMs = 20;
+    return { bm, raw };
+  };
+
+  it('SIGKILLs a live child when graceful close exceeds the race window', async () => {
+    const { kills, fakeBrowser } = makeCloseFakes(() => new Promise<void>(() => {}));
+    const { bm, raw } = await managerWith(fakeBrowser);
+    await bm.close();
+    expect(kills).toEqual(['SIGKILL']);
+    expect(raw.browser).toBeNull();
+  });
+
+  it('does not SIGKILL when graceful close finishes in time', async () => {
+    const { kills, fakeBrowser } = makeCloseFakes(async () => {});
+    const { bm, raw } = await managerWith(fakeBrowser);
+    await bm.close();
+    expect(kills).toEqual([]);
+    expect(raw.browser).toBeNull();
+  });
+
+  it('does not SIGKILL a child that already exited', async () => {
+    const { kills, fakeBrowser } = makeCloseFakes(
+      () => new Promise<void>(() => {}),
+      { exitCode: 0 },
+    );
+    const { bm } = await managerWith(fakeBrowser);
+    await bm.close();
+    expect(kills).toEqual([]);
+  });
+
+  it('survives a rejecting close() and still SIGKILLs the live child', async () => {
+    const { kills, fakeBrowser } = makeCloseFakes(() => Promise.reject(new Error('target closed')));
+    const { bm } = await managerWith(fakeBrowser);
+    await bm.close();
+    expect(kills).toEqual(['SIGKILL']);
+  });
+});

@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: windows-free-${{ github.head_ref }}
+  group: windows-free-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -39,11 +39,19 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.13
+
+      # bun install was 35s of a 55s job, all network. Cache keyed on the
+      # lockfile; bun's install cache lives under ~/.bun/install/cache on
+      # every platform.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: windows-bun-${{ hashFiles('bun.lock') }}
 
       - name: Configure git identity (required by tests that init temp repos)
         run: |
@@ -93,31 +101,31 @@ jobs:
       #  - scripts/test-free-shards.ts curation logic itself
       #    (test/test-free-shards.test.ts)
 
-      - name: Show curated subset (informational — for future expansion)
-        run: bun run scripts/test-free-shards.ts --windows-only --list
+      - name: Run curated Windows-safe suite
+        # Replaces the previous hand-listed 13-file subset, which drifted from
+        # the curation registry it was supposed to sample. The runner's
+        # --windows-only curation (scripts/test-free-shards.ts) is the single
+        # source of truth: POSIX-bound tests are excluded by pattern there, so
+        # growing/pruning Windows coverage is one list, not two. If a test is
+        # red here because it's genuinely POSIX-bound, add it to the curation
+        # exclusions — don't resurrect a hand list in this file.
+        env:
+          # Point os.tmpdir() at the runner temp so the shard logs land
+          # somewhere the artifact step below can glob.
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: bun run test:windows
         shell: bash
-        continue-on-error: true
 
-      - name: Verify new portability work on Windows
-        # Tests targeting the v1.20.0.0 lane plus v1.30.0.0 fix-wave additions
-        # plus v1.36.0.0 Windows-install hardening (sanitizer + _link_or_copy
-        # helper + build-script subshells + doc/config-key drift guard).
-        # v1.30.0.0 extension covers icacls hardening (#1308), bash.exe telemetry
-        # wrap (#1306), and Bun.which-based binary resolvers (#1307). These must
-        # pass on Windows for the wave's "Windows hardening" framing to be honest.
-        run: |
-          bun test \
-            test/gstack-paths.test.ts \
-            browse/test/claude-bin.test.ts \
-            test/test-free-shards.test.ts \
-            browse/test/file-permissions.test.ts \
-            browse/test/security.test.ts \
-            browse/test/server-sanitize-surrogates.test.ts \
-            test/setup-windows-fallback.test.ts \
-            test/bin-windows-bun-import-paths.test.ts \
-            test/build-script-shell-compat.test.ts \
-            test/docs-config-keys.test.ts \
-            test/brain-sync-windows-paths.test.ts \
-            make-pdf/test/browseClient.test.ts \
-            make-pdf/test/pdftotext.test.ts
-        shell: bash
+      # Same diagnosability contract as free-tests.yml: a red lane must
+      # carry the WHY (the runner's quiet console names files, not causes).
+      # (#2561 was written against the old hand-listed subset; its two new
+      # test files are pure-TS and flow into the --windows-only curation
+      # automatically, so no per-file entry is needed here.)
+      - name: Upload shard logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-free-test-shard-logs
+          path: ${{ runner.temp }}/gstack-free-test-*.log
+          if-no-files-found: ignore

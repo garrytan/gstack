@@ -3,7 +3,7 @@
  *
  * Spawns `codex exec` with skills installed in a temp HOME, parses JSONL
  * output, and validates structured results. Follows the same pattern as
- * skill-e2e.test.ts but adapted for Codex CLI.
+ * the skill-e2e-*.test.ts suites but adapted for Codex CLI.
  *
  * Prerequisites:
  * - `codex` binary installed (npm install -g @openai/codex)
@@ -16,6 +16,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { runCodexSkill, parseCodexJSONL, installSkillToTempHome } from './helpers/codex-session-runner';
 import type { CodexResult } from './helpers/codex-session-runner';
+import { CODEX_REVIEW_E2E_SECTIONS } from './helpers/skill-fixture';
 import { EvalCollector } from './helpers/eval-store';
 import type { EvalTestEntry } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
@@ -139,7 +140,11 @@ describeCodex('Codex E2E', () => {
   });
 
   testIfSelected('codex-discover-skill', async () => {
-    // Install gstack-review skill to a temp HOME and ask Codex to list skills
+    // Install gstack-review skill to a temp HOME and ask Codex to list skills.
+    // Deliberately installs the FULL generated SKILL.md (no `sections`): this
+    // test's purpose is to prove the real artifact loads under Codex — the
+    // stderr assertions below ('invalid' / 'Skipped loading') would be
+    // meaningless against an extracted fixture.
     const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-review');
 
     const result = await runCodexSkill({
@@ -172,7 +177,10 @@ describeCodex('Codex E2E', () => {
   // code review, and produce structured review output with findings/issues.
   // Accepts Codex timeout (exit 124/137) as non-failure since that's a CLI perf issue.
   testIfSelected('codex-review-findings', async () => {
-    // Install gstack-review skill and ask Codex to review the worktree
+    // Install gstack-review and ask Codex to review the worktree. The skill
+    // fixture is EXTRACTED to the core review-workflow sections — the full
+    // Codex host variant is ~1460 lines and this test only exercises the
+    // diff-review flow (CLAUDE.md: "E2E test fixtures: extract, don't copy").
     const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-review');
 
     const result = await runCodexSkill({
@@ -181,6 +189,7 @@ describeCodex('Codex E2E', () => {
       timeoutMs: 540_000,
       cwd: testWorktree,
       skillName: 'gstack-review',
+      sections: CODEX_REVIEW_E2E_SECTIONS,
     });
 
     logCodexCost('codex-review-findings', result);

@@ -15,6 +15,7 @@ export const PAID_TEST_GLOBS = [
   'test/skill-e2e-*.test.ts',
   'test/skill-routing-e2e.test.ts',
   'test/codex-e2e.test.ts',
+  'test/codex-e2e-sol-scope.test.ts',
   'test/gemini-e2e.test.ts',
 ] as const;
 

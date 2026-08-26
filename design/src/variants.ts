@@ -77,7 +77,7 @@ export async function generateVariant(
         body: JSON.stringify({
           model: "gpt-4o",
           input: prompt,
-          tools: [{ type: "image_generation", model: "gpt-image-2", size, quality }],
+          tools: [{ type: "image_generation", size, quality }],
         }),
         signal: controller.signal,
       }, fetchFn);
@@ -132,7 +132,7 @@ export async function generateVariant(
     } catch (err: any) {
       clearTimeout(timeout);
       if (err.name === "AbortError") {
-        return { path: outputPath, success: false, error: "Timeout (120s)" };
+        return { path: outputPath, success: false, error: "Timeout (240s)" };
       }
       lastError = err.message;
     }

@@ -241,7 +241,9 @@ Codex, Factory) is "host explosion for a path alias." The current architecture h
 - Per-host branches in `transformFrontmatter()` with near-duplicate logic
 - Per-host config in `EXTERNAL_HOST_CONFIG` with similar patterns
 - Per-host functions in the setup script (`create_codex_runtime_root`, `link_codex_skill_dirs`)
-- Host names duplicated in `bin/gstack-platform-detect`, `bin/gstack-uninstall`, `bin/dev-setup`
+- Host names duplicated in `bin/gstack-platform-detect` (since deleted — host
+  detection now lives in the `hosts/` registry, exported to shell via
+  `scripts/host-config-export.ts`), `bin/gstack-uninstall`, `bin/dev-setup`
 
 Adding Slate means copying all of these patterns again. A refactor to make hosts
 data-driven (config objects instead of if/else branches) would make Slate integration
@@ -253,7 +255,9 @@ trivial AND make future hosts (any new OpenCode fork, any new agent) zero-effort
   have Slate skills
 - `bin/gstack-uninstall` doesn't know about `.slate/`
 - `bin/dev-setup` doesn't wire `.slate/` for contributor dev mode
-- `bin/gstack-platform-detect` doesn't detect Slate
+- `bin/gstack-platform-detect` doesn't detect Slate (obsolete: the bin was
+  deleted; host detection is now the `hosts/` registry via
+  `scripts/host-config-export.ts` — `hosts/slate.ts` is where Slate lives)
 - E2E tests should set `SLATE_DISABLE_CLAUDE_CODE_SKILLS=1` to prove `.slate/` path
   actually works (not just falling back to `.claude/`)
 

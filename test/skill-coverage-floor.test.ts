@@ -19,6 +19,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SKILL_COVERAGE } from './skill-coverage-matrix';
+import { skillCensus } from './helpers/skill-census';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 
@@ -31,46 +32,14 @@ function readSkillMd(skill: string): string | null {
   }
 }
 
-function listSkillDirs(): string[] {
-  const entries = fs.readdirSync(REPO_ROOT, { withFileTypes: true });
-  return entries
-    .filter(e => e.isDirectory() && !e.name.startsWith('.'))
-    .filter(e => e.name !== 'node_modules' && e.name !== 'docs' && e.name !== 'test')
-    .filter(e => fs.existsSync(path.join(REPO_ROOT, e.name, 'SKILL.md')))
-    .map(e => e.name)
-    .sort();
-}
+// Registry-completeness assertions ("every skill on disk is registered",
+// "every entry has a gate test") live in test/skill-coverage-matrix.test.ts —
+// they were duplicated here with a DIFFERENT hand-rolled directory walk, which
+// is the divergence class test/helpers/skill-census.ts exists to kill. This
+// file owns the per-skill structural compliance checks only.
 
 describe('skill-coverage-floor: every skill passes structural compliance', () => {
-  const skills = listSkillDirs();
-
-  test('skill registry mentions every skill on disk', () => {
-    const onDisk = new Set(skills);
-    const inRegistry = new Set(Object.keys(SKILL_COVERAGE));
-    const missingFromRegistry: string[] = [];
-    for (const s of onDisk) {
-      if (!inRegistry.has(s)) missingFromRegistry.push(s);
-    }
-    if (missingFromRegistry.length > 0) {
-      throw new Error(
-        `Skills on disk missing from test/skill-coverage-matrix.ts: ${missingFromRegistry.join(', ')}. ` +
-        `Add an entry to SKILL_COVERAGE with at least 'test/skill-coverage-floor.test.ts' in gate[].`,
-      );
-    }
-  });
-
-  test('every registry entry has at least one gate-tier test', () => {
-    const missingGate: string[] = [];
-    for (const [skill, coverage] of Object.entries(SKILL_COVERAGE)) {
-      if (!coverage.gate || coverage.gate.length === 0) missingGate.push(skill);
-    }
-    if (missingGate.length > 0) {
-      throw new Error(
-        `Skills with no gate-tier eval: ${missingGate.join(', ')}. ` +
-        `Eval-first foundation requires at least one CI-blocking check per skill.`,
-      );
-    }
-  });
+  const skills = skillCensus(REPO_ROOT).authoredSkills;
 
   test('every gate-tier test path referenced in registry exists on disk', () => {
     const missing: string[] = [];

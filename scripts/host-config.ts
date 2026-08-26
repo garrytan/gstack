@@ -14,6 +14,9 @@
  *                                              platform-detect, uninstall
  */
 
+import type { Model } from './models';
+import { validateModel } from './models';
+
 export interface HostConfig {
   /** Unique host identifier (e.g., 'opencode'). Must match filename in hosts/. */
   name: string;
@@ -23,6 +26,9 @@ export interface HostConfig {
   cliCommand: string;
   /** Alternative binary names (e.g., ['droid'] for factory). */
   cliAliases?: string[];
+
+  /** Model overlay used when generation does not receive an explicit --model. */
+  defaultModel: Model;
 
   // --- Path Configuration ---
   /** Global install path relative to $HOME (e.g., '.config/opencode/skills/gstack'). */
@@ -56,10 +62,8 @@ export interface HostConfig {
 
   // --- Generation ---
   generation: {
-    /** Whether to create sidecar metadata file (e.g., openai.yaml for Codex). */
+    /** Whether to create a metadata file alongside skills (always openai.yaml; gen-skill-docs hardcodes the format). */
     generateMetadata: boolean;
-    /** Metadata file format (e.g., 'openai.yaml'). */
-    metadataFormat?: string | null;
     /** Skill directories to exclude from generation for this host. */
     skipSkills?: string[];
     /** Skill directories to include (allowlist). Union logic: include minus skip. */
@@ -81,18 +85,8 @@ export interface HostConfig {
     /** Dir → explicit file list for selective file linking. */
     globalFiles?: Record<string, string[]>;
   };
-  /** Optional repo-local sidecar config (e.g., Codex uses .agents/skills/gstack). */
-  sidecar?: {
-    /** Sidecar path relative to repo root (e.g., '.agents/skills/gstack'). */
-    path: string;
-    /** Assets to symlink into sidecar (different set than global). */
-    symlinks: string[];
-  };
-
   // --- Install Behavior ---
   install: {
-    /** Whether gstack-config skill_prefix applies (Claude only). */
-    prefixable: boolean;
     /** How skills are linked into the host dir. */
     linkingStrategy: 'real-dir-symlink' | 'symlink-generated';
   };
@@ -104,11 +98,6 @@ export interface HostConfig {
   learningsMode?: 'full' | 'basic';
   /** Anti-prompt-injection boundary instruction for cross-model invocations. */
   boundaryInstruction?: string;
-
-  /** Static files to copy alongside generated skills (e.g., { 'SOUL.md': 'openclaw/SOUL.md' }). */
-  staticFiles?: Record<string, string>;
-  /** Optional path to host-adapter module for complex transformations. */
-  adapter?: string;
 }
 
 // --- Validation ---
@@ -135,6 +124,10 @@ export function validateHostConfig(config: HostConfig, validResolverNames?: Read
         errors.push(`cliAlias '${alias}' contains invalid characters`);
       }
     }
+  }
+  const modelError = validateModel(config.defaultModel);
+  if (modelError) {
+    errors.push(`defaultModel ${modelError}`);
   }
   if (!PATH_REGEX.test(config.globalRoot)) {
     errors.push(`globalRoot '${config.globalRoot}' contains invalid characters`);

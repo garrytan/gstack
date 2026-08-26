@@ -222,6 +222,20 @@ function totalMd(dir: string, tokensOf: TokensOf): { bytes: number; tokens: numb
   let bytes = 0;
   let tokens = 0;
   for (const p of walkMd(dir)) {
+    // A skill dir that CONTAINS other skill dirs (the gstack root skill wraps
+    // the whole tree) must not swallow its children's files: each nested
+    // skill reports its own totalMd, and the grand total sums per-skill
+    // figures — counting them here again double-counted every nested skill
+    // in the TOTAL line (v1.63 deferred polish, fixed in fork port wave 2).
+    const rel = path.relative(dir, p);
+    const topSeg = rel.split(path.sep)[0];
+    if (
+      topSeg &&
+      topSeg !== rel && // p is inside a subdirectory
+      fs.existsSync(path.join(dir, topSeg, "SKILL.md"))
+    ) {
+      continue;
+    }
     const b = bytesOf(p) ?? 0;
     bytes += b;
     tokens += tokensOf(p, b);

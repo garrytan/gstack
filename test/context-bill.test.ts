@@ -152,6 +152,40 @@ describe("upstream fix a: root-as-container + walkMd exclusions", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("totalMd: a container skill excludes nested child skills' bytes; the grand total sums per-skill with no overlap", () => {
+    // Regression pin for the v1.63 double-count: totalMd on a skill dir that
+    // CONTAINS other skill dirs (the gstack root wraps the whole tree) used to
+    // swallow the children's .md bytes too, so the TOTAL line billed every
+    // nested skill twice. A revert of the topSeg/SKILL.md skip in totalMd
+    // (lib/context-bill.ts) must fail here.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-nested-total-"));
+    fs.writeFileSync(path.join(tmp, "SKILL.md"), "---\nname: parent\ndescription: p\n---\n# Parent\n");
+    fs.writeFileSync(path.join(tmp, "NOTES.md"), "n".repeat(1_000));
+    // A non-skill subdir (no SKILL.md) still belongs to the parent's total.
+    fs.mkdirSync(path.join(tmp, "references"));
+    fs.writeFileSync(path.join(tmp, "references", "GUIDE.md"), "g".repeat(2_000));
+    // Nested child skill with a LARGE .md — the bytes a revert double-counts.
+    fs.mkdirSync(path.join(tmp, "child"));
+    fs.writeFileSync(path.join(tmp, "child", "SKILL.md"), "---\nname: child\ndescription: c\n---\n# Child\n");
+    fs.writeFileSync(path.join(tmp, "child", "BIG.md"), "x".repeat(50_000));
+
+    const bill = buildBill(tmp);
+    const parent = bill.skills.find((s) => s.name !== "child")!;
+    const child = bill.skills.find((s) => s.name === "child")!;
+    expect(bill.skills).toHaveLength(2);
+
+    const parentOwn =
+      fileBytes(tmp, "SKILL.md") + fileBytes(tmp, "NOTES.md") + fileBytes(tmp, "references", "GUIDE.md");
+    const childOwn = fileBytes(tmp, "child", "SKILL.md") + fileBytes(tmp, "child", "BIG.md");
+    // Parent's total is its OWN files only — the child's 50KB is excluded.
+    expect(parent.totalMdBytes).toBe(parentOwn);
+    expect(child.totalMdBytes).toBe(childOwn);
+    // Grand total = sum of per-skill figures, every byte billed exactly once.
+    expect(bill.totals.totalMdBytes).toBe(parentOwn + childOwn);
+    expect(bill.totals.totalMdBytes).toBe(parent.totalMdBytes + child.totalMdBytes);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it("walkMd skips node_modules and dot-directories", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-walk-"));
     fs.writeFileSync(path.join(tmp, "real.md"), "x");

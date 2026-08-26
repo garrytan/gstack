@@ -53,11 +53,13 @@ function discoverTier2PlusSkillMds(): Array<{ skillName: string; mdPath: string 
     const mdPath = path.join(ROOT, e.name, 'SKILL.md');
     const tmplPath = path.join(ROOT, e.name, 'SKILL.md.tmpl');
     if (!fs.existsSync(mdPath) || !fs.existsSync(tmplPath)) continue;
-    // Check tier via frontmatter
+    // Check tier via frontmatter. Every template that resolves {{PREAMBLE}}
+    // must declare preamble-tier (the generator throws otherwise), so a
+    // missing declaration means the template has no preamble at all — scan it
+    // anyway (the vocabulary check is content-wide and cheap).
     const tmpl = fs.readFileSync(tmplPath, 'utf-8');
     const tierMatch = tmpl.match(/preamble-tier:\s*(\d+)/);
-    const tier = tierMatch ? parseInt(tierMatch[1], 10) : 4;
-    if (tier < 2) continue;
+    if (tierMatch && parseInt(tierMatch[1], 10) < 2) continue;
     results.push({ skillName: e.name, mdPath });
   }
   return results;

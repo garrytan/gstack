@@ -30,11 +30,11 @@
  * change (see 'plan-mode-no-op' in touchfiles.ts).
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillObservation } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 
 const PLAN_MODE_REMINDER =
   'Plan mode is active. The user indicated that they do not want you to execute yet';
@@ -99,7 +99,21 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
         // outcome === 'asked' would let a silent-bypass run that reaches
         // plan_ready (isPlanReadyVisible also matches common prose) sail
         // through — the exact regression this test exists to catch.
-        expect(obs.scopeGateQuestionObserved ?? false).toBe(true);
+        //
+        // Throw WITH the evidence tail instead of a bare expect: this member
+        // (plan-design-review especially) intermittently fails ONLY this
+        // check on unchanged code (PR #2593 rounds 3/11/rerun, passing
+        // rounds 5/6), and a bare Expected-true/Received-false in CI logs is
+        // undiagnosable — we can't tell a detector-sensitivity miss (render
+        // shape scrolled/rephrased) from a real silent bypass without seeing
+        // what the screen held.
+        if (!(obs.scopeGateQuestionObserved ?? false)) {
+          throw new Error(
+            `scope-gate question NOT observed (${skillName}): outcome=${obs.outcome}\n` +
+              `elapsed: ${obs.elapsedMs}ms\n` +
+              `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+          );
+        }
       }
     }, 360_000);
   }

@@ -433,25 +433,15 @@
     });
     ro.observe(els.mount);
 
-    // IME composition handling for Korean/CJK input (issue #1272).
-    // Suppress partial jamo during composition; only send the final
-    // composed string on compositionend. Without this, Korean IME
-    // sends fragmented input or doubles characters.
-    let composing = false;
-    const ta = term.textarea;
-    if (ta) {
-      ta.addEventListener('compositionstart', () => { composing = true; });
-      ta.addEventListener('compositionend', (e) => {
-        composing = false;
-        if (e.data && ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(new TextEncoder().encode(e.data));
-        }
-      });
-    }
-
+    // IME composition (Korean/CJK, issue #1272) is handled by xterm.js
+    // itself: partial jamo are suppressed while _isComposing, and the final
+    // composed string is emitted through onData once, asynchronously
+    // (setTimeout in _finalizeComposition). A previous local workaround
+    // sent e.data manually on compositionend — but xterm emits the same
+    // string one macrotask later, so every composed syllable went out
+    // TWICE. Do not re-add a manual compositionend send.
 
     term.onData((data) => {
-      if (composing) return;  // suppress partial input events during IME composition
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
       }

@@ -17,14 +17,21 @@ let gstackDir: string;
 let stateDir: string;
 
 function run(extraEnv: Record<string, string> = {}, args: string[] = []) {
+  // gstack-config (which this script shells out to for update_check) resolves
+  // state as GSTACK_STATE_ROOT > GSTACK_HOME > GSTACK_STATE_DIR > ~/.gstack.
+  // Strip the higher-precedence vars so harness-env leftovers can never
+  // outrank the per-test GSTACK_STATE_DIR isolation.
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    GSTACK_DIR: gstackDir,
+    GSTACK_STATE_DIR: stateDir,
+    GSTACK_REMOTE_URL: `file://${join(gstackDir, 'REMOTE_VERSION')}`,
+  };
+  delete env.GSTACK_STATE_ROOT;
+  delete env.GSTACK_HOME;
+  Object.assign(env, extraEnv); // per-test overrides always win, deliberately
   const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
-    env: {
-      ...process.env,
-      GSTACK_DIR: gstackDir,
-      GSTACK_STATE_DIR: stateDir,
-      GSTACK_REMOTE_URL: `file://${join(gstackDir, 'REMOTE_VERSION')}`,
-      ...extraEnv,
-    },
+    env,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -42,6 +49,14 @@ beforeEach(() => {
   const binDir = join(gstackDir, 'bin');
   mkdirSync(binDir);
   symlinkSync(join(import.meta.dir, '..', '..', 'bin', 'gstack-config'), join(binDir, 'gstack-config'));
+  // v1.63+: the script sources bin/gstack-egress-lib.sh unconditionally
+  // (receipted fetch helpers). A real install always has it beside
+  // gstack-config; without this link every test failed at the source line —
+  // masked until the suite-truncation fix because the runner died first.
+  symlinkSync(
+    join(import.meta.dir, '..', '..', 'bin', 'gstack-egress-lib.sh'),
+    join(binDir, 'gstack-egress-lib.sh'),
+  );
 });
 
 afterEach(() => {

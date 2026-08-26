@@ -19,7 +19,7 @@ import { probeTailscale, whoIs } from './tailscale-localapi';
 import { SessionTokenStore } from './session-tokens';
 import { mintForCaller } from './auth-mint';
 import { classifyRoute, proxyToDevice, type DeviceTunnel } from './proxy';
-import { writeAudit, writeAttempt, sanitizeReplacer } from './audit';
+import { writeAudit, writeAttempt, sanitizeReplacer, saltedHash } from './audit';
 import { bootstrapTunnel } from './tunnel-bootstrap';
 import { startTunnelKeepalive } from './devicectl';
 import type { Capability } from './types';
@@ -362,20 +362,38 @@ async function handleLoopback(ctx: HandlerCtx): Promise<void> {
       return;
     }
 
-    // /auth/sessions — list active sessions (owner only).
+    // /auth/sessions — list active sessions (owner only). Raw token values
+    // never leave the store: any local process can hit this listener, so a
+    // list that echoed live bearer tokens was a harvest-and-replay primitive.
+    // Callers get a salted-hash id plus metadata; revoke by identity, by the
+    // token they already hold from mint, or by token_id from this list.
     if (method === 'GET' && path === '/auth/sessions') {
-      sendJson(res, 200, { sessions: tokenStore.list() });
+      const sessions = await Promise.all(tokenStore.list().map(async ({ token, ...meta }) => ({
+        token_id: await saltedHash(token),
+        ...meta,
+      })));
+      sendJson(res, 200, { sessions });
       return;
     }
 
-    // /auth/revoke — revoke a token.
+    // /auth/revoke — revoke by raw token (the caller's own, from mint), by
+    // token_id (from /auth/sessions — keeps the list→revoke workflow alive
+    // now that the list is hash-only), or by identity.
     if (method === 'POST' && path === '/auth/revoke') {
       const body = await readBody(req);
       if ('error' in body) { sendJson(res, 413, body); return; }
-      const parsed = JSON.parse(body.toString('utf-8') || '{}') as { token?: string; identity?: string };
+      const parsed = JSON.parse(body.toString('utf-8') || '{}') as {
+        token?: string; token_id?: string; identity?: string;
+      };
       let count = 0;
       if (parsed.token) {
         count = tokenStore.revoke(parsed.token) ? 1 : 0;
+      } else if (parsed.token_id) {
+        for (const s of tokenStore.list()) {
+          if ((await saltedHash(s.token)) === parsed.token_id) {
+            count += tokenStore.revoke(s.token) ? 1 : 0;
+          }
+        }
       } else if (parsed.identity) {
         count = tokenStore.revokeByIdentity(parsed.identity);
       }

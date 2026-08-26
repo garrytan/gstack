@@ -7,6 +7,13 @@
 #     if no URL is passed. Exits 0 with one of: read-write, read-only,
 #     deny, unset.
 #
+#   gstack-gbrain-repo-policy get --batch
+#     Read remote URLs from stdin (one per line); print one tier per line
+#     in input order: read-write, read-only, deny, or none (no entry / no
+#     store). A corrupt store is a hard error (exit 2), NEVER quarantined:
+#     batch callers are unattended ingest gates that must fail closed
+#     rather than bypass a set policy.
+#
 #   gstack-gbrain-repo-policy set <remote-url> <read-write|read-only|deny>
 #     Persist a tier for the given remote. Exits 0 on success.
 #
@@ -85,14 +92,23 @@ normalize() {
   case "$head" in
     *:*) url=$(printf '%s' "$url" | sed 's|:|/|') ;;
   esac
+  # Lowercase BEFORE the suffix strips so a `.GIT` suffix still strips —
+  # parity with lib/gstack-memory-helpers' canonicalizeRemote, which strips
+  # `.git` case-insensitively. GitHub and most hosts are case-insensitive on
+  # paths anyway; collapsing avoids duplicate entries for "Foo/Bar" vs
+  # "foo/bar". (Parity is pinned by test/gbrain-repo-policy-client.test.ts:
+  # a key set through THIS normalize must be found via the canonicalized form
+  # memory-ingest passes to `get --batch`.)
+  url=$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')
+  # Strip trailing slash(es) FIRST, so ".git/" still loses its suffix (same
+  # order as canonicalizeRemote — slash-first, then .git, then re-strip).
+  while [ "${url%/}" != "$url" ]; do url="${url%/}"; done
   # Strip trailing .git
   url="${url%.git}"
-  # Strip trailing /
-  url="${url%/}"
-  # Lowercase the whole thing. GitHub and most hosts are case-insensitive on
-  # paths anyway; collapsing avoids duplicate entries for "Foo/Bar" vs
-  # "foo/bar".
-  printf '%s\n' "$url" | tr '[:upper:]' '[:lower:]'
+  # Re-strip trailing slash(es): a path remote ending in a `.git` directory
+  # component ("/repo/.git") exposes a new trailing slash once .git is gone.
+  while [ "${url%/}" != "$url" ]; do url="${url%/}"; done
+  printf '%s\n' "$url"
 }
 
 # ensure_file — create the policy file if missing, migrate if legacy.
@@ -161,8 +177,50 @@ ensure_file() {
   fi
 }
 
+# get --batch — bulk lookup for ingest gates. One URL per stdin line, one
+# tier per stdout line, input order preserved. Reuses normalize() (the same
+# code path single `get` uses) per line. Prints `none` where single `get`
+# prints `unset` — batch consumers (lib/gbrain-repo-policy-client.ts) speak
+# the RepoPolicyTierValue vocabulary directly.
+#
+# Corruption polarity differs from single `get` ON PURPOSE: interactive
+# `get` quarantines a corrupt store and starts fresh because /setup-gbrain
+# re-asks the user; a batch caller is an unattended ingest gate with nobody
+# to re-ask, so silently quarantining would BYPASS a set deny policy. Batch
+# fails hard (exit 2) instead and names the recovery path.
+cmd_get_batch() {
+  require_jq
+  if [ ! -f "$POLICY_FILE" ]; then
+    # No store = no policy was ever set. Every URL is `none`; don't create
+    # the file just for a read (matches cmd_list).
+    while IFS= read -r url || [ -n "$url" ]; do
+      printf 'none\n'
+    done
+    return 0
+  fi
+  if ! jq empty "$POLICY_FILE" 2>/dev/null; then
+    die "policy store $POLICY_FILE is corrupt (invalid JSON) — refusing batch read. Inspect with: gstack-gbrain-repo-policy list; re-run /setup-gbrain to rebuild the store."
+  fi
+  # Valid JSON from here, so ensure_file only performs the legacy
+  # allow → read-write migration (never the quarantine branch).
+  ensure_file
+  local url key
+  while IFS= read -r url || [ -n "$url" ]; do
+    key=$(normalize "$url")
+    if [ -z "$key" ]; then
+      printf 'none\n'
+      continue
+    fi
+    jq -r --arg key "$key" '.[$key] // "none"' "$POLICY_FILE"
+  done
+}
+
 cmd_get() {
   local url="${1:-}"
+  if [ "$url" = "--batch" ]; then
+    cmd_get_batch
+    return 0
+  fi
   if [ -z "$url" ]; then
     url=$(git remote get-url origin 2>/dev/null || true)
     if [ -z "$url" ]; then
@@ -221,7 +279,7 @@ case "${1:-}" in
   set) shift; cmd_set "$@" ;;
   list) shift; cmd_list "$@" ;;
   normalize) shift; cmd_normalize "$@" ;;
-  --help|-h|help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//' ;;
+  --help|-h|help) sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//' ;;
   "") die "usage: gstack-gbrain-repo-policy {get|set|list|normalize|--help}" ;;
   *) die "unknown subcommand: $1" ;;
 esac

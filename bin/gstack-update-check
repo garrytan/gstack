@@ -13,6 +13,14 @@
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
 set -euo pipefail
 
+# A crash must not read as "up to date" (#1974). With set -e, any unguarded
+# failure used to exit silently — and silence IS the up-to-date signal, so a
+# broken check was indistinguishable from a current install (observed live as
+# a 45-release silent-staleness incident). -E propagates the trap into
+# functions/subshells; exit 0 keeps callers' `|| true` from eating the line.
+set -E
+trap 'rc=$?; echo "CHECK_FAILED gstack-update-check crashed (line $LINENO, rc=$rc) — update status UNKNOWN, not up-to-date"; exit 0' ERR
+
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 

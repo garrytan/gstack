@@ -21,6 +21,7 @@
  * tests don't need it).
  */
 
+import { resolveEvalModel } from '../../lib/eval-model';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -454,9 +455,12 @@ ${tail}
   };
 
   try {
+    // Use the same binary resolution as every PTY launch in this file —
+    // judgePtyState previously hardcoded bare 'claude' three definitions
+    // below resolveClaudeBinary(), breaking under hermetic PATHs.
     const result = nodeSpawnSync(
-      'claude',
-      ['-p', '--model', 'claude-haiku-4-5', '--max-turns', '1'],
+      resolveClaudeBinary() ?? 'claude',
+      ['-p', '--model', resolveEvalModel('warmup'), '--max-turns', '1'],
       {
         input: prompt,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -1253,7 +1257,15 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /scope reduction recommendation|cross[\s-]?project learnings/i.test(
     fp.promptSnippet,
-  );
+  ) ||
+  // plan-eng-review's Step 0 may legitimately end with NO scope-reduction /
+  // learnings AUQ. When it does, the first answered review-phase question —
+  // tagged <gstack-qid:plan-eng-review-...> ({skill}-{slug} convention) —
+  // must fire the boundary, or every per-finding AUQ stays classified
+  // preReview and the multi-finding batching counter reads 0. Anchor allows
+  // the skill-name prefix; live qids observed: plan-eng-review-jitter,
+  // plan-eng-review-idempotency, plan-eng-review-todos-e2e-concurrent.
+  /gstack-qid:\s*(?:plan-)?eng-review-/i.test(fp.promptSnippet);
 
 export const designStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /design system|design posture|design score|first dimension/i.test(

@@ -30,7 +30,8 @@
  *   SCOPE EXPANSION   — "expansion" or "10x" or "delight" or "dream"
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   launchClaudePty,
   isNumberedOptionListVisible,
@@ -43,8 +44,7 @@ import {
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 interface ModeCase {
   mode: 'HOLD SCOPE' | 'SCOPE EXPANSION';

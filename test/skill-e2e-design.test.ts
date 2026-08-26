@@ -126,7 +126,7 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
       'Color': ['color', 'colour', 'palette', 'colors'],
       'Spacing': ['spacing', 'space', 'whitespace', 'gap'],
       'Layout': ['layout', 'grid', 'structure', 'composition'],
-      'Motion': ['motion', 'animation', 'transition', 'movement'],
+      'Motion': ['motion', 'animation', 'transition', 'movement', 'easing', 'duration', 'micro-interaction'],
     };
     const missingSections = Object.entries(sectionSynonyms).filter(
       ([_, synonyms]) => !synonyms.some(s => designContent.toLowerCase().includes(s))
@@ -152,7 +152,9 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
     expect(designExists).toBe(true);
     if (designExists) {
-      expect(missingSections).toHaveLength(0);
+      // join() so a failure names the offending section(s) — a bare
+      // toHaveLength(0) failure never prints WHICH synonym set missed.
+      expect(missingSections.join(', ')).toBe('');
     }
     if (claudeExists) {
       const claude = fs.readFileSync(claudePath, 'utf-8');

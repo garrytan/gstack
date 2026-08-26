@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { frontmatterName, skillCensus } from './helpers/skill-census';
 
-const ROOT = path.resolve(new URL(import.meta.url).pathname, '..', '..');
+const ROOT = path.resolve(import.meta.path, '..', '..');
 const census = skillCensus(ROOT);
 
 describe('skillCensus', () => {

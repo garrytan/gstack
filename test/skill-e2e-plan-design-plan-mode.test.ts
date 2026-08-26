@@ -9,14 +9,14 @@
  * 'plan_ready' are valid pass outcomes.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
   assertReportAtBottomIfPlanWritten,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 // UI-heavy seed with guaranteed design gaps (center-aligned everything, no
 // empty states, no responsive intent) so the review has real findings to

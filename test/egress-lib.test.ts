@@ -17,7 +17,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { listReceipts, sha256Hex } from '../lib/egress-receipt';
 
-const ROOT = path.resolve(new URL(import.meta.url).pathname, '..', '..');
+const ROOT = path.resolve(import.meta.path, '..', '..');
 const LIB = path.join(ROOT, 'bin', 'gstack-egress-lib.sh');
 
 const received: string[] = [];

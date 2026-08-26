@@ -23,7 +23,36 @@ import {
   buildTrimmedDescription,
   buildWhenToInvokeSection,
   applyCatalogTrim,
+  toYamlInlineScalar,
 } from '../scripts/gen-skill-docs';
+
+describe('toYamlInlineScalar', () => {
+  const parses = (out: string) => Bun.YAML.parse(`d: ${out}`);
+
+  test("scalar containing '...' (YAML document-end marker) is quoted and round-trips", () => {
+    const out = toYamlInlineScalar('Truncated lead ends with... more (gstack)');
+    expect(out.startsWith('"')).toBe(true);
+    expect((parses(out) as { d: string }).d).toContain('...');
+  });
+
+  test("interior ': ' is quoted (nested-mapping ambiguity, #1778)", () => {
+    const out = toYamlInlineScalar('Ship workflow: detect and merge');
+    expect(out.startsWith('"')).toBe(true);
+    expect((parses(out) as { d: string }).d).toBe('Ship workflow: detect and merge');
+  });
+
+  test('plain safe scalar passes through unquoted', () => {
+    expect(toYamlInlineScalar('Simple description here')).toBe('Simple description here');
+  });
+
+  test('leading YAML indicator char is quoted', () => {
+    expect(toYamlInlineScalar('- leading dash').startsWith('"')).toBe(true);
+  });
+
+  test('trailing whitespace is quoted', () => {
+    expect(toYamlInlineScalar('has trailing space ').startsWith('"')).toBe(true);
+  });
+});
 
 describe('splitCatalogDescription', () => {
   test('extracts lead sentence + routing prose from simple multi-line description', () => {
@@ -95,31 +124,59 @@ describe('splitCatalogDescription', () => {
     expect(parts.routingProse).toBe('With routing prose afterward.');
   });
 
-  test('embedded-period descriptions: known limitation falls back to first-20-words', () => {
-    // KNOWN LIMITATION: the sentence regex `^([^.!?]*[.!?])(?:\\s|$)` stops
-    // at the FIRST `.`-then-non-whitespace because [^.!?]* is greedy and
-    // can't backtrack past a non-period char. For "DESIGN.md and v1.45.0.0
-    // in the lead. Use when..." the regex fails entirely and the lead falls
-    // back to the first 20 words (~the whole short input).
-    //
-    // The real-world impact is small: descriptions like "DESIGN.md" or "v1.45"
-    // appearing in the middle of the FIRST sentence are rare. When they do
-    // occur, the lead simply becomes the full description (no body section
-    // generated) — same as a description without a period. The trim CI gate
-    // still keeps the per-skill size budget honest.
-    //
-    // If this gap matters later, replace the regex with a sentence tokenizer
-    // (compromise.js / Intl.Segmenter) — until then we accept the fallback.
+  test('REGRESSION: embedded-period first sentence splits at real boundary', () => {
+    // The old regex `^([^.!?]*[.!?])(?:\s|$)` could not cross ANY period —
+    // [^.!?]* stops at the first `.` even mid-token ("DESIGN.md"), the
+    // boundary check then fails, and the whole match failed. The code
+    // silently fell back to a 20-word cut mid-phrase (observed with a
+    // description mentioning "TODOS.md"). The fixed regex
+    // `^((?:[^.!?]|[.!?](?!\s|$))*[.!?])(?:\s|$)` consumes terminators NOT
+    // followed by whitespace/end, so embedded periods no longer break it.
     const desc =
       'Skill that mentions DESIGN.md and v1.45.0.0 in the lead. ' +
       'Use when asked to do something.';
     const parts = splitCatalogDescription(desc);
-    // Actual behavior: lead absorbs the whole input via the word-count fallback.
-    expect(parts.lead.length).toBeGreaterThan(0);
-    // routingProse may be empty when the fallback consumes everything.
-    // The test exists to detect REGRESSIONS (lead becoming oddly short like
-    // "Skill that mentions DESIGN.") not to assert ideal behavior.
-    expect(parts.lead).toContain('Skill that mentions');
+    expect(parts.lead).toBe('Skill that mentions DESIGN.md and v1.45.0.0 in the lead.');
+    expect(parts.routingProse).toBe('Use when asked to do something.');
+  });
+
+  test('REGRESSION: "TODOS.md backlog" style sentence keeps full lead + routing', () => {
+    const desc =
+      'Drive an approved plan to completion on a TODOS.md backlog. ' +
+      'Use when asked to "autobuilder" or "run the build loop". ' +
+      'Proactively suggest after a plan is approved. (gstack)';
+    const parts = splitCatalogDescription(desc);
+    expect(parts.lead).toBe('Drive an approved plan to completion on a TODOS.md backlog.');
+    expect(parts.routingProse).toContain('Use when asked to "autobuilder"');
+    expect(parts.routingProse).toContain('Proactively suggest');
+    expect(parts.hasGstackTag).toBe(true);
+  });
+
+  test('URL in first sentence does not end the lead early', () => {
+    const desc =
+      'See https://example.com/docs/v2 for the workflow. ' +
+      'Use when asked to consult the docs.';
+    const parts = splitCatalogDescription(desc);
+    expect(parts.lead).toBe('See https://example.com/docs/v2 for the workflow.');
+    expect(parts.routingProse).toBe('Use when asked to consult the docs.');
+  });
+
+  test('>200 char first sentence WITH embedded periods still truncates with ellipsis and keeps routing', () => {
+    const firstSentence =
+      'Regenerate the iOS debug bridge against files like Bridge.swift and TODOS.md, ' +
+      'walking every target listed in Project.xcodeproj while preserving v1.45.0.0 ' +
+      'compatibility shims, custom entitlements, and the long tail of per-target ' +
+      'build settings nobody remembers configuring.';
+    expect(firstSentence.length).toBeGreaterThan(200);
+    const desc = firstSentence + ' Use when asked to resync the bridge. (gstack)';
+    const parts = splitCatalogDescription(desc);
+    // Lead is the truncated first sentence (ellipsis path), not a 20-word cut.
+    expect(parts.lead.endsWith('...')).toBe(true);
+    expect(parts.lead.length).toBeLessThanOrEqual(200);
+    expect(parts.lead).toContain('TODOS.md');
+    // Routing prose survives intact.
+    expect(parts.routingProse).toContain('Use when asked to resync the bridge.');
+    expect(parts.hasGstackTag).toBe(true);
   });
 
   test('description without a period uses first ~20 words as lead', () => {
@@ -269,48 +326,15 @@ Original body content here.
   });
 });
 
-describe('proactive-suggestions.json determinism (regression for v1.45.0.0 CI freshness fail)', () => {
-  test('committed JSON keys are alphabetically sorted', () => {
-    // Reads the actual committed file at scripts/proactive-suggestions.json
-    // and verifies sort order. Catches regressions to non-sorted output.
+describe('proactive-suggestions.json stays retired', () => {
+  test('the generator no longer emits scripts/proactive-suggestions.json', () => {
+    // The aggregated routing registry was removed (no consumer ever read it).
+    // If someone re-adds the emitter, this pins the decision to delete it —
+    // reintroduce only with an actual consumer, and restore the determinism
+    // tests (sorted keys, root keyed as "gstack", no timestamp fields) that
+    // lived here before.
     const fs = require('fs');
     const path = require('path');
-    const json = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '..', 'scripts', 'proactive-suggestions.json'), 'utf-8'),
-    );
-    const keys = Object.keys(json.skills);
-    const sorted = [...keys].sort();
-    expect(keys).toEqual(sorted);
-  });
-
-  test('root skill is keyed as "gstack" (not the checkout directory name)', () => {
-    // Catches the bug where the root SKILL.md.tmpl's catalog parts get
-    // registered under the directory basename ("seville-v3" in a Conductor
-    // worktree, "gstack" on CI).
-    const fs = require('fs');
-    const path = require('path');
-    const json = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '..', 'scripts', 'proactive-suggestions.json'), 'utf-8'),
-    );
-    expect(json.skills).toHaveProperty('gstack');
-    // The directory the test runs in must NOT appear as a key.
-    const repoDir = path.basename(path.resolve(__dirname, '..'));
-    if (repoDir !== 'gstack') {
-      expect(json.skills).not.toHaveProperty(repoDir);
-    }
-  });
-
-  test('schema + catalog_mode + note fields are stable', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const json = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '..', 'scripts', 'proactive-suggestions.json'), 'utf-8'),
-    );
-    expect(json).toHaveProperty('$schema');
-    expect(json.catalog_mode).toBe('trim');
-    expect(typeof json.note).toBe('string');
-    // No timestamp field — those cause flapping CI freshness checks.
-    expect(json).not.toHaveProperty('generated_at');
-    expect(json).not.toHaveProperty('timestamp');
+    expect(fs.existsSync(path.join(__dirname, '..', 'scripts', 'proactive-suggestions.json'))).toBe(false);
   });
 });

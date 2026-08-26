@@ -20,6 +20,7 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { runSkillTest } from './helpers/session-runner';
 import { EvalCollector } from './helpers/eval-store';
+import { extractSkillHead } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -72,14 +73,17 @@ function mkEvalRoot(suffix: string, includeOverlay: boolean): string {
     throw new Error(`gen-skill-docs failed: ${result.stderr}`);
   }
 
-  // Install per-skill SKILL.md files for Skill tool discovery.
+  // Install per-skill SKILL.md files for Skill tool discovery. Routing only
+  // reads the frontmatter (name + description), so install frontmatter + the
+  // first ~30 body lines instead of the full 1000-1900-line files
+  // (CLAUDE.md: "E2E test fixtures: extract, don't copy").
   const skillsDir = path.join(tmp, '.claude', 'skills');
   for (const skill of INSTALLED_SKILLS) {
     const src = path.join(ROOT, skill, 'SKILL.md');
     if (!fs.existsSync(src)) continue;
     const destDir = path.join(skillsDir, skill);
     fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(src, path.join(destDir, 'SKILL.md'));
+    fs.writeFileSync(path.join(destDir, 'SKILL.md'), extractSkillHead(src));
   }
 
   // Extract the opus-4-7 model-overlay content from the checked-in file

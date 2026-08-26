@@ -64,6 +64,22 @@ describe('Server auth security', () => {
     expect(scopeBlock).toContain('Domain not allowed');
   });
 
+  // Test 1d: validateAuth compares the bearer token in CONSTANT TIME with a
+  // length gate. A revert to `header === \`Bearer ${authToken}\`` keeps
+  // accept/reject behavior identical (functional tests still pass) but silently
+  // reintroduces the byte-by-byte timing side-channel; dropping the length gate
+  // makes timingSafeEqual throw RangeError (500 instead of 401) on a wrong-length
+  // token. Pin both properties, mirroring the token-registry sibling guard.
+  test('validateAuth uses constant-time comparison with a length gate', () => {
+    const authBlock = sliceBetween(SERVER_SRC, 'function validateAuth(req: Request): boolean {', '// Factory-scoped shutdown');
+    expect(authBlock).toContain('crypto.timingSafeEqual');
+    expect(authBlock).toContain('got.length === want.length');
+    // The null-header guard must remain (Buffer.from(null) would otherwise throw).
+    expect(authBlock).toContain('header === null');
+    // The raw === comparison of the header against the bearer string must be gone.
+    expect(authBlock).not.toContain('header === `Bearer ${authToken}`');
+  });
+
   // Test 2: /refs endpoint requires auth via validateAuth
   test('/refs endpoint requires authentication', () => {
     const refsBlock = sliceBetween(SERVER_SRC, "url.pathname === '/refs'", "url.pathname === '/activity/stream'");
@@ -391,5 +407,36 @@ describe('Server auth security', () => {
     // Must set HttpOnly session cookie
     expect(routeSrc).toContain('HttpOnly');
     expect(routeSrc).toContain('SameSite=Strict');
+  });
+});
+
+describe('Pair scope defaults and revocation surface', () => {
+  // Regression: the CLI only sent scopes when --restrict was passed, so the
+  // effective pairing default lived in two places (CLI omission + server
+  // fallback) and could silently drift. Both sides must reference the shared
+  // DEFAULT_PAIR_SCOPES constant, and the CLI must send scopes
+  // unconditionally (the old conditional-spread shape is banned).
+  test('/pair default and CLI pairing body share DEFAULT_PAIR_SCOPES', () => {
+    const pairBlock = sliceBetween(SERVER_SRC, "url.pathname === '/pair'", "url.pathname === '/tunnel/start'");
+    expect(pairBlock).toContain('DEFAULT_PAIR_SCOPES');
+    const cliBlock = sliceBetween(CLI_SRC, 'async function handlePairAgent', 'Determine the URL to use');
+    // Match the CODE shape, not a comment: a bare toContain('DEFAULT_PAIR_SCOPES')
+    // is satisfied by the explanatory comment and passes vacuously on a revert.
+    expect(cliBlock).toMatch(/scopes:\s*restrict\s*\?[\s\S]{0,200}?:\s*\[\.\.\.DEFAULT_PAIR_SCOPES\]/);
+    expect(cliBlock).not.toMatch(/\.\.\.\(restrict\s*\?/);
+  });
+
+  // control is the only scope behind an explicit flag; a scopes list must
+  // not be able to smuggle it into a pairing grant.
+  test('/pair rejects control inside a scopes list without the control flag', () => {
+    const pairBlock = sliceBetween(SERVER_SRC, "url.pathname === '/pair'", "url.pathname === '/tunnel/start'");
+    expect(pairBlock).toContain("pairBody.scopes.includes('control')");
+  });
+
+  // CLI-encoded clientIds (spaces, UTF-8) must round-trip through the revoke
+  // route; slicing the raw pathname 404s on every encoded name.
+  test('DELETE /token decodes the clientId path segment', () => {
+    const revokeBlock = sliceBetween(SERVER_SRC, "url.pathname.startsWith('/token/')", "url.pathname === '/agents'");
+    expect(revokeBlock).toContain('decodeURIComponent');
   });
 });

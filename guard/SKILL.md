@@ -80,7 +80,7 @@ echo "Freeze boundary set: $FREEZE_DIR"
 
 Tell the user:
 - "**Guard mode active.** Two protections are now running:"
-- "1. **Destructive command warnings** — rm -rf, DROP TABLE, force-push, etc. will warn before executing (you can override)"
+- "1. **Destructive command guard** — rm -rf, DROP TABLE, force-push, etc. warn before executing (overridable); catastrophic shapes (recursive delete of / or ~, force-push to the default branch) are hard-denied"
 - "2. **Edit boundary** — file edits restricted to `<path>/`. Edits outside this directory are blocked."
 - "To remove the edit boundary, run `/unfreeze`. To deactivate everything, end the session."
 

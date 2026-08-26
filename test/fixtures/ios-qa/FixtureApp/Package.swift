@@ -32,7 +32,17 @@ let package = Package(
             dependencies: [],
             path: "Sources/DebugBridgeTouch",
             publicHeadersPath: "include",
+            cSettings: [
+                // Explicit, because the source guard depends on it. SwiftPM's
+                // implicit DEBUG for C-family targets is not something to bet a
+                // private-API exposure on — the two Swift targets already declare
+                // it, and this target is the one that actually links private API.
+                .define("DEBUG", .when(configuration: .debug)),
+            ],
             linkerSettings: [
+                // IOKit is loaded dynamically via dlopen at runtime (it's a
+                // private framework on iOS and can't be linked statically).
+                // UIKit links normally.
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),
             ]
         ),

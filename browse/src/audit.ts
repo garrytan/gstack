@@ -13,7 +13,7 @@
  * All writes are best-effort — audit failures never cause command failures.
  */
 
-import * as fs from 'fs';
+import { appendSecureFile } from './file-permissions';
 
 export interface AuditEntry {
   ts: string;
@@ -62,7 +62,7 @@ export function writeAuditEntry(entry: AuditEntry): void {
     if (entry.aliasOf) record.aliasOf = entry.aliasOf;
     if (truncatedError) record.error = truncatedError;
 
-    fs.appendFileSync(auditPath, JSON.stringify(record) + '\n');
+    appendSecureFile(auditPath, JSON.stringify(record) + '\n');
   } catch {
     // Audit write failures are silent — never block command execution
   }

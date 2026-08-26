@@ -88,3 +88,20 @@ describe('gstack-config explain_level', () => {
     expect(run('get', 'explain_level').stdout).toBe('default');
   });
 });
+
+describe('gstack-config values with spaces', () => {
+  test('workspace_root preserves internal spaces on set/get/list', () => {
+    const value = path.join(os.tmpdir(), 'Conductor Workspaces');
+    expect(run('set', 'workspace_root', value).status).toBe(0);
+
+    expect(run('get', 'workspace_root').stdout).toBe(value);
+
+    const listed = run('list');
+    expect(listed.status).toBe(0);
+    expect(
+      listed.stdout
+        .split('\n')
+        .some((line) => line.includes('workspace_root:') && line.includes(value) && line.includes('(set)')),
+    ).toBe(true);
+  });
+});

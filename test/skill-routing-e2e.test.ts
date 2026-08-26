@@ -4,6 +4,7 @@ import type { SkillTestResult } from './helpers/session-runner';
 import { EvalCollector } from './helpers/eval-store';
 import type { EvalTestEntry } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { extractSkillHead } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -59,10 +60,14 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 
 // --- Helper functions ---
 
-/** Copy all SKILL.md files for auto-discovery.
+/** Install SKILL.md fixtures for auto-discovery.
  *  Installs to project-level (.claude/skills/) only. Writing to the user's
  *  ~/.claude/skills/ is unsafe: it may contain symlinks from the real gstack
- *  install that point to different worktrees or dangling targets. */
+ *  install that point to different worktrees or dangling targets.
+ *
+ *  ROUTING tests only read each skill's frontmatter (name + description) to
+ *  pick a skill, so install frontmatter + the first ~30 body lines instead
+ *  of ~20 full 1000-1900-line files (CLAUDE.md: "extract, don't copy"). */
 function installSkills(tmpDir: string) {
   const skillDirs = [
     '', // root gstack SKILL.md
@@ -81,7 +86,7 @@ function installSkills(tmpDir: string) {
     const skillName = skill || 'gstack';
     const destDir = path.join(targetBase, skillName);
     fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(srcPath, path.join(destDir, 'SKILL.md'));
+    fs.writeFileSync(path.join(destDir, 'SKILL.md'), extractSkillHead(srcPath));
   }
 
   // Write a CLAUDE.md with explicit routing instructions.

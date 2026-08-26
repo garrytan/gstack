@@ -56,6 +56,34 @@ describe("smartypants", () => {
     expect(out).toContain("\u201cdetails\u201d");
   });
 
+  // A URL flush against a following tag (no whitespace between) used to let
+  // URL_RE's \S+ swallow the placeholder standing in for that tag. The
+  // placeholder never restored, so the tag vanished and its styling bled
+  // into the rest of the document. The test above misses this because its
+  // URL is followed by a space.
+  test("does not leak placeholders for a bare autolinked URL", () => {
+    const input = `<p>see <a href="https://ex.com">https://ex.com</a> ok</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain("</a>");
+    expect(out).toBe(input);
+  });
+
+  test("does not leak placeholders for a bold URL", () => {
+    const input = `<p>see <strong><a href="https://ex.com">https://ex.com</a></strong> ok</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain("</a></strong>");
+    expect(out).toBe(input);
+  });
+
+  test("does not leak placeholders when a URL is followed by punctuation", () => {
+    const input = `<p>see <a href="https://ex.com">https://ex.com</a>, ok</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain("</a>");
+  });
+
   test("does NOT touch HTML attribute values", () => {
     const out = smartypants(`<a href="it's-a-test.html">link</a>`);
     expect(out).toContain(`href="it's-a-test.html"`);
@@ -248,6 +276,48 @@ describe("render (end-to-end)", () => {
     const result = render({ markdown: `body` });
     expect(result.printCss).toContain("Hiragino Kaku Gothic");
     expect(result.printCss).toContain("Noto Sans CJK");
+  });
+
+  // ─── blank-first-page regression (#1904) ────────────────────────
+  // Any content before the first <h1> used to become a standalone preamble
+  // .chapter. That section takes the `:first-of-type { break-before: auto }`
+  // exception, so the first real chapter inherits `break-before: page` and
+  // starts on page 2 — leaving a blank/near-blank page 1.
+
+  test("a leading <style> preamble does not get its own chapter (no blank page 1)", () => {
+    const result = render({ markdown: `<style>h1{color:#000}</style>\n\n# Hello\n\nBody.\n` });
+    const chapters = result.html.match(/class="chapter"/g) ?? [];
+    // One chapter, not two — the invisible <style> no longer forces a page break.
+    expect(chapters.length).toBe(1);
+    // ...and the style is preserved (folded into the first chapter, not dropped).
+    expect(result.html).toContain("<style>h1{color:#000}</style>");
+    expect(result.html).toMatch(/<section class="chapter"><style>[\s\S]*?<\/style>[\s\S]*?<h1/);
+  });
+
+  test("leading YAML frontmatter is stripped, not rendered as body text", () => {
+    const result = render({
+      markdown: `---\ntitle: My Doc\ntype: memo\ntags: [a, b]\n---\n\n# Hello\n\nBody.\n`,
+    });
+    // Frontmatter keys must not leak into the rendered body.
+    expect(result.html).not.toContain("type: memo");
+    expect(result.html).not.toContain("tags: [a, b]");
+    // No preamble chapter -> single chapter, first H1 on page 1.
+    const chapters = result.html.match(/class="chapter"/g) ?? [];
+    expect(chapters.length).toBe(1);
+    expect(result.meta.title).toBe("Hello");
+  });
+
+  test("a real text preamble still gets its own chapter (unchanged behavior)", () => {
+    const result = render({ markdown: `Intro paragraph.\n\n# Hello\n\nBody.\n` });
+    const chapters = result.html.match(/class="chapter"/g) ?? [];
+    expect(chapters.length).toBe(2);
+  });
+
+  test("a `---` thematic break that is not frontmatter is left intact", () => {
+    // Opening with visible text means the later `---` is a real <hr>, not frontmatter.
+    const result = render({ markdown: `# Hello\n\nBefore.\n\n---\n\nAfter.\n` });
+    expect(result.html).toContain("<hr>");
+    expect(result.html).toContain("After.");
   });
 });
 

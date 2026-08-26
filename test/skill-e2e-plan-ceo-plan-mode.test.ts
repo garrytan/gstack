@@ -33,14 +33,14 @@
  * See test/helpers/claude-pty-runner.ts for runner internals.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
   assertReportAtBottomIfPlanWritten,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 
 describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
   test('first terminal outcome is asked (Step 0 fires before any plan write)', async () => {

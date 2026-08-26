@@ -65,7 +65,7 @@ export async function evolve(options: EvolveOptions): Promise<void> {
       body: JSON.stringify({
         model: "gpt-4o",
         input: evolvedPrompt,
-        tools: [{ type: "image_generation", model: "gpt-image-2", size: "1536x1024", quality: "high" }],
+        tools: [{ type: "image_generation", size: "1536x1024", quality: "high" }],
       }),
       signal: controller.signal,
     });

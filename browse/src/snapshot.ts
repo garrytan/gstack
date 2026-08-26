@@ -353,6 +353,19 @@ export async function handleSnapshot(
 
   const snapshotText = output.join('\n');
 
+  // `-o` only means something to the two modes that PRODUCE an image. Passed
+  // alone it used to be silently ignored: exit 0, no file, no explanation —
+  // which reads as "the screenshot feature is broken" rather than "you forgot a
+  // flag", and cost a real debugging session before anyone noticed. Kept as a
+  // variable so the diff-mode returns below (which bypass `output`) can carry
+  // it too — diff mode must not regress to the silent-ignore behavior.
+  const outputIgnoredWarning = (opts.outputPath && !opts.annotate && !opts.heatmap)
+    ? `[warning] -o/--output was ignored: it names the output file for an annotated (-a/--annotate) or heatmap (-H/--heatmap) screenshot. For a plain screenshot use: browse screenshot ${opts.outputPath}`
+    : '';
+  if (outputIgnoredWarning) {
+    output.push(outputIgnoredWarning);
+  }
+
   // ─── Annotated screenshot (-a) ────────────────────────────
   if (opts.annotate) {
     const screenshotPath = opts.outputPath || `${TEMP_DIR}/browse-annotated.png`;
@@ -387,15 +400,48 @@ export async function handleSnapshot(
     try {
       // Inject overlay divs at each ref's bounding box
       const boxes: Array<{ ref: string; box: { x: number; y: number; width: number; height: number } }> = [];
+      const ambiguousRefs: string[] = [];
+      const skippedRefs: string[] = [];
       for (const [ref, entry] of refMap) {
         try {
-          const box = await entry.locator.boundingBox({ timeout: 1000 });
+          // A ref's locator can resolve to MORE than one element, and Playwright
+          // strict mode throws on that. It happens whenever a node has no
+          // accessible name: the locator degrades to `getByRole(role)` with no
+          // name filter, and the `.nth()` disambiguation above cannot help
+          // because its count comes from the FILTERED aria snapshot while
+          // getByRole matches the unfiltered DOM. Measured on a real page: the
+          // tree surfaced 2 unnamed paragraphs, the DOM had 9. Landmarks
+          // (banner/main/contentinfo) and paragraphs are correctly unnamed per
+          // ARIA, so this is the common case, not an edge.
+          //
+          // The exact nth-resolved locator stays the primary path; `.first()`
+          // is the AMBIGUITY FALLBACK only, and every fallback use is counted
+          // so first-match annotation is never silent. Before this, ONE such
+          // ref aborted the entire annotated screenshot (see the catch below) —
+          // which silently cost /qa, /canary and /land-and-deploy the
+          // screenshots their reports reference.
+          let locator = entry.locator;
+          const matchCount = await locator.count();
+          if (matchCount > 1) {
+            ambiguousRefs.push(`@${ref}`);
+            locator = locator.first();
+          }
+          const box = await locator.boundingBox({ timeout: 1000 });
           if (box) {
             boxes.push({ ref: `@${ref}`, box });
+          } else {
+            skippedRefs.push(`@${ref}`);
           }
         } catch (err: any) {
-          // Element may be offscreen, hidden, or page navigated — skip
-          if (!err?.message?.includes('Timeout') && !err?.message?.includes('timeout') && !err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context')) throw err;
+          // Element may be offscreen, hidden, or page navigated — skip.
+          //
+          // The allowlist is deliberately not exhaustive-by-message any more: a
+          // box we cannot measure is a box we do not draw, never a reason to
+          // lose every other annotation on the page. The heatmap path below has
+          // always used a bare `catch {}` for exactly this reason; annotate was
+          // the only path that could be killed by a single unmeasurable ref.
+          skippedRefs.push(`@${ref}`);
+          if (process.env.BROWSE_DEBUG) console.error(`[annotate] skipped @${ref}: ${err?.message?.split('\n')[0]}`);
         }
       }
 
@@ -428,6 +474,15 @@ export async function handleSnapshot(
 
       output.push('');
       output.push(`[annotated screenshot: ${screenshotPath}]`);
+      // Ambiguity and skips are visible, not buried behind BROWSE_DEBUG: a
+      // first-match box or a missing box changes what the screenshot claims.
+      if (ambiguousRefs.length || skippedRefs.length) {
+        const cap = (arr: string[]) => arr.slice(0, 8).join(', ') + (arr.length > 8 ? `, +${arr.length - 8} more` : '');
+        const parts: string[] = [];
+        if (ambiguousRefs.length) parts.push(`${ambiguousRefs.length} ambiguous (first-match): ${cap(ambiguousRefs)}`);
+        if (skippedRefs.length) parts.push(`${skippedRefs.length} skipped: ${cap(skippedRefs)}`);
+        output.push(`[annotated: ${parts.join(' | ')}]`);
+      }
     } catch (err: any) {
       // Remove overlays even on screenshot failure — but only swallow page/browser errors
       if (!err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context') && !err?.message?.includes('screenshot')) throw err;
@@ -565,7 +620,8 @@ export async function handleSnapshot(
     const lastSnapshot = session.getLastSnapshot();
     if (!lastSnapshot) {
       session.setLastSnapshot(snapshotText);
-      return snapshotText + '\n\n(no previous snapshot to diff against — this snapshot stored as baseline)';
+      return snapshotText + '\n\n(no previous snapshot to diff against — this snapshot stored as baseline)'
+        + (outputIgnoredWarning ? '\n' + outputIgnoredWarning : '');
     }
 
     const changes = Diff.diffLines(lastSnapshot, snapshotText);
@@ -580,7 +636,8 @@ export async function handleSnapshot(
     }
 
     session.setLastSnapshot(snapshotText);
-    return stripLoneSurrogates(diffOutput.join('\n'));
+    return stripLoneSurrogates(diffOutput.join('\n')
+      + (outputIgnoredWarning ? '\n' + outputIgnoredWarning : ''));
   }
 
   // Store for future diffs

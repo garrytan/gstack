@@ -14,8 +14,9 @@
  *   - host is ALWAYS derived from the active tab's top-level origin (T3
  *     confused-deputy fix). Never accepted as an arg.
  *   - Save-time security uses content-security.ts L1-L3 filters (importable
- *     from the compiled binary, unlike the L4 ML classifier). The full L4
- *     scan happens in sidebar-agent.ts when the skill is loaded into a prompt.
+ *     from the compiled binary, unlike the L4 ML classifier). There is NO
+ *     load-time L4 scan today — it died with the chat path; the
+ *     classifier_score>0 promotion gate in domain-skills.ts compensates.
  *   - Output is structured: every success/error includes problem + cause +
  *     suggested-action. Matches the gstack house style.
  *
@@ -117,8 +118,8 @@ async function handleSave(args: string[], bm: BrowserManager): Promise<string> {
     );
   }
   // L1-L3 content filters (datamarking, hidden-element strip, ARIA regex,
-  // URL blocklist). The full L4 ML classifier runs at sidebar-agent prompt
-  // injection time, not here (CLAUDE.md: classifier can't import in compiled binary).
+  // URL blocklist). No L4 ML scan here — the classifier can't import in the
+  // compiled binary, and the load-time scan path no longer exists.
   const filterResult = runContentFilters(body, page.url(), 'domain-skill-save');
   if (filterResult.blocked) {
     logTelemetry({ event: 'domain_skill_save_blocked', host, reason: filterResult.message });
@@ -128,9 +129,9 @@ async function handleSave(args: string[], bm: BrowserManager): Promise<string> {
         'Action: review the body for suspicious instruction-like content; rewrite and retry.'
     );
   }
-  // L1-L3 score is binary (passed or not). For the L4 score field we leave 0
-  // (meaning "not yet scanned by ML classifier") — sidebar-agent fills this
-  // in on first prompt-injection load.
+  // L1-L3 score is binary (passed or not). The L4 score field stays 0
+  // ("never ML-scanned") — nothing fills it in today, which is exactly why
+  // the promotion gate in domain-skills.ts requires classifier_score > 0.
   const slug = getCurrentProjectSlug();
   const row = await writeSkill({
     host,

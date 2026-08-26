@@ -22,6 +22,7 @@ import {
   writeSecureFile,
   appendSecureFile,
   mkdirSecure,
+  repairBrokenDacl,
   __resetWarnedForTests,
 } from '../src/file-permissions';
 
@@ -76,6 +77,26 @@ describe('restrictDirectoryPermissions', () => {
     const d = path.join(tmpDir, 'subdir');
     fs.mkdirSync(d);
     expect(() => restrictDirectoryPermissions(d)).not.toThrow();
+  });
+
+  test('on Windows, the directory stays usable by the calling process', () => {
+    if (process.platform !== 'win32') return;
+    const d = path.join(tmpDir, 'still-usable');
+    fs.mkdirSync(d);
+    fs.writeFileSync(path.join(d, 'before'), 'x');
+
+    restrictDirectoryPermissions(d);
+
+    // Regression: an unqualified username passed to icacls can resolve to
+    // the machine SID rather than the user account. Combined with
+    // /inheritance:r that leaves a directory whose only ACE matches nobody,
+    // so the process that just "secured" it can no longer enumerate or
+    // write to it. icacls still reports success, so a not-toThrow assertion
+    // sails straight past it — hence these access checks.
+    expect(() => fs.readdirSync(d)).not.toThrow();
+    expect(fs.readdirSync(d)).toContain('before');
+    expect(() => fs.writeFileSync(path.join(d, 'after'), 'y')).not.toThrow();
+    expect(fs.readFileSync(path.join(d, 'after'), 'utf8')).toBe('y');
   });
 });
 
@@ -138,11 +159,52 @@ describe('mkdirSecure', () => {
     expect(() => mkdirSecure(d)).not.toThrow();
   });
 
+  test('on Windows, the created directory stays usable by the caller', () => {
+    if (process.platform !== 'win32') return;
+    // The state-dir path that broke: mkdirSecure() creates .gstack/, hardens
+    // it, and the very next thing the daemon does is write a lockfile inside.
+    const d = path.join(tmpDir, 'state', '.gstack');
+    mkdirSecure(d);
+    expect(() => fs.writeFileSync(path.join(d, 'browse.json.lock'), '1')).not.toThrow();
+    expect(fs.readdirSync(d)).toContain('browse.json.lock');
+  });
+
   test('recursive behavior: creates intermediate directories', () => {
     const d = path.join(tmpDir, 'a', 'b', 'c');
     mkdirSecure(d);
     expect(fs.existsSync(path.join(tmpDir, 'a'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'a', 'b'))).toBe(true);
     expect(fs.existsSync(d)).toBe(true);
+  });
+
+  test('created directory is listable by the creating process', () => {
+    // #1605 contract: whatever ACL hardening happens, the client must be
+    // able to read its own state dir immediately after creation.
+    const d = path.join(tmpDir, 'state');
+    mkdirSecure(d);
+    fs.writeFileSync(path.join(d, 'browse.json'), '{}');
+    expect(fs.readdirSync(d)).toContain('browse.json');
+  });
+});
+
+describe('repairBrokenDacl', () => {
+  test('is a no-op on non-Windows platforms', () => {
+    if (process.platform === 'win32') return;
+    const d = path.join(tmpDir, 'dir');
+    fs.mkdirSync(d);
+    expect(() => repairBrokenDacl(d)).not.toThrow();
+  });
+
+  test('on Windows, does not throw and directory stays listable', () => {
+    if (process.platform !== 'win32') return;
+    const d = path.join(tmpDir, 'dir');
+    fs.mkdirSync(d);
+    expect(() => repairBrokenDacl(d)).not.toThrow();
+    expect(() => fs.readdirSync(d)).not.toThrow();
+  });
+
+  test('on Windows, swallows icacls failure on a nonexistent path', () => {
+    if (process.platform !== 'win32') return;
+    expect(() => repairBrokenDacl(path.join(tmpDir, 'nonexistent'))).not.toThrow();
   });
 });

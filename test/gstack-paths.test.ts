@@ -104,6 +104,57 @@ describe('gstack-paths', () => {
     expect(got).toHaveProperty('TMP_ROOT');
   });
 
+  // Regression: values must survive `eval "$(gstack-paths)"`, which is the
+  // documented calling convention. A bare `echo` emits an unquoted RHS, so eval
+  // re-parses it: backslashes become escapes and spaces become word separators.
+  // On Windows $TMP is always a backslash path, so every skill that then runs
+  // mktemp "$TMP_ROOT/..." fails and the bash block dies before doing any work.
+  // These run identically on POSIX — the values are just strings.
+  function evalRoundTrip(env: Record<string, string | undefined>, varName: string): string {
+    const result = spawnSync(
+      'bash',
+      ['-c', `eval "$(bash "$1")"; printf '%s' "\${${varName}}"`, 'sh', BIN],
+      {
+        env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
+        encoding: 'utf-8',
+      },
+    );
+    if (result.status !== 0) {
+      throw new Error(`eval round-trip failed (status ${result.status}): ${result.stderr}`);
+    }
+    return result.stdout;
+  }
+
+  // Values are POSIX-shaped on purpose: MSYS/Git Bash rewrites `C:\...` env
+  // values to `/c/...` before bash sees them, so a literal Windows path would
+  // assert the translation layer rather than the quoting. A backslash is a
+  // backslash to eval either way, which is the behavior under test.
+  test('eval round-trip preserves backslashes (#2374)', () => {
+    // Skip on Windows: MSYS also rewrites backslashes to forward slashes in
+    // env values, so a literal backslash cannot be injected through the
+    // environment on a Git Bash runner. The escape-eating this guards against
+    // is pure eval semantics, so exercising it on Linux/macOS CI is sufficient
+    // — same reasoning as the HOME-unset skips above.
+    if (process.platform === 'win32') return;
+    const backslashed = '/tmp/back\\slash/dir';
+    expect(evalRoundTrip({ TMPDIR: backslashed, HOME: '/h' }, 'TMP_ROOT')).toBe(backslashed);
+  });
+
+  test('eval round-trip preserves spaces (#2374)', () => {
+    // Bare echo made eval word-split this, leaving the variable empty and
+    // emitting `<second-word>: command not found`.
+    const spaced = '/tmp/two words/dir';
+    expect(evalRoundTrip({ TMPDIR: spaced, HOME: '/h' }, 'TMP_ROOT')).toBe(spaced);
+  });
+
+  test('eval round-trip preserves quotes, and leaves plain paths alone (#2374)', () => {
+    expect(evalRoundTrip({ TMPDIR: "/tmp/o'brien", HOME: '/h' }, 'TMP_ROOT')).toBe("/tmp/o'brien");
+    expect(evalRoundTrip({ GSTACK_HOME: '/tmp/state root' }, 'GSTACK_STATE_ROOT')).toBe(
+      '/tmp/state root',
+    );
+    expect(evalRoundTrip({ HOME: '/tmp/myhome' }, 'PLAN_ROOT')).toBe('/tmp/myhome/.claude/plans');
+  });
+
   test('output is shell-evalable: only KEY=VALUE lines, no extra prose', () => {
     const result = spawnSync('bash', [BIN], {
       env: { PATH: process.env.PATH, USERPROFILE: '', HOME: '/tmp/h' } as Record<string, string>,

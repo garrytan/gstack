@@ -1,15 +1,10 @@
-import type { HostConfig } from '../scripts/host-config';
+import { defineHost } from './define-host';
 
-const factory: HostConfig = {
+const factory = defineHost({
   name: 'factory',
   displayName: 'Factory Droid',
   cliCommand: 'droid',
   cliAliases: ['droid'],
-
-  globalRoot: '.factory/skills/gstack',
-  localSkillRoot: '.factory/skills/gstack',
-  hostSubdir: '.factory',
-  usesEnvVars: true,
 
   frontmatter: {
     mode: 'allowlist',
@@ -23,11 +18,9 @@ const factory: HostConfig = {
     ],
   },
 
-  generation: {
-    generateMetadata: false,
-    skipSkills: ['codex'],  // Codex skill is a Claude wrapper around codex exec
-  },
-
+  // Non-mechanical rewrites: the global path becomes $GSTACK_ROOT (resolved by
+  // the preamble env vars), plus an extra review-path rewrite the derived trio
+  // doesn't cover.
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
     { from: '.claude/skills/gstack', to: '.factory/skills/gstack' },
@@ -43,22 +36,8 @@ const factory: HostConfig = {
     'use the Glob tool': 'find files matching',
   },
 
-  suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
-
-  runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
-    globalFiles: {
-      'review': ['checklist.md', 'TODOS-format.md'],
-    },
-  },
-
-  install: {
-    prefixable: false,
-    linkingStrategy: 'symlink-generated',
-  },
-
   coAuthorTrailer: 'Co-Authored-By: Factory Droid <droid@users.noreply.github.com>',
   learningsMode: 'full',
-};
+});
 
 export default factory;
