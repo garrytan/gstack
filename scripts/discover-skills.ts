@@ -6,7 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SKIP = new Set(['node_modules', '.git', 'dist']);
+const SKIP = new Set(['node_modules', '.git', 'dist', 'claude', 'patches']);
 
 function subdirs(root: string): string[] {
   return fs.readdirSync(root, { withFileTypes: true })
