@@ -804,6 +804,8 @@ describeIfSelected('Other skill evals', [
     const result = await callJudge<{
       fallback_uses_local_history: boolean;
       fallback_uses_curated_gbrain: boolean;
+      project_memory_owns_deep_recall: boolean;
+      semantic_only_without_project_memory: boolean;
       fallback_menu_min: number;
       fallback_menu_max: number;
       fallback_stops_before_leaf: boolean;
@@ -816,14 +818,17 @@ describeIfSelected('Other skill evals', [
     }>(`You are testing whether an AI coding agent correctly understands a root workflow router.
 
 Read the instructions below, then simulate these cases:
-1. The request is ambiguous and local history is empty.
-2. The user says "choose for me".
-3. The user explicitly names gstack-ship.
+1. The request is ambiguous and project-memory-check is available.
+2. The request is ambiguous and project-memory-check is unavailable.
+3. The user says "choose for me".
+4. The user explicitly names gstack-ship.
 
 Return ONLY JSON with the exact keys shown. Report what the instructions require, not what you personally prefer.
 {
   "fallback_uses_local_history": true|false,
   "fallback_uses_curated_gbrain": true|false,
+  "project_memory_owns_deep_recall": true|false,
+  "semantic_only_without_project_memory": true|false,
   "fallback_menu_min": number,
   "fallback_menu_max": number,
   "fallback_stops_before_leaf": true|false,
@@ -840,6 +845,8 @@ ${section}`);
 
     const passed = result.fallback_uses_local_history
       && result.fallback_uses_curated_gbrain
+      && result.project_memory_owns_deep_recall
+      && result.semantic_only_without_project_memory
       && result.fallback_menu_min === 2
       && result.fallback_menu_max === 4
       && result.fallback_stops_before_leaf

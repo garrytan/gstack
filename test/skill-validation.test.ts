@@ -49,9 +49,10 @@ describe('SKILL.md command validation', () => {
       expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
       expect(md).toContain('project-memory-check');
       expect(md).toContain('gstack-decision-search');
-      expect(md).toContain('optional GBrain recall');
+      expect(md).toContain('owns GBrain recall');
       expect(md).toContain('Never interpolate the raw request');
       expect(md).toContain('curated-memory source');
+      expect(md).toContain('at most one GBrain lookup');
       expect(md).toContain('two to four materially relevant gstack workflows');
       expect(md).toContain('Ask the user to choose, then');
       expect(md).toContain('An explicitly named subskill also bypasses this guided entry');
