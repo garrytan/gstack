@@ -170,14 +170,26 @@ function readCalls(file: string): string[] {
   return fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
 }
 
+function hermeticGitEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key === 'GIT_CONFIG' || key === 'GIT_CONFIG_PARAMETERS' || key.startsWith('GIT_CONFIG_')) {
+      delete env[key];
+    }
+  }
+  return {
+    ...env,
+    HOME: tmpHome,
+    XDG_CONFIG_HOME: path.join(tmpHome, '.config'),
+    GIT_CONFIG_GLOBAL: path.join(tmpHome, '.gitconfig'),
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+}
+
 function readStoredOriginUrl(): string {
   const remote = spawnSync('git', ['-C', tmpHome, 'config', '--get', 'remote.origin.url'], {
     encoding: 'utf-8',
-    env: {
-      ...process.env,
-      HOME: tmpHome,
-      XDG_CONFIG_HOME: path.join(tmpHome, '.config'),
-    },
+    env: hermeticGitEnv(),
   });
   expect(remote.status).toBe(0);
   return remote.stdout.trim();
@@ -317,11 +329,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
 
     const resolved = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], {
       encoding: 'utf-8',
-      env: {
-        ...process.env,
-        HOME: tmpHome,
-        XDG_CONFIG_HOME: path.join(tmpHome, '.config'),
-      },
+      env: hermeticGitEnv(),
     });
     expect(resolved.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser.git');
     expect(readStoredOriginUrl()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
@@ -392,8 +400,7 @@ describe('gstack-artifacts-init idempotency', () => {
     makeFakeGh({ gitProtocol: 'ssh' });
     const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
-    expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+    expect(readStoredOriginUrl()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
   test('--push-protocol overrides the inferred protocol', () => {

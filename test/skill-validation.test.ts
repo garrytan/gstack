@@ -47,10 +47,11 @@ describe('SKILL.md command validation', () => {
     for (const md of [template, rendered]) {
       expect(md).toContain('## Guided root entry');
       expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
-      expect(md).toContain('If a `gstack-compass` skill is available');
       expect(md).toContain('project-memory-check');
       expect(md).toContain('gstack-decision-search');
-      expect(md).toContain('gbrain query');
+      expect(md).toContain('optional GBrain recall');
+      expect(md).toContain('Never interpolate the raw request');
+      expect(md).toContain('curated-memory source');
       expect(md).toContain('two to four materially relevant gstack workflows');
       expect(md).toContain('Ask the user to choose, then');
       expect(md).toContain('An explicitly named subskill also bypasses this guided entry');
