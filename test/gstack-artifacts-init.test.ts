@@ -170,6 +170,19 @@ function readCalls(file: string): string[] {
   return fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
 }
 
+function readStoredOriginUrl(): string {
+  const remote = spawnSync('git', ['-C', tmpHome, 'config', '--get', 'remote.origin.url'], {
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      HOME: tmpHome,
+      XDG_CONFIG_HOME: path.join(tmpHome, '.config'),
+    },
+  });
+  expect(remote.status).toBe(0);
+  return remote.stdout.trim();
+}
+
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'artifacts-init-'));
   bareRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'artifacts-bare-'));
@@ -277,8 +290,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGh({ webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
-    expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+    expect(readStoredOriginUrl()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
   test('configures git origin with SSH when gh git_protocol is ssh', () => {
@@ -288,24 +300,45 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
-    expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+    expect(readStoredOriginUrl()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+  });
+
+  test('SSH origin assertion ignores developer url.insteadOf rewrites', () => {
+    fs.writeFileSync(
+      path.join(tmpHome, '.gitconfig'),
+      '[url "https://github.com/"]\n\tinsteadOf = git@github.com:\n',
+    );
+    makeFakeGh({
+      webUrl: 'https://github.com/testuser/gstack-artifacts-testuser',
+      gitProtocol: 'ssh',
+    });
+    const r = run(['--host', 'github']);
+    expect(r.status).toBe(0);
+
+    const resolved = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        HOME: tmpHome,
+        XDG_CONFIG_HOME: path.join(tmpHome, '.config'),
+      },
+    });
+    expect(resolved.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser.git');
+    expect(readStoredOriginUrl()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
   });
 
   test('defaults provider-created remotes to HTTPS when git_protocol is unset', () => {
     makeFakeGh({ gitProtocol: 'unset' });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
-    expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+    expect(readStoredOriginUrl()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
   test('honors glab git_protocol when configured', () => {
     makeFakeGlab({ gitProtocol: 'ssh' });
     const r = run(['--host', 'gitlab']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
-    expect(remote.stdout.trim()).toBe('git@gitlab.com:testuser/gstack-artifacts-testuser.git');
+    expect(readStoredOriginUrl()).toBe('git@gitlab.com:testuser/gstack-artifacts-testuser.git');
   });
 });
 
@@ -372,8 +405,7 @@ describe('gstack-artifacts-init idempotency', () => {
       'ssh',
     ]);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
-    expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+    expect(readStoredOriginUrl()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
   });
 
   test('rejects an invalid --push-protocol value', () => {
