@@ -40,6 +40,23 @@ describe('SKILL.md command validation', () => {
     expect(result.valid.length).toBe(0); // and no browse commands at all — it routes, not browses
   });
 
+  test('top-level router gates ambiguous requests through history-aware guided choice', () => {
+    const template = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
+    const rendered = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+
+    for (const md of [template, rendered]) {
+      expect(md).toContain('## Guided root entry');
+      expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
+      expect(md).toContain('If a `gstack-compass` skill is available');
+      expect(md).toContain('project-memory-check');
+      expect(md).toContain('gstack-decision-search');
+      expect(md).toContain('gbrain query');
+      expect(md).toContain('two to four materially relevant gstack workflows');
+      expect(md).toContain('Ask the user to choose, then');
+      expect(md).toContain('An explicitly named subskill also bypasses this guided entry');
+    }
+  });
+
   test('all $B commands in browse/SKILL.md are valid browse commands', () => {
     const result = validateSkill(path.join(ROOT, 'browse', 'SKILL.md'));
     expect(result.invalid).toHaveLength(0);
