@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.70.2.0] - 2026-08-26
+
+### `/deck`: product-first interactive web decks
+
+Adds a stack-neutral workflow for seriously adding or redesigning an existing
+site's interactive deck. It inspects the product, audience, evidence, routing,
+design system, hosting/IaC, and analytics before bounded intake; then requires
+an audience-specific story, sourced claims, accessible deep links, responsive
+browser QA, privacy-safe evidence handling, and explicit release confirmation.
+
 ## [1.69.0.0] - 2026-08-22
 
 **The silent-failure wave: tools that reported success while doing nothing —**
@@ -1044,14 +1054,6 @@ migration needed.
 - docs/ADDING_A_HOST.md teaches the defineHost pattern.
 
 ## [1.64.0.0] - 2026-08-14
-
-### `/deck`: product-first interactive web decks
-
-Adds a stack-neutral workflow for seriously adding or redesigning an existing
-site's interactive deck. It inspects the product, audience, evidence, routing,
-design system, hosting/IaC, and analytics before bounded intake; then requires
-an audience-specific story, sourced claims, accessible deep links, responsive
-browser QA, privacy-safe evidence handling, and explicit release confirmation.
 
 **Ninety fixes in one wave. Every guard that said it was protecting you now actually does.**
 
