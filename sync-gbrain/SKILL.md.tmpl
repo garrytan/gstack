@@ -96,9 +96,10 @@ echo "BRAIN_TRUST_POLICY[$_HASH]: $_POLICY"
 ```
 
 If `_POLICY == "unset"` AND `_HASH != "local"`, AskUserQuestion per the
-Step 9.5 wording in `/setup-gbrain` (personal vs shared, with persistence
-to `brain_trust_policy@<hash>` and conditional `artifacts_sync_mode=full`
-flip for personal). Then continue.
+Step 9.5 wording in `/setup-gbrain` (personal vs shared contributor vs
+shared read-only, with persistence to `brain_trust_policy@<hash>` and a
+conditional `artifacts_sync_mode=full` flip for personal or
+`artifacts_sync_mode=artifacts-only` for shared contributors). Then continue.
 
 If `_POLICY == "unset"` AND `_HASH == "local"`, auto-set personal:
 

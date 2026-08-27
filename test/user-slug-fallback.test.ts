@@ -140,6 +140,12 @@ describe('brain_trust_policy@<endpoint-id> namespace', () => {
     expect(getResult.stdout).toBe('shared');
   });
 
+  test('shared-contributor value accepted', () => {
+    runConfig(['set', 'brain_trust_policy@deadbeef', 'shared-contributor'], { GSTACK_HOME: TMP_HOME });
+    const getResult = runConfig(['get', 'brain_trust_policy@deadbeef'], { GSTACK_HOME: TMP_HOME });
+    expect(getResult.stdout).toBe('shared-contributor');
+  });
+
   test('per-endpoint policies dont collide', () => {
     runConfig(['set', 'brain_trust_policy@aaaaaaaa', 'personal'], { GSTACK_HOME: TMP_HOME });
     runConfig(['set', 'brain_trust_policy@bbbbbbbb', 'shared'], { GSTACK_HOME: TMP_HOME });

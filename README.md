@@ -62,6 +62,12 @@ No vendored files in your repo, no version drift, no manual upgrades. Every Clau
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
+To make those teammates contribute to one shared GBrain as well, connect each
+computer with `/setup-gbrain` and choose **Shared contributor**. This is a
+separate explicit opt-in; team mode never grants brain write access by itself.
+Use one private team artifacts repository and configure the shared brain service
+to index it after pushes. See [Shared team contribution](docs/gbrain-sync.md#shared-team-contribution).
+
 ### OpenClaw
 
 OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works

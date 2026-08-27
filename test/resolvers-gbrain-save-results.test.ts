@@ -64,6 +64,8 @@ describe('generateGBrainSaveResults — wiring + compression pin', () => {
 
       // Compact: points to docs/gbrain-write-surfaces.md for full template.
       expect(out).toContain('docs/gbrain-write-surfaces.md');
+      expect(out).toContain('shared-contributor');
+      expect(out).toContain('shared` asks');
     },
   );
 

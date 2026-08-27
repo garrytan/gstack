@@ -52,6 +52,8 @@ describe('Phase 2 write-back fence-block fallback', () => {
       const out = generateBrainWriteBack(buildCtx(skill));
       expect(out).toContain('personal');
       expect(out).toContain('brain_trust_policy');
+      expect(out).toContain('shared-contributor');
+      expect(out).toContain('skip calibration write-back');
     }
   });
 

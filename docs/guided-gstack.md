@@ -118,6 +118,24 @@ rebuild the snapshot or write into GBrain.
 GBrain is optional. If it is unavailable, unhealthy, unconfigured, empty, or
 slow, the router falls back to local decisions and continues.
 
+## 5. Let teammates contribute to one brain
+
+Team mode and team memory are separate opt-ins. `./setup --team` distributes
+and updates GStack; `/setup-gbrain` connects each teammate to memory.
+
+For a shared team brain, give each teammate an individual authenticated account,
+use one private shared artifacts repository, and have them choose **Shared
+contributor** during `/setup-gbrain`. That mode automatically contributes
+attributed, curated skill outputs and allowlisted artifacts while leaving
+personal calibration data local. A five-minute pull throttle makes another
+computer's Git-backed contributions visible promptly.
+
+The shared GBrain service must also index the artifacts repository after pushes,
+using its own webhook or short pull schedule. Without that server-side advance,
+the Git repository is current but semantic search can remain stale. See
+[Shared team contribution](gbrain-sync.md#shared-team-contribution) for the
+full setup and privacy boundaries.
+
 ## Privacy boundaries
 
 - The root preamble never loads or prints private project learnings.

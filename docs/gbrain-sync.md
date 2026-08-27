@@ -84,6 +84,30 @@ On machine B:
 4. Next skill: your yesterday-on-machine-A learning surfaces. That's the
    magical moment.
 
+## Shared team contribution
+
+A team brain requires an explicit contributor setup; installing GStack alone
+never grants write access.
+
+1. The brain owner provides one remote GBrain endpoint and grants each teammate
+   their own authenticated identity with write permission.
+2. The team uses one private artifacts repository. Do not reuse a founder's
+   personal artifacts repository and do not commit bearer tokens or database
+   credentials to the project.
+3. On each teammate's computer, run `/setup-gbrain`, choose **Shared
+   contributor**, and connect or restore the shared artifacts repository.
+   GStack defaults this mode to `artifacts-only`; raw behavioral timelines and
+   developer profiles stay local unless that teammate separately opts into
+   `full`.
+4. Configure the shared GBrain service to index the artifacts repository after
+   pushes (a webhook or a short server-side pull schedule). Direct skill-result
+   writes land through `gbrain put`; Git-synced artifacts become searchable when
+   the server advances that source.
+
+Every contributing computer pushes at skill boundaries using the existing
+secret scan, egress receipt, merge drivers, and retry-on-divergence path. Shared
+read-only remains the default for teammates who have not explicitly opted in.
+
 ## Status, health, and queue depth
 
 ```bash
@@ -162,9 +186,10 @@ like two machines editing the same plan), git will stop and prompt.
 
 ## Cross-machine pull cadence
 
-The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours
-(cached via `~/.gstack/.brain-last-pull`). You don't need to think about
-this — it happens automatically at the first skill invocation each day.
+The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours for
+personal brains (cached via `~/.gstack/.brain-last-pull`). Shared contributors
+use a five-minute throttle so work from another computer appears promptly
+without adding a network fetch to every skill invocation.
 
 Historical note (#2516): that daily pull refreshed only `~/.gstack` itself —
 NOT the detached worktree at `~/.gstack-brain-worktree` that gbrain actually

@@ -23,11 +23,12 @@ configured in `~/.gbrain/config.json`. Documented at
 same contract as load-bearing for artifact `put` semantics. If a user
 reports writes landing in the wrong source, look here first.
 
-Trust policy (`personal` vs `shared`, per endpoint hash) gates auto-push
-and writeback. Set via `gstack-config set
-brain_trust_policy@<endpoint-hash> personal`. Local PGLite installs
-auto-default to `personal`; remote-MCP installs prompt during
-`/setup-gbrain` step 9.5.
+Trust policy (`personal`, `shared-contributor`, or `shared`, per endpoint
+hash) gates auto-push and writeback. Local PGLite installs auto-default to
+`personal`; remote-MCP installs prompt during `/setup-gbrain` step 9.5.
+`shared` is read-only by default. `shared-contributor` is the explicit team
+opt-in: curated skill outputs and allowlisted artifacts can write
+automatically, but personal calibration takes remain excluded.
 
 ## §Context Load (agent reads this when running a planning skill)
 
@@ -51,6 +52,14 @@ flake, throttle), treat as transient: proceed without brain context. Do
 not retry inline — the user can re-run the skill later.
 
 ## §Save Template (agent reads this when actually saving)
+
+First resolve `brain_trust_policy@<endpoint-hash>` with `gstack-config`.
+`personal` writes use the normal slug. `shared-contributor` writes use
+`contributors/<user-slug>/<normal-slug>` and add
+`contributor: <user-slug>` to frontmatter. This preserves attribution and
+prevents teammates choosing the same feature slug from overwriting each other.
+Plain `shared` requires explicit approval immediately before each write;
+`unset` does not write and routes back to `/setup-gbrain`.
 
 After completing the skill, save the output. The compact resolver block
 already shows the slug prefix + title + tag for your specific skill (e.g.
@@ -181,10 +190,10 @@ If you're on Supabase or thin-client MCP and writes aren't landing:
 1. `gbrain doctor --fast --json` — engine health check. If anything
    reports `error`, fix that first.
 2. `gstack-config get brain_trust_policy@<endpoint-hash>` must be
-   `personal` for auto-write. Run `gstack-config endpoint-hash` to get
-   the active hash. If `shared`, the agent prompts before writes — if
-   you declined, re-run the skill.
-3. If trust policy is `personal` and `gbrain doctor` is clean but the
+   `personal` or `shared-contributor` for auto-write. Run
+   `gstack-config endpoint-hash` to get the active hash. If `shared`, the
+   agent prompts before writes; if `unset`, run `/setup-gbrain`.
+3. If trust policy permits writes and `gbrain doctor` is clean but the
    page still isn't there, file an issue against gbrain — gstack's
    CLI call shape is the same as what T11 (`gbrain-roundtrip-local`)
    exercises.
@@ -198,6 +207,8 @@ If you're on Supabase or thin-client MCP and writes aren't landing:
   doc against `/office-hours` and confirm `gbrain takes_list` surfaces a
   `kind=bet` entry with the expected weight (0.9 for office-hours, per
   `scripts/brain-cache-spec.ts:151-157`).
+  Calibration remains personal-only even when the endpoint policy is
+  `shared-contributor`.
 - **Per-skill E2E for the other 4 planning skills**: only `/office-hours`
   has fake-CLI E2E coverage (`test/skill-e2e-office-hours-brain-writeback.test.ts`).
   The resolver unit test (`test/resolvers-gbrain-save-results.test.ts`)

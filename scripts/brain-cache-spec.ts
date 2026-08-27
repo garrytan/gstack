@@ -180,7 +180,7 @@ export const GSTACK_SCHEMA_PACK_VERSION = '1.0.0';
  * Trust policy values. Drives auto-push of artifacts, calibration write-back
  * eligibility, and user-namespacing strategy.
  */
-export type BrainTrustPolicy = 'personal' | 'shared' | 'unset';
+export type BrainTrustPolicy = 'personal' | 'shared-contributor' | 'shared' | 'unset';
 
 /**
  * Per-transport default policy. Local engines auto-set to personal (single-tenant

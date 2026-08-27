@@ -350,10 +350,13 @@ case "${1:-}" in
       echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
-    # Validate brain_trust_policy value domain (D4 / D11)
+    # Validate brain_trust_policy value domain (D4 / D11). A shared brain is
+    # read-only by default; shared-contributor is the explicit team opt-in that
+    # permits curated writes without enabling personal calibration write-back.
     if printf '%s' "$KEY" | grep -qE '^brain_trust_policy(@|$)' && \
-       [ "$VALUE" != "personal" ] && [ "$VALUE" != "shared" ] && [ "$VALUE" != "unset" ]; then
-      echo "Warning: brain_trust_policy '$VALUE' not recognized. Valid values: personal, shared, unset. Using unset." >&2
+       [ "$VALUE" != "personal" ] && [ "$VALUE" != "shared-contributor" ] && \
+       [ "$VALUE" != "shared" ] && [ "$VALUE" != "unset" ]; then
+      echo "Warning: brain_trust_policy '$VALUE' not recognized. Valid values: personal, shared-contributor, shared, unset. Using unset." >&2
       VALUE="unset"
     fi
     # V1: whitelist values for keys with closed value domains. Unknown values warn + default.
