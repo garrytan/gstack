@@ -184,12 +184,21 @@ if (asJson) {
   const safeJsonValue = (value: unknown): unknown => {
     if (typeof value === "string") return recallSafe(value);
     if (Array.isArray(value)) return value.map(safeJsonValue);
-    if (value && typeof value === "object") {
-      return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, safeJsonValue(nested)]));
-    }
+    if (value && typeof value === "object") return "[REDACTED-UNSCHEMATIZED-OBJECT]";
     return value;
   };
-  const safeRows = rows.map((row) => safeJsonValue(row));
+  // Project legacy/corrupt rows onto the documented schema. Unknown object
+  // keys are untrusted data too and must never become JSON property names.
+  const allowedKeys = [
+    "id", "kind", "decision", "rationale", "alternatives_considered",
+    "supersedes", "scope", "branch", "issue", "date", "session", "source",
+    "confidence",
+  ] as const;
+  const safeRows = rows.map((row) => Object.fromEntries(
+    allowedKeys
+      .filter((key) => Object.prototype.hasOwnProperty.call(row, key))
+      .map((key) => [key, safeJsonValue(row[key])]),
+  ));
   console.log(JSON.stringify(safeRows));
   process.exit(0);
 }
@@ -220,7 +229,8 @@ if (semantic && queryRaw && semanticLimit > 0) {
     for (const h of hits) {
       // gbrain hits are EXTERNAL corpus content — datamark slug + snippet too so they
       // can't spoof role markers / fences when printed into agent context.
-      const snip = recallSafe(h.snippet.length > 100 ? `${h.snippet.slice(0, 100)}…` : h.snippet);
+      const safeSnippet = recallSafe(h.snippet);
+      const snip = safeSnippet.length > 100 ? `${safeSnippet.slice(0, 100)}…` : safeSnippet;
       const citation = recallSafe(`brain:${h.sourceId}:${h.slug}`);
       console.log(`  [${h.score.toFixed(2)}] ${citation}: ${snip}`);
     }

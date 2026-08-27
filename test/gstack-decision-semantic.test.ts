@@ -98,7 +98,7 @@ fi
 if [ "$1" = "search" ]; then
   if printf '%s ' "$@" | grep -q -- "--source default" &&
      printf '%s ' "$@" | grep -q -- "--limit 3" &&
-     printf '%s ' "$@" | grep -q -- "--snippet-chars 100"; then
+     printf '%s ' "$@" | grep -q -- "--snippet-chars 2048"; then
     echo "[0.91] decisions/foo -- We chose PGLite for the local engine"
   else
     echo "[0.91] WRONG-SOURCE -- unscoped fallback"

@@ -70,12 +70,13 @@ export function deriveMemorySourceId(env: NodeJS.ProcessEnv = process.env): stri
       if (firstLine) return normalizedSourceId(firstLine);
     } catch {
       // Missing/unreadable metadata falls through to the authoritative source list.
+      continue;
     }
   }
   return null;
 }
 
-function listMemorySourceId(
+export function resolveMemorySourceId(
   env?: NodeJS.ProcessEnv,
   timeoutMs = TOTAL_TIMEOUT_MS,
 ): string | null {
@@ -95,17 +96,6 @@ function listMemorySourceId(
   );
   const pick = atWorktree.find((s) => s.id === "default") ?? atWorktree[0];
   return pick?.id ?? null;
-}
-
-/**
- * Resolve the curated-memory source id (the gstack brain worktree). Returns null
- * when gbrain is down/unparseable OR no worktree-backed source is registered.
- */
-export function resolveMemorySourceId(
-  env?: NodeJS.ProcessEnv,
-  timeoutMs = TOTAL_TIMEOUT_MS,
-): string | null {
-  return listMemorySourceId(env, timeoutMs);
 }
 
 /**
@@ -158,7 +148,9 @@ export function semanticRecall(
     "search", query,
     "--source", sourceId,
     "--limit", String(limit),
-    "--snippet-chars", "100",
+    // Retrieve enough context for the redactor to see complete credential
+    // shapes. The renderer redacts first and only then truncates to 100 chars.
+    "--snippet-chars", "2048",
   ], { baseEnv: env, timeout: remainingMs });
   if (r.status !== 0) return null; // gbrain down / not on PATH / errored → degrade
   return parseSearchHits(r.stdout || "", minScore, limit, sourceId);

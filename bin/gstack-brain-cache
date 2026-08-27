@@ -118,8 +118,8 @@ function saveMeta(scope: 'cross-project' | 'per-project', projectSlug: string | 
 
 import { createHash } from 'crypto';
 
-function sha8(input: string): string {
-  return createHash('sha256').update(input).digest('hex').slice(0, 8);
+function sha16(input: string): string {
+  return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
 /**
@@ -144,26 +144,50 @@ function sha8(input: string): string {
  * Params exist for tests; production callers use the defaults.
  */
 export function detectEndpointHash(
-  claudeJsonPath: string = join(homedir(), '.claude.json'),
+  claudeJsonPath: string = join(process.env.HOME || homedir(), '.claude.json'),
   cwd: string = process.cwd(),
 ): string {
   if (existsSync(claudeJsonPath)) {
     try {
       const cfg = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
       const gbrainServer = resolveGbrainMcpEntry(cfg, cwd);
-      const url = gbrainServer?.url || gbrainServer?.transport?.url;
-      if (typeof url === 'string' && url.length > 0) {
-        return sha8(url);
+      if (!gbrainServer) return 'local';
+      const transport = gbrainServer.transport;
+      const transportObject = transport && typeof transport === 'object' ? transport : undefined;
+      const url = gbrainServer.url ?? transportObject?.url;
+      const declarations = [gbrainServer.type,
+        typeof transport === 'string' ? transport : transportObject?.type]
+        .filter((value): value is string => typeof value === 'string' && /\S/.test(value))
+        .map(value => value.toLowerCase());
+      const endpointTypes = [...new Set(declarations)];
+      const remoteTypes = new Set(['http', 'url', 'sse', 'streamable-http']);
+      const knownTypes = new Set(['stdio', ...remoteTypes]);
+      const hasUnknownType = endpointTypes.some(value => !knownTypes.has(value));
+      const hasRemoteType = endpointTypes.some(value => remoteTypes.has(value));
+      const hasStdioType = endpointTypes.includes('stdio');
+      const hasConflict = endpointTypes.length > 1;
+      const hasUrl = typeof url === 'string' && /\S/.test(url);
+      const hasCommand = typeof gbrainServer.command === 'string' && /\S/.test(gbrainServer.command);
+      if (hasUrl) {
+        if (hasUnknownType || hasStdioType || hasConflict) return 'unresolved';
+        return sha16(url);
       }
-    } catch { /* fall through to local */ }
+      if (hasRemoteType || hasUnknownType || hasConflict) return 'unresolved';
+      if (hasStdioType || (endpointTypes.length === 0 && hasCommand)) return 'local';
+      return 'unresolved';
+    } catch {
+      return 'unresolved';
+    }
   }
   // Local engine — no endpoint URL; use a stable literal hash.
   return 'local';
 }
 
 interface McpEntryish {
+  type?: unknown;
+  command?: unknown;
   url?: unknown;
-  transport?: { url?: unknown };
+  transport?: string | { type?: unknown; url?: unknown };
 }
 
 /**
@@ -254,6 +278,11 @@ export function cmdGet(entityName: string, projectSlug: string | null): GetResul
   const entity = BRAIN_CACHE_ENTITIES[entityName];
   if (!entity) throw new Error(`Unknown entity: ${entityName}`);
   const scope = entity.scope;
+  // An unreadable or malformed endpoint configuration must never expose a
+  // digest cached under a different (usually personal/local) brain.
+  if (detectEndpointHash() === 'unresolved') {
+    return { path: entityPath(entityName, projectSlug), state: 'missing', message: 'brain endpoint unresolved' };
+  }
   const meta = loadMeta(scope, projectSlug);
 
   // Schema-version mismatch → full rebuild (D4 A4).
@@ -394,6 +423,7 @@ export function withRefreshLock<T>(projectSlug: string | null, fn: () => T): T |
 export function refreshEntity(entityName: string, projectSlug: string | null): boolean {
   const entity = BRAIN_CACHE_ENTITIES[entityName];
   if (!entity) return false;
+  if (detectEndpointHash() === 'unresolved') return false;
 
   // Mark attempt
   const meta = loadMeta(entity.scope, projectSlug);

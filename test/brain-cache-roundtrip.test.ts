@@ -24,10 +24,12 @@ import { tmpdir } from 'os';
 
 let TMP_HOME: string;
 const ORIGINAL_HOME = process.env.GSTACK_HOME;
+const ORIGINAL_USER_HOME = process.env.HOME;
 
 beforeEach(() => {
   TMP_HOME = mkdtempSync(join(tmpdir(), 'gstack-cache-test-'));
   process.env.GSTACK_HOME = TMP_HOME;
+  process.env.HOME = TMP_HOME;
   // Reload the cache module fresh per test so it picks up the new HOME.
   delete require.cache[require.resolve('../bin/gstack-brain-cache')];
 });
@@ -35,6 +37,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIGINAL_HOME) process.env.GSTACK_HOME = ORIGINAL_HOME;
   else delete process.env.GSTACK_HOME;
+  if (ORIGINAL_USER_HOME) process.env.HOME = ORIGINAL_USER_HOME;
+  else delete process.env.HOME;
   try { rmSync(TMP_HOME, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -71,7 +75,7 @@ describe('brain-cache meta lifecycle', () => {
     const mod = await importCache();
     const meta = mod.cmdMeta('helsinki');
     expect(meta.schema_version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(meta.endpoint_hash).toMatch(/^[a-f0-9]{1,8}$|^local$/);
+    expect(meta.endpoint_hash).toMatch(/^[a-f0-9]{16}$|^local$|^unresolved$/);
     expect(meta.last_refresh).toEqual({});
   });
 
@@ -125,11 +129,8 @@ describe('brain-cache endpoint detection', () => {
   test('detectEndpointHash returns "local" when no ~/.claude.json gbrain MCP', async () => {
     // We don't write ~/.claude.json in the temp env, so this falls through to local.
     const mod = await importCache();
-    // The user's real ~/.claude.json may have an MCP server; in that case the hash
-    // will be a real sha8. Either way, it's a stable string.
     const hash = mod.detectEndpointHash();
-    expect(typeof hash).toBe('string');
-    expect(hash.length).toBeGreaterThan(0);
+    expect(hash).toBe('local');
   });
 
   // #2499: project-scoped registrations (.projects["/path"].mcpServers.gbrain)
@@ -145,7 +146,7 @@ describe('brain-cache endpoint detection', () => {
     }));
     const inside = mod.detectEndpointHash(cj, '/w/repo/src/deep');
     expect(inside).not.toBe('local');
-    expect(inside).toHaveLength(8);
+    expect(inside).toHaveLength(16);
     // Path-boundary check: /w/repo2 is NOT inside /w/repo.
     expect(mod.detectEndpointHash(cj, '/w/repo2')).toBe('local');
   });
@@ -188,6 +189,72 @@ describe('brain-cache endpoint detection', () => {
       },
     }));
     expect(mod.detectEndpointHash(cj, '/w/repo')).toBe(conflictHash);
+  });
+
+  test('malformed JSON and remote entries without a URL are unresolved', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    writeFileSync(cj, '{broken');
+    expect(mod.detectEndpointHash(cj, '/w/repo')).toBe('unresolved');
+    writeFileSync(cj, JSON.stringify({ mcpServers: { gbrain: { type: 'http', url: '' } } }));
+    expect(mod.detectEndpointHash(cj, '/w/repo')).toBe('unresolved');
+  });
+
+  test('supported local stdio registration resolves as local', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    writeFileSync(cj, JSON.stringify({
+      mcpServers: { gbrain: { type: 'stdio', command: '/usr/local/bin/gbrain', args: ['serve'] } },
+    }));
+    expect(mod.detectEndpointHash(cj, '/w/repo')).toBe('local');
+  });
+
+  test('explicit remote type without a URL stays unresolved even with a command', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    writeFileSync(cj, JSON.stringify({
+      mcpServers: { gbrain: { type: 'http', url: '', command: '/usr/local/bin/gbrain' } },
+    }));
+    expect(mod.detectEndpointHash(cj, '/w/repo')).toBe('unresolved');
+  });
+
+  test('remote transport declaration takes precedence over command fallback', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    for (const transport of ['http', { type: 'sse' }]) {
+      writeFileSync(cj, JSON.stringify({
+        mcpServers: { gbrain: { transport, command: '/usr/local/bin/gbrain' } },
+      }));
+      expect(mod.detectEndpointHash(cj, '/w/repo')).toBe('unresolved');
+    }
+  });
+
+  test('conflicting or unknown endpoint declarations stay unresolved', async () => {
+    const mod = await importCache();
+    const cj = join(TMP_HOME, 'claude.json');
+    for (const entry of [
+      { type: 'unknown', transport: 'http', command: '/usr/local/bin/gbrain' },
+      { type: 'stdio', transport: 'http', command: '/usr/local/bin/gbrain' },
+      { type: 'unknown', url: 'https://brain.example.test/mcp' },
+    ]) {
+      writeFileSync(cj, JSON.stringify({ mcpServers: { gbrain: entry } }));
+      expect(mod.detectEndpointHash(cj, '/w/repo')).toBe('unresolved');
+    }
+  });
+
+  test('unresolved endpoint never emits a warm digest from another brain', async () => {
+    const mod = await importCache();
+    const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, 'product.md'), 'PRIVATE-PERSONAL-DIGEST\n');
+    writeFileSync(join(cacheDir, '_meta.json'), JSON.stringify({
+      schema_version: '1.0.0', endpoint_hash: 'local',
+      last_refresh: { product: Date.now() }, last_attempt: {},
+    }));
+    writeFileSync(join(TMP_HOME, '.claude.json'), '{broken');
+    const result = mod.cmdGet('product', 'helsinki');
+    expect(result.state).toBe('missing');
+    expect(result.message).toContain('unresolved');
   });
 });
 

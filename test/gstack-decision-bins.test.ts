@@ -4,7 +4,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { execSync, type ExecSyncOptionsWithStringEncoding } from "child_process";
+import { execSync, spawnSync, type ExecSyncOptionsWithStringEncoding } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -222,6 +222,7 @@ describe("gstack-decision-search", () => {
     expect(json).not.toContain(token);
     expect(json).not.toContain("richard.secret@company.com");
     expect(json).not.toContain("nested.secret@company.com");
+    expect(json).not.toContain("legacy_metadata");
   });
   test("--tokens matches independent non-contiguous outcome terms", () => {
     log('{"decision":"Keep customer records in the existing CRM","scope":"repo","source":"user"}');
@@ -294,11 +295,10 @@ describe("gstack-decision-search --semantic (optional gbrain enhancement)", () =
   function searchWithPath(args: string, pathPrefix?: string): string {
     const env = { ...process.env, HOME: tmpDir, GSTACK_HOME: tmpDir } as NodeJS.ProcessEnv;
     if (pathPrefix) env.PATH = `${pathPrefix}:${process.env.PATH}`;
-    try {
-      return execSync(`${SEARCH} ${args}`, { cwd: ROOT, env, encoding: "utf-8", timeout: 20000 }).trim();
-    } catch {
-      return "";
-    }
+    const result = spawnSync(SEARCH, args.trim() ? args.trim().split(/\s+/) : [], {
+      cwd: ROOT, env, encoding: "utf-8", timeout: 20000,
+    });
+    return result.status === 0 ? (result.stdout || "").trim() : "";
   }
 
   test("--semantic without --query behaves like a normal search (no gbrain spawn)", () => {
@@ -399,6 +399,26 @@ exit 1
       expect(out).toContain("REDACTED");
       expect(out).not.toContain(token);
       expect(out).not.toContain("richard.secret@company.com");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("redacts a credential before applying the semantic display limit", () => {
+    log('{"decision":"alpha","scope":"repo","source":"user"}');
+    const token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";
+    const padding = `${"x".repeat(79)} `;
+    const dir = shimDir(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"${tmpDir}/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "search" ]; then echo "[0.80] decisions/x -- ${padding}${token}"; exit 0; fi
+exit 1
+`,
+    );
+    try {
+      const out = searchWithPath("--query alpha --semantic", dir);
+      expect(out).toContain("REDACTED");
+      expect(out).not.toContain(token.slice(0, 12));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

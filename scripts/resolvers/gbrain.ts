@@ -81,9 +81,10 @@ export function generateGBrainSaveResults(ctx: TemplateContext): string {
   // near zero when their host's static suppression is overridden by
   // detection.
   const meta = skillSaveMap[ctx.skillName];
+  const writeBin = `${ctx.paths.binDir}/gstack-gbrain-put`;
 
-  const trustGate = `Trust: \`personal\`/\`shared-contributor\` auto-write; \`shared\` asks;
-\`unset\` skips.`;
+  const trustGate = `Use \`${writeBin}\` for every write. It enforces endpoint trust,
+contributor namespaces, approval, and personal-only calibration.`;
 
   if (!meta) {
     return `## Save Results to Brain
@@ -93,7 +94,7 @@ export function generateGBrainSaveResults(ctx: TemplateContext): string {
 ${trustGate}
 
 If the skill output is worth preserving, save it via
-\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`. Full template
+\`${writeBin} --slug "<slug>" --content "<frontmatter + markdown>"\`. Full template
 (heredoc body, frontmatter shape, entity-stub instructions, throttle
 handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
   }
@@ -107,7 +108,7 @@ ${trustGate}
 After completing this skill, save the output:
 
 \`\`\`bash
-gbrain put "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
+${writeBin} --slug "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
 ---
 title: "${meta.title}: <feature name>"
 tags: [${meta.tag}, <feature-slug>]

@@ -53,20 +53,24 @@ not retry inline — the user can re-run the skill later.
 
 ## §Save Template (agent reads this when actually saving)
 
-First resolve `brain_trust_policy@<endpoint-hash>` with `gstack-config`.
+Use `gstack-gbrain-put` for every write. The wrapper resolves the active
+project-over-user endpoint and its `brain_trust_policy@<endpoint-hash>`.
 `personal` writes use the normal slug. `shared-contributor` writes use
 `contributors/<user-slug>/<normal-slug>` and add
 `contributor: <user-slug>` to frontmatter. This preserves attribution and
 prevents teammates choosing the same feature slug from overwriting each other.
-Plain `shared` requires explicit approval immediately before each write;
-`unset` does not write and routes back to `/setup-gbrain`.
+Plain `shared` exits with `approval-required`; after explicit approval, retry
+with `--approved`. `unset` exits with `setup-required` and routes back to
+`/setup-gbrain`. Calibration writes pass `--kind calibration`; the wrapper
+skips them for both shared policies.
 
 After completing the skill, save the output. The compact resolver block
 already shows the slug prefix + title + tag for your specific skill (e.g.
 `gbrain put "ceo-plans/<feature-slug>" ...`). The full template:
 
 ```bash
-gbrain put "<slug-prefix>/<feature-slug>" --content "$(cat <<'EOF'
+~/.claude/skills/gstack/bin/gstack-gbrain-put \
+  --slug "<slug-prefix>/<feature-slug>" --content "$(cat <<'EOF'
 ---
 title: "<Title>: <feature name>"
 tags: [<tag>, <feature-slug>]
@@ -98,7 +102,8 @@ mentioned in the output. For each one:
 gbrain search "<entity name>"
 
 # If no match, create a stub
-gbrain put "entities/<entity-slug>" --content "$(cat <<'EOF'
+~/.claude/skills/gstack/bin/gstack-gbrain-put \
+  --slug "entities/<entity-slug>" --content "$(cat <<'EOF'
 ---
 title: "<Person or Company Name>"
 tags: [entity, person]

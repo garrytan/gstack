@@ -71,9 +71,11 @@ describeIfSelected(
     let workDir: string;
     let callsLogPath: string;
     let payloadDir: string;
+    let gstackState: string;
 
     beforeAll(() => {
       workDir = mkdtempSync(join(tmpdir(), 'skill-e2e-brain-writeback-'));
+      gstackState = join(workDir, '.gstack-state');
       const run = (cmd: string, args: string[]) =>
         spawnSync(cmd, args, { cwd: workDir, stdio: 'pipe', timeout: 5000 });
       run('git', ['init', '-b', 'main']);
@@ -130,9 +132,9 @@ describeIfSelected(
         );
         const brainAwareSkill = readFileSync(skillPath, 'utf-8');
         const brainAwareSection = hasSection ? readFileSync(sectionPath, 'utf-8') : '';
-        if (!(brainAwareSkill + brainAwareSection).includes('gbrain put "office-hours/')) {
+        if (!(brainAwareSkill + brainAwareSection).includes('gstack-gbrain-put --slug "office-hours/')) {
           throw new Error(
-            'Regenerated office-hours skeleton+section does not contain gbrain put block. ' +
+            'Regenerated office-hours skeleton+section does not contain gstack-gbrain-put block. ' +
               'Detection override may be broken — see test/gbrain-detection-override.test.ts.',
           );
         }
@@ -193,6 +195,14 @@ exit 0
       writeFileSync(fakePath, fakeGbrain);
       chmodSync(fakePath, 0o755);
 
+      // The write wrapper is trust-gated. Pin this hermetic E2E to a personal
+      // endpoint so it never inherits the developer machine's policy.
+      spawnSync(join(ROOT, 'bin', 'gstack-config'), ['configure-brain-trust', 'personal'], {
+        cwd: workDir,
+        env: { ...process.env, GSTACK_HOME: gstackState },
+        stdio: 'pipe',
+      });
+
       run('git', ['add', '.']);
       run('git', ['commit', '-m', 'fixture']);
     });
@@ -215,9 +225,9 @@ Read pitch.md — that's a founder pitch coming to office hours. Select Startup 
 
 For the diagnostic, assume the founder confirmed Q1 (strongest evidence = "230 from a single tweet + 51 paying creators in 6 weeks"), Q2 (status quo = "creators write ad-hoc checks or use opaque Patreon-style platforms"), and Q3 (forcing question already asked).
 
-Generate the design doc per Phase 5. The feature-slug value to substitute into the SAVE_RESULTS template's \`<feature-slug>\` placeholder is exactly 'pixel-fund' (no path prefix — the template already provides the prefix). The \`gbrain\` binary is on PATH at ${workDir}/bin/gbrain. Apply the SAVE_RESULTS template literally: the slug should land at \`<prefix>/pixel-fund\` per the resolver shape, with the actual design doc markdown body in the --content payload. Then enrich entity stubs for any named people or companies mentioned in the pitch.
+Generate the design doc per Phase 5. The feature-slug value to substitute into the SAVE_RESULTS template's \`<feature-slug>\` placeholder is exactly 'pixel-fund' (no path prefix — the template already provides the prefix). The \`gbrain\` binary is on PATH at ${workDir}/bin/gbrain. Apply the SAVE_RESULTS template literally through \`gstack-gbrain-put\`: the slug should land at \`<prefix>/pixel-fund\` per the resolver shape, with the actual design doc markdown body in the --content payload. Then enrich entity stubs for any named people or companies mentioned in the pitch.
 
-This is a test of the brain-writeback path. Do NOT skip the gbrain save step under any circumstance — the runtime guard ("skip if gbrain not on PATH") does NOT apply here because gbrain IS available. Do NOT explore gbrain --help; follow the SAVE_RESULTS template's exact CLI shape. If you encounter any AskUserQuestion, auto-decide recommended.`,
+This is a test of the brain-writeback path. Do NOT skip the gbrain save step under any circumstance — the runtime guard ("skip if gbrain not on PATH") does NOT apply here because gbrain IS available. Do NOT explore gbrain --help; follow the SAVE_RESULTS template's exact wrapper shape. If you encounter any AskUserQuestion, auto-decide recommended.`,
           workingDirectory: workDir,
           maxTurns: 12,
           timeout: 360_000,
@@ -226,6 +236,7 @@ This is a test of the brain-writeback path. Do NOT skip the gbrain save step und
           model: 'claude-sonnet-4-6',
           extraEnv: {
             PATH: `${join(workDir, 'bin')}:${process.env.PATH || ''}`,
+            GSTACK_HOME: gstackState,
           },
         });
 

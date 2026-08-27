@@ -126,7 +126,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
 
       // GBRAIN_SAVE_RESULTS un-suppressed → resolver output rendered.
       expect(content).toContain('## Save Results to Brain');
-      expect(content).toContain('gbrain put "office-hours/');
+      expect(content).toContain('gstack-gbrain-put --slug "office-hours/');
       expect(content).toContain('Skip this entire section if `gbrain` is not on PATH');
 
       // GBRAIN_CONTEXT_LOAD also un-suppressed (D6 bundling).
@@ -151,7 +151,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
       // A slow engine must not silently suppress brain features — same
       // treatment as "ok" (matches gstack-gbrain-detect --is-ok).
       expect(content).toContain('## Save Results to Brain');
-      expect(content).toContain('gbrain put "office-hours/');
+      expect(content).toContain('gstack-gbrain-put --slug "office-hours/');
     } finally {
       cleanup();
     }
@@ -178,7 +178,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
       // the embedded DB. gbrain is installed and healthy — a transient lock
       // must not silently strip brain blocks (same reasoning as "timeout").
       expect(content).toContain('## Save Results to Brain');
-      expect(content).toContain('gbrain put "office-hours/');
+      expect(content).toContain('gstack-gbrain-put --slug "office-hours/');
     } finally {
       cleanup();
     }
@@ -197,7 +197,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
       const content = probeUnion(snap);
 
       // GBRAIN_SAVE_RESULTS suppressed → no rendered block, no gbrain put line.
-      expect(content).not.toContain('gbrain put "office-hours/');
+      expect(content).not.toContain('gstack-gbrain-put --slug "office-hours/');
       // Section header from the resolver also absent (resolver returns "").
       // BUT — the BRAIN_CACHE_REFRESH and BRAIN_WRITE_BACK resolvers are NOT
       // gated by detection (host-agnostic), so other "Brain ..." sections may
@@ -216,7 +216,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
         files: PROBE_FILES,
       });
       const content = probeUnion(snap);
-      expect(content).not.toContain('gbrain put "office-hours/');
+      expect(content).not.toContain('gstack-gbrain-put --slug "office-hours/');
     } finally {
       cleanup();
     }
@@ -237,7 +237,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
         files: PROBE_FILES,
       });
       const content = probeUnion(snap);
-      expect(content).not.toContain('gbrain put "office-hours/');
+      expect(content).not.toContain('gstack-gbrain-put --slug "office-hours/');
       expect(content).not.toContain('## Save Results to Brain');
     } finally {
       cleanup();

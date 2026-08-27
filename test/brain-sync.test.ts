@@ -77,6 +77,10 @@ beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-home-'));
   bareRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-remote-'));
   spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote]);
+  // Artifact publishing is fail-closed unless the active endpoint is explicitly
+  // personal or shared-contributor. Most integration cases exercise the personal
+  // path; dedicated policy tests below cover shared/unset no-op behavior.
+  run(['gstack-config', 'set', 'brain_trust_policy@local', 'personal']);
 });
 
 afterEach(() => {

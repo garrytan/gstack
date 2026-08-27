@@ -47,4 +47,9 @@ else
   git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
 fi
 git -C "$TOP" add -A 2>/dev/null || exit 1
+# `git add` may trust the copied index stat cache when a file is rewritten in
+# the same filesystem timestamp tick with the same byte length. Force tracked
+# paths through the content/clean-filter path so the fingerprint cannot certify
+# stale bytes in that edge case. Untracked paths were already added above.
+git -C "$TOP" add --renormalize -u 2>/dev/null || exit 1
 git -C "$TOP" write-tree 2>/dev/null
