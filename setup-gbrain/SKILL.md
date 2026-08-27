@@ -532,12 +532,16 @@ fi
 if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   _BRAIN_LAST_PULL_FILE="$_GSTACK_HOME/.brain-last-pull"
   _BRAIN_NOW=$(date +%s)
+  _BRAIN_ENDPOINT_HASH=$("$_BRAIN_CONFIG_BIN" endpoint-hash 2>/dev/null || echo unset)
+  _BRAIN_TRUST_POLICY=$("$_BRAIN_CONFIG_BIN" get "brain_trust_policy@$_BRAIN_ENDPOINT_HASH" 2>/dev/null || echo unset)
+  _BRAIN_PULL_TTL=86400
+  [ "$_BRAIN_TRUST_POLICY" = "shared-contributor" ] && _BRAIN_PULL_TTL=300
   _BRAIN_DO_PULL=1
   if [ -f "$_BRAIN_LAST_PULL_FILE" ]; then
     _BRAIN_LAST=$(cat "$_BRAIN_LAST_PULL_FILE" 2>/dev/null || echo 0)
     case "$_BRAIN_LAST" in ''|*[!0-9]*) _BRAIN_LAST=0 ;; esac
     _BRAIN_AGE=$(( _BRAIN_NOW - _BRAIN_LAST ))
-    [ "$_BRAIN_AGE" -lt 86400 ] && _BRAIN_DO_PULL=0
+    [ "$_BRAIN_AGE" -lt "$_BRAIN_PULL_TTL" ] && _BRAIN_DO_PULL=0
   fi
   if [ "$_BRAIN_DO_PULL" = "1" ]; then
     ( cd "$_GSTACK_HOME" && git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
@@ -1723,7 +1727,7 @@ echo "BRAIN_TRUST_POLICY: $_POLICY"
 
 Branch on transport + current policy:
 
-**If `_POLICY` is `personal` or `shared`:** policy already set. Print
+**If `_POLICY` is `personal`, `shared-contributor`, or `shared`:** policy already set. Print
 "Trust policy for this endpoint: $_POLICY" and skip to Step 10.
 
 **If `_POLICY` is `unset` AND `_HASH == "local"`:** auto-set personal
@@ -1737,26 +1741,31 @@ echo "Trust policy auto-set to 'personal' for local PGLite (single-tenant by con
 **If `_POLICY` is `unset` AND `_HASH != "local"` (remote MCP):** ask the
 trust policy question via AskUserQuestion:
 
-> The brain at this MCP endpoint — is it your personal brain or a
-> shared/team brain?
+> The brain at this MCP endpoint — is it your personal brain, a team brain
+> you should contribute to, or a shared brain you should only read?
 >
 > Personal: gstack auto-pushes ~/.gstack/ artifacts (CEO plans, design
 > docs, retros, learnings) and writes calibration takes back as you make
 > decisions. Your brain gets smarter every session. Pick this if you
 > alone set up this brain.
 >
-> Shared/team: read-only by default. gstack reads context but prompts
-> before any write. Safer for brains where your individual takes
-> shouldn't pollute the shared corpus.
+> Shared contributor: gstack automatically writes curated skill outputs and
+> allowlisted artifacts to the team brain. It does not write personal
+> calibration takes. Pick this only when the brain owner has granted you write
+> access and the team has agreed that GStack work should become shared memory.
+>
+> Shared read-only: gstack reads context but prompts before any write. Safer
+> when you have not been explicitly authorized to contribute.
 
 Options:
 - A) Personal (recommended for self-hosted remote brains)
-- B) Shared/team
+- B) Shared contributor
+- C) Shared read-only
 
 After answer, persist:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH <personal|shared>
+~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH <personal|shared-contributor|shared>
 ```
 
 If `personal` was selected AND `artifacts_sync_mode` is still `off`, also
@@ -1767,6 +1776,18 @@ _CURRENT_SYNC=$(~/.claude/skills/gstack/bin/gstack-config get artifacts_sync_mod
 if [ "$_CURRENT_SYNC" = "off" ]; then
   ~/.claude/skills/gstack/bin/gstack-config set artifacts_sync_mode full
   echo "artifacts_sync_mode auto-set to 'full' (personal brain default)."
+fi
+```
+
+If `shared-contributor` was selected AND `artifacts_sync_mode` is still
+`off`, default it to `artifacts-only`. Behavioral timelines and developer
+profiles remain local unless that teammate separately chooses `full`:
+
+```bash
+_CURRENT_SYNC=$(~/.claude/skills/gstack/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo off)
+if [ "$_CURRENT_SYNC" = "off" ]; then
+  ~/.claude/skills/gstack/bin/gstack-config set artifacts_sync_mode artifacts-only
+  echo "artifacts_sync_mode auto-set to 'artifacts-only' (shared contributor default)."
 fi
 ```
 

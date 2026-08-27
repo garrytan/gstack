@@ -399,12 +399,16 @@ fi
 if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   _BRAIN_LAST_PULL_FILE="$_GSTACK_HOME/.brain-last-pull"
   _BRAIN_NOW=$(date +%s)
+  _BRAIN_ENDPOINT_HASH=$("$_BRAIN_CONFIG_BIN" endpoint-hash 2>/dev/null || echo unset)
+  _BRAIN_TRUST_POLICY=$("$_BRAIN_CONFIG_BIN" get "brain_trust_policy@$_BRAIN_ENDPOINT_HASH" 2>/dev/null || echo unset)
+  _BRAIN_PULL_TTL=86400
+  [ "$_BRAIN_TRUST_POLICY" = "shared-contributor" ] && _BRAIN_PULL_TTL=300
   _BRAIN_DO_PULL=1
   if [ -f "$_BRAIN_LAST_PULL_FILE" ]; then
     _BRAIN_LAST=$(cat "$_BRAIN_LAST_PULL_FILE" 2>/dev/null || echo 0)
     case "$_BRAIN_LAST" in ''|*[!0-9]*) _BRAIN_LAST=0 ;; esac
     _BRAIN_AGE=$(( _BRAIN_NOW - _BRAIN_LAST ))
-    [ "$_BRAIN_AGE" -lt 86400 ] && _BRAIN_DO_PULL=0
+    [ "$_BRAIN_AGE" -lt "$_BRAIN_PULL_TTL" ] && _BRAIN_DO_PULL=0
   fi
   if [ "$_BRAIN_DO_PULL" = "1" ]; then
     ( cd "$_GSTACK_HOME" && git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
