@@ -556,7 +556,8 @@ uses a data-room-on-request pattern when deeper evidence should not be public.
 It follows the target site's existing stack—server-rendered, static, or client
 rendered—rather than assuming a JavaScript framework or toolchain.
 
-Every section gets desktop and phone screenshots plus real-browser QA. Deep
+Every section gets desktop, tablet, phone, and short-laptop-height screenshots,
+plus the bottom state of every scrollable section, before real-browser QA. Deep
 links, keyboard/focus behavior, mobile overflow, analytics sanitization, and
 built-output routing for the selected route are tested. `/design-review`, `/qa`,
 `/review`, a fresh independent second-opinion review (Codex where available),
