@@ -67,6 +67,20 @@ Run this bash:
 
 \`\`\`bash
 _TEL_END=$(date +%s)
+_SESS_MARKER=~/.gstack/sessions/"$PPID"
+if [ -z "$_TEL_START" ]; then
+  if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    _TEL_START=$(stat -f %m "$_SESS_MARKER" 2>/dev/null || echo "$_TEL_END")
+  else
+    _TEL_START=$(date -r "$_SESS_MARKER" +%s 2>/dev/null || stat -c %Y "$_SESS_MARKER" 2>/dev/null || echo "$_TEL_END")
+  fi
+fi
+if [ -z "$_SESSION_ID" ]; then
+  _SESSION_ID="$PPID-$_TEL_START"
+fi
+if [ -z "$_TEL" ]; then
+  _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo "off")
+fi
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
