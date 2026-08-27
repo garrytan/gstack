@@ -108,6 +108,7 @@ export const TEST_ROOTS = [
   'browser-skills',
 ] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
+const FREE_HYBRID_TESTS = new Set(['test/skill-e2e-deck.test.ts']);
 
 // POSIX-only patterns that indicate a test will fail on windows-latest no
 // matter how the runner shards. Codex's v1.18.0.0 review flagged the first
@@ -397,7 +398,14 @@ export function normalizeRelativePath(filePath: string): string {
 export function isFreeTestFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
   if (!TEST_FILE_REGEX.test(normalized)) return false;
+  if (FREE_HYBRID_TESTS.has(normalized)) return true;
   return !isPaidTestFile(normalized);
+}
+
+export function freeTestEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...source };
+  delete env.EVALS;
+  return env;
 }
 
 /**
@@ -1020,7 +1028,7 @@ export async function runFreeShard(
     ? options.commandFor(files)
     : { command: process.execPath, args: buildShardArgs(files, { parallel: options.parallel, rootDir }) };
 
-  const env = { ...(options.env ?? process.env) };
+  const env = freeTestEnvironment(options.env ?? process.env);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-free-shard-'));
   const childTmp = path.join(stateDir, 'tmp');
   fs.mkdirSync(childTmp);

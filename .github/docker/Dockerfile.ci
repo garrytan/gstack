@@ -34,10 +34,18 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https:
 # poppler-utils: make-pdf's e2e gates hard-require pdftotext/pdffonts/pdfinfo in CI.
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
-        git curl unzip xz-utils ca-certificates jq bc gpg python3 file poppler-utils && break || \
+        git curl unzip xz-utils ca-certificates jq bc gpg python3 python3-venv file poppler-utils && break || \
       (echo "apt retry $i/3 after failure"; sleep 10); \
     done \
     && rm -rf /var/lib/apt/lists/*
+
+# Native Flask fixture runtime for periodic /deck delivery evals. Keep this in a
+# dedicated venv so the image does not depend on Ubuntu's externally-managed
+# system Python packages or permit agents to install dependencies at eval time.
+RUN python3 -m venv /opt/gstack-python \
+    && /opt/gstack-python/bin/pip install --no-cache-dir \
+      Flask==3.1.0 pytest==8.3.5 gunicorn==23.0.0
+ENV PATH="/opt/gstack-python/bin:${PATH}"
 
 # GitHub CLI
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -122,6 +130,8 @@ RUN npx playwright install chromium \
 RUN bun --version && node --version && claude --version && jq --version && gh --version \
     && python3 --version && command -v file && command -v pdftotext && command -v pdffonts && command -v pdfinfo \
     && npx playwright --version \
+    && python3 -c "import flask, pytest, werkzeug" \
+    && gunicorn --version \
     && fc-match "Liberation Sans" | grep -qi "Liberation" \
         || (echo "ERROR: fonts-liberation not installed — make-pdf PDFs will render in DejaVu Sans" && exit 1)
 

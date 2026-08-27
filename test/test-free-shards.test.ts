@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   isFreeTestFile,
+  freeTestEnvironment,
   collectFreeTestFiles,
   detectWindowsFragility,
   curateWindowsSafe,
@@ -34,8 +35,9 @@ describe('test-free-shards: enumeration', () => {
     expect(isFreeTestFile('test/foo.test.mjs')).toBe(true);
   });
 
-  test('isFreeTestFile rejects paid eval tests', () => {
+  test('isFreeTestFile rejects paid eval files and includes the deck hybrid suite', () => {
     expect(isFreeTestFile('test/skill-e2e-foo.test.ts')).toBe(false);
+    expect(isFreeTestFile('test/skill-e2e-deck.test.ts')).toBe(true);
     expect(isFreeTestFile('test/skill-llm-eval.test.ts')).toBe(false);
     expect(isFreeTestFile('test/codex-e2e.test.ts')).toBe(false);
     expect(isFreeTestFile('test/codex-e2e-sol-scope.test.ts')).toBe(false);
@@ -47,6 +49,7 @@ describe('test-free-shards: enumeration', () => {
     expect(files.length).toBeGreaterThan(10);
     expect(files).toEqual([...files].sort());
     expect(new Set(files).size).toBe(files.length);
+    expect(files).toContain('test/skill-e2e-deck.test.ts');
     for (const f of files) {
       expect(isFreeTestFile(f)).toBe(true);
     }
@@ -55,6 +58,13 @@ describe('test-free-shards: enumeration', () => {
   test('normalizeRelativePath converts Windows backslashes to forward slashes', () => {
     expect(normalizeRelativePath('test\\foo\\bar.test.ts')).toBe('test/foo/bar.test.ts');
     expect(normalizeRelativePath('test/foo/bar.test.ts')).toBe('test/foo/bar.test.ts');
+  });
+
+  test('free shards cannot inherit the paid-eval switch', () => {
+    const env = freeTestEnvironment({ EVALS: '1', EVALS_TIER: 'periodic', KEEP_ME: 'yes' });
+    expect(env.EVALS).toBeUndefined();
+    expect(env.EVALS_TIER).toBe('periodic');
+    expect(env.KEEP_ME).toBe('yes');
   });
 });
 

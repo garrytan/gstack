@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.72.0.0] - 2026-08-26
+
+**Decks now begin with product truth.**
+**They ship as decision-ready web surfaces.**
+
+gstack now includes `/deck` for adding or seriously redesigning an interactive
+deck inside an existing site. It reads the product, prior material, router,
+visual system, host configuration, and analytics before choosing what to build.
+Then it asks only the seven decisions that change the result: audience, goal,
+source material, access, route or host, requested research, and analytics.
+
+The result is a real site surface, not a generic slide export. It follows the
+target site's own stack, supports shareable tab links and keyboard and phone
+use, keeps claims grounded, and asks for confirmation before a live
+configuration change. Its headline-only story test carries the buyer, pain,
+thesis, wedge, product breadth, proof, competition, team edge, and ask, so
+important facts do not disappear behind headings such as "Platform" or
+"Traction."
+
+### The deck numbers that matter
+
+Source: the checked-in `/deck` contract and its three pinned test files. Run
+`bun test test/deck-template-invariants.test.ts test/deck-template-sync.test.ts test/skill-e2e-deck.test.ts`.
+
+| Property | Before | After | Delta |
+|----------|--------|-------|-------|
+| Dedicated interactive-deck workflow | 0 | 1 | +1 |
+| Material choices collected after site audit | 0 | 7 | +7 |
+| Headline-only story checkpoints | 0 | 9 | +9 |
+| Required visual QA contexts | 0 | 4 viewports plus scroll bottoms | new |
+| Pinned deck test files | 0 | 3 | +3 |
+
+The constraint is the point. A deck can look polished while silently losing a
+founder story, shrinking proof, or clipping a decision-critical footnote. The
+new workflow makes those failures visible before release.
+
+### What this means for people making a case
+
+Use `/deck` when a raise, sale, partnership, or internal decision needs an
+interactive narrative that respects the product already in the repository. It
+will go deep on investors when that is the audience, but it does not assume an
+investor deck or a JavaScript stack. Start with `/deck`, give it the material
+choices that matter, and keep deployment and analytics changes behind your
+explicit confirmation.
+
+### Itemized changes
+
+#### Added
+- `/deck`, a product-first workflow that inspects the existing site and its
+  material before making bounded intake decisions or choosing an implementation.
+- Decision-ready story, proof, and competition gates: a headline-only narrative
+  test, preservation ledger, grounded public-source comparisons, exact
+  anonymized evidence, and a data-room-on-request pattern for sensitive detail.
+- Accessible, deep-linkable deck delivery requirements: tabs and browser history,
+  keyboard focus, mobile-first layout, in-flow notes and callouts, four viewport
+  classes, scroll-bottom captures, and built-output route and asset checks.
+- Privacy-safe anonymous engagement analytics guidance that stays separate from
+  named-recipient tracking and carries a fixed deck revision.
+
+#### Changed
+- The skill catalog, install guidance, routing instructions, and generated host
+  documentation now expose `/deck` under the same slash-command convention as
+  the rest of gstack.
+- `/deck` follows the target project's native runtime, framework, package manager,
+  and deployment tooling. It does not require a new JavaScript, Python, browser,
+  or package-install stack in the target project.
+
+#### For contributors
+- Three deck contract test files pin the generated skill, delivery gates, and
+  stack-neutral fixture behavior.
+- The gbrain direct-connection verifier uses a shell builtin on its short error
+  path, removing an external-process stall from concurrent free-test runs.
+
 ## [1.69.0.0] - 2026-08-22
 
 **The silent-failure wave: tools that reported success while doing nothing —**

@@ -74,7 +74,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user runner
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.suite.timeout || 25 }}
     strategy:
       fail-fast: false
       matrix:
@@ -83,6 +83,9 @@ jobs:
             file: test/skill-e2e-plan.test.ts
           - name: e2e-design
             file: test/skill-e2e-design.test.ts
+          - name: e2e-deck
+            file: test/skill-e2e-deck.test.ts
+            timeout: 55
           - name: e2e-qa-bugs
             file: test/skill-e2e-qa-bugs.test.ts
           - name: e2e-qa-workflow

@@ -33,6 +33,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
 | `/design-html` | Generate production-quality Pretext-native HTML/CSS. |
+| `/deck` | Add or seriously redesign an interactive, evidence-led web deck on an existing site. |
 | `/devex-review` | Live developer experience audit (TTHW measured against the real flow). |
 | `/qa` | Open a real browser, find bugs, fix them, re-verify. |
 | `/qa-only` | Same methodology as /qa but report only — no code changes. |

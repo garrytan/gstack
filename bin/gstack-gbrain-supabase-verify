@@ -33,19 +33,21 @@ set -euo pipefail
 
 die()   { echo "gstack-gbrain-supabase-verify: $*" >&2; exit 2; }
 reject_direct() {
-  cat >&2 <<EOF
-gstack-gbrain-supabase-verify: rejected direct-connection URL
-
-  You pasted a Supabase direct-connection URL (db.*.supabase.co on port
-  5432). Direct connections are IPv6-only and fail in many environments.
-
-  Use the Session Pooler instead:
-    Supabase Dashboard → Settings → Database → Connection Pooler →
-    Transaction/Session → copy URI (port 6543)
-
-  Expected shape:
-    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
-EOF
+  # This verifier is called under captured stderr pipes. Avoid a disposable
+  # external process for a static diagnostic so the rejection closes promptly.
+  printf '%s\n' \
+    'gstack-gbrain-supabase-verify: rejected direct-connection URL' \
+    '' \
+    '  You pasted a Supabase direct-connection URL (db.*.supabase.co on port' \
+    '  5432). Direct connections are IPv6-only and fail in many environments.' \
+    '' \
+    '  Use the Session Pooler instead:' \
+    '    Supabase Dashboard → Settings → Database → Connection Pooler →' \
+    '    Transaction/Session → copy URI (port 6543)' \
+    '' \
+    '  Expected shape:' \
+    '    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres' \
+    >&2
   exit 3
 }
 

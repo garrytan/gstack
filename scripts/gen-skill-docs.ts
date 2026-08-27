@@ -778,7 +778,7 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
+  const outputDir = path.join(OUT_DIR || ROOT, hostConfig.hostSubdir, 'skills', name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
@@ -949,7 +949,7 @@ function processSectionTemplate(
     outputPath = path.join(OUT_DIR || ROOT, skillDir, 'sections', fileName);
   } else {
     const externalName = externalSkillName(skillDir, parentName);
-    outputPath = path.join(ROOT, hostConfig.hostSubdir, 'skills', externalName, 'sections', fileName);
+    outputPath = path.join(OUT_DIR || ROOT, hostConfig.hostSubdir, 'skills', externalName, 'sections', fileName);
   }
   if (!DRY_RUN) fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   return { outputPath, content };
@@ -1065,7 +1065,7 @@ for (const currentHost of hostsToRun) {
     // plain markdown, no placeholder resolution — and are copied byte-for-byte
     // to openclaw/ at gen time.
     if (currentHost === 'openclaw' && !DRY_RUN) {
-      const openclawDir = path.join(ROOT, 'openclaw');
+      const openclawDir = path.join(OUT_DIR || ROOT, 'openclaw');
       const openclawTemplatesDir = path.join(openclawDir, 'templates');
       for (const variant of ['lite', 'full', 'plan'] as const) {
         const fileName = `gstack-${variant}-CLAUDE.md`;
@@ -1117,7 +1117,7 @@ if (failures.length > 0 && HOST_ARG_VAL === 'all') {
 // Single host dry-run failure already handled above
 
 // After all hosts processed, warn if prefix patches may need re-applying
-if (!DRY_RUN) {
+if (!DRY_RUN && !OUT_DIR) {
   try {
     const configPath = path.join(process.env.HOME || '', '.gstack', 'config.yaml');
     if (fs.existsSync(configPath)) {
@@ -1135,7 +1135,7 @@ if (!DRY_RUN) {
 // this module async (test/gen-skill-docs.test.ts uses require() to pull
 // extractVoiceTriggers/processVoiceTriggers, which fails on async modules).
 // Freshness is asserted in test/llms-txt-shape.test.ts.
-if (!DRY_RUN) {
+if (!DRY_RUN && !OUT_DIR) {
   void (async () => {
     try {
       const result = await writeLlmsTxt();

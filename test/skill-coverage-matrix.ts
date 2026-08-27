@@ -131,6 +131,16 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'design-consultation': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-shotgun': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-html': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  deck: {
+    gate: [
+      'test/deck-template-invariants.test.ts',
+      'test/deck-template-sync.test.ts',
+      'test/skill-e2e-deck.test.ts',
+      'test/skill-coverage-floor.test.ts',
+    ],
+    periodic: ['test/skill-e2e-deck.test.ts'],
+    rationale: 'Deterministic contracts pin evidence, privacy, accessibility, and release gates; five periodic scenarios cover sparse investor intake, product-informed evidence follow-up, unapproved product access, a nested static monorepo, and native Flask delivery with real every-section browser screenshots.',
+  },
   diagram: {
     gate: ['test/skill-e2e-diagram.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-diagram.test.ts'],
