@@ -28,6 +28,9 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const TESTS = [
   'root-guided-headless',
   'root-guided-interactive-history-failure',
+  'root-guided-interactive-history-success',
+  'root-guided-interactive-opt-out',
+  'root-guided-codex-ambient-no-capability',
   'root-guided-delegated-choice',
   'root-guided-named-subskill',
   'root-guided-spawned-no-delegation',
@@ -133,7 +136,7 @@ function historyState(prefix: string, canary: string): { home: string; state: st
 function hasGuidedMenu(output: string): boolean {
   const workflows = new Set(output.match(/\/(?:office-hours|plan-ceo-review|design-consultation|review|investigate|qa)\b/g) ?? []);
   return /\?|choose|confirm|which/i.test(output)
-    && workflows.size >= 1 && workflows.size <= 4
+    && workflows.size >= 2 && workflows.size <= 4
     && /recommend/i.test(output);
 }
 
@@ -188,6 +191,7 @@ describeIfSelected('root guided entry (live Skill behavior)', TESTS, () => {
         && calls.some(isRoot)
         && !calls.some(isLeaf)
         && historyCommand.includes('--tokens')
+        && historyCommand.includes('--guided-history')
         && historyCommand.includes('--recent 3')
         && historyCommand.includes('--no-rebuild')
         && historyCommand.includes('--semantic')
@@ -197,6 +201,88 @@ describeIfSelected('root guided entry (live Skill behavior)', TESTS, () => {
         && !fs.existsSync(path.join(workDir, injectionSentinel))
         && hasGuidedMenu(result.output);
       recordE2E(evalCollector, 'root-guided-interactive-history-failure', 'e2e-root-guided-entry', result, { passed });
+      expect(passed).toBe(true);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+      fs.rmSync(memory.home, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  testIfSelected('root-guided-interactive-history-success', async () => {
+    const memory = historyState('successful-memory', 'PRIVATE_SUCCESS_SETUP_CANARY_8DX');
+    const prior = 'PAST_ONBOARDING_DECISION_KEEP_EXISTING_CRM_2HF';
+    replaceBin(memory.home, 'gstack-decision-search', `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$GSTACK_HOME/invocation.args"
+echo "Related from memory (gbrain semantic recall):"
+echo "  [0.91] brain:default:decisions/onboarding: ${prior}"
+`);
+    const { result, workDir } = await runCase(
+      'root-guided-interactive-history-success',
+      'First invoke the `_gstack-command` root through the Skill tool for: "Improve customer onboarding while keeping our existing CRM." Use relevant prior work in the recommendation, show the menu, and do not choose for me.',
+      { headless: false, env: { HOME: memory.home, GSTACK_HOME: memory.state, GSTACK_PROJECT_SLUG: 'privacy-canary', GSTACK_INTERACTIVE: '1' } },
+    );
+    try {
+      const calls = skillCalls(result);
+      const invocation = fs.readFileSync(path.join(memory.state, 'invocation.args'), 'utf-8');
+      const passed = result.exitReason === 'success'
+        && calls.some(isRoot)
+        && !calls.some(isLeaf)
+        && invocation.includes('--guided-history')
+        && invocation.includes('--semantic')
+        && result.output.includes(prior)
+        && /prior|past|history|earlier/i.test(result.output)
+        && hasGuidedMenu(result.output);
+      recordE2E(evalCollector, 'root-guided-interactive-history-success', 'e2e-root-guided-entry', result, { passed });
+      expect(passed).toBe(true);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+      fs.rmSync(memory.home, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  testIfSelected('root-guided-interactive-opt-out', async () => {
+    const memory = historyState('opt-out', 'PRIVATE_OPTOUT_HISTORY_CANARY_3WN');
+    fs.writeFileSync(path.join(memory.state, 'config.yaml'), 'history_recall: false\n');
+    replaceBin(memory.home, 'gstack-decision-search', '#!/usr/bin/env bash\ntouch "$GSTACK_HOME/history-invoked"\necho PRIVATE_OPTOUT_HISTORY_CANARY_3WN\n');
+    const { result, workDir } = await runCase(
+      'root-guided-interactive-opt-out',
+      'First invoke the `_gstack-command` root through the Skill tool for: "Improve customer onboarding." Show the menu and do not choose for me.',
+      { headless: false, env: { HOME: memory.home, GSTACK_HOME: memory.state, GSTACK_PROJECT_SLUG: 'privacy-canary', GSTACK_INTERACTIVE: '1' } },
+    );
+    try {
+      const passed = result.exitReason === 'success'
+        && skillCalls(result).some(isRoot)
+        && !skillCalls(result).some(isLeaf)
+        && !bashInputs(result).some((command) => command.includes('gstack-decision-search'))
+        && !fs.existsSync(path.join(memory.state, 'history-invoked'))
+        && !transcriptSurface(result).includes('PRIVATE_OPTOUT_HISTORY_CANARY_3WN')
+        && hasGuidedMenu(result.output);
+      recordE2E(evalCollector, 'root-guided-interactive-opt-out', 'e2e-root-guided-entry', result, { passed });
+      expect(passed).toBe(true);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+      fs.rmSync(memory.home, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  testIfSelected('root-guided-codex-ambient-no-capability', async () => {
+    const canary = 'PRIVATE_CODEX_AMBIENT_CANARY_6VC';
+    const memory = historyState('codex-ambient', canary);
+    replaceBin(memory.home, 'gstack-decision-search', `#!/usr/bin/env bash\ntouch "$GSTACK_HOME/history-invoked"\necho ${canary}\n`);
+    const { result, workDir } = await runCase(
+      'root-guided-codex-ambient-no-capability',
+      'First invoke the `_gstack-command` root through the Skill tool for: "Improve customer onboarding." This is not a Codex top-level task; do not choose for me.',
+      { headless: false, env: { HOME: memory.home, GSTACK_HOME: memory.state, GSTACK_PROJECT_SLUG: 'privacy-canary', CODEX_THREAD_ID: 'inherited-thread', INSTANT_APP_ID: 'inherited-app' } },
+    );
+    try {
+      const passed = result.exitReason === 'success'
+        && skillCalls(result).some(isRoot)
+        && !skillCalls(result).some(isLeaf)
+        && !bashInputs(result).some((command) => command.includes('gstack-decision-search'))
+        && !fs.existsSync(path.join(memory.state, 'history-invoked'))
+        && !transcriptSurface(result).includes(canary)
+        && hasGuidedMenu(result.output);
+      recordE2E(evalCollector, 'root-guided-codex-ambient-no-capability', 'e2e-root-guided-entry', result, { passed });
       expect(passed).toBe(true);
     } finally {
       fs.rmSync(workDir, { recursive: true, force: true });

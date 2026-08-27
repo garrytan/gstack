@@ -138,7 +138,7 @@ make it stick across upgrades. After changing your Codex model, rerun
 If you know the workflow you want, invoke it directly (`/ship` in Claude Code,
 or the matching `$ship` skill in Codex). If you do not remember the catalog,
 invoke the root `gstack` skill with your request. It preserves the request,
-shows only the one to four relevant workflows, recommends one, and waits for
+shows only the two to four relevant workflows, recommends one, and waits for
 your choice. Say `use the recommended option` or `skip the menu` when you want
 it to choose and continue immediately.
 

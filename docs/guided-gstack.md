@@ -30,7 +30,7 @@ Claude Code uses slash-style skill names; Codex uses dollar-prefixed skills.
 The behavior is the same:
 
 1. GStack preserves the request and its constraints.
-2. It shows one to four relevant workflows, with the recommended choice first.
+2. It shows two to four relevant workflows, with the recommended choice first.
 3. It explains the result each workflow produces and the distinction that
    matters for this request.
 4. It waits. No workflow runs and no files change until you choose.
@@ -68,6 +68,21 @@ Use the incremental form for later refreshes. Verify the connection with:
 gbrain doctor --fast --json
 gbrain sources list
 ```
+
+Guided history recall uses the curated GStack artifacts source, which is
+separate from the current project's code source. If GBrain setup did not offer
+to connect it, initialize the private artifacts repository and wire its detached
+worktree into GBrain:
+
+```bash
+gstack-artifacts-init
+gstack-gbrain-source-wireup
+gstack-gbrain-source-wireup --probe
+```
+
+Use the absolute runtime-bin path from the history-recall examples below if
+those helpers are not on `PATH`. The probe should report the artifacts source as
+registered at `~/.gstack-brain-worktree` before you rely on cross-project recall.
 
 ## 4. Opt into guided history recall
 

@@ -5,7 +5,7 @@
  * Usage:
  *   gstack-decision-search [--query KW] [--slug S] [--scope repo|branch|issue]
  *                          [--branch B] [--issue I] [--recent N] [--all] [--json]
- *                          [--tokens] [--no-rebuild] [--semantic]
+ *                          [--tokens] [--no-rebuild] [--semantic] [--guided-history]
  *
  * Reads the BOUNDED active snapshot (decisions.active.json) — O(active), not a full
  * history scan — and rebuilds it from the event log if missing unless `--no-rebuild`
@@ -16,9 +16,13 @@
  * gbrain semantic recall. It is a pure enhancement: when gbrain is off/unconfigured/
  * empty it degrades silently to the reliable file results above. The reliable path
  * never loads gbrain code (the semantic module is imported lazily only here).
+ * `--guided-history` additionally requires history_recall=true and the exact
+ * invocation-scoped interactive capability; it is the root router's fail-closed
+ * private-history surface, not a replacement for explicit user-directed reads.
  */
 
 import { existsSync, statSync } from "fs";
+import { spawnSync } from "child_process";
 import {
   decisionPaths,
   readSnapshotState,
@@ -26,7 +30,7 @@ import {
   readEvents,
   computeActive,
   filterByScope,
-  datamark,
+  recallSafe,
   type ActiveDecision,
 } from "../lib/gstack-decision";
 import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
@@ -36,6 +40,7 @@ const args = process.argv.slice(2);
 
 const queryRaw = flagValue(args, "--query");
 const query = queryRaw?.toLowerCase();
+const queryFlagPresent = args.includes("--query");
 const scope = flagValue(args, "--scope");
 const branch = flagValue(args, "--branch") ?? gitBranch();
 const issue = flagValue(args, "--issue");
@@ -44,6 +49,7 @@ const recent = recentRaw ? parseInt(recentRaw, 10) : undefined;
 const showAll = args.includes("--all");
 const asJson = args.includes("--json");
 const semantic = args.includes("--semantic");
+const guidedHistory = args.includes("--guided-history");
 const tokenized = args.includes("--tokens");
 const noRebuild = args.includes("--no-rebuild");
 const MAX_READ_ONLY_LOG_BYTES = 1_000_000;
@@ -54,6 +60,32 @@ if (slugRaw !== undefined && (!/^[a-zA-Z0-9._-]+$/.test(slugRaw) || slugRaw === 
 }
 const slug = slugRaw || resolveSlug(`${HERE}/gstack-slug`, { noCacheWrite: noRebuild });
 const paths = decisionPaths(slug);
+
+// A present query flag with no usable value is a fail-closed read, not an
+// accidental request to print the entire active decision snapshot.
+if (queryFlagPresent && !queryRaw?.trim()) process.exit(0);
+
+// Guided recall is a privacy-sensitive read surface. Require both the persisted
+// user opt-in and an invocation-scoped interactive capability. The root router
+// sets GSTACK_INTERACTIVE=1 only after its trusted top-level-context gate; CI,
+// inherited host markers, and ordinary direct bin calls fail closed.
+if (guidedHistory) {
+  if (asJson) process.exit(0);
+  const config = spawnSync(`${HERE}/gstack-config`, ["get", "history_recall"], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 2_000,
+  });
+  const session = spawnSync(`${HERE}/gstack-session-kind`, ["--history"], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 2_000,
+  });
+  if (config.status !== 0 || config.stdout.trim() !== "true" ||
+      session.status !== 0 || session.stdout.trim() !== "interactive") {
+    process.exit(0);
+  }
+}
 
 let rows: ActiveDecision[];
 if (showAll) {
@@ -131,19 +163,23 @@ rows.sort((a, b) => {
 if (recent && recent > 0) rows = rows.slice(0, recent);
 
 if (asJson) {
-  // --json stays reliable-only (semantic recall is a human-facing supplement).
-  console.log(JSON.stringify(rows));
+  // --json stays reliable-only (semantic recall is a human-facing supplement),
+  // but it shares the same read-time legacy-data redaction boundary.
+  const safeRows = rows.map((row) => Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? recallSafe(value) : value]),
+  ));
+  console.log(JSON.stringify(safeRows));
   process.exit(0);
 }
 
 for (const d of rows) {
   // Datamark all stored free-text (decision, rationale, branch/issue) — it lands in
   // agent context via Context Recovery, so treat it as DATA, not instructions.
-  const branchTag = d.branch ? `:${datamark(d.branch)}` : "";
-  const issueTag = d.issue ? `:${datamark(d.issue)}` : "";
+  const branchTag = d.branch ? `:${recallSafe(d.branch)}` : "";
+  const issueTag = d.issue ? `:${recallSafe(d.issue)}` : "";
   const scopeTag = d.scope === "repo" ? "" : ` [${d.scope}${branchTag}${issueTag}]`;
-  console.log(`- ${datamark(d.decision ?? "")}${scopeTag} (${d.source}, ${d.date.slice(0, 10)})`);
-  if (d.rationale) console.log(`  why: ${datamark(d.rationale)}`);
+  console.log(`- ${recallSafe(d.decision ?? "")}${scopeTag} (${d.source}, ${d.date.slice(0, 10)})`);
+  if (d.rationale) console.log(`  why: ${recallSafe(d.rationale)}`);
 }
 
 // OPTIONAL gbrain enhancement. Lazy import so the reliable path above never loads
@@ -158,8 +194,9 @@ if (semantic && queryRaw && semanticLimit > 0) {
     for (const h of hits) {
       // gbrain hits are EXTERNAL corpus content — datamark slug + snippet too so they
       // can't spoof role markers / fences when printed into agent context.
-      const snip = datamark(h.snippet.length > 100 ? `${h.snippet.slice(0, 100)}…` : h.snippet);
-      console.log(`  [${h.score.toFixed(2)}] ${datamark(h.slug)}: ${snip}`);
+      const snip = recallSafe(h.snippet.length > 100 ? `${h.snippet.slice(0, 100)}…` : h.snippet);
+      const citation = recallSafe(`brain:${h.sourceId}:${h.slug}`);
+      console.log(`  [${h.score.toFixed(2)}] ${citation}: ${snip}`);
     }
   }
 }

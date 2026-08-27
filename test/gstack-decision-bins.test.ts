@@ -36,6 +36,16 @@ function search(args = ""): string {
     return "";
   }
 }
+function searchWithEnv(args: string, extraEnv: NodeJS.ProcessEnv): string {
+  try {
+    return execSync(`${SEARCH} ${args}`, {
+      ...opts(),
+      env: { ...opts().env, ...extraEnv },
+    }).trim();
+  } catch {
+    return "";
+  }
+}
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-decision-"));
@@ -138,6 +148,45 @@ describe("gstack-decision-search", () => {
     log('{"decision":"private-active-call","scope":"repo","source":"user"}');
     expect(search("--query '' --tokens")).toBe("");
   });
+  test("--query with a missing value does not dump the active snapshot", () => {
+    log('{"decision":"private-active-call","scope":"repo","source":"user"}');
+    expect(search("--query")).toBe("");
+  });
+  test("--guided-history requires both persisted opt-in and invocation capability", () => {
+    log('{"decision":"private guided call","scope":"repo","source":"user"}');
+    fs.writeFileSync(path.join(tmpDir, "config.yaml"), "history_recall: false\n");
+    expect(searchWithEnv("--guided-history --query private", { GSTACK_INTERACTIVE: "1" })).toBe("");
+
+    fs.writeFileSync(path.join(tmpDir, "config.yaml"), "history_recall: true\n");
+    expect(searchWithEnv("--guided-history --query private", {})).toBe("");
+    expect(searchWithEnv("--guided-history --query private", { GSTACK_INTERACTIVE: "0" })).toBe("");
+    expect(searchWithEnv("--guided-history --query private", { GSTACK_INTERACTIVE: "1" }))
+      .toContain("private guided call");
+    expect(searchWithEnv("--guided-history --query private --json", { GSTACK_INTERACTIVE: "1" })).toBe("");
+  });
+  test("redacts secrets and PII from legacy snapshots at read time", () => {
+    const token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";
+    log('{"decision":"snapshot-seed","scope":"repo","source":"user"}');
+    const projectDir = path.join(tmpDir, "projects", fs.readdirSync(path.join(tmpDir, "projects"))[0]);
+    fs.writeFileSync(path.join(projectDir, "decisions.active.json"), JSON.stringify([{
+      id: "legacy-1",
+      kind: "decide",
+      decision: `legacy token ${token}`,
+      rationale: "contact richard.secret@company.com",
+      scope: "repo",
+      date: "2026-01-01T00:00:00.000Z",
+      source: "user",
+    }]));
+    const out = search("--query legacy");
+    expect(out).toContain("legacy token");
+    expect(out).toContain("REDACTED");
+    expect(out).not.toContain(token);
+    expect(out).not.toContain("richard.secret@company.com");
+    const json = search("--query legacy --json");
+    expect(json).toContain("REDACTED");
+    expect(json).not.toContain(token);
+    expect(json).not.toContain("richard.secret@company.com");
+  });
   test("--tokens matches independent non-contiguous outcome terms", () => {
     log('{"decision":"Keep customer records in the existing CRM","scope":"repo","source":"user"}');
     expect(search("--query 'customer onboarding crm' --tokens")).toContain("existing CRM");
@@ -171,6 +220,22 @@ describe("gstack-decision-search", () => {
     fs.writeFileSync(snapshot, "[]");
     expect(search("--query historical --tokens --no-rebuild")).toBe("");
   });
+  test("--no-rebuild recovers a corrupt snapshot from a bounded valid log", () => {
+    log('{"decision":"recover-corrupt-snapshot","scope":"repo","source":"user"}');
+    const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
+    const snapshot = path.join(tmpDir, "projects", projectSlug, "decisions.active.json");
+    fs.writeFileSync(snapshot, "{not-json");
+    expect(search("--query recover --no-rebuild")).toContain("recover-corrupt-snapshot");
+    expect(fs.readFileSync(snapshot, "utf8")).toBe("{not-json");
+  });
+  test("--no-rebuild refuses to scan an oversized event log", () => {
+    log('{"decision":"must-not-resurface","scope":"repo","source":"user"}');
+    const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
+    const projectDir = path.join(tmpDir, "projects", projectSlug);
+    fs.writeFileSync(path.join(projectDir, "decisions.active.json"), "{not-json");
+    fs.appendFileSync(path.join(projectDir, "decisions.jsonl"), "x".repeat(1_000_001));
+    expect(search("--query resurface --no-rebuild")).toBe("");
+  });
   test("--no-rebuild does not create or rewrite the slug cache", () => {
     expect(search("--query absent --tokens --no-rebuild")).toBe("");
     expect(fs.existsSync(path.join(tmpDir, "slug-cache"))).toBe(false);
@@ -191,7 +256,7 @@ describe("gstack-decision-search --semantic (optional gbrain enhancement)", () =
     return d;
   }
   function searchWithPath(args: string, pathPrefix?: string): string {
-    const env = { ...process.env, GSTACK_HOME: tmpDir } as NodeJS.ProcessEnv;
+    const env = { ...process.env, HOME: tmpDir, GSTACK_HOME: tmpDir } as NodeJS.ProcessEnv;
     if (pathPrefix) env.PATH = `${pathPrefix}:${process.env.PATH}`;
     try {
       return execSync(`${SEARCH} ${args}`, { cwd: ROOT, env, encoding: "utf-8", timeout: 20000 }).trim();
@@ -220,7 +285,7 @@ exit 1
       const out = searchWithPath("--query alpha --semantic", dir);
       expect(out).toContain("reliable-alpha"); // reliable results still shown
       expect(out).toContain("Related from memory");
-      expect(out).toContain("decisions/related");
+      expect(out).toContain("brain:default:decisions/related");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -278,6 +343,26 @@ exit 1
       const out = searchWithPath("--query alpha --semantic", dir);
       expect(out).toContain("Related from memory");
       expect(out).not.toMatch(/\bSystem:/); // role marker neutralized by datamark
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("redacts secrets and PII from semantic snippets at read time", () => {
+    log('{"decision":"alpha","scope":"repo","source":"user"}');
+    const token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";
+    const dir = shimDir(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "search" ]; then echo "[0.80] decisions/x -- token ${token} owner richard.secret@company.com"; exit 0; fi
+exit 1
+`,
+    );
+    try {
+      const out = searchWithPath("--query alpha --semantic", dir);
+      expect(out).toContain("REDACTED");
+      expect(out).not.toContain(token);
+      expect(out).not.toContain("richard.secret@company.com");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

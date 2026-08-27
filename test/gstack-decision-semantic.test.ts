@@ -13,6 +13,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   parseSearchHits,
+  deriveMemorySourceId,
   resolveMemorySourceId,
   semanticRecall,
 } from "../lib/gstack-decision-semantic";
@@ -29,7 +30,7 @@ describe("parseSearchHits (text surface)", () => {
   test("parses scored lines, skips non-hit lines", () => {
     const hits = parseSearchHits(sample, 0.1, 10);
     expect(hits).toHaveLength(2);
-    expect(hits[0]).toEqual({ score: 0.91, slug: "decisions/foo", snippet: "We chose PGLite for the local engine" });
+    expect(hits[0]).toEqual({ score: 0.91, sourceId: "unknown", slug: "decisions/foo", snippet: "We chose PGLite for the local engine" });
     expect(hits[1].slug).toBe("docs/bar");
   });
 
@@ -112,7 +113,31 @@ exit 1
     const hits = semanticRecall("pglite", env());
     expect(hits).not.toBeNull();
     expect(hits).toHaveLength(1);
+    expect(hits![0].sourceId).toBe("default");
     expect(hits![0].slug).toBe("decisions/foo"); // proves --source default was forwarded
+  });
+
+  test("derives the curated source from artifacts metadata without listing sources", () => {
+    fs.mkdirSync(path.join(homeDir, ".gstack-brain-worktree"));
+    fs.writeFileSync(
+      path.join(homeDir, ".gstack-artifacts-remote.txt"),
+      "https://github.com/example/GStack-Artifacts-RS.git\n",
+    );
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then touch "$HOME/sources-list-called"; exit 1; fi
+if [ "$1" = "search" ]; then
+  printf '%s ' "$@" | grep -q -- "--source gstack-artifacts-rs" || exit 2
+  echo "[0.91] decisions/fast -- fast metadata path"
+  exit 0
+fi
+exit 1
+`,
+    );
+    expect(deriveMemorySourceId(env())).toBe("gstack-artifacts-rs");
+    const hits = semanticRecall("guided history", env());
+    expect(hits?.[0].sourceId).toBe("gstack-artifacts-rs");
+    expect(fs.existsSync(path.join(homeDir, "sources-list-called"))).toBe(false);
   });
 
   test("degrades to null when no curated-memory source (no unscoped fallback)", () => {
@@ -155,3 +180,13 @@ exit 1
     expect(Date.now() - startedAt).toBeLessThan(2_700);
   }, 3_500);
 });
+
+const liveGbrainTest = process.env.GSTACK_LIVE_GBRAIN === "1" ? test : test.skip;
+liveGbrainTest("live curated-memory recall completes inside the production budget", () => {
+  const sourceId = deriveMemorySourceId(process.env);
+  expect(sourceId).not.toBeNull();
+  const hits = semanticRecall("guided gstack history", process.env, 0.1, 3);
+  expect(hits).not.toBeNull();
+  expect(hits!.length).toBeGreaterThan(0);
+  expect(hits!.every((hit) => hit.sourceId === sourceId)).toBe(true);
+}, 40_000);

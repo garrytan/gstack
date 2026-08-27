@@ -93,6 +93,14 @@ describe("native slug fallback mirrors bin/gstack-slug", () => {
     expect(fs.readFileSync(key, "utf-8")).toBe(slug);
   });
 
+  test("read-only native resolution suppresses cache creation", () => {
+    const cwd = path.join(tmp, "read-only");
+    const home = path.join(tmp, "home-read-only");
+    fs.mkdirSync(cwd);
+    expect(slugFromEnvironment(home, cwd, true)).toBe("read-only");
+    expect(fs.existsSync(path.join(home, "slug-cache"))).toBe(false);
+  });
+
   test("never returns the empty string", () => {
     expect(slugFromEnvironment(path.join(tmp, "h"), tmp).length).toBeGreaterThan(0);
   });

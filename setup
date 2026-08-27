@@ -1244,6 +1244,15 @@ create_codex_runtime_root() {
        { [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; }; then
       mv "$rollback_gstack" "$codex_gstack" || true
     fi
+    # A signal can arrive after the final atomic rename but before the normal
+    # rollback deletion. If the new live root is complete, keep it and remove
+    # the now-obsolete owned rollback instead of stranding it indefinitely.
+    if [ "$had_previous" -eq 1 ] && [ -f "$codex_gstack/SKILL.md" ] && \
+       [ -e "$codex_gstack/bin" ] && [ -e "$codex_gstack/lib" ] && \
+       { [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; }; then
+      rm -rf "$rollback_gstack"
+      had_previous=0
+    fi
     if [ "$lock_held" -eq 1 ] && [ "$(cat "$lock_dir/pid" 2>/dev/null || true)" = "$lock_owner" ]; then
       rm -rf "$lock_dir"
     fi

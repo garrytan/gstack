@@ -334,4 +334,74 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       fs.rmSync(sandbox, { recursive: true, force: true });
     }
   });
+
+  test('Codex runtime cleans a rollback when final rename succeeds but reports failure', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-post-rename-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      fs.mkdirSync(liveRoot, { recursive: true });
+      fs.writeFileSync(path.join(liveRoot, 'previous-install-marker'), 'old\n');
+      const script = [
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        '_test_mv_calls=0',
+        'mv() {',
+        '  _test_mv_calls=$((_test_mv_calls + 1))',
+        '  if [ "$_test_mv_calls" -eq 2 ]; then command mv "$@"; return 1; fi',
+        '  command mv "$@"',
+        '}',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30000 });
+
+      expect(result.status).not.toBe(0);
+      expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(liveRoot, 'previous-install-marker'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-rollback.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test('Codex runtime removes stale stage metadata and restores stale rollback exactly', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-stale-artifacts-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      const parent = path.dirname(liveRoot);
+      const lockDir = path.join(parent, '.gstack-install.lock');
+      const staleStage = path.join(parent, '.gstack-stage.abandoned');
+      const staleRollback = path.join(parent, '.gstack-rollback.abandoned');
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.mkdirSync(staleStage);
+      fs.mkdirSync(staleRollback);
+      fs.writeFileSync(path.join(staleStage, 'stale-stage-marker'), 'remove\n');
+      fs.writeFileSync(path.join(staleRollback, 'previous-install-marker'), 'restore\n');
+      fs.writeFileSync(path.join(lockDir, 'pid'), '99999999\n');
+      fs.writeFileSync(path.join(lockDir, 'stage'), `${staleStage}\n`);
+      fs.writeFileSync(path.join(lockDir, 'rollback'), `${staleRollback}\n`);
+
+      const script = [
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        '_test_mv_calls=0',
+        'mv() {',
+        '  _test_mv_calls=$((_test_mv_calls + 1))',
+        '  if [ "$_test_mv_calls" -eq 4 ]; then return 1; fi',
+        '  command mv "$@"',
+        '}',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30000 });
+
+      expect(result.status).not.toBe(0);
+      expect(fs.existsSync(staleStage)).toBe(false);
+      expect(fs.readFileSync(path.join(liveRoot, 'previous-install-marker'), 'utf8')).toBe('restore\n');
+      expect(fs.existsSync(lockDir)).toBe(false);
+      expect(fs.readdirSync(parent).some((name) => name.includes('.gstack-install.lock.stale.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
 });

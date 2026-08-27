@@ -41,6 +41,11 @@ describe('gstack-session-kind', () => {
     expect(kind({ CONDUCTOR_PORT: '55010' })).toBe('interactive');
   });
 
+  test('normal mode accepts Codex host and non-empty explicit interactive markers', () => {
+    expect(kind({ CODEX_THREAD_ID: 'thread', INSTANT_APP_ID: 'app' })).toBe('interactive');
+    expect(kind({ GSTACK_INTERACTIVE: '0' })).toBe('interactive');
+  });
+
   test('CLAUDE_CODE_ENTRYPOINT=cli → interactive', () => {
     expect(kind({ CLAUDE_CODE_ENTRYPOINT: 'cli' })).toBe('interactive');
   });
@@ -89,5 +94,9 @@ describe('gstack-session-kind', () => {
   test('--history CI markers override even the exact interactive signal', () => {
     expect(kind({ GSTACK_INTERACTIVE: '1', CI: '1' }, ['--history'])).toBe('headless');
     expect(kind({ GSTACK_INTERACTIVE: '1', GITHUB_ACTIONS: 'true' }, ['--history'])).toBe('headless');
+  });
+
+  test('unknown arguments fail instead of silently changing classification', () => {
+    expect(() => kind({}, ['--unknown'])).toThrow();
   });
 });

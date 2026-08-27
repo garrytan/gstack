@@ -19,7 +19,7 @@ import { randomUUID } from "crypto";
 import { existsSync, readFileSync, appendFileSync, statSync, openSync, closeSync, unlinkSync } from "fs";
 import { atomicWriteSync } from "./fs-atomic";
 import { appendJsonl, readJsonl, hasInjection } from "./jsonl-store";
-import { scan } from "./redact-engine";
+import { redactFindingSpans, scan } from "./redact-engine";
 
 export type DecisionKind = "decide" | "supersede" | "redact";
 export type DecisionScope = "repo" | "branch" | "issue";
@@ -89,6 +89,17 @@ export function datamark(text: string): string {
     // neutralize chat turn-prefixes (Human:/Assistant:/System:/User:) — defeat the
     // angle-tag pass and are Claude's native turn delimiters
     .replace(/\b(human|assistant|system|user)(\s*):/gi, `$1${ZWSP}$2:`);
+}
+
+/**
+ * Render untrusted historical text without resurfacing legacy secrets or PII.
+ * New writes already reject sensitive content, but old snapshots and external
+ * GBrain pages predate that invariant. If exact span redaction cannot be proven
+ * safe, drop the complete field rather than pass raw text through.
+ */
+export function recallSafe(text: string): string {
+  const redacted = redactFindingSpans(text, { repoVisibility: "private" });
+  return datamark(redacted ?? "[REDACTED-SENSITIVE-CONTENT]");
 }
 
 export type ValidateResult =

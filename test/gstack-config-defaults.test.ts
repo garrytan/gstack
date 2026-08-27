@@ -138,4 +138,14 @@ describe('gstack-config defaults (gate, free)', () => {
     expect(get('transcript_ingest_mode').out).toBe('off');
     expect(get('history_recall').out).toBe('false');
   });
+
+  test('an invalid history_recall value normalizes to the fail-closed false value', () => {
+    const r = spawnSync('bash', [CONFIG_BIN, 'set', 'history_recall', 'definitely'], {
+      encoding: 'utf-8',
+      env: { ...process.env, GSTACK_STATE_ROOT: STATE },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("not recognized");
+    expect(get('history_recall')).toEqual({ out: 'false', code: 0 });
+  });
 });
