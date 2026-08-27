@@ -18,8 +18,8 @@ import * as path from 'path';
 const BIN = path.resolve(__dirname, '..', 'bin', 'gstack-session-kind');
 
 /** Run the helper with ONLY the supplied env (plus PATH so bash resolves). */
-function kind(env: Record<string, string>): string {
-  return execFileSync(BIN, [], {
+function kind(env: Record<string, string>, args: string[] = []): string {
+  return execFileSync(BIN, args, {
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
     encoding: 'utf-8',
   }).trim();
@@ -66,5 +66,17 @@ describe('gstack-session-kind', () => {
     // The resolver/helper guard on -n, so an empty string must NOT mean headless —
     // this is the opt-out path harness suites use to exercise the interactive branch.
     expect(kind({ GSTACK_HEADLESS: '' })).toBe('interactive');
+  });
+
+  test('--history fails closed for bare and one-shot-compatible CLI sessions', () => {
+    expect(kind({}, ['--history'])).toBe('headless');
+    expect(kind({ CLAUDE_CODE_ENTRYPOINT: 'cli' }, ['--history'])).toBe('headless');
+  });
+
+  test('--history accepts only positive interactive or explicit invocation-scoped signals', () => {
+    expect(kind({ CONDUCTOR_PORT: '55010' }, ['--history'])).toBe('interactive');
+    expect(kind({ CODEX_THREAD_ID: 'thread', INSTANT_APP_ID: 'app' }, ['--history'])).toBe('interactive');
+    expect(kind({ GSTACK_INTERACTIVE: '1' }, ['--history'])).toBe('interactive');
+    expect(kind({ CODEX_THREAD_ID: 'thread' }, ['--history'])).toBe('headless');
   });
 });

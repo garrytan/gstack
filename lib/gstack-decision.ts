@@ -228,15 +228,27 @@ export function writeSnapshot(paths: DecisionPaths, active: ActiveDecision[]): v
   atomicWriteSync(paths.snapshot, JSON.stringify(active));
 }
 
-/** Read the bounded active snapshot. Returns [] if missing/corrupt (caller may rebuild). */
-export function readSnapshot(paths: DecisionPaths): ActiveDecision[] {
-  if (!existsSync(paths.snapshot)) return [];
+export interface SnapshotRead {
+  status: "missing" | "valid" | "corrupt";
+  rows: ActiveDecision[];
+}
+
+/** Read the bounded active snapshot while preserving empty-vs-missing state. */
+export function readSnapshotState(paths: DecisionPaths): SnapshotRead {
+  if (!existsSync(paths.snapshot)) return { status: "missing", rows: [] };
   try {
     const v = JSON.parse(readFileSync(paths.snapshot, "utf-8"));
-    return Array.isArray(v) ? (v as ActiveDecision[]) : [];
+    return Array.isArray(v)
+      ? { status: "valid", rows: v as ActiveDecision[] }
+      : { status: "corrupt", rows: [] };
   } catch {
-    return [];
+    return { status: "corrupt", rows: [] };
   }
+}
+
+/** Backwards-compatible rows-only view. Missing/corrupt snapshots return []. */
+export function readSnapshot(paths: DecisionPaths): ActiveDecision[] {
+  return readSnapshotState(paths).rows;
 }
 
 /** Recompute active from the event log and refresh the snapshot. Returns active. */

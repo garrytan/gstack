@@ -32,10 +32,11 @@ _SKILL_PREFIX=$(${ctx.paths.binDir}/gstack-config get skill_prefix 2>/dev/null |
 echo "PROACTIVE: $_PROACTIVE"
 ${ctx.skillName === 'gstack' ? 'echo "HISTORY_RECALL: $_HISTORY_RECALL"\n' : ''}echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
-source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
+${ctx.skillName === 'gstack' ? `echo "GSTACK_BIN: ${quoteSafePath(ctx.paths.binDir)}"
+` : ''}source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=\${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$(${ctx.paths.binDir}/gstack-session-kind 2>/dev/null || echo "${ctx.skillName === 'gstack' ? 'headless' : 'interactive'}")
+_SESSION_KIND=$(${ctx.paths.binDir}/gstack-session-kind${ctx.skillName === 'gstack' ? ' --history' : ''} 2>/dev/null || echo "${ctx.skillName === 'gstack' ? 'headless' : 'interactive'}")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="${ctx.skillName === 'gstack' ? 'headless' : 'interactive'}" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
 # Conductor host: AskUserQuestion is unreliable here (native disabled, MCP

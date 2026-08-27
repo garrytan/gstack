@@ -43,10 +43,11 @@ echo "PROACTIVE: $_PROACTIVE"
 echo "HISTORY_RECALL: $_HISTORY_RECALL"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
+echo "GSTACK_BIN: $HOME/.claude/skills/gstack/bin"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "headless")
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind --history 2>/dev/null || echo "headless")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="headless" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
 # Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
@@ -581,9 +582,11 @@ catalog.
      value as one quoted argument. If no safe terms remain, skip history recall.
    - Assign the normalized value before searching, for example
      `SAFE_TERMS='customer onboarding crm'`; replace the example with the safe
-     terms you produced. Then search settled decisions and the curated GBrain
-     memory source with the bundled command
-     `~/.claude/skills/gstack/bin/gstack-decision-search --slug "$SLUG" --branch "$_BRANCH" --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
+     terms you produced. In the same Bash call, assign `BIN_PATH` to the absolute
+     `GSTACK_BIN` path echoed by the preamble; do not reuse a shell variable from
+     the earlier preamble call. Then search settled decisions and the curated
+     GBrain memory source with
+     `SAFE_TERMS='customer onboarding crm'; BIN_PATH='/absolute/path/from/preamble'; "$BIN_PATH/gstack-decision-search" --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
      Do not invoke an ambient memory skill. This command treats the terms as
      independent tokens, never rebuilds or writes the snapshot, caps output at
      three results, and degrades to local decisions when GBrain is absent,

@@ -18,10 +18,10 @@
  * never loads gbrain code (the semantic module is imported lazily only here).
  */
 
-import { existsSync } from "fs";
+import { existsSync, statSync } from "fs";
 import {
   decisionPaths,
-  readSnapshot,
+  readSnapshotState,
   rebuildSnapshot,
   readEvents,
   computeActive,
@@ -46,6 +46,7 @@ const asJson = args.includes("--json");
 const semantic = args.includes("--semantic");
 const tokenized = args.includes("--tokens");
 const noRebuild = args.includes("--no-rebuild");
+const MAX_READ_ONLY_LOG_BYTES = 1_000_000;
 const slugRaw = flagValue(args, "--slug");
 if (slugRaw !== undefined && (!/^[a-zA-Z0-9._-]+$/.test(slugRaw) || slugRaw === "." || slugRaw === "..")) {
   console.error("gstack-decision-search: --slug must use only letters, numbers, dot, underscore, or hyphen");
@@ -64,11 +65,25 @@ if (showAll) {
   );
   rows = events.filter((e): e is ActiveDecision => e.kind === "decide" && !redacted.has(e.id));
 } else {
-  rows = readSnapshot(paths);
+  const snapshot = readSnapshotState(paths);
+  rows = snapshot.rows;
   // Rebuild only when a snapshot is absent but a log exists (don't write a snapshot
   // into a nonexistent store on an empty read — just return nothing).
-  if (!rows.length && existsSync(paths.log)) {
-    rows = noRebuild ? computeActive(readEvents(paths)) : rebuildSnapshot(paths);
+  if (!rows.length && snapshot.status !== "valid" && existsSync(paths.log)) {
+    if (!noRebuild) {
+      rows = rebuildSnapshot(paths);
+    } else {
+      // The root router promises a read-only lookup. Recover from a missing or
+      // corrupt snapshot in memory, but cap the event-log work so a long-lived
+      // project cannot make every guided invocation scan unbounded history.
+      try {
+        if (statSync(paths.log).size <= MAX_READ_ONLY_LOG_BYTES) {
+          rows = computeActive(readEvents(paths));
+        }
+      } catch {
+        rows = [];
+      }
+    }
   }
 }
 

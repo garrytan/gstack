@@ -1219,15 +1219,80 @@ create_agents_sidecar() {
 # duplicate skills because source SKILL.md files and generated Codex skills are
 # both discoverable. Keep this directory limited to runtime assets + root skill.
 create_codex_runtime_root() {
+  (
   local gstack_dir="$1"
   local codex_gstack="$2"
   local agents_dir="$gstack_dir/.agents/skills"
   local codex_parent staged_gstack rollback_gstack had_previous
+  local lock_dir lock_held lock_attempt lock_pid stale_lock stale_stage stale_rollback
   codex_parent=$(dirname "$codex_gstack")
   mkdir -p "$codex_parent"
-  staged_gstack=$(mktemp -d "$codex_parent/.gstack-stage.XXXXXX") || return 1
+  staged_gstack=""
   rollback_gstack="$codex_parent/.gstack-rollback.$$"
+  lock_dir="$codex_parent/.gstack-install.lock"
+  lock_held=0
   had_previous=0
+
+  _codex_runtime_cleanup() {
+    if [ -n "$staged_gstack" ] && { [ -e "$staged_gstack" ] || [ -L "$staged_gstack" ]; }; then
+      rm -rf "$staged_gstack"
+    fi
+    if [ "$had_previous" -eq 1 ] && [ ! -e "$codex_gstack" ] && [ ! -L "$codex_gstack" ] && \
+       { [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; }; then
+      mv "$rollback_gstack" "$codex_gstack" || true
+    fi
+    if [ "$lock_held" -eq 1 ]; then
+      rm -rf "$lock_dir"
+    fi
+  }
+  trap _codex_runtime_cleanup EXIT
+  trap 'exit 130' INT TERM HUP
+
+  # Serialize the complete staged swap. A stale lock records the exact stage
+  # and rollback paths owned by its dead process so a later setup can recover
+  # them without glob-deleting anything in the shared skills directory.
+  lock_attempt=0
+  while [ "$lock_attempt" -lt 100 ]; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      lock_held=1
+      printf '%s\n' "$$" > "$lock_dir/pid"
+      printf '%s\n' "$rollback_gstack" > "$lock_dir/rollback"
+      break
+    fi
+
+    lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
+    if [ -n "$lock_pid" ] && case "$lock_pid" in *[!0-9]*) false ;; *) true ;; esac && ! kill -0 "$lock_pid" 2>/dev/null; then
+      stale_lock="$codex_parent/.gstack-install.lock.stale.$$"
+      if mv "$lock_dir" "$stale_lock" 2>/dev/null; then
+        stale_stage=$(cat "$stale_lock/stage" 2>/dev/null || true)
+        if [ -n "$stale_stage" ] && [ "$(dirname "$stale_stage")" = "$codex_parent" ] && \
+           case "$(basename "$stale_stage")" in .gstack-stage.*) true ;; *) false ;; esac; then
+          rm -rf "$stale_stage"
+        fi
+        stale_rollback=$(cat "$stale_lock/rollback" 2>/dev/null || true)
+        if [ -n "$stale_rollback" ] && [ "$(dirname "$stale_rollback")" = "$codex_parent" ] && \
+           case "$(basename "$stale_rollback")" in .gstack-rollback.*) true ;; *) false ;; esac && \
+           { [ -e "$stale_rollback" ] || [ -L "$stale_rollback" ]; }; then
+          if [ ! -e "$codex_gstack" ] && [ ! -L "$codex_gstack" ]; then
+            mv "$stale_rollback" "$codex_gstack" || true
+          else
+            rm -rf "$stale_rollback"
+          fi
+        fi
+        rm -rf "$stale_lock"
+        continue
+      fi
+    fi
+    lock_attempt=$((lock_attempt + 1))
+    sleep 0.05
+  done
+  if [ "$lock_held" -ne 1 ]; then
+    echo "gstack setup: timed out waiting for Codex runtime install lock: $lock_dir" >&2
+    return 1
+  fi
+
+  staged_gstack=$(mktemp -d "$codex_parent/.gstack-stage.XXXXXX") || return 1
+  printf '%s\n' "$staged_gstack" > "$lock_dir/stage"
 
   # Build and validate the complete minimal runtime beside the live one. Old
   # direct installs may contain stale source skills, so never build in place.
@@ -1238,10 +1303,7 @@ create_codex_runtime_root() {
     # router lives in a real runtime directory. Codex Desktop skips it when
     # SKILL.md itself is a symlink, so refresh the generated root as a real
     # file on every setup run. Runtime asset directories remain symlinked.
-    cp -f "$agents_dir/gstack/SKILL.md" "$staged_gstack/SKILL.md" || {
-      rm -rf "$staged_gstack"
-      return 1
-    }
+    cp -f "$agents_dir/gstack/SKILL.md" "$staged_gstack/SKILL.md" || return 1
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$staged_gstack/bin"
@@ -1282,7 +1344,6 @@ create_codex_runtime_root() {
   fi
 
   if [ ! -f "$staged_gstack/SKILL.md" ] || [ ! -e "$staged_gstack/bin" ] || [ ! -e "$staged_gstack/lib" ]; then
-    rm -rf "$staged_gstack"
     return 1
   fi
 
@@ -1291,22 +1352,21 @@ create_codex_runtime_root() {
   # prevents a failed copy/link step from deleting a working installation.
   if [ -e "$codex_gstack" ] || [ -L "$codex_gstack" ]; then
     if [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; then
-      rm -rf "$staged_gstack"
       return 1
     fi
-    mv "$codex_gstack" "$rollback_gstack" || {
-      rm -rf "$staged_gstack"
-      return 1
-    }
+    mv "$codex_gstack" "$rollback_gstack" || return 1
     had_previous=1
   fi
   if mv "$staged_gstack" "$codex_gstack"; then
-    if [ "$had_previous" -eq 1 ]; then rm -rf "$rollback_gstack"; fi
+    staged_gstack=""
+    if [ "$had_previous" -eq 1 ]; then
+      rm -rf "$rollback_gstack"
+      had_previous=0
+    fi
   else
-    if [ "$had_previous" -eq 1 ]; then mv "$rollback_gstack" "$codex_gstack" || true; fi
-    rm -rf "$staged_gstack"
     return 1
   fi
+  )
 }
 
 create_factory_runtime_root() {

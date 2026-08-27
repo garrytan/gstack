@@ -164,6 +164,13 @@ describe("gstack-decision-search", () => {
     expect(search("--query persisted --tokens")).toContain("persisted-only-in-log");
     expect(fs.existsSync(snapshot)).toBe(true);
   });
+  test("--no-rebuild trusts a valid empty snapshot instead of rescanning history", () => {
+    log('{"decision":"historical but inactive","scope":"repo","source":"user"}');
+    const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
+    const snapshot = path.join(tmpDir, "projects", projectSlug, "decisions.active.json");
+    fs.writeFileSync(snapshot, "[]");
+    expect(search("--query historical --tokens --no-rebuild")).toBe("");
+  });
   test("--no-rebuild does not create or rewrite the slug cache", () => {
     expect(search("--query absent --tokens --no-rebuild")).toBe("");
     expect(fs.existsSync(path.join(tmpDir, "slug-cache"))).toBe(false);

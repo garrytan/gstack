@@ -2,7 +2,7 @@
 # gstack-session-kind — classify the current agent session so skills know whether
 # a human can answer an interactive prompt (AskUserQuestion).
 #
-# Usage: gstack-session-kind            → prints one of: spawned | headless | interactive
+# Usage: gstack-session-kind [--history] → prints one of: spawned | headless | interactive
 #
 # Used by the preamble (generate-preamble-bash.ts) which echoes
 #   SESSION_KIND: <value>
@@ -22,6 +22,14 @@
 # signals that actually discriminate are the host/orchestrator/CI env markers below.
 set -euo pipefail
 
+HISTORY_MODE=0
+if [ "${1:-}" = "--history" ]; then
+  HISTORY_MODE=1
+elif [ -n "${1:-}" ]; then
+  echo "gstack-session-kind: unknown option: $1" >&2
+  exit 2
+fi
+
 # 1. Orchestrator-spawned session (OpenClaw). Authoritative block lives in the skill;
 #    we only surface the classification.
 if [ -n "${OPENCLAW_SESSION:-}" ]; then
@@ -37,8 +45,20 @@ fi
 
 # 3. Positive interactive-host signals: a human-driven host is present.
 #    - Conductor app sets CONDUCTOR_* workspace vars.
-#    - Plain interactive `claude` CLI sets CLAUDE_CODE_ENTRYPOINT=cli.
-if [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "cli" ]; then
+#    - Codex Desktop sets both a thread id and its app id.
+#    - GSTACK_INTERACTIVE is an explicit invocation-scoped override for hosts
+#      that do not expose a trustworthy interactive marker.
+if [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ] || \
+   { [ -n "${CODEX_THREAD_ID:-}" ] && [ -n "${INSTANT_APP_ID:-}" ]; } || \
+   [ -n "${GSTACK_INTERACTIVE:-}" ]; then
+  echo "interactive"
+  exit 0
+fi
+
+# Plain `claude` CLI uses the same entrypoint marker for interactive and `-p`
+# one-shot runs. It is sufficient for AskUserQuestion fallback behavior, but
+# never sufficient for private-history recall.
+if [ "$HISTORY_MODE" -eq 0 ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "cli" ]; then
   echo "interactive"
   exit 0
 fi
@@ -49,5 +69,10 @@ if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   exit 0
 fi
 
-# 5. No positive headless signal → assume a human is present (degrade-safe default).
-echo "interactive"
+# 5. AskUserQuestion keeps its backwards-compatible interactive fallback. The
+#    private-history classifier fails closed on the same ambiguity.
+if [ "$HISTORY_MODE" -eq 1 ]; then
+  echo "headless"
+else
+  echo "interactive"
+fi

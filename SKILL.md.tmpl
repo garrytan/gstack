@@ -40,9 +40,11 @@ catalog.
      value as one quoted argument. If no safe terms remain, skip history recall.
    - Assign the normalized value before searching, for example
      `SAFE_TERMS='customer onboarding crm'`; replace the example with the safe
-     terms you produced. Then search settled decisions and the curated GBrain
-     memory source with the bundled command
-     `~/.claude/skills/gstack/bin/gstack-decision-search --slug "$SLUG" --branch "$_BRANCH" --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
+     terms you produced. In the same Bash call, assign `BIN_PATH` to the absolute
+     `GSTACK_BIN` path echoed by the preamble; do not reuse a shell variable from
+     the earlier preamble call. Then search settled decisions and the curated
+     GBrain memory source with
+     `SAFE_TERMS='customer onboarding crm'; BIN_PATH='/absolute/path/from/preamble'; "$BIN_PATH/gstack-decision-search" --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
      Do not invoke an ambient memory skill. This command treats the terms as
      independent tokens, never rebuilds or writes the snapshot, caps output at
      three results, and degrades to local decisions when GBrain is absent,

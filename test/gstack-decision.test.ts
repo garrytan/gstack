@@ -16,6 +16,7 @@ import {
   readEvents,
   writeSnapshot,
   readSnapshot,
+  readSnapshotState,
   rebuildSnapshot,
   compact,
   datamark,
@@ -134,6 +135,16 @@ describe("snapshot + compaction (real files)", () => {
     const a = decide("1") as ActiveDecision;
     writeSnapshot(paths, [a]);
     expect(readSnapshot(paths).map((d) => d.id)).toEqual(["1"]);
+    cleanup();
+  });
+
+  it("readSnapshotState distinguishes a valid empty snapshot from missing or corrupt", () => {
+    const { paths, cleanup } = freshPaths();
+    expect(readSnapshotState(paths)).toEqual({ status: "missing", rows: [] });
+    writeSnapshot(paths, []);
+    expect(readSnapshotState(paths)).toEqual({ status: "valid", rows: [] });
+    require("fs").writeFileSync(paths.snapshot, "{not json");
+    expect(readSnapshotState(paths)).toEqual({ status: "corrupt", rows: [] });
     cleanup();
   });
 

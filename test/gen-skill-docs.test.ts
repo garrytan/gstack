@@ -1962,7 +1962,8 @@ describe('Codex generation (--host codex)', () => {
 
     expect(root).toContain('gstack-config get history_recall');
     expect(root).toContain('HISTORY_RECALL: $_HISTORY_RECALL');
-    expect(root).toContain('gstack-session-kind 2>/dev/null || echo "headless"');
+    expect(root).toContain('GSTACK_BIN: $GSTACK_BIN');
+    expect(root).toContain('gstack-session-kind --history 2>/dev/null || echo "headless"');
     expect(root).toContain('*) _SESSION_KIND="headless"');
     expect(root).toContain('_ROOT_HISTORY_ALLOWED="no"');
     expect(root).toContain('[ "$_SESSION_KIND" = "interactive" ] && [ "$_HISTORY_RECALL" = "true" ]');
@@ -1971,6 +1972,7 @@ describe('Codex generation (--host codex)', () => {
     expect(review).not.toContain('gstack-config get history_recall');
     expect(review).not.toContain('_ROOT_HISTORY_ALLOWED');
     expect(review).toContain('gstack-session-kind 2>/dev/null || echo "interactive"');
+    expect(review).not.toContain('gstack-session-kind --history');
     expect(review).toContain('*) _SESSION_KIND="interactive"');
     expect(review).toContain('if [ -f "$_LEARN_FILE" ]');
   });

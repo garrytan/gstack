@@ -237,4 +237,38 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       fs.rmSync(sandbox, { recursive: true, force: true });
     }
   });
+
+  test('concurrent Codex runtime refreshes serialize without nested or orphaned roots', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-concurrent-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      fs.mkdirSync(liveRoot, { recursive: true });
+      fs.writeFileSync(path.join(liveRoot, 'previous-install-marker'), 'replace me\n');
+      const script = [
+        'set -e',
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}" &`,
+        'first=$!',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}" &`,
+        'second=$!',
+        'wait "$first"',
+        'wait "$second"',
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(liveRoot, 'gstack'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-stage.'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-rollback.'))).toBe(false);
+      expect(fs.existsSync(path.join(path.dirname(liveRoot), '.gstack-install.lock'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
 });
