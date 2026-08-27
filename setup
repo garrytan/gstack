@@ -1224,13 +1224,16 @@ create_codex_runtime_root() {
   local codex_gstack="$2"
   local agents_dir="$gstack_dir/.agents/skills"
   local codex_parent staged_gstack rollback_gstack had_previous
-  local lock_dir lock_held lock_attempt lock_pid stale_lock stale_stage stale_rollback
+  local lock_dir lock_held lock_attempt lock_pid lock_owner lock_observed
+  local lock_missing_attempts lock_stale stale_lock stale_stage stale_rollback
   codex_parent=$(dirname "$codex_gstack")
   mkdir -p "$codex_parent"
   staged_gstack=""
-  rollback_gstack="$codex_parent/.gstack-rollback.$$"
+  lock_owner="${BASHPID:-$$}"
+  rollback_gstack="$codex_parent/.gstack-rollback.$lock_owner"
   lock_dir="$codex_parent/.gstack-install.lock"
   lock_held=0
+  lock_missing_attempts=0
   had_previous=0
 
   _codex_runtime_cleanup() {
@@ -1241,7 +1244,7 @@ create_codex_runtime_root() {
        { [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; }; then
       mv "$rollback_gstack" "$codex_gstack" || true
     fi
-    if [ "$lock_held" -eq 1 ]; then
+    if [ "$lock_held" -eq 1 ] && [ "$(cat "$lock_dir/pid" 2>/dev/null || true)" = "$lock_owner" ]; then
       rm -rf "$lock_dir"
     fi
   }
@@ -1255,15 +1258,32 @@ create_codex_runtime_root() {
   while [ "$lock_attempt" -lt 100 ]; do
     if mkdir "$lock_dir" 2>/dev/null; then
       lock_held=1
-      printf '%s\n' "$$" > "$lock_dir/pid"
-      printf '%s\n' "$rollback_gstack" > "$lock_dir/rollback"
+      printf '%s\n' "$lock_owner" > "$lock_dir/pid" || return 1
+      printf '%s\n' "$rollback_gstack" > "$lock_dir/rollback" || return 1
       break
     fi
 
     lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
-    if [ -n "$lock_pid" ] && case "$lock_pid" in *[!0-9]*) false ;; *) true ;; esac && ! kill -0 "$lock_pid" 2>/dev/null; then
-      stale_lock="$codex_parent/.gstack-install.lock.stale.$$"
-      if mv "$lock_dir" "$stale_lock" 2>/dev/null; then
+    lock_stale=0
+    if [ -n "$lock_pid" ] && case "$lock_pid" in *[!0-9]*) false ;; *) true ;; esac; then
+      lock_missing_attempts=0
+      if ! kill -0 "$lock_pid" 2>/dev/null; then
+        lock_stale=1
+      fi
+    else
+      # mkdir and metadata creation are not atomic. Give a live creator one
+      # second to publish its PID, then reclaim abandoned empty/malformed locks.
+      lock_missing_attempts=$((lock_missing_attempts + 1))
+      if [ "$lock_missing_attempts" -ge 20 ]; then
+        lock_stale=1
+      fi
+    fi
+    if [ "$lock_stale" -eq 1 ]; then
+      # Re-read before the atomic rename so a creator that published metadata
+      # during the grace window is never mistaken for the lock we inspected.
+      lock_observed=$(cat "$lock_dir/pid" 2>/dev/null || true)
+      stale_lock="$codex_parent/.gstack-install.lock.stale.$lock_owner.$lock_attempt"
+      if [ "$lock_observed" = "$lock_pid" ] && mv "$lock_dir" "$stale_lock" 2>/dev/null; then
         stale_stage=$(cat "$stale_lock/stage" 2>/dev/null || true)
         if [ -n "$stale_stage" ] && [ "$(dirname "$stale_stage")" = "$codex_parent" ] && \
            case "$(basename "$stale_stage")" in .gstack-stage.*) true ;; *) false ;; esac; then
@@ -1280,6 +1300,7 @@ create_codex_runtime_root() {
           fi
         fi
         rm -rf "$stale_lock"
+        lock_missing_attempts=0
         continue
       fi
     fi

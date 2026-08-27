@@ -315,7 +315,8 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('contributor-logs');
     expect(content).toContain('Operational Self-Improvement');
     expect(content).toContain('gstack-learnings-log');
-    expect(content).toContain('gstack-learnings-search --limit 3');
+    expect(content).toContain('LEARNINGS: 0 (root router defers private history)');
+    expect(content).not.toContain('gstack-learnings-search --limit 3');
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
@@ -1956,7 +1957,7 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
   });
 
-  test('only the Codex root router preamble can load opted-in private history', () => {
+  test('the Codex root router defers private history until its trusted prompt gate', () => {
     const root = fs.readFileSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'), 'utf-8');
     const review = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
 
@@ -1965,12 +1966,15 @@ describe('Codex generation (--host codex)', () => {
     expect(root).toContain('GSTACK_BIN: $GSTACK_BIN');
     expect(root).toContain('gstack-session-kind --history 2>/dev/null || echo "headless"');
     expect(root).toContain('*) _SESSION_KIND="headless"');
-    expect(root).toContain('_ROOT_HISTORY_ALLOWED="no"');
-    expect(root).toContain('[ "$_SESSION_KIND" = "interactive" ] && [ "$_HISTORY_RECALL" = "true" ]');
-    expect(root).toContain('if [ "$_ROOT_HISTORY_ALLOWED" = "yes" ] && [ -f "$_LEARN_FILE" ]');
+    expect(root).toContain('LEARNINGS: 0 (root router defers private history)');
+    expect(root).not.toContain('_ROOT_HISTORY_ALLOWED');
+    expect(root).not.toContain('_LEARN_FILE');
+    expect(root).not.toContain('gstack-learnings-search --limit 3');
 
     expect(review).not.toContain('gstack-config get history_recall');
     expect(review).not.toContain('_ROOT_HISTORY_ALLOWED');
+    expect(review).toContain('_LEARN_FILE');
+    expect(review).toContain('gstack-learnings-search --limit 3');
     expect(review).toContain('gstack-session-kind 2>/dev/null || echo "interactive"');
     expect(review).not.toContain('gstack-session-kind --history');
     expect(review).toContain('*) _SESSION_KIND="interactive"');

@@ -85,13 +85,13 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
   fi
   break
 done
-eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
+${ctx.skillName === 'gstack' ? `# The root router never reads private learnings automatically. Its guided-entry
+# instructions perform a bounded recall only after trusted top-level context
+# and the persisted opt-in have both been checked.
+echo "LEARNINGS: 0 (root router defers private history)"
+` : `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}/learnings.jsonl"
-${ctx.skillName === 'gstack' ? `_ROOT_HISTORY_ALLOWED="no"
-if [ "$_SESSION_KIND" = "interactive" ] && [ "$_HISTORY_RECALL" = "true" ]; then
-  _ROOT_HISTORY_ALLOWED="yes"
-fi
-` : ''}if ${ctx.skillName === 'gstack' ? '[ "$_ROOT_HISTORY_ALLOWED" = "yes" ] && ' : ''}[ -f "$_LEARN_FILE" ]; then
+if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
@@ -100,7 +100,7 @@ fi
 else
   echo "LEARNINGS: 0"
 fi
-${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+`}${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 for _RF in CLAUDE.md AGENTS.md; do
   if [ -f "$_RF" ] && grep -q "## Skill routing" "$_RF" 2>/dev/null; then

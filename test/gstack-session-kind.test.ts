@@ -73,10 +73,21 @@ describe('gstack-session-kind', () => {
     expect(kind({ CLAUDE_CODE_ENTRYPOINT: 'cli' }, ['--history'])).toBe('headless');
   });
 
-  test('--history accepts only positive interactive or explicit invocation-scoped signals', () => {
-    expect(kind({ CONDUCTOR_PORT: '55010' }, ['--history'])).toBe('interactive');
-    expect(kind({ CODEX_THREAD_ID: 'thread', INSTANT_APP_ID: 'app' }, ['--history'])).toBe('interactive');
-    expect(kind({ GSTACK_INTERACTIVE: '1' }, ['--history'])).toBe('interactive');
+  test('--history ignores ambient host markers inherited by delegated agents', () => {
+    expect(kind({ CONDUCTOR_PORT: '55010' }, ['--history'])).toBe('headless');
+    expect(kind({ CODEX_THREAD_ID: 'thread', INSTANT_APP_ID: 'app' }, ['--history'])).toBe('headless');
     expect(kind({ CODEX_THREAD_ID: 'thread' }, ['--history'])).toBe('headless');
+  });
+
+  test('--history accepts only the exact invocation-scoped override', () => {
+    expect(kind({ GSTACK_INTERACTIVE: '1' }, ['--history'])).toBe('interactive');
+    expect(kind({ GSTACK_INTERACTIVE: '0' }, ['--history'])).toBe('headless');
+    expect(kind({ GSTACK_INTERACTIVE: 'false' }, ['--history'])).toBe('headless');
+    expect(kind({ GSTACK_INTERACTIVE: 'yes' }, ['--history'])).toBe('headless');
+  });
+
+  test('--history CI markers override even the exact interactive signal', () => {
+    expect(kind({ GSTACK_INTERACTIVE: '1', CI: '1' }, ['--history'])).toBe('headless');
+    expect(kind({ GSTACK_INTERACTIVE: '1', GITHUB_ACTIONS: 'true' }, ['--history'])).toBe('headless');
   });
 });

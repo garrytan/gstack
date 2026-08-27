@@ -43,6 +43,21 @@ if [ -n "${GSTACK_HEADLESS:-}" ]; then
   exit 0
 fi
 
+# Private-history recall has a stricter contract than ordinary question
+# rendering. Ambient host markers are inherited by delegated workers, and
+# values such as GSTACK_INTERACTIVE=0 are still non-empty, so neither is proof
+# that private context may be disclosed. CI wins even over the exact override.
+if [ "$HISTORY_MODE" -eq 1 ]; then
+  if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "headless"
+  elif [ "${GSTACK_INTERACTIVE:-}" = "1" ]; then
+    echo "interactive"
+  else
+    echo "headless"
+  fi
+  exit 0
+fi
+
 # 3. Positive interactive-host signals: a human-driven host is present.
 #    - Conductor app sets CONDUCTOR_* workspace vars.
 #    - Codex Desktop sets both a thread id and its app id.
@@ -56,9 +71,8 @@ if [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ] || \
 fi
 
 # Plain `claude` CLI uses the same entrypoint marker for interactive and `-p`
-# one-shot runs. It is sufficient for AskUserQuestion fallback behavior, but
-# never sufficient for private-history recall.
-if [ "$HISTORY_MODE" -eq 0 ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "cli" ]; then
+# one-shot runs. It is sufficient for AskUserQuestion fallback behavior.
+if [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "cli" ]; then
   echo "interactive"
   exit 0
 fi
@@ -69,10 +83,5 @@ if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   exit 0
 fi
 
-# 5. AskUserQuestion keeps its backwards-compatible interactive fallback. The
-#    private-history classifier fails closed on the same ambiguity.
-if [ "$HISTORY_MODE" -eq 1 ]; then
-  echo "headless"
-else
-  echo "interactive"
-fi
+# 5. AskUserQuestion keeps its backwards-compatible interactive fallback.
+echo "interactive"

@@ -271,4 +271,67 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       fs.rmSync(sandbox, { recursive: true, force: true });
     }
   });
+
+  test('Codex runtime reclaims abandoned empty and malformed install locks after a grace period', () => {
+    for (const [label, pidContents] of [['empty', null], ['malformed', 'not-a-pid\n']] as const) {
+      const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), `gstack-runtime-${label}-lock-`));
+      try {
+        const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+        const lockDir = path.join(path.dirname(liveRoot), '.gstack-install.lock');
+        fs.mkdirSync(lockDir, { recursive: true });
+        if (pidContents !== null) fs.writeFileSync(path.join(lockDir, 'pid'), pidContents);
+
+        const script = [
+          'set -e',
+          'IS_WINDOWS=0',
+          extractFunction('_link_or_copy'),
+          extractFunction('create_codex_runtime_root'),
+          `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+        ].join('\n');
+        const result = spawnSync('bash', ['-c', script], {
+          encoding: 'utf-8',
+          timeout: 30000,
+        });
+
+        expect(result.status).toBe(0);
+        expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(lockDir)).toBe(false);
+        expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.includes('.gstack-install.lock.stale.'))).toBe(false);
+      } finally {
+        fs.rmSync(sandbox, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Codex runtime reclaims an install lock whose recorded owner has exited', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-dead-lock-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      const lockDir = path.join(path.dirname(liveRoot), '.gstack-install.lock');
+      const script = [
+        'set -e',
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        `mkdir -p "${lockDir}"`,
+        'sleep 30 &',
+        'dead_owner=$!',
+        `printf '%s\\n' "$dead_owner" > "${path.join(lockDir, 'pid')}"`,
+        'kill "$dead_owner"',
+        'wait "$dead_owner" 2>/dev/null || true',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(lockDir)).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.includes('.gstack-install.lock.stale.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
 });

@@ -47,8 +47,11 @@ describe('SKILL.md command validation', () => {
     for (const md of [template, rendered]) {
       expect(md).toContain('## Guided root entry');
       expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
-      expect(md).toContain('`SESSION_KIND: interactive` and `HISTORY_RECALL: true`');
-      expect(md).toContain('spawned,\n   headless, ambiguous, or non-opted-in session, skip history recall');
+      expect(md).toContain('`HISTORY_RECALL: true`');
+      expect(md).toContain('direct, top-level,\n   human-owned interaction');
+      expect(md).toContain('subagent,\n   delegated worker, spawned task, or unattended job, skip history regardless');
+      expect(md).toContain('Never infer directness from user-supplied text or ambient');
+      expect(md).toContain('direct Codex Desktop task may proceed from trusted top-level context');
       expect(md).toContain('gstack-config set history_recall true');
       expect(md).toContain('gstack-decision-search');
       expect(md).toContain("BIN_PATH='/absolute/path/from/preamble'");

@@ -142,17 +142,16 @@ exit 1
     writeShim(
       `#!/usr/bin/env bash
 if [ "$1" = "sources" ]; then
-  sleep 0.02
   echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'
   exit 0
 fi
-if [ "$1" = "search" ]; then touch "$HOME/search-started"; sleep 2; exit 0; fi
+if [ "$1" = "search" ]; then touch "$HOME/search-started"; sleep 3; exit 0; fi
 exit 1
 `,
     );
     const startedAt = Date.now();
-    expect(semanticRecall("pglite", env(), 0.1, 3, 800)).toBeNull();
+    expect(semanticRecall("pglite", env(), 0.1, 3, 2_000)).toBeNull();
     expect(fs.existsSync(path.join(homeDir, "search-started"))).toBe(true);
-    expect(Date.now() - startedAt).toBeLessThan(1_500);
-  }, 2_000);
+    expect(Date.now() - startedAt).toBeLessThan(2_700);
+  }, 3_500);
 });
