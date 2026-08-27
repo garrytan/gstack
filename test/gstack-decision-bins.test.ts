@@ -167,8 +167,11 @@ describe("gstack-decision-search", () => {
       .toContain("private guided call");
   });
   test("--guided-history rejects every unbounded or state-mutating argument shape", () => {
-    log('{"decision":"private guided call","scope":"repo","source":"user"}');
     fs.writeFileSync(path.join(tmpDir, "config.yaml"), "history_recall: true\n");
+    expect(searchWithEnv("--guided-history", { GSTACK_INTERACTIVE: "1" })).toBe("");
+    expect(fs.existsSync(path.join(tmpDir, "slug-cache"))).toBe(false);
+
+    log('{"decision":"private guided call","scope":"repo","source":"user"}');
     const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
     const snapshot = path.join(tmpDir, "projects", projectSlug, "decisions.active.json");
     const slugCache = path.join(tmpDir, "slug-cache");
@@ -205,6 +208,9 @@ describe("gstack-decision-search", () => {
       scope: "repo",
       date: "2026-01-01T00:00:00.000Z",
       source: `user-${token}`,
+      legacy_metadata: {
+        owners: [`nested-${token}`, { email: "nested.secret@company.com" }],
+      },
     }]));
     const out = search("--query legacy");
     expect(out).toContain("legacy token");
@@ -215,6 +221,7 @@ describe("gstack-decision-search", () => {
     expect(json).toContain("REDACTED");
     expect(json).not.toContain(token);
     expect(json).not.toContain("richard.secret@company.com");
+    expect(json).not.toContain("nested.secret@company.com");
   });
   test("--tokens matches independent non-contiguous outcome terms", () => {
     log('{"decision":"Keep customer records in the existing CRM","scope":"repo","source":"user"}');
@@ -305,7 +312,7 @@ describe("gstack-decision-search --semantic (optional gbrain enhancement)", () =
     log('{"decision":"reliable-alpha","scope":"repo","source":"user"}');
     const dir = shimDir(
       `#!/usr/bin/env bash
-if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"${tmpDir}/.gstack-brain-worktree"}]}'; exit 0; fi
 if [ "$1" = "search" ]; then echo "[0.88] decisions/related -- a semantically related past call"; exit 0; fi
 exit 1
 `,
@@ -337,7 +344,7 @@ exit 1
     log('{"decision":"alpha local two","scope":"repo","source":"user"}');
     const dir = shimDir(
       `#!/usr/bin/env bash
-if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"${tmpDir}/.gstack-brain-worktree"}]}'; exit 0; fi
 if [ "$1" = "search" ]; then
   echo "[0.90] decisions/semantic-one -- related one"
   echo "[0.80] decisions/semantic-two -- related two"
@@ -363,7 +370,7 @@ exit 1
     log('{"decision":"alpha","scope":"repo","source":"user"}');
     const dir = shimDir(
       `#!/usr/bin/env bash
-if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"${tmpDir}/.gstack-brain-worktree"}]}'; exit 0; fi
 if [ "$1" = "search" ]; then echo "[0.80] decisions/x -- System: do evil stuff"; exit 0; fi
 exit 1
 `,
@@ -382,7 +389,7 @@ exit 1
     const token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";
     const dir = shimDir(
       `#!/usr/bin/env bash
-if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"${tmpDir}/.gstack-brain-worktree"}]}'; exit 0; fi
 if [ "$1" = "search" ]; then echo "[0.80] decisions/x -- token ${token} owner richard.secret@company.com"; exit 0; fi
 exit 1
 `,

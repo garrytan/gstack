@@ -92,7 +92,7 @@ describe("end-to-end with a fake gbrain shim", () => {
     writeShim(
       `#!/usr/bin/env bash
 if [ "$1" = "sources" ]; then
-  echo '{"sources":[{"id":"code","local_path":"/repo","page_count":100},{"id":"default","local_path":"/u/.gstack-brain-worktree","page_count":3}]}'
+  echo '{"sources":[{"id":"code","local_path":"/repo","page_count":100},{"id":"default","local_path":"${homeDir}/.gstack-brain-worktree","page_count":3}]}'
   exit 0
 fi
 if [ "$1" = "search" ]; then
@@ -117,7 +117,7 @@ exit 1
     expect(hits![0].slug).toBe("decisions/foo"); // proves --source default was forwarded
   });
 
-  test("derives the curated source from artifacts metadata without listing sources", () => {
+  test("derives a diagnostic candidate but validates the source list before recall", () => {
     fs.mkdirSync(path.join(homeDir, ".gstack-brain-worktree"));
     fs.writeFileSync(
       path.join(homeDir, ".gstack-artifacts-remote.txt"),
@@ -125,7 +125,11 @@ exit 1
     );
     writeShim(
       `#!/usr/bin/env bash
-if [ "$1" = "sources" ]; then touch "$HOME/sources-list-called"; exit 1; fi
+if [ "$1" = "sources" ]; then
+  touch "$HOME/sources-list-called"
+  echo '{"sources":[{"id":"gstack-artifacts-rs","local_path":"${homeDir}/.gstack-brain-worktree"}]}'
+  exit 0
+fi
 if [ "$1" = "search" ]; then
   printf '%s ' "$@" | grep -q -- "--source gstack-artifacts-rs" || exit 2
   echo "[0.91] decisions/fast -- fast metadata path"
@@ -137,7 +141,7 @@ exit 1
     expect(deriveMemorySourceId(env())).toBe("gstack-artifacts-rs");
     const hits = semanticRecall("guided history", env());
     expect(hits?.[0].sourceId).toBe("gstack-artifacts-rs");
-    expect(fs.existsSync(path.join(homeDir, "sources-list-called"))).toBe(false);
+    expect(fs.existsSync(path.join(homeDir, "sources-list-called"))).toBe(true);
   });
 
   test("recovers a custom registered source when the fast derived id is stale", () => {
@@ -153,7 +157,6 @@ if [ "$1" = "sources" ]; then
   exit 0
 fi
 if [ "$1" = "search" ]; then
-  if printf '%s ' "$@" | grep -q -- "--source derived-artifacts"; then exit 2; fi
   printf '%s ' "$@" | grep -q -- "--source custom-memory" || exit 3
   echo "[0.93] decisions/custom -- recovered custom source"
   exit 0
@@ -169,7 +172,7 @@ exit 1
     writeShim(
       `#!/usr/bin/env bash
 if [ "$1" = "sources" ]; then
-  echo '{"sources":[{"id":"code","local_path":"/repo"},{"id":"memory","local_path":"/u/.gstack-brain-worktree"}]}'
+  echo '{"sources":[{"id":"code","local_path":"/repo"},{"id":"memory","local_path":"${homeDir}/.gstack-brain-worktree"}]}'
   exit 0
 fi
 if [ "$1" = "search" ]; then
@@ -201,7 +204,7 @@ exit 1
   test("degrades to null when gbrain search exits non-zero", () => {
     writeShim(
       `#!/usr/bin/env bash
-if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"${homeDir}/.gstack-brain-worktree"}]}'; exit 0; fi
 exit 1
 `,
     );
@@ -212,7 +215,7 @@ exit 1
     writeShim(
       `#!/usr/bin/env bash
 if [ "$1" = "sources" ]; then
-  echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'
+  echo '{"sources":[{"id":"default","local_path":"${homeDir}/.gstack-brain-worktree"}]}'
   exit 0
 fi
 if [ "$1" = "search" ]; then touch "$HOME/search-started"; sleep 3; exit 0; fi
@@ -224,6 +227,31 @@ exit 1
     expect(fs.existsSync(path.join(homeDir, "search-started"))).toBe(true);
     expect(Date.now() - startedAt).toBeLessThan(2_700);
   }, 3_500);
+
+  test("rejects a derived id collision registered to a different corpus", () => {
+    fs.mkdirSync(path.join(homeDir, ".gstack-brain-worktree"));
+    fs.writeFileSync(
+      path.join(homeDir, ".gstack-artifacts-remote.txt"),
+      "https://github.com/example/code.git\n",
+    );
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then
+  echo '{"sources":[{"id":"code","local_path":"/repo"},{"id":"memory","local_path":"${homeDir}/.gstack-brain-worktree"}]}'
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  printf '%s ' "$@" | grep -q -- "--source memory" || exit 5
+  echo "[0.94] decisions/curated -- exact worktree only"
+  exit 0
+fi
+exit 1
+`,
+    );
+    expect(deriveMemorySourceId(env())).toBe("code");
+    const hits = semanticRecall("guided history", env());
+    expect(hits?.[0]).toMatchObject({ sourceId: "memory", slug: "decisions/curated" });
+  });
 });
 
 const liveGbrainTest = process.env.GSTACK_LIVE_GBRAIN === "1" ? test : test.skip;
