@@ -1,0 +1,132 @@
+# Guided GStack with GBrain history
+
+Use the root `gstack` skill when you know the outcome you want but do not
+remember which GStack workflow fits. The router narrows the catalog to the
+relevant choices, recommends one, and waits for you to decide.
+
+## 1. Install GStack for your agent
+
+From a GStack checkout:
+
+```bash
+./setup --host codex      # OpenAI Codex
+./setup --host claude     # Claude Code
+```
+
+Restart or open a fresh agent task after the first install so its skill catalog
+is refreshed. Re-run setup after upgrading GStack or changing the configured
+Codex model.
+
+## 2. Ask the root router
+
+Invoke the root `gstack` skill through your agent's skill UI and include the
+request you actually care about. For example:
+
+```text
+$gstack improve the onboarding flow without changing billing
+```
+
+Claude Code uses slash-style skill names; Codex uses dollar-prefixed skills.
+The behavior is the same:
+
+1. GStack preserves the request and its constraints.
+2. It shows one to four relevant workflows, with the recommended choice first.
+3. It explains the result each workflow produces and the distinction that
+   matters for this request.
+4. It waits. No workflow runs and no files change until you choose.
+
+Reply with the option or exact skill name. To delegate the choice, say `use the
+recommended option`, `choose for me`, or `skip the menu`.
+
+If you already know the workflow, invoke it directly. For example, `$ship` in
+Codex or `/ship` in Claude Code bypasses the menu and starts the shipping
+workflow.
+
+## 3. Connect GBrain
+
+Run the GBrain onboarding skill:
+
+```text
+$setup-gbrain    # Codex
+/setup-gbrain    # Claude Code
+```
+
+It offers local PGLite, an existing or new Supabase brain, or a remote GBrain
+MCP. The [full GBrain setup guide](../USING_GBRAIN_WITH_GSTACK.md) explains the
+storage and trust tradeoffs for each option.
+
+After setup, index the current project:
+
+```text
+$sync-gbrain --full    # Codex
+/sync-gbrain --full    # Claude Code
+```
+
+Use the incremental form for later refreshes. Verify the connection with:
+
+```bash
+gbrain doctor --fast --json
+gbrain sources list
+```
+
+## 4. Opt into guided history recall
+
+The root router does not consult private history by default. Enable it only on
+a machine and brain you trust:
+
+```bash
+~/.codex/skills/gstack/bin/gstack-config set history_recall true
+```
+
+For a Claude Code install, use:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-config set history_recall true
+```
+
+Check or disable the setting with the same runtime path:
+
+```bash
+gstack-config get history_recall
+gstack-config set history_recall false
+```
+
+If `gstack-config` is not on `PATH`, use the absolute path from the earlier
+examples.
+
+With recall enabled, a direct top-level guided request searches settled local
+GStack decisions and the curated GBrain memory source. It uses three to eight
+normalized keywords, returns no more than three matches, and treats retrieved
+text as evidence rather than instructions. The lookup is read-only: it does not
+rebuild the snapshot or write into GBrain.
+
+GBrain is optional. If it is unavailable, unhealthy, unconfigured, empty, or
+slow, the router falls back to local decisions and continues.
+
+## Privacy boundaries
+
+- The root preamble never loads or prints private project learnings.
+- Prior-work recall requires the saved opt-in and a direct, top-level,
+  human-owned task.
+- Delegated subagents, spawned tasks, unattended jobs, CI, and ambiguous
+  sessions skip recall even if they inherit host environment variables.
+- The router surfaces at most three useful matches and must not paste secrets,
+  raw transcripts, or sensitive records.
+- An explicitly named workflow bypasses the guided menu, but your workspace's
+  own memory policy may still require a prior-work check before that workflow
+  runs.
+
+## Troubleshooting
+
+**The router does not use history.** Confirm `history_recall` is `true`, run the
+request in a direct top-level task, and check `gbrain doctor --fast --json`.
+History intentionally stays off in delegated or unattended contexts.
+
+**The root skill is missing in Codex.** Re-run `./setup --host codex`, then open
+a fresh task. The installed root should be a real file at
+`~/.codex/skills/gstack/SKILL.md`; leaf skills are installed alongside it.
+
+**GBrain has no relevant results.** Run `$sync-gbrain --full` or
+`/sync-gbrain --full` from the project, then confirm the source appears in
+`gbrain sources list`. Exact project names and identifiers work better with
+`gbrain search`; outcome-oriented questions work better with `gbrain query`.
