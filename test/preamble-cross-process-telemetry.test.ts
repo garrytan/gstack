@@ -44,6 +44,34 @@ function run(script: string, home: string) {
 }
 
 describe('preamble/completion telemetry survive separate processes', () => {
+  test('_TEL recovery does not depend on preamble-local runtime path vars (env-var hosts)', () => {
+    // Adversarial review finding: an earlier version of this fix recovered
+    // `_TEL` via `${ctx.paths.binDir}/gstack-config`, which resolves to
+    // `$GSTACK_BIN`/`$GSTACK_ROOT` for env-var hosts (Codex, Factory, ...).
+    // Those vars are themselves only set by the SAME preamble-local
+    // `runtimeRoot` block this whole fix exists to work around, so recovery
+    // would silently fall back to "off" for opted-in users on those hosts
+    // whenever the completion block runs in a separate process. The fix
+    // reads `~/.gstack/config.yaml` directly (host-independent state dir),
+    // matching gstack-config's own internal resolution and default.
+    const envVarCtx: TemplateContext = {
+      skillName: 'test-skill',
+      tmplPath: 'test-skill/SKILL.md.tmpl',
+      host: 'codex',
+      paths: HOST_PATHS['codex'],
+      preambleTier: 2,
+    };
+    const completionBash = extractBashFence(generateCompletionStatus(envVarCtx), 1);
+    const telRecoveryBlock = completionBash.slice(
+      completionBash.indexOf('if [ -z "$_TEL" ]'),
+      completionBash.indexOf('_TEL_DUR=')
+    );
+    expect(telRecoveryBlock).not.toContain('GSTACK_BIN');
+    expect(telRecoveryBlock).not.toContain('GSTACK_ROOT');
+    expect(telRecoveryBlock).toContain('GSTACK_STATE_ROOT');
+  });
+
+
   test('recovered _TEL_START is a real recent epoch, not the unset-as-zero bug', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-tel-'));
     try {

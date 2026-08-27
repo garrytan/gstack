@@ -827,7 +827,9 @@ if [ -z "$_SESSION_ID" ]; then
   _SESSION_ID="$PPID-$_TEL_START"
 fi
 if [ -z "$_TEL" ]; then
-  _TEL=$($GSTACK_ROOT/bin/gstack-config get telemetry 2>/dev/null || echo "off")
+  _TEL_CFG="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}}/config.yaml"
+  _TEL=$(grep -E '^telemetry:' "$_TEL_CFG" 2>/dev/null | tail -1 | sed -E 's/^telemetry:[[:space:]]*//; s/[[:space:]]+$//')
+  [ -z "$_TEL" ] && _TEL="off"
 fi
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
