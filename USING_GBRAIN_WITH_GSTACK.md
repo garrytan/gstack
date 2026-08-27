@@ -216,6 +216,7 @@ The skill re-collects a PAT (one-time, discarded after), lists every project in 
 | `gstack-gbrain-supabase-verify` | Structural URL check. Rejects direct-connection URLs (`db.*.supabase.co:5432`) with exit 3 |
 | `gstack-gbrain-supabase-provision` | Management API wrapper. Subcommands: `list-orgs`, `create`, `wait`, `pooler-url`, `list-orphans`, `delete-project`. All require `SUPABASE_ACCESS_TOKEN` in env. `create` and `pooler-url` also require `DB_PASS`. `--json` mode available on every subcommand. |
 | `gstack-gbrain-repo-policy` | Per-remote trust triad. Subcommands: `get`, `set`, `list`, `normalize` |
+| `gstack-gbrain-put` | Guarded skill-result writer. Requires `--slug` and `--content`; accepts `--kind artifact\|calibration`, `--approved`, and `--dry-run`. Exit 3 requests explicit approval for shared read-only endpoints; exit 4 requires trust setup or identity/frontmatter repair. |
 | `gstack-gbrain-source-wireup` | Registers your `~/.gstack/` brain repo with gbrain as a federated source via `gbrain sources add` + `git worktree`, then runs an initial `gbrain sync`. Idempotent. Replaces the dead `consumers.json + /ingest-repo` HTTP wireup from v1.12.x. Flags: `--strict`, `--source-id <id>`, `--no-pull`, `--uninstall`, `--probe`. |
 
 ### gbrain CLI (upstream tool)

@@ -66,7 +66,7 @@ skips them for both shared policies.
 
 After completing the skill, save the output. The compact resolver block
 already shows the slug prefix + title + tag for your specific skill (e.g.
-`gbrain put "ceo-plans/<feature-slug>" ...`). The full template:
+`gstack-gbrain-put --slug "ceo-plans/<feature-slug>" ...`). The full template:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-gbrain-put \
@@ -123,6 +123,12 @@ companies/teams.
 
 ### Error handling
 
+- **Approval required**: exit code 3 with JSON action
+  `approval-required`. Ask for explicit approval, then retry once with
+  `--approved`.
+- **Trust setup required**: exit code 4 with JSON action `setup-required`, or
+  an unresolved contributor identity/frontmatter error. Run `/setup-gbrain`
+  or repair the named identity/frontmatter problem before retrying.
 - **Throttle**: exit code 1 with stderr containing `throttle`, `rate
   limit`, `capacity`, or `busy`. Defer the save and move on — the brain
   is busy; the content isn't lost, just not persisted this run.
@@ -182,13 +188,14 @@ gbrain get "entities/<person>"         # expect stub per named person
 
 ## Remote / Supabase / thin-client-MCP routing
 
-The resolver emits a single CLI shape — `gbrain put "<slug>" --content
-"..."` — that works against every engine gbrain supports. The CLI
-internally routes to local PGLite, remote Supabase, or a remote MCP
-endpoint depending on the user's `~/.gbrain/config.json`. **gstack
-doesn't test that routing**: the storage layer is gbrain's contract to
-honor, and the same CLI invocation we test against local PGLite is the
-one that fires against any other engine.
+The resolver emits one guarded wrapper shape — `gstack-gbrain-put --slug
+"<slug>" --content "..."`. After enforcing endpoint trust and contributor
+attribution, the wrapper calls `gbrain put`, whose CLI routes to local PGLite,
+remote Supabase, or a remote MCP endpoint depending on the user's
+`~/.gbrain/config.json`. **gstack doesn't test that engine routing**: the
+storage layer is gbrain's contract to honor, and the same underlying
+`gbrain put` invocation tested against local PGLite fires against every other
+engine.
 
 If you're on Supabase or thin-client MCP and writes aren't landing:
 

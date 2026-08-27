@@ -101,8 +101,8 @@ never grants write access.
    `full`.
 4. Configure the shared GBrain service to index the artifacts repository after
    pushes (a webhook or a short server-side pull schedule). Direct skill-result
-   writes land through `gbrain put`; Git-synced artifacts become searchable when
-   the server advances that source.
+   writes land through the guarded `gstack-gbrain-put` wrapper; Git-synced
+   artifacts become searchable when the server advances that source.
 
 Every contributing computer pushes at skill boundaries using the existing
 secret scan, egress receipt, merge drivers, and retry-on-divergence path. Shared
