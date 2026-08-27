@@ -95,7 +95,9 @@ if [ "$1" = "sources" ]; then
   exit 0
 fi
 if [ "$1" = "search" ]; then
-  if printf '%s ' "$@" | grep -q -- "--source default"; then
+  if printf '%s ' "$@" | grep -q -- "--source default" &&
+     printf '%s ' "$@" | grep -q -- "--limit 3" &&
+     printf '%s ' "$@" | grep -q -- "--snippet-chars 100"; then
     echo "[0.91] decisions/foo -- We chose PGLite for the local engine"
   else
     echo "[0.91] WRONG-SOURCE -- unscoped fallback"
@@ -140,16 +142,17 @@ exit 1
     writeShim(
       `#!/usr/bin/env bash
 if [ "$1" = "sources" ]; then
-  sleep 3
+  sleep 0.02
   echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'
   exit 0
 fi
-if [ "$1" = "search" ]; then sleep 10; exit 0; fi
+if [ "$1" = "search" ]; then touch "$HOME/search-started"; sleep 2; exit 0; fi
 exit 1
 `,
     );
     const startedAt = Date.now();
-    expect(semanticRecall("pglite", env())).toBeNull();
-    expect(Date.now() - startedAt).toBeLessThan(7_000);
-  }, 10_000);
+    expect(semanticRecall("pglite", env(), 0.1, 3, 800)).toBeNull();
+    expect(fs.existsSync(path.join(homeDir, "search-started"))).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
+  }, 2_000);
 });

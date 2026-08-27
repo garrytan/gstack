@@ -45,6 +45,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'root-guided-interactive-history-failure': ['SKILL.md', 'SKILL.md.tmpl', 'bin/gstack-decision-search', 'lib/gstack-decision-semantic.ts', 'test/skill-e2e-root-guided-entry.test.ts'],
   'root-guided-delegated-choice': ['SKILL.md', 'SKILL.md.tmpl', 'test/skill-e2e-root-guided-entry.test.ts'],
   'root-guided-named-subskill': ['SKILL.md', 'SKILL.md.tmpl', 'test/skill-e2e-root-guided-entry.test.ts'],
+  'root-guided-spawned-no-delegation': ['SKILL.md', 'SKILL.md.tmpl', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'test/skill-e2e-root-guided-entry.test.ts'],
 
   // QA (+ test-server dependency)
   'qa-quick':       ['qa/**', 'browse/src/**', 'browse/test/test-server.ts'],
@@ -459,10 +460,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'skillmd-outside-git': 'gate',
   'session-awareness': 'gate',
   'operational-learning': 'gate',
-  'root-guided-headless': 'periodic',
+  'root-guided-headless': 'gate',
   'root-guided-interactive-history-failure': 'periodic',
-  'root-guided-delegated-choice': 'periodic',
+  'root-guided-delegated-choice': 'gate',
   'root-guided-named-subskill': 'periodic',
+  'root-guided-spawned-no-delegation': 'gate',
 
   // P4 first-run scaffold — periodic (onboarding, non-safety, model-touched marker)
   'first-task-scaffold': 'periodic',

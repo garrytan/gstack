@@ -34,18 +34,20 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
 _PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
+_HISTORY_RECALL=$(~/.claude/skills/gstack/bin/gstack-config get history_recall 2>/dev/null || echo "false")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _SKILL_PREFIX=$(~/.claude/skills/gstack/bin/gstack-config get skill_prefix 2>/dev/null || echo "false")
 echo "PROACTIVE: $_PROACTIVE"
+echo "HISTORY_RECALL: $_HISTORY_RECALL"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
-case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "headless")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="headless" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
 # Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
 # variant flaky), so skills render decisions as prose instead of calling the
@@ -95,7 +97,11 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
 done
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
-if [ -f "$_LEARN_FILE" ]; then
+_ROOT_HISTORY_ALLOWED="no"
+if [ "$_SESSION_KIND" = "interactive" ] && [ "$_HISTORY_RECALL" = "true" ]; then
+  _ROOT_HISTORY_ALLOWED="yes"
+fi
+if [ "$_ROOT_HISTORY_ALLOWED" = "yes" ] && [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
@@ -562,17 +568,22 @@ pick a workflow. Help the user choose without requiring them to remember the
 catalog.
 
 1. Preserve the user's original request, constraints, and desired outcome.
-2. In a first-party interactive session (`_SESSION_KIND` is `interactive`), run
-   this bounded, read-only history preflight before building the menu. In a
-   spawned or headless session, skip history recall so private project context
-   is never disclosed to a delegated or unattended task:
+2. Run the bounded, read-only history preflight only when both
+   `SESSION_KIND: interactive` and `HISTORY_RECALL: true` were echoed by the
+   preamble. The persisted opt-in is the user's authorization to consult
+   private local project history on this trusted machine. In a spawned,
+   headless, ambiguous, or non-opted-in session, skip history recall so private
+   project context is never disclosed to a delegated or unattended task. The
+   user can opt in with `gstack-config set history_recall true`:
    - Reduce the outcome to three to eight lowercase keywords containing only
      letters, numbers, spaces, and hyphens. Never interpolate the raw request,
      project names, or retrieved text into a shell command. Pass the normalized
      value as one quoted argument. If no safe terms remain, skip history recall.
-   - Search settled decisions and the curated GBrain memory source with the
-     bundled command
-     `~/.claude/skills/gstack/bin/gstack-decision-search --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
+   - Assign the normalized value before searching, for example
+     `SAFE_TERMS='customer onboarding crm'`; replace the example with the safe
+     terms you produced. Then search settled decisions and the curated GBrain
+     memory source with the bundled command
+     `~/.claude/skills/gstack/bin/gstack-decision-search --slug "$SLUG" --branch "$_BRANCH" --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
      Do not invoke an ambient memory skill. This command treats the terms as
      independent tokens, never rebuilds or writes the snapshot, caps output at
      three results, and degrades to local decisions when GBrain is absent,
@@ -587,6 +598,10 @@ catalog.
    ask for confirmation. With two to four matches, ask the user to choose. If no
    workflow fits, follow Route first and answer directly. After asking, STOP
    without invoking a workflow or changing files.
+   This root-specific stop rule overrides the general spawned-session
+   auto-selection rule: a spawned caller receives the recommendation/menu and
+   no leaf workflow runs unless the original request explicitly delegated the
+   choice.
 5. If the user explicitly delegates the choice (`choose for me`, `use the
    recommended option`, or `skip the menu`), select and invoke the best workflow
    immediately. An explicitly named subskill also bypasses this guided entry and

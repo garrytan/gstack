@@ -204,4 +204,37 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
     expect(r.runStderr).toContain('lib/jsonl-store.ts');
     expect(r.learningsWritten).toBe(false);
   });
+
+  test('Codex runtime restores the previous root when the final staged rename fails', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-rollback-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      fs.mkdirSync(liveRoot, { recursive: true });
+      fs.writeFileSync(path.join(liveRoot, 'previous-install-marker'), 'keep me\n');
+
+      const script = [
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        '_test_mv_calls=0',
+        'mv() {',
+        '  _test_mv_calls=$((_test_mv_calls + 1))',
+        '  if [ "$_test_mv_calls" -eq 2 ]; then return 1; fi',
+        '  command mv "$@"',
+        '}',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(fs.readFileSync(path.join(liveRoot, 'previous-install-marker'), 'utf-8')).toBe('keep me\n');
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-rollback.'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-stage.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
 });

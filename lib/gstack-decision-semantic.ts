@@ -82,17 +82,23 @@ export function semanticRecall(
   env?: NodeJS.ProcessEnv,
   minScore = 0.1,
   limit = 3,
+  totalTimeoutMs = TOTAL_TIMEOUT_MS,
 ): SemanticHit[] | null {
   if (!query.trim()) return null;
   const startedAt = Date.now();
   // Require the curated-memory source. If it's absent (gbrain down OR no worktree-backed
   // source), degrade to null rather than searching UNSCOPED — an unscoped search pulls
   // code/doc corpora that would be mislabeled as "related decisions" (Codex finding).
-  const sourceId = resolveMemorySourceId(env, Math.ceil(TOTAL_TIMEOUT_MS / 2));
+  const sourceId = resolveMemorySourceId(env, Math.ceil(totalTimeoutMs / 2));
   if (!sourceId) return null;
-  const remainingMs = TOTAL_TIMEOUT_MS - (Date.now() - startedAt);
+  const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
   if (remainingMs <= 0) return null;
-  const r = spawnGbrain(["search", query, "--source", sourceId], { baseEnv: env, timeout: remainingMs });
+  const r = spawnGbrain([
+    "search", query,
+    "--source", sourceId,
+    "--limit", String(limit),
+    "--snippet-chars", "100",
+  ], { baseEnv: env, timeout: remainingMs });
   if (r.status !== 0) return null; // gbrain down / not on PATH / errored → degrade
   return parseSearchHits(r.stdout || "", minScore, limit);
 }

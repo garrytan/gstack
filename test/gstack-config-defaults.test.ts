@@ -136,5 +136,6 @@ describe('gstack-config defaults (gate, free)', () => {
     expect(get('question_tuning').out).toBe('false');
     expect(get('team_mode').out).toBe('false');
     expect(get('transcript_ingest_mode').out).toBe('off');
+    expect(get('history_recall').out).toBe('false');
   });
 });

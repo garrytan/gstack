@@ -1222,67 +1222,90 @@ create_codex_runtime_root() {
   local gstack_dir="$1"
   local codex_gstack="$2"
   local agents_dir="$gstack_dir/.agents/skills"
+  local codex_parent staged_gstack rollback_gstack had_previous
+  codex_parent=$(dirname "$codex_gstack")
+  mkdir -p "$codex_parent"
+  staged_gstack=$(mktemp -d "$codex_parent/.gstack-stage.XXXXXX") || return 1
+  rollback_gstack="$codex_parent/.gstack-rollback.$$"
+  had_previous=0
 
-  if [ -L "$codex_gstack" ]; then
-    rm -f "$codex_gstack"
-  elif [ -d "$codex_gstack" ] && [ "$codex_gstack" != "$gstack_dir" ]; then
-    # Old direct installs left a real directory here with stale source skills.
-    # Remove it so we start fresh with only the minimal runtime assets.
-    rm -rf "$codex_gstack"
-  fi
-
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  # Build and validate the complete minimal runtime beside the live one. Old
+  # direct installs may contain stale source skills, so never build in place.
+  mkdir -p "$staged_gstack/browse" "$staged_gstack/gstack-upgrade" "$staged_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     # Codex discovers leaf skills through directory symlinks, but this root
     # router lives in a real runtime directory. Codex Desktop skips it when
     # SKILL.md itself is a symlink, so refresh the generated root as a real
     # file on every setup run. Runtime asset directories remain symlinked.
-    local codex_root_tmp
-    codex_root_tmp=$(mktemp "$codex_gstack/.SKILL.md.tmp.XXXXXX") || return 1
-    if cp -f "$agents_dir/gstack/SKILL.md" "$codex_root_tmp"; then
-      mv -f "$codex_root_tmp" "$codex_gstack/SKILL.md"
-    else
-      rm -f "$codex_root_tmp"
+    cp -f "$agents_dir/gstack/SKILL.md" "$staged_gstack/SKILL.md" || {
+      rm -rf "$staged_gstack"
       return 1
-    fi
+    }
   fi
   if [ -d "$gstack_dir/bin" ]; then
-    _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
+    _link_or_copy "$gstack_dir/bin" "$staged_gstack/bin"
   fi
   if [ -d "$gstack_dir/lib" ]; then
-    _link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"
+    _link_or_copy "$gstack_dir/lib" "$staged_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
-    _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
+    _link_or_copy "$gstack_dir/browse/dist" "$staged_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
-    _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+    _link_or_copy "$gstack_dir/browse/bin" "$staged_gstack/browse/bin"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
+    _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$staged_gstack/gstack-upgrade/SKILL.md"
   fi
   # plan-eng-review's inline office-hours step reads
   # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the codex-rendered
   # variant there so the documented path exists.
   if [ -f "${agents_dir}/gstack-office-hours/SKILL.md" ]; then
-    mkdir -p "${codex_gstack}/office-hours"
-    _link_or_copy "${agents_dir}/gstack-office-hours/SKILL.md" "${codex_gstack}/office-hours/SKILL.md"
+    mkdir -p "${staged_gstack}/office-hours"
+    _link_or_copy "${agents_dir}/gstack-office-hours/SKILL.md" "${staged_gstack}/office-hours/SKILL.md"
   fi
   # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$codex_gstack/review/$f"
+      _link_or_copy "$gstack_dir/review/$f" "$staged_gstack/review/$f"
     fi
   done
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$staged_gstack/ETHOS.md"
   fi
   # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
   if [ -f "$gstack_dir/supabase/config.sh" ]; then
-    mkdir -p "$codex_gstack/supabase"
-    _link_or_copy "$gstack_dir/supabase/config.sh" "$codex_gstack/supabase/config.sh"
+    mkdir -p "$staged_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$staged_gstack/supabase/config.sh"
+  fi
+
+  if [ ! -f "$staged_gstack/SKILL.md" ] || [ ! -e "$staged_gstack/bin" ] || [ ! -e "$staged_gstack/lib" ]; then
+    rm -rf "$staged_gstack"
+    return 1
+  fi
+
+  # Retain the old root until the staged root is live, and restore it if the
+  # final rename fails. This bounds the unavailable window to one rename and
+  # prevents a failed copy/link step from deleting a working installation.
+  if [ -e "$codex_gstack" ] || [ -L "$codex_gstack" ]; then
+    if [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; then
+      rm -rf "$staged_gstack"
+      return 1
+    fi
+    mv "$codex_gstack" "$rollback_gstack" || {
+      rm -rf "$staged_gstack"
+      return 1
+    }
+    had_previous=1
+  fi
+  if mv "$staged_gstack" "$codex_gstack"; then
+    if [ "$had_previous" -eq 1 ]; then rm -rf "$rollback_gstack"; fi
+  else
+    if [ "$had_previous" -eq 1 ]; then mv "$rollback_gstack" "$codex_gstack" || true; fi
+    rm -rf "$staged_gstack"
+    return 1
   fi
 }
 

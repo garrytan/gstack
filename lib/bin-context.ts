@@ -147,7 +147,11 @@ export function outermostRemoteRepo(startDir: string): { root: string; url: stri
  *      like `url = ..` must never escape ~/.gstack/projects/<slug>.
  *   4. Project root's basename; else basename(cwd) for plain non-project folders.
  */
-export function slugFromEnvironment(gstackHome?: string, cwd: string = process.cwd()): string {
+export function slugFromEnvironment(
+  gstackHome?: string,
+  cwd: string = process.cwd(),
+  noCacheWrite = false,
+): string {
   const home = gstackHome || process.env.GSTACK_HOME || join(homedir(), ".gstack");
   const cacheDir = join(home, "slug-cache");
   const cacheFile = join(cacheDir, toMsysPath(cwd).replace(/\//g, "_"));
@@ -227,21 +231,23 @@ export function slugFromEnvironment(gstackHome?: string, cwd: string = process.c
 
   // 5. cache it, as gstack-slug does — atomic, self-healing (only rewrites when
   //    the value changed — single-shot, key-local), and failures stay silent.
-  try {
-    let current = "";
+  if (!noCacheWrite) {
     try {
-      current = readFileSync(cacheFile, "utf-8");
+      let current = "";
+      try {
+        current = readFileSync(cacheFile, "utf-8");
+      } catch {
+        // no cache yet — write below
+      }
+      if (current !== slug) {
+        mkdirSync(cacheDir, { recursive: true });
+        const tmp = `${cacheFile}.tmp.${process.pid}`;
+        writeFileSync(tmp, slug, "utf-8");
+        renameSync(tmp, cacheFile);
+      }
     } catch {
-      // no cache yet — write below
+      // best-effort cache; a miss only costs a re-derive on the next call
     }
-    if (current !== slug) {
-      mkdirSync(cacheDir, { recursive: true });
-      const tmp = `${cacheFile}.tmp.${process.pid}`;
-      writeFileSync(tmp, slug, "utf-8");
-      renameSync(tmp, cacheFile);
-    }
-  } catch {
-    // best-effort cache; a miss only costs a re-derive on the next call
   }
   return slug;
 }
@@ -272,11 +278,19 @@ export const NEEDS_NATIVE_SLUG_ON_WINDOWS = process.platform === "win32";
  * POSIX behaviour is unchanged: the fallback is win32-only, where the previous result
  * was unconditionally wrong and so has nothing to regress.
  */
-export function resolveSlug(slugBinPath: string): string {
-  const r = spawnSync(slugBinPath, { encoding: "utf-8" });
+export function resolveSlug(
+  slugBinPath: string,
+  opts: { noCacheWrite?: boolean } = {},
+): string {
+  const r = spawnSync(slugBinPath, {
+    encoding: "utf-8",
+    env: opts.noCacheWrite
+      ? { ...process.env, GSTACK_SLUG_NO_WRITE: "1" }
+      : process.env,
+  });
   const m = (r.stdout || "").match(/^SLUG=(.+)$/m);
   if (m) return m[1].trim();
-  if (NEEDS_NATIVE_SLUG_ON_WINDOWS) return slugFromEnvironment();
+  if (NEEDS_NATIVE_SLUG_ON_WINDOWS) return slugFromEnvironment(undefined, process.cwd(), opts.noCacheWrite);
   return "unknown";
 }
 

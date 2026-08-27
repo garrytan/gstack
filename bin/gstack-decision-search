@@ -3,7 +3,7 @@
  * gstack-decision-search — read active decisions (the curated "what did we decide" view).
  *
  * Usage:
- *   gstack-decision-search [--query KW] [--scope repo|branch|issue]
+ *   gstack-decision-search [--query KW] [--slug S] [--scope repo|branch|issue]
  *                          [--branch B] [--issue I] [--recent N] [--all] [--json]
  *                          [--tokens] [--no-rebuild] [--semantic]
  *
@@ -24,6 +24,7 @@ import {
   readSnapshot,
   rebuildSnapshot,
   readEvents,
+  computeActive,
   filterByScope,
   datamark,
   type ActiveDecision,
@@ -33,8 +34,6 @@ import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
 const HERE = import.meta.dir;
 const args = process.argv.slice(2);
 
-const slug = resolveSlug(`${HERE}/gstack-slug`);
-const paths = decisionPaths(slug);
 const queryRaw = flagValue(args, "--query");
 const query = queryRaw?.toLowerCase();
 const scope = flagValue(args, "--scope");
@@ -47,6 +46,13 @@ const asJson = args.includes("--json");
 const semantic = args.includes("--semantic");
 const tokenized = args.includes("--tokens");
 const noRebuild = args.includes("--no-rebuild");
+const slugRaw = flagValue(args, "--slug");
+if (slugRaw !== undefined && (!/^[a-zA-Z0-9._-]+$/.test(slugRaw) || slugRaw === "." || slugRaw === "..")) {
+  console.error("gstack-decision-search: --slug must use only letters, numbers, dot, underscore, or hyphen");
+  process.exit(1);
+}
+const slug = slugRaw || resolveSlug(`${HERE}/gstack-slug`, { noCacheWrite: noRebuild });
+const paths = decisionPaths(slug);
 
 let rows: ActiveDecision[];
 if (showAll) {
@@ -61,28 +67,52 @@ if (showAll) {
   rows = readSnapshot(paths);
   // Rebuild only when a snapshot is absent but a log exists (don't write a snapshot
   // into a nonexistent store on an empty read — just return nothing).
-  if (!rows.length && existsSync(paths.log) && !noRebuild) rows = rebuildSnapshot(paths);
+  if (!rows.length && existsSync(paths.log)) {
+    rows = noRebuild ? computeActive(readEvents(paths)) : rebuildSnapshot(paths);
+  }
 }
 
 rows = filterByScope(rows, { branch, issue });
 if (scope) rows = rows.filter((d) => d.scope === scope);
+const tokenScores = new Map<string, number>();
 if (queryRaw !== undefined) {
   if (!query) {
     rows = [];
+  } else if (!tokenized) {
+    rows = rows.filter((d) =>
+      [d.decision, d.rationale, d.alternatives_considered]
+        .filter((s): s is string => typeof s === "string")
+        .some((s) => s.toLowerCase().includes(query)),
+    );
   } else {
-    const terms = tokenized ? query.match(/[a-z0-9]+/g) ?? [] : [query];
-    rows = terms.length
-      ? rows.filter((d) => {
-          const searchable = [d.decision, d.rationale, d.alternatives_considered]
-            .filter((s): s is string => typeof s === "string")
-            .join(" ")
-            .toLowerCase();
-          return terms.some((term) => searchable.includes(term));
-        })
-      : [];
+    const terms = [...new Set(query.match(/[a-z0-9]+/g) ?? [])];
+    const indexed = rows.map((d) => {
+      const searchable = [d.decision, d.rationale, d.alternatives_considered]
+        .filter((s): s is string => typeof s === "string")
+        .join(" ")
+        .toLowerCase();
+      return { d, tokens: new Set(searchable.match(/[a-z0-9]+/g) ?? []) };
+    });
+    const frequencies = new Map(
+      terms.map((term) => [term, indexed.filter(({ tokens }) => tokens.has(term)).length]),
+    );
+    const minimumMatches = terms.length > 1 ? 2 : 1;
+    rows = terms.length ? indexed
+      .filter(({ d, tokens }) => {
+        const matches = terms.filter((term) => tokens.has(term));
+        if (matches.length < minimumMatches) return false;
+        const score = matches.reduce((sum, term) => sum + 1 / Math.max(1, frequencies.get(term) ?? 1), 0);
+        tokenScores.set(d.id, score);
+        return true;
+      })
+      .map(({ d }) => d) : [];
   }
 }
-rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // newest first
+rows.sort((a, b) => {
+  const relevance = (tokenScores.get(b.id) ?? 0) - (tokenScores.get(a.id) ?? 0);
+  if (relevance) return relevance;
+  return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+});
 if (recent && recent > 0) rows = rows.slice(0, recent);
 
 if (asJson) {
@@ -104,9 +134,10 @@ for (const d of rows) {
 // OPTIONAL gbrain enhancement. Lazy import so the reliable path above never loads
 // gbrain code. Degrades silently: null (gbrain off) or [] (nothing found) leaves the
 // reliable results above as the answer.
-if (semantic && queryRaw) {
+const semanticLimit = recent && recent > 0 ? Math.max(0, recent - rows.length) : 3;
+if (semantic && queryRaw && semanticLimit > 0) {
   const { semanticRecall } = await import("../lib/gstack-decision-semantic");
-  const hits = semanticRecall(queryRaw);
+  const hits = semanticRecall(queryRaw, undefined, 0.1, semanticLimit);
   if (hits && hits.length) {
     console.log("\nRelated from memory (gbrain semantic recall):");
     for (const h of hits) {

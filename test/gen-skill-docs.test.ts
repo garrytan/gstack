@@ -1956,6 +1956,25 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
   });
 
+  test('only the Codex root router preamble can load opted-in private history', () => {
+    const root = fs.readFileSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'), 'utf-8');
+    const review = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+
+    expect(root).toContain('gstack-config get history_recall');
+    expect(root).toContain('HISTORY_RECALL: $_HISTORY_RECALL');
+    expect(root).toContain('gstack-session-kind 2>/dev/null || echo "headless"');
+    expect(root).toContain('*) _SESSION_KIND="headless"');
+    expect(root).toContain('_ROOT_HISTORY_ALLOWED="no"');
+    expect(root).toContain('[ "$_SESSION_KIND" = "interactive" ] && [ "$_HISTORY_RECALL" = "true" ]');
+    expect(root).toContain('if [ "$_ROOT_HISTORY_ALLOWED" = "yes" ] && [ -f "$_LEARN_FILE" ]');
+
+    expect(review).not.toContain('gstack-config get history_recall');
+    expect(review).not.toContain('_ROOT_HISTORY_ALLOWED');
+    expect(review).toContain('gstack-session-kind 2>/dev/null || echo "interactive"');
+    expect(review).toContain('*) _SESSION_KIND="interactive"');
+    expect(review).toContain('if [ -f "$_LEARN_FILE" ]');
+  });
+
   // ─── Path rewriting regression tests ─────────────────────────
 
   test('sidecar paths resolve through $GSTACK_ROOT (not gstack-review/)', () => {
@@ -2668,7 +2687,7 @@ describe('setup script validation', () => {
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
-    expect(fnBody).toContain('$codex_gstack/lib');
+    expect(fnBody).toContain('$staged_gstack/lib');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');

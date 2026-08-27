@@ -143,6 +143,15 @@ describe("gstack-decision-search", () => {
     expect(search("--query 'customer onboarding crm' --tokens")).toContain("existing CRM");
     expect(search("--query 'customer onboarding crm'")).toBe("");
   });
+  test("--tokens ranks multi-term coverage ahead of newer generic matches", () => {
+    log('{"decision":"Keep customer records in the existing CRM","scope":"repo","source":"user"}');
+    log('{"decision":"Show user alerts in settings","scope":"repo","source":"user"}');
+    log('{"decision":"Improve the user profile","scope":"repo","source":"user"}');
+    log('{"decision":"Add user onboarding tips","scope":"repo","source":"user"}');
+    const out = search("--query 'customer onboarding user crm' --tokens --recent 1");
+    expect(out).toContain("existing CRM");
+    expect(out).not.toContain("user onboarding tips");
+  });
   test("--no-rebuild reads without recreating a missing snapshot", () => {
     log('{"decision":"persisted-only-in-log","scope":"repo","source":"user"}');
     const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
@@ -150,10 +159,19 @@ describe("gstack-decision-search", () => {
     const snapshot = path.join(projectDir, "decisions.active.json");
     fs.rmSync(snapshot, { force: true });
 
-    expect(search("--query persisted --tokens --no-rebuild")).toBe("");
+    expect(search("--query persisted --tokens --no-rebuild")).toContain("persisted-only-in-log");
     expect(fs.existsSync(snapshot)).toBe(false);
     expect(search("--query persisted --tokens")).toContain("persisted-only-in-log");
     expect(fs.existsSync(snapshot)).toBe(true);
+  });
+  test("--no-rebuild does not create or rewrite the slug cache", () => {
+    expect(search("--query absent --tokens --no-rebuild")).toBe("");
+    expect(fs.existsSync(path.join(tmpDir, "slug-cache"))).toBe(false);
+  });
+  test("rejects an unsafe explicit slug", () => {
+    expect(search("--slug '../escape' --no-rebuild")).toBe("");
+    expect(search("--slug '..' --no-rebuild")).toBe("");
+    expect(fs.existsSync(path.join(tmpDir, "projects", "escape"))).toBe(false);
   });
 });
 
@@ -208,6 +226,33 @@ exit 1
       const out = searchWithPath("--query alpha --semantic", dir);
       expect(out).toContain("reliable-alpha");
       expect(out).not.toContain("Related from memory");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--recent is one combined local + semantic output budget", () => {
+    log('{"decision":"alpha local one","scope":"repo","source":"user"}');
+    log('{"decision":"alpha local two","scope":"repo","source":"user"}');
+    const dir = shimDir(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'; exit 0; fi
+if [ "$1" = "search" ]; then
+  echo "[0.90] decisions/semantic-one -- related one"
+  echo "[0.80] decisions/semantic-two -- related two"
+  echo "[0.70] decisions/semantic-three -- related three"
+  exit 0
+fi
+exit 1
+`,
+    );
+    try {
+      const out = searchWithPath("--query alpha --semantic --recent 3", dir);
+      expect(out).toContain("alpha local one");
+      expect(out).toContain("alpha local two");
+      expect(out).toContain("decisions/semantic-one");
+      expect(out).not.toContain("decisions/semantic-two");
+      expect(out).not.toContain("decisions/semantic-three");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

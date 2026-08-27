@@ -257,7 +257,7 @@ SLUG="${SLUG:-$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')}"
 #     injection, but the invariant should not depend on that reasoning).
 SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
 
-if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 ]]; then
+if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 && -z "${GSTACK_SLUG_NO_WRITE:-}" ]]; then
   CURRENT_CACHE=""
   if [[ -f "$CACHE_FILE" ]]; then
     CURRENT_CACHE=$(cat "$CACHE_FILE" 2>/dev/null || true)

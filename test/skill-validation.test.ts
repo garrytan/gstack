@@ -47,15 +47,19 @@ describe('SKILL.md command validation', () => {
     for (const md of [template, rendered]) {
       expect(md).toContain('## Guided root entry');
       expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
-      expect(md).toContain('`_SESSION_KIND` is `interactive`');
-      expect(md).toContain('spawned or headless session, skip history recall');
+      expect(md).toContain('`SESSION_KIND: interactive` and `HISTORY_RECALL: true`');
+      expect(md).toContain('spawned,\n   headless, ambiguous, or non-opted-in session, skip history recall');
+      expect(md).toContain('gstack-config set history_recall true');
       expect(md).toContain('gstack-decision-search');
+      expect(md).toContain('--slug "$SLUG" --branch "$_BRANCH"');
       expect(md).toContain('--tokens --recent 3 --no-rebuild --semantic');
+      expect(md).toContain("SAFE_TERMS='customer onboarding crm'");
       expect(md).toContain('Do not invoke an ambient memory skill');
       expect(md).toContain('Never interpolate the raw request');
-      expect(md).toContain('curated GBrain memory source');
+      expect(md).toContain('curated GBrain\n     memory source');
       expect(md).toContain('one to four materially relevant gstack workflows');
       expect(md).toContain('If no\n   workflow fits, follow Route first and answer directly');
+      expect(md).toContain('overrides the general spawned-session');
       expect(md).toContain('An explicitly named subskill also bypasses this guided entry');
       expect(md).not.toContain('project-memory-check');
     }

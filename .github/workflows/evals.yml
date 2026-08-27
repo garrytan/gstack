@@ -135,6 +135,8 @@ jobs:
             file: test/skill-e2e-coverage-audit.test.ts
           - name: e2e-triage
             file: test/skill-e2e-triage.test.ts
+          - name: e2e-root-guided-entry
+            file: test/skill-e2e-root-guided-entry.test.ts
           - name: e2e-routing
             file: test/skill-routing-e2e.test.ts
           - name: e2e-codex
