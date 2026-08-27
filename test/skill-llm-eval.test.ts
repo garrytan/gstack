@@ -792,6 +792,7 @@ describeIfSelected('Other skill evals', [
       judgeGoal: 'how to detect install type, compare versions, back up current install, upgrade via git or fresh clone, run setup, and show what changed',
     });
   }, 30_000);
+
 });
 
 // Voice directive eval — tests that the voice section produces the right tone

@@ -793,7 +793,8 @@ TTHW target, architectural bet, wedge commitment), it MAY write a
 **Gated on two things:**
 1. Brain trust policy for the active endpoint is `personal` (check via
    `~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@<endpoint-hash>`).
-   Shared brains skip write-back to avoid polluting team calibration.
+   Both `shared` and `shared-contributor` brains skip calibration write-back
+   to avoid mixing individual predictions into team calibration.
 2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
    to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
 

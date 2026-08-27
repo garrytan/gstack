@@ -3,29 +3,35 @@
  * gstack-decision-search — read active decisions (the curated "what did we decide" view).
  *
  * Usage:
- *   gstack-decision-search [--query KW] [--scope repo|branch|issue]
+ *   gstack-decision-search [--query KW] [--slug S] [--scope repo|branch|issue]
  *                          [--branch B] [--issue I] [--recent N] [--all] [--json]
- *                          [--semantic]
+ *                          [--tokens] [--no-rebuild] [--semantic] [--guided-history]
  *
  * Reads the BOUNDED active snapshot (decisions.active.json) — O(active), not a full
- * history scan — and rebuilds it from the event log if missing. Scope-filtered to the
- * current branch/issue context (recency != relevance). NON-INTERACTIVE. `--all` shows
+ * history scan — and rebuilds it from the event log if missing unless `--no-rebuild`
+ * is set. Scope-filtered to the current branch/issue context (recency != relevance). NON-INTERACTIVE. `--all` shows
  * superseded decisions too (from the full log). Exit 0 silently when there are none.
  *
  * `--semantic` (with `--query`) appends an OPTIONAL "related from memory" block from
  * gbrain semantic recall. It is a pure enhancement: when gbrain is off/unconfigured/
  * empty it degrades silently to the reliable file results above. The reliable path
  * never loads gbrain code (the semantic module is imported lazily only here).
+ * `--guided-history` additionally requires history_recall=true and the exact
+ * invocation-scoped interactive signal; it is the root router's fail-closed
+ * bounded read surface, not an OS security boundary or a replacement for
+ * explicit user-directed reads.
  */
 
-import { existsSync } from "fs";
+import { existsSync, statSync } from "fs";
+import { spawnSync } from "child_process";
 import {
   decisionPaths,
-  readSnapshot,
+  readSnapshotState,
   rebuildSnapshot,
   readEvents,
+  computeActive,
   filterByScope,
-  datamark,
+  recallSafe,
   type ActiveDecision,
 } from "../lib/gstack-decision";
 import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
@@ -33,10 +39,9 @@ import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
 const HERE = import.meta.dir;
 const args = process.argv.slice(2);
 
-const slug = resolveSlug(`${HERE}/gstack-slug`);
-const paths = decisionPaths(slug);
 const queryRaw = flagValue(args, "--query");
 const query = queryRaw?.toLowerCase();
+const queryFlagPresent = args.includes("--query");
 const scope = flagValue(args, "--scope");
 const branch = flagValue(args, "--branch") ?? gitBranch();
 const issue = flagValue(args, "--issue");
@@ -45,6 +50,58 @@ const recent = recentRaw ? parseInt(recentRaw, 10) : undefined;
 const showAll = args.includes("--all");
 const asJson = args.includes("--json");
 const semantic = args.includes("--semantic");
+const guidedHistory = args.includes("--guided-history");
+const tokenized = args.includes("--tokens");
+const noRebuild = args.includes("--no-rebuild");
+const MAX_READ_ONLY_LOG_BYTES = 1_000_000;
+const slugRaw = flagValue(args, "--slug");
+if (slugRaw !== undefined && (!/^[a-zA-Z0-9._-]+$/.test(slugRaw) || slugRaw === "." || slugRaw === "..")) {
+  console.error("gstack-decision-search: --slug must use only letters, numbers, dot, underscore, or hyphen");
+  process.exit(1);
+}
+
+// A present query flag with no usable value is a fail-closed read, not an
+// accidental request to print the entire active decision snapshot.
+if (queryFlagPresent && !queryRaw?.trim()) process.exit(0);
+
+// Guided recall is a privacy-sensitive read surface. Require both the persisted
+// user opt-in and the router's invocation-scoped interactive signal. Also pin
+// the complete argument shape here so prompt drift cannot turn this into a full
+// history scan, a state-rebuilding read, or an unbounded/raw query.
+if (guidedHistory) {
+  const guidedQueryIsSafe = queryRaw !== undefined &&
+    queryRaw.length <= 160 &&
+    queryRaw === queryRaw.trim().toLowerCase() &&
+    /^[a-z0-9]+(?:-[a-z0-9]+)*(?: [a-z0-9]+(?:-[a-z0-9]+)*){2,7}$/.test(queryRaw);
+  const exactlyOne = (flag: string) => args.filter((arg) => arg === flag).length === 1;
+  const guidedShapeIsSafe = args.length === 8 &&
+    exactlyOne("--guided-history") && exactlyOne("--query") &&
+    exactlyOne("--tokens") && exactlyOne("--recent") &&
+    exactlyOne("--no-rebuild") && exactlyOne("--semantic") &&
+    recentRaw === "3" && tokenized && noRebuild && semantic &&
+    !showAll && !asJson && slugRaw === undefined && scope === undefined &&
+    !args.includes("--branch") && !args.includes("--issue");
+  if (!guidedQueryIsSafe || !guidedShapeIsSafe) process.exit(0);
+  const config = spawnSync(`${HERE}/gstack-config`, ["get", "history_recall"], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 2_000,
+  });
+  const session = spawnSync(`${HERE}/gstack-session-kind`, ["--history"], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 2_000,
+  });
+  if (config.status !== 0 || config.stdout.trim() !== "true" ||
+      session.status !== 0 || session.stdout.trim() !== "interactive") {
+    process.exit(0);
+  }
+}
+
+// Resolve filesystem state only after guided mode's fail-closed contract check.
+// In particular, an unsafe guided invocation can never create a slug cache.
+const slug = slugRaw || resolveSlug(`${HERE}/gstack-slug`, { noCacheWrite: noRebuild });
+const paths = decisionPaths(slug);
 
 let rows: ActiveDecision[];
 if (showAll) {
@@ -56,53 +113,126 @@ if (showAll) {
   );
   rows = events.filter((e): e is ActiveDecision => e.kind === "decide" && !redacted.has(e.id));
 } else {
-  rows = readSnapshot(paths);
+  const snapshot = readSnapshotState(paths);
+  rows = snapshot.rows;
   // Rebuild only when a snapshot is absent but a log exists (don't write a snapshot
   // into a nonexistent store on an empty read — just return nothing).
-  if (!rows.length && existsSync(paths.log)) rows = rebuildSnapshot(paths);
+  if (!rows.length && snapshot.status !== "valid" && existsSync(paths.log)) {
+    if (!noRebuild) {
+      rows = rebuildSnapshot(paths);
+    } else {
+      // The root router promises a read-only lookup. Recover from a missing or
+      // corrupt snapshot in memory, but cap the event-log work so a long-lived
+      // project cannot make every guided invocation scan unbounded history.
+      try {
+        if (statSync(paths.log).size <= MAX_READ_ONLY_LOG_BYTES) {
+          rows = computeActive(readEvents(paths));
+        }
+      } catch {
+        rows = [];
+      }
+    }
+  }
 }
 
 rows = filterByScope(rows, { branch, issue });
 if (scope) rows = rows.filter((d) => d.scope === scope);
-if (query) {
-  rows = rows.filter((d) =>
-    [d.decision, d.rationale, d.alternatives_considered]
-      .filter((s): s is string => typeof s === "string")
-      .some((s) => s.toLowerCase().includes(query)),
-  );
+const tokenScores = new Map<string, number>();
+if (queryRaw !== undefined) {
+  if (!query) {
+    rows = [];
+  } else if (!tokenized) {
+    rows = rows.filter((d) =>
+      [d.decision, d.rationale, d.alternatives_considered]
+        .filter((s): s is string => typeof s === "string")
+        .some((s) => s.toLowerCase().includes(query)),
+    );
+  } else {
+    const terms = [...new Set(query.match(/[a-z0-9]+/g) ?? [])];
+    const indexed = rows.map((d) => {
+      const searchable = [d.decision, d.rationale, d.alternatives_considered]
+        .filter((s): s is string => typeof s === "string")
+        .join(" ")
+        .toLowerCase();
+      return { d, tokens: new Set(searchable.match(/[a-z0-9]+/g) ?? []) };
+    });
+    const frequencies = new Map(
+      terms.map((term) => [term, indexed.filter(({ tokens }) => tokens.has(term)).length]),
+    );
+    const minimumMatches = terms.length > 1 ? 2 : 1;
+    rows = terms.length ? indexed
+      .filter(({ d, tokens }) => {
+        const matches = terms.filter((term) => tokens.has(term));
+        if (matches.length < minimumMatches) return false;
+        const score = matches.reduce((sum, term) => sum + 1 / Math.max(1, frequencies.get(term) ?? 1), 0);
+        tokenScores.set(d.id, score);
+        return true;
+      })
+      .map(({ d }) => d) : [];
+  }
 }
-rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // newest first
+rows.sort((a, b) => {
+  const relevance = (tokenScores.get(b.id) ?? 0) - (tokenScores.get(a.id) ?? 0);
+  if (relevance) return relevance;
+  return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+});
 if (recent && recent > 0) rows = rows.slice(0, recent);
 
 if (asJson) {
-  // --json stays reliable-only (semantic recall is a human-facing supplement).
-  console.log(JSON.stringify(rows));
+  // --json stays reliable-only (semantic recall is a human-facing supplement),
+  // but it shares the same read-time legacy-data redaction boundary.
+  const safeJsonValue = (value: unknown): unknown => {
+    if (typeof value === "string") return recallSafe(value);
+    if (Array.isArray(value)) return value.map(safeJsonValue);
+    if (value && typeof value === "object") return "[REDACTED-UNSCHEMATIZED-OBJECT]";
+    return value;
+  };
+  // Project legacy/corrupt rows onto the documented schema. Unknown object
+  // keys are untrusted data too and must never become JSON property names.
+  const allowedKeys = [
+    "id", "kind", "decision", "rationale", "alternatives_considered",
+    "supersedes", "scope", "branch", "issue", "date", "session", "source",
+    "confidence",
+  ] as const;
+  const safeRows = rows.map((row) => Object.fromEntries(
+    allowedKeys
+      .filter((key) => Object.prototype.hasOwnProperty.call(row, key))
+      .map((key) => [key, safeJsonValue(row[key])]),
+  ));
+  console.log(JSON.stringify(safeRows));
   process.exit(0);
 }
 
 for (const d of rows) {
   // Datamark all stored free-text (decision, rationale, branch/issue) — it lands in
   // agent context via Context Recovery, so treat it as DATA, not instructions.
-  const branchTag = d.branch ? `:${datamark(d.branch)}` : "";
-  const issueTag = d.issue ? `:${datamark(d.issue)}` : "";
-  const scopeTag = d.scope === "repo" ? "" : ` [${d.scope}${branchTag}${issueTag}]`;
-  console.log(`- ${datamark(d.decision ?? "")}${scopeTag} (${d.source}, ${d.date.slice(0, 10)})`);
-  if (d.rationale) console.log(`  why: ${datamark(d.rationale)}`);
+  const branchTag = typeof d.branch === "string" && d.branch ? `:${recallSafe(d.branch)}` : "";
+  const issueTag = typeof d.issue === "string" && d.issue ? `:${recallSafe(d.issue)}` : "";
+  const scopeValue = typeof d.scope === "string" ? d.scope : "unknown";
+  const scopeTag = scopeValue === "repo" ? "" : ` [${recallSafe(scopeValue)}${branchTag}${issueTag}]`;
+  const sourceTag = recallSafe(typeof d.source === "string" ? d.source : "unknown");
+  const dateTag = recallSafe(typeof d.date === "string" ? d.date.slice(0, 10) : "unknown-date");
+  const decisionText = recallSafe(typeof d.decision === "string" ? d.decision : "");
+  console.log(`- ${decisionText}${scopeTag} (${sourceTag}, ${dateTag})`);
+  if (typeof d.rationale === "string" && d.rationale) console.log(`  why: ${recallSafe(d.rationale)}`);
 }
 
 // OPTIONAL gbrain enhancement. Lazy import so the reliable path above never loads
 // gbrain code. Degrades silently: null (gbrain off) or [] (nothing found) leaves the
 // reliable results above as the answer.
-if (semantic && queryRaw) {
+const semanticLimit = recent && recent > 0 ? Math.max(0, recent - rows.length) : 3;
+if (semantic && queryRaw && semanticLimit > 0) {
   const { semanticRecall } = await import("../lib/gstack-decision-semantic");
-  const hits = semanticRecall(queryRaw);
+  const hits = semanticRecall(queryRaw, undefined, 0.1, semanticLimit);
   if (hits && hits.length) {
     console.log("\nRelated from memory (gbrain semantic recall):");
     for (const h of hits) {
       // gbrain hits are EXTERNAL corpus content — datamark slug + snippet too so they
       // can't spoof role markers / fences when printed into agent context.
-      const snip = datamark(h.snippet.length > 100 ? `${h.snippet.slice(0, 100)}…` : h.snippet);
-      console.log(`  [${h.score.toFixed(2)}] ${datamark(h.slug)}: ${snip}`);
+      const safeSnippet = recallSafe(h.snippet);
+      const snip = safeSnippet.length > 100 ? `${safeSnippet.slice(0, 100)}…` : safeSnippet;
+      const citation = recallSafe(`brain:${h.sourceId}:${h.slug}`);
+      console.log(`  [${h.score.toFixed(2)}] ${citation}: ${snip}`);
     }
   }
 }

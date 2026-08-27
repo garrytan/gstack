@@ -1219,60 +1219,191 @@ create_agents_sidecar() {
 # duplicate skills because source SKILL.md files and generated Codex skills are
 # both discoverable. Keep this directory limited to runtime assets + root skill.
 create_codex_runtime_root() {
+  (
   local gstack_dir="$1"
   local codex_gstack="$2"
   local agents_dir="$gstack_dir/.agents/skills"
+  local codex_parent staged_gstack rollback_gstack had_previous
+  local lock_dir lock_held lock_attempt lock_pid lock_owner lock_observed
+  local lock_missing_attempts lock_stale stale_lock stale_stage stale_rollback
+  codex_parent=$(dirname "$codex_gstack")
+  mkdir -p "$codex_parent"
+  staged_gstack=""
+  lock_owner="${BASHPID:-$$}"
+  rollback_gstack="$codex_parent/.gstack-rollback.$lock_owner"
+  lock_dir="$codex_parent/.gstack-install.lock"
+  lock_held=0
+  lock_missing_attempts=0
+  had_previous=0
 
-  if [ -L "$codex_gstack" ]; then
-    rm -f "$codex_gstack"
-  elif [ -d "$codex_gstack" ] && [ "$codex_gstack" != "$gstack_dir" ]; then
-    # Old direct installs left a real directory here with stale source skills.
-    # Remove it so we start fresh with only the minimal runtime assets.
-    rm -rf "$codex_gstack"
+  _codex_runtime_cleanup() {
+    if [ -n "$staged_gstack" ] && { [ -e "$staged_gstack" ] || [ -L "$staged_gstack" ]; }; then
+      rm -rf "$staged_gstack"
+    fi
+    if [ "$had_previous" -eq 1 ] && [ ! -e "$codex_gstack" ] && [ ! -L "$codex_gstack" ] && \
+       { [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; }; then
+      mv "$rollback_gstack" "$codex_gstack" || true
+    fi
+    # A signal can arrive after the final atomic rename but before the normal
+    # rollback deletion. If the new live root is complete, keep it and remove
+    # the now-obsolete owned rollback instead of stranding it indefinitely.
+    if [ "$had_previous" -eq 1 ] && [ -f "$codex_gstack/SKILL.md" ] && \
+       [ -e "$codex_gstack/bin" ] && [ -e "$codex_gstack/lib" ] && \
+       { [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; }; then
+      rm -rf "$rollback_gstack"
+      had_previous=0
+    fi
+    if [ "$lock_held" -eq 1 ] && [ "$(cat "$lock_dir/pid" 2>/dev/null || true)" = "$lock_owner" ]; then
+      rm -rf "$lock_dir"
+    fi
+  }
+  trap _codex_runtime_cleanup EXIT
+  trap 'exit 130' INT TERM HUP
+
+  # Serialize the complete staged swap. A stale lock records the exact stage
+  # and rollback paths owned by its dead process so a later setup can recover
+  # them without glob-deleting anything in the shared skills directory.
+  lock_attempt=0
+  while [ "$lock_attempt" -lt 100 ]; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      lock_held=1
+      printf '%s\n' "$lock_owner" > "$lock_dir/pid" || return 1
+      printf '%s\n' "$rollback_gstack" > "$lock_dir/rollback" || return 1
+      break
+    fi
+
+    lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
+    lock_stale=0
+    if [ -n "$lock_pid" ] && case "$lock_pid" in *[!0-9]*) false ;; *) true ;; esac; then
+      lock_missing_attempts=0
+      if ! kill -0 "$lock_pid" 2>/dev/null; then
+        lock_stale=1
+      fi
+    else
+      # mkdir and metadata creation are not atomic. Give a live creator one
+      # second to publish its PID, then reclaim abandoned empty/malformed locks.
+      lock_missing_attempts=$((lock_missing_attempts + 1))
+      if [ "$lock_missing_attempts" -ge 20 ]; then
+        lock_stale=1
+      fi
+    fi
+    if [ "$lock_stale" -eq 1 ]; then
+      # Re-read before the atomic rename so a creator that published metadata
+      # during the grace window is never mistaken for the lock we inspected.
+      lock_observed=$(cat "$lock_dir/pid" 2>/dev/null || true)
+      stale_lock="$codex_parent/.gstack-install.lock.stale.$lock_owner.$lock_attempt"
+      if [ "$lock_observed" = "$lock_pid" ] && mv "$lock_dir" "$stale_lock" 2>/dev/null; then
+        stale_stage=$(cat "$stale_lock/stage" 2>/dev/null || true)
+        if [ -n "$stale_stage" ] && [ "$(dirname "$stale_stage")" = "$codex_parent" ] && \
+           case "$(basename "$stale_stage")" in .gstack-stage.*) true ;; *) false ;; esac; then
+          rm -rf "$stale_stage"
+        fi
+        stale_rollback=$(cat "$stale_lock/rollback" 2>/dev/null || true)
+        if [ -n "$stale_rollback" ] && [ "$(dirname "$stale_rollback")" = "$codex_parent" ] && \
+           case "$(basename "$stale_rollback")" in .gstack-rollback.*) true ;; *) false ;; esac && \
+           { [ -e "$stale_rollback" ] || [ -L "$stale_rollback" ]; }; then
+          if [ ! -e "$codex_gstack" ] && [ ! -L "$codex_gstack" ]; then
+            mv "$stale_rollback" "$codex_gstack" || true
+          else
+            rm -rf "$stale_rollback"
+          fi
+        fi
+        rm -rf "$stale_lock"
+        lock_missing_attempts=0
+        continue
+      fi
+    fi
+    lock_attempt=$((lock_attempt + 1))
+    sleep 0.05
+  done
+  if [ "$lock_held" -ne 1 ]; then
+    echo "gstack setup: timed out waiting for Codex runtime install lock: $lock_dir" >&2
+    return 1
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  # Publish the deterministic owner-derived path before creating it. A SIGKILL
+  # in either direction is therefore recoverable from stale-lock metadata; no
+  # untracked random stage directory can be stranded between mktemp and write.
+  staged_gstack="$codex_parent/.gstack-stage.$lock_owner"
+  printf '%s\n' "$staged_gstack" > "$lock_dir/stage"
+  if [ -e "$staged_gstack" ] || [ -L "$staged_gstack" ]; then
+    return 1
+  fi
+  mkdir "$staged_gstack" || return 1
+
+  # Build and validate the complete minimal runtime beside the live one. Old
+  # direct installs may contain stale source skills, so never build in place.
+  mkdir -p "$staged_gstack/browse" "$staged_gstack/gstack-upgrade" "$staged_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
+    # Codex discovers leaf skills through directory symlinks, but this root
+    # router lives in a real runtime directory. Codex Desktop skips it when
+    # SKILL.md itself is a symlink, so refresh the generated root as a real
+    # file on every setup run. Runtime asset directories remain symlinked.
+    cp -f "$agents_dir/gstack/SKILL.md" "$staged_gstack/SKILL.md" || return 1
   fi
   if [ -d "$gstack_dir/bin" ]; then
-    _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
+    _link_or_copy "$gstack_dir/bin" "$staged_gstack/bin"
   fi
   if [ -d "$gstack_dir/lib" ]; then
-    _link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"
+    _link_or_copy "$gstack_dir/lib" "$staged_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
-    _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
+    _link_or_copy "$gstack_dir/browse/dist" "$staged_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
-    _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+    _link_or_copy "$gstack_dir/browse/bin" "$staged_gstack/browse/bin"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
+    _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$staged_gstack/gstack-upgrade/SKILL.md"
   fi
   # plan-eng-review's inline office-hours step reads
   # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the codex-rendered
   # variant there so the documented path exists.
   if [ -f "${agents_dir}/gstack-office-hours/SKILL.md" ]; then
-    mkdir -p "${codex_gstack}/office-hours"
-    _link_or_copy "${agents_dir}/gstack-office-hours/SKILL.md" "${codex_gstack}/office-hours/SKILL.md"
+    mkdir -p "${staged_gstack}/office-hours"
+    _link_or_copy "${agents_dir}/gstack-office-hours/SKILL.md" "${staged_gstack}/office-hours/SKILL.md"
   fi
   # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      _link_or_copy "$gstack_dir/review/$f" "$codex_gstack/review/$f"
+      _link_or_copy "$gstack_dir/review/$f" "$staged_gstack/review/$f"
     fi
   done
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$staged_gstack/ETHOS.md"
   fi
   # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
   if [ -f "$gstack_dir/supabase/config.sh" ]; then
-    mkdir -p "$codex_gstack/supabase"
-    _link_or_copy "$gstack_dir/supabase/config.sh" "$codex_gstack/supabase/config.sh"
+    mkdir -p "$staged_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$staged_gstack/supabase/config.sh"
   fi
+
+  if [ ! -f "$staged_gstack/SKILL.md" ] || [ ! -e "$staged_gstack/bin" ] || [ ! -e "$staged_gstack/lib" ]; then
+    return 1
+  fi
+
+  # Retain the old root until the staged root is live, and restore it if the
+  # final rename fails. This bounds the unavailable window to one rename and
+  # prevents a failed copy/link step from deleting a working installation.
+  if [ -e "$codex_gstack" ] || [ -L "$codex_gstack" ]; then
+    if [ -e "$rollback_gstack" ] || [ -L "$rollback_gstack" ]; then
+      return 1
+    fi
+    mv "$codex_gstack" "$rollback_gstack" || return 1
+    had_previous=1
+  fi
+  if mv "$staged_gstack" "$codex_gstack"; then
+    staged_gstack=""
+    if [ "$had_previous" -eq 1 ]; then
+      rm -rf "$rollback_gstack"
+      had_previous=0
+    fi
+  else
+    return 1
+  fi
+  )
 }
 
 create_factory_runtime_root() {

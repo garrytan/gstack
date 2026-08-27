@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# gstack-gbrain-put — enforce endpoint trust + contributor attribution for writes.
+#
+# Usage:
+#   gstack-gbrain-put --slug <normal-slug> --content <markdown> [--kind artifact|calibration]
+#                     [--approved] [--dry-run]
+#
+# Exit 0: wrote, skipped a disallowed calibration write, or produced dry-run JSON.
+# Exit 3: shared endpoint requires explicit approval; retry with --approved.
+# Exit 4: endpoint trust is unset; run /setup-gbrain.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+
+slug=""
+content=""
+kind="artifact"
+approved="false"
+dry_run="false"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --slug) slug="${2:-}"; shift 2 ;;
+    --content) content="${2:-}"; shift 2 ;;
+    --kind) kind="${2:-}"; shift 2 ;;
+    --approved) approved="true"; shift ;;
+    --dry-run) dry_run="true"; shift ;;
+    --help|-h) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "gstack-gbrain-put: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+if [ -z "$slug" ] || ! printf '%s' "$slug" | LC_ALL=C grep -qE '^[a-z0-9][a-z0-9._/-]*$' ||
+   printf '%s' "$slug" | grep -qE '(^|/)\.\.(/|$)|(^|/)[.](/|$)|//|/$'; then
+  echo "gstack-gbrain-put: --slug must be a safe relative kebab/path slug" >&2
+  exit 2
+fi
+if [ "$kind" != "artifact" ] && [ "$kind" != "calibration" ]; then
+  echo "gstack-gbrain-put: --kind must be artifact or calibration" >&2
+  exit 2
+fi
+
+endpoint_hash=$("$CONFIG_BIN" endpoint-hash 2>/dev/null || echo unresolved)
+if [ "$endpoint_hash" = "unresolved" ]; then
+  policy="unset"
+else
+  policy=$("$CONFIG_BIN" get "brain_trust_policy@$endpoint_hash" 2>/dev/null || echo unset)
+fi
+action="write"
+final_slug="$slug"
+contributor=""
+frontmatter_added="false"
+
+case "$policy" in
+  personal) ;;
+  shared-contributor)
+    if [ "$kind" = "calibration" ]; then
+      action="skip"
+    else
+      contributor=$("$CONFIG_BIN" resolve-user-slug 2>/dev/null || true)
+      if [ -z "$contributor" ]; then
+        echo "gstack-gbrain-put: could not resolve contributor identity" >&2
+        exit 4
+      fi
+      final_slug="contributors/$contributor/$slug"
+      # Attribution is authoritative: replace any contributor field in the
+      # leading YAML frontmatter only. Body text cannot suppress attribution,
+      # and spoofed frontmatter is overwritten with the resolved identity.
+      # Parse and normalize YAML instead of matching raw lines: valid YAML can
+      # spell a key through escapes/tags, so text filtering is not an identity
+      # boundary. Any malformed/non-mapping frontmatter fails closed.
+      if ! content=$(bun -e '
+const who = Bun.argv[1];
+const text = await Bun.stdin.text();
+const lines = text.split(/\r?\n/);
+if (lines.length > 0 && lines[0].trim() === "---") {
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (end < 0) throw new Error("unterminated frontmatter");
+  const parsed = Bun.YAML.parse(lines.slice(1, end).join("\n"));
+  if (parsed !== null && (typeof parsed !== "object" || Array.isArray(parsed))) {
+    throw new Error("frontmatter must be a mapping");
+  }
+  const fields = parsed ?? {};
+  for (const key of Object.keys(fields)) {
+    if (key.toLowerCase() === "contributor") delete fields[key];
+  }
+  const normalized = Bun.YAML.stringify({ contributor: who, ...fields }).trimEnd();
+  const body = lines.slice(end + 1).join("\n");
+  process.stdout.write(`---\n${normalized}\n---${body ? `\n${body}` : ""}`);
+} else {
+  process.stdout.write(`---\n${Bun.YAML.stringify({ contributor: who }).trimEnd()}\n---\n${text}`);
+}
+' "$contributor" <<< "$content" 2>/dev/null); then
+        echo "gstack-gbrain-put: could not safely normalize contributor frontmatter" >&2
+        exit 4
+      fi
+      frontmatter_added="true"
+    fi
+    ;;
+  shared)
+    if [ "$kind" = "calibration" ]; then
+      action="skip"
+    elif [ "$approved" != "true" ]; then
+      action="approval-required"
+    fi
+    ;;
+  *) action="setup-required" ;;
+esac
+
+json_status() {
+  python3 - "$policy" "$action" "$final_slug" "$contributor" "$kind" "$frontmatter_added" <<'PYEOF'
+import json, sys
+policy, action, slug, contributor, kind, frontmatter = sys.argv[1:7]
+print(json.dumps({
+    "policy": policy,
+    "action": action,
+    "slug": slug,
+    "contributor": contributor or None,
+    "kind": kind,
+    "frontmatterAdded": frontmatter == "true",
+}, separators=(",", ":")))
+PYEOF
+}
+
+case "$action" in
+  skip) json_status; exit 0 ;;
+  approval-required) json_status; exit 3 ;;
+  setup-required) json_status; exit 4 ;;
+esac
+
+if [ "$dry_run" = "true" ]; then
+  json_status
+  exit 0
+fi
+if ! command -v gbrain >/dev/null 2>&1; then
+  echo "gstack-gbrain-put: gbrain is not on PATH" >&2
+  exit 127
+fi
+
+gbrain put "$final_slug" --content "$content"
+json_status

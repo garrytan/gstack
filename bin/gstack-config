@@ -7,6 +7,8 @@
 #                                      config file (get returns DEFAULTS for absent keys,
 #                                      so callers that need provenance use this instead)
 #   gstack-config set <key> <value>  — write a config value
+#   gstack-config configure-brain-trust <policy> — persist active-endpoint trust
+#                                      and reconcile artifact sync defaults
 #   gstack-config list               — show all config (values + defaults)
 #   gstack-config defaults           — show just the defaults table
 #
@@ -44,6 +46,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # ─── Behavior ────────────────────────────────────────────────────────
 # proactive: true           # Auto-invoke skills when your request matches one.
 #                           # Set to false to only run skills you type explicitly.
+# history_recall: false      # Let the root /gstack router consult private local
+#                           # decision/GBrain history. Explicit opt-in: only set
+#                           # true on a trusted personal machine/session.
 #
 # routing_declined: false   # Set to true to skip the CLAUDE.md routing injection
 #                           # prompt. Set back to false to be asked again.
@@ -132,6 +137,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 lookup_default() {
   case "$1" in
     proactive) echo "true" ;;
+    history_recall) echo "false" ;;
     routing_declined) echo "false" ;;
     telemetry) echo "off" ;;
     auto_upgrade) echo "false" ;;
@@ -192,52 +198,111 @@ lookup_default() {
 # Brain-integration helpers (T5+T10+T16)
 # ──────────────────────────────────────────────────────────────────────
 
-# Compute sha8 of a string. Used for endpoint hashing.
+# Compute sha8 for non-security identity fallbacks (email/hostname labels).
 sha8_of() {
   printf '%s' "$1" | shasum -a 256 | cut -c1-8
 }
 
-# Detect the active brain endpoint hash. Reads ~/.claude.json for the gbrain
-# MCP server URL. Falls back to the literal 'local' when no MCP is configured.
-endpoint_hash() {
+# Compute sha16 of a string. A 64-bit namespace avoids the silent policy
+# aliasing risk of the old 32-bit prefix; old sha8 keys are intentionally not
+# trusted automatically and will be re-confirmed by setup.
+sha16_of() {
+  printf '%s' "$1" | shasum -a 256 | cut -c1-16
+}
+
+# Resolve the active brain endpoint URL with the same precedence Claude uses:
+# nearest project-scoped registration first, then user scope. Keeping this in
+# gstack-config makes every trust-policy consumer hash the endpoint it will
+# actually read/write instead of accidentally inheriting another brain's policy.
+active_endpoint_url() {
   _claude_json="$HOME/.claude.json"
-  if [ -f "$_claude_json" ] && command -v jq >/dev/null 2>&1; then
-    _url=$(jq -r '.mcpServers.gbrain.url // .mcpServers.gbrain.transport.url // empty' "$_claude_json" 2>/dev/null)
-    if [ -n "$_url" ] && [ "$_url" != "null" ]; then
-      sha8_of "$_url"
-      return 0
-    fi
+  if [ ! -f "$_claude_json" ]; then
+    return 0
+  fi
+  if [ "${GSTACK_TEST_NO_JQ:-}" = "1" ] || ! command -v jq >/dev/null 2>&1; then
+    return 2
+  fi
+  jq -r --arg cwd "$PWD" '
+    (((.projects // {})
+      | to_entries
+      | map(select(
+          (.key as $k
+            | $cwd == $k
+              or ($cwd | startswith($k + "/"))
+              or ($cwd | startswith($k + "\\")))
+          and ((try .value.mcpServers.gbrain catch null) != null)))
+      | sort_by(.key | length)
+      | last
+      | .value.mcpServers.gbrain)
+      // .mcpServers.gbrain
+      // null) as $entry
+    | if $entry == null then
+        empty
+      else
+        ($entry.url
+          // (if (($entry.transport | type) == "object") then $entry.transport.url else null end)
+          // null) as $url
+        | (if (($entry.transport | type) == "string") then $entry.transport
+            elif (($entry.transport | type) == "object") then $entry.transport.type
+            else null end) as $transport_type
+        | ([$entry.type, $transport_type]
+            | map(select((type == "string") and test("\\S")) | ascii_downcase)
+            | unique) as $types
+        | ["http", "url", "sse", "streamable-http"] as $remote_types
+        | ($types | map(. as $t | select((["stdio", "http", "url", "sse", "streamable-http"] | index($t)) == null)) | length) as $unknown_count
+        | ($types | map(. as $t | select(($remote_types | index($t)) != null)) | length) as $remote_count
+        | (($url | type) == "string" and ($url | test("\\S"))) as $has_url
+        | (($entry.command // null) as $command
+            | (($command | type) == "string" and ($command | test("\\S")))) as $has_command
+        | if $has_url then
+            if ($unknown_count > 0 or ($types | index("stdio")) != null or ($types | length) > 1) then
+              "__gstack_unresolved__"
+            else
+              $url
+            end
+          elif ($remote_count > 0 or $unknown_count > 0 or ($types | length) > 1) then
+            "__gstack_unresolved__"
+          elif (($types | index("stdio")) != null or (($types | length) == 0 and $has_command)) then
+            "__gstack_local__"
+          else
+            "__gstack_unresolved__"
+          end
+      end
+  ' "$_claude_json" 2>/dev/null || return 2
+}
+
+# Detect the active brain endpoint hash. Falls back to the literal 'local'
+# when neither project nor user scope configures a remote MCP endpoint.
+endpoint_hash() {
+  if [ ! -f "$HOME/.claude.json" ]; then
+    printf '%s' "local"
+    return 0
+  fi
+  if ! _url=$(active_endpoint_url); then
+    # Never let malformed/unreadable endpoint configuration inherit the local
+    # personal policy. `unresolved` has no permissive default.
+    printf '%s' "unresolved"
+    return 0
+  fi
+  if [ "$_url" = "__gstack_unresolved__" ]; then
+    printf '%s' "unresolved"
+    return 0
+  fi
+  if [ "$_url" = "__gstack_local__" ]; then
+    printf '%s' "local"
+    return 0
+  fi
+  if [ -n "$_url" ] && [ "$_url" != "null" ]; then
+    sha16_of "$_url"
+    return 0
   fi
   printf '%s' "local"
 }
 
-# Detect endpoint hash collisions. When two distinct endpoints share the same
-# sha8 prefix (rare but possible), escalate to sha16 by emitting the longer
-# hash. Detection: scan config file for existing brain_trust_policy@<hash> or
-# user_slug_at_<hash> keys; if any non-active hash equals the active sha8 but
-# would differ at sha16, the active endpoint needs sha16.
+# Kept as the public helper name for callers; remote endpoints are always sha16
+# now, so there is no conditional 32-bit collision path to reason about.
 endpoint_hash_with_collision_check() {
-  _active=$(endpoint_hash)
-  if [ "$_active" = "local" ]; then
-    printf '%s' "$_active"
-    return 0
-  fi
-  # If a different endpoint (different URL) shares this sha8, escalate.
-  # We only catch this when the config has another endpoint recorded.
-  _matching=$(grep -E "^(brain_trust_policy|user_slug_at)@${_active}" "$CONFIG_FILE" 2>/dev/null | head -1 || true)
-  _claude_json="$HOME/.claude.json"
-  if [ -n "$_matching" ] && [ -f "$_claude_json" ] && command -v jq >/dev/null 2>&1; then
-    _url=$(jq -r '.mcpServers.gbrain.url // .mcpServers.gbrain.transport.url // empty' "$_claude_json" 2>/dev/null)
-    _sha16=$(printf '%s' "$_url" | shasum -a 256 | cut -c1-16)
-    # Look for any sha16-namespaced key that conflicts. If a stored sha16 exists
-    # and differs from current sha16, that's the collision evidence; emit sha16.
-    _stored16=$(grep -E "^(brain_trust_policy|user_slug_at)@${_sha16}" "$CONFIG_FILE" 2>/dev/null | head -1 || true)
-    if [ -n "$_stored16" ]; then
-      printf '%s' "$_sha16"
-      return 0
-    fi
-  fi
-  printf '%s' "$_active"
+  endpoint_hash
 }
 
 # Resolve the user-slug per D4 A3 chain:
@@ -337,6 +402,35 @@ case "${1:-}" in
     fi
     grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null
     ;;
+  configure-brain-trust)
+    POLICY="${2:?Usage: gstack-config configure-brain-trust <personal|shared-contributor|shared|unset>}"
+    case "$POLICY" in
+      personal|shared-contributor|shared|unset) ;;
+      *) echo "Error: invalid brain trust policy: $POLICY" >&2; exit 1 ;;
+    esac
+    HASH=$(endpoint_hash_with_collision_check)
+    if [ "$HASH" = "unresolved" ]; then
+      echo "Error: active GBrain endpoint could not be resolved; repair ~/.claude.json and ensure jq is installed before setting trust." >&2
+      exit 1
+    fi
+    "$0" set "brain_trust_policy@$HASH" "$POLICY"
+    CURRENT_SYNC=$("$0" get artifacts_sync_mode 2>/dev/null || echo off)
+    case "$POLICY" in
+      personal)
+        [ "$CURRENT_SYNC" = "off" ] && "$0" set artifacts_sync_mode full
+        ;;
+      shared-contributor)
+        [ "$CURRENT_SYNC" = "off" ] && "$0" set artifacts_sync_mode artifacts-only
+        ;;
+      shared|unset)
+        # Read-only or untrusted endpoints must never inherit an earlier
+        # publishing mode from another endpoint/session.
+        [ "$CURRENT_SYNC" = "off" ] || "$0" set artifacts_sync_mode off
+        ;;
+    esac
+    printf 'brain_trust_policy@%s=%s\nartifacts_sync_mode=%s\n' \
+      "$HASH" "$POLICY" "$("$0" get artifacts_sync_mode 2>/dev/null || echo off)"
+    ;;
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
@@ -346,11 +440,18 @@ case "${1:-}" in
       echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
-    # Validate brain_trust_policy value domain (D4 / D11)
+    # Validate brain_trust_policy value domain (D4 / D11). A shared brain is
+    # read-only by default; shared-contributor is the explicit team opt-in that
+    # permits curated writes without enabling personal calibration write-back.
     if printf '%s' "$KEY" | grep -qE '^brain_trust_policy(@|$)' && \
-       [ "$VALUE" != "personal" ] && [ "$VALUE" != "shared" ] && [ "$VALUE" != "unset" ]; then
-      echo "Warning: brain_trust_policy '$VALUE' not recognized. Valid values: personal, shared, unset. Using unset." >&2
+       [ "$VALUE" != "personal" ] && [ "$VALUE" != "shared-contributor" ] && \
+       [ "$VALUE" != "shared" ] && [ "$VALUE" != "unset" ]; then
+      echo "Warning: brain_trust_policy '$VALUE' not recognized. Valid values: personal, shared-contributor, shared, unset. Using unset." >&2
       VALUE="unset"
+    fi
+    if [ "$KEY" = "brain_trust_policy@unresolved" ] && [ "$VALUE" != "unset" ]; then
+      echo "Error: unresolved brain endpoints cannot be assigned a permissive trust policy; repair the endpoint configuration first." >&2
+      exit 1
     fi
     # V1: whitelist values for keys with closed value domains. Unknown values warn + default.
     if [ "$KEY" = "explain_level" ] && [ "$VALUE" != "default" ] && [ "$VALUE" != "terse" ]; then
@@ -379,6 +480,10 @@ case "${1:-}" in
     if [ "$KEY" = "founder_resources" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
       echo "Warning: founder_resources '$VALUE' not recognized. Valid values: true, false. Using true." >&2
       VALUE="true"
+    fi
+    if [ "$KEY" = "history_recall" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+      echo "Warning: history_recall '$VALUE' not recognized. Valid values: true, false. Using false." >&2
+      VALUE="false"
     fi
     if [ "$KEY" = "plan_tune_hooks" ] && [ "$VALUE" != "prompt" ] && [ "$VALUE" != "yes" ] && [ "$VALUE" != "no" ]; then
       echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
@@ -418,7 +523,7 @@ case "${1:-}" in
     fi
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
-    for KEY in proactive routing_declined telemetry auto_upgrade update_check \
+    for KEY in proactive history_recall routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
@@ -434,7 +539,7 @@ case "${1:-}" in
     ;;
   defaults)
     echo "# gstack-config defaults"
-    for KEY in proactive routing_declined telemetry auto_upgrade update_check \
+    for KEY in proactive history_recall routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do

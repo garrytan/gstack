@@ -48,8 +48,8 @@ describe('generateGBrainSaveResults — wiring + compression pin', () => {
     ({ skill, slugPrefix, tag, title }) => {
       const out = generateGBrainSaveResults(buildCtx(skill));
 
-      // Uses gbrain put (v0.18+ subcommand), not deprecated put_page MCP op.
-      expect(out).toContain('gbrain put');
+      // Uses the trust-enforcing wrapper, not a direct/unscoped write.
+      expect(out).toContain('gstack-gbrain-put');
       expect(out).not.toContain('put_page');
 
       // Per-skill slug prefix is exactly what skillSaveMap declares.
@@ -64,15 +64,17 @@ describe('generateGBrainSaveResults — wiring + compression pin', () => {
 
       // Compact: points to docs/gbrain-write-surfaces.md for full template.
       expect(out).toContain('docs/gbrain-write-surfaces.md');
+      expect(out).toContain('contributor namespaces');
+      expect(out).toContain('approval');
     },
   );
 
   test('all 5 planning skills produce output under ~600 chars (~150 tokens)', () => {
     // Token-budget pin. Naive un-suppression would emit ~1000 tokens (~4000 chars)
     // per skill. Compressed target: ~150 tokens (~600 chars). Generous ceiling
-    // at 750 chars to leave room for the heredoc structure without inviting a
-    // gradual re-inflation of the prose.
-    const CEILING_CHARS = 750;
+    // at 900 chars to leave room for the trust-enforcing wrapper path without
+    // inviting a gradual re-inflation of the prose.
+    const CEILING_CHARS = 900;
     for (const { skill } of PLANNING_SKILLS) {
       const out = generateGBrainSaveResults(buildCtx(skill));
       if (out.length > CEILING_CHARS) {
@@ -91,8 +93,8 @@ describe('generateGBrainSaveResults — wiring + compression pin', () => {
   test('unmapped skill name falls through to compact generic template', () => {
     const out = generateGBrainSaveResults(buildCtx('no-such-skill'));
 
-    // Generic fallback still emits gbrain put + skip-header + docs pointer.
-    expect(out).toContain('gbrain put');
+    // Generic fallback still emits the write wrapper + skip-header + docs pointer.
+    expect(out).toContain('gstack-gbrain-put');
     expect(out).toContain('Skip this entire section if `gbrain` is not on PATH');
     expect(out).toContain('docs/gbrain-write-surfaces.md');
 

@@ -48,6 +48,7 @@ interface CommandResult {
   runStderr: string;
   learningsWritten: boolean;
   libIsSymlink: boolean | null;
+  skillMdIsSymlink: boolean | null;
   supabaseConfigPresent: boolean;
 }
 
@@ -73,6 +74,7 @@ function buildRootAndRunCommand(
     );
 
     const libLst = fs.lstatSync(path.join(rootDir, 'lib'), { throwIfNoEntry: false });
+    const skillMdLst = fs.lstatSync(path.join(rootDir, 'SKILL.md'), { throwIfNoEntry: false });
     const run = spawnSync('bash', [path.join(rootDir, 'bin', 'gstack-learnings-log'), PAYLOAD], {
       cwd: project,
       encoding: 'utf-8',
@@ -94,6 +96,7 @@ function buildRootAndRunCommand(
       runStderr: run.stderr,
       learningsWritten,
       libIsSymlink: libLst ? libLst.isSymbolicLink() : null,
+      skillMdIsSymlink: skillMdLst ? skillMdLst.isSymbolicLink() : null,
       // Distinct defect (#2215): telemetry-class bin scripts source
       // $GSTACK_DIR/supabase/config.sh to resolve GSTACK_SUPABASE_URL. The
       // [ -f ... ] guard means a missing file degrades SILENTLY, so only a
@@ -156,11 +159,27 @@ const HOST_ROOTS: Record<string, (sandbox: string) => { script: string; rootDir:
 // precedent in setup-windows-fallback.test.ts. The IS_WINDOWS=1 cells exercise
 // the Windows copy branch itself, which is plain `cp -R` and portable.
 describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibling lib from every host root', () => {
+  test('Codex stage path is recorded before creation for crash recovery', () => {
+    const source = extractFunction('create_codex_runtime_root');
+    const assign = source.indexOf('staged_gstack="$codex_parent/.gstack-stage.$lock_owner"');
+    const record = source.indexOf('> "$lock_dir/stage"', assign);
+    const create = source.indexOf('mkdir "$staged_gstack"', record);
+    expect(assign).toBeGreaterThan(-1);
+    expect(record).toBeGreaterThan(assign);
+    expect(create).toBeGreaterThan(record);
+    expect(source).not.toContain('mktemp -d "$codex_parent/.gstack-stage.XXXXXX"');
+  });
   for (const [host, buildScript] of Object.entries(HOST_ROOTS)) {
     test(`${host} root (symlink install): gstack-learnings-log imports ../lib and writes the learning`, () => {
       const r = buildRootAndRunCommand('0', buildScript);
       expect(r.buildStatus).toBe(0);
       expect(r.libIsSymlink).toBe(true);
+      if (host === 'codex') {
+        // Codex discovers leaf skills through directory symlinks, but the root
+        // router lives in a real runtime directory. Its SKILL.md must therefore
+        // be a real file rather than a file-level symlink.
+        expect(r.skillMdIsSymlink).toBe(false);
+      }
       expect(r.runStderr).not.toContain('lib/jsonl-store.ts');
       expect(r.runStatus).toBe(0);
       expect(r.learningsWritten).toBe(true);
@@ -194,5 +213,205 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
     expect(r.runStatus).not.toBe(0);
     expect(r.runStderr).toContain('lib/jsonl-store.ts');
     expect(r.learningsWritten).toBe(false);
+  });
+
+  test('Codex runtime restores the previous root when the final staged rename fails', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-rollback-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      fs.mkdirSync(liveRoot, { recursive: true });
+      fs.writeFileSync(path.join(liveRoot, 'previous-install-marker'), 'keep me\n');
+
+      const script = [
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        '_test_mv_calls=0',
+        'mv() {',
+        '  _test_mv_calls=$((_test_mv_calls + 1))',
+        '  if [ "$_test_mv_calls" -eq 2 ]; then return 1; fi',
+        '  command mv "$@"',
+        '}',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(fs.readFileSync(path.join(liveRoot, 'previous-install-marker'), 'utf-8')).toBe('keep me\n');
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-rollback.'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-stage.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test('concurrent Codex runtime refreshes serialize without nested or orphaned roots', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-concurrent-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      fs.mkdirSync(liveRoot, { recursive: true });
+      fs.writeFileSync(path.join(liveRoot, 'previous-install-marker'), 'replace me\n');
+      const script = [
+        'set -e',
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}" &`,
+        'first=$!',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}" &`,
+        'second=$!',
+        'wait "$first"',
+        'wait "$second"',
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(liveRoot, 'gstack'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-stage.'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-rollback.'))).toBe(false);
+      expect(fs.existsSync(path.join(path.dirname(liveRoot), '.gstack-install.lock'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test('Codex runtime reclaims abandoned empty and malformed install locks after a grace period', () => {
+    for (const [label, pidContents] of [['empty', null], ['malformed', 'not-a-pid\n']] as const) {
+      const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), `gstack-runtime-${label}-lock-`));
+      try {
+        const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+        const lockDir = path.join(path.dirname(liveRoot), '.gstack-install.lock');
+        fs.mkdirSync(lockDir, { recursive: true });
+        if (pidContents !== null) fs.writeFileSync(path.join(lockDir, 'pid'), pidContents);
+
+        const script = [
+          'set -e',
+          'IS_WINDOWS=0',
+          extractFunction('_link_or_copy'),
+          extractFunction('create_codex_runtime_root'),
+          `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+        ].join('\n');
+        const result = spawnSync('bash', ['-c', script], {
+          encoding: 'utf-8',
+          timeout: 30000,
+        });
+
+        expect(result.status).toBe(0);
+        expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(lockDir)).toBe(false);
+        expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.includes('.gstack-install.lock.stale.'))).toBe(false);
+      } finally {
+        fs.rmSync(sandbox, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Codex runtime reclaims an install lock whose recorded owner has exited', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-dead-lock-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      const lockDir = path.join(path.dirname(liveRoot), '.gstack-install.lock');
+      const script = [
+        'set -e',
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        `mkdir -p "${lockDir}"`,
+        'sleep 30 &',
+        'dead_owner=$!',
+        `printf '%s\\n' "$dead_owner" > "${path.join(lockDir, 'pid')}"`,
+        'kill "$dead_owner"',
+        'wait "$dead_owner" 2>/dev/null || true',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(lockDir)).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.includes('.gstack-install.lock.stale.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test('Codex runtime cleans a rollback when final rename succeeds but reports failure', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-post-rename-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      fs.mkdirSync(liveRoot, { recursive: true });
+      fs.writeFileSync(path.join(liveRoot, 'previous-install-marker'), 'old\n');
+      const script = [
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        '_test_mv_calls=0',
+        'mv() {',
+        '  _test_mv_calls=$((_test_mv_calls + 1))',
+        '  if [ "$_test_mv_calls" -eq 2 ]; then command mv "$@"; return 1; fi',
+        '  command mv "$@"',
+        '}',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30000 });
+
+      expect(result.status).not.toBe(0);
+      expect(fs.existsSync(path.join(liveRoot, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(liveRoot, 'previous-install-marker'))).toBe(false);
+      expect(fs.readdirSync(path.dirname(liveRoot)).some((name) => name.startsWith('.gstack-rollback.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test('Codex runtime removes stale stage metadata and restores stale rollback exactly', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-stale-artifacts-'));
+    try {
+      const liveRoot = path.join(sandbox, 'home', '.codex', 'skills', 'gstack');
+      const parent = path.dirname(liveRoot);
+      const lockDir = path.join(parent, '.gstack-install.lock');
+      const staleStage = path.join(parent, '.gstack-stage.abandoned');
+      const staleRollback = path.join(parent, '.gstack-rollback.abandoned');
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.mkdirSync(staleStage);
+      fs.mkdirSync(staleRollback);
+      fs.writeFileSync(path.join(staleStage, 'stale-stage-marker'), 'remove\n');
+      fs.writeFileSync(path.join(staleRollback, 'previous-install-marker'), 'restore\n');
+      fs.writeFileSync(path.join(lockDir, 'pid'), '99999999\n');
+      fs.writeFileSync(path.join(lockDir, 'stage'), `${staleStage}\n`);
+      fs.writeFileSync(path.join(lockDir, 'rollback'), `${staleRollback}\n`);
+
+      const script = [
+        'IS_WINDOWS=0',
+        extractFunction('_link_or_copy'),
+        extractFunction('create_codex_runtime_root'),
+        '_test_mv_calls=0',
+        'mv() {',
+        '  _test_mv_calls=$((_test_mv_calls + 1))',
+        '  if [ "$_test_mv_calls" -eq 4 ]; then return 1; fi',
+        '  command mv "$@"',
+        '}',
+        `create_codex_runtime_root "${ROOT}" "${liveRoot}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30000 });
+
+      expect(result.status).not.toBe(0);
+      expect(fs.existsSync(staleStage)).toBe(false);
+      expect(fs.readFileSync(path.join(liveRoot, 'previous-install-marker'), 'utf8')).toBe('restore\n');
+      expect(fs.existsSync(lockDir)).toBe(false);
+      expect(fs.readdirSync(parent).some((name) => name.includes('.gstack-install.lock.stale.'))).toBe(false);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
   });
 });

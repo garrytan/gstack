@@ -19,6 +19,7 @@ import { mkdtempSync, existsSync, readFileSync, writeFileSync, rmSync, mkdirSync
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 
 const REPO_ROOT = process.cwd();
 const CONFIG_BIN = join(REPO_ROOT, 'bin', 'gstack-config');
@@ -62,11 +63,98 @@ afterEach(() => {
 });
 
 describe('endpoint-hash subcommand', () => {
-  test('returns deterministic 8-char hex or literal "local"', () => {
+  test('returns deterministic 16-char hex or a fail-closed/local sentinel', () => {
     const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
     expect(result.status).toBe(0);
     const out = result.stdout.trim();
-    expect(out === 'local' || /^[a-f0-9]{8}$/.test(out) || /^[a-f0-9]{16}$/.test(out)).toBe(true);
+    expect(out === 'local' || out === 'unresolved' || /^[a-f0-9]{16}$/.test(out)).toBe(true);
+  });
+
+  test('project-scoped endpoint overrides user scope', () => {
+    const userUrl = 'https://brain.example.test/user';
+    const projectUrl = 'https://brain.example.test/team';
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+      mcpServers: { gbrain: { type: 'url', url: userUrl } },
+      projects: {
+        [REPO_ROOT]: { mcpServers: { gbrain: { type: 'url', url: projectUrl } } },
+      },
+    }));
+    const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(createHash('sha256').update(projectUrl).digest('hex').slice(0, 16));
+  });
+
+  test('user scope is used outside project-scoped registrations', () => {
+    const userUrl = 'https://brain.example.test/user';
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+      mcpServers: { gbrain: { type: 'url', url: userUrl } },
+      projects: {
+        '/definitely/not/the/current/repo': {
+          mcpServers: { gbrain: { type: 'url', url: 'https://brain.example.test/other' } },
+        },
+      },
+    }));
+    const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(result.stdout.trim()).toBe(createHash('sha256').update(userUrl).digest('hex').slice(0, 16));
+  });
+
+  test('malformed config and missing jq resolve fail-closed', () => {
+    writeFileSync(join(TMP_HOME, '.claude.json'), '{not-json');
+    const malformed = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(malformed.stdout.trim()).toBe('unresolved');
+    const configure = runConfig(['configure-brain-trust', 'personal'], { GSTACK_HOME: TMP_HOME });
+    expect(configure.status).not.toBe(0);
+
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+      mcpServers: { gbrain: { type: 'url', url: 'https://brain.example.test/team' } },
+    }));
+    const noJq = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME, GSTACK_TEST_NO_JQ: '1' });
+    expect(noJq.stdout.trim()).toBe('unresolved');
+  });
+
+  test('configured remote entry without a usable URL resolves fail-closed', () => {
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+      mcpServers: { gbrain: { type: 'http', url: '' } },
+    }));
+    const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(result.stdout.trim()).toBe('unresolved');
+  });
+
+  test('supported local stdio registration resolves as local', () => {
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+      mcpServers: { gbrain: { type: 'stdio', command: '/usr/local/bin/gbrain', args: ['serve'] } },
+    }));
+    const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(result.stdout.trim()).toBe('local');
+  });
+
+  test('explicit remote type without a URL stays unresolved even with a command', () => {
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+      mcpServers: { gbrain: { type: 'http', url: '', command: '/usr/local/bin/gbrain' } },
+    }));
+    const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(result.stdout.trim()).toBe('unresolved');
+  });
+
+  test('remote transport declaration takes precedence over command fallback', () => {
+    for (const transport of ['http', { type: 'sse' }]) {
+      writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({
+        mcpServers: { gbrain: { transport, command: '/usr/local/bin/gbrain' } },
+      }));
+      const result = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+      expect(result.stdout.trim()).toBe('unresolved');
+    }
+  });
+
+  test('conflicting or unknown endpoint declarations stay unresolved', () => {
+    for (const entry of [
+      { type: 'unknown', transport: 'http', command: '/usr/local/bin/gbrain' },
+      { type: 'stdio', transport: 'http', command: '/usr/local/bin/gbrain' },
+      { type: 'unknown', url: 'https://brain.example.test/mcp' },
+    ]) {
+      writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: entry } }));
+      expect(runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME }).stdout.trim()).toBe('unresolved');
+    }
   });
 });
 
@@ -140,6 +228,12 @@ describe('brain_trust_policy@<endpoint-id> namespace', () => {
     expect(getResult.stdout).toBe('shared');
   });
 
+  test('shared-contributor value accepted', () => {
+    runConfig(['set', 'brain_trust_policy@deadbeef', 'shared-contributor'], { GSTACK_HOME: TMP_HOME });
+    const getResult = runConfig(['get', 'brain_trust_policy@deadbeef'], { GSTACK_HOME: TMP_HOME });
+    expect(getResult.stdout).toBe('shared-contributor');
+  });
+
   test('per-endpoint policies dont collide', () => {
     runConfig(['set', 'brain_trust_policy@aaaaaaaa', 'personal'], { GSTACK_HOME: TMP_HOME });
     runConfig(['set', 'brain_trust_policy@bbbbbbbb', 'shared'], { GSTACK_HOME: TMP_HOME });
@@ -147,6 +241,13 @@ describe('brain_trust_policy@<endpoint-id> namespace', () => {
     const b = runConfig(['get', 'brain_trust_policy@bbbbbbbb'], { GSTACK_HOME: TMP_HOME });
     expect(a.stdout).toBe('personal');
     expect(b.stdout).toBe('shared');
+  });
+
+  test('unresolved sentinel cannot be assigned permissive trust', () => {
+    const result = runConfig(['set', 'brain_trust_policy@unresolved', 'personal'], { GSTACK_HOME: TMP_HOME });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('cannot be assigned');
+    expect(runConfig(['get', 'brain_trust_policy@unresolved'], { GSTACK_HOME: TMP_HOME }).stdout).toBe('unset');
   });
 });
 

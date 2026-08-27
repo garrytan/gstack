@@ -18,8 +18,8 @@ import * as path from 'path';
 const BIN = path.resolve(__dirname, '..', 'bin', 'gstack-session-kind');
 
 /** Run the helper with ONLY the supplied env (plus PATH so bash resolves). */
-function kind(env: Record<string, string>): string {
-  return execFileSync(BIN, [], {
+function kind(env: Record<string, string>, args: string[] = []): string {
+  return execFileSync(BIN, args, {
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
     encoding: 'utf-8',
   }).trim();
@@ -39,6 +39,11 @@ describe('gstack-session-kind', () => {
   test('CONDUCTOR_* → interactive (a human host is present)', () => {
     expect(kind({ CONDUCTOR_WORKSPACE_PATH: '/tmp/ws' })).toBe('interactive');
     expect(kind({ CONDUCTOR_PORT: '55010' })).toBe('interactive');
+  });
+
+  test('normal mode accepts Codex host and non-empty explicit interactive markers', () => {
+    expect(kind({ CODEX_THREAD_ID: 'thread', INSTANT_APP_ID: 'app' })).toBe('interactive');
+    expect(kind({ GSTACK_INTERACTIVE: '0' })).toBe('interactive');
   });
 
   test('CLAUDE_CODE_ENTRYPOINT=cli → interactive', () => {
@@ -66,5 +71,32 @@ describe('gstack-session-kind', () => {
     // The resolver/helper guard on -n, so an empty string must NOT mean headless —
     // this is the opt-out path harness suites use to exercise the interactive branch.
     expect(kind({ GSTACK_HEADLESS: '' })).toBe('interactive');
+  });
+
+  test('--history fails closed for bare and one-shot-compatible CLI sessions', () => {
+    expect(kind({}, ['--history'])).toBe('headless');
+    expect(kind({ CLAUDE_CODE_ENTRYPOINT: 'cli' }, ['--history'])).toBe('headless');
+  });
+
+  test('--history ignores ambient host markers inherited by delegated agents', () => {
+    expect(kind({ CONDUCTOR_PORT: '55010' }, ['--history'])).toBe('headless');
+    expect(kind({ CODEX_THREAD_ID: 'thread', INSTANT_APP_ID: 'app' }, ['--history'])).toBe('headless');
+    expect(kind({ CODEX_THREAD_ID: 'thread' }, ['--history'])).toBe('headless');
+  });
+
+  test('--history accepts only the exact invocation-scoped override', () => {
+    expect(kind({ GSTACK_INTERACTIVE: '1' }, ['--history'])).toBe('interactive');
+    expect(kind({ GSTACK_INTERACTIVE: '0' }, ['--history'])).toBe('headless');
+    expect(kind({ GSTACK_INTERACTIVE: 'false' }, ['--history'])).toBe('headless');
+    expect(kind({ GSTACK_INTERACTIVE: 'yes' }, ['--history'])).toBe('headless');
+  });
+
+  test('--history CI markers override even the exact interactive signal', () => {
+    expect(kind({ GSTACK_INTERACTIVE: '1', CI: '1' }, ['--history'])).toBe('headless');
+    expect(kind({ GSTACK_INTERACTIVE: '1', GITHUB_ACTIONS: 'true' }, ['--history'])).toBe('headless');
+  });
+
+  test('unknown arguments fail instead of silently changing classification', () => {
+    expect(() => kind({}, ['--unknown'])).toThrow();
   });
 });

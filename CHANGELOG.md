@@ -1,5 +1,68 @@
 # Changelog
 
+## [1.71.0.0] - 2026-08-27
+
+**GStack can now guide a request into the right workflow and carry useful,
+curated project memory across a team without turning a shared brain into an
+unbounded write surface.**
+
+Invoking the root GStack skill now presents only the two to four workflows that
+fit the request, recommends one, and waits for a choice unless the user delegates
+the decision. Teams can opt into history recall so those recommendations include
+relevant prior decisions and GBrain context. Shared-contributor mode gives every
+teammate a namespaced, attributed path for durable work while personal
+calibration stays private and shared read-only brains stay read-only.
+
+### Added
+
+- Guided root routing for Claude Code and Codex: preserve the request, offer a
+  short relevant workflow menu, recommend one, and let explicitly named
+  subskills run directly.
+- Opt-in `history_recall` for bounded local-decision and semantic GBrain recall,
+  with at most three surfaced matches and graceful fallback when memory is
+  unavailable.
+- Shared GBrain contributor mode with per-user namespaces, authoritative YAML
+  attribution, curated artifact writes, and automatic cross-computer artifact
+  pulls. Personal calibration write-back is excluded from this mode.
+- Team setup and operating guidance covering endpoint trust, contributor
+  identity, repository access, server-side indexing, and cross-machine sync.
+
+### Changed
+
+- Brain trust is scoped to the active endpoint using project-aware resolution
+  and 16-character endpoint identities. Existing shorter remote policy keys are
+  intentionally re-confirmed instead of inherited.
+- GBrain write instructions now use the guarded writer, which applies personal,
+  contributor, shared-approval, or setup-required behavior consistently across
+  generated skills.
+- Contributor artifact repositories check for upstream work at session
+  boundaries, use a shared synchronization lock, and stamp only successful
+  fast-forward pulls.
+
+### Fixed
+
+- Ambiguous, malformed, or conflicting remote endpoint declarations now fail
+  closed across trust checks, sync, and cached planning context, while supported
+  local stdio registrations continue to work.
+- Cached personal brain digests can no longer be emitted when the active endpoint
+  cannot be resolved, and remote endpoint changes no longer collide through the
+  former short hash.
+- Semantic history output is redacted before display limits are applied and JSON
+  results use a fixed safe schema, preventing secrets or attacker-controlled keys
+  from escaping through optional recall.
+- Curated-memory source selection verifies the registered worktree path before
+  searching, so an ambient or colliding source id cannot redirect history recall.
+- Contributor attribution is normalized as YAML, defeating quoted, escaped, or
+  tagged duplicate keys; malformed frontmatter is refused instead of written.
+- Artifact pull failures are visible and retain their failure status, and
+  same-size/same-timestamp worktree rewrites are staged reliably.
+
+### For contributors
+
+- Tests: 8,078 → 8,147 (+69), including guided routing, consent boundaries,
+  semantic recall redaction, endpoint ambiguity, cache isolation, contributor
+  attribution, read-only sync, and cross-machine pull regressions.
+
 ## [1.69.0.0] - 2026-08-22
 
 **The silent-failure wave: tools that reported success while doing nothing —**

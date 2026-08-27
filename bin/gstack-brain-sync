@@ -3,6 +3,7 @@
 #
 # Usage:
 #   gstack-brain-sync --once           drain queue, commit, push (default)
+#   gstack-brain-sync --pull-if-due    fetch + fast-forward on policy TTL
 #   gstack-brain-sync --status         print sync health as JSON
 #   gstack-brain-sync --skip-file <p>  add <p> to ~/.gstack/.brain-skip.txt
 #   gstack-brain-sync --drop-queue --yes   clear queue without committing
@@ -97,10 +98,70 @@ sync_active() {
   if [ ! -d "$GSTACK_HOME/.git" ]; then
     return 1
   fi
-  local mode
+  local mode endpoint_hash trust_policy
   mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
   [ "$mode" = "off" ] && return 1
+  endpoint_hash=$("$CONFIG_BIN" endpoint-hash 2>/dev/null || echo unresolved)
+  [ "$endpoint_hash" = "unresolved" ] && return 1
+  trust_policy=$("$CONFIG_BIN" get "brain_trust_policy@$endpoint_hash" 2>/dev/null || echo unset)
+  case "$trust_policy" in
+    personal|shared-contributor) ;;
+    *) return 1 ;;
+  esac
   return 0
+}
+
+# Pull remote artifact commits under the same singleton lock used by --once.
+# Stamp only a successful fast-forward so failures retry at the next boundary.
+subcmd_pull_if_due() {
+  [ -d "$GSTACK_HOME/.git" ] || exit 0
+  local mode endpoint_hash trust_policy ttl now last age branch lock_dir
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
+  [ "$mode" = "off" ] && exit 0
+  endpoint_hash=$("$CONFIG_BIN" endpoint-hash 2>/dev/null || echo unresolved)
+  [ "$endpoint_hash" = "unresolved" ] && exit 0
+  trust_policy=$("$CONFIG_BIN" get "brain_trust_policy@$endpoint_hash" 2>/dev/null || echo unset)
+  case "$trust_policy" in
+    personal) ttl=86400 ;;
+    shared-contributor) ttl=300 ;;
+    *) exit 0 ;;
+  esac
+
+  now=$(date +%s)
+  last=$(cat "$GSTACK_HOME/.brain-last-pull" 2>/dev/null || echo 0)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  age=$(( now - last ))
+  [ "$age" -lt "$ttl" ] && exit 0
+
+  lock_dir="${LOCK_FILE}.d"
+  mkdir "$lock_dir" 2>/dev/null || exit 0
+  echo "$$" > "$lock_dir/pid" 2>/dev/null || true
+  _BRAIN_PULL_LOCK_DIR="$lock_dir"
+  trap 'rm -rf "${_BRAIN_PULL_LOCK_DIR:-}" 2>/dev/null || true' EXIT INT TERM
+
+  # Re-check after locking in case another process completed the pull.
+  last=$(cat "$GSTACK_HOME/.brain-last-pull" 2>/dev/null || echo 0)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  age=$(( now - last ))
+  [ "$age" -lt "$ttl" ] && exit 0
+
+  branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+    write_status "pull_failed" "artifact pull skipped: detached or unknown branch"
+    echo "BRAIN_SYNC: artifact pull skipped: detached or unknown branch in '$GSTACK_HOME'" >&2
+    return 1
+  fi
+  local pull_host
+  pull_host=$(remote_host)
+  if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$pull_host" curated-memory-git-fetch "brain_trust_policy=$trust_policy" \
+       bash -c 'git -C "$1" fetch origin >/dev/null 2>&1' _ "$GSTACK_HOME" &&
+     git -C "$GSTACK_HOME" merge --ff-only "origin/$branch" >/dev/null 2>&1; then
+    echo "$now" > "$GSTACK_HOME/.brain-last-pull"
+  else
+    write_status "pull_failed" "artifact pull failed; local/remote history may have diverged (stamp not advanced)"
+    echo "BRAIN_SYNC: artifact pull failed; reconcile '$GSTACK_HOME' before retry" >&2
+    return 1
+  fi
 }
 
 # Secret regex families — stdin scan. Exits 0 clean, 1 if hit.
@@ -948,6 +1009,7 @@ PYEOF
 # -------- dispatch --------
 case "${1:-}" in
   --once|"") subcmd_once ;;
+  --pull-if-due) subcmd_pull_if_due ;;
   --status) subcmd_status ;;
   --skip-file) shift; subcmd_skip_file "${1:-}" ;;
   --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;

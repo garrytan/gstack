@@ -315,7 +315,8 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('contributor-logs');
     expect(content).toContain('Operational Self-Improvement');
     expect(content).toContain('gstack-learnings-log');
-    expect(content).toContain('gstack-learnings-search --limit 3');
+    expect(content).toContain('LEARNINGS: 0 (root router defers private history)');
+    expect(content).not.toContain('gstack-learnings-search --limit 3');
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
@@ -1956,6 +1957,30 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
   });
 
+  test('the Codex root router defers private history until its trusted prompt gate', () => {
+    const root = fs.readFileSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'), 'utf-8');
+    const review = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+
+    expect(root).toContain('gstack-config get history_recall');
+    expect(root).toContain('HISTORY_RECALL: $_HISTORY_RECALL');
+    expect(root).toContain('GSTACK_BIN: $GSTACK_BIN');
+    expect(root).toContain('gstack-session-kind --history 2>/dev/null || echo "headless"');
+    expect(root).toContain('*) _SESSION_KIND="headless"');
+    expect(root).toContain('LEARNINGS: 0 (root router defers private history)');
+    expect(root).not.toContain('_ROOT_HISTORY_ALLOWED');
+    expect(root).not.toContain('_LEARN_FILE');
+    expect(root).not.toContain('gstack-learnings-search --limit 3');
+
+    expect(review).not.toContain('gstack-config get history_recall');
+    expect(review).not.toContain('_ROOT_HISTORY_ALLOWED');
+    expect(review).toContain('_LEARN_FILE');
+    expect(review).toContain('gstack-learnings-search --limit 3');
+    expect(review).toContain('gstack-session-kind 2>/dev/null || echo "interactive"');
+    expect(review).not.toContain('gstack-session-kind --history');
+    expect(review).toContain('*) _SESSION_KIND="interactive"');
+    expect(review).toContain('if [ -f "$_LEARN_FILE" ]');
+  });
+
   // ─── Path rewriting regression tests ─────────────────────────
 
   test('sidecar paths resolve through $GSTACK_ROOT (not gstack-review/)', () => {
@@ -2668,7 +2693,7 @@ describe('setup script validation', () => {
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
-    expect(fnBody).toContain('$codex_gstack/lib');
+    expect(fnBody).toContain('$staged_gstack/lib');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');

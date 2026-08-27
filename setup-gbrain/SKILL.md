@@ -530,20 +530,11 @@ if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_S
 fi
 
 if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
-  _BRAIN_LAST_PULL_FILE="$_GSTACK_HOME/.brain-last-pull"
-  _BRAIN_NOW=$(date +%s)
-  _BRAIN_DO_PULL=1
-  if [ -f "$_BRAIN_LAST_PULL_FILE" ]; then
-    _BRAIN_LAST=$(cat "$_BRAIN_LAST_PULL_FILE" 2>/dev/null || echo 0)
-    case "$_BRAIN_LAST" in ''|*[!0-9]*) _BRAIN_LAST=0 ;; esac
-    _BRAIN_AGE=$(( _BRAIN_NOW - _BRAIN_LAST ))
-    [ "$_BRAIN_AGE" -lt 86400 ] && _BRAIN_DO_PULL=0
+  if _BRAIN_PULL_OUTPUT=$("$_BRAIN_SYNC_BIN" --pull-if-due 2>&1); then
+    "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
+  else
+    printf '%s\n' "$_BRAIN_PULL_OUTPUT"
   fi
-  if [ "$_BRAIN_DO_PULL" = "1" ]; then
-    ( cd "$_GSTACK_HOME" && git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
-    echo "$_BRAIN_NOW" > "$_BRAIN_LAST_PULL_FILE"
-  fi
-  "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
 fi
 
 if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
@@ -1721,54 +1712,60 @@ echo "ENDPOINT_HASH: $_HASH"
 echo "BRAIN_TRUST_POLICY: $_POLICY"
 ```
 
+**If `_HASH == "unresolved"`:** STOP. Repair malformed/unreadable
+`~/.claude.json` or install `jq`, then rerun. Never assign local/personal trust
+when the active endpoint cannot be identified.
+
 Branch on transport + current policy:
 
-**If `_POLICY` is `personal` or `shared`:** policy already set. Print
-"Trust policy for this endpoint: $_POLICY" and skip to Step 10.
+**If `_POLICY` is `personal`, `shared-contributor`, or `shared`:** reconcile
+the sync mode idempotently, print the policy, and skip to Step 10:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-config configure-brain-trust "$_POLICY"
+```
 
 **If `_POLICY` is `unset` AND `_HASH == "local"`:** auto-set personal
 (local engines are inherently single-tenant). No AskUserQuestion.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH personal
+~/.claude/skills/gstack/bin/gstack-config configure-brain-trust personal
 echo "Trust policy auto-set to 'personal' for local PGLite (single-tenant by construction)."
 ```
 
 **If `_POLICY` is `unset` AND `_HASH != "local"` (remote MCP):** ask the
 trust policy question via AskUserQuestion:
 
-> The brain at this MCP endpoint — is it your personal brain or a
-> shared/team brain?
+> The brain at this MCP endpoint — is it your personal brain, a team brain
+> you should contribute to, or a shared brain you should only read?
 >
 > Personal: gstack auto-pushes ~/.gstack/ artifacts (CEO plans, design
 > docs, retros, learnings) and writes calibration takes back as you make
 > decisions. Your brain gets smarter every session. Pick this if you
 > alone set up this brain.
 >
-> Shared/team: read-only by default. gstack reads context but prompts
-> before any write. Safer for brains where your individual takes
-> shouldn't pollute the shared corpus.
+> Shared contributor: gstack automatically writes curated skill outputs and
+> allowlisted artifacts to the team brain. It does not write personal
+> calibration takes. Pick this only when the brain owner has granted you write
+> access and the team has agreed that GStack work should become shared memory.
+>
+> Shared read-only: gstack reads context but prompts before any write. Safer
+> when you have not been explicitly authorized to contribute.
 
 Options:
 - A) Personal (recommended for self-hosted remote brains)
-- B) Shared/team
+- B) Shared contributor
+- C) Shared read-only
 
 After answer, persist:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH <personal|shared>
+~/.claude/skills/gstack/bin/gstack-config configure-brain-trust <personal|shared-contributor|shared>
 ```
 
-If `personal` was selected AND `artifacts_sync_mode` is still `off`, also
-default it to `full` (D4 auto-push convention):
-
-```bash
-_CURRENT_SYNC=$(~/.claude/skills/gstack/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo off)
-if [ "$_CURRENT_SYNC" = "off" ]; then
-  ~/.claude/skills/gstack/bin/gstack-config set artifacts_sync_mode full
-  echo "artifacts_sync_mode auto-set to 'full' (personal brain default)."
-fi
-```
+The helper defaults `personal` to `full`, `shared-contributor` to
+`artifacts-only`, preserves an existing explicit contributor mode, and forces
+`shared`/`unset` to `off` so a read-only endpoint cannot inherit prior pushes.
 
 Backwards compat: existing users whose `artifacts_sync_mode_prompted` is
 already `true` keep their answer; this gate only fires for new endpoints

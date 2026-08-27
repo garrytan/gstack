@@ -132,6 +132,7 @@ describe('gstack-gbrain-source-wireup --advance-only (#2516)', () => {
 describe('brain-sync --once daily advance wiring (#2516)', () => {
   test('once advances the worktree behind a 24h attempt stamp', () => {
     makeArtifactsRepoWithWorktree();
+    run(['gstack-config', 'set', 'brain_trust_policy@local', 'personal']);
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'artifacts-only']);
     const second = commit(tmpHome, 'second');
 

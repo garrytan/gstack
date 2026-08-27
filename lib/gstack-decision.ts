@@ -19,7 +19,7 @@ import { randomUUID } from "crypto";
 import { existsSync, readFileSync, appendFileSync, statSync, openSync, closeSync, unlinkSync } from "fs";
 import { atomicWriteSync } from "./fs-atomic";
 import { appendJsonl, readJsonl, hasInjection } from "./jsonl-store";
-import { scan } from "./redact-engine";
+import { redactFindingSpans, scan } from "./redact-engine";
 
 export type DecisionKind = "decide" | "supersede" | "redact";
 export type DecisionScope = "repo" | "branch" | "issue";
@@ -89,6 +89,17 @@ export function datamark(text: string): string {
     // neutralize chat turn-prefixes (Human:/Assistant:/System:/User:) — defeat the
     // angle-tag pass and are Claude's native turn delimiters
     .replace(/\b(human|assistant|system|user)(\s*):/gi, `$1${ZWSP}$2:`);
+}
+
+/**
+ * Render untrusted historical text without resurfacing legacy secrets or PII.
+ * New writes already reject sensitive content, but old snapshots and external
+ * GBrain pages predate that invariant. If exact span redaction cannot be proven
+ * safe, drop the complete field rather than pass raw text through.
+ */
+export function recallSafe(text: string): string {
+  const redacted = redactFindingSpans(text, { repoVisibility: "private" });
+  return datamark(redacted ?? "[REDACTED-SENSITIVE-CONTENT]");
 }
 
 export type ValidateResult =
@@ -228,15 +239,27 @@ export function writeSnapshot(paths: DecisionPaths, active: ActiveDecision[]): v
   atomicWriteSync(paths.snapshot, JSON.stringify(active));
 }
 
-/** Read the bounded active snapshot. Returns [] if missing/corrupt (caller may rebuild). */
-export function readSnapshot(paths: DecisionPaths): ActiveDecision[] {
-  if (!existsSync(paths.snapshot)) return [];
+export interface SnapshotRead {
+  status: "missing" | "valid" | "corrupt";
+  rows: ActiveDecision[];
+}
+
+/** Read the bounded active snapshot while preserving empty-vs-missing state. */
+export function readSnapshotState(paths: DecisionPaths): SnapshotRead {
+  if (!existsSync(paths.snapshot)) return { status: "missing", rows: [] };
   try {
     const v = JSON.parse(readFileSync(paths.snapshot, "utf-8"));
-    return Array.isArray(v) ? (v as ActiveDecision[]) : [];
+    return Array.isArray(v)
+      ? { status: "valid", rows: v as ActiveDecision[] }
+      : { status: "corrupt", rows: [] };
   } catch {
-    return [];
+    return { status: "corrupt", rows: [] };
   }
+}
+
+/** Backwards-compatible rows-only view. Missing/corrupt snapshots return []. */
+export function readSnapshot(paths: DecisionPaths): ActiveDecision[] {
+  return readSnapshotState(paths).rows;
 }
 
 /** Recompute active from the event log and refresh the snapshot. Returns active. */

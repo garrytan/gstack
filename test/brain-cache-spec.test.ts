@@ -217,7 +217,7 @@ describe('brain-cache MCP scope precedence (C15 pin)', () => {
       projects: { '/other/repo': { mcpServers: { gbrain: PROJ_URL } } },
     });
     const hash = mod.detectEndpointHash(cj, '/w/unrelated');
-    expect(hash).toHaveLength(8);
+    expect(hash).toHaveLength(16);
     // Matches the user-only hash — the OTHER project's entry is invisible
     // outside its own tree.
     const userOnly = writeFixture('claude-user-only-2.json', {

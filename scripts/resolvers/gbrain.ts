@@ -81,14 +81,20 @@ export function generateGBrainSaveResults(ctx: TemplateContext): string {
   // near zero when their host's static suppression is overridden by
   // detection.
   const meta = skillSaveMap[ctx.skillName];
+  const writeBin = `${ctx.paths.binDir}/gstack-gbrain-put`;
+
+  const trustGate = `Use \`${writeBin}\` for every write. It enforces endpoint trust,
+contributor namespaces, approval, and personal-only calibration.`;
 
   if (!meta) {
     return `## Save Results to Brain
 
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
+${trustGate}
+
 If the skill output is worth preserving, save it via
-\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`. Full template
+\`${writeBin} --slug "<slug>" --content "<frontmatter + markdown>"\`. Full template
 (heredoc body, frontmatter shape, entity-stub instructions, throttle
 handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
   }
@@ -97,10 +103,12 @@ handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
 
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
+${trustGate}
+
 After completing this skill, save the output:
 
 \`\`\`bash
-gbrain put "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
+${writeBin} --slug "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
 ---
 title: "${meta.title}: <feature name>"
 tags: [${meta.tag}, <feature-slug>]
@@ -212,7 +220,9 @@ eval "$(${binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
 /**
  * Renders the calibration write-back block. ONLY emits when the skill makes
  * typed decisions worth a kind=bet take AND the brain trust policy is
- * personal. Phase 2 / E5 cross-skill calibration.
+ * personal. Shared contributors add team artifacts, but their individual
+ * calibration takes stay out of the shared corpus. Phase 2 / E5 cross-skill
+ * calibration.
  *
  * Gated behind BRAIN_CALIBRATION_WRITEBACK feature flag in the resolver
  * output — the flag stays false until upstream gbrain ships takes_add MCP
@@ -239,7 +249,8 @@ TTHW target, architectural bet, wedge commitment), it MAY write a
 **Gated on two things:**
 1. Brain trust policy for the active endpoint is \`personal\` (check via
    \`${ctx.paths.binDir}/gstack-config get brain_trust_policy@<endpoint-hash>\`).
-   Shared brains skip write-back to avoid polluting team calibration.
+   Both \`shared\` and \`shared-contributor\` brains skip calibration write-back
+   to avoid mixing individual predictions into team calibration.
 2. Feature flag \`BRAIN_CALIBRATION_WRITEBACK\` is set (today: false; flips
    to true when upstream gbrain v0.42+ ships \`takes_add\` MCP op).
 

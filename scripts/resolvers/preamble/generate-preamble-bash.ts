@@ -24,18 +24,20 @@ touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
 _PROACTIVE=$(${ctx.paths.binDir}/gstack-config get proactive 2>/dev/null || echo "true")
-_PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
+${ctx.skillName === 'gstack' ? `_HISTORY_RECALL=$(${ctx.paths.binDir}/gstack-config get history_recall 2>/dev/null || echo "false")
+` : ''}_PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 _SKILL_PREFIX=$(${ctx.paths.binDir}/gstack-config get skill_prefix 2>/dev/null || echo "false")
 echo "PROACTIVE: $_PROACTIVE"
-echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
+${ctx.skillName === 'gstack' ? 'echo "HISTORY_RECALL: $_HISTORY_RECALL"\n' : ''}echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
-source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
+${ctx.skillName === 'gstack' ? `echo "GSTACK_BIN: ${quoteSafePath(ctx.paths.binDir)}"
+` : ''}source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=\${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$(${ctx.paths.binDir}/gstack-session-kind 2>/dev/null || echo "interactive")
-case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+_SESSION_KIND=$(${ctx.paths.binDir}/gstack-session-kind${ctx.skillName === 'gstack' ? ' --history' : ''} 2>/dev/null || echo "${ctx.skillName === 'gstack' ? 'headless' : 'interactive'}")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="${ctx.skillName === 'gstack' ? 'headless' : 'interactive'}" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
 # Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
 # variant flaky), so skills render decisions as prose instead of calling the
@@ -83,7 +85,11 @@ for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null
   fi
   break
 done
-eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
+${ctx.skillName === 'gstack' ? `# The root router never reads private learnings automatically. Its guided-entry
+# instructions perform a bounded recall only after trusted top-level context
+# and the persisted opt-in have both been checked.
+echo "LEARNINGS: 0 (root router defers private history)"
+` : `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
@@ -94,7 +100,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+`}${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 for _RF in CLAUDE.md AGENTS.md; do
   if [ -f "$_RF" ] && grep -q "## Skill routing" "$_RF" 2>/dev/null; then

@@ -62,6 +62,12 @@ No vendored files in your repo, no version drift, no manual upgrades. Every Clau
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
+To make those teammates contribute to one shared GBrain as well, connect each
+computer with `/setup-gbrain` and choose **Shared contributor**. This is a
+separate explicit opt-in; team mode never grants brain write access by itself.
+Use one private team artifacts repository and configure the shared brain service
+to index it after pushes. See [Shared team contribution](docs/gbrain-sync.md#shared-team-contribution).
+
 ### OpenClaw
 
 OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works
@@ -132,6 +138,32 @@ variants get the generic GPT profile, and setup warns on near-misses like
 override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
+
+### Start with the guided router
+
+If you know the workflow you want, invoke it directly (`/ship` in Claude Code,
+or the matching `$ship` skill in Codex). If you do not remember the catalog,
+invoke the root `gstack` skill with your request. It preserves the request,
+shows only the two to four relevant workflows, recommends one, and waits for
+your choice. Say `use the recommended option` or `skip the menu` when you want
+it to choose and continue immediately.
+
+The guided router can also consult settled GStack decisions and a curated
+GBrain memory source before recommending a workflow. This is off by default
+because prior project history may be private. After GBrain is configured, opt
+in on a trusted machine with:
+
+```bash
+~/.codex/skills/gstack/bin/gstack-config set history_recall true   # Codex
+~/.claude/skills/gstack/bin/gstack-config set history_recall true  # Claude Code
+```
+
+History recall is read-only and bounded to three results. The router skips it in
+delegated, spawned, unattended, and ambiguous sessions. That session check is a
+cooperative agent guard, not a sandbox boundary; the saved opt-in is the durable
+authorization on a machine where agents can already run local commands. See the
+[guided GStack + GBrain guide](docs/guided-gstack.md) for setup, examples,
+privacy behavior, and troubleshooting.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
@@ -480,6 +512,7 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 | [Diagrams & Document Formats](docs/howto-diagrams-and-formats.md) | Mermaid/excalidraw fences in PDFs, image sizing and safety defaults, `--to html\|docx`, `/diagram` triplets |
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Ocean, Search Before Building, three layers of knowledge |
 | [Using GBrain with GStack](USING_GBRAIN_WITH_GSTACK.md) | Every path, flag, bin helper, and troubleshooting step for `/setup-gbrain` |
+| [Guided GStack + GBrain](docs/guided-gstack.md) | Use the root router, opt into prior-work recall, and understand its privacy boundaries |
 | [GBrain Sync](docs/gbrain-sync.md) | Cross-machine memory setup, privacy modes, troubleshooting |
 | [Architecture](ARCHITECTURE.md) | Design decisions and system internals |
 | [Browser Reference](BROWSER.md) | Full command reference for `/browse` |

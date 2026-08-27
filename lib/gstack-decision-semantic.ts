@@ -6,36 +6,84 @@
  * module is loaded lazily by `gstack-decision-search` only on `--semantic`, and every
  * path degrades to `null` (caller shows the reliable file results) when gbrain is
  * absent, unconfigured, times out, or returns nothing. It NEVER throws and NEVER
- * hangs (10s spawn timeout). We do not wire core function to this — gbrain is an
+ * hangs beyond one shared 30s recall budget. We do not wire core function to this — gbrain is an
  * enhancement, never a dependency (the code-search lesson).
  *
  * Surface reality (verified against gbrain 0.42.x, not guessed):
  *  - `gbrain search "<q>"` prints TEXT lines `[score] slug -- snippet`, NOT JSON
  *    (so we parse the text surface; execGbrainJson would always null here).
- *  - The curated-memory source is the one whose local_path is the gstack brain
- *    worktree (`~/.gstack-brain-worktree`), id `default` by convention — NOT a
- *    `gstack-brain-<user>` id. Scoping search to it keeps code/doc corpora out.
+ *  - The curated-memory source is the one whose local_path is exactly the
+ *    configured gstack brain worktree (`~/.gstack-brain-worktree` by default).
+ *    Every recall verifies that mapping against the authoritative source list;
+ *    a remote-derived id is only a diagnostic fast candidate. Exact scoping
+ *    keeps code/doc corpora out even when source names collide.
  */
 
+import { existsSync, readFileSync } from "fs";
+import { join, resolve } from "path";
 import { spawnGbrain } from "./gbrain-exec";
 import { parseSourcesList } from "./gbrain-sources";
 
-const TIMEOUT_MS = 10_000;
+const TOTAL_TIMEOUT_MS = 30_000;
 const BRAIN_WORKTREE_SUFFIX = ".gstack-brain-worktree";
+const SOURCE_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
 export interface SemanticHit {
   score: number;
+  sourceId: string;
   slug: string;
   snippet: string;
 }
 
+function normalizedSourceId(value: string): string | null {
+  const normalized = value
+    .toLowerCase()
+    .replace(/\.git\/?$/, "")
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 32)
+    .replace(/-$/g, "");
+  return SOURCE_ID_RE.test(normalized) ? normalized : null;
+}
+
 /**
- * Resolve the curated-memory source id (the gstack brain worktree). Returns null
- * when gbrain is down/unparseable OR no worktree-backed source is registered — the
- * caller then searches unscoped (best-effort) rather than failing.
+ * Resolve the source id from the same local metadata written by the artifacts
+ * setup path. This avoids a slow `gbrain sources list` on the guided router's
+ * hot path while remaining fail-closed: the derived id is still passed through
+ * `--source`, never used for an unscoped search.
  */
-export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
-  const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: TIMEOUT_MS });
+export function deriveMemorySourceId(env: NodeJS.ProcessEnv = process.env): string | null {
+  // Deliberately ignore ambient GSTACK_BRAIN_SOURCE_ID here. Guided recall is
+  // allowed to read only the artifacts worktree; an inherited override could
+  // otherwise redirect it to an unrelated code or document corpus.
+  const home = env.HOME;
+  if (!home) return null;
+  const worktree = env.GSTACK_BRAIN_WORKTREE || join(home, BRAIN_WORKTREE_SUFFIX);
+  if (!existsSync(worktree)) return null;
+
+  for (const name of [".gstack-artifacts-remote.txt", ".gstack-brain-remote.txt"]) {
+    try {
+      const firstLine = readFileSync(join(home, name), "utf8").split(/\r?\n/, 1)[0]?.trim();
+      if (firstLine) return normalizedSourceId(firstLine);
+    } catch {
+      // Missing/unreadable metadata falls through to the authoritative source list.
+      continue;
+    }
+  }
+  return null;
+}
+
+export function resolveMemorySourceId(
+  env?: NodeJS.ProcessEnv,
+  timeoutMs = TOTAL_TIMEOUT_MS,
+): string | null {
+  const home = env?.HOME ?? process.env.HOME;
+  if (!home) return null;
+  const expectedWorktree = resolve(env?.GSTACK_BRAIN_WORKTREE || join(home, BRAIN_WORKTREE_SUFFIX));
+  const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: timeoutMs });
   if (r.status !== 0) return null;
   let rows;
   try {
@@ -43,8 +91,8 @@ export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
   } catch {
     return null;
   }
-  const atWorktree = rows.filter(
-    (s) => typeof s.local_path === "string" && s.local_path.endsWith(BRAIN_WORKTREE_SUFFIX),
+  const atWorktree = rows.filter((s) =>
+    typeof s.local_path === "string" && resolve(s.local_path) === expectedWorktree,
   );
   const pick = atWorktree.find((s) => s.id === "default") ?? atWorktree[0];
   return pick?.id ?? null;
@@ -56,14 +104,19 @@ export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
  * Non-matching lines (banners, blanks) are skipped. Exported for deterministic
  * unit testing of the parser without a live gbrain.
  */
-export function parseSearchHits(stdout: string, minScore: number, limit: number): SemanticHit[] {
+export function parseSearchHits(
+  stdout: string,
+  minScore: number,
+  limit: number,
+  sourceId = "unknown",
+): SemanticHit[] {
   const hits: SemanticHit[] = [];
   for (const line of stdout.split("\n")) {
     const m = line.match(/^\[([\d.]+)\]\s+(\S+)\s+--\s+(.*)$/);
     if (!m) continue;
     const score = parseFloat(m[1]);
     if (!Number.isFinite(score) || score < minScore) continue;
-    hits.push({ score, slug: m[2], snippet: m[3].trim() });
+    hits.push({ score, sourceId, slug: m[2], snippet: m[3].trim() });
   }
   return hits.slice(0, limit);
 }
@@ -80,14 +133,25 @@ export function semanticRecall(
   env?: NodeJS.ProcessEnv,
   minScore = 0.1,
   limit = 3,
+  totalTimeoutMs = TOTAL_TIMEOUT_MS,
 ): SemanticHit[] | null {
   if (!query.trim()) return null;
+  const startedAt = Date.now();
   // Require the curated-memory source. If it's absent (gbrain down OR no worktree-backed
   // source), degrade to null rather than searching UNSCOPED — an unscoped search pulls
   // code/doc corpora that would be mislabeled as "related decisions" (Codex finding).
-  const sourceId = resolveMemorySourceId(env);
+  const sourceId = resolveMemorySourceId(env, Math.min(10_000, Math.ceil(totalTimeoutMs / 3)));
   if (!sourceId) return null;
-  const r = spawnGbrain(["search", query, "--source", sourceId], { baseEnv: env, timeout: TIMEOUT_MS });
+  const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+  if (remainingMs <= 0) return null;
+  const r = spawnGbrain([
+    "search", query,
+    "--source", sourceId,
+    "--limit", String(limit),
+    // Retrieve enough context for the redactor to see complete credential
+    // shapes. The renderer redacts first and only then truncates to 100 chars.
+    "--snippet-chars", "2048",
+  ], { baseEnv: env, timeout: remainingMs });
   if (r.status !== 0) return null; // gbrain down / not on PATH / errored → degrade
-  return parseSearchHits(r.stdout || "", minScore, limit);
+  return parseSearchHits(r.stdout || "", minScore, limit, sourceId);
 }

@@ -40,6 +40,40 @@ describe('SKILL.md command validation', () => {
     expect(result.valid.length).toBe(0); // and no browse commands at all — it routes, not browses
   });
 
+  test('top-level router gates ambiguous requests through history-aware guided choice', () => {
+    const template = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
+    const rendered = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+
+    for (const md of [template, rendered]) {
+      expect(md).toContain('## Guided root entry');
+      expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
+      expect(md).toContain('`HISTORY_RECALL: true`');
+      expect(md).toContain('direct, top-level,\n   human-owned interaction');
+      expect(md).toContain('subagent,\n   delegated worker, spawned task, or unattended job, skip history regardless');
+      expect(md).toContain('Never infer directness from user-supplied text or ambient');
+      expect(md).toContain('direct Codex Desktop task may proceed from trusted top-level context');
+      expect(md).toContain('gstack-config set history_recall true');
+      expect(md).toContain('gstack-decision-search');
+      expect(md).toContain("BIN_PATH='/absolute/path/from/preamble'");
+      expect(md).toContain('GSTACK_INTERACTIVE=1 "$BIN_PATH/gstack-decision-search" --guided-history --query "$SAFE_TERMS"');
+      expect(md).toContain('Set the command-scoped `GSTACK_INTERACTIVE=1` signal only after');
+      expect(md).toContain('cooperative defense-in-depth session');
+      expect(md).toContain('--tokens --recent 3 --no-rebuild --semantic');
+      expect(md).toContain("SAFE_TERMS='customer onboarding crm'");
+      expect(md).toContain('Do not add an undeclared memory-skill dependency');
+      expect(md).toContain('higher-priority workspace instructions already performed a');
+      expect(md).toContain('Never interpolate the raw request');
+      expect(md).toContain('curated\n     GBrain memory source');
+      expect(md).toContain('`brain:<source>:<slug>`');
+      expect(md).toContain('two to four materially relevant gstack workflows');
+      expect(md).toContain('include the direct-answer route as\n   the second option');
+      expect(md).toContain('If no workflow fits, follow Route first and answer\n   directly');
+      expect(md).toContain('overrides the general spawned-session');
+      expect(md).toContain('An explicitly named subskill also bypasses this guided entry');
+      expect(md).not.toContain('project-memory-check');
+    }
+  });
+
   test('all $B commands in browse/SKILL.md are valid browse commands', () => {
     const result = validateSkill(path.join(ROOT, 'browse', 'SKILL.md'));
     expect(result.invalid).toHaveLength(0);

@@ -23,11 +23,12 @@ configured in `~/.gbrain/config.json`. Documented at
 same contract as load-bearing for artifact `put` semantics. If a user
 reports writes landing in the wrong source, look here first.
 
-Trust policy (`personal` vs `shared`, per endpoint hash) gates auto-push
-and writeback. Set via `gstack-config set
-brain_trust_policy@<endpoint-hash> personal`. Local PGLite installs
-auto-default to `personal`; remote-MCP installs prompt during
-`/setup-gbrain` step 9.5.
+Trust policy (`personal`, `shared-contributor`, or `shared`, per endpoint
+hash) gates auto-push and writeback. Local PGLite installs auto-default to
+`personal`; remote-MCP installs prompt during `/setup-gbrain` step 9.5.
+`shared` is read-only by default. `shared-contributor` is the explicit team
+opt-in: curated skill outputs and allowlisted artifacts can write
+automatically, but personal calibration takes remain excluded.
 
 ## §Context Load (agent reads this when running a planning skill)
 
@@ -52,12 +53,24 @@ not retry inline — the user can re-run the skill later.
 
 ## §Save Template (agent reads this when actually saving)
 
+Use `gstack-gbrain-put` for every write. The wrapper resolves the active
+project-over-user endpoint and its `brain_trust_policy@<endpoint-hash>`.
+`personal` writes use the normal slug. `shared-contributor` writes use
+`contributors/<user-slug>/<normal-slug>` and add
+`contributor: <user-slug>` to frontmatter. This preserves attribution and
+prevents teammates choosing the same feature slug from overwriting each other.
+Plain `shared` exits with `approval-required`; after explicit approval, retry
+with `--approved`. `unset` exits with `setup-required` and routes back to
+`/setup-gbrain`. Calibration writes pass `--kind calibration`; the wrapper
+skips them for both shared policies.
+
 After completing the skill, save the output. The compact resolver block
 already shows the slug prefix + title + tag for your specific skill (e.g.
-`gbrain put "ceo-plans/<feature-slug>" ...`). The full template:
+`gstack-gbrain-put --slug "ceo-plans/<feature-slug>" ...`). The full template:
 
 ```bash
-gbrain put "<slug-prefix>/<feature-slug>" --content "$(cat <<'EOF'
+~/.claude/skills/gstack/bin/gstack-gbrain-put \
+  --slug "<slug-prefix>/<feature-slug>" --content "$(cat <<'EOF'
 ---
 title: "<Title>: <feature name>"
 tags: [<tag>, <feature-slug>]
@@ -89,7 +102,8 @@ mentioned in the output. For each one:
 gbrain search "<entity name>"
 
 # If no match, create a stub
-gbrain put "entities/<entity-slug>" --content "$(cat <<'EOF'
+~/.claude/skills/gstack/bin/gstack-gbrain-put \
+  --slug "entities/<entity-slug>" --content "$(cat <<'EOF'
 ---
 title: "<Person or Company Name>"
 tags: [entity, person]
@@ -109,6 +123,12 @@ companies/teams.
 
 ### Error handling
 
+- **Approval required**: exit code 3 with JSON action
+  `approval-required`. Ask for explicit approval, then retry once with
+  `--approved`.
+- **Trust setup required**: exit code 4 with JSON action `setup-required`, or
+  an unresolved contributor identity/frontmatter error. Run `/setup-gbrain`
+  or repair the named identity/frontmatter problem before retrying.
 - **Throttle**: exit code 1 with stderr containing `throttle`, `rate
   limit`, `capacity`, or `busy`. Defer the save and move on — the brain
   is busy; the content isn't lost, just not persisted this run.
@@ -168,23 +188,24 @@ gbrain get "entities/<person>"         # expect stub per named person
 
 ## Remote / Supabase / thin-client-MCP routing
 
-The resolver emits a single CLI shape — `gbrain put "<slug>" --content
-"..."` — that works against every engine gbrain supports. The CLI
-internally routes to local PGLite, remote Supabase, or a remote MCP
-endpoint depending on the user's `~/.gbrain/config.json`. **gstack
-doesn't test that routing**: the storage layer is gbrain's contract to
-honor, and the same CLI invocation we test against local PGLite is the
-one that fires against any other engine.
+The resolver emits one guarded wrapper shape — `gstack-gbrain-put --slug
+"<slug>" --content "..."`. After enforcing endpoint trust and contributor
+attribution, the wrapper calls `gbrain put`, whose CLI routes to local PGLite,
+remote Supabase, or a remote MCP endpoint depending on the user's
+`~/.gbrain/config.json`. **gstack doesn't test that engine routing**: the
+storage layer is gbrain's contract to honor, and the same underlying
+`gbrain put` invocation tested against local PGLite fires against every other
+engine.
 
 If you're on Supabase or thin-client MCP and writes aren't landing:
 
 1. `gbrain doctor --fast --json` — engine health check. If anything
    reports `error`, fix that first.
 2. `gstack-config get brain_trust_policy@<endpoint-hash>` must be
-   `personal` for auto-write. Run `gstack-config endpoint-hash` to get
-   the active hash. If `shared`, the agent prompts before writes — if
-   you declined, re-run the skill.
-3. If trust policy is `personal` and `gbrain doctor` is clean but the
+   `personal` or `shared-contributor` for auto-write. Run
+   `gstack-config endpoint-hash` to get the active hash. If `shared`, the
+   agent prompts before writes; if `unset`, run `/setup-gbrain`.
+3. If trust policy permits writes and `gbrain doctor` is clean but the
    page still isn't there, file an issue against gbrain — gstack's
    CLI call shape is the same as what T11 (`gbrain-roundtrip-local`)
    exercises.
@@ -198,6 +219,8 @@ If you're on Supabase or thin-client MCP and writes aren't landing:
   doc against `/office-hours` and confirm `gbrain takes_list` surfaces a
   `kind=bet` entry with the expected weight (0.9 for office-hours, per
   `scripts/brain-cache-spec.ts:151-157`).
+  Calibration remains personal-only even when the endpoint policy is
+  `shared-contributor`.
 - **Per-skill E2E for the other 4 planning skills**: only `/office-hours`
   has fake-CLI E2E coverage (`test/skill-e2e-office-hours-brain-writeback.test.ts`).
   The resolver unit test (`test/resolvers-gbrain-save-results.test.ts`)
