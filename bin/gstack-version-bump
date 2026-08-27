@@ -1,11 +1,9 @@
 #!/usr/bin/env bun
-// gstack-version-bump — deterministic version-state classifier + writer for /ship.
+// gstack-version-bump — deterministic version-state classifier + writer for explicit releases.
 //
-// Extracted from ship Step 12 prose (v2 plan T9, hybrid CLI extraction). The
-// idempotency classification and the dual-write to VERSION + package.json are
-// pure deterministic logic; running them as tested code removes the single
-// worst /ship footgun — re-bumping an already-shipped branch — from prose the
-// agent could skip or misread when the step lives in a lazy-loaded section.
+// Originally extracted from ship prose (v2 plan T9, hybrid CLI extraction).
+// The idempotency classification and the dual-write to VERSION + package.json
+// remain reusable deterministic release tooling.
 //
 // What STAYS agent judgment (NOT here): the bump-LEVEL decision (micro/patch vs
 // minor/major, which may AskUserQuestion on feature signals) and the queue
@@ -33,7 +31,7 @@
 // Contract: classify NEVER writes. write/repair mutate VERSION + the manifest
 // + npm lockfiles (package-lock.json / npm-shrinkwrap.json, when present)
 // only. No git mutation, no network. Mirrors gstack-next-version's
-// reader/writer split so /ship composes them.
+// reader/writer split so release workflows can compose them.
 //
 // Manifest resolution (all three subcommands accept --package-json-path):
 //   --package-json-path <p>  →  .gstack/package-json-path  →  ./package.json
@@ -57,7 +55,7 @@ import { extractVersion, isJsonVersionPath, npmVersion, setVersionInJson } from 
 // 3- or 4-digit (#2501). gstack's own VERSION stays 4-digit MAJOR.MINOR.PATCH.
 // MICRO and stays the source of truth, but a repo whose pinned version source
 // is a package.json holds plain 3-digit semver, and rejecting it here meant
-// /ship could not write a version at all in such a repo. See lib/version-source.ts.
+// release workflows could not write a version at all in such a repo. See lib/version-source.ts.
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/;
 const DEFAULT = "0.0.0.0";
 
@@ -187,7 +185,7 @@ function readPkgVersion(pkgPath: string): { exists: boolean; version: string } {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    fail(`${pkgPath} is not valid JSON. Fix the file before re-running /ship.`, 2);
+    fail(`${pkgPath} is not valid JSON. Fix the file before re-running the release workflow.`, 2);
   }
   const version = (parsed as { version?: unknown })?.version;
   return { exists: true, version: typeof version === "string" ? version : "" };
@@ -281,7 +279,7 @@ function classifyState(
     !pkgExists || !pkgVersion || pkgVersion === expectedPkg || pkgVersion === current;
   if (current === base) {
     // VERSION unchanged vs base. A diverging package.json means someone hand-edited
-    // package.json bypassing /ship — unsafe to guess which is authoritative.
+    // package.json bypassing the release workflow — unsafe to guess which is authoritative.
     if (!pkgAgrees) return "DRIFT_UNEXPECTED";
     return "FRESH";
   }
@@ -313,7 +311,7 @@ function cmdClassify(args: string[], cwd: string): void {
   // the version itself.
   const expectedPkg = jsonSource ? current : npmVersion(current);
   const state = classifyState(current, baseV, pkg.exists, pkg.version, expectedPkg);
-  // Surface version-file absence so callers (and /ship) can tell "version is
+  // Surface version-file absence so release callers can tell "version is
   // genuinely 0.0.0.0" from "we made up 0.0.0.0 because the file is missing"
   // (#2600). Without this, the DRIFT_STALE_PKG dispatch on a missing VERSION
   // would feed repair a fabricated version that passes the shape check.
@@ -486,7 +484,7 @@ function cmdRepair(args: string[], cwd: string): void {
   if (!VERSION_RE.test(current)) {
     fail(
       `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH[.MICRO]. ` +
-        "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run /ship.",
+        "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run the release workflow.",
       2,
     );
   }

@@ -69,8 +69,8 @@ Make the writer use the same file the reader does.
 
 ### Rollout
 
-- One commit. PATCH version bump per CHANGELOG style guide.
-- CHANGELOG entry written by `/ship`. User-facing voice: lead with what users experience now that they didn't before (welcome_back tier kicks in on second visit).
+- One commit. Release metadata, if needed, is handled by the explicit release workflow.
+- User-facing release-note voice: lead with what users experience now that they didn't before (welcome_back tier kicks in on second visit).
 
 ## Follow-up TODOs
 

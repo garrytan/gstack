@@ -582,13 +582,13 @@ No stale diagrams to fix.
 ### Architectural decisions locked in
 
 - **D1 (manifest format):** `sections/manifest.json` is the structured per-heavyweight registry (JSON, machine-readable for gen-skill-docs CI checks). SKILL.md skeleton is markdown headers + imperative prose blocks ("STOP. If X, Read `sections/Y.md`"). Matches Anthropic's documented `references/` style. No invented DSL.
-- **D2 (drift control):** `sections/*.md.tmpl` is the source of truth; `sections/*.md` is generated. gen-skill-docs walks `<skill>/sections/*.tmpl` and writes `<skill>/sections/*.md` using the same resolver pipeline as SKILL.md. Cost: ~30 LOC in `scripts/gen-skill-docs.ts`. Eliminates the drift class that `test/ship-version-sync.test.ts` already suffers from (TODOS:1120).
+- **D2 (drift control):** `sections/*.md.tmpl` is the source of truth; `sections/*.md` is generated. gen-skill-docs walks `<skill>/sections/*.tmpl` and writes `<skill>/sections/*.md` using the same resolver pipeline as SKILL.md. Cost: ~30 LOC in `scripts/gen-skill-docs.ts`. Eliminates drift between generated ship sections and their sources.
 - **D3 (CI cost cap):** `EVALS_BUDGET_HARD_CAP=$30` env var enforced by `test/skill-e2e-budget-regression.test.ts`; build fails if a single run exceeds. Section-loading tests (Phase B) use minimal-bash fixtures (~$0.30 each) because they assert STRUCTURAL behavior (was the right file Read?) not output quality.
 
 ### Adjacent TODOS surfaced (informational, not blocking)
 
 - **TODOS:161** — planned "resolver injection at session start" for browser-skills (P2). Has architectural overlap with this plan's `appliesTo` predicate. Decision: keep separate for now — browser-skill resolver injection is runtime (session-start hostname matching); our `appliesTo` is build-time (gen-skill-docs.ts). Different lifecycles, different concerns. Revisit only if the browser-skills work needs the same predicate shape.
-- **TODOS:1120** — `test/ship-version-sync.test.ts` reimplements ship/SKILL.md.tmpl Step 12 bash. D2 (sections/*.md.tmpl pipeline) is the structural fix. Phase B work obviates this TODO; mark as resolved when ship/ extraction lands.
+- **TODOS:1120** — resolved by D2's `sections/*.md.tmpl` pipeline; generated ship sections no longer require hand-maintained duplicate tests.
 - **TODOS:1136** — `git show` fallback in ship/SKILL.md.tmpl Step 12 line 409. Phase B touches this; bundle the `git rev-parse --verify` fix into the version-bump section extraction.
 
 ### Test plan artifact

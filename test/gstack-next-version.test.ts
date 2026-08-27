@@ -468,8 +468,8 @@ describe("offline output contract (what /ship branches on, #2545)", () => {
 
 describe("fetchGitClaimed (offline allocation — the anti-duplicate fallback, #2545)", () => {
   // Why this exists: when `gh pr list` failed, the util returned
-  // `offline:true` with an EMPTY claim set and /ship's instruction was
-  // "fall back to local BUMP_LEVEL arithmetic". Local arithmetic cannot see a
+  // `offline:true` with an EMPTY claim set and the release workflow fell back
+  // to local bump arithmetic. Local arithmetic cannot see a
   // sibling's claim, so it re-allocated a version an open PR already held.
   // That produced two commits reading v0.1.57.0 on a downstream repo's main
   // (plus three earlier pairs found in the same audit). Git knows what the API

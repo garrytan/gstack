@@ -71,7 +71,7 @@ function plantPref(id: string, pref: string) {
 
 describe('--check (no preference set)', () => {
   test('two-way question without preference → ASK_NORMALLY', () => {
-    const r = run('--check', 'ship-changelog-voice-polish');
+    const r = run('--check', 'ship-pr-summary-voice-polish');
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toContain('ASK_NORMALLY');
   });
@@ -98,8 +98,8 @@ describe('--check with preferences set', () => {
   }
 
   test('two-way + never-ask → AUTO_DECIDE', () => {
-    setPref('ship-changelog-voice-polish', 'never-ask');
-    const r = run('--check', 'ship-changelog-voice-polish');
+    setPref('ship-pr-summary-voice-polish', 'never-ask');
+    const r = run('--check', 'ship-pr-summary-voice-polish');
     expect(r.stdout.trim()).toContain('AUTO_DECIDE');
   });
 
@@ -112,14 +112,14 @@ describe('--check with preferences set', () => {
   });
 
   test('two-way + always-ask → ASK_NORMALLY', () => {
-    setPref('ship-changelog-voice-polish', 'always-ask');
-    const r = run('--check', 'ship-changelog-voice-polish');
+    setPref('ship-pr-summary-voice-polish', 'always-ask');
+    const r = run('--check', 'ship-pr-summary-voice-polish');
     expect(r.stdout.trim()).toContain('ASK_NORMALLY');
   });
 
   test('two-way + ask-only-for-one-way → AUTO_DECIDE (it IS two-way)', () => {
-    setPref('ship-changelog-voice-polish', 'ask-only-for-one-way');
-    const r = run('--check', 'ship-changelog-voice-polish');
+    setPref('ship-pr-summary-voice-polish', 'ask-only-for-one-way');
+    const r = run('--check', 'ship-pr-summary-voice-polish');
     expect(r.stdout.trim()).toContain('AUTO_DECIDE');
   });
 
@@ -202,8 +202,8 @@ describe('--check split-chain carve-out (*-split-* always ASK_NORMALLY)', () => 
   });
 
   test('split-id + ask-only-for-one-way → ASK_NORMALLY (carve-out overrides preference)', () => {
-    setPref('ship-split-version-bump', 'ask-only-for-one-way');
-    const r = run('--check', 'ship-split-version-bump');
+    setPref('ship-split-review-fix', 'ask-only-for-one-way');
+    const r = run('--check', 'ship-split-review-fix');
     expect(r.stdout).toContain('ASK_NORMALLY');
     expect(r.stdout).not.toContain('AUTO_DECIDE');
   });
@@ -240,7 +240,7 @@ describe('--write valid payloads', () => {
   test('inline-user source is accepted', () => {
     const r = run(
       '--write',
-      JSON.stringify({ question_id: 'ship-changelog-voice-polish', preference: 'never-ask', source: 'inline-user' }),
+      JSON.stringify({ question_id: 'ship-pr-summary-voice-polish', preference: 'never-ask', source: 'inline-user' }),
     );
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('OK');
@@ -461,7 +461,7 @@ describe('--write one-way door reject (#2488)', () => {
     const r = run(
       '--write',
       JSON.stringify({
-        question_id: 'ship-changelog-voice-polish',
+        question_id: 'ship-pr-summary-voice-polish',
         preference: 'never-ask',
         source: 'plan-tune',
       }),
@@ -474,7 +474,7 @@ describe('--write one-way door reject (#2488)', () => {
     run(
       '--write',
       JSON.stringify({
-        question_id: 'ship-changelog-voice-polish',
+        question_id: 'ship-pr-summary-voice-polish',
         preference: 'never-ask',
         source: 'plan-tune',
       }),
@@ -489,7 +489,7 @@ describe('--write one-way door reject (#2488)', () => {
     );
     expect(r.status).toBe(1);
     expect(JSON.parse(fs.readFileSync(prefsFile(), 'utf-8'))).toEqual({
-      'ship-changelog-voice-polish': 'never-ask',
+      'ship-pr-summary-voice-polish': 'never-ask',
     });
   });
 

@@ -3,8 +3,8 @@ name: ship
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION,
-  update CHANGELOG, commit, push, create PR. Use when asked to "ship", "deploy",
+  Ship workflow: detect + merge base branch, run tests, review diff, commit, push,
+  create a ready-for-review PR. Use when asked to "ship", "deploy",
   "push to main", "create a PR", "merge and push", or "get it deployed".
   Proactively invoke this skill (do NOT push/PR directly) when the user says code
   is ready, asks about deploying, wants to push code up, or asks to create a PR. (gstack)
@@ -43,18 +43,15 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
 - In-branch test failures (pre-existing failures are triaged, not auto-blocking)
 - Pre-landing review finds ASK items that need user judgment
-- MINOR or MAJOR version bump needed (ask — see Step 12)
 - Greptile review comments that need user decision (complex fixes, false positives)
 - AI-assessed coverage below minimum threshold (hard gate with user override — see Step 7)
 - Plan items NOT DONE with no user override (see Step 8)
 - Plan verification failures (see Step 8.1)
-- TODOS.md missing and user wants to create one (ask — see Step 14)
-- TODOS.md disorganized and user wants to reorganize (ask — see Step 14)
+- TODOS.md missing and user wants to create one (ask — see Step 12)
+- TODOS.md disorganized and user wants to reorganize (ask — see Step 12)
 
 **Never stop for:**
 - Uncommitted changes (always include them)
-- Version bump choice (auto-pick MICRO or PATCH — see Step 12)
-- CHANGELOG content (auto-generate from diff)
 - Commit message approval (auto-commit)
 - Multi-file changesets (auto-split into bisectable commits)
 - TODOS.md completed-item detection (auto-mark)
@@ -64,12 +61,18 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 **Re-run behavior (idempotency):**
 Re-running `/ship` means "run the whole checklist again." Every verification step
 (tests, coverage audit, plan completion, pre-landing review, adversarial review,
-VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
+TODOS, document-release) runs on every invocation.
 Only *actions* are idempotent:
-- Step 12: If VERSION already bumped, skip the bump but still read the version
-- Step 17: If already pushed, skip the push command
-- Step 19: If PR exists, update the body instead of creating a new PR
+- Step 15: If already pushed, skip the push command
+- Step 17: If PR exists, update the body and title instead of creating a new PR
 Never skip a verification step because a prior `/ship` run already performed it.
+
+**Release metadata boundary:** ordinary repository shipping never modifies
+`VERSION`, package-manifest version fields, lockfile version fields, or
+`CHANGELOG.md`. Release notes, version allocation, and version-prefixed release
+titles belong to an explicitly invoked release workflow. The Apple adapter is
+limited to an explicitly requested App Store or TestFlight release and does not
+change this repository-PR rule.
 
 ---
 
@@ -151,7 +154,7 @@ Fetch and merge the base branch into the feature branch so tests run against the
 git fetch origin <base> && git merge origin/<base> --no-edit
 ```
 
-**If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, schema.rb, CHANGELOG ordering). If conflicts are complex or ambiguous, **STOP** and show them.
+**If there are merge conflicts:** Try to auto-resolve if they are simple (generated files, lockfiles, schema ordering). If conflicts are complex or ambiguous, **STOP** and show them.
 
 **If already up to date:** Continue silently.
 
@@ -169,49 +172,7 @@ git fetch origin <base> && git merge origin/<base> --no-edit
 
 {{SECTION:adversarial}}
 
-## Step 12: Version bump (auto-decide)
-
-The deterministic version-state logic is the tested **`gstack-version-bump`** CLI
-(classify / write / repair). The bump-LEVEL decision and queue-collision handling
-stay agent judgment; the slot pick stays `gstack-next-version`.
-
-1. **Classify state** — pure reader, never writes:
-   ```bash
-   bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base <base>
-   ```
-   Read the JSON `state` and dispatch:
-   - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
-   - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
-   - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
-
-2. **Decide the bump level** from the diff (agent judgment):
-   - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
-   - **MINOR**: **ASK** if any feature signal (new route/page, migration, new module), OR 500+ lines. **MAJOR**: **ASK** — milestones or breaking changes only.
-   Save as `BUMP_LEVEL`. The level is the user-intended bump; queue-aware placement may advance the slot without changing the level.
-
-3. **Queue-aware pick** (workspace-aware ship):
-   ```bash
-   QUEUE_JSON=$(bun run ~/.claude/skills/gstack/bin/gstack-next-version --base <base> --bump "$BUMP_LEVEL" --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
-   NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
-   ```
-   If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic and print `⚠ workspace-aware ship offline — using local bump only`. If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **AskUserQuestion**: advance past (unrelated work) or abort and sync with the sibling.
-
-4. **Write the bump** (FRESH, or an approved rebump):
-   ```bash
-   bun run ~/.claude/skills/gstack/bin/gstack-version-bump write --version "$NEW_VERSION"
-   ```
-   The CLI validates the version pattern (4-digit `MAJOR.MINOR.PATCH.MICRO`; 3-digit for repos whose pinned version source uses plain semver) and writes VERSION, the manifest, and the manifest's npm lockfiles (`package-lock.json` / `npm-shrinkwrap.json`) when they already exist — never created. The manifest is resolved as `--package-json-path` → `.gstack/package-json-path` → `./package.json`, so a repo whose only Node package lives in a subdirectory (`web/`, `app/`) is covered by a one-line pin instead of silently getting a VERSION-only bump. npm rejects 4-component versions, so the manifest and lockfiles carry the npm-valid 3-digit translation (`1.67.0.0` → `1.67.0`); VERSION stays the 4-digit source of truth and classify judges drift against the translated form. On a half-write it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
-
-5. **Record the release decision** (durable cross-session memory). The bump level is a real decision the next session should not re-derive blind:
-   ```bash
-   ~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Ship NEW_VERSION (BUMP_LEVEL)","rationale":"WHY","scope":"repo","source":"skill","confidence":9}' 2>/dev/null || true
-   ```
-   Substitute `NEW_VERSION`, `BUMP_LEVEL`, and a one-line `WHY` (the signal that set the level: diff scale, a new feature, a breaking change). Best-effort and non-interactive; never blocks the ship. Skip on the ALREADY_BUMPED path (the decision was logged on the run that did the bump).
-
-{{SECTION:changelog}}
-
-## Step 14: TODOS.md (auto-update)
+## Step 12: TODOS.md (auto-update)
 
 Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
 
@@ -223,7 +184,7 @@ Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
 - Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
 - Options: A) Create it now, B) Skip for now
 - If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
-- If B: Skip the rest of Step 14. Continue to Step 15.
+- If B: Skip the rest of Step 12. Continue to Step 13.
 
 **2. Check structure and organization:**
 
@@ -253,7 +214,7 @@ For each TODO item, check if the changes in this PR complete it by:
 
 **Be conservative:** Only mark a TODO as completed if there is clear evidence in the diff. If uncertain, leave it alone.
 
-**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
+**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** YYYY-MM-DD`
 
 **5. Output summary:**
 - `TODOS.md: N items marked complete (item1, item2, ...). M items remaining.`
@@ -262,17 +223,17 @@ For each TODO item, check if the changes in this PR complete it by:
 
 **6. Defensive:** If TODOS.md cannot be written (permission error, disk full), warn the user and continue. Never stop the ship workflow for a TODOS failure.
 
-Save this summary — it goes into the PR body in Step 19.
+Save this summary — it goes into the PR body in Step 17.
 
 ---
 
-## Step 15: Commit (bisectable chunks)
+## Step 13: Commit (bisectable chunks)
 
-### Step 15.0: WIP Commit Squash (continuous checkpoint mode only)
+### Step 13.0: WIP Commit Squash (continuous checkpoint mode only)
 
 If `CHECKPOINT_MODE` is `"continuous"`, the branch likely contains `WIP:` commits
 from auto-checkpointing. These must be squashed INTO the corresponding logical
-commits before the bisectable-grouping logic in Step 15.1 runs. Non-WIP commits
+commits before the bisectable-grouping logic in Step 13.1 runs. Non-WIP commits
 on the branch (earlier landed work) must be preserved.
 
 **Detection:**
@@ -287,7 +248,7 @@ If `WIP_COUNT` > 0, collect the WIP context first so it survives the squash:
 
 ```bash
 # Export [gstack-context] blocks from all WIP commits on this branch.
-# This file becomes input to the CHANGELOG entry and may inform PR body context.
+# This file may inform commit grouping and PR body context.
 mkdir -p "$(git rev-parse --show-toplevel)/.gstack"
 git log <base>..HEAD --grep="^WIP:" --format="%H%n%B%n---END---" > \
   "$(git rev-parse --show-toplevel)/.gstack/wip-context-before-squash.md" 2>/dev/null || true
@@ -319,7 +280,7 @@ Option 2 (simpler, if the branch is ALL WIP commits so far — no landed work):
 NON_WIP=$(git log <base>..HEAD --oneline --invert-grep --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$NON_WIP" -eq 0 ]; then
   git reset --soft $(git merge-base HEAD origin/<base>)
-  echo "WIP-only branch, reset-soft to merge base. Step 15.1 will create clean commits."
+  echo "WIP-only branch, reset-soft to merge base. Step 13.1 will create clean commits."
 fi
 ```
 
@@ -330,10 +291,10 @@ user via AskUserQuestion rather than destroying non-WIP commits.
 - NEVER blind `git reset --soft` if there are non-WIP commits. Codex flagged this
   as destructive — it would uncommit real landed work and turn the push step into
   a non-fast-forward push for anyone who already pushed.
-- Only proceed to Step 15.1 after WIP commits are successfully squashed/absorbed
+- Only proceed to Step 13.1 after WIP commits are successfully squashed/absorbed
   or the branch has been verified to contain only WIP work.
 
-### Step 15.1: Bisectable Commits
+### Step 13.1: Bisectable Commits
 
 **Goal:** Create small, logical commits that work well with `git bisect` and help LLMs understand what changed.
 
@@ -343,7 +304,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
    - **Infrastructure:** migrations, config changes, route additions
    - **Models & services:** new models, services, concerns (with their tests)
    - **Controllers & views:** controllers, views, JS/React components (with their tests)
-   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
+   - **Documentation and TODOS.md:** group with the change they describe, or use a final docs/chore commit when they stand alone
 
 3. **Rules for splitting:**
    - A model and its test file go in the same commit
@@ -358,11 +319,11 @@ user via AskUserQuestion rather than destroying non-WIP commits.
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
    - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+   - Add the co-author trailer to the final commit without changing its Conventional Commit-style subject:
 
 ```bash
 git commit -m "$(cat <<'EOF'
-chore: bump version and changelog (vX.Y.Z.W)
+chore: update project documentation
 
 {{CO_AUTHOR_TRAILER}}
 EOF
@@ -371,27 +332,22 @@ EOF
 
 ---
 
-## Step 16: Verification Gate
+## Step 14: Verification Gate
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
 The evidence ledger is the mechanical arm of this law. Check it FIRST:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json
+~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24
 ```
 
 Pass each `--expect-cmd` the exact command string the wrapped Step 5 lane ran —
 that binds FRESH to the real suite (a green `echo ok` recorded under the label
-can never satisfy the check). Residual risk, accepted: `package.json` sits on
-the allow-list because Step 12's version bump writes its version field between
-the test run and this gate; a behavior-changing package.json edit in that
-window would not invalidate evidence. The check is advisory either way.
+can never satisfy the check). The check is advisory either way.
 
 - **Every line FRESH (exit 0):** the recorded runs were green and the working-tree
-  content is identical to what was tested, modulo the allow-listed release files
-  (this mechanizes the "CHANGELOG edits don't count" rule — VERSION/CHANGELOG
-  commits between Step 5 and here don't invalidate the run). Cite the evidence
+  content is identical to what was tested. Cite the evidence
   lines (label, exit, ts, log path) as the verification evidence and continue.
 - **Any STALE/MISSING (exit non-zero):** run live, wrapped, so the fresh run is
   recorded: `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
@@ -399,7 +355,7 @@ window would not invalidate evidence. The check is advisory either way.
 
 Before pushing, re-verify if code changed during Steps 4-6:
 
-1. **Test verification:** If ANY code changed after Step 5's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. The evidence check above IS this rule, mechanized — trust FRESH, re-run on STALE. Paste fresh output when you re-run. Stale output from Step 5 with changed content is NOT acceptable.
+1. **Test verification:** If ANY code changed after Step 5's test run, re-run the test suite. The evidence check above IS this rule, mechanized — trust FRESH, re-run on STALE. Paste fresh output when you re-run. Stale output from Step 5 with changed content is NOT acceptable.
 
 2. **Build verification:** If the project has a build step, run it. Paste output.
 
@@ -415,7 +371,7 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 
 ---
 
-## Step 17: Push
+## Step 15: Push
 
 **Credential pre-push guard (#1946) — run before the push:**
 
@@ -490,21 +446,21 @@ echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
 [ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
 ```
 
-If `ALREADY_PUSHED`, skip the push but continue to Step 18. Otherwise push with upstream tracking:
+If `ALREADY_PUSHED`, skip the push but continue to Step 16. Otherwise push with upstream tracking:
 
 ```bash
 git push -u origin <branch-name>
 ```
 
-**You are NOT done.** The code is pushed but documentation sync and PR creation are mandatory final steps. Continue to Step 18.
+**You are NOT done.** The code is pushed but documentation sync and PR creation are mandatory final steps. Continue to Step 16.
 
 ---
 
-**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST use an ordinary Conventional Commit-style title in the format `<type>: <summary>` or `<type>(<scope>): <summary>`, for example `feat: add keeper league settings`. Never prefix the title with a release version. Store the final title in `NEW_TITLE`; the full create/update and self-check procedure is in the section below.
 
 {{SECTION:pr-body}}
 
-## Step 20: Persist ship metrics
+## Step 18: Persist ship metrics
 
 Log coverage and plan completion data so `/retro` can track trends.
 
@@ -516,7 +472,7 @@ hand-built path into a subdirectory write, and the row goes somewhere `/retro`
 will never look.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
 ```
 
 Substitute from earlier steps:
@@ -524,7 +480,6 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
-- **VERSION**: from the VERSION file
 
 The branch name is filled in by the shell — there is no `BRANCH` placeholder to
 substitute.
@@ -533,7 +488,7 @@ This step is automatic — never skip it, never ask for confirmation.
 
 ---
 
-## Step 21: Plan-tune discoverability nudge (first-successful-ship only)
+## Step 19: Plan-tune discoverability nudge (first-successful-ship only)
 
 Plan-tune cathedral T15. After a successful ship, surface /plan-tune once
 per machine. Single line, non-blocking, marker-gated so it never re-fires.
@@ -561,8 +516,7 @@ no-op. The marker guarantees at-most-once per machine. To re-enable:
 You ran a carved skill. For your situation, list every section the Section index
 named as applying, and confirm you issued a Read for each one. If you executed any
 of those steps from memory without reading its section, you skipped the source of
-truth — STOP, Read it now, and redo that step. Deterministic version work goes
-through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
+truth — STOP, Read it now, and redo that step.
 
 ---
 
@@ -571,9 +525,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 - **Never skip tests.** If tests fail, stop.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
-- **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
-- **Always use the 4-digit version format** from the VERSION file.
-- **Date format in CHANGELOG:** `YYYY-MM-DD`
+- **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: pre-landing review findings (ASK items) and Codex structured review [P1] findings (large diffs only).
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.
 - **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence (inline diff, code references, re-rank suggestion). Never post vague replies.

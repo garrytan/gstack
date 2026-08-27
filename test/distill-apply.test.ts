@@ -84,7 +84,7 @@ describe('--list', () => {
       {
         kind: 'preference',
         confidence: 0.9,
-        question_id: 'ship-changelog-voice-polish',
+        question_id: 'ship-pr-summary-voice-polish',
         preference: 'never-ask',
         rationale: 'user repeatedly skipped this',
         source_quotes: ['skip the polish for typo PRs'],
@@ -174,7 +174,7 @@ describe('preference apply', () => {
       {
         kind: 'preference',
         confidence: 0.9,
-        question_id: 'ship-changelog-voice-polish',
+        question_id: 'ship-pr-summary-voice-polish',
         preference: 'never-ask',
         source_quotes: ['skip the polish for typo PRs'],
       },
@@ -185,7 +185,7 @@ describe('preference apply', () => {
 
     const prefPath = path.join(stateRoot, 'projects', cwdSlug, 'question-preferences.json');
     const prefs = JSON.parse(fs.readFileSync(prefPath, 'utf-8'));
-    expect(prefs['ship-changelog-voice-polish']).toBe('never-ask');
+    expect(prefs['ship-pr-summary-voice-polish']).toBe('never-ask');
   });
 });
 

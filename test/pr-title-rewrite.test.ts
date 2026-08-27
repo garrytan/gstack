@@ -25,7 +25,7 @@ describe('gstack-pr-title-rewrite', () => {
   });
 
   test('bare correct version (no description): no change, not duplicated', () => {
-    // CHANGELOG/ship uses a version-only title for branch-ahead bumps. It must
+    // An explicit release workflow may use a version-only title. It must
     // stay as-is, not become "v1.2.3.4 v1.2.3.4".
     expect(rewrite('1.2.3.4', 'v1.2.3.4').stdout).toBe('v1.2.3.4');
   });

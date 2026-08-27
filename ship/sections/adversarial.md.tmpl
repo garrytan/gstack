@@ -6,7 +6,7 @@
 
 ### Refresh learnings for the headline feature on this branch
 
-The top-of-skill learnings pull was keyed to "release ship" broadly. Before the VERSION/CHANGELOG step, re-pull learnings keyed to THIS branch's headline feature so any prior version-bump or CHANGELOG pitfalls for similar features surface.
+The top-of-skill learnings pull was keyed to "ship" broadly. Before the commit and PR steps, re-pull learnings keyed to THIS branch's headline feature so any prior validation, review, or PR pitfalls for similar features surface.
 
 Pick ONE keyword that names the headline feature you're shipping. The keyword should be a noun: the primary skill or module name, the central feature noun, or the binary you changed. The keyword MUST be alphanumeric or hyphen only — no quotes, slashes, dots, colons, or whitespace. If your candidate has any of those, simplify to just the alphanumeric stem.
 
@@ -16,4 +16,4 @@ Worked examples (ship-specific): good keywords are `learnings-search`, `pacing`,
 ~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
 ```
 
-If any learnings come back, name which one applies to the version bump or CHANGELOG framing in one sentence. If none come back, continue without reference — the absence is itself useful information.
+If any learnings come back, name which one applies to validation, commit grouping, or PR framing in one sentence. If none come back, continue without reference — the absence is itself useful information.

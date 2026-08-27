@@ -50,9 +50,4 @@ describe('section TemplateContext parity (skillName pinned to parent)', () => {
     expect(content).toContain('Test Failure Ownership Triage');
   });
 
-  test('changelog section rendered CHANGELOG_WORKFLOW', () => {
-    const content = readSection('changelog.md');
-    expect(content).toContain('CHANGELOG');
-    expect(content.length).toBeGreaterThan(300);
-  });
 });

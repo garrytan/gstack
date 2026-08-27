@@ -41,7 +41,7 @@ Conventions:
 - [/ios-qa](ios-qa/SKILL.md): Live-device iOS QA for SwiftUI apps.
 - [/ios-sync](ios-sync/SKILL.md): Regenerate the iOS debug bridge against the latest upstream gstack templates.
 - [/land-and-deploy](land-and-deploy/SKILL.md): Land and deploy workflow.
-- [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
+- [/landing-report](landing-report/SKILL.md): Read-only dashboard for explicit release planning.
 - [/learn](learn/SKILL.md): Manage project learnings.
 - [/make-pdf](make-pdf/SKILL.md): Turn any markdown file into a publication-quality PDF.
 - [/office-hours](office-hours/SKILL.md): YC Office Hours — two modes.
@@ -60,7 +60,7 @@ Conventions:
 - [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.
 - [/setup-deploy](setup-deploy/SKILL.md): Configure deployment settings for /land-and-deploy.
 - [/setup-gbrain](setup-gbrain/SKILL.md): Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or Supabase brain, register MCP, capture per-remote trust policy.
-- [/ship](ship/SKILL.md): Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
+- [/ship](ship/SKILL.md): Ship workflow: detect + merge base branch, run tests, review diff, commit, push, create a ready-for-review PR.
 - [/skillify](skillify/SKILL.md): Codify the most recent successful /scrape flow into a permanent browser-skill on disk.
 - [/spec](spec/SKILL.md): Turn vague intent into a precise, executable spec in five phases.
 - [/sync-gbrain](sync-gbrain/SKILL.md): Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.

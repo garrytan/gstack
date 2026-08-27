@@ -1138,7 +1138,7 @@ describe('Ship metrics logging', () => {
   const shipSkill = readShipUnion();
 
   test('ship SKILL.md contains metrics persistence step', () => {
-    expect(shipSkill).toContain('Step 20');
+    expect(shipSkill).toContain('Step 18');
     expect(shipSkill).toContain('coverage_pct');
     expect(shipSkill).toContain('plan_items_total');
     expect(shipSkill).toContain('plan_items_done');
@@ -1479,38 +1479,27 @@ describe('INVOKE_SKILL resolver', () => {
   });
 });
 
-// --- {{CHANGELOG_WORKFLOW}} resolver tests ---
+// --- /ship release-metadata separation ---
 
-describe('CHANGELOG_WORKFLOW resolver', () => {
+describe('/ship release-metadata separation', () => {
   const shipContent = readShipUnion();
 
-  test('ship SKILL.md contains changelog workflow', () => {
-    expect(shipContent).toContain('CHANGELOG (auto-generate)');
-    expect(shipContent).toContain('git log <base>..HEAD --oneline');
+  test('ordinary ship omits the changelog workflow', () => {
+    expect(shipContent).not.toContain('CHANGELOG (auto-generate)');
+    expect(shipContent).not.toContain('gstack-version-bump');
+    expect(shipContent).not.toContain('gstack-next-version');
   });
 
-  test('changelog workflow includes cross-check step', () => {
-    expect(shipContent).toContain('Cross-check');
-    expect(shipContent).toContain('Every commit must map to at least one bullet point');
+  test('ship uses Conventional Commit-style PR titles', () => {
+    expect(shipContent).toContain('feat: add keeper league settings');
+    expect(shipContent).toContain('--title "$NEW_TITLE"');
   });
 
-  test('changelog workflow includes voice guidance', () => {
-    expect(shipContent).toContain('Lead with what the user can now **do**');
-  });
-
-  test('template uses {{CHANGELOG_WORKFLOW}} placeholder', () => {
-    // Post-carve (T9): the skeleton points to the changelog section, which carries
-    // the resolver. Neither should inline the old changelog content.
+  test('ship template and manifest do not register a changelog section', () => {
     const skel = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
-    const changelogSection = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'changelog.md.tmpl'), 'utf-8');
-    expect(skel).toContain('{{SECTION:changelog}}');
-    expect(changelogSection).toContain('{{CHANGELOG_WORKFLOW}}');
-    expect(skel + changelogSection).not.toContain('Group commits by theme');
-  });
-
-  test('changelog workflow includes keep-changelog format', () => {
-    expect(shipContent).toContain('### Added');
-    expect(shipContent).toContain('### Fixed');
+    const manifest = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'manifest.json'), 'utf-8');
+    expect(skel).not.toContain('{{SECTION:changelog}}');
+    expect(manifest).not.toContain('"id": "changelog"');
   });
 });
 
@@ -2898,12 +2887,6 @@ describe('community fixes wave', () => {
       const firstLine = desc.split('\n')[0];
       expect(firstLine.length).toBeLessThanOrEqual(120);
     }
-  });
-
-  // #573 — Feature signals: ship/SKILL.md contains feature signal detection
-  test('ship/SKILL.md contains feature signal detection in Step 4', () => {
-    const content = readShipUnion();
-    expect(content.toLowerCase()).toContain('feature signal');
   });
 
   // #510 — Context warnings: no SKILL.md contains "running low on context"

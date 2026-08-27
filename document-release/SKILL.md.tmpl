@@ -34,12 +34,17 @@ You are running the `/document-release` workflow. This runs **after `/ship`** (c
 exists or about to exist) but **before the PR merges**. Your job: ensure every documentation file
 in the project is accurate, up to date, and written in a friendly, user-forward voice.
 
+**Docs-only mode:** `ordinary-ship-docs-only` sets `DOCS_ONLY=true`: skip Steps
+5/8 and Step 9 title sync, use the versionless docs commit, omit release rows
+from health output, and never change `VERSION`, `CHANGELOG.md`, or manifest/
+lockfile versions. Standalone runs retain explicit release options.
+
 You are mostly automated. Make obvious factual updates directly. Stop and ask only for risky or
 subjective decisions.
 
 **Only stop for:**
 - Risky/questionable doc changes (narrative, philosophy, security, removals, large rewrites)
-- VERSION bump decision (if not already bumped)
+- VERSION bump decision (explicit release mode only)
 - New TODOS items to add
 - Cross-doc contradictions that are narrative (not factual)
 

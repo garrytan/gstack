@@ -5,7 +5,7 @@
 // source of truth (decision pinned in the v1.67 fix-wave plan: package.json is
 // a translated mirror, never the authority). This module exists for the two
 // real-world shapes that did not fit and both failed CLOSED in a way that
-// silently disabled /ship's version tooling (#2501):
+// silently disabled the explicit release version tooling (#2501):
 //
 //   1. The version's home is a package.json — often not at the root (a monorepo
 //      whose frontend/package.json is the single source of truth because the
@@ -18,7 +18,7 @@
 //   2. The version is 3-digit semver. parseVersion() required exactly four
 //      components, so gstack-next-version exited 2 ("could not parse base
 //      version") on every invocation — and that CLI *is* the queue-collision
-//      check, so /ship fell through to its documented "offline" path of naive
+//      check, so the release allocator fell through to its old "offline" path of naive
 //      local arithmetic. Two branches cut from the same base then pick the same
 //      version, and git merges that without a conflict because both sides set
 //      one line to identical text. The duplicate slot ships silently.
@@ -61,8 +61,8 @@ export function cmpVersion(a: Version, b: Version): number {
 
 /**
  * Bump one level. In a 3-digit repo there is no MICRO component to move, so
- * `micro` is carried out as a PATCH: /ship auto-picks MICRO by default, and
- * erroring there would make it unusable in every 3-digit repo — a silent no-op
+ * `micro` is carried out as a PATCH because 3-digit repos have no micro slot.
+ * Erroring would make explicit micro release requests unusable — a silent no-op
  * would be worse still, since the caller would then write back the version it
  * started with and claim a taken slot.
  */

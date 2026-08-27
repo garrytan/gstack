@@ -41,7 +41,7 @@ describe('VERSION_RE', () => {
   });
   test('accepts 3-digit semver too (#2501)', () => {
     // A repo whose pinned version source is a package.json holds plain
-    // 3-digit semver. Rejecting it meant /ship could not write a version in
+    // 3-digit semver. Rejecting it meant the release workflow could not write a version in
     // such a repo at all.
     expect(VERSION_RE.test('1.2.3')).toBe(true);
     expect(VERSION_RE.test('0.99.2')).toBe(true);

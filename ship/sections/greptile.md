@@ -19,7 +19,7 @@
 
 Parse the LAST line as JSON.
 
-If `total` is 0, skip this step silently. Continue to Step 12.
+If `total` is 0, skip this step silently. Continue to Step 11.
 
 Otherwise, print: `+ {total} Greptile comments ({valid_actionable} valid, {already_fixed} already fixed, {false_positive} FP)`.
 
@@ -46,6 +46,6 @@ For each comment in `comments`:
 
 **SUPPRESSED:** Skip silently — these are known false positives from previous triage.
 
-**After all comments are resolved:** If any fixes were applied, the tests from Step 5 are now stale. **Re-run tests** (Step 5) before continuing to Step 12. If no fixes were applied, continue to Step 12.
+**After all comments are resolved:** If any fixes were applied, the tests from Step 5 are now stale. **Re-run tests** (Step 5) before continuing to Step 11. If no fixes were applied, continue to Step 11.
 
 ---

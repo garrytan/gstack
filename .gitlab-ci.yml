@@ -1,4 +1,4 @@
-# GitLab CI parity for workspace-aware ship.
+# GitLab CI parity for explicit release version checks.
 # Mirrors .github/workflows/version-gate.yml and pr-title-sync.yml.
 # Projects that mirror to GitLab get the same protection as GitHub.
 

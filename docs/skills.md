@@ -38,7 +38,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
 | [`/health`](#health) | **Code Quality Dashboard** | Wraps type checker, linter, tests, dead code detection. Computes a weighted 0-10 score; tracks trends over time. |
-| [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
+| [`/landing-report`](#landing-report) | **Release Queue Dashboard** | Read-only snapshot of the explicit release queue. Which version slots are claimed, which sibling workspaces have WIP. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
 | | | |
 | **Multi-AI** | | |
@@ -645,7 +645,7 @@ Once I have decided what to build, nailed the technical plan, and run a serious 
 
 `/ship` is for the final mile. It is for a ready branch, not for deciding what to build.
 
-This is where the model should stop behaving like a brainstorm partner and start behaving like a disciplined release engineer: sync with main, run the right tests, make sure the branch state is sane, update changelog or versioning if the repo expects it, push, and create or update the PR.
+This is where the model should stop behaving like a brainstorm partner and start behaving like a disciplined release engineer: sync with main, run the right tests, make sure the branch state is sane, commit cleanly, push, and create or update a ready-for-review PR. Ordinary `/ship` runs leave release notes and versioning to an explicit release workflow.
 
 ### Test bootstrap
 

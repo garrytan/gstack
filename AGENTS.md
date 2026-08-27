@@ -43,10 +43,10 @@ Invoke them by name (e.g., `/office-hours`).
 
 | Skill | What it does |
 |-------|-------------|
-| `/ship` | Run tests, review, push, open PR. Workspace-aware version queue. |
+| `/ship` | Run tests, review, commit, push, and open a ready-for-review PR. |
 | `/land-and-deploy` | Merge the PR, wait for CI and deploy, verify production health. |
 | `/canary` | Post-deploy monitoring loop using the browse daemon. |
-| `/landing-report` | Read-only dashboard for the workspace-aware ship queue. |
+| `/landing-report` | Read-only dashboard for the explicit release version queue. |
 | `/document-release` | Update all docs to match what you just shipped. |
 | `/document-generate` | Generate Diataxis docs (tutorial / how-to / reference / explanation) from code. |
 | `/setup-deploy` | One-time deploy config detection (Fly.io, Render, Vercel, etc.). |

@@ -104,8 +104,8 @@ describeIfSelected('PlanTune E2E', ['plan-tune-inspect'], () => {
       {
         ts: '2026-04-12T10:00:00Z',
         skill: 'ship',
-        question_id: 'ship-changelog-voice-polish',
-        question_summary: 'Polish changelog voice',
+        question_id: 'ship-pr-summary-voice-polish',
+        question_summary: 'Polish PR summary voice',
         category: 'approval',
         door_type: 'two-way',
         options_count: 2,
@@ -163,10 +163,10 @@ IMPORTANT:
     // Agent must have surfaced at least 2 of the 3 logged question_ids
     const mentionsCEO = output.includes('plan-ceo-review-mode') || output.includes('review mode');
     const mentionsShipTest = output.includes('ship-test-failure-triage') || output.includes('test failed');
-    const mentionsChangelog = output.includes('changelog') || output.includes('ship-changelog-voice-polish');
-    const foundCount = [mentionsCEO, mentionsShipTest, mentionsChangelog].filter(Boolean).length;
+    const mentionsPrSummary = output.includes('pr summary') || output.includes('ship-pr-summary-voice-polish');
+    const foundCount = [mentionsCEO, mentionsShipTest, mentionsPrSummary].filter(Boolean).length;
 
-    // Agent should note override behavior (user overrode CEO review and changelog polish)
+    // Agent should note override behavior (user overrode CEO review and PR summary polish)
     const noticedOverride =
       output.includes('overrid') ||
       output.includes('skip') ||

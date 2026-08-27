@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-// gstack-next-version — host-aware VERSION allocator for /ship.
+// gstack-next-version — host-aware VERSION allocator for explicit releases.
 //
 // Queries the PR queue (GitHub or GitLab), fetches each open PR's VERSION,
 // scans configurable Conductor sibling worktrees, picks the next free version
 // slot at the requested bump level, and emits the whole picture as JSON.
 //
 // Contract: util NEVER writes files or mutates state. Pure reader + reporter.
-// /ship consumes the JSON and decides what to do.
+// A release workflow consumes the JSON and decides what to do.
 //
 // Usage:
 //   gstack-next-version --base <branch> --bump <major|minor|patch|micro> \
@@ -455,7 +455,7 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
 
 // Auto-detect: if --exclude-pr wasn't passed, check whether the current branch
 // already has an open PR and exclude it by default. This prevents the self-
-// reference bug where /ship's own PR inflates the queue on rerun.
+// reference bug where an explicit release PR inflates the queue on rerun.
 function autoDetectExcludePR(): number | null {
   const r = runCommand("gh", ["pr", "view", "--json", "number", "-q", ".number"]);
   if (!r.ok) return null;
@@ -466,8 +466,8 @@ function autoDetectExcludePR(): number | null {
 // ── git-only fallback (#2545) ────────────────────────────────────────────
 //
 // When the host query fails this util used to return `offline:true` with an
-// EMPTY claim set, and /ship's instruction was "fall back to local BUMP_LEVEL
-// arithmetic". Local arithmetic cannot see a sibling's claim, so the fallback
+// EMPTY claim set, and the release workflow fell back to local bump arithmetic.
+// Local arithmetic cannot see a sibling's claim, so the fallback
 // allocated a version another open PR already held.
 //
 // That is not hypothetical. On 2026-08-12 in a downstream repo, `gh pr list`
@@ -661,7 +661,7 @@ async function main() {
     process.exit(2);
   }
   // The repo's own width governs everything downstream: a 3-digit repo must
-  // not be handed a 4-digit slot, or /ship writes a version the repo's tooling
+  // not be handed a 4-digit slot, or the release workflow writes a version the repo's tooling
   // can't read back (#2501).
   const width = versionWidth(baseVersion);
   if (bumpWasCoerced(args.bump, width)) {

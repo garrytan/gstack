@@ -72,6 +72,8 @@ Apply approved changes immediately after each answer.
 
 ## Step 5: CHANGELOG Voice Polish
 
+**If `DOCS_ONLY=true`: skip this step entirely.**
+
 **CRITICAL — NEVER CLOBBER CHANGELOG ENTRIES.**
 
 This step polishes voice. It does NOT rewrite, replace, or regenerate CHANGELOG content.
@@ -82,9 +84,9 @@ preserved them. This skill must NEVER do that.
 **Rules:**
 1. Read the entire CHANGELOG.md first. Understand what is already there.
 2. Only modify wording within existing entries. Never delete, reorder, or replace entries.
-3. Never regenerate a CHANGELOG entry from scratch. The entry was written by `/ship` from the
-   actual diff and commit history. It is the source of truth. You are polishing prose, not
-   rewriting history.
+3. Never regenerate a CHANGELOG entry from scratch. Ordinary `/ship` does not create one;
+   only polish an entry that already exists from an explicitly invoked release workflow or
+   a deliberate manual edit. You are polishing prose, not rewriting history.
 4. If an entry looks wrong or incomplete, use AskUserQuestion — do NOT silently fix it.
 5. Use Edit tool with exact `old_string` matches — never use Write to overwrite CHANGELOG.md.
 
@@ -108,6 +110,8 @@ preserved them. This skill must NEVER do that.
 ## Step 6: Cross-Doc Consistency & Discoverability Check
 
 After auditing each file individually, do a cross-doc consistency pass:
+
+When `DOCS_ONLY=true`, skip release-metadata consistency checks, including item 3.
 
 1. Does the README's feature/capability list match what CLAUDE.md (or project instructions) describes?
 2. Does ARCHITECTURE's component list match CONTRIBUTING's project structure description?
@@ -143,6 +147,8 @@ If TODOS.md does not exist, skip this step.
 ---
 
 ## Step 8: VERSION Bump Question
+
+**If `DOCS_ONLY=true`: skip this step entirely.**
 
 **CRITICAL — NEVER BUMP VERSION WITHOUT ASKING.**
 
@@ -190,9 +196,19 @@ committing.
 **Commit:**
 
 1. Stage modified documentation files by name (never `git add -A` or `git add .`).
-2. Create a single commit:
+2. Create a single commit. In `DOCS_ONLY` mode use the ordinary documentation
+subject; otherwise an explicit release may use its versioned subject:
 
 ```bash
+# DOCS_ONLY=true
+git commit -m "$(cat <<'EOF'
+docs: sync project documentation
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+
+# Explicit release mode
 git commit -m "$(cat <<'EOF'
 docs: update project documentation for vX.Y.Z.W
 
@@ -335,7 +351,11 @@ rm -f /tmp/gstack-pr-body-$$.md /tmp/gstack-pr-body-orig-$$.md
 
 **PR/MR title sync (idempotent, always-on):**
 
-PR titles must always start with `v<VERSION>` — same rule as `/ship`. If Step 8 bumped VERSION after `/ship` had already created the PR, the title is now stale. This sub-step fixes it.
+**If `DOCS_ONLY=true`: skip this sub-step entirely.**
+
+This explicit release workflow uses version-prefixed PR titles. If Step 8 bumped
+VERSION after an ordinary versionless `/ship` run created the PR, the title is
+now stale for the release workflow. This sub-step fixes it.
 
 1. Read the current VERSION:
 
@@ -359,7 +379,7 @@ CURRENT_TITLE=$(glab mr view -F json 2>/dev/null | jq -r .title 2>/dev/null || t
 
 If `CURRENT_TITLE` is empty (no open PR/MR), skip with message "No PR/MR found — skipping title sync."
 
-3. Compute the corrected title using the shared helper (single source of truth — same one `/ship` uses):
+3. Compute the corrected title using the explicit-release title helper:
 
 ```bash
 NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$V" "$CURRENT_TITLE")
@@ -385,6 +405,8 @@ glab mr update -t "$NEW_TITLE"
 
 Output a scannable summary showing every documentation file's status:
 
+When `DOCS_ONLY=true`, omit the `CHANGELOG.md` and `VERSION` rows.
+
 ```
 Documentation health:
   README.md       [status] ([details])
@@ -400,7 +422,7 @@ Where status is one of:
 - Current — no changes needed
 - Voice polished — wording adjusted
 - Not bumped — user chose to skip
-- Already bumped — version was set by /ship
+- Already bumped — version was set by the explicit release workflow
 - Skipped — file does not exist
 
 If the coverage map from Step 1.5 identified any gaps, append:

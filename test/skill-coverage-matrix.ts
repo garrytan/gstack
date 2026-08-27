@@ -39,7 +39,7 @@ export interface SkillCoverage {
 export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   // ─── Core loop ──────────────────────────────────────────────
   ship: {
-    gate: ['test/skill-e2e-ship-idempotency.test.ts', 'test/skill-coverage-floor.test.ts'],
+    gate: ['test/ship-versionless.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-workflow.test.ts'],
   },
   review: {

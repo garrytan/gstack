@@ -8,7 +8,7 @@
  *     chapters its situation required.
  *
  *  2. extractShipActions()   — an observable ACTION fingerprint of a /ship run
- *     (ran tests, bumped VERSION, wrote CHANGELOG, created PR, ...). This works
+ *     (ran tests, committed, pushed, created PR, ...). This works
  *     on BOTH the monolith and the sectioned skill, which is the whole point:
  *     capture a baseline on the current monolith ship FIRST, then assert the
  *     sectioned ship still performs the same actions. A section-read check alone
@@ -62,7 +62,7 @@ function bashCommand(input: unknown): string | null {
 
 /**
  * Every `sections/<name>.md` file the run Read, normalized to the section
- * basename (e.g. "version-bump.md"). Deduped, in first-Read order. Matching is
+ * basename (e.g. "review-army.md"). Deduped, in first-Read order. Matching is
  * on the path segment `/sections/<file>.md` so it works regardless of whether
  * the host resolved a relative, absolute, or prefixed install path.
  */
@@ -86,7 +86,7 @@ export function extractSectionReads(result: TranscriptResultLike): string[] {
 
 /**
  * The canonical /ship action vocabulary. Each action is detected from the Bash
- * commands the agent ran (plus a couple of Write/Edit signals). Order is the
+ * commands the agent ran. Order is the
  * rough ship sequence; detection is order-independent.
  *
  * Keep this list aligned with the ship skeleton's numbered steps. The
@@ -96,8 +96,6 @@ export function extractSectionReads(result: TranscriptResultLike): string[] {
 export const SHIP_ACTIONS = [
   'merged_base',       // git merge <base>
   'ran_tests',         // bun test / npm test / the project test cmd
-  'bumped_version',    // wrote VERSION / package.json version / ran gstack-version-bump
-  'wrote_changelog',   // edited CHANGELOG.md
   'committed',         // git commit
   'pushed',            // git push
   'opened_pr',         // gh pr create / glab mr create
@@ -107,8 +105,6 @@ export type ShipAction = (typeof SHIP_ACTIONS)[number];
 const BASH_ACTION_PATTERNS: Array<{ action: ShipAction; re: RegExp }> = [
   { action: 'merged_base', re: /\bgit\s+merge\b/ },
   { action: 'ran_tests', re: /\b(bun\s+test|npm\s+(run\s+)?test|yarn\s+test|pytest|go\s+test|cargo\s+test|rspec)\b/ },
-  { action: 'bumped_version', re: /gstack-version-bump\b|gstack-next-version\b|>\s*VERSION\b|npm\s+version\b/ },
-  { action: 'wrote_changelog', re: /CHANGELOG\.md/ },
   { action: 'committed', re: /\bgit\s+commit\b/ },
   { action: 'pushed', re: /\bgit\s+push\b/ },
   { action: 'opened_pr', re: /\bgh\s+pr\s+create\b|\bglab\s+mr\s+create\b/ },
@@ -128,10 +124,6 @@ export function extractShipActions(result: TranscriptResultLike): ShipAction[] {
       for (const { action, re } of BASH_ACTION_PATTERNS) {
         if (re.test(cmd)) found.add(action);
       }
-    } else if (call.tool === 'Write' || call.tool === 'Edit') {
-      const fp = readFilePath(call.input);
-      if (fp && /CHANGELOG\.md$/.test(fp)) found.add('wrote_changelog');
-      if (fp && /(?:^|\/)VERSION$/.test(fp)) found.add('bumped_version');
     }
   }
   // Preserve canonical order.

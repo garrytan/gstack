@@ -14,8 +14,8 @@
 **Parent processing:**
 
 1. Read the subagent's final output. Parse the LAST line as JSON.
-2. Store `coverage_pct` (for Step 20 metrics), `gaps` (user summary), `tests_added` (for the commit).
-3. Embed `diagram` verbatim in the PR body's `## Test Coverage` section (Step 19).
+2. Store `coverage_pct` (for Step 18 metrics), `gaps` (user summary), `tests_added` (for the commit).
+3. Embed `diagram` verbatim in the PR body's `## Test Coverage` section (Step 17).
 4. Print a one-line summary: `Coverage: {coverage_pct}%, {gaps} gaps. {tests_added.length} tests added.`
 
 **If the subagent fails, times out, or returns invalid JSON:** Fall back to running the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.

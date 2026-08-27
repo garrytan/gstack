@@ -75,7 +75,7 @@ export interface CarveGuard {
    *  - 'plan'     → write a PLAN.md fixture, run the review against it
    *  - 'prompt'   → no fixture file; the scenario prompt alone drives the run
    *  - 'external' → covered by a dedicated bespoke test (complex fixtures, e.g.
-   *                 ship's git/VERSION/CHANGELOG state). The data-driven loop
+   *                 ship's git and PR state). The data-driven loop
    *                 skips it; E1 asserts `externalTest` exists instead.
    */
   behavioral: 'plan' | 'prompt' | 'external';
@@ -106,17 +106,16 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       'review-army.md',
       'greptile.md',
       'adversarial.md',
-      'changelog.md',
       'pr-body.md',
     ],
-    requiredReads: ['review-army.md', 'changelog.md'],
+    requiredReads: ['review-army.md', 'pr-body.md'],
     scenario:
-      'This is a FRESH version-changing ship: the branch has a real code change, VERSION still equals the base version (needs a bump), and CHANGELOG.md needs a new entry. Follow the skill flow for a version-changing ship: run the pre-landing review and prepare the CHANGELOG entry. Produce the ship plan / review report. Do NOT actually commit, push, or open a PR.',
+      'This branch has a real code change. Follow the ship flow: run the pre-landing review and prepare the ready-for-review PR title and body. Produce the ship plan / review report. Do NOT actually commit, push, or open a PR.',
     staticInvariants: {
-      // The PR-title-version invariant MUST stay always-loaded: the v1.54.0.0
-      // carve stranded it in pr-body.md and PRs started landing with bare titles
+      // The PR-title invariant MUST stay always-loaded: the v1.54.0.0 carve
+      // stranded it in pr-body.md and PRs started landing with malformed titles
       // (CI backstop: test/pr-title-sync-workflow-safety.test.ts).
-      mustStayInSkeleton: ['v$NEW_VERSION', 'gstack-pr-title-rewrite'],
+      mustStayInSkeleton: ['Conventional Commit-style', 'NEW_TITLE'],
       // ...while the full create/update procedure stays carved into pr-body.md
       // (out of the skeleton, present in the union). Asserts BOTH PR paths
       // survive: the create path and the idempotent update path.
@@ -127,8 +126,8 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
     maxSkeletonBytes: 91_600, // v1.68 fix wave: unconditional learnings capture (#2402, ~450B/skill); measured 91,061
-    minUnionBytes: 120_000,
-    mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
+    minUnionBytes: 110_000,
+    mustContain: ['Conventional Commit-style', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
     // Fork port wave 2: multi-ecosystem test-detection evidence (Django/JVM
     // markers, test-file census — e3259078 port) + the #1079 gh pr edit REST

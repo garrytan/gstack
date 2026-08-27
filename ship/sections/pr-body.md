@@ -1,14 +1,14 @@
 <!-- AUTO-GENERATED from pr-body.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-## Step 18: Documentation sync (via subagent, before PR creation)
+## Step 16: Documentation sync (via subagent, before PR creation)
 
-**Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
+**Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 15 steps. It also runs the **full** `/document-release` workflow (with doc exclusions, risky-change gates, named staging, and race-safe PR body editing) rather than a weaker reimplementation.
 
-**Sequencing:** This step runs AFTER Step 17 (Push) and BEFORE Step 19 (Create PR). The PR is created once from final HEAD with the `## Documentation` section baked into the initial body. No create-then-re-edit dance.
+**Sequencing:** This step runs AFTER Step 15 (Push) and BEFORE Step 17 (Create PR). The PR is created once from final HEAD with the `## Documentation` section baked into the initial body. No create-then-re-edit dance.
 
 **Subagent prompt:**
 
-> You are executing the /document-release workflow after a code push. Read the full skill file `${HOME}/.claude/skills/gstack/document-release/SKILL.md` and execute its complete workflow end-to-end, including CHANGELOG clobber protection, doc exclusions, risky-change gates, and named staging. Do NOT attempt to edit the PR body — no PR exists yet. Branch: `<branch>`, base: `<base>`.
+> You are executing the /document-release workflow after a code push. Invocation mode: `ordinary-ship-docs-only`. Read the full skill file `${HOME}/.claude/skills/gstack/document-release/SKILL.md` and execute its documentation synchronization steps end-to-end, including doc exclusions, risky-change gates, and named staging. Do NOT attempt to edit the PR body — no PR exists yet. Branch: `<branch>`, base: `<base>`.
 >
 > After completing the workflow, output a single JSON object on the LAST LINE of your response (no other text after it):
 > `{"files_updated":["README.md","CLAUDE.md",...],"commit_sha":"abc1234","pushed":true,"documentation_section":"<markdown block for PR body's ## Documentation section>"}`
@@ -19,15 +19,15 @@
 **Parent processing:**
 
 1. Parse the LAST line of the subagent's output as JSON.
-2. Store `documentation_section` — Step 19 embeds it in the PR body (or omits the section if null).
+2. Store `documentation_section` — Step 17 embeds it in the PR body (or omits the section if null).
 3. If `files_updated` is non-empty, print: `Documentation synced: {files_updated.length} files updated, committed as {commit_sha}`.
 4. If `files_updated` is empty, print: `Documentation is current — no updates needed.`
 
-**If the subagent fails or returns invalid JSON:** Print a warning and proceed to Step 19 without a `## Documentation` section. Do not block /ship on subagent failure. The user can run `/document-release` manually after the PR lands.
+**If the subagent fails or returns invalid JSON:** Print a warning and proceed to Step 17 without a `## Documentation` section. Do not block /ship on subagent failure. The user can run `/document-release` manually after the PR lands.
 
 ---
 
-## Step 19: Create PR/MR
+## Step 17: Create ready-for-review PR/MR
 
 **Idempotency check:** Check if a PR/MR already exists for this branch.
 
@@ -41,20 +41,18 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub) or `glab mr update -d ...` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 19) before editing — scan the temp file, then `gh pr edit --body-file` from it.**
+If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub) or `glab mr update -d ...` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 16). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 17) before editing — scan the temp file, then `gh pr edit --body-file` from it.**
 
 **REST fallback (#1079):** on some repos `gh pr edit` hard-errors with a GraphQL deprecation mentioning `repository.pullRequest.projectCards` ("Projects (classic) is being deprecated..."). That is a `gh` GraphQL-path problem, not a permissions problem — do not re-ask for auth. Fall back to the REST endpoint, which never touches the deprecated field, using the SAME already-scanned temp file: `PR_NUMBER=$(gh pr view --json number -q .number)` then `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -F body=@"$PR_BODY_FILE"` for the body, and `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -f title="$NEW_TITLE"` when the title edit below hits the same error. Verify with the same self-checks as the primary path.
 
-**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+**Always use an ordinary Conventional Commit-style PR title.** Derive a concise title from the substantive branch diff and commits, using `<type>: <summary>` or `<type>(<scope>): <summary>`. Allowed types: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`, `build`, `ci`, and `revert`. Example: `feat: add keeper league settings`. Never add a `v<version>` prefix.
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
-2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
+2. If `CURRENT` starts with a release-version prefix, strip that prefix. If the result already matches Conventional Commit style and accurately summarizes the diff, store it in `NEW_TITLE`. Otherwise derive `NEW_TITLE` from the diff and substantive commits.
 3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
-4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
+4. **Self-check:** re-fetch the title and assert it matches `^(feat|fix|chore|refactor|docs|test|perf|build|ci|revert)(\([^)]+\))?: .+` and does not start with `v[0-9]`. If it fails, retry the edit once. If still wrong, surface the failure to the user.
 
-This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
-
-Print the existing URL and continue to Step 20.
+Print the existing URL and continue to Step 18.
 
 If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
@@ -63,8 +61,7 @@ The PR/MR body should contain these sections:
 ```
 ## Summary
 <Summarize ALL changes being shipped. Run `git log <base>..HEAD --oneline` to enumerate
-every commit. Exclude the VERSION/CHANGELOG metadata commit (that's this PR's bookkeeping,
-not a substantive change). Group the remaining commits into logical sections (e.g.,
+every commit. Group the commits into logical sections (e.g.,
 "**Performance**", "**Dead Code Removal**", "**Infrastructure**"). Every substantive commit
 must appear in at least one section. If a commit's work isn't reflected in the summary,
 you missed it.>
@@ -136,14 +133,14 @@ you missed it.>
 <If not applicable: omit this section>
 
 ## TODOS
-<If items marked complete: bullet list of completed items with version>
+<If items marked complete: bullet list of completed items with completion date>
 <If no items completed: "No TODO items completed in this PR.">
 <If TODOS.md created or reorganized: note that>
 <If TODOS.md doesn't exist and user skipped: omit this section>
 
 ## Documentation
-<Embed the `documentation_section` string returned by Step 18's subagent here, verbatim.>
-<If Step 18 returned `documentation_section: null` (no docs updated), omit this section entirely.>
+<Embed the `documentation_section` string returned by Step 16's subagent here, verbatim.>
+<If Step 16 returned `documentation_section: null` (no docs updated), omit this section entirely.>
 
 ## Test plan
 - [x] All Rails tests pass (N runs, 0 failures)
@@ -175,7 +172,7 @@ case $? in
   2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
 esac
 # Also scan the title (short, single-line):
-printf '%s' "v$NEW_VERSION <type>: <summary>" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+printf '%s' "$NEW_TITLE" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
 ```
 
 HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
@@ -184,18 +181,16 @@ HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
 ```bash
-# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body-file "$PR_BODY_FILE"
+# Ready for review is the default. Never pass --draft unless the user explicitly asked for a draft.
+gh pr create --base <base> --title "$NEW_TITLE" --body-file "$PR_BODY_FILE"
 rm -f "$PR_BODY_FILE"
 ```
 
 **If GitLab:**
 
 ```bash
-# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
+# Ready for review is the default. Never pass a draft flag unless the user explicitly asked for a draft.
+glab mr create -b <base> -t "$NEW_TITLE" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"
@@ -204,6 +199,6 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 20.
+**Output the PR/MR URL** — then proceed to Step 18.
 
 ---

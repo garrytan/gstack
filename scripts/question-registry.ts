@@ -160,22 +160,14 @@ export const QUESTIONS = {
     signal_key: 'detail-preference',
     description: "TODOS.md doesn't follow the recommended structure — reorganize now?",
   },
-  'ship-changelog-voice-polish': {
-    id: 'ship-changelog-voice-polish',
+  'ship-pr-summary-voice-polish': {
+    id: 'ship-pr-summary-voice-polish',
     skill: 'ship',
     category: 'approval',
     door_type: 'two-way',
     options: ['accept', 'skip'],
     signal_key: 'detail-preference',
-    description: "CHANGELOG entry could be polished for voice — apply edits?",
-  },
-  'ship-version-bump-tier': {
-    id: 'ship-version-bump-tier',
-    skill: 'ship',
-    category: 'routing',
-    door_type: 'two-way',
-    options: ['major', 'minor', 'patch'],
-    description: "Version bump: major, minor, or patch?",
+    description: "PR summary could be polished for voice — apply edits?",
   },
 
   // -----------------------------------------------------------------------

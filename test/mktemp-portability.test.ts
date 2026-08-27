@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { execFileSync } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -24,7 +24,10 @@ function trackedTmplFiles(): string[] {
     cwd: ROOT,
     encoding: "utf-8",
   });
-  return out.split("\n").filter(Boolean);
+  return out
+    .split("\n")
+    .filter(Boolean)
+    .filter((rel) => existsSync(join(ROOT, rel)));
 }
 
 describe("mktemp portability (#2091)", () => {

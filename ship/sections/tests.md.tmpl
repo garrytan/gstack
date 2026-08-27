@@ -13,7 +13,7 @@ Running bare test migrations without INSTANCE hits an orphan DB and corrupts str
 Run both test suites in parallel, each wrapped in the evidence ledger. The
 wrapper is transparent (streams output live, exit code passes through) and
 records `{command, exit, working-tree fingerprint, log path}` to
-`~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
+`~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 14 cites this
 record instead of re-running when the content hasn't changed:
 
 ```bash
@@ -104,7 +104,7 @@ poller is reaped.
 - **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
 - **If all pass:** Note pass counts and cost. Continue to Step 9.
 
-**5. Save eval output** — include eval results and cost dashboard in the PR body (Step 19).
+**5. Save eval output** — include eval results and cost dashboard in the PR body (Step 17).
 
 **Tier reference (for context — /ship always uses `full`):**
 | Tier | When | Speed (cached) | Cost |

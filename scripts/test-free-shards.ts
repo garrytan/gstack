@@ -111,8 +111,8 @@ const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 
 // POSIX-only patterns that indicate a test will fail on windows-latest no
 // matter how the runner shards. Codex's v1.18.0.0 review flagged the first
-// three as concrete examples in the existing free suite (test/ship-version-sync.test.ts:72,
-// test/helpers/providers/claude.ts:22, package.json:12). We scan the test's
+// three as concrete examples in the existing free suite
+// (test/helpers/providers/claude.ts:22, package.json:12). We scan the test's
 // own content here so the filter stays automatic as new tests land. The
 // "Windows-incompatible APIs" patterns at the bottom were added after the
 // first windows-free-tests CI run surfaced concrete failure modes.

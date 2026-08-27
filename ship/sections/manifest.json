@@ -47,16 +47,10 @@
       "trigger": "the adversarial review and learnings capture (Step 11)"
     },
     {
-      "id": "changelog",
-      "file": "changelog.md",
-      "title": "CHANGELOG entry (release-summary + itemized)",
-      "trigger": "writing the CHANGELOG entry (Step 13)"
-    },
-    {
       "id": "pr-body",
       "file": "pr-body.md",
       "title": "Documentation sync + PR/MR creation",
-      "trigger": "syncing docs and creating or updating the PR/MR (Steps 18-19)"
+      "trigger": "syncing docs and creating or updating the PR/MR (Steps 16-17)"
     }
   ]
 }

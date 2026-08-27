@@ -664,11 +664,15 @@ If the user asks you to skip the move (e.g., "just leave it as a fork PR"),
 respect that — eval CI will fail with empty-env auth, but check-freshness,
 workflow-lint, and windows-tests will still pass on the fork PR.
 
-## CHANGELOG + VERSION style
+## Explicit release VERSION + CHANGELOG style
 
-**Versioning invariant (workspace-aware ship).** VERSION is a monotonic ordered
+Ordinary `/ship` runs are versionless: they never modify VERSION, package
+manifests, lockfile versions, or CHANGELOG.md. The rules in this section apply
+only when a user deliberately invokes an explicit release/version workflow.
+
+**Versioning invariant (release workflow).** VERSION is a monotonic ordered
 release identifier, not a strict semver commitment. The bump level
-(major/minor/patch/micro) expresses intent at ship time. Queue-advancing past a
+(major/minor/patch/micro) expresses intent at release time. Queue-advancing past a
 claimed version within the same bump level is explicitly permitted — if branch A
 claims v1.7.0.0 as a MINOR and branch B is also a MINOR, B lands at v1.8.0.0
 (still a MINOR relative to main). Downstream consumers must NOT rely on
@@ -712,8 +716,8 @@ against the SCALE of your branch's work, not just whether main moved forward.
 If main bumped MINOR and your branch is also a substantial change, you bump
 MINOR again on top (e.g., main at v1.14.0.0, your branch lands v1.15.0.0).
 
-**VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
-own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
+**VERSION and CHANGELOG are release-scoped.** Every explicit release gets its own
+version bump and CHANGELOG entry. The entry describes what THAT release adds,
 not what was already on main.
 
 **The CHANGELOG entry is the diff between main and the shipping branch — what users
@@ -742,8 +746,8 @@ ownership"), document it as a property, not as a fix. The shipped system is what
 the user gets; the path to that system is invisible to them.
 
 **When to write the CHANGELOG entry:**
-- At `/ship` time (Step 13), not during development or mid-branch.
-- The entry covers ALL commits on this branch vs the base branch.
+- During an explicit release workflow, never during ordinary `/ship` or mid-branch development.
+- The entry covers ALL commits included in that release vs its base.
 - Never fold new work into an existing CHANGELOG entry from a prior version that
   already landed on main. If main has v0.10.0.0 and your branch adds features,
   bump to v0.10.1.0 with a new entry — don't edit the v0.10.0.0 entry.
@@ -805,7 +809,7 @@ If the diff between the base branch version and this version has no user-facing 
 (only merges, only CHANGELOG edits, only placeholder work), the honest entry is one
 sentence: "Version bump for branch-ahead discipline. No user-facing changes yet." Stop
 there. Do not pad. Do not explain the plan that will ship eventually. Do not narrate
-the branch's history. When real work lands, the entry will replace this at /ship time.
+the branch's history. When real work lands, the entry will replace this at release time.
 
 ### Release-summary format (every `## [X.Y.Z]` entry)
 

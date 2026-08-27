@@ -12,7 +12,7 @@
 // version as another open PR. Lower-than-the-util's-suggestion is fine if
 // the slot is unclaimed — that preserves monotonic version ordering on main
 // when this PR lands ahead of higher-numbered queued PRs. The util's output
-// is informational (the *recommended* slot for fresh /ship runs); the gate
+// is informational (the *recommended* slot for explicit release runs); the gate
 // only blocks actual collisions.
 
 import { readFileSync } from "node:fs";
@@ -32,7 +32,7 @@ try {
 }
 
 if (parsed.offline === true) {
-  console.log("::warning::workspace-aware-ship util offline; failing open (no collision check performed)");
+  console.log("::warning::release queue util offline; failing open (no collision check performed)");
   console.log(`::notice::If you merge this PR and a queued PR landed ahead, CHANGELOG may need manual reconciliation.`);
   process.exit(0);
 }
@@ -89,13 +89,13 @@ if (pBase && cmp(pPR, pBase) <= 0) {
 const collision = claimed.find((c) => c.version.trim() === prVersion);
 if (collision) {
   console.log(`::error::VERSION collision: ${tag} claims v${prVersion} but #${collision.pr} (${collision.branch}) already claims the same slot.`);
-  console.log(`::error::Rerun /ship to pick a different slot, or coordinate with #${collision.pr} on landing order.`);
+  console.log(`::error::Run the release workflow again to pick a different slot, or coordinate with #${collision.pr} on landing order.`);
   process.exit(1);
 }
 
 // Optional informational note: PR version is below the util's suggested next
-// slot. This is allowed — the suggested slot is a recommendation for /ship's
-// next run, but landing at a lower-but-unclaimed slot first preserves
+// slot. This is allowed — the suggested slot is a recommendation for the next
+// explicit release, but landing at a lower-but-unclaimed slot first preserves
 // monotonic ordering on main when this PR merges ahead of higher-numbered
 // queued PRs.
 if (cmp(pPR, pNext) < 0) {

@@ -152,7 +152,6 @@ Flag if fix ratio exceeds 50% ... signals a "ship fast, fix fast" pattern that m
 Show top 10 most-changed files. Flag:
 - Files changed 5+ times (churn hotspots)
 - Test files vs production files in the hotspot list
-- VERSION/CHANGELOG frequency
 
 ---
 

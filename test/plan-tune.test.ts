@@ -133,7 +133,7 @@ describe('question-registry helpers', () => {
     expect(ids.has('review-sql-safety')).toBe(true);
     expect(ids.has('land-and-deploy-merge-confirm')).toBe(true);
     // And does NOT include a known two-way door:
-    expect(ids.has('ship-changelog-voice-polish')).toBe(false);
+    expect(ids.has('ship-pr-summary-voice-polish')).toBe(false);
   });
 
   test('getAllRegisteredIds count matches QUESTIONS keys', () => {
@@ -396,7 +396,7 @@ describe('one-way-doors classifier', () => {
     expect(result.oneWay).toBe(true);
     expect(result.reason).toBe('registry');
 
-    const safeResult = classifyQuestion({ question_id: 'ship-changelog-voice-polish' });
+    const safeResult = classifyQuestion({ question_id: 'ship-pr-summary-voice-polish' });
     expect(safeResult.oneWay).toBe(false);
     expect(safeResult.reason).toBe('registry');
   });
@@ -433,7 +433,7 @@ describe('one-way-doors classifier', () => {
 
   test('benign questions default to two-way', () => {
     const benign = [
-      'Want to update the changelog voice?',
+      'Want to polish the PR summary voice?',
       'Which mode should plan review use?',
       'Open the essay in your browser?',
     ];

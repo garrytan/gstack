@@ -1199,7 +1199,6 @@ Flag if fix ratio exceeds 50% — this signals a "ship fast, fix fast" pattern t
 Show top 10 most-changed files. Flag:
 - Files changed 5+ times (churn hotspots)
 - Test files vs production files in the hotspot list
-- VERSION/CHANGELOG frequency (version discipline indicator)
 
 ### Step 7: PR Size Distribution
 

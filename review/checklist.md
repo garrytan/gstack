@@ -77,10 +77,6 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 - Check `.get()` calls on query results use the column name that was actually selected
 - Cross-reference with schema documentation when available
 
-#### Dead Code & Consistency (version/changelog only — other items handled by maintainability specialist)
-- Version mismatch between PR title and VERSION/CHANGELOG files
-- CHANGELOG entries that describe changes inaccurately (e.g., "changed from X to Y" when X never existed)
-
 #### LLM Prompt Issues
 - 0-indexed lists in prompts (LLMs reliably return 1-indexed)
 - Prompt text listing available tools/capabilities that don't match what's actually wired up in the `tool_classes`/`tools` array

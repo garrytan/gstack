@@ -14,20 +14,20 @@ describe('assertRequiredReads', () => {
   test('passes when every required section was Read', () => {
     const result = {
       toolCalls: [
-        read('/Users/x/.claude/skills/gstack/ship/sections/version-bump.md'),
-        read('ship/sections/changelog.md'),
+        read('/Users/x/.claude/skills/gstack/ship/sections/review-army.md'),
+        read('ship/sections/pr-body.md'),
       ],
     };
-    const r = assertRequiredReads(result, ['version-bump.md', 'changelog.md']);
+    const r = assertRequiredReads(result, ['review-army.md', 'pr-body.md']);
     expect(r.ok).toBe(true);
     expect(r.missing).toEqual([]);
   });
 
   test('flags a required section the agent never opened', () => {
-    const result = { toolCalls: [read('ship/sections/changelog.md')] };
-    const r = assertRequiredReads(result, ['version-bump.md', 'changelog.md']);
+    const result = { toolCalls: [read('ship/sections/pr-body.md')] };
+    const r = assertRequiredReads(result, ['review-army.md', 'pr-body.md']);
     expect(r.ok).toBe(false);
-    expect(r.missing).toEqual(['version-bump.md']);
+    expect(r.missing).toEqual(['review-army.md']);
   });
 
   test('tolerates a sections/ prefix in the required list', () => {

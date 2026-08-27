@@ -168,10 +168,9 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
   testConcurrentIfSelected('ship-local-workflow', async () => {
     const result = await runSkillTest({
       prompt: `You are in a git repo on branch feature/ship-test. Do these steps in order:
-1. Read VERSION file and bump the last digit by 1 (e.g. 0.1.0.0 → 0.1.0.1). Write the new version back.
-2. Add a CHANGELOG.md entry: "## [NEW_VERSION] - TODAY" with a bullet "- Ship test feature".
-3. Stage all changes, commit with message "ship: vNEW_VERSION".
-4. Push to origin: git push origin feature/ship-test`,
+1. Confirm the existing feature commit uses an ordinary Conventional Commit title.
+2. Push to origin: git push origin feature/ship-test.
+3. Do not modify VERSION, package.json, or CHANGELOG.md.`,
       workingDirectory: shipWorkDir,
       maxTurns: 8,
       timeout: 120_000,
@@ -185,19 +184,19 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
     const branchCheck = spawnSync('git', ['branch', '--list', 'feature/ship-test'], { cwd: shipRemoteDir, stdio: 'pipe' });
     const branchExists = branchCheck.stdout.toString().trim().length > 0;
 
-    // Check VERSION was bumped locally (even if push failed, this shows the LLM did the work)
     const versionContent = fs.existsSync(path.join(shipWorkDir, 'VERSION'))
       ? fs.readFileSync(path.join(shipWorkDir, 'VERSION'), 'utf-8').trim() : '';
-    const versionBumped = versionContent !== '0.1.0.0';
+    const changelogContent = fs.readFileSync(path.join(shipWorkDir, 'CHANGELOG.md'), 'utf-8');
+    const releaseMetadataUnchanged = versionContent === '0.1.0.0' && changelogContent === '# Changelog\n';
 
     recordE2E(evalCollector, '/ship local workflow', 'Ship workflow E2E', result, {
-      passed: branchExists && versionBumped && ['success', 'error_max_turns'].includes(result.exitReason),
+      passed: branchExists && releaseMetadataUnchanged && ['success', 'error_max_turns'].includes(result.exitReason),
     });
 
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
     expect(branchExists).toBe(true);
-    expect(versionBumped).toBe(true);
-    console.log(`Branch pushed: ${branchExists}, VERSION: ${versionContent}, bumped: ${versionBumped}`);
+    expect(releaseMetadataUnchanged).toBe(true);
+    console.log(`Branch pushed: ${branchExists}, release metadata unchanged: ${releaseMetadataUnchanged}`);
   }, 150_000);
 });
 

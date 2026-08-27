@@ -170,7 +170,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
     fs.mkdirSync(path.join(fixture.stateRoot, 'projects', fixture.slug), { recursive: true });
     fs.writeFileSync(
       path.join(fixture.stateRoot, 'projects', fixture.slug, 'question-preferences.json'),
-      JSON.stringify({ 'ship-changelog-voice-polish': 'never-ask' }),
+      JSON.stringify({ 'ship-pr-summary-voice-polish': 'never-ask' }),
     );
   });
 
@@ -194,7 +194,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
         questions: [
           {
             question:
-              '<gstack-qid:ship-changelog-voice-polish> Polish CHANGELOG entry?',
+              '<gstack-qid:ship-pr-summary-voice-polish> Polish PR summary?',
             options: ['A) Accept (recommended)', 'B) Skip'],
           },
         ],
@@ -226,7 +226,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
       .map((l) => JSON.parse(l));
     const auto = events.filter((e) => e.source === 'auto-decided');
     expect(auto.length).toBe(1);
-    expect(auto[0].question_id).toBe('ship-changelog-voice-polish');
+    expect(auto[0].question_id).toBe('ship-pr-summary-voice-polish');
   });
 });
 
