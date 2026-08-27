@@ -85,6 +85,40 @@ describe('cookie-picker-routes', () => {
   });
 
   describe('JSON responses (with auth)', () => {
+    test('import route wires post-import authentication verification', async () => {
+      const addedCookies: any[] = [];
+      const page = {
+        context: () => ({ addCookies: (cookies: any[]) => { addedCookies.push(...cookies); } }),
+      };
+      const bm = {
+        getActiveSession: () => ({ getPage: () => page }),
+      } as any;
+      const url = makeUrl('/cookie-picker/import');
+      const req = makeReq('POST', {
+        browser: 'Chrome',
+        domains: ['.example.test'],
+        verifyAuth: true,
+      }, { 'Authorization': 'Bearer test-token' });
+
+      const res = await handleCookiePickerRoute(url, req, bm, 'test-token', {
+        importCookiesWithRetry: async () => ({
+          cookies: [{ name: 'session', value: 'redacted-fixture', domain: '.example.test', path: '/', expires: -1, secure: true, httpOnly: true, sameSite: 'Lax' }],
+          count: 1,
+          failed: 0,
+          domainCounts: { '.example.test': 1 },
+        }),
+        hasV20Cookies: () => false,
+        verifyCookieAuthentication: async () => ({ verified: true, reason: 'ok', status: 200 }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(addedCookies).toHaveLength(1);
+      expect(await res.json()).toMatchObject({
+        imported: 1,
+        verification: { verified: true, reason: 'ok', status: 200 },
+      });
+    });
+
     test('GET /cookie-picker/browsers returns JSON', async () => {
       const { bm } = mockBrowserManager();
       const url = makeUrl('/cookie-picker/browsers');
@@ -245,6 +279,36 @@ describe('cookie-picker-routes', () => {
       expect(setCookie).toContain('Path=/cookie-picker');
       expect(setCookie).toContain('Max-Age=3600');
       expect(res.headers.get('Cache-Control')).toBe('no-store');
+    });
+
+    test('picker code remains valid while a browser window is opening', async () => {
+      const { bm } = mockBrowserManager();
+      const code = generatePickerCode();
+      const realNow = Date.now;
+      Date.now = () => realNow() + 60_000;
+      try {
+        const res = await handleCookiePickerRoute(
+          makeUrl(`/cookie-picker?code=${code}`),
+          new Request('http://127.0.0.1:9470', { method: 'GET' }),
+          bm,
+          'test-token',
+        );
+        expect(res.status).toBe(302);
+      } finally {
+        Date.now = realNow;
+      }
+    });
+
+    test('preserves the target hostname across code exchange', async () => {
+      const { bm } = mockBrowserManager();
+      const code = generatePickerCode();
+      const res = await handleCookiePickerRoute(
+        makeUrl(`/cookie-picker?code=${code}&targetDomain=app.example.test`),
+        new Request('http://127.0.0.1:9470', { method: 'GET' }),
+        bm,
+        'test-token',
+      );
+      expect(res.headers.get('Location')).toBe('/cookie-picker?targetDomain=app.example.test');
     });
 
     test('code cannot be reused', async () => {
