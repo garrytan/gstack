@@ -296,10 +296,10 @@ export function resolveChromiumProfile(explicit?: string): string {
  * peer is using this profile (gbd.lock for gbrowser; single-instance CLI
  * check for gstack).
  */
-export function cleanSingletonLocks(userDataDir: string): void {
+function resolveRecognizedProfileDir(userDataDir: string, caller: string): string | null {
   if (!path.isAbsolute(userDataDir)) {
-    console.warn(`[browse] cleanSingletonLocks: refusing relative path: ${userDataDir}`);
-    return;
+    console.warn(`[browse] ${caller}: refusing relative path: ${userDataDir}`);
+    return null;
   }
   const resolved = path.resolve(userDataDir);
   const basename = path.basename(resolved);
@@ -309,10 +309,57 @@ export function cleanSingletonLocks(userDataDir: string): void {
     : null;
   const isSafe = basename === 'chromium-profile' || (explicitAbs !== null && resolved === explicitAbs);
   if (!isSafe) {
-    console.warn(`[browse] cleanSingletonLocks: refusing to clean unrecognized profile dir: ${resolved}`);
-    return;
+    console.warn(`[browse] ${caller}: refusing to clean unrecognized profile dir: ${resolved}`);
+    return null;
   }
+  return resolved;
+}
+
+export function cleanSingletonLocks(userDataDir: string): void {
+  const resolved = resolveRecognizedProfileDir(userDataDir, 'cleanSingletonLocks');
+  if (resolved === null) return;
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     safeUnlinkQuiet(path.join(resolved, lockFile));
+  }
+}
+
+/**
+ * Reset the profile's crash markers before launch.
+ *
+ * cleanSingletonLocks() clears the lockfiles that stop Chromium starting at
+ * all. This clears the *other* half of the same problem: close() falls back to
+ * SIGKILL when a graceful shutdown overruns closeRaceMs, so Default/Preferences
+ * is left with `exit_type: "Crashed"`. On the next headed launch Chromium shows
+ * the "Something went wrong when opening your profile" bubble over the page,
+ * which lands in screenshots and swallows clicks near the top of the viewport.
+ *
+ * --hide-crash-restore-bubble does not cover this one. That flag suppresses the
+ * session-restore ("Restore pages?") bubble; the profile-error bubble is driven
+ * by the profile's own stored exit state, so it has to be reset on disk.
+ *
+ * Same directory guard as cleanSingletonLocks, and the same caller contract:
+ * external coordination must already guarantee no live peer holds the profile.
+ */
+export function resetProfileExitState(userDataDir: string): void {
+  const resolved = resolveRecognizedProfileDir(userDataDir, 'resetProfileExitState');
+  if (resolved === null) return;
+  const prefsPath = path.join(resolved, 'Default', 'Preferences');
+  let prefs: Record<string, unknown>;
+  try {
+    prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+  } catch {
+    return; // no profile yet, or unreadable/corrupt — launch handles both
+  }
+  if (typeof prefs !== 'object' || prefs === null || Array.isArray(prefs)) return;
+  const profile = prefs.profile;
+  if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return;
+  const p = profile as Record<string, unknown>;
+  if (p.exit_type === 'Normal' && p.exited_cleanly === true) return; // already clean
+  p.exit_type = 'Normal';
+  p.exited_cleanly = true;
+  try {
+    fs.writeFileSync(prefsPath, JSON.stringify(prefs));
+  } catch {
+    // Best effort: a profile we cannot rewrite still launches, just with the bubble.
   }
 }

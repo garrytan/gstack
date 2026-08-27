@@ -21,7 +21,7 @@ import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type D
 import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
-import { resolveChromiumProfile, cleanSingletonLocks } from './config';
+import { resolveChromiumProfile, cleanSingletonLocks, resetProfileExitState } from './config';
 import { launchWithXProtectHeal } from './xprotect-heal';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
@@ -600,6 +600,10 @@ export class BrowserManager {
     // too. Safe under external coordination: gbd.lock for gbrowser,
     // single-instance CLI check for gstack.
     cleanSingletonLocks(userDataDir);
+    // Same crash, other half: a SIGKILLed shutdown leaves the profile marked
+    // "Crashed", which paints the "Something went wrong opening your profile"
+    // bubble over the page on the next headed launch.
+    resetProfileExitState(userDataDir);
 
     // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
     // Used by GStack Browser.app to point at the bundled Chromium.
@@ -1726,6 +1730,7 @@ export class BrowserManager {
       const userDataDir = resolveChromiumProfile();
       fs.mkdirSync(userDataDir, { recursive: true });
       cleanSingletonLocks(userDataDir);
+      resetProfileExitState(userDataDir);
 
       // Self-heal probe (#2242): handoff always launches the Playwright-cache
       // bundle (this launchPersistentContext call passes no executablePath),

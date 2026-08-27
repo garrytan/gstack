@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug, resolveGstackHome, resolveChromiumProfile, cleanSingletonLocks } from '../src/config';
+import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug, resolveGstackHome, resolveChromiumProfile, cleanSingletonLocks, resetProfileExitState } from '../src/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -509,5 +509,106 @@ describe('cleanSingletonLocks', () => {
     expect(() => cleanSingletonLocks(tmpDir)).not.toThrow();
     expect(() => cleanSingletonLocks(tmpDir)).not.toThrow();
     fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
+  });
+});
+
+describe('resetProfileExitState', () => {
+  const mkProfile = (name: string, prefs: unknown): string => {
+    const dir = path.join(os.tmpdir(), `${name}-${Date.now()}`, 'chromium-profile');
+    fs.mkdirSync(path.join(dir, 'Default'), { recursive: true });
+    if (prefs !== undefined) {
+      fs.writeFileSync(path.join(dir, 'Default', 'Preferences'), JSON.stringify(prefs));
+    }
+    return dir;
+  };
+  const readPrefs = (dir: string) =>
+    JSON.parse(fs.readFileSync(path.join(dir, 'Default', 'Preferences'), 'utf8'));
+
+  test('rewrites Crashed exit state to Normal', () => {
+    const dir = mkProfile('crashed', { profile: { exit_type: 'Crashed', exited_cleanly: false } });
+    resetProfileExitState(dir);
+    const prefs = readPrefs(dir);
+    expect(prefs.profile.exit_type).toBe('Normal');
+    expect(prefs.profile.exited_cleanly).toBe(true);
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
+  });
+
+  test('preserves unrelated preference keys', () => {
+    const dir = mkProfile('preserve', {
+      profile: { exit_type: 'Crashed', exited_cleanly: false, name: 'Person 1' },
+      browser: { window_placement: { top: 10 } },
+    });
+    resetProfileExitState(dir);
+    const prefs = readPrefs(dir);
+    expect(prefs.profile.name).toBe('Person 1');
+    expect(prefs.browser.window_placement.top).toBe(10);
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
+  });
+
+  test('leaves an already-clean profile byte-identical', () => {
+    const dir = mkProfile('clean', { profile: { exit_type: 'Normal', exited_cleanly: true } });
+    const before = fs.readFileSync(path.join(dir, 'Default', 'Preferences'), 'utf8');
+    resetProfileExitState(dir);
+    expect(fs.readFileSync(path.join(dir, 'Default', 'Preferences'), 'utf8')).toBe(before);
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
+  });
+
+  test('no Preferences file is a no-op, not a throw', () => {
+    const dir = mkProfile('missing', undefined);
+    expect(() => resetProfileExitState(dir)).not.toThrow();
+    expect(fs.existsSync(path.join(dir, 'Default', 'Preferences'))).toBe(false);
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
+  });
+
+  test('corrupt Preferences is left untouched', () => {
+    const dir = mkProfile('corrupt', undefined);
+    const prefsPath = path.join(dir, 'Default', 'Preferences');
+    fs.writeFileSync(prefsPath, '{not json');
+    expect(() => resetProfileExitState(dir)).not.toThrow();
+    expect(fs.readFileSync(prefsPath, 'utf8')).toBe('{not json');
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
+  });
+
+  test('refuses unrecognized profile dir basename', () => {
+    const dir = path.join(os.tmpdir(), `unrelated-prefs-${Date.now()}`);
+    fs.mkdirSync(path.join(dir, 'Default'), { recursive: true });
+    const prefsPath = path.join(dir, 'Default', 'Preferences');
+    fs.writeFileSync(prefsPath, JSON.stringify({ profile: { exit_type: 'Crashed' } }));
+    const origWarn = console.warn;
+    let warned = '';
+    console.warn = (msg: string) => { warned = msg; };
+    try {
+      resetProfileExitState(dir);
+      expect(warned).toContain('refusing to clean unrecognized profile dir');
+      expect(JSON.parse(fs.readFileSync(prefsPath, 'utf8')).profile.exit_type).toBe('Crashed');
+    } finally {
+      console.warn = origWarn;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('respects explicit CHROMIUM_PROFILE env with non-standard basename', () => {
+    const dir = path.join(os.tmpdir(), `custom-prefs-${Date.now()}`);
+    fs.mkdirSync(path.join(dir, 'Default'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'Default', 'Preferences'),
+      JSON.stringify({ profile: { exit_type: 'Crashed', exited_cleanly: false } }));
+    const orig = process.env.CHROMIUM_PROFILE;
+    process.env.CHROMIUM_PROFILE = dir;
+    try {
+      resetProfileExitState(dir);
+      const prefs = JSON.parse(fs.readFileSync(path.join(dir, 'Default', 'Preferences'), 'utf8'));
+      expect(prefs.profile.exit_type).toBe('Normal');
+    } finally {
+      if (orig === undefined) delete process.env.CHROMIUM_PROFILE;
+      else process.env.CHROMIUM_PROFILE = orig;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('missing or non-object profile key is a no-op', () => {
+    const dir = mkProfile('noprofile', { browser: { window_placement: {} } });
+    expect(() => resetProfileExitState(dir)).not.toThrow();
+    expect(readPrefs(dir).profile).toBeUndefined();
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
   });
 });
