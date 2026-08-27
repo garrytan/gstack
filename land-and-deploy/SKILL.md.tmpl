@@ -295,16 +295,83 @@ Continue to Step 2.
 
 Tell the user: "Checking CI status and merge readiness..."
 
-Check CI status and merge readiness:
+### 2a: Resolve which checks actually block merge
+
+Not every check on a PR blocks merging — many repos run a fast required tier
+plus a slower advisory/extended tier that reports status but isn't required
+by branch protection. Treating every reported check as equally blocking makes
+`/land-and-deploy` wait on jobs that were never going to gate the merge.
+
+Fetch the full check list, then resolve which ones are actually required:
 
 ```bash
 gh pr checks --json name,state,status,conclusion
 ```
 
-Parse the output:
-1. If any required checks are **FAILING**: **STOP.** "CI is failing on this PR. Here are the failing checks: {list}. Fix these before deploying — I won't merge code that hasn't passed CI."
-2. If required checks are **PENDING**: Tell the user "CI is still running. I'll wait for it to finish." Proceed to Step 3.
-3. If all checks pass (or no required checks): Tell the user "CI passed." Skip Step 3, go to Step 4.
+```bash
+BASE=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
+REQUIRED_CONTEXTS=$(gh api repos/{owner}/{repo}/branches/$BASE/protection --jq '.required_status_checks.contexts[]?' 2>/dev/null)
+echo "$REQUIRED_CONTEXTS"
+```
+
+- If `gh api .../protection` succeeds and returns a non-empty list: this is
+  the authoritative required set. Only checks whose `name` appears in this
+  list can BLOCK or gate the wait in Step 3. Any check NOT in this list
+  (e.g. an extended/Mac/nightly tier) is advisory — note its state in the
+  readiness report (Step 3.5e) but never STOP or wait on it alone.
+- If the API call fails (no admin read on protection, or branch protection
+  isn't configured): fall back to treating every check `gh pr checks` reports
+  as required — the previous behavior. This is a permissions/config
+  limitation, not a design choice, so don't silently narrow scope without it.
+
+Parse the (now-scoped) required checks:
+1. If any REQUIRED check is **FAILING**: go to 2b before deciding to STOP —
+   a failure isn't always a real failure.
+2. If any REQUIRED check is **PENDING**: Tell the user "CI is still running.
+   I'll wait for it to finish." Proceed to Step 3.
+3. If all REQUIRED checks pass: Tell the user "CI passed." If advisory checks
+   are still pending or failing, mention them once in passing ("the extended
+   suite is still running/red — that's advisory, not blocking merge") but do
+   not wait on them. Skip Step 3, go to Step 4.
+
+### 2b: Recognize budget-exhaustion failures before treating them as real
+
+A required check can come back FAILING for two very different reasons: the
+code actually broke something, or the CI provider ran out of budget/minutes
+and the job never really executed. These look identical in `conclusion:
+failure` but need different responses — one blocks the merge, the other
+means "run the equivalent checks locally and report status, don't just STOP."
+
+For each FAILING required check, look at its run duration and step count
+before writing the STOP message:
+
+```bash
+RUN_ID=$(gh pr checks --json name,link -q '.[] | select(.name=="<failing-check-name>") | .link' 2>/dev/null | grep -oE '[0-9]+$')
+gh run view "$RUN_ID" --json status,conclusion,jobs -q '.jobs[] | {name, steps: (.steps | length), startedAt, completedAt}' 2>/dev/null
+```
+
+Budget-exhaustion signature: `steps` count is 0 (or 1 — just a runner-claim
+step) AND the run completed in a few seconds rather than the job's normal
+duration. If you've seen this check pass with N steps and a multi-minute
+duration before, and it now shows 0 steps / seconds, that's the signature —
+not a code regression.
+
+- If the signature matches: don't report this as "CI is failing on this
+  PR" with the implication the code is broken. Instead: "The `<check>` check
+  didn't actually run — it has the signature of exhausted CI budget/minutes
+  (0 steps, {N}s), not a real failure. I can't fix a budget problem from
+  here. If this project has a local equivalent (a local-ci script, or the
+  individual commands the check would have run), I'll run that now so you
+  have a real pass/fail signal instead of a red X that means nothing."
+  Then look for and offer to run a local CI script if the repo has one
+  (common names: `local-ci.sh`, `ci-local.sh`, a `Makefile` target, or a
+  documented equivalent in CONTRIBUTING.md/CLAUDE.md). Report PASS/FAIL/
+  SKIPPED/NOT_AVAILABLE per gate you ran — don't claim "CI passed" from a
+  local run standing in for a hosted one that never executed.
+- If the signature does NOT match (real duration, real steps, then failure):
+  this is a genuine failure. **STOP.** "CI is failing on this PR. Here are
+  the failing checks: {list}. Fix these before deploying — I won't merge
+  code that hasn't passed CI."
 
 Also check for merge conflicts:
 ```bash
@@ -316,7 +383,7 @@ If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. R
 
 ## Step 3: Wait for CI (if pending)
 
-If required checks are still pending, wait for them to complete. Use a timeout of 15 minutes:
+If required checks (as scoped in 2a) are still pending, wait for them to complete. Use a timeout of 15 minutes:
 
 ```bash
 gh pr checks --watch --fail-fast
@@ -325,7 +392,7 @@ gh pr checks --watch --fail-fast
 Record the CI wait time for the deploy report.
 
 If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 4.
-If CI fails: **STOP.** "CI failed. Here's what broke: {failures}. This needs to pass before I can merge."
+If CI fails: apply the 2b budget-exhaustion check to the failing run before writing the STOP message — don't repeat the raw "CI failed" framing on a run that never actually executed. If it's a real failure: **STOP.** "CI failed. Here's what broke: {failures}. This needs to pass before I can merge."
 If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that's unusual. Check the GitHub Actions tab to see if something is stuck."
 
 ---
@@ -540,6 +607,37 @@ Compare the PR body against the actual commits. Check for:
 If the PR body looks stale or incomplete: **WARNING — PR body may not reflect current
 changes.** List what's missing or stale.
 
+### 3.5c-bis: Project-required PR report check
+
+Some projects define a mandatory report format the PR body must carry before a
+merge can be recommended — a specific checklist or table (e.g. "every check
+run, its result, and evidence") documented in CLAUDE.md or CONTRIBUTING.md.
+`/ship` may or may not populate this, so verify it's actually there rather
+than assuming.
+
+```bash
+grep -n -iE "mandatory|required.*(report|checklist|table).*(PR|pull request)" CLAUDE.md CONTRIBUTING.md 2>/dev/null | head -5
+```
+
+- If nothing matches: this project has no such requirement. Skip this
+  sub-step, no warning.
+- If a match is found: read the surrounding section (a few lines above and
+  below the match) to learn what the required format actually is — the
+  column names, the checks it must cover, whether every row needs PASS/FAIL/
+  SKIPPED/NOT_AVAILABLE rather than being silently omitted. Then compare that
+  against the current PR body:
+  - Missing entirely (the PR body has no such table/checklist at all):
+    **WARNING — required PR report missing.** Name the file/section that
+    documents the requirement and what's absent.
+  - Present but incomplete (rows missing, blank results, a check the project
+    requires that isn't listed): **WARNING — required PR report incomplete.**
+    List which rows/checks are missing or unresolved.
+  - Present and every required row has an explicit result: no warning.
+- This check only ever produces a WARNING, never a silent skip of a real
+  requirement and never a hard BLOCKER on its own — 3.5e's existing
+  blocker/warning tiering (tests failing = blocker, everything else = warning
+  the user can override) already governs how hard to stop here.
+
 ### 3.5d: Document-release check
 
 Check if documentation was updated on this branch:
@@ -590,7 +688,8 @@ Build the full readiness report:
 ║  └─ Doc release:   Run / NOT RUN (warning)               ║
 ║                                                          ║
 ║  PR BODY                                                 ║
-║  └─ Accuracy:      Current / STALE (warning)             ║
+║  ├─ Accuracy:      Current / STALE (warning)             ║
+║  └─ Required report: Complete / Missing / N/A (warning)  ║
 ║                                                          ║
 ║  WARNINGS: N  |  BLOCKERS: N                             ║
 ╚══════════════════════════════════════════════════════════╝
@@ -620,6 +719,7 @@ If the user chooses B: **STOP.** Give specific next steps:
 - If E2E not run: "Run your E2E tests to make sure nothing is broken, then come back."
 - If docs not updated: "Run `/document-release` to update CHANGELOG and docs."
 - If PR body stale: "The PR description doesn't match what's actually in the diff — update it on GitHub."
+- If the required PR report is missing or incomplete: "This project requires a specific report in the PR body (see {file/section from 3.5c-bis}) — fill in the missing rows/checks, then run `/land-and-deploy` again."
 
 If the user chooses A or C: Tell the user "Merging now." Continue to Step 4.
 
@@ -954,14 +1054,62 @@ Take an annotated screenshot as evidence.
 - Page has real content (not blank or error screen) → PASS
 - Loads in under 10 seconds → PASS
 
-If all pass: Tell the user "Site is healthy. Page loaded in {X}s, no console errors, content looks good. Screenshot saved to {path}." Mark as HEALTHY, continue to Step 9.
+If all pass: Tell the user "Automated checks are green — page loaded in {X}s, no console errors, content looks good. Screenshot saved to {path}." Then go to **Step 7a** before marking HEALTHY — the automated canary is a machine's opinion, not a human's confirmation.
 
 If any fail: show the evidence (screenshot path, console errors, perf numbers). Use AskUserQuestion:
 - **Re-ground:** "I found some issues on the live site after the deploy. Here's what I see: {specific issues}. This might be temporary (caches clearing, CDN propagating) or it might be a real problem."
 - **RECOMMENDATION:** Choose based on severity — B for critical (site down), A for minor (console errors).
-- A) That's expected — the site is still warming up. Mark it as healthy.
+- A) That's expected — the site is still warming up. Mark it as healthy, then go to Step 7a.
 - B) That's broken — revert the merge and roll back to the previous version
 - C) Let me investigate more — open the site and look at logs before deciding
+
+### 7a: Open the screen for human validation — never just report
+
+**This sub-step exists because a text summary of "it's healthy" is not the
+same thing as a human seeing the change work.** An automated canary catches
+crashes and console errors; it does not catch "the button is in the wrong
+place," "the copy doesn't match what we agreed," or a business-logic edge
+case the LLM judging its own screenshot can rationalize away. If nobody with
+eyes on the actual product confirms the change, the task is not done — it
+just has a report that says it's done, which is a worse failure mode than no
+report at all, because it looks finished.
+
+Check whether this project documents its own manual-validation entry point
+(a script, a runbook, a specific convention for "how a human checks this"):
+
+```bash
+grep -rniE "validat|smoke.?test" CLAUDE.md CONTRIBUTING.md 2>/dev/null | grep -iE "script|\.sh|runbook|manual" | head -5
+```
+
+- **If a project-specific validation entry point is found** (a script path,
+  a documented command, a runbook section): that convention wins. Follow
+  what it says exactly — if it says to write a manifest file, or run a
+  specific script, do that, not the generic fallback below.
+- **If nothing project-specific is found (the common case):** use the
+  generic fallback — open the verified URL directly for the user rather than
+  only telling them a URL exists:
+
+```bash
+open "<url>" 2>/dev/null || xdg-open "<url>" 2>/dev/null || echo "Couldn't auto-open — here's the URL: <url>"
+```
+
+Tell the user, plainly: "Automated checks passed, but that's a machine's
+opinion — I've opened the live page so you can look at it yourself. This is
+the part I can't verify for you: does it actually look and work right? Take
+a look, then tell me pass or fail." If a `screenshot`/annotated image was
+captured in the full canary sequence above, mention its path too, but the
+opened live URL is the primary artifact — a screenshot proves what the
+browser rendered at one instant, not that a human confirmed the thing.
+
+**Do not mark the task DONE from Step 7a alone.** Two acceptable end states:
+- The user replies with an explicit pass ("looks good", "confirmed",
+  equivalent) — mark VERIFIED (human-confirmed) in the Step 9 report and
+  continue.
+- The user is not present to answer right now (headless/spawned session, or
+  they said "I'll check it later") — mark the Step 9 verdict as **DEPLOYED
+  (AUTOMATED CHECKS ONLY — awaiting human smoke test)**, not HEALTHY. Do not
+  silently upgrade an unconfirmed automated pass into a "verified" or
+  "healthy" verdict; say plainly that a human hasn't looked yet.
 
 ---
 
@@ -1028,9 +1176,17 @@ Verification: <HEALTHY / DEGRADED / SKIPPED / REVERTED>
   Console:    <N errors or "clean">
   Load time:  <Xs>
   Screenshot: <path or "none">
+  Human smoke: <CONFIRMED (user said pass) / AWAITING (screen opened, no reply yet) / N/A (reverted or skipped)>
 
-VERDICT: <DEPLOYED AND VERIFIED / DEPLOYED (UNVERIFIED) / STAGING VERIFIED / REVERTED>
+VERDICT: <DEPLOYED AND VERIFIED / DEPLOYED (AUTOMATED CHECKS ONLY — AWAITING HUMAN SMOKE TEST) / DEPLOYED (UNVERIFIED) / STAGING VERIFIED / REVERTED>
 ```
+
+**"DEPLOYED AND VERIFIED" requires `Human smoke: CONFIRMED`.** If the automated
+canary passed but Step 7a's screen-open never got a human reply, the verdict
+is `DEPLOYED (AUTOMATED CHECKS ONLY — AWAITING HUMAN SMOKE TEST)`, not
+"VERIFIED" — a report claiming more certainty than actually exists is worse
+than one that's honest about what's still open, because the task looks
+closed when it isn't.
 
 Save report to `.gstack/deploy-reports/{date}-pr{number}-deploy.md`.
 
@@ -1043,7 +1199,7 @@ mkdir -p ~/.gstack/projects/$SLUG
 
 Write a JSONL entry with timing data:
 ```json
-{"skill":"land-and-deploy","timestamp":"<ISO>","status":"<SUCCESS/REVERTED>","pr":<number>,"merge_sha":"<sha>","merge_path":"<auto/direct/queue>","first_run":<true/false>,"deploy_status":"<HEALTHY/DEGRADED/SKIPPED>","staging_status":"<VERIFIED/SKIPPED>","review_status":"<CURRENT/STALE/NOT_RUN/INLINE_FIX>","ci_wait_s":<N>,"queue_s":<N>,"deploy_s":<N>,"staging_s":<N>,"canary_s":<N>,"total_s":<N>}
+{"skill":"land-and-deploy","timestamp":"<ISO>","status":"<SUCCESS/REVERTED>","pr":<number>,"merge_sha":"<sha>","merge_path":"<auto/direct/queue>","first_run":<true/false>,"deploy_status":"<HEALTHY/DEGRADED/SKIPPED>","staging_status":"<VERIFIED/SKIPPED>","review_status":"<CURRENT/STALE/NOT_RUN/INLINE_FIX>","human_smoke_status":"<CONFIRMED/AWAITING/NA>","ci_wait_s":<N>,"queue_s":<N>,"deploy_s":<N>,"staging_s":<N>,"canary_s":<N>,"total_s":<N>}
 ```
 
 ---
@@ -1052,7 +1208,9 @@ Write a JSONL entry with timing data:
 
 After the deploy report:
 
-If verdict is DEPLOYED AND VERIFIED: Tell the user "Your changes are live and verified. Nice ship."
+If verdict is DEPLOYED AND VERIFIED: Tell the user "Your changes are live and a human confirmed them. Nice ship."
+
+If verdict is DEPLOYED (AUTOMATED CHECKS ONLY — AWAITING HUMAN SMOKE TEST): Tell the user "Your changes are live and passed the automated canary — I've opened the page for you. This one's on you to confirm: take a look, and tell me if it's a pass so I can close this out as verified rather than just deployed."
 
 If verdict is DEPLOYED (UNVERIFIED): Tell the user "Your changes are merged and should be deploying. I wasn't able to verify the site — check it manually when you get a chance."
 
@@ -1073,7 +1231,8 @@ Then suggest relevant follow-ups:
 - **Auto-detect everything.** PR number, merge method, deploy strategy, project type, merge queues, staging environments. Only ask when information genuinely can't be inferred.
 - **Poll with backoff.** Don't hammer GitHub API. 30-second intervals for CI/deploy, with reasonable timeouts.
 - **Revert is always an option.** At every failure point, offer revert as an escape hatch. Explain what reverting does in plain English.
-- **Single-pass verification, not continuous monitoring.** `/land-and-deploy` checks once. `/canary` does the extended monitoring loop.
+- **Single-pass automated verification, not continuous monitoring.** The automated canary in Step 7 runs once — `/canary` does the extended monitoring loop. This is orthogonal to Step 7a's human confirmation: opening the screen once and waiting for one reply is not a polling loop, it's the one check a machine cannot do for itself.
+- **A report never claims more certainty than what actually happened.** "Verified" means a human confirmed it, not that a script returned exit 0. If the human hasn't replied yet, the verdict says AWAITING, not HEALTHY or VERIFIED — see Step 9.
 - **Clean up.** Delete the feature branch after merge (via `--delete-branch`).
 - **First run = teacher mode.** Walk the user through everything. Explain what each check does and why it matters. Show them their infrastructure. Let them confirm before proceeding. Build trust through transparency.
 - **Subsequent runs = efficient mode.** Brief status updates, no re-explanations. The user already trusts the tool — just do the job and report results.
