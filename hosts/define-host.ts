@@ -18,17 +18,22 @@ import type { HostConfig } from '../scripts/host-config';
 
 type PathRewrite = { from: string; to: string };
 
-/**
- * Preamble resolvers that orchestrate cross-model second opinions (they shell
- * out to Codex or spin up the review army). Suppressed on hosts that can't or
- * shouldn't invoke other models — Codex itself (can't invoke itself) and the
- * non-Claude agent runtimes (OpenClaw, Hermes, GBrain).
- */
-export const CROSS_MODEL_RESOLVERS: string[] = [
+/** Resolvers whose implementation shells out to Codex itself. */
+export const CODEX_SELF_INVOCATION_RESOLVERS: string[] = [
   'DESIGN_OUTSIDE_VOICES',  // design.ts — invokes Codex for outside voices
-  'ADVERSARIAL_STEP',       // review.ts — invokes Codex adversarially
   'CODEX_SECOND_OPINION',   // review.ts — invokes Codex
   'CODEX_PLAN_REVIEW',      // review.ts — invokes Codex
+];
+
+/**
+ * Cross-model/agent resolvers suppressed on runtimes that cannot orchestrate
+ * the required outside process or host-native subagents. Codex is different:
+ * it suppresses only CODEX_SELF_INVOCATION_RESOLVERS, while ADVERSARIAL_STEP
+ * renders a Claude Sonnet outside voice and REVIEW_ARMY uses native agents.
+ */
+export const CROSS_MODEL_RESOLVERS: string[] = [
+  ...CODEX_SELF_INVOCATION_RESOLVERS,
+  'ADVERSARIAL_STEP',       // review.ts — Codex + host-native adversarial passes
   'REVIEW_ARMY',            // review-army.ts — multi-model orchestration
 ];
 

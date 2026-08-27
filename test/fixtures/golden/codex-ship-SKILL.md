@@ -992,7 +992,7 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets a tool-less Claude Sonnet outside voice. Diffs with 50+ changed lines also get Codex-native Review Army specialists; large or critical diffs add a native red-team reviewer. Nested Codex CLI passes are never launched.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
@@ -1468,7 +1468,7 @@ poller is reaped.
 
 ## Step 7: Test Coverage Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
+**Dispatch this step as a subagent** using the native `spawn_agent` tool with `fork_turns: "none"`; wait for its final response with `wait_agent`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
 
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
@@ -1731,7 +1731,7 @@ Repo: {owner/repo}
 
 ## Step 8: Plan Completion Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
+**Dispatch this step as a subagent** using the native `spawn_agent` tool with `fork_turns: "none"`; wait for its final response with `wait_agent`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
 
 **Subagent prompt:** Pass these instructions to the subagent:
 
@@ -2139,7 +2139,216 @@ Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "is
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
+## Step 9.1: Review Army — Specialist Dispatch
 
+### Detect stack and scope
+
+```bash
+source <($GSTACK_BIN/gstack-diff-scope <base> 2>/dev/null) || true
+# Detect stack for specialist context
+STACK=""
+[ -f Gemfile ] && STACK="${STACK}ruby "
+[ -f package.json ] && STACK="${STACK}node "
+[ -f requirements.txt ] || [ -f pyproject.toml ] && STACK="${STACK}python "
+[ -f go.mod ] && STACK="${STACK}go "
+[ -f Cargo.toml ] && STACK="${STACK}rust "
+echo "STACK: ${STACK:-unknown}"
+DIFF_BASE=$(git merge-base origin/<base> HEAD)
+DIFF_INS=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_LINES=$((DIFF_INS + DIFF_DEL))
+echo "DIFF_LINES: $DIFF_LINES"
+# Detect test framework for specialist test stub generation
+TEST_FW=""
+{ [ -f jest.config.ts ] || [ -f jest.config.js ]; } && TEST_FW="jest"
+[ -f vitest.config.ts ] && TEST_FW="vitest"
+{ [ -f spec/spec_helper.rb ] || [ -f .rspec ]; } && TEST_FW="rspec"
+{ [ -f pytest.ini ] || [ -f conftest.py ]; } && TEST_FW="pytest"
+[ -f go.mod ] && TEST_FW="go-test"
+echo "TEST_FW: ${TEST_FW:-unknown}"
+```
+
+### Read specialist hit rates (adaptive gating)
+
+```bash
+$GSTACK_BIN/gstack-specialist-stats 2>/dev/null || true
+```
+
+### Select specialists
+
+Based on the scope signals above, select which specialists to dispatch.
+
+**Always-on (dispatch on every review with 50+ changed lines):**
+1. **Testing** — read `$GSTACK_ROOT/review/specialists/testing.md`
+2. **Maintainability** — read `$GSTACK_ROOT/review/specialists/maintainability.md`
+
+**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to the Fix-First flow (item 4).
+
+**Conditional (dispatch if the matching scope signal is true):**
+3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `$GSTACK_ROOT/review/specialists/security.md`
+4. **Performance** — if SCOPE_BACKEND=true OR SCOPE_FRONTEND=true. Read `$GSTACK_ROOT/review/specialists/performance.md`
+5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read `$GSTACK_ROOT/review/specialists/data-migration.md`
+6. **API Contract** — if SCOPE_API=true. Read `$GSTACK_ROOT/review/specialists/api-contract.md`
+7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `$GSTACK_ROOT/review/design-checklist.md`
+
+### Adaptive gating
+
+After scope-based selection, apply adaptive gating based on specialist hit rates:
+
+For each conditional specialist that passed scope gating, check the `gstack-specialist-stats` output above:
+- If tagged `[GATE_CANDIDATE]` (0 findings in 10+ dispatches): skip it. Print: "[specialist] auto-gated (0 findings in N reviews)."
+- If tagged `[NEVER_GATE]`: always dispatch regardless of hit rate. Security and data-migration are insurance policy specialists — they should run even when silent.
+
+**Force flags:** If the user's prompt includes `--security`, `--performance`, `--testing`, `--maintainability`, `--data-migration`, `--api-contract`, `--design`, or `--all-specialists`, force-include that specialist regardless of gating.
+
+Note which specialists were selected, gated, and skipped. Print the selection:
+"Dispatching N specialists: [names]. Skipped: [names] (scope not detected). Gated: [names] (0 findings in N+ reviews)."
+
+---
+
+### Dispatch specialists in parallel
+
+For each selected specialist, launch an independent read-only reviewer with the
+native `spawn_agent` tool. Dispatch up to the currently available concurrency
+limit before waiting; if more specialists were selected, start the remainder as
+earlier reviewers finish. Use `wait_agent` to wait for mailbox updates and
+`list_agents` when you need to confirm which reviewers are still running.
+
+Each call uses:
+- `task_name`: a short unique name such as `review_testing`
+- `fork_turns: "none"` so the reviewer starts without the primary agent's review bias
+- `message`: the complete specialist prompt below, including the checklist text
+
+**Each specialist subagent prompt:**
+
+Construct the prompt for each specialist. The prompt includes:
+
+1. The specialist's checklist content (you already read the file above)
+2. Stack context: "This is a {STACK} project."
+3. Past learnings for this domain (if any exist):
+
+```bash
+$GSTACK_BIN/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
+```
+
+If learnings are found, include them: "Past learnings for this domain: {learnings}"
+
+4. Instructions:
+
+"You are a specialist code reviewer. This is a read-only review. Do not modify
+files, run formatters, commit, push, or create a PR. Read the checklist below,
+then run `DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"`
+to get the full diff. Apply the checklist against the diff.
+
+For each finding, output a JSON object on its own line:
+{"severity":"CRITICAL|INFORMATIONAL","confidence":N,"path":"file","line":N,"category":"category","summary":"description","fix":"recommended fix","fingerprint":"path:line:category","specialist":"name"}
+
+Required fields: severity, confidence, path, category, summary, specialist.
+Optional: line, fix, fingerprint, evidence, test_stub.
+
+If you can write a test that would catch this issue, include a minimal skeleton
+in `test_stub` using {TEST_FW}. Skip test_stub for architectural or design-only
+findings. If there are no findings, output `NO FINDINGS` and nothing else.
+Do not output a preamble, summary, or commentary.
+
+Stack context: {STACK}
+Past learnings: {learnings or 'none'}
+
+CHECKLIST:
+{checklist content}"
+
+Collect each completed agent's final response before Step 9.2.
+If a specialist fails or times out, report that reviewer as missing coverage and
+continue with successful results. If native agent tools are unavailable, say so
+explicitly and apply the selected checklists sequentially in the primary agent.
+
+---
+
+### Step 9.2: Collect and merge findings
+
+After all specialist subagents complete, collect their outputs.
+
+**Parse findings:**
+For each specialist's output:
+1. If output is "NO FINDINGS" — skip, this specialist found nothing
+2. Otherwise, parse each line as a JSON object. Skip lines that are not valid JSON.
+3. Collect all parsed findings into a single list, tagged with their specialist name.
+
+**Fingerprint and deduplicate:**
+For each finding, compute its fingerprint:
+- If `fingerprint` field is present, use it
+- Otherwise: `{path}:{line}:{category}` (if line is present) or `{path}:{category}`
+
+Group findings by fingerprint. For findings sharing the same fingerprint:
+- Keep the finding with the highest confidence score
+- Tag it: "MULTI-SPECIALIST CONFIRMED ({specialist1} + {specialist2})"
+- Boost confidence by +1 (cap at 10)
+- Note the confirming specialists in the output
+
+**Apply confidence gates:**
+- Confidence 7+: show normally in the findings output
+- Confidence 5-6: show with caveat "Medium confidence — verify this is actually an issue"
+- Confidence 3-4: move to appendix (suppress from main findings)
+- Confidence 1-2: suppress entirely
+
+**Compute PR Quality Score:**
+After merging, compute the quality score:
+`quality_score = max(0, 10 - (critical_count * 2 + informational_count * 0.5))`
+Cap at 10. Log this in the review result at the end.
+
+**Output merged findings:**
+Present the merged findings in the same format as the current review:
+
+```
+SPECIALIST REVIEW: N findings (X critical, Y informational) from Z specialists
+
+[For each finding, in order: CRITICAL first, then INFORMATIONAL, sorted by confidence descending]
+[SEVERITY] (confidence: N/10, specialist: name) path:line — summary
+  Fix: recommended fix
+  [If MULTI-SPECIALIST CONFIRMED: show confirmation note]
+
+PR Quality Score: X/10
+```
+
+These findings flow into the Fix-First flow (item 4) alongside the checklist pass (Step 9).
+The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification.
+
+**Compile per-specialist stats:**
+After merging findings, compile a `specialists` object for the review-log persist.
+For each specialist (testing, maintainability, security, performance, data-migration, api-contract, design, red-team):
+- If dispatched: `{"dispatched": true, "findings": N, "critical": N, "informational": N}`
+- If skipped by scope: `{"dispatched": false, "reason": "scope"}`
+- If skipped by gating: `{"dispatched": false, "reason": "gated"}`
+- If not applicable (e.g., red-team not activated): omit from the object
+
+Include the Design specialist even though it uses `design-checklist.md` instead of the specialist schema files.
+Remember these stats — you will need them for the review-log entry in Step 5.8.
+
+---
+
+### Red Team dispatch (conditional)
+
+**Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
+
+If activated, dispatch one more read-only reviewer with `spawn_agent` (`fork_turns: "none"`), then wait for its final response with `wait_agent`.
+
+The Red Team subagent receives:
+1. The red-team checklist from `$GSTACK_ROOT/review/specialists/red-team.md`
+2. The merged specialist findings from Step 9.2 (so it knows what was already caught)
+3. The git diff command
+
+Prompt: "You are a red team reviewer. This is a read-only review. Do not modify files, run formatters, commit, push, or create a PR. The code has already been reviewed by N specialists
+who found the following issues: {merged findings summary}. Your job is to find what they
+MISSED. Read the checklist, run `DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"`, and look for gaps.
+Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
+concerns, integration boundary issues, and failure modes that specialist checklists
+don't cover."
+
+If the Red Team finds additional issues, merge them into the findings list before
+the Fix-First flow (item 4). Red Team findings are tagged with `"specialist":"red-team"`.
+
+If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
+If the Red Team subagent fails or times out, report it as missing coverage and continue.
 
 ### Step 9.3: Cross-review finding dedup
 
@@ -2212,7 +2421,7 @@ Save the review output — it goes into the PR body in Step 19.
 
 ## Step 10: Address Greptile review comments (if PR exists)
 
-**Dispatch the fetch + classification as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent pulls every Greptile comment, runs the escalation detection algorithm, and classifies each comment. Parent receives a structured list and handles user interaction + file edits.
+**Dispatch the fetch + classification as a subagent** using the native `spawn_agent` tool with `fork_turns: "none"`; wait for its final response with `wait_agent`. The subagent pulls every Greptile comment, runs the escalation detection algorithm, and classifies each comment. Parent receives a structured list and handles user interaction + file edits.
 
 **Subagent prompt:**
 
@@ -2260,7 +2469,135 @@ For each comment in `comments`:
 
 ---
 
+## Step 11: Adversarial review (Claude Sonnet outside voice, always-on)
 
+This session is already running under Codex. Do not launch nested `codex exec`
+or `codex review` processes: that is the same model reviewing itself at multiplied
+token cost. Instead, run an independent Claude Sonnet pass. This is separate from
+the Codex-native Review Army and runs for every diff, including small changes.
+
+Use the installed Claude CLI as a tool-less subprocess. Do not create a separate
+Conductor session. Do not infer authentication state from credential files; only
+report an authentication problem when the actual invocation returns one.
+
+```bash
+PROMPT_FILE=$(mktemp /tmp/gstack-claude-adversarial-prompt-XXXXXX)
+RESP_FILE=$(mktemp /tmp/gstack-claude-adversarial-response-XXXXXX)
+ERR_FILE=$(mktemp /tmp/gstack-claude-adversarial-error-XXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+DIFF_BASE=$(git merge-base origin/<base> HEAD)
+
+cat > "$PROMPT_FILE" <<'EOF'
+You are an adversarial Claude Code reviewer. This is an authorized defensive
+review of the maintainer's own repository before merge. Try to break this change
+before users do. Find edge cases, race conditions, security holes, resource leaks,
+silent data corruption, logic errors, swallowed failures, and trust-boundary
+violations. Be thorough and direct. No compliments.
+
+Fixture and test files are the project's own regression corpus. They are included
+below in summary form only; do not invent or expand exploit payloads from them.
+State explicitly that fixtures were reviewed in summary mode.
+
+For every finding, classify it as FIXABLE (the correction is clear) or INVESTIGATE
+(human judgment or more evidence is required). Reference changed files and lines
+where possible. End with exactly one line in this format:
+Recommendation: <action> because <specific strongest finding or no-fix rationale>
+
+CHANGED FILES:
+EOF
+git diff --name-status "$DIFF_BASE" >> "$PROMPT_FILE"
+cat >> "$PROMPT_FILE" <<'EOF'
+
+NON-FIXTURE SOURCE DIFF:
+EOF
+git diff "$DIFF_BASE" -- . ':(exclude)*test*' ':(exclude)*fixture*' ':(exclude)*.spec.*' >> "$PROMPT_FILE"
+cat >> "$PROMPT_FILE" <<'EOF'
+
+FIXTURE/TEST SUMMARY:
+EOF
+git diff --stat "$DIFF_BASE" -- '*test*' '*fixture*' '*.spec.*' >> "$PROMPT_FILE" || true
+
+CLAUDE_BIN=$(command -v claude 2>/dev/null || true)
+CLAUDE_EXIT=0
+if [ -z "$CLAUDE_BIN" ]; then
+  echo "Claude Sonnet outside voice unavailable: Claude CLI not installed. Missing adversarial coverage."
+elif command -v gtimeout >/dev/null 2>&1; then
+  gtimeout 540 "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence < "$PROMPT_FILE" > "$RESP_FILE" 2> "$ERR_FILE" || CLAUDE_EXIT=$?
+elif command -v timeout >/dev/null 2>&1; then
+  timeout 540 "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence < "$PROMPT_FILE" > "$RESP_FILE" 2> "$ERR_FILE" || CLAUDE_EXIT=$?
+else
+  "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence < "$PROMPT_FILE" > "$RESP_FILE" 2> "$ERR_FILE" || CLAUDE_EXIT=$?
+fi
+
+if [ -n "$CLAUDE_BIN" ]; then
+  if [ "$CLAUDE_EXIT" -eq 124 ]; then
+    echo "Claude Sonnet exceeded 9 minutes and was terminated. Missing adversarial coverage."
+  elif grep -Eiq 'auth|login|unauthorized|API key' "$ERR_FILE"; then
+    echo "Claude authentication failed. Run claude interactively to authenticate. Missing adversarial coverage."
+    sed -n '1,20p' "$ERR_FILE"
+  elif [ "$CLAUDE_EXIT" -ne 0 ]; then
+    echo "Claude Sonnet outside voice failed (exit $CLAUDE_EXIT). Missing adversarial coverage."
+    sed -n '1,40p' "$ERR_FILE"
+  elif [ ! -s "$RESP_FILE" ]; then
+    echo "Claude Sonnet returned no response. Missing adversarial coverage."
+    sed -n '1,40p' "$ERR_FILE"
+  else
+    PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+    if [ -z "$PYTHON_CMD" ]; then
+      echo "Claude JSON parser unavailable; raw response follows:"
+      cat "$RESP_FILE"
+    else
+      "$PYTHON_CMD" - "$RESP_FILE" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    obj = json.load(open(path))
+except Exception as exc:
+    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}. Missing adversarial coverage.")
+    print(open(path, errors="replace").read())
+    raise SystemExit(0)
+if not isinstance(obj, dict):
+    print(f"CLAUDE_JSON_PARSE_ERROR: expected an object, got {type(obj).__name__}. Missing adversarial coverage.")
+    print(open(path, errors="replace").read())
+    raise SystemExit(0)
+result = obj.get("result") or obj.get("response") or ""
+if obj.get("is_error"):
+    print("CLAUDE_ERROR: Claude returned an error response. Missing adversarial coverage.")
+    if result:
+        print(result)
+    raise SystemExit(0)
+print(result if result else "Claude returned an empty result. Missing adversarial coverage.")
+usage = obj.get("usage") or {}
+if not isinstance(usage, dict):
+    usage = {}
+print(f"\nTokens: input={usage.get('input_tokens', 0) or 0} output={usage.get('output_tokens', 0) or 0} | Model: {obj.get('model') or 'sonnet'}")
+PY
+    fi
+  fi
+fi
+rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
+```
+
+Set the Bash tool timeout to `600000` (10 minutes), above the subprocess's 540s
+limit. Present a successful response under `ADVERSARIAL REVIEW (Claude Sonnet
+outside voice):`. FIXABLE findings flow into the Fix-First flow (item 4); INVESTIGATE findings
+are informational. A failed pass is missing coverage, never a clean bill of health.
+
+If the Sonnet pass produced a result, persist it after fixes are classified:
+
+```bash
+$GSTACK_BIN/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"claude-sonnet","tier":"always","gate":"informational","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+
+Substitute STATUS = `clean` only when Sonnet completed and found no issues;
+otherwise use `issues_found`. Do not persist when the pass produced no review.
+
+Synthesize the primary Codex review, Review Army findings (when dispatched), and
+Claude Sonnet findings. Agreement across Codex and Sonnet is high confidence;
+unique findings retain their original confidence and classification.
+
+---
 
 ## Capture Learnings
 
@@ -2682,7 +3019,7 @@ git push -u origin <branch-name>
 
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
-**Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
+**Dispatch /document-release as a subagent** using the native `spawn_agent` tool with `fork_turns: "none"`; wait for its final response with `wait_agent`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
 
 **Sequencing:** This step runs AFTER Step 17 (Push) and BEFORE Step 19 (Create PR). The PR is created once from final HEAD with the `## Documentation` section baked into the initial body. No create-then-re-edit dance.
 

@@ -1752,11 +1752,17 @@ If `CODEX_MODE` is `ready`:
 ```bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+_CODEX_REVIEW_SPEED=$(~/.claude/skills/gstack/bin/gstack-config get codex_review_speed 2>/dev/null || echo fast)
+case "$_CODEX_REVIEW_SPEED" in
+  fast) _CODEX_REVIEW_SPEED_ARGS=(-c 'service_tier="fast"') ;;
+  standard) _CODEX_REVIEW_SPEED_ARGS=() ;;
+  *) echo "Unknown codex_review_speed=$_CODEX_REVIEW_SPEED; defaulting to fast." >&2; _CODEX_REVIEW_SPEED_ARGS=(-c 'service_tier="fast"') ;;
+esac
 # Shell functions do not survive between Bash blocks, so re-source the probe
 # here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
 # unwrapped fallback), added in #1056 but never wired into this call site.
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR_ADV"
+_gstack_codex_timeout_wrapper 540 codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' "${_CODEX_REVIEW_SPEED_ARGS[@]}" < /dev/null 2>"$TMPERR_ADV"
 ```
 
 Set the Bash tool's `timeout` parameter to `600000` (10 minutes). It sits ABOVE the 540s wrapper deliberately, so the wrapper fires first and a stall surfaces as a diagnosable exit 124 instead of a harness kill that returns nothing. The wrapper resolves `gtimeout`, then `timeout`, then runs unwrapped, so it is safe on a macOS without coreutils. After the command completes, read stderr:
@@ -1785,11 +1791,17 @@ If `DIFF_TOTAL >= 200` AND `CODEX_MODE` is `ready`:
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
+_CODEX_REVIEW_SPEED=$(~/.claude/skills/gstack/bin/gstack-config get codex_review_speed 2>/dev/null || echo fast)
+case "$_CODEX_REVIEW_SPEED" in
+  fast) _CODEX_REVIEW_SPEED_ARGS=(-c 'service_tier="fast"') ;;
+  standard) _CODEX_REVIEW_SPEED_ARGS=() ;;
+  *) echo "Unknown codex_review_speed=$_CODEX_REVIEW_SPEED; defaulting to fast." >&2; _CODEX_REVIEW_SPEED_ARGS=(-c 'service_tier="fast"') ;;
+esac
 # Shell functions do not survive between Bash blocks, so re-source the probe
 # here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
 # unwrapped fallback), added in #1056 but never wired into this call site.
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex review --base <base> -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 540 codex review --base <base> -c 'model_reasoning_effort="high"' -c 'web_search="cached"' "${_CODEX_REVIEW_SPEED_ARGS[@]}" < /dev/null 2>"$TMPERR"
 ```
 
 **No prompt argument.** `--base` is what scopes the review, and the positional `[PROMPT]` is mutually exclusive with it — passing both fails at argv parsing. Do NOT "fix" that error by dropping `--base` and keeping the prompt: a prompt-only `codex review` silently falls back to the **uncommitted working-tree** scope (`git status --short; git diff`), so it reviews the wrong changes and reports "no changes" on a clean tree. Prompt text describing the diff range does not change what the CLI feeds the reviewer. Unlike the adversarial pass above, which uses `codex exec` and really does run the git command it's told to, this path gets a pre-computed diff from the CLI — which is also why it needs no filesystem boundary.
