@@ -44,6 +44,8 @@ function makeEnv(opts: {
   withGbrain: boolean;
   gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "slow";
   withConfig: boolean;
+  thinClient?: boolean;
+  version?: string;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sync-skip-"));
   const bindir = join(tmp, "bin");
@@ -59,7 +61,9 @@ function makeEnv(opts: {
   if (opts.withConfig) {
     writeFileSync(
       join(gbrainDir, "config.json"),
-      JSON.stringify({ engine: "pglite", database_url: "pglite:///fake" }),
+      JSON.stringify(opts.thinClient
+        ? { remote_mcp: { url: "https://brain.example.test/mcp" } }
+        : { engine: "pglite", database_url: "pglite:///fake" }),
     );
   }
 
@@ -85,7 +89,7 @@ function makeEnv(opts: {
             }
   exit 1`;
     const fake = `#!/bin/sh
-if [ "$1" = "--version" ]; then echo "gbrain 0.33.1.0"; exit 0; fi
+if [ "$1" = "--version" ]; then echo "${opts.version || "gbrain 0.42.14.0"}"; exit 0; fi
 if [ "$1 $2" = "sources list" ]; then
 ${sourcesBlock}
 fi
@@ -195,6 +199,25 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
       // Crucial: NOT the legacy "source registration failed" error path that
       // existed before this fix (codex #2 STOP-vs-SKIP consistency).
       expect(r.stdout + r.stderr).not.toContain("source registration failed");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("does not apply the local call-graph version floor to a thin client", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "broken-db",
+      withConfig: true,
+      thinClient: true,
+      version: "gbrain 0.41.0.0",
+    });
+    try {
+      const r = runOrchestrator(env, ["--full", "--no-memory", "--no-brain-sync"]);
+      const out = r.stdout + r.stderr;
+      expect(r.exitCode).toBe(0);
+      expect(out).toContain("local engine thin-client");
+      expect(out).not.toContain("call-graph backfill requires gbrain");
     } finally {
       env.cleanup();
     }

@@ -1,12 +1,12 @@
 /**
  * Tests for the dream (call-graph build) stage of bin/gstack-gbrain-sync.ts.
  *
- * We deliberately do NOT exercise the real `gbrain dream` spawn here — that's a
- * ~35-min brain-global job and must never run in CI. Instead we cover:
+ * We deliberately do NOT exercise a real GBrain backfill in CI. Instead we cover:
  *   1. shouldRunDream() — the pure gate matrix (issues 1/2/4). Highest-risk logic.
  *   2. runDream() dry-run — returns a preview before any engine probe / spawn.
  *   3. Dream marker (acquire/release/stale-takeover) — the concurrency guard.
- *   4. CLI gate wiring via --dry-run subprocess (safe: dry-run never spawns dream).
+ *   4. Exact-source output parsing and bounded-pass continuation decisions.
+ *   5. CLI gate wiring via --dry-run subprocess (safe: dry-run never backfills).
  *
  * The live spawn + lock-free ordering + serialization are covered by the manual
  * E2E verification in the plan (running the orchestrator against a real brain),
@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, existsSync, writeFileSync, utimesSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, utimesSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -25,10 +25,15 @@ import {
   acquireDreamMarker,
   releaseDreamMarker,
   dreamMarkerPath,
-  classifyDreamOutcome,
-  parseResolvedEdges,
+  parseEdgeBackfillSummary,
+  parseCallGraphReadiness,
+  nextCallGraphPass,
+  isGbrainCallGraphVersionSupported,
+  MIN_GBRAIN_CALL_GRAPH_VERSION,
   formatStage,
   type CliArgs,
+  type EdgeBackfillSummary,
+  type CallGraphReadiness,
 } from "../bin/gstack-gbrain-sync";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
@@ -61,11 +66,11 @@ describe("shouldRunDream — gate matrix", () => {
     expect(shouldRunDream(args({ dream: true, noCode: true }), null)).toBe(true);
   });
 
-  it("--full auto-runs ONLY when the cycle was never built", () => {
+  it("--full always backfills after reindex regardless of old cycle freshness", () => {
     expect(shouldRunDream(args({ mode: "full" }), "never")).toBe(true);
-    expect(shouldRunDream(args({ mode: "full" }), "completed")).toBe(false);
-    expect(shouldRunDream(args({ mode: "full" }), "unknown")).toBe(false);
-    expect(shouldRunDream(args({ mode: "full" }), null)).toBe(false);
+    expect(shouldRunDream(args({ mode: "full" }), "completed")).toBe(true);
+    expect(shouldRunDream(args({ mode: "full" }), "unknown")).toBe(true);
+    expect(shouldRunDream(args({ mode: "full" }), null)).toBe(true);
   });
 
   it("--full + --no-dream never auto-runs", () => {
@@ -82,54 +87,102 @@ describe("shouldRunDream — gate matrix", () => {
   });
 });
 
+describe("GBrain call-graph version floor", () => {
+  it("accepts the readiness release and newer 3/4-part stable versions", () => {
+    expect(MIN_GBRAIN_CALL_GRAPH_VERSION).toBe("0.42.14");
+    expect(isGbrainCallGraphVersionSupported("gbrain 0.42.14.0")).toBe(true);
+    expect(isGbrainCallGraphVersionSupported("v0.42.14")).toBe(true);
+    expect(isGbrainCallGraphVersionSupported("gbrain0.46.24.0")).toBe(true);
+    expect(isGbrainCallGraphVersionSupported("1.0.0")).toBe(true);
+  });
+
+  it("rejects older, prerelease, malformed, and missing versions", () => {
+    expect(isGbrainCallGraphVersionSupported("gbrain 0.42.13.9")).toBe(false);
+    expect(isGbrainCallGraphVersionSupported("0.41.99")).toBe(false);
+    expect(isGbrainCallGraphVersionSupported("0.42.14-alpha")).toBe(false);
+    expect(isGbrainCallGraphVersionSupported("unknown")).toBe(false);
+    expect(isGbrainCallGraphVersionSupported("")).toBe(false);
+  });
+});
+
 describe("runDream — dry-run preview", () => {
   it("returns a 'would' preview without spawning (ran=false, ok=true)", async () => {
     const r = await runDream(args({ mode: "dry-run", dream: true }));
     expect(r.name).toBe("dream");
     expect(r.ran).toBe(false);
     expect(r.ok).toBe(true);
-    expect(r.summary).toContain("would: gbrain dream");
+    expect(r.summary).toContain("would: gbrain edges-backfill");
   });
 });
 
 describe("dream marker — concurrency guard", () => {
   const saved = process.env.GSTACK_HOME;
+  const savedStateRoot = process.env.GSTACK_STATE_ROOT;
+  const savedHome = process.env.HOME;
+  const sourceA = "gstack-code-acme-a-11111111";
+  const sourceB = "gstack-code-acme-b-22222222";
   let tmp: string;
 
   afterEach(() => {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
     if (saved === undefined) delete process.env.GSTACK_HOME;
     else process.env.GSTACK_HOME = saved;
+    if (savedStateRoot === undefined) delete process.env.GSTACK_STATE_ROOT;
+    else process.env.GSTACK_STATE_ROOT = savedStateRoot;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
   });
 
   function redirectHome(): void {
     tmp = mkdtempSync(join(tmpdir(), "gbrain-dream-marker-"));
     process.env.GSTACK_HOME = tmp;
+    process.env.GSTACK_STATE_ROOT = join(tmp, "portable-metadata");
+    process.env.HOME = tmp;
   }
 
   it("acquire creates the marker; a second acquire on a fresh marker fails", () => {
     redirectHome();
-    expect(acquireDreamMarker()).toBe(true);
-    expect(existsSync(dreamMarkerPath())).toBe(true);
+    expect(acquireDreamMarker(sourceA)).toBe(true);
+    expect(existsSync(dreamMarkerPath(sourceA))).toBe(true);
+    expect(dreamMarkerPath(sourceA).startsWith(process.env.GSTACK_HOME!)).toBe(true);
+    expect(dreamMarkerPath(sourceA).startsWith(process.env.GSTACK_STATE_ROOT!)).toBe(false);
     // Fresh marker present → a concurrent worktree must NOT launch a duplicate.
-    expect(acquireDreamMarker()).toBe(false);
+    expect(acquireDreamMarker(sourceA)).toBe(false);
+  });
+
+  it("serializes different sources on one PGLite engine", () => {
+    redirectHome();
+    mkdirSync(join(tmp, ".gbrain"), { recursive: true });
+    writeFileSync(join(tmp, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite" }));
+    expect(acquireDreamMarker(sourceA)).toBe(true);
+    expect(acquireDreamMarker(sourceB)).toBe(false);
+    expect(dreamMarkerPath(sourceA)).toBe(dreamMarkerPath(sourceB));
+  });
+
+  it("allows different sources to backfill concurrently on Postgres", () => {
+    redirectHome();
+    mkdirSync(join(tmp, ".gbrain"), { recursive: true });
+    writeFileSync(join(tmp, ".gbrain", "config.json"), JSON.stringify({ engine: "postgres" }));
+    expect(acquireDreamMarker(sourceA)).toBe(true);
+    expect(acquireDreamMarker(sourceB)).toBe(true);
+    expect(dreamMarkerPath(sourceA)).not.toBe(dreamMarkerPath(sourceB));
   });
 
   it("release removes the marker (same pid)", () => {
     redirectHome();
-    expect(acquireDreamMarker()).toBe(true);
-    releaseDreamMarker();
-    expect(existsSync(dreamMarkerPath())).toBe(false);
+    expect(acquireDreamMarker(sourceA)).toBe(true);
+    releaseDreamMarker(sourceA);
+    expect(existsSync(dreamMarkerPath(sourceA))).toBe(false);
   });
 
   it("a stale marker (older than TTL) is taken over", () => {
     redirectHome();
     // Plant a marker with an mtime ~46 min in the past (TTL is 45 min).
-    const path = dreamMarkerPath();
+    const path = dreamMarkerPath(sourceA);
     writeFileSync(path, JSON.stringify({ pid: 999999, started_at: "old" }));
     const old = new Date(Date.now() - 46 * 60 * 1000);
     utimesSync(path, old, old);
-    expect(acquireDreamMarker()).toBe(true); // takeover
+    expect(acquireDreamMarker(sourceA)).toBe(true); // takeover
     expect(existsSync(path)).toBe(true);
   });
 });
@@ -148,113 +201,151 @@ describe("CLI gate wiring (dry-run subprocess — never spawns a real dream)", (
     return (r.stdout || "") + (r.stderr || "");
   }
 
-  it("--dry-run --dream shows the dream preview row", () => {
-    expect(run(["--dream"])).toContain("would: gbrain dream");
+  it("--dry-run --dream shows the source-scoped backfill preview row", () => {
+    expect(run(["--dream"])).toContain("would: gbrain edges-backfill");
   });
 
   it("plain --dry-run (incremental) omits the dream row", () => {
-    expect(run([])).not.toContain("would: gbrain dream");
+    expect(run([])).not.toContain("would: gbrain edges-backfill");
   });
 });
 
-// Canned `gbrain dream` cycle logs (verbatim shapes observed against a real
-// 0.41.x brain). These let us test the post-flight guard WITHOUT a real cycle.
-const LOG = {
-  // #2341: the DEFAULT base packs legitimately skip the CONTENT phases
-  // (extract_atoms, synthesize_concepts) while resolve_symbol_edges still runs
-  // — gbrain's only emitters of "does not declare this phase" are those
-  // content phases, so the bare-phrase match fired on EVERY base-pack brain
-  // and told users to churn schema packs for nothing. This shape (content
-  // phase undeclared, resolver ran, resolved 0) must classify as the 0-edge
-  // outcome, not the pack-capability one.
-  basePackZeroEdges:
-    "[cycle.extract] done\n" +
-    "  - extract_atoms  extract_atoms: active pack does not declare this phase\n" +
-    "[cycle.resolve_symbol_edges] start\n" +
-    "[cycle.resolve_symbol_edges] done\n" +
-    "  ✓ resolve_symbol_edges  3864 chunk(s) walked; resolved 0, ambiguous 0, unmatched 0\n" +
-    "  totals: extracted=0 embedded=1\n",
-  // #2341 headline shape: base pack skips content phases AND the graph built
-  // fine — a healthy run that used to WARN.
-  basePackBuiltEdges:
-    "  - extract_atoms  extract_atoms: active pack does not declare this phase\n" +
-    "  ✓ resolve_symbol_edges  6001 chunk(s) walked; resolved 42, ambiguous 0, unmatched 0\n" +
-    "  - synthesize_concepts  synthesize_concepts: active pack does not declare this phase\n",
-  // The GRAPH phase itself is undeclared: the one shape where the
-  // pack-capability WARN is the right diagnosis.
-  graphPhaseUndeclared:
-    "  - resolve_symbol_edges  resolve_symbol_edges: active pack does not declare this phase\n" +
-    "  totals: extracted=0 embedded=1\n",
-  // Embed phase failed for a missing key (isolated: no pack-capability line).
-  embedFailed:
-    "[cycle.embed] start\n" +
-    "[cycle.embed] done\n" +
-    "  ✗ embed       embed phase failed\n" +
-    '      [LLMError/UNKNOWN] Embedding model "openai:text-embedding-3-large" requires OPENAI_API_KEY.\n' +
-    "  totals: extracted=0 embedded=0\n",
-  // Cycle ran clean but matched zero edges (no other failure signal).
-  zeroEdges:
-    "  ✓ resolve_symbol_edges  120 chunk(s) walked; resolved 0, ambiguous 0, unmatched 0\n",
-  // Happy path: edges resolved.
-  builtEdges:
-    "  ✓ resolve_symbol_edges  500 chunk(s) walked; resolved 42, ambiguous 3, unmatched 1\n",
-  // Old gbrain / different pack: no resolve_symbol_edges summary line at all.
-  noEdgeLine: "[cycle.lint] done\n[cycle.sync] done\n  totals: lint=53\n",
-};
+describe("skill readiness source custody", () => {
+  it("passes the portable state root from the skill to the orchestrator writer", () => {
+    const template = readFileSync(join(import.meta.dir, "..", "sync-gbrain", "SKILL.md.tmpl"), "utf-8");
+    const runStep = template.slice(
+      template.indexOf("## Step 2: Run the orchestrator"),
+      template.indexOf("## Step 3: Code-index health check"),
+    );
+    expect(runStep).toContain('eval "$(~/.claude/skills/gstack/bin/gstack-paths)"');
+    expect(runStep).toContain('GSTACK_STATE_ROOT="$GSTACK_STATE_ROOT"');
+  });
 
-describe("parseResolvedEdges", () => {
-  it("reads the resolved count from the ✓ summary line", () => {
-    expect(parseResolvedEdges(LOG.builtEdges)).toBe(42);
-    expect(parseResolvedEdges(LOG.zeroEdges)).toBe(0);
+  it("resolves code-index state through the portable root for this repository", () => {
+    const template = readFileSync(join(import.meta.dir, "..", "sync-gbrain", "SKILL.md.tmpl"), "utf-8");
+    const healthCheck = template.slice(
+      template.indexOf("## Step 3: Code-index health check"),
+      template.indexOf("## Step 3.5: Call-graph health check"),
+    );
+    expect(healthCheck).toContain('eval "$(~/.claude/skills/gstack/bin/gstack-paths)"');
+    expect(healthCheck).toContain('.name=="code" and .detail.source_path==$path');
+    expect(healthCheck).toContain('"$GSTACK_STATE_ROOT/.gbrain-sync-state.json"');
+    expect(healthCheck).not.toContain("~/.gstack/.gbrain-sync-state.json");
   });
-  it("returns null when there is no resolve_symbol_edges summary", () => {
-    expect(parseResolvedEdges(LOG.noEdgeLine)).toBeNull();
-  });
-  it("does not match the bracketed [cycle.resolve_symbol_edges] marker lines", () => {
-    // Markers have no 'resolved N' on the same line, so they must not match.
-    const markersOnly = "[cycle.resolve_symbol_edges] start\n[cycle.resolve_symbol_edges] done\n";
-    expect(parseResolvedEdges(markersOnly)).toBeNull();
+
+  it("uses the persisted path-validated dream/code source, never a raw cwd pin", () => {
+    const template = readFileSync(join(import.meta.dir, "..", "sync-gbrain", "SKILL.md.tmpl"), "utf-8");
+    const healthCheck = template.slice(
+      template.indexOf("## Step 3.5: Call-graph health check"),
+      template.indexOf("## Step 4: Refresh"),
+    );
+    expect(healthCheck).toContain('.name=="dream" and .detail.source_path==$path');
+    expect(healthCheck).toContain('.name=="code" and .detail.source_path==$path');
+    expect(healthCheck).toContain('.detail.source_path==$path');
+    expect(healthCheck).toContain('eval "$(~/.claude/skills/gstack/bin/gstack-paths)"');
+    expect(healthCheck).toContain('"$GSTACK_STATE_ROOT/.gbrain-sync-state.json"');
+    expect(healthCheck).not.toContain('${GSTACK_HOME:-$HOME/.gstack}');
+    expect(healthCheck).not.toContain("cat .gbrain-source");
   });
 });
 
-describe("classifyDreamOutcome — post-flight truth guard", () => {
-  it("base-pack content-phase skips classify as 0-edge, NOT pack-capability (#2341)", () => {
-    const w = classifyDreamOutcome(LOG.basePackZeroEdges);
-    expect(w).not.toBeNull();
-    expect(w).toContain("resolved 0");
-    expect(w).not.toContain("code-aware");
+const SOURCE_ID = "gstack-code-candor-eda9672b";
+
+function backfill(overrides: Partial<EdgeBackfillSummary> = {}): EdgeBackfillSummary {
+  return {
+    source_id: SOURCE_ID,
+    chunks_walked: 2000,
+    edges_resolved: 42,
+    edges_ambiguous: 3,
+    edges_unmatched: 7,
+    batches: 10,
+    ms: 500,
+    ...overrides,
+  };
+}
+
+function readiness(overrides: Partial<CallGraphReadiness> = {}): CallGraphReadiness {
+  return {
+    source_id: SOURCE_ID,
+    scope: "single",
+    count: 0,
+    status: "ready",
+    ready: true,
+    ...overrides,
+  };
+}
+
+describe("parseEdgeBackfillSummary — exact-source custody", () => {
+  it("accepts the one row for the requested source", () => {
+    const out = JSON.stringify({ schema_version: 1, summary: [backfill()] });
+    expect(parseEdgeBackfillSummary(out, SOURCE_ID)).toEqual(backfill());
   });
 
-  it("a healthy base-pack run with a built graph is clean (#2341 headline)", () => {
-    expect(classifyDreamOutcome(LOG.basePackBuiltEdges)).toBeNull();
+  it("rejects another source, multiple rows, malformed JSON, and invalid counters", () => {
+    expect(parseEdgeBackfillSummary(JSON.stringify({
+      summary: [backfill({ source_id: "other-source" })],
+    }), SOURCE_ID)).toBeNull();
+    expect(parseEdgeBackfillSummary(JSON.stringify({
+      summary: [backfill(), backfill({ source_id: "other-source" })],
+    }), SOURCE_ID)).toBeNull();
+    expect(parseEdgeBackfillSummary("not-json", SOURCE_ID)).toBeNull();
+    expect(parseEdgeBackfillSummary(JSON.stringify({
+      summary: [backfill({ chunks_walked: -1 })],
+    }), SOURCE_ID)).toBeNull();
+  });
+});
+
+describe("parseCallGraphReadiness — exact-source public signal", () => {
+  it("accepts a zero-result sentinel envelope that says the source is ready", () => {
+    expect(parseCallGraphReadiness(JSON.stringify(readiness()), SOURCE_ID)).toEqual(readiness());
   });
 
-  it("flags pack capability only when the GRAPH phase itself is undeclared", () => {
-    const w = classifyDreamOutcome(LOG.graphPhaseUndeclared);
-    expect(w).not.toBeNull();
-    expect(w).toContain("schema pack");
-    expect(w).toContain("code-aware");
+  it("rejects global, wrong-source, colliding-sentinel, and malformed evidence", () => {
+    expect(parseCallGraphReadiness(JSON.stringify({
+      ...readiness(),
+      scope: "all",
+    }), SOURCE_ID)).toBeNull();
+    expect(parseCallGraphReadiness(JSON.stringify({
+      ...readiness(),
+      source_id: "other-source",
+    }), SOURCE_ID)).toBeNull();
+    expect(parseCallGraphReadiness(JSON.stringify({
+      ...readiness(),
+      count: 1,
+    }), SOURCE_ID)).toBeNull();
+    expect(parseCallGraphReadiness("not-json", SOURCE_ID)).toBeNull();
+  });
+});
+
+describe("nextCallGraphPass — bounded official batching", () => {
+  it("stops only on source-scoped ready=true", () => {
+    expect(nextCallGraphPass(backfill(), readiness())).toBe("ready");
   });
 
-  it("flags a failed embed phase / missing embedding key", () => {
-    const w = classifyDreamOutcome(LOG.embedFailed);
-    expect(w).not.toBeNull();
-    expect(w).toContain("embed");
-    expect(w!.toLowerCase()).toContain("key");
+  it("continues indexing only when the official batch made progress", () => {
+    expect(nextCallGraphPass(
+      backfill({ chunks_walked: 2000 }),
+      readiness({ status: "indexing", ready: false }),
+    )).toBe("continue");
+    expect(nextCallGraphPass(
+      backfill({ chunks_walked: 0 }),
+      readiness({ status: "indexing", ready: false }),
+    )).toBe("stalled");
   });
 
-  it("flags a clean cycle that resolved 0 edges", () => {
-    const w = classifyDreamOutcome(LOG.zeroEdges);
-    expect(w).not.toBeNull();
-    expect(w).toContain("0 call-graph edges");
-  });
-
-  it("returns null on the happy path (edges resolved)", () => {
-    expect(classifyDreamOutcome(LOG.builtEdges)).toBeNull();
-  });
-
-  it("returns null when no recognizable signal is present (degrade to success)", () => {
-    expect(classifyDreamOutcome(LOG.noEdgeLine)).toBeNull();
+  it("fails closed on not-built, unknown, and contradictory readiness", () => {
+    expect(nextCallGraphPass(
+      backfill({ chunks_walked: 0 }),
+      readiness({ status: "not_built", ready: false }),
+    )).toBe("not_built");
+    expect(nextCallGraphPass(
+      backfill({ chunks_walked: 0 }),
+      readiness({ status: "unknown", ready: false }),
+    )).toBe("unknown");
+    expect(nextCallGraphPass(
+      backfill(),
+      readiness({ status: "indexing", ready: true }),
+    )).toBe("invalid");
   });
 });
 
