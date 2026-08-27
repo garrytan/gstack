@@ -56,7 +56,8 @@ describe('SKILL.md command validation', () => {
       expect(md).toContain('gstack-decision-search');
       expect(md).toContain("BIN_PATH='/absolute/path/from/preamble'");
       expect(md).toContain('GSTACK_INTERACTIVE=1 "$BIN_PATH/gstack-decision-search" --guided-history --query "$SAFE_TERMS"');
-      expect(md).toContain('Set the command-scoped `GSTACK_INTERACTIVE=1` capability only after');
+      expect(md).toContain('Set the command-scoped `GSTACK_INTERACTIVE=1` signal only after');
+      expect(md).toContain('cooperative defense-in-depth session');
       expect(md).toContain('--tokens --recent 3 --no-rebuild --semantic');
       expect(md).toContain("SAFE_TERMS='customer onboarding crm'");
       expect(md).toContain('Do not add an undeclared memory-skill dependency');

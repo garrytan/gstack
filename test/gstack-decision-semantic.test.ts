@@ -140,6 +140,51 @@ exit 1
     expect(fs.existsSync(path.join(homeDir, "sources-list-called"))).toBe(false);
   });
 
+  test("recovers a custom registered source when the fast derived id is stale", () => {
+    fs.mkdirSync(path.join(homeDir, ".gstack-brain-worktree"));
+    fs.writeFileSync(
+      path.join(homeDir, ".gstack-artifacts-remote.txt"),
+      "https://github.com/example/derived-artifacts.git\n",
+    );
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then
+  echo '{"sources":[{"id":"custom-memory","local_path":"${homeDir}/.gstack-brain-worktree"}]}'
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  if printf '%s ' "$@" | grep -q -- "--source derived-artifacts"; then exit 2; fi
+  printf '%s ' "$@" | grep -q -- "--source custom-memory" || exit 3
+  echo "[0.93] decisions/custom -- recovered custom source"
+  exit 0
+fi
+exit 1
+`,
+    );
+    const hits = semanticRecall("guided history", env());
+    expect(hits?.[0]).toMatchObject({ sourceId: "custom-memory", slug: "decisions/custom" });
+  });
+
+  test("ignores an ambient source override that is not the curated worktree", () => {
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then
+  echo '{"sources":[{"id":"code","local_path":"/repo"},{"id":"memory","local_path":"/u/.gstack-brain-worktree"}]}'
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  printf '%s ' "$@" | grep -q -- "--source memory" || exit 4
+  echo "[0.91] decisions/safe -- curated only"
+  exit 0
+fi
+exit 1
+`,
+    );
+    const hostileEnv = { ...env(), GSTACK_BRAIN_SOURCE_ID: "code" };
+    const hits = semanticRecall("guided history", hostileEnv);
+    expect(hits?.[0].sourceId).toBe("memory");
+  });
+
   test("degrades to null when no curated-memory source (no unscoped fallback)", () => {
     writeShim(
       `#!/usr/bin/env bash

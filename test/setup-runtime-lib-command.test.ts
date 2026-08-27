@@ -159,6 +159,16 @@ const HOST_ROOTS: Record<string, (sandbox: string) => { script: string; rootDir:
 // precedent in setup-windows-fallback.test.ts. The IS_WINDOWS=1 cells exercise
 // the Windows copy branch itself, which is plain `cp -R` and portable.
 describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibling lib from every host root', () => {
+  test('Codex stage path is recorded before creation for crash recovery', () => {
+    const source = extractFunction('create_codex_runtime_root');
+    const assign = source.indexOf('staged_gstack="$codex_parent/.gstack-stage.$lock_owner"');
+    const record = source.indexOf('> "$lock_dir/stage"', assign);
+    const create = source.indexOf('mkdir "$staged_gstack"', record);
+    expect(assign).toBeGreaterThan(-1);
+    expect(record).toBeGreaterThan(assign);
+    expect(create).toBeGreaterThan(record);
+    expect(source).not.toContain('mktemp -d "$codex_parent/.gstack-stage.XXXXXX"');
+  });
   for (const [host, buildScript] of Object.entries(HOST_ROOTS)) {
     test(`${host} root (symlink install): gstack-learnings-log imports ../lib and writes the learning`, () => {
       const r = buildRootAndRunCommand('0', buildScript);

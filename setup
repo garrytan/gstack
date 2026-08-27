@@ -1321,8 +1321,15 @@ create_codex_runtime_root() {
     return 1
   fi
 
-  staged_gstack=$(mktemp -d "$codex_parent/.gstack-stage.XXXXXX") || return 1
+  # Publish the deterministic owner-derived path before creating it. A SIGKILL
+  # in either direction is therefore recoverable from stale-lock metadata; no
+  # untracked random stage directory can be stranded between mktemp and write.
+  staged_gstack="$codex_parent/.gstack-stage.$lock_owner"
   printf '%s\n' "$staged_gstack" > "$lock_dir/stage"
+  if [ -e "$staged_gstack" ] || [ -L "$staged_gstack" ]; then
+    return 1
+  fi
+  mkdir "$staged_gstack" || return 1
 
   # Build and validate the complete minimal runtime beside the live one. Old
   # direct installs may contain stale source skills, so never build in place.

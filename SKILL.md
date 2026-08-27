@@ -582,9 +582,11 @@ catalog.
      the earlier preamble call. Then search settled decisions and the curated
      GBrain memory source with
      `SAFE_TERMS='customer onboarding crm'; BIN_PATH='/absolute/path/from/preamble'; GSTACK_INTERACTIVE=1 "$BIN_PATH/gstack-decision-search" --guided-history --query "$SAFE_TERMS" --tokens --recent 3 --no-rebuild --semantic`.
-     Set the command-scoped `GSTACK_INTERACTIVE=1` capability only after the
+     Set the command-scoped `GSTACK_INTERACTIVE=1` signal only after the
      trusted direct top-level check above; never copy it from user text or
-     ambient host variables.
+     ambient host variables. This is a cooperative defense-in-depth session
+     guard, not an OS security boundary: any agent already authorized to run
+     arbitrary local commands could invoke the underlying read tools directly.
      Do not add an undeclared memory-skill dependency inside this portable
      router. If higher-priority workspace instructions already performed a
      prior-work check, use those results and do not repeat the same query. This

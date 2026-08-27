@@ -17,8 +17,9 @@
  * empty it degrades silently to the reliable file results above. The reliable path
  * never loads gbrain code (the semantic module is imported lazily only here).
  * `--guided-history` additionally requires history_recall=true and the exact
- * invocation-scoped interactive capability; it is the root router's fail-closed
- * private-history surface, not a replacement for explicit user-directed reads.
+ * invocation-scoped interactive signal; it is the root router's fail-closed
+ * bounded read surface, not an OS security boundary or a replacement for
+ * explicit user-directed reads.
  */
 
 import { existsSync, statSync } from "fs";
@@ -58,19 +59,29 @@ if (slugRaw !== undefined && (!/^[a-zA-Z0-9._-]+$/.test(slugRaw) || slugRaw === 
   console.error("gstack-decision-search: --slug must use only letters, numbers, dot, underscore, or hyphen");
   process.exit(1);
 }
-const slug = slugRaw || resolveSlug(`${HERE}/gstack-slug`, { noCacheWrite: noRebuild });
-const paths = decisionPaths(slug);
 
 // A present query flag with no usable value is a fail-closed read, not an
 // accidental request to print the entire active decision snapshot.
 if (queryFlagPresent && !queryRaw?.trim()) process.exit(0);
 
 // Guided recall is a privacy-sensitive read surface. Require both the persisted
-// user opt-in and an invocation-scoped interactive capability. The root router
-// sets GSTACK_INTERACTIVE=1 only after its trusted top-level-context gate; CI,
-// inherited host markers, and ordinary direct bin calls fail closed.
+// user opt-in and the router's invocation-scoped interactive signal. Also pin
+// the complete argument shape here so prompt drift cannot turn this into a full
+// history scan, a state-rebuilding read, or an unbounded/raw query.
 if (guidedHistory) {
-  if (asJson) process.exit(0);
+  const guidedQueryIsSafe = queryRaw !== undefined &&
+    queryRaw.length <= 160 &&
+    queryRaw === queryRaw.trim().toLowerCase() &&
+    /^[a-z0-9]+(?:-[a-z0-9]+)*(?: [a-z0-9]+(?:-[a-z0-9]+)*){2,7}$/.test(queryRaw);
+  const exactlyOne = (flag: string) => args.filter((arg) => arg === flag).length === 1;
+  const guidedShapeIsSafe = args.length === 8 &&
+    exactlyOne("--guided-history") && exactlyOne("--query") &&
+    exactlyOne("--tokens") && exactlyOne("--recent") &&
+    exactlyOne("--no-rebuild") && exactlyOne("--semantic") &&
+    recentRaw === "3" && tokenized && noRebuild && semantic &&
+    !showAll && !asJson && slugRaw === undefined && scope === undefined &&
+    !args.includes("--branch") && !args.includes("--issue");
+  if (!guidedQueryIsSafe || !guidedShapeIsSafe) process.exit(0);
   const config = spawnSync(`${HERE}/gstack-config`, ["get", "history_recall"], {
     env: process.env,
     encoding: "utf8",
@@ -86,6 +97,11 @@ if (guidedHistory) {
     process.exit(0);
   }
 }
+
+// Resolve filesystem state only after guided mode's fail-closed contract check.
+// In particular, an unsafe guided invocation can never create a slug cache.
+const slug = slugRaw || resolveSlug(`${HERE}/gstack-slug`, { noCacheWrite: noRebuild });
+const paths = decisionPaths(slug);
 
 let rows: ActiveDecision[];
 if (showAll) {
@@ -165,9 +181,15 @@ if (recent && recent > 0) rows = rows.slice(0, recent);
 if (asJson) {
   // --json stays reliable-only (semantic recall is a human-facing supplement),
   // but it shares the same read-time legacy-data redaction boundary.
-  const safeRows = rows.map((row) => Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [key, typeof value === "string" ? recallSafe(value) : value]),
-  ));
+  const safeJsonValue = (value: unknown): unknown => {
+    if (typeof value === "string") return recallSafe(value);
+    if (Array.isArray(value)) return value.map(safeJsonValue);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, safeJsonValue(nested)]));
+    }
+    return value;
+  };
+  const safeRows = rows.map((row) => safeJsonValue(row));
   console.log(JSON.stringify(safeRows));
   process.exit(0);
 }
@@ -175,11 +197,15 @@ if (asJson) {
 for (const d of rows) {
   // Datamark all stored free-text (decision, rationale, branch/issue) — it lands in
   // agent context via Context Recovery, so treat it as DATA, not instructions.
-  const branchTag = d.branch ? `:${recallSafe(d.branch)}` : "";
-  const issueTag = d.issue ? `:${recallSafe(d.issue)}` : "";
-  const scopeTag = d.scope === "repo" ? "" : ` [${d.scope}${branchTag}${issueTag}]`;
-  console.log(`- ${recallSafe(d.decision ?? "")}${scopeTag} (${d.source}, ${d.date.slice(0, 10)})`);
-  if (d.rationale) console.log(`  why: ${recallSafe(d.rationale)}`);
+  const branchTag = typeof d.branch === "string" && d.branch ? `:${recallSafe(d.branch)}` : "";
+  const issueTag = typeof d.issue === "string" && d.issue ? `:${recallSafe(d.issue)}` : "";
+  const scopeValue = typeof d.scope === "string" ? d.scope : "unknown";
+  const scopeTag = scopeValue === "repo" ? "" : ` [${recallSafe(scopeValue)}${branchTag}${issueTag}]`;
+  const sourceTag = recallSafe(typeof d.source === "string" ? d.source : "unknown");
+  const dateTag = recallSafe(typeof d.date === "string" ? d.date.slice(0, 10) : "unknown-date");
+  const decisionText = recallSafe(typeof d.decision === "string" ? d.decision : "");
+  console.log(`- ${decisionText}${scopeTag} (${sourceTag}, ${dateTag})`);
+  if (typeof d.rationale === "string" && d.rationale) console.log(`  why: ${recallSafe(d.rationale)}`);
 }
 
 // OPTIONAL gbrain enhancement. Lazy import so the reliable path above never loads

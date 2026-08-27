@@ -152,8 +152,10 @@ in on a trusted machine with:
 ~/.claude/skills/gstack/bin/gstack-config set history_recall true  # Claude Code
 ```
 
-History recall is read-only, bounded to three results, and disabled in
-delegated, spawned, unattended, and ambiguous sessions. See the
+History recall is read-only and bounded to three results. The router skips it in
+delegated, spawned, unattended, and ambiguous sessions. That session check is a
+cooperative agent guard, not a sandbox boundary; the saved opt-in is the durable
+authorization on a machine where agents can already run local commands. See the
 [guided GStack + GBrain guide](docs/guided-gstack.md) for setup, examples,
 privacy behavior, and troubleshooting.
 

@@ -123,8 +123,12 @@ slow, the router falls back to local decisions and continues.
 - The root preamble never loads or prints private project learnings.
 - Prior-work recall requires the saved opt-in and a direct, top-level,
   human-owned task.
-- Delegated subagents, spawned tasks, unattended jobs, CI, and ambiguous
-  sessions skip recall even if they inherit host environment variables.
+- The router instructs delegated subagents, spawned tasks, unattended jobs, CI,
+  and ambiguous sessions to skip recall even if they inherit host environment
+  variables. Its invocation-scoped session signal is defense in depth, not a
+  sandbox or OS security boundary: an agent already allowed to run arbitrary
+  local commands can call the underlying read tools. Use `history_recall: false`
+  when that trust model is not appropriate.
 - The router surfaces at most three useful matches and must not paste secrets,
   raw transcripts, or sensitive records.
 - An explicitly named workflow bypasses the guided menu, but your workspace's

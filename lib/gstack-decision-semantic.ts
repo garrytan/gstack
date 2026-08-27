@@ -55,9 +55,9 @@ function normalizedSourceId(value: string): string | null {
  * `--source`, never used for an unscoped search.
  */
 export function deriveMemorySourceId(env: NodeJS.ProcessEnv = process.env): string | null {
-  const explicit = env.GSTACK_BRAIN_SOURCE_ID?.trim();
-  if (explicit) return normalizedSourceId(explicit);
-
+  // Deliberately ignore ambient GSTACK_BRAIN_SOURCE_ID here. Guided recall is
+  // allowed to read only the artifacts worktree; an inherited override could
+  // otherwise redirect it to an unrelated code or document corpus.
   const home = env.HOME;
   if (!home) return null;
   const worktree = env.GSTACK_BRAIN_WORKTREE || join(home, BRAIN_WORKTREE_SUFFIX);
@@ -74,16 +74,10 @@ export function deriveMemorySourceId(env: NodeJS.ProcessEnv = process.env): stri
   return null;
 }
 
-/**
- * Resolve the curated-memory source id (the gstack brain worktree). Returns null
- * when gbrain is down/unparseable OR no worktree-backed source is registered.
- */
-export function resolveMemorySourceId(
+function listMemorySourceId(
   env?: NodeJS.ProcessEnv,
   timeoutMs = TOTAL_TIMEOUT_MS,
 ): string | null {
-  const derived = deriveMemorySourceId(env);
-  if (derived) return derived;
   const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: timeoutMs });
   if (r.status !== 0) return null;
   let rows;
@@ -97,6 +91,19 @@ export function resolveMemorySourceId(
   );
   const pick = atWorktree.find((s) => s.id === "default") ?? atWorktree[0];
   return pick?.id ?? null;
+}
+
+/**
+ * Resolve the curated-memory source id (the gstack brain worktree). Returns null
+ * when gbrain is down/unparseable OR no worktree-backed source is registered.
+ */
+export function resolveMemorySourceId(
+  env?: NodeJS.ProcessEnv,
+  timeoutMs = TOTAL_TIMEOUT_MS,
+): string | null {
+  const derived = deriveMemorySourceId(env);
+  if (derived) return derived;
+  return listMemorySourceId(env, timeoutMs);
 }
 
 /**
@@ -141,16 +148,34 @@ export function semanticRecall(
   // Require the curated-memory source. If it's absent (gbrain down OR no worktree-backed
   // source), degrade to null rather than searching UNSCOPED — an unscoped search pulls
   // code/doc corpora that would be mislabeled as "related decisions" (Codex finding).
-  const sourceId = resolveMemorySourceId(env, Math.min(10_000, Math.ceil(totalTimeoutMs / 3)));
+  let sourceId = resolveMemorySourceId(env, Math.min(10_000, Math.ceil(totalTimeoutMs / 3)));
   if (!sourceId) return null;
-  const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+  let remainingMs = totalTimeoutMs - (Date.now() - startedAt);
   if (remainingMs <= 0) return null;
-  const r = spawnGbrain([
+  let r = spawnGbrain([
     "search", query,
     "--source", sourceId,
     "--limit", String(limit),
     "--snippet-chars", "100",
   ], { baseEnv: env, timeout: remainingMs });
+  if (r.status !== 0 && deriveMemorySourceId(env) === sourceId) {
+    // A custom `gstack-gbrain-source-wireup --source-id` can differ from the
+    // artifacts remote basename. Recover through the authoritative worktree-
+    // backed source list, but never fall back to an unscoped search.
+    remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) return null;
+    const authoritative = listMemorySourceId(env, Math.min(10_000, remainingMs));
+    if (!authoritative || authoritative === sourceId) return null;
+    sourceId = authoritative;
+    remainingMs = totalTimeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) return null;
+    r = spawnGbrain([
+      "search", query,
+      "--source", sourceId,
+      "--limit", String(limit),
+      "--snippet-chars", "100",
+    ], { baseEnv: env, timeout: remainingMs });
+  }
   if (r.status !== 0) return null; // gbrain down / not on PATH / errored → degrade
   return parseSearchHits(r.stdout || "", minScore, limit, sourceId);
 }

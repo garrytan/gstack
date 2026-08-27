@@ -152,17 +152,46 @@ describe("gstack-decision-search", () => {
     log('{"decision":"private-active-call","scope":"repo","source":"user"}');
     expect(search("--query")).toBe("");
   });
-  test("--guided-history requires both persisted opt-in and invocation capability", () => {
-    log('{"decision":"private guided call","scope":"repo","source":"user"}');
+  test("--guided-history requires both persisted opt-in and invocation signal", () => {
+    log('{"decision":"private guided call one","scope":"repo","source":"user"}');
+    log('{"decision":"private guided call two","scope":"repo","source":"user"}');
+    log('{"decision":"private guided call three","scope":"repo","source":"user"}');
+    const safeArgs = "--guided-history --query 'private guided call' --tokens --recent 3 --no-rebuild --semantic";
     fs.writeFileSync(path.join(tmpDir, "config.yaml"), "history_recall: false\n");
-    expect(searchWithEnv("--guided-history --query private", { GSTACK_INTERACTIVE: "1" })).toBe("");
+    expect(searchWithEnv(safeArgs, { GSTACK_INTERACTIVE: "1" })).toBe("");
 
     fs.writeFileSync(path.join(tmpDir, "config.yaml"), "history_recall: true\n");
-    expect(searchWithEnv("--guided-history --query private", {})).toBe("");
-    expect(searchWithEnv("--guided-history --query private", { GSTACK_INTERACTIVE: "0" })).toBe("");
-    expect(searchWithEnv("--guided-history --query private", { GSTACK_INTERACTIVE: "1" }))
+    expect(searchWithEnv(safeArgs, {})).toBe("");
+    expect(searchWithEnv(safeArgs, { GSTACK_INTERACTIVE: "0" })).toBe("");
+    expect(searchWithEnv(safeArgs, { GSTACK_INTERACTIVE: "1" }))
       .toContain("private guided call");
-    expect(searchWithEnv("--guided-history --query private --json", { GSTACK_INTERACTIVE: "1" })).toBe("");
+  });
+  test("--guided-history rejects every unbounded or state-mutating argument shape", () => {
+    log('{"decision":"private guided call","scope":"repo","source":"user"}');
+    fs.writeFileSync(path.join(tmpDir, "config.yaml"), "history_recall: true\n");
+    const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
+    const snapshot = path.join(tmpDir, "projects", projectSlug, "decisions.active.json");
+    const slugCache = path.join(tmpDir, "slug-cache");
+    const readSlugCache = () => Object.fromEntries(
+      fs.readdirSync(slugCache).map((name) => [name, fs.readFileSync(path.join(slugCache, name), "utf8")]),
+    );
+    const slugCacheBefore = readSlugCache();
+    fs.rmSync(snapshot);
+    const unsafe = [
+      "--guided-history",
+      "--guided-history --query 'private guided call' --recent 3 --no-rebuild --semantic",
+      "--guided-history --query 'private guided call' --tokens --no-rebuild --semantic",
+      "--guided-history --query 'private guided call' --tokens --recent 4 --no-rebuild --semantic",
+      "--guided-history --query 'private guided call' --tokens --recent 3 --semantic",
+      "--guided-history --query 'private guided call' --tokens --recent 3 --no-rebuild --semantic --all",
+      "--guided-history --query 'Private guided call' --tokens --recent 3 --no-rebuild --semantic",
+      "--guided-history --query 'private guided call' --tokens --recent 3 --no-rebuild --semantic --json",
+    ];
+    for (const invocation of unsafe) {
+      expect(searchWithEnv(invocation, { GSTACK_INTERACTIVE: "1" })).toBe("");
+    }
+    expect(fs.existsSync(snapshot)).toBe(false);
+    expect(readSlugCache()).toEqual(slugCacheBefore);
   });
   test("redacts secrets and PII from legacy snapshots at read time", () => {
     const token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";
@@ -175,7 +204,7 @@ describe("gstack-decision-search", () => {
       rationale: "contact richard.secret@company.com",
       scope: "repo",
       date: "2026-01-01T00:00:00.000Z",
-      source: "user",
+      source: `user-${token}`,
     }]));
     const out = search("--query legacy");
     expect(out).toContain("legacy token");
