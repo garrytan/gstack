@@ -134,6 +134,27 @@ describe("gstack-decision-search", () => {
   test("empty store → silent (no output)", () => {
     expect(search()).toBe("");
   });
+  test("--query with an empty value does not dump the active snapshot", () => {
+    log('{"decision":"private-active-call","scope":"repo","source":"user"}');
+    expect(search("--query '' --tokens")).toBe("");
+  });
+  test("--tokens matches independent non-contiguous outcome terms", () => {
+    log('{"decision":"Keep customer records in the existing CRM","scope":"repo","source":"user"}');
+    expect(search("--query 'customer onboarding crm' --tokens")).toContain("existing CRM");
+    expect(search("--query 'customer onboarding crm'")).toBe("");
+  });
+  test("--no-rebuild reads without recreating a missing snapshot", () => {
+    log('{"decision":"persisted-only-in-log","scope":"repo","source":"user"}');
+    const projectSlug = fs.readdirSync(path.join(tmpDir, "projects"))[0];
+    const projectDir = path.join(tmpDir, "projects", projectSlug);
+    const snapshot = path.join(projectDir, "decisions.active.json");
+    fs.rmSync(snapshot, { force: true });
+
+    expect(search("--query persisted --tokens --no-rebuild")).toBe("");
+    expect(fs.existsSync(snapshot)).toBe(false);
+    expect(search("--query persisted --tokens")).toContain("persisted-only-in-log");
+    expect(fs.existsSync(snapshot)).toBe(true);
+  });
 });
 
 describe("gstack-decision-search --semantic (optional gbrain enhancement)", () => {

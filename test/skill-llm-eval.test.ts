@@ -756,7 +756,6 @@ describeIfSelected('Deploy skill evals', [
 // Block 5: Other skills
 describeIfSelected('Other skill evals', [
   'retro/SKILL.md instructions', 'qa-only/SKILL.md workflow', 'gstack-upgrade/SKILL.md upgrade flow',
-  'root guided entry behavior',
 ], () => {
   testIfSelected('retro/SKILL.md instructions', async () => {
     await runWorkflowJudge({
@@ -794,80 +793,6 @@ describeIfSelected('Other skill evals', [
     });
   }, 30_000);
 
-  testIfSelected('root guided entry behavior', async () => {
-    const t0 = Date.now();
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Guided root entry');
-    const end = content.indexOf('## Route first', start);
-    const section = content.slice(start, end);
-
-    const result = await callJudge<{
-      fallback_uses_local_history: boolean;
-      fallback_uses_curated_gbrain: boolean;
-      project_memory_owns_deep_recall: boolean;
-      semantic_only_without_project_memory: boolean;
-      fallback_menu_min: number;
-      fallback_menu_max: number;
-      fallback_stops_before_leaf: boolean;
-      delegated_choice_bypasses_menu: boolean;
-      named_subskill_bypasses_menu: boolean;
-      raw_request_used_in_shell: boolean;
-      default_gbrain_scope: string;
-      max_prior_efforts: number;
-      reasoning: string;
-    }>(`You are testing whether an AI coding agent correctly understands a root workflow router.
-
-Read the instructions below, then simulate these cases:
-1. The request is ambiguous and project-memory-check is available.
-2. The request is ambiguous and project-memory-check is unavailable.
-3. The user says "choose for me".
-4. The user explicitly names gstack-ship.
-
-Return ONLY JSON with the exact keys shown. Report what the instructions require, not what you personally prefer.
-{
-  "fallback_uses_local_history": true|false,
-  "fallback_uses_curated_gbrain": true|false,
-  "project_memory_owns_deep_recall": true|false,
-  "semantic_only_without_project_memory": true|false,
-  "fallback_menu_min": number,
-  "fallback_menu_max": number,
-  "fallback_stops_before_leaf": true|false,
-  "delegated_choice_bypasses_menu": true|false,
-  "named_subskill_bypasses_menu": true|false,
-  "raw_request_used_in_shell": true|false,
-  "default_gbrain_scope": "curated-memory"|"all",
-  "max_prior_efforts": number,
-  "reasoning": "brief explanation"
-}
-
-ROUTER INSTRUCTIONS:
-${section}`);
-
-    const passed = result.fallback_uses_local_history
-      && result.fallback_uses_curated_gbrain
-      && result.project_memory_owns_deep_recall
-      && result.semantic_only_without_project_memory
-      && result.fallback_menu_min === 2
-      && result.fallback_menu_max === 4
-      && result.fallback_stops_before_leaf
-      && result.delegated_choice_bypasses_menu
-      && result.named_subskill_bypasses_menu
-      && !result.raw_request_used_in_shell
-      && result.default_gbrain_scope === 'curated-memory'
-      && result.max_prior_efforts === 3;
-
-    evalCollector?.addTest({
-      name: 'root guided entry behavior',
-      suite: 'Other skill evals',
-      tier: 'llm-judge',
-      passed,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_reasoning: result.reasoning,
-    });
-
-    expect(passed).toBe(true);
-  }, 30_000);
 });
 
 // Voice directive eval — tests that the voice section produces the right tone

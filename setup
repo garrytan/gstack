@@ -1238,8 +1238,14 @@ create_codex_runtime_root() {
     # router lives in a real runtime directory. Codex Desktop skips it when
     # SKILL.md itself is a symlink, so refresh the generated root as a real
     # file on every setup run. Runtime asset directories remain symlinked.
-    rm -f "$codex_gstack/SKILL.md"
-    cp -f "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
+    local codex_root_tmp
+    codex_root_tmp=$(mktemp "$codex_gstack/.SKILL.md.tmp.XXXXXX") || return 1
+    if cp -f "$agents_dir/gstack/SKILL.md" "$codex_root_tmp"; then
+      mv -f "$codex_root_tmp" "$codex_gstack/SKILL.md"
+    else
+      rm -f "$codex_root_tmp"
+      return 1
+    fi
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"

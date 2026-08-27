@@ -41,6 +41,10 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   'session-awareness':        ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'operational-learning':     ['scripts/resolvers/preamble.ts', 'bin/gstack-learnings-log'],
+  'root-guided-headless': ['SKILL.md', 'SKILL.md.tmpl', 'test/skill-e2e-root-guided-entry.test.ts'],
+  'root-guided-interactive-history-failure': ['SKILL.md', 'SKILL.md.tmpl', 'bin/gstack-decision-search', 'lib/gstack-decision-semantic.ts', 'test/skill-e2e-root-guided-entry.test.ts'],
+  'root-guided-delegated-choice': ['SKILL.md', 'SKILL.md.tmpl', 'test/skill-e2e-root-guided-entry.test.ts'],
+  'root-guided-named-subskill': ['SKILL.md', 'SKILL.md.tmpl', 'test/skill-e2e-root-guided-entry.test.ts'],
 
   // QA (+ test-server dependency)
   'qa-quick':       ['qa/**', 'browse/src/**', 'browse/test/test-server.ts'],
@@ -455,6 +459,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'skillmd-outside-git': 'gate',
   'session-awareness': 'gate',
   'operational-learning': 'gate',
+  'root-guided-headless': 'periodic',
+  'root-guided-interactive-history-failure': 'periodic',
+  'root-guided-delegated-choice': 'periodic',
+  'root-guided-named-subskill': 'periodic',
 
   // P4 first-run scaffold — periodic (onboarding, non-safety, model-touched marker)
   'first-task-scaffold': 'periodic',
@@ -788,7 +796,6 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
   'retro/SKILL.md instructions':          ['retro/SKILL.md', 'retro/SKILL.md.tmpl'],
   'qa-only/SKILL.md workflow':            ['qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl'],
   'gstack-upgrade/SKILL.md upgrade flow': ['gstack-upgrade/SKILL.md', 'gstack-upgrade/SKILL.md.tmpl'],
-  'root guided entry behavior':            ['SKILL.md', 'SKILL.md.tmpl'],
 
   // Voice directive
   'voice directive tone':                 ['scripts/resolvers/preamble.ts', 'review/SKILL.md', 'review/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],

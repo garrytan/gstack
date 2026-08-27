@@ -5,11 +5,11 @@
  * Usage:
  *   gstack-decision-search [--query KW] [--scope repo|branch|issue]
  *                          [--branch B] [--issue I] [--recent N] [--all] [--json]
- *                          [--semantic]
+ *                          [--tokens] [--no-rebuild] [--semantic]
  *
  * Reads the BOUNDED active snapshot (decisions.active.json) — O(active), not a full
- * history scan — and rebuilds it from the event log if missing. Scope-filtered to the
- * current branch/issue context (recency != relevance). NON-INTERACTIVE. `--all` shows
+ * history scan — and rebuilds it from the event log if missing unless `--no-rebuild`
+ * is set. Scope-filtered to the current branch/issue context (recency != relevance). NON-INTERACTIVE. `--all` shows
  * superseded decisions too (from the full log). Exit 0 silently when there are none.
  *
  * `--semantic` (with `--query`) appends an OPTIONAL "related from memory" block from
@@ -45,6 +45,8 @@ const recent = recentRaw ? parseInt(recentRaw, 10) : undefined;
 const showAll = args.includes("--all");
 const asJson = args.includes("--json");
 const semantic = args.includes("--semantic");
+const tokenized = args.includes("--tokens");
+const noRebuild = args.includes("--no-rebuild");
 
 let rows: ActiveDecision[];
 if (showAll) {
@@ -59,17 +61,26 @@ if (showAll) {
   rows = readSnapshot(paths);
   // Rebuild only when a snapshot is absent but a log exists (don't write a snapshot
   // into a nonexistent store on an empty read — just return nothing).
-  if (!rows.length && existsSync(paths.log)) rows = rebuildSnapshot(paths);
+  if (!rows.length && existsSync(paths.log) && !noRebuild) rows = rebuildSnapshot(paths);
 }
 
 rows = filterByScope(rows, { branch, issue });
 if (scope) rows = rows.filter((d) => d.scope === scope);
-if (query) {
-  rows = rows.filter((d) =>
-    [d.decision, d.rationale, d.alternatives_considered]
-      .filter((s): s is string => typeof s === "string")
-      .some((s) => s.toLowerCase().includes(query)),
-  );
+if (queryRaw !== undefined) {
+  if (!query) {
+    rows = [];
+  } else {
+    const terms = tokenized ? query.match(/[a-z0-9]+/g) ?? [] : [query];
+    rows = terms.length
+      ? rows.filter((d) => {
+          const searchable = [d.decision, d.rationale, d.alternatives_considered]
+            .filter((s): s is string => typeof s === "string")
+            .join(" ")
+            .toLowerCase();
+          return terms.some((term) => searchable.includes(term));
+        })
+      : [];
+  }
 }
 rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // newest first
 if (recent && recent > 0) rows = rows.slice(0, recent);

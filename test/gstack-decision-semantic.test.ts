@@ -135,4 +135,21 @@ exit 1
     );
     expect(semanticRecall("pglite", env())).toBeNull();
   });
+
+  test("shares one bounded timeout across source resolution and search", () => {
+    writeShim(
+      `#!/usr/bin/env bash
+if [ "$1" = "sources" ]; then
+  sleep 3
+  echo '{"sources":[{"id":"default","local_path":"/u/.gstack-brain-worktree"}]}'
+  exit 0
+fi
+if [ "$1" = "search" ]; then sleep 10; exit 0; fi
+exit 1
+`,
+    );
+    const startedAt = Date.now();
+    expect(semanticRecall("pglite", env())).toBeNull();
+    expect(Date.now() - startedAt).toBeLessThan(7_000);
+  }, 10_000);
 });

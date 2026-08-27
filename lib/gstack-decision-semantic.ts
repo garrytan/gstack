@@ -6,7 +6,7 @@
  * module is loaded lazily by `gstack-decision-search` only on `--semantic`, and every
  * path degrades to `null` (caller shows the reliable file results) when gbrain is
  * absent, unconfigured, times out, or returns nothing. It NEVER throws and NEVER
- * hangs (10s spawn timeout). We do not wire core function to this — gbrain is an
+ * hangs beyond one shared 5s recall budget. We do not wire core function to this — gbrain is an
  * enhancement, never a dependency (the code-search lesson).
  *
  * Surface reality (verified against gbrain 0.42.x, not guessed):
@@ -20,7 +20,7 @@
 import { spawnGbrain } from "./gbrain-exec";
 import { parseSourcesList } from "./gbrain-sources";
 
-const TIMEOUT_MS = 10_000;
+const TOTAL_TIMEOUT_MS = 5_000;
 const BRAIN_WORKTREE_SUFFIX = ".gstack-brain-worktree";
 
 export interface SemanticHit {
@@ -31,11 +31,13 @@ export interface SemanticHit {
 
 /**
  * Resolve the curated-memory source id (the gstack brain worktree). Returns null
- * when gbrain is down/unparseable OR no worktree-backed source is registered — the
- * caller then searches unscoped (best-effort) rather than failing.
+ * when gbrain is down/unparseable OR no worktree-backed source is registered.
  */
-export function resolveMemorySourceId(env?: NodeJS.ProcessEnv): string | null {
-  const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: TIMEOUT_MS });
+export function resolveMemorySourceId(
+  env?: NodeJS.ProcessEnv,
+  timeoutMs = TOTAL_TIMEOUT_MS,
+): string | null {
+  const r = spawnGbrain(["sources", "list", "--json"], { baseEnv: env, timeout: timeoutMs });
   if (r.status !== 0) return null;
   let rows;
   try {
@@ -82,12 +84,15 @@ export function semanticRecall(
   limit = 3,
 ): SemanticHit[] | null {
   if (!query.trim()) return null;
+  const startedAt = Date.now();
   // Require the curated-memory source. If it's absent (gbrain down OR no worktree-backed
   // source), degrade to null rather than searching UNSCOPED — an unscoped search pulls
   // code/doc corpora that would be mislabeled as "related decisions" (Codex finding).
-  const sourceId = resolveMemorySourceId(env);
+  const sourceId = resolveMemorySourceId(env, Math.ceil(TOTAL_TIMEOUT_MS / 2));
   if (!sourceId) return null;
-  const r = spawnGbrain(["search", query, "--source", sourceId], { baseEnv: env, timeout: TIMEOUT_MS });
+  const remainingMs = TOTAL_TIMEOUT_MS - (Date.now() - startedAt);
+  if (remainingMs <= 0) return null;
+  const r = spawnGbrain(["search", query, "--source", sourceId], { baseEnv: env, timeout: remainingMs });
   if (r.status !== 0) return null; // gbrain down / not on PATH / errored → degrade
   return parseSearchHits(r.stdout || "", minScore, limit);
 }

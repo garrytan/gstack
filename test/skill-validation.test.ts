@@ -47,15 +47,17 @@ describe('SKILL.md command validation', () => {
     for (const md of [template, rendered]) {
       expect(md).toContain('## Guided root entry');
       expect(md.indexOf('## Guided root entry')).toBeLessThan(md.indexOf('## Route first'));
-      expect(md).toContain('project-memory-check');
+      expect(md).toContain('`_SESSION_KIND` is `interactive`');
+      expect(md).toContain('spawned or headless session, skip history recall');
       expect(md).toContain('gstack-decision-search');
-      expect(md).toContain('owns GBrain recall');
+      expect(md).toContain('--tokens --recent 3 --no-rebuild --semantic');
+      expect(md).toContain('Do not invoke an ambient memory skill');
       expect(md).toContain('Never interpolate the raw request');
-      expect(md).toContain('curated-memory source');
-      expect(md).toContain('at most one GBrain lookup');
-      expect(md).toContain('two to four materially relevant gstack workflows');
-      expect(md).toContain('Ask the user to choose, then');
+      expect(md).toContain('curated GBrain memory source');
+      expect(md).toContain('one to four materially relevant gstack workflows');
+      expect(md).toContain('If no\n   workflow fits, follow Route first and answer directly');
       expect(md).toContain('An explicitly named subskill also bypasses this guided entry');
+      expect(md).not.toContain('project-memory-check');
     }
   });
 
