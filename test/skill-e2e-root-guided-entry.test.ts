@@ -113,11 +113,9 @@ function historyState(prefix: string, canary: string): { home: string; state: st
 
 function hasGuidedMenu(output: string): boolean {
   const workflows = new Set(output.match(/\/(?:office-hours|plan-ceo-review|design-consultation|review|investigate|qa)\b/g) ?? []);
-  return resultLikeQuestion(output) && workflows.size >= 1 && workflows.size <= 4 && /recommend/i.test(output);
-}
-
-function resultLikeQuestion(output: string): boolean {
-  return /\?|choose|confirm|which/i.test(output);
+  return /\?|choose|confirm|which/i.test(output)
+    && workflows.size >= 1 && workflows.size <= 4
+    && /recommend/i.test(output);
 }
 
 describeIfSelected('root guided entry (live Skill behavior)', TESTS, () => {
