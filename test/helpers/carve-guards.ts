@@ -126,7 +126,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
-    maxSkeletonBytes: 92_600, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 92,043
+    maxSkeletonBytes: 92_200, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 91,954
     minUnionBytes: 120_000,
     mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
@@ -157,7 +157,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
         // Fork port wave 2 (#703): the repo-doc-preference block in the design
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
-    maxSkeletonBytes: 94_900, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 94,327
+    maxSkeletonBytes: 94_400, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 94,238
     minUnionBytes: 80_000,
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -183,7 +183,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 72_800, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 72,210
+    maxSkeletonBytes: 72_300, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 72,121
     minUnionBytes: 70_000,
     mustContain: ['Architecture', 'Code Quality', 'Test', 'Performance'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback + the
@@ -216,7 +216,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // tier-2+ skeleton (measured 89,184). Main's v1.64.0.0 adds ~340 B more
     // (telemetry --error-message/--failed-step preamble prose, PR #769).
     // Budget covers the sum of both waves.
-    maxSkeletonBytes: 92_700, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 92,158
+    maxSkeletonBytes: 92_100, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 92,069
     minUnionBytes: 70_000,
     mustContain: ['design', 'visual'],
     maxSizeRatio: 1.12, // D1 1.104 + main's ~0.008
@@ -240,7 +240,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 84_500, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 83,923
+    maxSkeletonBytes: 84_000, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 83,834
     minUnionBytes: 70_000,
     mustContain: ['developer experience', 'Getting Started'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -270,7 +270,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 103_800, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 103,202
+    maxSkeletonBytes: 103_300, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 103,113
     minUnionBytes: 70_000,
     mustContain: ['design doc', 'problem statement'],
     maxSizeRatio: 1.12,
@@ -291,7 +291,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 58_900, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 58,367
+    maxSkeletonBytes: 58_400, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 58,278
     minUnionBytes: 55_000,
     mustContain: ['CHANGELOG', 'Diataxis', 'coverage'],
     // Two intentional additions stack on this small skill: the AUQ-failure prose
@@ -322,7 +322,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
     // v1.64.1.0: shared-preamble prose from the two parallel v1.64 waves lands
     // the skeleton at 69,022 B; +~1 KB headroom.
-    maxSkeletonBytes: 72_300, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 71,797
+    maxSkeletonBytes: 71_900, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 71,708
     minUnionBytes: 72_000,
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
@@ -362,7 +362,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 78_200, // cross-call telemetry recovery fix (shared preamble, ~430B/skill); measured 77,687
+    maxSkeletonBytes: 77_700, // cross-call telemetry recovery fix (marker-content duration/session-id + live-config _TEL re-read, ~340B/skill); measured 77,598
     minUnionBytes: 72_000,
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
     // cso keeps its mode-dispatch + FP-filtering phases always-loaded, so the

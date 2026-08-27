@@ -44,16 +44,31 @@ function run(script: string, home: string) {
 }
 
 describe('preamble/completion telemetry survive separate processes', () => {
-  test('_TEL recovery does not depend on preamble-local runtime path vars (env-var hosts)', () => {
-    // Adversarial review finding: an earlier version of this fix recovered
+  test('recovery does not depend on preamble-local runtime path vars (env-var hosts)', () => {
+    // Adversarial review finding #1: an earlier version of this fix recovered
     // `_TEL` via `${ctx.paths.binDir}/gstack-config`, which resolves to
     // `$GSTACK_BIN`/`$GSTACK_ROOT` for env-var hosts (Codex, Factory, ...).
     // Those vars are themselves only set by the SAME preamble-local
     // `runtimeRoot` block this whole fix exists to work around, so recovery
     // would silently fall back to "off" for opted-in users on those hosts
-    // whenever the completion block runs in a separate process. The fix
-    // reads `~/.gstack/config.yaml` directly (host-independent state dir),
-    // matching gstack-config's own internal resolution and default.
+    // whenever the completion block runs in a separate process.
+    //
+    // Design-comparison pass: duration/session-id recovery moved to a single
+    // marker-file READ (the preamble writes real content into the
+    // already-shipped `~/.gstack/sessions/"$PPID"` file instead of just
+    // touching it) — no binary, no config path, no host-specific path at all.
+    //
+    // Adversarial review finding #2 (on the marker-content design itself):
+    // trusting the MARKER for `_TEL` specifically is fail-OPEN under a PPID
+    // mismatch (e.g. reparenting to init, confirmed to happen on real
+    // machines — `~/.gstack/sessions/1` was found to exist here): a
+    // completion process could read an unrelated/stale session's marker and
+    // inherit ITS `_TEL` value (e.g. "community") even though the CURRENT
+    // session's config is "off". So `_TEL` is deliberately NOT stored in or
+    // recovered from the marker at all — it's recovered by re-reading the
+    // live config.yaml directly (host-independent state dir), same as
+    // duration/session-id's fallback-of-last-resort, but for `_TEL`
+    // specifically this is the ONLY recovery path, never the marker.
     const envVarCtx: TemplateContext = {
       skillName: 'test-skill',
       tmplPath: 'test-skill/SKILL.md.tmpl',
@@ -62,13 +77,22 @@ describe('preamble/completion telemetry survive separate processes', () => {
       preambleTier: 2,
     };
     const completionBash = extractBashFence(generateCompletionStatus(envVarCtx), 1);
-    const telRecoveryBlock = completionBash.slice(
-      completionBash.indexOf('if [ -z "$_TEL" ]'),
-      completionBash.indexOf('_TEL_DUR=')
+    const recoveryBlock = completionBash.slice(
+      completionBash.indexOf('_TEL_END=$(date +%s)'),
+      completionBash.indexOf('rm -f ~/.gstack/analytics/.pending-')
     );
-    expect(telRecoveryBlock).not.toContain('GSTACK_BIN');
-    expect(telRecoveryBlock).not.toContain('GSTACK_ROOT');
-    expect(telRecoveryBlock).toContain('GSTACK_STATE_ROOT');
+    expect(recoveryBlock).not.toContain('GSTACK_BIN');
+    expect(recoveryBlock).not.toContain('GSTACK_ROOT');
+    expect(recoveryBlock).toContain('~/.gstack/sessions/');
+    expect(recoveryBlock).toContain('GSTACK_STATE_ROOT');
+    // The _TEL recovery clause must never read from the marker file — only
+    // from the live config. Isolate just that clause and assert it has no
+    // reference to the marker/read-from-marker variables at all.
+    const telClause = recoveryBlock.slice(recoveryBlock.indexOf('if [ -z "$_TEL" ]'));
+    expect(telClause).not.toContain('_M_START');
+    expect(telClause).not.toContain('_M_SESSION');
+    expect(telClause).not.toContain('sessions/');
+    expect(telClause).toContain('config.yaml');
   });
 
 
@@ -150,6 +174,73 @@ describe('preamble/completion telemetry survive separate processes', () => {
       // remote gstack-telemetry-log call, gated the same way) fire even
       // though the user set telemetry: off. Post-fix, _TEL must recover from
       // the real persisted config and stay "off".
+      expect(after).toBe(before);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a foreign/stale marker cannot leak a different session\'s telemetry opt-in (opt-out survives PID reuse/reparenting)', () => {
+    // Behavioral reproduction of the adversarial review's finding #2: real
+    // machines have observed a Bash-tool subprocess reparented to init before
+    // it read $PPID (a marker literally named `1` was found in
+    // ~/.gstack/sessions/ during development of this fix). If a completion
+    // process ever ran under a $PPID that collides with an unrelated, older
+    // session's marker, and that marker's format ever carried a telemetry
+    // value (a plausible legacy/foreign format, not this fix's own write
+    // path), a design that recovered `_TEL` FROM the marker would adopt the
+    // foreign session's opt-in — leaking analytics for a user who currently
+    // has telemetry: off. This test plants exactly that adversarial marker
+    // and asserts current telemetry: off still wins.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-tel-foreign-'));
+    try {
+      fs.mkdirSync(path.join(home, '.gstack'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.gstack', 'config.yaml'), 'telemetry: off\n');
+
+      // `$PPID` is read-only in bash (confirmed: `bash -c 'PPID=1'` errors
+      // "PPID: переменная только для чтения" / readonly variable) — it can't
+      // be spoofed to simulate a PID collision. Instead, discover the REAL
+      // $PPID our spawned bash children will share (same pattern as the
+      // other tests: two separate spawnSync calls from this same Node
+      // process share one parent, hence one $PPID), and plant a foreign
+      // 3-field marker AT THAT REAL PATH before the completion block runs.
+      // This exercises the identical code path a genuine collision/stale-
+      // format marker would (the completion block cannot tell "foreign
+      // content under my real PID" from "this PID belongs to someone else
+      // right now" — both are just "unexpected content already at this
+      // path"), without needing to fake process identity.
+      const ppidProbe = spawnSync('bash', ['-c', 'echo $PPID'], { encoding: 'utf-8' });
+      const realPpid = ppidProbe.stdout.trim();
+      expect(realPpid).toMatch(/^\d+$/);
+
+      fs.mkdirSync(path.join(home, '.gstack', 'sessions'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, '.gstack', 'sessions', realPpid),
+        `1700000000 ${realPpid}-1700000000 community\n`
+      );
+
+      const completionBash = extractBashFence(generateCompletionStatus(baseCtx()), 1);
+      const analyticsFile = path.join(home, '.gstack', 'analytics', 'skill-usage.jsonl');
+      const before = fs.existsSync(analyticsFile) ? fs.readFileSync(analyticsFile, 'utf-8') : '';
+
+      const completionScript = `unset _TEL_START _SESSION_ID _TEL\n${completionBash
+        .replace('SKILL_NAME', 'test-skill')
+        .replace('OUTCOME', 'success')
+        .replace(/USED_BROWSE/g, 'false')}\necho "RESULT _TEL=$_TEL"`;
+      const result = spawnSync('bash', ['-c', completionScript], {
+        env: { ...process.env, HOME: home, PATH: process.env.PATH },
+        encoding: 'utf-8',
+        timeout: 30_000,
+      });
+      expect(result.status).toBe(0);
+
+      const match = result.stdout.match(/RESULT _TEL=(\S*)/);
+      expect(match).not.toBeNull();
+      // The foreign marker's third field ("community") must NOT win, even
+      // though it exists at the exact path this $PPID resolves to.
+      expect(match![1]).toBe('off');
+
+      const after = fs.existsSync(analyticsFile) ? fs.readFileSync(analyticsFile, 'utf-8') : '';
       expect(after).toBe(before);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });

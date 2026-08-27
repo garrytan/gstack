@@ -102,13 +102,9 @@ _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
-_SESS_MARKER=~/.gstack/sessions/"$PPID"
-if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-  _TEL_START=$(stat -f %m "$_SESS_MARKER" 2>/dev/null || date +%s)
-else
-  _TEL_START=$(date -r "$_SESS_MARKER" +%s 2>/dev/null || stat -c %Y "$_SESS_MARKER" 2>/dev/null || date +%s)
-fi
+_TEL_START=$(date +%s)
 _SESSION_ID="$PPID-$_TEL_START"
+printf '%s %s\n' "$_TEL_START" "$_SESSION_ID" > ~/.gstack/sessions/"$PPID" 2>/dev/null || true
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 _EXPLAIN_LEVEL=$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")
@@ -834,22 +830,19 @@ Run this bash:
 
 ```bash
 _TEL_END=$(date +%s)
-_SESS_MARKER=~/.gstack/sessions/"$PPID"
-if [ -z "$_TEL_START" ]; then
-  if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-    _TEL_START=$(stat -f %m "$_SESS_MARKER" 2>/dev/null || echo "$_TEL_END")
-  else
-    _TEL_START=$(date -r "$_SESS_MARKER" +%s 2>/dev/null || stat -c %Y "$_SESS_MARKER" 2>/dev/null || echo "$_TEL_END")
-  fi
+if [ -z "$_TEL_START" ] || [ -z "$_SESSION_ID" ]; then
+  read -r _M_START _M_SESSION < ~/.gstack/sessions/"$PPID" 2>/dev/null
+  _TEL_START=${_TEL_START:-$_M_START}
+  _SESSION_ID=${_SESSION_ID:-$_M_SESSION}
 fi
-if [ -z "$_SESSION_ID" ]; then
-  _SESSION_ID="$PPID-$_TEL_START"
-fi
+_TEL_START=${_TEL_START:-$_TEL_END}
+_SESSION_ID=${_SESSION_ID:-$PPID-$_TEL_START}
 if [ -z "$_TEL" ]; then
   _TEL_CFG="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}}/config.yaml"
   _TEL=$(grep -E '^telemetry:' "$_TEL_CFG" 2>/dev/null | tail -1 | sed -E 's/^telemetry:[[:space:]]*//; s/[[:space:]]+$//')
   [ -z "$_TEL" ] && _TEL="off"
 fi
+_TEL=${_TEL:-off}
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)

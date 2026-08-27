@@ -59,13 +59,9 @@ _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
-_SESS_MARKER=~/.gstack/sessions/"$PPID"
-if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-  _TEL_START=$(stat -f %m "$_SESS_MARKER" 2>/dev/null || date +%s)
-else
-  _TEL_START=$(date -r "$_SESS_MARKER" +%s 2>/dev/null || stat -c %Y "$_SESS_MARKER" 2>/dev/null || date +%s)
-fi
+_TEL_START=$(date +%s)
 _SESSION_ID="$PPID-$_TEL_START"
+printf '%s %s\\n' "$_TEL_START" "$_SESSION_ID" > ~/.gstack/sessions/"$PPID" 2>/dev/null || true
 echo "TELEMETRY: \${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 _EXPLAIN_LEVEL=$(${ctx.paths.binDir}/gstack-config get explain_level 2>/dev/null || echo "default")
