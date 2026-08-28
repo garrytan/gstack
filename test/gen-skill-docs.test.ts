@@ -1778,6 +1778,16 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
     expect(content).toContain('SCOPE_FRONTEND');
   });
 
+  test('design-checklist path uses installed gstack/review root (#2694)', () => {
+    // #2694: generateDesignReviewLite used to emit
+    // `.claude/skills/review/design-checklist.md` (missing the gstack/ segment).
+    // After install the file lives at ~/.claude/skills/gstack/review/design-checklist.md.
+    // The bad relative form must not appear — the good path does not contain it
+    // as a substring because `gstack/` sits between `skills/` and `review/`.
+    expect(content).toContain('~/.claude/skills/gstack/review/design-checklist.md');
+    expect(content).not.toContain('.claude/skills/review/design-checklist.md');
+  });
+
 });
 
 // ─── Codex Generation Tests ─────────────────────────────────
