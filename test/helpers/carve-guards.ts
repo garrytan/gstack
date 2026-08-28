@@ -471,7 +471,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       mustPrecedeStop: ['land-deploy-confirmed'],
       mustMoveToSection: [
         'PRE-MERGE READINESS REPORT',
-        'gh pr merge --squash --auto --delete-branch',
+        'gh pr merge <resolved-pr> --squash --auto --delete-branch',
         'DEPLOY INFRASTRUCTURE VALIDATION',
       ],
       gateAfterStop: undefined, // operational skill
