@@ -2,9 +2,12 @@
  * Coverage for PR #1620 — Post-failure PR-state check after `gh pr merge`
  * non-zero exit.
  *
- * The fix lives in land-and-deploy/SKILL.md.tmpl as Step §4a-postfail.
- * After ANY non-zero `gh pr merge`, the skill must query authoritative PR
- * state via `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
+ * The fix lives in land-and-deploy/sections/merge-and-deploy.md.tmpl as Step
+ * §4a-postfail (the Step 4/5 body was carved out of the skeleton into an
+ * on-demand section — prompt-token-load-reduction carve; the skeleton keeps
+ * only the STOP-Read pointer). After ANY non-zero `gh pr merge`, the skill
+ * must query authoritative PR state via
+ * `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
  * branch on the result instead of retrying `gh pr merge` (cli/cli#3442,
  * cli/cli#13380).
  *
@@ -25,8 +28,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const TMPL = path.join(ROOT, "land-and-deploy", "SKILL.md.tmpl");
-const MD = path.join(ROOT, "land-and-deploy", "SKILL.md");
+const TMPL = path.join(ROOT, "land-and-deploy", "sections", "merge-and-deploy.md.tmpl");
+const MD = path.join(ROOT, "land-and-deploy", "sections", "merge-and-deploy.md");
 
 function readTmpl(): string {
   return fs.readFileSync(TMPL, "utf-8");
@@ -123,7 +126,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/never call `gh pr merge` a second time/);
   });
 
-  test("Generated SKILL.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
+  test("Generated merge-and-deploy.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
     const md = readMd();
     expect(md).toMatch(/### 4a-postfail: Post-failure PR-state check/);
     expect(md).toMatch(/state == "MERGED"/);

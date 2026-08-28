@@ -40,6 +40,12 @@ triggers:
 
 You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in source code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
 
+---
+
+{{SECTION_INDEX:qa}}
+
+---
+
 ## Setup
 
 **Parse the user's request for these parameters:**
@@ -90,7 +96,7 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 
 **Check test framework (bootstrap if needed):**
 
-{{TEST_BOOTSTRAP}}
+{{SECTION:test-bootstrap}}
 
 **Create output directories:**
 
@@ -119,9 +125,9 @@ Before falling back to git diff heuristics, check for richer test plan sources:
 
 ## Phases 1-6: QA Baseline
 
-{{QA_METHODOLOGY}}
+{{SECTION:qa-patterns}}
 
-Record baseline health score at end of Phase 6.
+Record baseline health score at end of Phase 6 (per the Health Score Rubric in that section).
 
 ---
 

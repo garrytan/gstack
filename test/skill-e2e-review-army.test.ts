@@ -27,10 +27,35 @@ function setupRepo(prefix: string): { dir: string; run: (cmd: string, args: stri
 // EXTRACTED (CLAUDE.md: "E2E test fixtures: extract, don't copy") — core
 // review workflow + Step 1.5 (Plan Completion Audit) + Step 4.5 (Review Army
 // dispatch: quality score, JSON schema, consensus, Red Team).
+//
+// /review is carved (T9): the Step 4.5 dispatch body lives in
+// review/sections/review-army.md and the Plan Completion Audit in
+// review/sections/plan-completion.md — the skeleton keeps only STOP-Read
+// pointers, so the '## Step 4.5' H2 no longer exists in review/SKILL.md.
+// Extract the skeleton H2s minus Step 4.5, then append both section files
+// (still an extraction: sections ARE the minimal on-demand units).
+const REVIEW_ARMY_SKELETON_SECTIONS = REVIEW_ARMY_E2E_SECTIONS.filter(
+  (s) => !s.startsWith('Step 4.5'),
+);
+
+function readReviewSection(file: string): string {
+  const p = path.join(ROOT, 'review', 'sections', file);
+  const content = fs.readFileSync(p, 'utf-8');
+  // Failure polarity: a fixture is never silently staged empty (regen missing).
+  if (content.trim().length < 500) {
+    throw new Error(`review section ${file} is unexpectedly small — was gen-skill-docs run after the carve?`);
+  }
+  return content;
+}
+
 function copyReviewFiles(dir: string) {
   fs.writeFileSync(
     path.join(dir, 'review-SKILL.md'),
-    extractSkillSections(path.join(ROOT, 'review'), REVIEW_ARMY_E2E_SECTIONS),
+    [
+      extractSkillSections(path.join(ROOT, 'review'), REVIEW_ARMY_SKELETON_SECTIONS),
+      readReviewSection('plan-completion.md'),
+      readReviewSection('review-army.md'),
+    ].join('\n'),
   );
   fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(dir, 'review-checklist.md'));
   fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(dir, 'review-greptile-triage.md'));

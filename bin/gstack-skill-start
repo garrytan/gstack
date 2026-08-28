@@ -1,0 +1,506 @@
+#!/usr/bin/env bash
+# gstack-skill-start — the skill preamble's runtime, consolidated (token-reduction Phase 1).
+#
+# Absorbs the bash that every generated SKILL.md used to inline twice over
+# (the "Preamble (run first)" bootstrap fence and the "Artifacts Sync" fence,
+# ~13KB per skill x 50 skills). The generated skill now carries a one-line
+# invocation; this script emits the SAME `KEY: value` STATUS lines the prose
+# rules interpret. The contract is pinned by test/gstack-skill-start.test.ts
+# (every KEY the rendered prose references must be emitted here).
+#
+# Enumerated divergences from the inline original (plan EOV5):
+#   - Paths resolve $0-relative (works for every host + install layout) instead
+#     of gen-time interpolation.
+#   - --parent-pid carries the HARNESS pid for session counting ($PPID inside
+#     this script is the ephemeral tool-call shell — wrong identity).
+#   - State paths honor ${GSTACK_HOME} (EOV7); the inline original hardcoded
+#     ~/.gstack in the bootstrap half.
+#   - SESSION_ID / TEL_START are echoed (the inline shell vars never survived
+#     across Bash tool calls, so skill-end durations were already broken; the
+#     echo makes them real).
+#   - SKILL_START_PROTO handshake (OV5): prose treats a missing/unexpected
+#     proto as a degraded install and applies safe defaults.
+#   - Passthrough sub-command output is sanitized (OV4): GSTACK_INSTRUCTION
+#     markers cannot be injected into the blessed tool result by learnings,
+#     update-check, or first-task text.
+#
+# Error style (F3): per-line `|| true`, never `set -e` — a mid-script failure
+# must not drop later STATUS lines.
+
+# Heredoc bodies in the 512B-64KiB window can deadlock bash 5.1+'s pipe-backed
+# heredoc path when the reader stalls; compat level 50 restores the tempfile
+# path. This script is bash-3.2-clean, so the compat level costs nothing
+# (same guard as bin/gstack-brain-sync; pinned by
+# test/heredoc-pipe-deadlock.test.ts).
+BASH_COMPAT=50
+
+SKILL_NAME=""
+MODEL_OVERLAY="none"
+PARENT_PID="$PPID"
+BRAIN_HEALTH="no"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skill)       SKILL_NAME="$2"; shift 2 ;;
+    --model)       MODEL_OVERLAY="$2"; shift 2 ;;
+    --parent-pid)  PARENT_PID="$2"; shift 2 ;;
+    --brain-health) BRAIN_HEALTH="yes"; shift ;;
+    *) shift ;;
+  esac
+done
+[ -n "$SKILL_NAME" ] || SKILL_NAME="unknown"
+
+_SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+_BIN="$_SCRIPT_DIR"
+_GH="${GSTACK_HOME:-$HOME/.gstack}"
+
+# OV4: strip instruction markers from any passthrough text before echoing it
+# into the blessed tool result. Prior-session/repo content must not be able to
+# mint directive blocks — nor forge a SESSION_ID: status line (the token that
+# authenticates instruction blocks), so line-leading spoofs are neutralized too.
+_sanitize() { sed -e 's/GSTACK_INSTRUCTION/GSTACK-INSTRUCTION-(stripped)/g' -e 's/^SESSION_ID:/SESSION-ID-(stripped):/'; }
+
+echo "SKILL_START_PROTO: 1"
+
+_UPD=$("$_BIN/gstack-update-check" 2>/dev/null || true)
+[ -n "$_UPD" ] && printf '%s\n' "$_UPD" | _sanitize || true
+
+mkdir -p "$_GH/sessions" 2>/dev/null || true
+touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
+find "$_GH/sessions" -mmin +120 -type f -exec rm {} + 2>/dev/null || true
+
+_PROACTIVE=$("$_BIN/gstack-config" get proactive 2>/dev/null || echo "true")
+_PROACTIVE_PROMPTED=$([ -f "$_GH/.proactive-prompted" ] && echo "yes" || echo "no")
+# Branch name is embedded in concatenated JSON below; strip anything outside
+# the gstack-slug BRANCH alphabet so a hostile ref name can't forge fields.
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-')
+_BRANCH=${_BRANCH:-unknown}
+echo "BRANCH: $_BRANCH"
+_SKILL_PREFIX=$("$_BIN/gstack-config" get skill_prefix 2>/dev/null || echo "false")
+echo "PROACTIVE: $_PROACTIVE"
+echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
+echo "SKILL_PREFIX: $_SKILL_PREFIX"
+REPO_MODE=""
+eval "$("$_BIN/gstack-repo-mode" 2>/dev/null)" 2>/dev/null || true
+REPO_MODE=${REPO_MODE:-unknown}
+echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable there (native disabled, MCP
+# variant flaky); skills render decisions as prose. Gated on !headless so an
+# eval/CI run INSIDE Conductor still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
+_ACTIVATED=$([ -f "$_GH/.activated" ] && echo "yes" || echo "no")
+_FIRST_LOOP_SHOWN=$([ -f "$_GH/.first-loop-tip-shown" ] && echo "yes" || echo "no")
+echo "ACTIVATED: $_ACTIVATED"
+echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
+# First-run project detection: only on the first-ever skill run (off the hot path after).
+_FIRST_TASK=""
+if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
+  _FIRST_TASK=$("$_BIN/gstack-first-task-detect" 2>/dev/null || true)
+fi
+printf 'FIRST_TASK: %s\n' "$_FIRST_TASK" | _sanitize
+_LAKE_SEEN=$([ -f "$_GH/.completeness-intro-seen" ] && echo "yes" || echo "no")
+echo "LAKE_INTRO: $_LAKE_SEEN"
+_TEL=$("$_BIN/gstack-config" get telemetry 2>/dev/null || true)
+_TEL_PROMPTED=$([ -f "$_GH/.telemetry-prompted" ] && echo "yes" || echo "no")
+_TEL_START=$(date +%s)
+# PID+epoch alone is guessable; a random suffix makes the block-binding token
+# unforgeable by content reflected into the same tool result. Falls back to
+# the plain form when urandom is unavailable.
+_SID_RAND=$(od -An -N4 -tx4 /dev/urandom 2>/dev/null | tr -d ' \n' || true)
+_SESSION_ID="$PARENT_PID-$_TEL_START${_SID_RAND:+-$_SID_RAND}"
+echo "TELEMETRY: ${_TEL:-off}"
+echo "TEL_PROMPTED: $_TEL_PROMPTED"
+echo "SESSION_ID: $_SESSION_ID"
+echo "TEL_START: $_TEL_START"
+_EXPLAIN_LEVEL=$("$_BIN/gstack-config" get explain_level 2>/dev/null || echo "default")
+if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
+echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
+_QUESTION_TUNING=$("$_BIN/gstack-config" get question_tuning 2>/dev/null || echo "false")
+echo "QUESTION_TUNING: $_QUESTION_TUNING"
+_UPDATE_CHECK=$("$_BIN/gstack-config" get update_check 2>/dev/null || echo "true")
+echo "UPDATE_CHECK: $_UPDATE_CHECK"
+mkdir -p "$_GH/analytics" 2>/dev/null || true
+if [ "$_TEL" != "off" ]; then
+  echo '{"skill":"'"$SKILL_NAME"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}' >> "$_GH/analytics/skill-usage.jsonl" 2>/dev/null || true
+fi
+for _PF in $(find "$_GH/analytics" -maxdepth 1 -name '.pending-*' 2>/dev/null); do
+  if [ -f "$_PF" ]; then
+    if [ "$_TEL" != "off" ] && [ -x "$_BIN/gstack-telemetry-log" ]; then
+      "$_BIN/gstack-telemetry-log" --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
+    fi
+    rm -f "$_PF" 2>/dev/null || true
+  fi
+  # Deliberate throttle: drain at most ONE orphaned pending file per skill
+  # start so a backlog can't stall the preamble.
+  break
+done
+eval "$("$_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
+_LEARN_FILE="$_GH/projects/${SLUG:-unknown}/learnings.jsonl"
+if [ -f "$_LEARN_FILE" ]; then
+  _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
+  echo "LEARNINGS: $_LEARN_COUNT entries loaded"
+  if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
+    "$_BIN/gstack-learnings-search" --limit 3 2>/dev/null | _sanitize || true
+  fi
+else
+  echo "LEARNINGS: 0"
+fi
+"$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+_HAS_ROUTING="no"
+for _RF in CLAUDE.md AGENTS.md; do
+  if [ -f "$_RF" ] && grep -q "## Skill routing" "$_RF" 2>/dev/null; then
+    _HAS_ROUTING="yes"
+  fi
+done
+_ROUTING_DECLINED=$("$_BIN/gstack-config" get routing_declined 2>/dev/null || echo "false")
+echo "HAS_ROUTING: $_HAS_ROUTING"
+echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
+_VENDORED="no"
+if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
+  if [ -f ".claude/skills/gstack/VERSION" ] || [ -d ".claude/skills/gstack/.git" ]; then
+    _VENDORED="yes"
+  fi
+fi
+echo "VENDORED_GSTACK: $_VENDORED"
+echo "MODEL_OVERLAY: $MODEL_OVERLAY"
+_CHECKPOINT_MODE=$("$_BIN/gstack-config" get checkpoint_mode 2>/dev/null || echo "explicit")
+_CHECKPOINT_PUSH=$("$_BIN/gstack-config" get checkpoint_push 2>/dev/null || echo "false")
+echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
+echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills that branch on plan-mode state. Detected best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active); "inactive"
+# is the safe default (file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  GSTACK_PLAN_MODE="active"
+else
+  GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
+[ -n "${OPENCLAW_SESSION:-}" ] && echo "SPAWNED_SESSION: true" || true
+
+# ---------------------------------------------------------------------------
+# Artifacts sync (the former "Artifacts Sync (skill start)" fence, verbatim
+# modulo GSTACK_HOME + $0-relative bins).
+# ---------------------------------------------------------------------------
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  _BRAIN_REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
+_BRAIN_SYNC_BIN="$_BIN/gstack-brain-sync"
+_BRAIN_CONFIG_BIN="$_BIN/gstack-config"
+
+# /sync-gbrain context-load hint. Per-worktree pin via kubectl-style
+# .gbrain-source at the git toplevel; empty output when gbrain is not
+# configured (zero context cost for non-gbrain users).
+_GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || true)
+  if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
+    _GBRAIN_PIN_PATH=""
+    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
+      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
+    fi
+    if [ -n "$_GBRAIN_PIN_PATH" ]; then
+      echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
+      echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
+      echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
+      echo "Run /sync-gbrain to refresh."
+    else
+      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
+      echo "before relying on \`gbrain search\` for code questions in this worktree."
+      echo "Falls back to Grep until pinned."
+    fi
+  fi
+fi
+
+_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
+
+# Remote-MCP mode detection (Path 4 of /setup-gbrain): read claude.json
+# directly (no subprocess to claude CLI on the hot path). Both registration
+# scopes are read (#2499): nearest-ancestor project scope first, then user
+# scope; project-local BEATS user scope; the ancestor match accepts both path
+# separators (Windows project keys are backslash-formed).
+_GBRAIN_MCP_MODE="none"
+_GBRAIN_MCP_ENTRY=""
+# Cheap substring pre-filter: ~/.claude.json can be megabytes on real installs;
+# skip the full jq parse when no gbrain server is registered at all.
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ] && grep -q '"gbrain"' "$HOME/.claude.json" 2>/dev/null; then
+  _GBRAIN_MCP_ENTRY=$(jq -c --arg cwd "$PWD" '((.projects // {}) | to_entries | map(select((.key as $k | $cwd == $k or ($cwd | startswith($k + "/")) or ($cwd | startswith($k + "\\"))) and ((try .value.mcpServers.gbrain catch null) != null))) | sort_by(.key | length) | last | .value.mcpServers.gbrain) // .mcpServers.gbrain // empty' "$HOME/.claude.json" 2>/dev/null)
+  _GBRAIN_MCP_TYPE=$(printf '%s' "$_GBRAIN_MCP_ENTRY" | jq -r '.type // .transport // empty' 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
+
+if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
+  _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$_BRAIN_NEW_URL" ]; then
+    printf 'ARTIFACTS_SYNC: artifacts repo detected: %s\n' "$_BRAIN_NEW_URL" | _sanitize
+    echo "ARTIFACTS_SYNC: run 'gstack-brain-restore' to pull your cross-machine artifacts (or 'gstack-config set artifacts_sync_mode off' to dismiss forever)"
+  fi
+fi
+
+if [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+  _BRAIN_LAST_PULL_FILE="$_GH/.brain-last-pull"
+  _BRAIN_NOW=$(date +%s)
+  _BRAIN_DO_PULL=1
+  if [ -f "$_BRAIN_LAST_PULL_FILE" ]; then
+    _BRAIN_LAST=$(cat "$_BRAIN_LAST_PULL_FILE" 2>/dev/null || echo 0)
+    case "$_BRAIN_LAST" in ''|*[!0-9]*) _BRAIN_LAST=0 ;; esac
+    _BRAIN_AGE=$(( _BRAIN_NOW - _BRAIN_LAST ))
+    [ "$_BRAIN_AGE" -lt 86400 ] && _BRAIN_DO_PULL=0
+  fi
+  if [ "$_BRAIN_DO_PULL" = "1" ]; then
+    # Daily artifacts pull is a brain-sync-class sink: receipt-before-send,
+    # fail-closed (same wiring as bin/gstack-brain-sync's fetch/push).
+    . "$_BIN/gstack-egress-lib.sh" 2>/dev/null || true
+    _PULL_HOST=$(cd "$_GH" 2>/dev/null && git remote get-url origin 2>/dev/null | sed -E 's|^[a-z+]+://([^/@]*@)?([^/:]+).*|\2|; s|^([^@]+@)?([^:]+):.*|\2|' | head -1)
+    if command -v _receipted_git >/dev/null 2>&1; then
+      # Non-interactive + slow-network bounded (same guards as gstack-update-check):
+      # a hung remote or a credential prompt must not stall the preamble.
+      ( cd "$_GH" && GSTACK_HOME="$_GH" GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
+          _receipted_git closed brain-sync "${_PULL_HOST:-unknown}" curated-memory-git-fetch "artifacts_sync_mode!=off" \
+          git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
+      # Stamp only when the receipted path actually ran — a missing egress lib
+      # must surface as a retry next start, not a silent 24h suppression.
+      echo "$_BRAIN_NOW" > "$_BRAIN_LAST_PULL_FILE"
+    fi
+  fi
+  "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
+fi
+
+if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+  # Remote-MCP mode: local artifacts sync is a no-op by design (the brain
+  # admin's server pulls from GitHub/GitLab).
+  _GBRAIN_HOST=$(printf '%s' "${_GBRAIN_MCP_ENTRY:-}" | jq -r '.url // empty' 2>/dev/null | sed -E 's|^https?://([^/:]+).*|\1|' | head -1 | tr -cd 'A-Za-z0-9._-')
+  echo "ARTIFACTS_SYNC: remote-mode (managed by brain server ${_GBRAIN_HOST:-remote})"
+elif [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+  _BRAIN_QUEUE_DEPTH=0
+  # Spool-dir queue (one file per record); legacy .brain-queue.jsonl lines
+  # counted too until the drain migrates them.
+  [ -d "$_GH/.brain-queue.d" ] && _BRAIN_QUEUE_DEPTH=$(find "$_GH/.brain-queue.d" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+  [ -f "$_GH/.brain-queue.jsonl" ] && _BRAIN_QUEUE_DEPTH=$(( _BRAIN_QUEUE_DEPTH + $(wc -l < "$_GH/.brain-queue.jsonl" | tr -d ' ') ))
+  [ -f "$_GH/.brain-queue.jsonl.migrating" ] && _BRAIN_QUEUE_DEPTH=$(( _BRAIN_QUEUE_DEPTH + $(wc -l < "$_GH/.brain-queue.jsonl.migrating" | tr -d ' ') ))
+  _BRAIN_LAST_PUSH="never"
+  # First line only + charset clamp: this file lives in a git checkout pulled
+  # from the artifacts remote, so its content is not trusted for STATUS output.
+  [ -f "$_GH/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(head -1 "$_GH/.brain-last-push" 2>/dev/null | tr -cd 'A-Za-z0-9._:+-' || echo never)
+  _BRAIN_LAST_PUSH=${_BRAIN_LAST_PUSH:-never}
+  echo "ARTIFACTS_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+else
+  echo "ARTIFACTS_SYNC: off"
+fi
+
+# ---------------------------------------------------------------------------
+# Instruction-emission layer (token-reduction Phase 2). One-time onboarding
+# text used to be inlined unconditionally in every SKILL.md (~7KB/skill);
+# it now appears ONLY when its runtime gate fires, wrapped in blocks the
+# preamble prose tells the model to follow. Security scoping (F4/OV4): each
+# header carries this run's SESSION_ID; the prose rule requires the match and
+# accepts blocks only from this command's direct tool result, so page/file
+# content cannot mint directives (passthrough output above is _sanitize-d).
+# Ack ownership (OV6): display-only tips write their done-marker here at
+# emit; interactive flows carry their ack commands inside the block for the
+# model to run after the interaction.
+# ---------------------------------------------------------------------------
+_ROOT_DIR=$(dirname "$_BIN")
+_emit_block() { echo "GSTACK_INSTRUCTION_BEGIN: $1 $_SESSION_ID"; cat; echo "GSTACK_INSTRUCTION_END"; }
+
+# Upgrade flow (gated: update-check emitted something above).
+if [ -n "$_UPD" ]; then
+  _emit_block upgrade-flow <<EOI
+The update-check output above applies. If it shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`$_ROOT_DIR/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If it shows \`JUST_UPGRADED <from> <to>\`: print "Running gstack v{to} (just updated!)". If \`SPAWNED_SESSION\` is true, skip feature discovery. After upgrade prompts, continue the workflow.
+EOI
+fi
+# Feature discovery (one prompt per session, marker-gated).
+if [ ! -f "$_ROOT_DIR/.feature-prompted-continuous-checkpoint" ]; then
+  _emit_block feature-checkpoint <<EOI
+Feature discovery: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run \`$_BIN/gstack-config set checkpoint_mode continuous\`. Always run: \`touch "$_ROOT_DIR/.feature-prompted-continuous-checkpoint"\`.
+EOI
+elif [ ! -f "$_ROOT_DIR/.feature-prompted-model-overlay" ]; then
+  _emit_block feature-overlay <<EOI
+Feature discovery: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always run: \`touch "$_ROOT_DIR/.feature-prompted-model-overlay"\`.
+EOI
+fi
+
+# Writing-style migration (gate previously dormant: nothing echoed
+# WRITING_STYLE_PENDING; the script now computes it from the marker files).
+if [ -f "$_GH/.writing-style-prompt-pending" ] && [ ! -f "$_GH/.writing-style-prompted" ]; then
+  _emit_block writing-style-migration <<EOI
+Ask once about writing style:
+
+> v1 prompts are simpler: first-use jargon glosses, outcome-framed questions, shorter prose. Keep default or restore terse?
+
+Options:
+- A) Keep the new default (recommended — good writing helps everyone)
+- B) Restore V0 prose — set \`explain_level: terse\`
+
+If A: leave \`explain_level\` unset (defaults to \`default\`). If B: run \`$_BIN/gstack-config set explain_level terse\`.
+Always run (regardless of choice): \`rm -f "$_GH/.writing-style-prompt-pending" && touch "$_GH/.writing-style-prompted"\`.
+EOI
+fi
+
+# Lake intro (one-time; the offer is interactive, so the model acks).
+if [ "$_LAKE_SEEN" = "no" ]; then
+  _emit_block lake-intro <<EOI
+Say: "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" and offer to open it. Only run \`open https://garryslist.org/posts/boil-the-ocean\` if the user says yes. Always run: \`touch "$_GH/.completeness-intro-seen"\`.
+EOI
+fi
+
+# Telemetry opt-in (interactive; consent — the model acks after answering).
+if [ "$_TEL_PROMPTED" = "no" ] && [ "$_LAKE_SEEN" = "yes" ]; then
+  _emit_block telemetry-prompt <<EOI
+Ask telemetry once via AskUserQuestion:
+
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
+
+Options:
+- A) Help gstack get better! (recommended)
+- B) No thanks
+
+If A: run \`$_BIN/gstack-config set telemetry community\`. If B, ask the follow-up:
+
+> Anonymous mode sends only aggregate usage, no unique ID.
+
+Options: A) Sure, anonymous is fine  B) No thanks, fully off
+If B→A: \`$_BIN/gstack-config set telemetry anonymous\`. If B→B: \`$_BIN/gstack-config set telemetry off\`.
+Always run: \`touch "$_GH/.telemetry-prompted"\`.
+EOI
+fi
+
+# Proactive-suggestions opt-in (interactive).
+if [ "$_PROACTIVE_PROMPTED" = "no" ] && [ "$_TEL_PROMPTED" = "yes" ]; then
+  _emit_block proactive-prompt <<EOI
+Ask once:
+
+> Let gstack proactively suggest skills, like /qa for "does this work?" or /investigate for bugs?
+
+Options: A) Keep it on (recommended)  B) Turn it off — I'll type /commands myself
+If A: \`$_BIN/gstack-config set proactive true\`. If B: \`$_BIN/gstack-config set proactive false\`.
+Always run: \`touch "$_GH/.proactive-prompted"\`.
+EOI
+fi
+
+# First-run guidance (display-only tips: marker + scaffold telemetry written
+# HERE at emit, per OV6 — a lost tip is acceptable; a re-firing loop is not).
+if [ "$_ACTIVATED" = "no" ]; then
+  _FT_TIP=""
+  case "$_FIRST_TASK" in
+    greenfield) _FT_TIP="Fresh repo — shape it first with \`/spec\` or \`/office-hours\`." ;;
+    code_node|code_python|code_rust|code_go|code_ruby|code_ios) _FT_TIP="There's code here — \`/qa\` to see it work, or \`/investigate\` if something's off." ;;
+    branch_ahead) _FT_TIP="Unshipped work on this branch — \`/review\` then \`/ship\`." ;;
+    dirty_default) _FT_TIP="Uncommitted changes — \`/review\` before committing." ;;
+    clean_default) _FT_TIP="Pick one: \`/spec\`, \`/investigate\`, or \`/qa\`." ;;
+  esac
+  if [ -n "$_FT_TIP" ]; then
+    _emit_block first-run-tip <<EOI
+Show this one project-specific line as a heads-up, then CONTINUE with whatever the user actually asked — do NOT halt their task: $_FT_TIP
+EOI
+    "$_BIN/gstack-telemetry-log" --event-type first_task_scaffold_shown --skill "$_FIRST_TASK" --outcome shown 2>/dev/null || true
+  fi
+  touch "$_GH/.activated" 2>/dev/null || true
+elif [ "$_FIRST_LOOP_SHOWN" = "no" ]; then
+  _emit_block first-loop-tip <<EOI
+Say once as a heads-up (then continue): Tip: gstack pays off when you complete one loop — **plan → review → ship**. A common first loop: \`/office-hours\` or \`/spec\` to shape it, \`/plan-eng-review\` to lock it, then \`/ship\`.
+EOI
+  touch "$_GH/.first-loop-tip-shown" 2>/dev/null || true
+fi
+
+# Routing injection (interactive: AUQ + CLAUDE.md append + commit). The body
+# is a quoted heredoc (markdown backticks must stay literal), so the resolved
+# bin path is substituted via sed on the __BIN__ placeholder.
+if [ "$_HAS_ROUTING" = "no" ] && [ "$_ROUTING_DECLINED" = "false" ] && [ "$_PROACTIVE_PROMPTED" = "yes" ]; then
+  sed "s|__BIN__|$_BIN|g" <<'EOI' | _emit_block routing-injection
+gstack works best when the project CLAUDE.md includes skill routing rules. If no CLAUDE.md exists in the project root, create it. Use AskUserQuestion:
+
+> gstack works best when your project's CLAUDE.md includes skill routing rules.
+
+Options: A) Add routing rules to CLAUDE.md (recommended)  B) No thanks, I'll invoke skills manually
+
+If A: append this section to the end of CLAUDE.md, then commit it (`git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`):
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
+
+If B: run `__BIN__/gstack-config set routing_declined true` and say they can re-enable with `__BIN__/gstack-config set routing_declined false`. This only happens once per project.
+EOI
+fi
+
+# Vendoring deprecation (interactive; slug-scoped marker).
+if [ "$_VENDORED" = "yes" ] && [ ! -f "$_GH/.vendoring-warned-${SLUG:-unknown}" ]; then
+  _emit_block vendoring-deprecation <<EOI
+This project has gstack vendored in \`.claude/skills/gstack/\`. Vendoring is deprecated. Warn once via AskUserQuestion:
+
+> Migrate to team mode?
+
+Options: A) Yes, migrate to team mode now  B) No, I'll handle it myself
+If A: 1) \`git rm -r .claude/skills/gstack/\` 2) \`echo '.claude/skills/gstack/' >> .gitignore\` 3) \`$_BIN/gstack-team-init required\` (or \`optional\`) 4) \`git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"\` 5) Tell the user: "Done. Each developer now runs: \`cd ~/.claude/skills/gstack && ./setup --team\`"
+If B: say "OK, you're on your own to keep the vendored copy up to date."
+Always run (regardless of choice): \`touch "$_GH/.vendoring-warned-${SLUG:-unknown}"\`.
+EOI
+fi
+
+# Spawned-session rules (NOT one-time — every spawned session gets the full
+# behavioral instruction, per plan OV6 move-with-care).
+if [ -n "${OPENCLAW_SESSION:-}" ]; then
+  _emit_block spawned-session <<EOI
+You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option; do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
+EOI
+fi
+
+# Privacy stop-gate (Phase 2, user-approved Q2: consent question surfaces only
+# when consent is actually pending; still fired through AskUserQuestion).
+# Interactive sessions ONLY: this block is emitted AFTER the spawned-session
+# block, so its "skip instruction blocks above" rule does not cover it — a
+# spawned session's auto-choose would accept data-sync consent no human gave.
+# Deferral is safe (EOV8): the config key stays unset, so the gate fires on
+# the next interactive run. Same reasoning suppresses it in headless runs.
+_ARTIFACTS_PROMPTED=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode_prompted 2>/dev/null || echo "false")
+if [ "$_SESSION_KIND" = "interactive" ] && [ "$_BRAIN_SYNC_MODE" = "off" ] && [ "$_ARTIFACTS_PROMPTED" != "true" ] && command -v gbrain >/dev/null 2>&1; then
+  _emit_block privacy-stop-gate <<EOI
+Privacy stop-gate — ask once via AskUserQuestion:
+
+> gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
+
+Options: A) Everything allowlisted (recommended)  B) Only artifacts  C) Decline, keep everything local
+After answer run: \`$_BIN/gstack-config set artifacts_sync_mode <full|artifacts-only|off>\` and \`$_BIN/gstack-config set artifacts_sync_mode_prompted true\`. If A/B and \`~/.gstack/.git\` is missing, ask whether to run \`gstack-artifacts-init\`. Do not block the skill.
+EOI
+fi
+
+# BRAIN_HEALTH block: only for hosts whose render passes --brain-health
+# (gbrain/hermes) — gen-time host conditional preserved as a flag.
+if [ "$BRAIN_HEALTH" = "yes" ] && command -v gbrain >/dev/null 2>&1; then
+  _BRAIN_JSON=$(gbrain doctor --fast --json 2>/dev/null || echo '{}')
+  _BRAIN_SCORE=$(echo "$_BRAIN_JSON" | grep -o '"health_score":[0-9]*' | cut -d: -f2)
+  _BRAIN_FAILS=$(echo "$_BRAIN_JSON" | grep -o '"status":"fail"' | wc -l | tr -d ' ')
+  _BRAIN_WARNS=$(echo "$_BRAIN_JSON" | grep -o '"status":"warn"' | wc -l | tr -d ' ')
+  echo "BRAIN_HEALTH: ${_BRAIN_SCORE:-unknown} (${_BRAIN_FAILS:-0} failures, ${_BRAIN_WARNS:-0} warnings)"
+  if [ "${_BRAIN_SCORE:-100}" -lt 50 ] 2>/dev/null; then
+    echo "$_BRAIN_JSON" | grep -o '"name":"[^"]*","status":"[^"]*","message":"[^"]*"' | _sanitize || true
+  fi
+fi

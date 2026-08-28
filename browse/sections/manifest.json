@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "browse",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's prose is the ONLY place that decides WHEN to read a section; required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "command-list",
+      "file": "command-list.md",
+      "title": "Full command list + snapshot flags (generated reference)",
+      "trigger": "using any command or snapshot flag beyond the Most-Used Commands table — the full generated reference for every browse command, its argument shape, and every snapshot flag"
+    }
+  ]
+}

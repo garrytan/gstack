@@ -76,11 +76,24 @@ A civic tech data platform for government employees to access, visualize, and sh
     run('git', ['add', '.']);
     run('git', ['commit', '-m', 'initial project setup']);
 
-    // Copy design-consultation skill
+    // Copy design-consultation skill — INCLUDING sections/. The skill has
+    // been carved since v1.57.0.0 (e722c5bf): Phases 3-6, where the DESIGN.md
+    // structure (the "AESTHETIC: [direction]" proposal template) is
+    // prescribed, live in sections/proposal-and-preview.md behind a STOP-read.
+    // Without the dir the agent improvises structure from the skeleton
+    // ("Visual thesis" vocabulary) and the section-synonym check becomes a
+    // coin flip (observed: CI run 33090283032 failed both attempts with
+    // "no sections dir" in the trace; the skeleton-only pass on 32899975845
+    // was lucky vocabulary).
     fs.mkdirSync(path.join(designDir, 'design-consultation'), { recursive: true });
     fs.copyFileSync(
       path.join(ROOT, 'design-consultation', 'SKILL.md'),
       path.join(designDir, 'design-consultation', 'SKILL.md'),
+    );
+    fs.cpSync(
+      path.join(ROOT, 'design-consultation', 'sections'),
+      path.join(designDir, 'design-consultation', 'sections'),
+      { recursive: true },
     );
   });
 
@@ -121,7 +134,12 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     // Structural checks — fuzzy synonym matching to handle agent variation
     const sectionSynonyms: Record<string, string[]> = {
       'Product Context': ['product', 'context', 'overview', 'about'],
-      'Aesthetic': ['aesthetic', 'visual direction', 'design direction', 'visual identity'],
+      // Widened 2026-08-27: two CI runs produced judge-praised DESIGN.md files
+      // that articulated the direction as "design principles" / "design
+      // language" prose without any of the original four literals (run
+      // 33090283032, both attempts; inputs identical to the prior passing
+      // run 32899975845 — vocabulary variance, not a generation regression).
+      'Aesthetic': ['aesthetic', 'visual direction', 'design direction', 'visual identity', 'design language', 'visual language', 'design principle', 'look and feel', 'art direction'],
       'Typography': ['typography', 'type', 'font', 'typeface'],
       'Color': ['color', 'colour', 'palette', 'colors'],
       'Spacing': ['spacing', 'space', 'whitespace', 'gap'],

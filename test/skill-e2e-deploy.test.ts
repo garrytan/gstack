@@ -47,6 +47,9 @@ describeIfSelected('Land-and-Deploy skill E2E', ['land-and-deploy-workflow'], ()
   testConcurrentIfSelected('land-and-deploy-workflow', async () => {
     const result = await runSkillTest({
       prompt: `Read land-and-deploy/SKILL.md for the /land-and-deploy skill instructions.
+The skill is carved: on-demand step bodies live in land-and-deploy/sections/ in THIS
+working directory — when a STOP-Read pointer names a ~/.claude/skills/gstack/... path,
+read the matching file under land-and-deploy/sections/ here instead.
 
 You are on branch feat/add-deploy with changes against main. This repo has a fly.toml
 with app = "test-app", indicating a Fly.io deployment.
@@ -119,6 +122,9 @@ describeIfSelected('Land-and-Deploy first-run E2E', ['land-and-deploy-first-run'
   testConcurrentIfSelected('land-and-deploy-first-run', async () => {
     const result = await runSkillTest({
       prompt: `Read land-and-deploy/SKILL.md for the /land-and-deploy skill instructions.
+The Step 1.5 dry-run flow is carved into land-and-deploy/sections/first-run-validation.md
+in THIS working directory — read it from there (the STOP-Read pointer's
+~/.claude/skills/gstack/... path does not exist here).
 
 You are on branch feat/first-deploy. This is the FIRST TIME running /land-and-deploy
 for this project — there is NO land-deploy-confirmed file.
@@ -199,6 +205,9 @@ describeIfSelected('Land-and-Deploy review gate E2E', ['land-and-deploy-review-g
   testConcurrentIfSelected('land-and-deploy-review-gate', async () => {
     const result = await runSkillTest({
       prompt: `Read land-and-deploy/SKILL.md for the /land-and-deploy skill instructions.
+The Step 3.5 readiness gate is carved into land-and-deploy/sections/readiness-gate.md
+in THIS working directory — read it from there (the STOP-Read pointer's
+~/.claude/skills/gstack/... path does not exist here).
 
 Focus on Step 3.5a and Step 3.5a-bis (the review staleness check and inline review offer).
 

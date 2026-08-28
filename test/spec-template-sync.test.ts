@@ -1,8 +1,12 @@
 /**
- * spec-template-sync: verify spec/SKILL.md.tmpl ↔ spec/SKILL.md stay in sync.
+ * spec-template-sync: verify /spec templates ↔ generated docs stay in sync.
  *
  * Per codex T8 / eng plan: regen and assert no drift. Catches commits that
- * edit the template but forget to run `bun run gen:skill-docs`, or vice versa.
+ * edit a template but forget to run `bun run gen:skill-docs`, or vice versa.
+ *
+ * /spec is carved (skeleton + sections/gate-and-file.md), so BOTH generated
+ * artifacts are checked: a stale section is the same drift bug as a stale
+ * skeleton — the on-demand file is what the agent executes at Phase 4.5.
  */
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
@@ -11,10 +15,14 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
+const GENERATED_PATHS = [
+  path.join(ROOT, 'spec', 'SKILL.md'),
+  path.join(ROOT, 'spec', 'sections', 'gate-and-file.md'),
+];
+
 describe('/spec template/generated sync', () => {
-  test('regenerating spec/SKILL.md produces byte-identical output', () => {
-    const generatedPath = path.join(ROOT, 'spec', 'SKILL.md');
-    const before = fs.readFileSync(generatedPath);
+  test('regenerating spec/SKILL.md + sections produces byte-identical output', () => {
+    const before = GENERATED_PATHS.map((p) => fs.readFileSync(p));
 
     const res = spawnSync('bun', ['run', 'gen:skill-docs'], {
       cwd: ROOT,
@@ -34,12 +42,17 @@ describe('/spec template/generated sync', () => {
     });
     expect(res.status).toBe(0);
 
-    const after = fs.readFileSync(generatedPath);
-    expect(after.equals(before)).toBe(true);
+    for (let i = 0; i < GENERATED_PATHS.length; i++) {
+      const after = fs.readFileSync(GENERATED_PATHS[i]);
+      expect({ file: path.relative(ROOT, GENERATED_PATHS[i]), identical: after.equals(before[i]) })
+        .toEqual({ file: path.relative(ROOT, GENERATED_PATHS[i]), identical: true });
+    }
   }, 130_000);
 
-  test('spec/SKILL.md is auto-generated header is present', () => {
-    const generated = fs.readFileSync(path.join(ROOT, 'spec', 'SKILL.md'), 'utf-8');
-    expect(generated).toMatch(/AUTO-GENERATED|do not edit directly/i);
+  test('generated /spec docs carry the auto-generated header', () => {
+    for (const p of GENERATED_PATHS) {
+      const generated = fs.readFileSync(p, 'utf-8');
+      expect(generated).toMatch(/AUTO-GENERATED|do not edit directly/i);
+    }
   });
 });

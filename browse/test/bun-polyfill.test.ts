@@ -3,8 +3,13 @@ import * as path from 'path';
 
 // Every test here spawnSync's a `node` child; Windows CI cold-start (AV scan,
 // first-touch of node.exe) alone can blow bun's 5s default — observed 5,007ms
-// on a 50ms sleep test. Subprocess budget, not assertion looseness.
-setDefaultTimeout(20_000);
+// on a 50ms sleep test. 20s was still not enough: on 2026-08-26 (PR #2700,
+// run 32989821401) the 50ms sleep test blew 20s on BOTH bun retry attempts on
+// a degraded windows-latest runner, so cold-start alone doesn't explain it —
+// sustained AV/runner pressure does. Subprocess budget, not assertion
+// looseness: every assertion still checks exact output, only the slowness
+// allowance grows.
+setDefaultTimeout(60_000);
 
 // Load the polyfill into a fresh object (don't clobber globalThis.Bun)
 const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');

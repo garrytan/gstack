@@ -31,43 +31,14 @@ bun run slop:diff     # slop findings in files changed on this branch only
 only `auth.json` from `${CODEX_HOME:-~/.codex}` and pins `CODEX_HOME` in the child
 env — no `OPENAI_API_KEY` env var needed.
 
-**Env keys in Conductor workspaces.** The `GSTACK_*` env-shim (v1.39.2.0+,
-`lib/conductor-env-shim.ts`) promotes `GSTACK_ANTHROPIC_API_KEY` /
-`GSTACK_OPENAI_API_KEY` to their canonical names inside gstack's TS binaries.
-Tests run through gstack entrypoints inherit this promotion automatically.
-Don't echo the key value to stdout, logs, or shell history. The historical
-"never pass `env:` to `runAgentSdkTest`" rule is retired: the failure was
-partial-env replacement (the SDK's `Options.env` REPLACES the child's entire
-environment, so an object without the key broke auth). The runner now always
-passes a COMPLETE hermetic env with per-test `env:` merged last, so per-test
-overrides are safe; ambient `process.env.ANTHROPIC_API_KEY` mutation also
-still works (the env builder reads process.env at call time).
-
-**Hermetic local E2E (default).** Every E2E runner (claude -p, PTY, Agent
-SDK, codex, gemini) spawns children through `test/helpers/hermetic-env.ts`:
-allowlist-scrubbed env (operator `CONDUCTOR_*`, `CLAUDE_*`, `GSTACK_*`,
-`MCP_*`, `GBRAIN_*`, and credentials like `GH_TOKEN` never reach children),
-a fresh seeded `CLAUDE_CONFIG_DIR` (no operator `~/.claude` CLAUDE.md /
-MCP servers / skills), a temp `GSTACK_HOME`, and `--strict-mcp-config`.
-Local eval signal matches CI. Debug against real operator state with
-`EVALS_HERMETIC=0` (restores the legacy env AND drops the strict-MCP flag).
-Per-test `env:` overrides merge last, so deliberate contamination
-(`CONDUCTOR_WORKSPACE_PATH`, per-test `GSTACK_HOME`) keeps working. The
-hermetic config dir seeds NO skills by default; a PTY test that types a
-`/skill` slash command must pass `seedSkills: true` to the PTY runner, which
-points the child's `CLAUDE_CONFIG_DIR` at `hermeticSkillsConfigDir()` — a
-seeded registry that symlinks the LIVE working tree's SKILL.md files (by
-design: the skills ARE the subject under test; a snapshot would measure stale
-copies). Wiring is pinned by `test/hermetic-wiring.test.ts` (static tripwire),
-two gate-tier canaries in `test/skill-e2e-hermetic-canary.test.ts`, and the
-seeding tripwires in `test/hermetic-skills-seeding.test.ts` /
-`test/pty-skill-seeding-wiring.test.ts`.
-
-E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
---verbose`). Results are persisted to `~/.gstack/projects/<slug>/evals/` (legacy
-fallback `~/.gstack-dev/evals/`) with auto-comparison
-against the previous finalized run (in-flight `_partial` files are never used as
-a baseline, so a run can't compare against itself).
+**Hermetic E2E + env keys:** every E2E runner spawns children through
+`test/helpers/hermetic-env.ts` (allowlist-scrubbed env, fresh seeded
+`CLAUDE_CONFIG_DIR`, temp `GSTACK_HOME`, `--strict-mcp-config`); per-test
+`env:` overrides merge last onto a COMPLETE hermetic env, so they're safe.
+A PTY test that types a `/skill` command must pass `seedSkills: true`.
+Debug against real operator state with `EVALS_HERMETIC=0`. Full detail
+(env-shim, seeding tripwires, wiring tests):
+[docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md).
 
 **Diff-based test selection:** `test:evals` and `test:e2e` auto-select tests based
 on `git diff` against the base branch. Each test declares its file dependencies in
@@ -111,79 +82,13 @@ tests via `claude -p`. Both must pass before creating a PR.
 
 ## Project structure
 
-```
-gstack/
-├── browse/          # Headless browser CLI (Playwright)
-│   ├── src/         # CLI + server + commands
-│   │   ├── commands.ts  # Command registry (single source of truth)
-│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
-├── hosts/           # Typed host configs (one per AI agent)
-│   ├── claude.ts    # Primary host config
-│   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
-│   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # IDE hosts
-│   ├── hermes.ts, gbrain.ts  # Agent runtime hosts
-│   └── index.ts     # Registry: exports all, derives Host type
-├── scripts/         # Build + DX tooling
-│   ├── gen-skill-docs.ts  # Template → SKILL.md generator (config-driven)
-│   ├── host-config.ts     # HostConfig interface + validator
-│   ├── host-config-export.ts  # Shell bridge for setup script
-│   ├── resolvers/   # Template resolver modules (preamble, design, review, gbrain, etc.)
-│   ├── skill-check.ts     # Health dashboard
-│   ├── test-paid-shards.ts  # Sharded paid-tier runner (one Bun process per shard)
-│   └── dev-skill.ts       # Watch mode
-├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
-│   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
-│   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
-│   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
-│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
-├── qa-only/         # /qa-only skill (report-only QA, no fixes)
-├── plan-design-review/  # /plan-design-review skill (report-only design audit)
-├── design-review/    # /design-review skill (design audit + fix loop)
-├── ship/            # Ship workflow skill
-├── review/          # PR review skill
-├── plan-ceo-review/ # /plan-ceo-review skill
-├── plan-eng-review/ # /plan-eng-review skill
-├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
-├── benchmark/       # /benchmark skill (performance regression detection)
-├── canary/          # /canary skill (post-deploy monitoring loop)
-├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
-├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
-├── investigate/     # /investigate skill (systematic root-cause debugging)
-├── spec/            # /spec skill (five-phase spec → GitHub issue, optional agent spawn, /ship auto-closes)
-├── retro/           # Retrospective skill (includes /retro global cross-project mode)
-├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, etc.)
-├── document-release/ # /document-release skill (post-ship doc updates + Diataxis coverage map)
-├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
-├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
-├── design-consultation/ # /design-consultation skill (design system from scratch)
-├── design-shotgun/  # /design-shotgun skill (visual design exploration)
-├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
-├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
-├── design/          # Design binary CLI (GPT Image API)
-│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
-│   ├── test/        # Integration tests
-│   └── dist/        # Compiled binary
-├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
-├── lib/             # Shared libraries (worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
-├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide)
-├── docs/designs/    # Design documents
-├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
-├── .github/         # CI workflows + Docker image
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), quality-gate.yml (secret scan), dependency-review.yml, osv-scanner.yml, skill-docs.yml, actionlint.yml, and 8 more (windows, periodic evals, release gates, ci-image)
-│   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
-├── contrib/         # Contributor-only tools (never installed for users)
-│   └── add-host/    # /gstack-contrib-add-host skill
-├── setup            # One-time setup: build binary + symlink skills
-├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
-├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Ocean, Search Before Building)
-└── package.json     # Build scripts for browse
-```
+Full annotated tree: [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).
+Quick map: `browse/` headless-browser CLI, `design/` design binary,
+`hosts/` typed host configs, `scripts/` build+DX tooling (gen-skill-docs,
+resolvers), `test/` validation+evals, `lib/` shared libraries, `bin/` CLI
+utilities, `extension/` Chrome extension, one directory per skill
+(`ship/`, `review/`, `qa/`, ...), `.github/` CI, `contrib/` contributor
+tools, `docs/designs/` design documents.
 
 ## SKILL.md workflow
 
@@ -225,6 +130,17 @@ conversation. The failure message carries the re-measure + ratchet protocol.
 `bin/gstack-context-bill` shows the full token bill-of-materials for a skills
 tree (always-on vs per-invocation, `--diff`, `--budget`; `--exact` opts into the
 real tokenizer and POSTs file text to api.anthropic.com with an egress receipt).
+
+The context-budget ratchet (`test/context-budget-ratchet.test.ts`, free, runs
+in `bun run test`) pins ABSOLUTE ceilings on two more ledgers: the always-on
+FULL-frontmatter aggregate (catalog-budget counts only name+description) and
+each skill's per-invocation eager tokens (SKILL.md + forced-read references —
+size floors and parity ratios guard these relatively, not absolutely), graded
+against `test/fixtures/context-budget.json`. A skill that grows past its
+ceiling fails; a new skill fails until it's consciously budgeted. For
+legitimate growth or a landed reduction, re-run
+`bun test/helpers/capture-context-budget.ts` and commit the refreshed fixture
+in the same commit, so ceilings ratchet down and every win is locked.
 
 **Merge conflicts on SKILL.md files:** NEVER resolve conflicts on generated SKILL.md
 files by accepting either side. Instead: (1) resolve conflicts on the `.tmpl` templates
@@ -280,86 +196,12 @@ When you need to interact with a browser (QA, dogfooding, cookie setup), use the
 `mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
 project uses.
 
-**Sidebar architecture:** Before modifying `sidepanel.js`, `background.js`,
-`content.js`, `terminal-agent.ts`, or sidebar-related server endpoints,
-read `docs/designs/SIDEBAR_MESSAGE_FLOW.md`. The sidebar has one primary
-surface — the **Terminal** pane (interactive `claude` PTY) — with
-Activity / Refs / Inspector as debug overlays behind the footer's
-`debug` toggle. The chat queue path was ripped once the PTY proved out;
-`sidebar-agent.ts` and the `/sidebar-command` / `/sidebar-chat` /
-`/sidebar-agent/event` endpoints are gone. The doc covers the WS auth
-flow, dual-token model, and threat-model boundary — silent failures
-here usually trace to not understanding the cross-component flow.
-
-**Embedder terminal-agent ownership** (v1.42.1.0+, identity-based kill v1.44.0.0+).
-`buildFetchHandler` in `browse/src/server.ts` accepts `ServerConfig.ownsTerminalAgent?:
-boolean` (default `true`). When `true`, factory shutdown runs the full teardown:
-identity-based kill via `killAgentByRecord(readAgentRecord(stateDir))` from
-`browse/src/terminal-agent-control.ts` plus `safeUnlinkQuiet` on
-`<stateDir>/terminal-port`, `<stateDir>/terminal-internal-token`, and
-`<stateDir>/terminal-agent-pid` (the per-boot agent record introduced in v1.44).
-Embedders (e.g. the gbrowser phoenix overlay) that pre-launch their own PTY
-server must pass `false` so their discovery files survive gstack teardown cycles.
-The flag is the third caller-owned teardown gate in `ServerConfig` (alongside
-`xvfb?` and `proxyBridge?`); polarity is inverted (explicit bool vs presence) and
-documented in the field's JSDoc. CLI `start()` always passes `true` explicitly —
-the static-grep test in `browse/test/server-embedder-terminal-port.test.ts` fails
-CI if a refactor drops it. Pre-v1.44 used `pkill -f terminal-agent\.ts` (regex
-match) which would kill sibling gstack sessions on the same host; the new
-`browse/test/terminal-agent-pid-identity.test.ts` static-grep tripwire fails CI
-if any source file re-introduces `pkill ... terminal-agent` or `spawnSync('pkill', ...)`.
-
-**WebSocket auth uses Sec-WebSocket-Protocol, not cookies.** Browsers
-can't set `Authorization` on a WebSocket upgrade, but they CAN set
-`Sec-WebSocket-Protocol` via `new WebSocket(url, [token])`. The agent
-reads it, validates against `validTokens`, and MUST echo the protocol
-back in the upgrade response — without the echo, Chromium closes the
-connection immediately. `Set-Cookie: gstack_pty=...` is kept as a
-fallback for non-browser callers (the cross-port `SameSite=Strict`
-cookie path doesn't survive from a chrome-extension origin).
-
-**Cross-pane PTY injection.** The toolbar's Cleanup button and the
-Inspector's "Send to Code" action both pipe text into the live claude
-PTY via `window.gstackInjectToTerminal(text)`, exposed by
-`sidepanel-terminal.js`. No `/sidebar-command` POST — the live REPL is
-the only execution surface in the sidebar now.
-
-**`/health` MUST NOT surface any token — and it no longer does** (v1.63+).
-The historical headed-mode leak of `AUTH_TOKEN` is fixed: `GET /health` is
-liveness/status only in every mode. Token bootstrap is `POST /extension-token`,
-which validates the caller's Origin against the pinned extension identity
-(the `key` field in `extension/manifest.json` pins the extension ID —
-`GSTACK_EXTENSION_ID` in `browse/src/server.ts`, derivation reproducible via
-`bun browse/scripts/extension-id.ts`) plus a loopback Host. PTY auth still
-flows through `POST /pty-session` only. Don't add any token to `/health`.
-
-**Transport-layer security** (v1.6.0.0+). When `pair-agent` starts an ngrok tunnel,
-the daemon binds two HTTP listeners: a local listener (127.0.0.1, full command
-surface, never forwarded) and a tunnel listener (locked allowlist: `/connect`,
-`/command` with a scoped token + 26-command browser-driving allowlist,
-`/sidebar-chat`). ngrok forwards only the tunnel port. Root tokens over the tunnel
-return 403. SSE endpoints use a 30-minute HttpOnly `gstack_sse` cookie minted via
-`POST /sse-session` (never valid against `/command`). Tunnel-surface rejections go
-to `~/.gstack/security/attempts.jsonl` via `tunnel-denial-log.ts`. Before editing
-`server.ts`, `sse-session-cookie.ts`, or `tunnel-denial-log.ts`, read
-[ARCHITECTURE.md](ARCHITECTURE.md#dual-listener-tunnel-architecture-v1600) —
-the module boundary (no imports from `token-registry.ts` into `sse-session-cookie.ts`)
-is load-bearing for scope isolation.
-
-**Unicode sanitization at server egress** (v1.38.0.0+). Every server egress that
-ships page-content-derived strings MUST go through `JSON.stringify(payload,
-sanitizeReplacer)` for object payloads or `sanitizeLoneSurrogates(body)` for text
-bodies. Lone UTF-16 surrogate halves from CDP page content otherwise reach the
-Anthropic API as `\uD800`-style escapes and trigger a 400. Wired at four egress
-points today: `handleCommandInternal` (HTTP + batch via a sanitizing wrapper around
-`handleCommandInternalImpl`) and both SSE producers (`/activity/stream`,
-`/inspector/events`). Post-stringify regex is a no-op — `JSON.stringify` has
-already escaped the surrogate before regex could match, so the replacer must run
-inside the encoding pipeline. Before adding a new SSE/WebSocket writer or HTTP
-response in `server.ts`, read
-[ARCHITECTURE.md](ARCHITECTURE.md#unicode-sanitization-at-server-egress-v13800).
-`browse/test/server-sanitize-surrogates.test.ts` pins the wiring with invariant
-tests, so bypasses fail CI.
+**Server / sidebar / extension internals:** before editing `browse/src/server.ts`,
+`extension/`, the sidebar PTY, any SSE endpoint, or CDP session code, read
+[docs/BROWSER_INTERNALS.md](docs/BROWSER_INTERNALS.md) — sidebar message flow,
+WebSocket auth, tunnel dual-listener rules, Unicode sanitization at egress,
+SSE/CDP helpers, setup symlink hardening, and the sidebar security stack all
+live there, each pinned by a CI tripwire.
 
 **Egress receipts at every off-machine sink** (v1.63.0.0+). Every gstack-initiated
 send off the machine MUST write a hash-chained receipt to
@@ -377,81 +219,6 @@ probes, instruction strings, skill prose) — if you add a new off-machine sink,
 wire it through the helpers and add it to the enumerated sink list. Inspect with
 `bin/gstack-egress` (`list` | `verify`, exit 3 on tamper | `grants`). Threat
 model: forensic observability of ATTEMPTED egress, not an exfiltration control.
-
-**SSE endpoint helper** (v1.51.0.0+). New SSE endpoints in `server.ts` MUST route
-through `createSseEndpoint(req, config)` from `browse/src/sse-helpers.ts`. The
-helper owns the cleanup contract (abort + enqueue-throw + heartbeat-throw, all
-idempotent) and bakes in `sanitizeLoneSurrogates` on every JSON.stringify, so
-new subscribers can't accidentally regress either invariant. Inline
-`ReadableStream` wiring leaked subscribers when the TCP connection died without
-firing `req.signal.abort` (Chromium MV3 service-worker suspend, intermediate
-proxy half-close). `/activity/stream`, `/inspector/events`, and `/memory`
-(SSE-eligible) all route through it. `browse/test/sse-helpers.test.ts` pins the
-cleanup contract.
-
-**CDP session lifecycle** (v1.51.0.0+). Direct `page.context().newCDPSession(page)`
-calls outside `browse/src/cdp-bridge.ts` fail CI via the static-grep tripwire in
-`browse/test/cdp-session-cleanup.test.ts`. Use `withCdpSession(page, async (s) => {...})`
-for one-shot CDP work (try/finally detach) or `getOrCreateCdpSession(page, cache)`
-for cached sessions tied to a page's lifetime (close-detach via `Map<page, session>`).
-Three sites migrated: cdp-bridge frame events, write-commands archive capture,
-cdp-inspector. The helpers prevent the per-session leak class where successful-path
-detach happened but error-path detach was missed.
-
-**Setup symlink hardening** (v1.38.0.0+). Every link site in `setup` MUST route
-through the `_link_or_copy SRC DST` helper near the `IS_WINDOWS` detection. On
-Windows without Developer Mode, plain `ln -snf` produces frozen file copies that
-don't refresh on `git pull` — silent staleness across every host adapter. The
-helper preserves `ln -snf` on Unix and switches to `cp -R` / `cp -f` on Windows.
-`test/setup-windows-fallback.test.ts` enforces a static invariant: a single raw
-`ln` call outside the helper body fails CI. Windows users get a one-line note
-from `_print_windows_copy_note_once` reminding them to re-run `./setup` after
-every `git pull`.
-
-**Sidebar security stack** (layered defense against prompt injection):
-
-| Layer | Module | Lives in |
-|-------|--------|----------|
-| L1-L3 | `content-security.ts` | server + read path — datamarking, hidden element strip, ARIA regex, URL blocklist, envelope wrapping |
-| L4 | `security-classifier.ts` (TestSavantAI ONNX) | **security sidecar subprocess only** (`security-sidecar-entry.ts`, driven by `security-sidecar-client.ts` from server.ts) |
-| Canary | `security.ts` (generate/inject/detect) | pure utilities — no production injector today (the chat prompt-builder that injected them was ripped) |
-| Combiner | `security.ts` (combineVerdict + THRESHOLDS) | pure, tested; retains transcript/deberta vote handling for LayerSignal inputs no live layer produces anymore |
-
-History note: an L4b Haiku transcript classifier and an opt-in DeBERTa ensemble
-(`GSTACK_SECURITY_ENSEMBLE=deberta`) existed until the chat-path agent that
-invoked them was ripped; both were deleted as dead code (zero production
-callers). Do not re-document them as live.
-
-**Critical constraint:** `security-classifier.ts` CANNOT be imported from the
-compiled browse binary. `@huggingface/transformers` v4 requires `onnxruntime-node`
-which fails to `dlopen` from Bun compile's temp extract dir — hence the sidecar
-subprocess. Only `security.ts` (pure-string operations — canary utilities,
-verdict combiner, status) is safe for `server.ts`. See
-`~/.gstack/projects/garrytan-gstack/ceo-plans/2026-04-19-prompt-injection-guard.md`
-§"Pre-Impl Gate 1 Outcome" for the original architectural decision.
-
-**Thresholds** (in `security.ts`): `BLOCK: 0.85`, `WARN: 0.75`, `LOG_ONLY: 0.40`,
-`SOLO_CONTENT_BLOCK: 0.92` (label-less content classifiers can't distinguish
-"injection" from "phishing aimed at the user", so their solo bar is higher).
-The live L4 path applies these in server.ts's sidecar-scan handling; canary
-leak always BLOCKs (deterministic).
-
-**Env knobs:**
-- `GSTACK_SECURITY_OFF=1` — emergency kill switch. Classifier stays off even if
-  warmed; the L1-L3 filters keep running.
-- Classifier model cache: `~/.gstack/models/testsavant-small/` (112MB, first run only)
-- Attack log: `~/.gstack/security/attempts.jsonl` — written by
-  `tunnel-denial-log.ts` (tunnel-surface rejections; rotates at 10MB, 5 generations)
-
-History note (#2557): the cross-process session state
-(`~/.gstack/security/session-state.json`), `getStatus()`, the `/health`
-`security` field, and the sidepanel SEC shield were all removed — the state
-file lost its only writer when sidebar-agent.ts was ripped, so the shield
-reported a permanent 'inactive' or a stale false-green 'protected' from
-leftover disk state. The live defenses (L1-L3 filters, L4 sidecar on the
-inject-scan path) report through their own call sites, never through
-/health. `browse/test/server-security-surface.test.ts` pins both the
-removal and the live L4 wiring. Do not re-document these as live.
 
 ## Dev symlink awareness
 
@@ -573,48 +340,11 @@ npx slop-scan scan . --json   # machine-readable for diffing
 
 Config: `slop-scan.config.json` at repo root (currently excludes `**/vendor/**`).
 
-### What to fix (genuine quality improvements)
-
-- **Empty catches around file ops** — use `safeUnlink()` (ignores ENOENT, rethrows
-  EPERM/EIO). A swallowed EPERM in cleanup means silent data loss.
-- **Empty catches around process kills** — use `safeKill()` (ignores ESRCH, rethrows
-  EPERM). A swallowed EPERM means you think you killed something you didn't.
-- **Redundant `return await`** — remove when there's no enclosing try block. Saves a
-  microtask, signals intent.
-- **Typed exception catches** — `catch (err) { if (!(err instanceof TypeError)) throw err }`
-  is genuinely better than `catch {}` when the try block does URL parsing or DOM work.
-  You know what error you expect, so say so.
-
-### What NOT to fix (linter gaming, not quality)
-
-- **String-matching on error messages** — `err.message.includes('closed')` is brittle.
-  Playwright/Chrome can change wording anytime. If a fire-and-forget operation can fail
-  for ANY reason and you don't care, `catch {}` is the correct pattern.
-- **Adding comments to exempt pass-through wrappers** — "alias for active session" above
-  a method just to trip slop-scan's exemption rule is noise, not documentation.
-- **Converting extension catch-and-log to selective rethrow** — Chrome extensions crash
-  entirely on uncaught errors. If the catch logs and continues, that IS the right pattern
-  for extension code. Don't make it throw.
-- **Tightening best-effort cleanup paths** — shutdown, emergency cleanup, and disconnect
-  code should use `safeUnlinkQuiet()` (swallows ALL errors). A cleanup path that throws
-  on EPERM means the rest of cleanup doesn't run. That's worse.
-
-### Utilities in `browse/src/error-handling.ts`
-
-| Function | Use when | Behavior |
-|----------|----------|----------|
-| `safeUnlink(path)` | Normal file deletion | Ignores ENOENT, rethrows others |
-| `safeUnlinkQuiet(path)` | Shutdown/emergency cleanup | Swallows all errors |
-| `safeKill(pid, signal)` | Sending signals | Ignores ESRCH, rethrows others |
-| `isProcessAlive(pid)` | Boolean process checks | Returns true/false, never throws |
-
-### Score tracking
-
-Baseline (2026-04-09, before cleanup): 100 findings, 432.8 score, 2.38 score/file.
-After cleanup: 90 findings, 358.1 score, 1.96 score/file.
-
-Don't chase the number. Fix patterns that represent actual code quality problems.
-Accept findings where the "sloppy" pattern is the correct engineering choice.
+Before fixing any finding, read [docs/SLOP_SCAN.md](docs/SLOP_SCAN.md):
+it separates genuine quality fixes (empty catches around file ops → 
+`safeUnlink()`, process kills → `safeKill()`) from linter gaming we
+reject (string-matching error messages, tightening best-effort cleanup).
+Utilities live in `browse/src/error-handling.ts`. Don't chase the score.
 
 ## Community PR guardrails
 
@@ -807,59 +537,14 @@ sentence: "Version bump for branch-ahead discipline. No user-facing changes yet.
 there. Do not pad. Do not explain the plan that will ship eventually. Do not narrate
 the branch's history. When real work lands, the entry will replace this at /ship time.
 
-### Release-summary format (every `## [X.Y.Z]` entry)
+### Entry format
 
-Every version entry in `CHANGELOG.md` MUST start with a release-summary section in
-the GStack/Garry voice, one viewport's worth of prose + tables that lands like a
-verdict, not marketing. The itemized changelog (subsections, bullets, files) goes
-BELOW that summary, separated by a `### Itemized changes` header.
-
-The release-summary section gets read by humans, by the auto-update agent, and by
-anyone deciding whether to upgrade. The itemized list is for agents that need to
-know exactly what changed.
-
-Structure for the top of every `## [X.Y.Z]` entry:
-
-1. **Two-line bold headline** (10-14 words total). Should land like a verdict, not
-   marketing. Sound like someone who shipped today and cares whether it works.
-2. **Lead paragraph** (3-5 sentences). What shipped, what changed for the user.
-   Specific, concrete, no AI vocabulary, no em dashes, no hype.
-3. **A "The X numbers that matter" section** with:
-   - One short setup paragraph naming the source of the numbers (real production
-     deployment OR a reproducible benchmark, name the file/command to run).
-   - A table of 3-6 key metrics with BEFORE / AFTER / Δ columns.
-   - A second optional table for per-category breakdown if relevant.
-   - 1-2 sentences interpreting the most striking number in concrete user terms.
-4. **A "What this means for [audience]" closing paragraph** (2-4 sentences) tying
-   the metrics to a real workflow shift. End with what to do.
-
-Voice rules for the release summary:
-- No em dashes (use commas, periods, "...").
-- No AI vocabulary (delve, robust, comprehensive, nuanced, fundamental, etc.) or
-  banned phrases ("here's the kicker", "the bottom line", etc.).
-- Real numbers, real file names, real commands. Not "fast" but "~30s on 30K pages."
-- Short paragraphs, mix one-sentence punches with 2-3 sentence runs.
-- Connect to user outcomes: "the agent does ~3x less reading" beats "improved precision."
-- Be direct about quality. "Well-designed" or "this is a mess." No dancing.
-
-Source material:
-- CHANGELOG previous entry for prior context.
-- Benchmark files or `/retro` output for headline numbers.
-- Recent commits (`git log <prev-version>..HEAD --oneline`) for what shipped.
-- Don't make up numbers. If a metric isn't in a benchmark or production data,
-  don't include it. Say "no measurement yet" if asked.
-
-Target length: ~250-350 words for the summary. Should render as one viewport.
-
-### Itemized changes (below the release summary)
-
-Write `### Itemized changes` and continue with the detailed subsections (Added,
-Changed, Fixed, For contributors). Same rules as the user-facing voice guidance
-above, plus:
-
-- **Always credit community contributions.** When an entry includes work from a
-  community PR, name the contributor with `Contributed by @username`. Contributors
-  did real work. Thank them publicly every time, no exceptions.
+Every `## [X.Y.Z]` entry starts with a release summary (two-line bold
+headline, lead paragraph, numbers table, closing paragraph) followed by an
+`### Itemized changes` section. Read
+[docs/CHANGELOG_STYLE.md](docs/CHANGELOG_STYLE.md) for the full format spec
+and voice rules BEFORE writing an entry. Always credit community
+contributions with `Contributed by @username`.
 
 ## AI effort compression
 
@@ -995,26 +680,10 @@ Also when running targeted E2E tests to debug failures:
 
 ## Publishing native OpenClaw skills to ClawHub
 
-Native OpenClaw skills live in `openclaw/skills/gstack-openclaw-*/SKILL.md`. These are
-hand-crafted methodology skills (not generated by the pipeline) published to ClawHub
-so any OpenClaw user can install them.
-
-**Publishing:** The command is `clawhub publish` (NOT `clawhub skill publish`):
-
-```bash
-clawhub publish openclaw/skills/gstack-openclaw-office-hours \
-  --slug gstack-openclaw-office-hours --name "gstack Office Hours" \
-  --version 1.0.0 --changelog "description of changes"
-```
-
-Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigate`,
-`gstack-openclaw-retro`. Bump `--version` on each update.
-
-**Auth:** `clawhub login` (opens browser for GitHub auth). `clawhub whoami` to verify.
-
-**Updating:** Same `clawhub publish` command with a higher `--version` and `--changelog`.
-
-**Verification:** `clawhub search gstack` to confirm they're live.
+Native OpenClaw skills live in `openclaw/skills/gstack-openclaw-*/SKILL.md`.
+The command is `clawhub publish` (NOT `clawhub skill publish`) — full
+workflow, auth, and verification:
+[docs/OPENCLAW_PUBLISHING.md](docs/OPENCLAW_PUBLISHING.md).
 
 ## Deploying to the active skill
 

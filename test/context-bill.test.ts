@@ -419,6 +419,18 @@ describe("--budget", () => {
     expect(violations).toHaveLength(1);
     expect(violations[0].ceiling).toBe("eagerPerInvocation.ghost");
   });
+
+  // The context-budget ratchet (test/context-budget-ratchet.test.ts) made
+  // this branch load-bearing in CI; it previously had only under-budget
+  // coverage.
+  it("checkBudget flags an alwaysOnTotal violation with every skill's frontmatter listed", () => {
+    const bill = buildBill(TREE_A);
+    const violations = checkBudget(bill, { alwaysOnTotal: 0 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ceiling).toBe("alwaysOnTotal");
+    expect(violations[0].actual).toBe(Math.round(bill.totals.alwaysOnTokens));
+    expect(violations[0].files.length).toBe(bill.skills.length);
+  });
 });
 
 describe("--exact (opt-in measurement; offline here via an injected fetch)", () => {

@@ -35,25 +35,30 @@ describe('Audit compliance', () => {
 
   // Fix 2: Conditional telemetry — binary calls wrapped with existence check
   test('preamble telemetry calls are conditional on _TEL and binary existence', () => {
-    // After the preamble.ts refactor (Item 9), the bash/telemetry logic lives
-    // in submodules under scripts/resolvers/preamble/. Concatenate all preamble
-    // source (root + submodules) and assert against the combined text so this
-    // test tracks the semantic contract, not the file layout.
+    // Token-reduction Phase 1: the preamble's telemetry bash moved from the
+    // resolvers into bin/gstack-skill-start (pending finalization) and
+    // bin/gstack-skill-end (end-of-skill telemetry). Assert the semantic
+    // contract against the scripts — the new home of the calls.
+    const skillStart = readFileSync(join(ROOT, 'bin/gstack-skill-start'), 'utf-8');
+    // Pending finalization must check _TEL and binary existence
+    expect(skillStart).toContain('_TEL" != "off"');
+    expect(skillStart).toContain('-x ');
+    expect(skillStart).toContain('gstack-telemetry-log');
+    // End-of-skill telemetry (gstack-skill-end) must also be conditional
+    const skillEnd = readFileSync(join(ROOT, 'bin/gstack-skill-end'), 'utf-8');
+    expect(skillEnd).toContain('_TEL" != "off"');
+    expect(skillEnd).toContain('-x ');
+    expect(skillEnd).toContain('gstack-telemetry-log');
+    // The render-side epilogue prose survives in the resolvers and hands off
+    // to gstack-skill-end.
     const preambleDir = join(ROOT, 'scripts/resolvers/preamble');
     const submoduleFiles = existsSync(preambleDir)
       ? readdirSync(preambleDir).filter(f => f.endsWith('.ts')).map(f => readFileSync(join(preambleDir, f), 'utf-8'))
       : [];
-    const rootPreamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
-    const preamble = [rootPreamble, ...submoduleFiles].join('\n');
-    // Pending finalization must check _TEL and binary existence
-    expect(preamble).toContain('_TEL" != "off"');
-    expect(preamble).toContain('-x ');
-    expect(preamble).toContain('gstack-telemetry-log');
-    // End-of-skill telemetry must also be conditional
+    const preamble = submoduleFiles.join('\n');
     const completionIdx = preamble.indexOf('Telemetry (run last)');
     expect(completionIdx).toBeGreaterThan(-1);
-    const completionSection = preamble.slice(completionIdx);
-    expect(completionSection).toContain('_TEL" != "off"');
+    expect(preamble.slice(completionIdx)).toContain('gstack-skill-end');
   });
 
   // Round 2 Fix 1: W012 — Bun install uses checksum verification
@@ -73,8 +78,12 @@ describe('Audit compliance', () => {
 
   // Fix 4: W011 — Untrusted content warning in command reference
   test('command reference includes untrusted content warning after Navigation', () => {
-    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
-    const rootSkill = readFileSync(join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    // Browse carve (token-reduction Phase 4): the command reference renders
+    // into the on-demand section browse/sections/command-list.md. Read the
+    // skeleton+section union so the pin holds across regeneration.
+    let rootSkill = readFileSync(join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    const sectionPath = join(ROOT, 'browse', 'sections', 'command-list.md');
+    if (existsSync(sectionPath)) rootSkill += '\n' + readFileSync(sectionPath, 'utf-8');
     const navIdx = rootSkill.indexOf('### Navigation');
     const readingIdx = rootSkill.indexOf('### Reading');
     expect(navIdx).toBeGreaterThan(-1);
@@ -111,11 +120,27 @@ describe('Audit compliance', () => {
   // Round 2 Fix 4: Chrome CDP binds to localhost only
   // Fix 2+6: All generated SKILL.md files with telemetry are conditional
   test('all generated SKILL.md files with telemetry calls use conditional pattern', () => {
+    // Phase 1 moved the _TEL-gated bash into the scripts. Render-side
+    // gstack-telemetry-log calls (route + first-task events) rely on two
+    // layers instead: every call line is best-effort (`|| true`), and the
+    // binary itself no-ops when the telemetry tier is off.
+    const telLog = readFileSync(join(ROOT, 'bin/gstack-telemetry-log'), 'utf-8');
+    expect(telLog).toContain('if [ "$TIER" = "off" ]');
+    expect(telLog).toMatch(/if \[ "\$TIER" = "off" \][\s\S]{0,200}?exit 0/);
+
     const skills = getAllSkillMds();
+    let checked = 0;
     for (const { name, content } of skills) {
-      if (content.includes('gstack-telemetry-log')) {
-        expect(content).toContain('_TEL" != "off"');
+      for (const line of content.split('\n')) {
+        if (!line.includes('gstack-telemetry-log')) continue;
+        // Prose mentions aren't calls; only executable lines invoke the binary.
+        if (!line.includes('bin/gstack-telemetry-log')) continue;
+        checked++;
+        expect(line, `${name}: telemetry call must be best-effort`).toContain('|| true');
+        expect(line, `${name}: telemetry call must not surface errors`).toContain('2>/dev/null');
       }
     }
+    // Guard against the scan silently matching nothing.
+    expect(checked).toBeGreaterThan(0);
   });
 });

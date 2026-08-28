@@ -81,6 +81,7 @@ const SCAN_PATHS = [
   'bin/',
   'scripts/',
   'setup-gbrain/SKILL.md.tmpl',
+  'setup-gbrain/sections',
   'sync-gbrain/SKILL.md.tmpl',
   'health/SKILL.md.tmpl',
   'plan-eng-review/SKILL.md.tmpl',

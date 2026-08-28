@@ -391,10 +391,12 @@ describe('gstack-codex-probe: telemetry event emission', () => {
 // ── Step 2A argv guard ─────────────────────────────────────────────────────
 // Regression test for #1428: Codex CLI >=0.130.0 rejects passing a quoted
 // prompt argument together with `--base <branch>`. Step 2A must never combine
-// the two on the same line. Asserts across both the .tmpl source and the
-// generated SKILL.md so template drift can't silently re-introduce the bug.
+// the two on the same line. Step 2A lives in the carved review-mode section
+// (codex/sections/review-mode.md, generated from its .md.tmpl) — asserts
+// across both the .tmpl source and the generated section so template drift
+// can't silently re-introduce the bug.
 
-describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', () => {
+describe('codex review-mode section Step 2A: PROMPT + --base mutual exclusion guard', () => {
   function extractStep2A(filePath: string): string {
     const content = fs.readFileSync(filePath, 'utf-8');
     const startIdx = content.indexOf('## Step 2A: Review Mode');
@@ -402,10 +404,14 @@ describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', 
     // End at next `## ` heading (skill section boundary).
     const tail = content.slice(startIdx);
     const nextHeading = tail.slice(2).search(/\n## /);
-    return nextHeading === -1 ? tail : tail.slice(0, nextHeading + 2);
+    const section = nextHeading === -1 ? tail : tail.slice(0, nextHeading + 2);
+    // Non-empty extraction: a carve/regen that leaves only the heading behind
+    // must fail here, not silently pass a vacuous scan.
+    expect(section.length).toBeGreaterThan(1000);
+    return section;
   }
 
-  for (const relPath of ['codex/SKILL.md.tmpl', 'codex/SKILL.md']) {
+  for (const relPath of ['codex/sections/review-mode.md.tmpl', 'codex/sections/review-mode.md']) {
     test(`${relPath}: no \`codex review\` line combines a quoted prompt argument with --base`, () => {
       const section = extractStep2A(path.join(ROOT, relPath));
       // Find all lines invoking `codex review` (any prefix wrapper allowed).
@@ -460,7 +466,7 @@ describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', 
 describe('codex timeout wrapper: /review + /ship diff passes', () => {
   const WRAPPED_SITES = [
     'scripts/resolvers/review.ts', // generator (source of truth)
-    'review/SKILL.md', // generated
+    'review/sections/adversarial.md', // review section (Step 5.7 carved out of the skeleton)
     'ship/sections/adversarial.md', // ship section source
   ];
 
@@ -511,11 +517,29 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
 //       budget, so the harness killed the call before the wrapper could emit
 //       its diagnosable exit-124 message — the same inversion #1036 fixed for
 //       /review and /ship.
-// Asserted across both the .tmpl source and the generated SKILL.md so a regen
-// or hand-edit of one but not the other can't silently reopen any of them.
-describe('codex SKILL.md.tmpl: review sandbox + fail-closed gate + timeout ordering', () => {
-  for (const relPath of ['codex/SKILL.md.tmpl', 'codex/SKILL.md']) {
-    const read = () => fs.readFileSync(path.join(ROOT, relPath), 'utf-8');
+// The three mode bodies are carved into codex/sections/*-mode.md (T9), so the
+// sweep reads the skeleton+sections UNION on both the .tmpl side and the
+// generated side — a regen or hand-edit of one but not the other can't
+// silently reopen any of them. Each mode section starts with its own `## `
+// heading, so the per-`## `-section split in check (c) still isolates each
+// mode's gate/wrapper pair.
+function readCodexUnion(kind: 'tmpl' | 'rendered'): string {
+  const sectionsDir = path.join(ROOT, 'codex', 'sections');
+  const skeleton = fs.readFileSync(
+    path.join(ROOT, 'codex', kind === 'tmpl' ? 'SKILL.md.tmpl' : 'SKILL.md'),
+    'utf-8',
+  );
+  const suffix = kind === 'tmpl' ? '.md.tmpl' : '.md';
+  const sections = fs.readdirSync(sectionsDir).sort()
+    .filter((f) => (kind === 'tmpl' ? f.endsWith('.md.tmpl') : f.endsWith('.md') && !f.endsWith('.md.tmpl')))
+    .map((f) => fs.readFileSync(path.join(sectionsDir, f), 'utf-8'));
+  expect(sections.length, `codex sections (*${suffix}) missing`).toBeGreaterThanOrEqual(3);
+  return [skeleton, ...sections].join('\n');
+}
+
+describe('codex skeleton+sections union: review sandbox + fail-closed gate + timeout ordering', () => {
+  for (const relPath of ['codex tmpl union', 'codex rendered union'] as const) {
+    const read = () => readCodexUnion(relPath === 'codex tmpl union' ? 'tmpl' : 'rendered');
 
     test(`${relPath}: (a) every scoped codex review invocation pins sandbox_mode="read-only"`, () => {
       const invocations = read()

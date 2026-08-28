@@ -206,32 +206,8 @@ export function runParityChecks(opts: {
  */
 const MONOLITH_INVARIANTS: ParityInvariant[] = [
   // cso is now carved — its invariant is generated from CARVE_GUARDS below.
-  {
-    skill: 'review',
-    mustContain: ['confidence', 'P1', 'P2'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // The adversarial step swapped its bare `command -v codex` check for the shared
-    // codexPreflight() block (install + auth tri-state + CODEX_MODE branch prose),
-    // landing ~6.3% over the v1.53.0.0 baseline. Intentional: it adds proper
-    // not-installed vs not-authed handling, not slop.
-    // v1.64+v1.65 merge: both waves grew the shared preamble (evidence
-    // directive + telemetry failure flags); measured 1.094.
-    maxSizeRatio: 1.10,
-    minBytes: 70_000,
-  },
-  {
-    skill: 'qa',
-    mustContain: ['bug', 'browse', 'fix'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // v1.2.0 activation lift: the unified first-run-guidance section (P4 scaffold +
-    // P3 loop tip) is added to every skill's shared preamble — intentional, ~1KB.
-    // Fork port wave 2: the shared coverage-audit detection block gained the
-    // multi-ecosystem markers (Django/JVM, script/target/test-file census —
-    // e3259078 port); measured 1.111x. v1.64+v1.65 merge sums both waves'
-    // preamble growth; measured 1.125.
-    maxSizeRatio: 1.13,
-    minBytes: 50_000,
-  },
+  // review, codex, land-and-deploy (w1), autoplan (w2), qa (w3) carved in token-reduction Phase 4
+  // wave 1 (v1.69.x branch) — their invariants generate from CARVE_GUARDS too.
   {
     skill: 'investigate',
     mustContain: ['root cause', 'hypothes'],
@@ -247,16 +223,6 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // directive adds ~0.45KB to every tier-2+ skill. Measured values noted.
     maxSizeRatio: 1.12, // D1 measured
     minBytes: 30_000,
-  },
-  {
-    skill: 'autoplan',
-    mustContain: ['ceo', 'eng', 'design'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // v1.2.0 activation lift: shared first-run-guidance preamble section.
-        // Fork port wave 2 (D1): the evidence-before-claimed-limitations preamble
-    // directive adds ~0.45KB to every tier-2+ skill. Measured values noted.
-    maxSizeRatio: 1.09, // D1 measured
-    minBytes: 70_000,
   },
 ];
 

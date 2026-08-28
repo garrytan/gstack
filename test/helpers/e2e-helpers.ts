@@ -267,10 +267,15 @@ export async function finalizeEvalCollector(evalCollector: EvalCollector | null)
 
 // Pre-seed preamble state files so E2E tests don't waste turns on lake intro + telemetry prompts.
 // These are one-time interactive prompts that burn 3-7 turns per test if not pre-seeded.
+// NOTE: since gstack-skill-start honors GSTACK_HOME (EOV7), hermetic children read the
+// temp GSTACK_HOME that hermetic-env.ts seeds (the canonical marker list lives there);
+// this operator-HOME seeding only serves EVALS_HERMETIC=0 debug runs.
 if (evalsEnabled) {
   const gstackDir = path.join(os.homedir(), '.gstack');
   fs.mkdirSync(gstackDir, { recursive: true });
-  for (const f of ['.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted']) {
+  // Marker list kept at parity with hermetic-env.ts's child-GSTACK_HOME seed
+  // (the canonical set for the emission layer's gates).
+  for (const f of ['.activated', '.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted', '.first-loop-tip-shown']) {
     const p = path.join(gstackDir, f);
     if (!fs.existsSync(p)) fs.writeFileSync(p, '');
   }

@@ -1,0 +1,114 @@
+## Step 2B: Challenge (Adversarial) Mode
+
+Codex tries to break your code — finding edge cases, race conditions, security holes,
+and failure modes that a normal review would miss.
+
+1. Construct the adversarial prompt. **Always prepend the filesystem boundary instruction**
+from the skill's Filesystem Boundary section (always-loaded skeleton). If the user provided a focus area
+(e.g., `/codex challenge security`), include it after the boundary:
+
+Default prompt (no focus):
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+
+Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
+
+With focus (e.g., "security"):
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+
+Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
+
+2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls.
+Use `timeout: 660000` on the Bash call — the gate sits ABOVE the 600s wrapper so the
+wrapper fires first with its explicit stall message:
+
+If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+
+```bash
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+if [ -z "$PYTHON_CMD" ]; then
+  echo "ERROR: Python 3 is required to parse Codex JSON output. Install python3 or python and retry." >&2
+  exit 1
+fi
+# Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
+# capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
+TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX")}
+_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+import sys, json
+turn_completed_count = 0
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        t = obj.get('type','')
+        if t == 'item.completed' and 'item' in obj:
+            item = obj['item']
+            itype = item.get('type','')
+            text = item.get('text','')
+            if itype == 'reasoning' and text:
+                print(f'[codex thinking] {text}', flush=True)
+                print(flush=True)
+            elif itype == 'agent_message' and text:
+                print(text, flush=True)
+            elif itype == 'command_execution':
+                cmd = item.get('command','')
+                if cmd: print(f'[codex ran] {cmd}', flush=True)
+        elif t == 'turn.completed':
+            turn_completed_count += 1
+            usage = obj.get('usage',{})
+            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
+            if tokens: print(f'\ntokens used: {tokens}', flush=True)
+    except: pass
+# Fix 2: completeness check — warn if no turn.completed received
+if turn_completed_count == 0:
+    print('[codex warning] No turn.completed event received — possible mid-stream disconnect.', flush=True, file=sys.stderr)
+"
+_CODEX_EXIT=${PIPESTATUS[0]}
+# Fix 1: hang detection — log + surface actionable message
+if [ "$_CODEX_EXIT" = "124" ]; then
+  _gstack_codex_log_event "codex_timeout" "600"
+  _gstack_codex_log_hang "challenge" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
+  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+elif [ "$_CODEX_EXIT" != "0" ]; then
+  # Surface non-zero exits so the calling agent doesn't read "no output" as
+  # a silent model/API stall. See #1327.
+  echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
+  _gstack_codex_log_event "codex_nonzero_exit" "challenge:$_CODEX_EXIT"
+fi
+# Fix 2: surface auth errors from captured stderr instead of dropping them
+if grep -qiE "auth|login|unauthorized" "$TMPERR" 2>/dev/null; then
+  echo "[codex auth error] $(head -1 "$TMPERR")"
+  _gstack_codex_log_event "codex_auth_failed"
+fi
+```
+
+This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
+response. The `[codex thinking]` lines show what codex reasoned through before its answer.
+
+3. Present the full streamed output:
+
+```
+CODEX SAYS (adversarial challenge):
+════════════════════════════════════════════════════════════
+<full output from above, verbatim>
+════════════════════════════════════════════════════════════
+Tokens: N | Est. cost: ~$X.XX
+```
+
+3a. **Synthesis recommendation (REQUIRED).** After presenting the full
+adversarial output, emit ONE recommendation line summarizing what the user
+should do, in the canonical format the AskUserQuestion judge grades:
+
+```
+Recommendation: <action> because <one-line reason that names the most exploitable finding>
+```
+
+Examples (the strongest reasons compare blast radius across findings or fix-vs-ship):
+- `Recommendation: Fix the unbounded retry loop Codex flagged at queue.ts:78 because it DoSes the worker pool under sustained 429s, which is higher-blast-radius than the timing leak Codex also flagged that only touches a debug endpoint.`
+- `Recommendation: Ship as-is because Codex's strongest finding is a theoretical race in cleanup that requires conditions we can't trigger in production, weaker than the runtime regressions a fix-now would risk.`
+
+The reason must point to a specific finding and compare against alternatives (other findings, fix-vs-ship). Generic reasons like "because it's safer" fail the format. **Never silently skip the line.**
+
+---

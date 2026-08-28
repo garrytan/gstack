@@ -135,6 +135,17 @@ jobs:
             file: test/skill-e2e-coverage-audit.test.ts
           - name: e2e-triage
             file: test/skill-e2e-triage.test.ts
+          # ship-docsync is whole-file tier-gated (describeE2ETier('gate') keeps
+          # it out of the periodic shard census), so its row MUST set tier: gate
+          # — without it the self-gate skips every test and the job reports a
+          # hollow green (the same silent-skip class as the rehomed monolith
+          # above, one layer deeper). The Run step exports EVALS_TIER from this
+          # property; rows without it keep EVALS_TIER empty (= unset: every
+          # reader is `=== '<tier>'` or truthiness). Enforced by
+          # test/evals-workflow-matrix.test.ts.
+          - name: e2e-ship-docsync
+            file: test/skill-e2e-ship-docsync.test.ts
+            tier: gate
           - name: e2e-routing
             file: test/skill-routing-e2e.test.ts
           - name: e2e-codex
@@ -337,6 +348,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EVALS_CONCURRENCY: "40"
           PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+          # Per-row tier activation for whole-file-gated suites. Empty when the
+          # row declares no tier — every EVALS_TIER reader treats empty as unset
+          # (`=== '<tier>'` comparisons and the truthiness check in
+          # test/helpers/e2e-helpers.ts:70), so untiered rows are byte-for-byte
+          # unaffected.
+          EVALS_TIER: ${{ matrix.suite.tier || '' }}
         run: EVALS=1 bun test --retry ${{ matrix.suite.retries || 1 }} --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
 
       - name: Upload eval results

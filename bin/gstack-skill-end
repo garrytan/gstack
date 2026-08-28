@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# gstack-skill-end — skill-completion telemetry + artifacts-sync drain,
+# consolidated (token-reduction Phase 1). Replaces the inline "Telemetry (run
+# last)" fence and the skill-end brain-sync fence in every generated SKILL.md.
+#
+# The generated prose calls this once at workflow completion:
+#   gstack-skill-end --skill NAME --outcome success|error|abort|unknown \
+#     --session-id ID --tel-start EPOCH [--used-browse yes|no] \
+#     [--error-message MSG] [--failed-step STEP]
+#
+# SESSION_ID and TEL_START come from gstack-skill-start's echoed STATUS lines
+# (inline shell vars never survived across Bash tool calls, so durations were
+# already unreliable; passing them explicitly makes them real).
+# Error style (F3): per-line `|| true`, never `set -e`.
+
+SKILL_NAME="unknown"; OUTCOME="unknown"; SESSION_ID=""; TEL_START=""
+USED_BROWSE="no"; ERROR_MESSAGE=""; FAILED_STEP=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skill)         SKILL_NAME="$2"; shift 2 ;;
+    --outcome)       OUTCOME="$2"; shift 2 ;;
+    --session-id)    SESSION_ID="$2"; shift 2 ;;
+    --tel-start)     TEL_START="$2"; shift 2 ;;
+    --used-browse)   USED_BROWSE="$2"; shift 2 ;;
+    --error-message) ERROR_MESSAGE="$2"; shift 2 ;;
+    --failed-step)   FAILED_STEP="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+_SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+_BIN="$_SCRIPT_DIR"
+_GH="${GSTACK_HOME:-$HOME/.gstack}"
+_TEL=$("$_BIN/gstack-config" get telemetry 2>/dev/null || echo off)
+
+_TEL_END=$(date +%s)
+case "$TEL_START" in ''|*[!0-9]*) TEL_START="$_TEL_END" ;; esac
+_TEL_DUR=$(( _TEL_END - TEL_START ))
+[ -n "$SESSION_ID" ] && rm -f "$_GH/analytics/.pending-$SESSION_ID" 2>/dev/null || true
+
+# Skill-end artifacts sync (drain + push; formerly its own inline fence).
+"$_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
+"$_BIN/gstack-brain-sync" --once 2>/dev/null || true
+
+# Session timeline: local-only, never sent anywhere.
+"$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"completed","branch":"'"$(_b=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-'); echo "${_b:-unknown}")"'","outcome":"'"$OUTCOME"'","duration_s":"'"$_TEL_DUR"'","session":"'"$SESSION_ID"'"}' 2>/dev/null || true
+
+# Local analytics (gated on telemetry setting).
+if [ "$_TEL" != "off" ]; then
+  echo '{"skill":"'"$SKILL_NAME"'","duration_s":"'"$_TEL_DUR"'","outcome":"'"$OUTCOME"'","browse":"'"$USED_BROWSE"'","session":"'"$SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_GH/analytics/skill-usage.jsonl" 2>/dev/null || true
+fi
+
+# Remote telemetry (opt-in, requires binary).
+if [ "$_TEL" != "off" ] && [ -x "$_BIN/gstack-telemetry-log" ]; then
+  "$_BIN/gstack-telemetry-log" \
+    --skill "$SKILL_NAME" --duration "$_TEL_DUR" --outcome "$OUTCOME" \
+    --used-browse "$USED_BROWSE" --session-id "$SESSION_ID" \
+    --error-message "$ERROR_MESSAGE" --failed-step "$FAILED_STEP" 2>/dev/null &
+fi
+echo "SKILL_END: recorded outcome=$OUTCOME duration_s=$_TEL_DUR"

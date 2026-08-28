@@ -71,12 +71,24 @@ describe('Preamble composition order', () => {
   });
 });
 
-describe('Conductor signal (preamble bash)', () => {
-  test('claude preamble emits CONDUCTOR_SESSION, gated on != headless (Issue 8)', () => {
+describe('Conductor signal (skill-start script)', () => {
+  // Token-reduction Phase 1 moved the preamble bash into bin/gstack-skill-start;
+  // the Issue-8 invariant (CONDUCTOR_SESSION emitted, gated on != headless so
+  // eval/CI inside Conductor BLOCKs instead of rendering prose to nobody)
+  // lives in the script now. The render must still invoke the script and the
+  // AUQ prose still branches on the echoed line.
+  test('skill-start script emits CONDUCTOR_SESSION, gated on != headless (Issue 8)', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const script = fs.readFileSync(path.join(import.meta.dir, '..', 'bin', 'gstack-skill-start'), 'utf-8');
+    expect(script).toContain('echo "CONDUCTOR_SESSION: true"');
+    expect(script).toMatch(/"\$_SESSION_KIND" != "headless"[\s\S]*CONDUCTOR_WORKSPACE_PATH[\s\S]*CONDUCTOR_PORT[\s\S]*CONDUCTOR_SESSION: true/);
+  });
+
+  test('claude preamble render invokes the script and interprets CONDUCTOR_SESSION', () => {
     const out = generatePreamble(makeCtx('claude', 2, 'claude'));
-    expect(out).toContain('echo "CONDUCTOR_SESSION: true"');
-    // The emission must be suppressed when the session is headless (eval/CI
-    // inside Conductor must BLOCK, not render prose to nobody).
-    expect(out).toMatch(/"\$_SESSION_KIND" != "headless"[\s\S]*CONDUCTOR_WORKSPACE_PATH[\s\S]*CONDUCTOR_PORT[\s\S]*CONDUCTOR_SESSION: true/);
+    expect(out).toContain('gstack-skill-start');
+    // The AUQ tool-resolution prose keys off the echoed line.
+    expect(out).toContain('CONDUCTOR_SESSION: true');
   });
 });

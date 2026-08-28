@@ -8,7 +8,14 @@ const claude = defineHost({
 
   frontmatter: {
     mode: 'denylist',
-    stripFields: ['sensitive', 'voice-triggers'],
+    // interactive + benefits-from are gen-time inputs (buildContext reads them
+    // from the .tmpl); no runtime or test reader consumes them from the
+    // GENERATED file (verified: e2e-harness-audit reads .tmpl; benefits-from
+    // tests assert rendered prose; the host reads name/description/
+    // allowed-tools/hooks; bin/gstack-brain-context-load reads gbrain: — which
+    // is why gbrain and hooks are NOT stripped). Stripping them trims the
+    // always-on frontmatter catalog every session loads.
+    stripFields: ['sensitive', 'voice-triggers', 'interactive', 'benefits-from'],
     descriptionLimit: null,
   },
 

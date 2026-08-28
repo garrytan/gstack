@@ -31,7 +31,9 @@ describe('content-binding template drift', () => {
   });
 
   test('land-and-deploy grades staleness content-first (wtree rule) and checks evidence', () => {
-    const land = rendered('land-and-deploy/SKILL.md');
+    // Carved (prompt-token-load-reduction): Step 3.5 moved out of the skeleton
+    // into the on-demand readiness-gate section — the grading rules live there.
+    const land = rendered('land-and-deploy/sections/readiness-gate.md');
     expect(land).toContain('wtree');
     expect(land).toContain('---WTREE---');
     expect(land).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --max-age 24/);
@@ -54,7 +56,9 @@ describe('content-binding template drift', () => {
     // structurally: the three row names in order inside the rule sentence.
     const rowList = /diff-scoped rows only:[\s\S]{0,80}?adversarial-review[\s\S]{0,80}?codex-review[\s\S]{0,80}?ship-stage entries/;
     expect(rendered('ship/SKILL.md')).toMatch(rowList);
-    expect(rendered('land-and-deploy/SKILL.md')).toMatch(rowList);
+    // land-and-deploy's copy of the row list lives in the carved readiness-gate
+    // section (Step 3.5a), not the skeleton.
+    expect(rendered('land-and-deploy/sections/readiness-gate.md')).toMatch(rowList);
   });
 
   test('release-body write side carries the banner tripwire (and it actually fires)', () => {

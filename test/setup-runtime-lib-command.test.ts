@@ -6,6 +6,10 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SRC = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
+// OpenCode's Windows-copy cell installs bin, browse, and design assets in
+// addition to lib and scripts. Keep the test-level deadline above the 30s
+// setup subprocess guard so asset growth cannot race the outer Bun timeout.
+const RUNTIME_ROOT_TEST_TIMEOUT_MS = 60000;
 
 // gstack-learnings-log and gstack-question-preference cover both runtime dependency
 // classes: bin scripts import shared modules via `$SCRIPT_DIR/../lib`, while
@@ -254,7 +258,7 @@ describe('setup: runtime commands resolve lib and scripts from every host root',
         assertRuntimeCommands(r);
         expect(r.supabaseConfigPresent).toBe(true);
       },
-      10000,
+      RUNTIME_ROOT_TEST_TIMEOUT_MS,
     );
 
     test(
@@ -267,7 +271,7 @@ describe('setup: runtime commands resolve lib and scripts from every host root',
         assertRuntimeCommands(r);
         expect(r.supabaseConfigPresent).toBe(true);
       },
-      10000,
+      RUNTIME_ROOT_TEST_TIMEOUT_MS,
     );
   }
 
@@ -292,7 +296,7 @@ describe('setup: runtime commands resolve lib and scripts from every host root',
         expect(r.scriptsIsSymlink).toBe(isWindows === '0');
         assertRuntimeCommands(r);
       },
-      10000,
+      RUNTIME_ROOT_TEST_TIMEOUT_MS,
     );
   }
 

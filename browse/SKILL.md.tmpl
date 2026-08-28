@@ -27,6 +27,8 @@ allowed-tools:
 Persistent headless Chromium. First call auto-starts (~3s), then ~100ms per command.
 State persists between calls (cookies, tabs, login sessions).
 
+{{SECTION_INDEX:browse}}
+
 {{BROWSE_SETUP}}
 
 ## Core QA Patterns
@@ -312,10 +314,6 @@ browse --headed --proxy socks5://user:pass@host:1080 \
 
 **Failure modes.** SOCKS5 upstream rejected or unreachable → fail-fast at startup with a redacted error after 3 retries (5s budget). Mid-stream upstream drop → browse kills the affected client connection only; no transport retries (which could corrupt browser traffic). Mismatched daemon config → exit 1 with a `browse disconnect` hint.
 
-## Snapshot Flags
-
-{{SNAPSHOT_FLAGS}}
-
 ## CSS Inspector & Style Modification
 
 ### Inspect element CSS
@@ -340,6 +338,25 @@ $B cleanup --ads --cookies       # selective cleanup
 $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero.png
 ```
 
-## Full Command List
+## Most-Used Commands
 
-{{COMMAND_REFERENCE}}
+The commands that cover most QA sessions (`$B <command>`):
+
+| Command | What it does |
+|---------|--------------|
+| `goto <url>` | Navigate (also `file://` paths) |
+| `snapshot -i` | Accessibility tree with @e refs for interactive elements (`-D` diff, `-C` cursor-interactive @c refs, `-a -o <png>` annotated shot) |
+| `click <sel>` / `fill <sel> <val>` | Interact — CSS selectors or @refs |
+| `text` / `html [sel]` | Page text / HTML |
+| `js "<expr>"` | Run JavaScript, result to stdout |
+| `is <state> <sel>` | Assert visible/hidden/enabled/disabled/checked/editable/focused |
+| `console` / `network` | JS errors / failed requests |
+| `screenshot <path>` | Full-page PNG (`--selector <sel>` for one element) |
+| `wait <sel>` | Wait for element (max 10s) |
+| `viewport WxH` | Set viewport (`--scale 2` for retina) |
+
+Everything else (extraction, tabs, dialogs, uploads, meta/server commands, and the
+full snapshot-flag reference) lives in the generated section below — read it before
+reaching for a command that is not in this table.
+
+{{SECTION:command-list}}

@@ -1,17 +1,15 @@
 import type { TemplateContext } from '../types';
 
-export function generateAskUserFormat(_ctx: TemplateContext): string {
+export function generateAskUserFormat(ctx: TemplateContext): string {
   return `## AskUserQuestion Format
 
 ### Tool resolution (read first)
 
-"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
+Branch on the skill-start STATUS lines, in this order:
 
-**Conductor rule (read before the MCP rule):** if \`CONDUCTOR_SESSION: true\` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any \`mcp__*__AskUserQuestion\` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns \`[Tool result missing due to internal error]\`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a \`[plan-tune auto-decide] <id> → <option>\` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with \`bin/gstack-question-log\` (the PostToolUse capture hook never fires on a prose path, so \`/plan-tune\` history/learning depends on this call).
-
-**Rule (non-Conductor):** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
-
-If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+1. **\`CONDUCTOR_SESSION: true\` echoed** → do NOT call AskUserQuestion at all (neither native nor any \`mcp__*__AskUserQuestion\` variant): render EVERY decision brief as the **prose form** below and STOP. Proactive, not a failure reaction — Conductor disables native AUQ and its MCP variant is flaky (\`[Tool result missing due to internal error]\`). **Auto-decide preferences still apply first:** a surfaced \`[plan-tune auto-decide] <id> → <option>\` result means proceed with that option, no prose — enforced HERE since no tool call ever happens. Capture each Conductor prose brief with \`bin/gstack-question-log\` (the PostToolUse hook never fires on a prose path; \`/plan-tune\` learning depends on it).
+2. **Any \`mcp__*__AskUserQuestion\` variant in your tool list** → prefer it (hosts may disable native via \`--disallowedTools\`; calling native there silently fails). Same shape, same decision-brief format.
+3. **Unavailable (no variant) OR a call fails** → do NOT silently auto-decide or write the decision to the plan file as a substitute; follow the **failure fallback** below.
 
 ### When AskUserQuestion is unavailable or a call fails
 
@@ -75,38 +73,25 @@ Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 ### Handling 5+ options — split, never drop
 
 AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
-drop, merge, or silently defer one to fit. Pick a compliant shape:
+drop, merge, or silently defer one to fit: **batch into ≤4-groups** (coherent
+alternatives) or **split per-option** (independent scope items — the default
+when unsure): sequential \`D<N>.k\` calls, each with its ELI10, Recommendation,
+kind-note, and buckets **A) Include, B) Defer, C) Cut, D) Hold** (stop chain,
+discuss); a \`D<N>.final\` validates the assembled set; for N>6 fire a
+\`D<N>.0\` meta-question first. Split question_ids: \`<skill>-split-<option-slug>\`
+(kebab-case ASCII, ≤64 chars) — the runtime checker (\`bin/gstack-question-preference\`) refuses \`never-ask\` on
+any \`*-split-*\` id, so split chains are never AUTO_DECIDE-eligible: the
+user's option set is sacred.
 
-- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
-  layout variants). One call, 5th surfaced only if first 4 don't fit.
-- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
-  Fire N sequential calls, one per option. Default to this when unsure.
+**Full rule + worked examples + Hold/dependency semantics:**
+\`${ctx.paths.skillRoot}/docs/askuserquestion-split.md\`. Read on demand when N>4.
 
-Per-option call shape: \`D<N>.k\` header (e.g. D3.1..D3.5), ELI10 per option,
-Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
-decision actions), and 4 buckets:
-**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
-
-After the chain, fire \`D<N>.final\` to validate the assembled set (reprompt
-dependency conflicts) and confirm shipping it. Use \`D<N>.revise-<k>\` to
-revise one option without re-running the chain.
-
-For N>6, fire a \`D<N>.0\` meta-AskUserQuestion first (proceed / narrow / batch).
-
-question_ids for split chains: \`<skill>-split-<option-slug>\` (kebab-case ASCII,
-≤64 chars, \`-2\`/\`-3\` suffix on collision). The runtime checker
-(\`bin/gstack-question-preference\`) refuses \`never-ask\` on any \`*-split-*\` id,
-so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
-
-**Full rule + worked examples + Hold/dependency semantics:** see
-\`docs/askuserquestion-split.md\` in the gstack repo. Read on demand when N>4.
-
-**Non-ASCII characters — write directly, never \\u-escape.** When any string
-field contains Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text,
-emit the literal UTF-8 characters; never escape them as \`\\uXXXX\` (the pipe is
-UTF-8 native, and manual escaping miscodes long CJK strings). Only \`\\n\`,
-\`\\t\`, \`\\"\`, \`\\\\\` remain allowed. Full rationale + worked example: see
-\`docs/askuserquestion-cjk.md\`. Read on demand when a question contains CJK.
+**Non-ASCII characters — write directly, never \\u-escape.** Emit literal
+UTF-8 for Chinese (繁體/簡體), Japanese, Korean, or any non-ASCII text; never
+\`\\uXXXX\`-escape it (the pipe is UTF-8 native; manual escaping miscodes long
+CJK strings). Only \`\\n\`, \`\\t\`, \`\\"\`, \`\\\\\` remain allowed. Full rationale +
+worked example: Read \`${ctx.paths.skillRoot}/docs/askuserquestion-cjk.md\`
+on demand when a question contains CJK.
 
 ### Self-check before emitting
 

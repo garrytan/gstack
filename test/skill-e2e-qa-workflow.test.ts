@@ -45,6 +45,7 @@ The test server is already running at: ${testServer.url}
 Target page: ${testServer.url}/basic.html
 
 Read the file qa/SKILL.md for the QA workflow instructions.
+qa is a carved skill: when SKILL.md tells you to Read ~/.claude/skills/gstack/qa/sections/<file>, read qa/sections/<file> in this working directory instead (same content, local copy).
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-depth QA test on ${testServer.url}/basic.html
@@ -234,6 +235,7 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
       prompt: `You have a browse binary at ${browseBin}. Assign it to B variable like: B="${browseBin}"
 
 Read the file qa/SKILL.md for the QA workflow instructions.
+qa is a carved skill: when SKILL.md tells you to Read ~/.claude/skills/gstack/qa/sections/<file>, read qa/sections/<file> in this working directory instead (same content, local copy).
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-tier QA test on ${qaFixUrl}

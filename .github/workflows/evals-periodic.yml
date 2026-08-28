@@ -91,6 +91,8 @@ jobs:
             file: test/skill-e2e-review.test.ts
           - name: e2e-retro
             file: test/skill-e2e-retro.test.ts
+          - name: e2e-preamble-ab
+            file: test/skill-e2e-preamble-script-ab.test.ts
           # e2e-review-attribution, e2e-coverage-audit, and e2e-triage are
           # gate-only (every test they hold is gate-tier) — deliberately absent
           # here; an all-skip shard would just burn a container boot weekly.

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "spec",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section; required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "gate-and-file",
+      "file": "gate-and-file.md",
+      "title": "Quality gate, redaction, and filing (Phases 4.5-5)",
+      "trigger": "running the quality gate and filing the spec (Phases 4.5-5, once the user confirms the Phase 4 draft)"
+    }
+  ]
+}

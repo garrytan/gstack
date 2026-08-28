@@ -34,6 +34,38 @@ import {
 // Eval result collector
 const evalCollector = createEvalCollector('llm-judge');
 
+/**
+ * Browse carve (token-reduction Phase 4): the '## Snapshot Flags' and
+ * '## Full Command List' reference blocks moved from browse/SKILL.md into the
+ * generated on-demand section browse/sections/command-list.md ('## Snapshot
+ * Flags' first, then '## Full Command List'). '## SETUP', '## Core QA
+ * Patterns', and '## CSS Inspector' stay in the skeleton. Non-empty guard:
+ * judging an empty slice would silently pass garbage to the judge.
+ */
+function readBrowseCommandSection(): string {
+  const p = path.join(ROOT, 'browse', 'sections', 'command-list.md');
+  const content = fs.readFileSync(p, 'utf-8');
+  if (!content.includes('## Snapshot Flags') || !content.includes('## Full Command List')) {
+    throw new Error(
+      `${p} is missing the expected headers — regenerate with: bun run gen:skill-docs`,
+    );
+  }
+  return content;
+}
+
+/** Slice a section out of the command-list section file, guarded non-empty. */
+function sliceBrowseSection(startHeader: string, endHeader?: string): string {
+  const content = readBrowseCommandSection();
+  const start = content.indexOf(startHeader);
+  if (start < 0) throw new Error(`browse/sections/command-list.md: "${startHeader}" not found`);
+  const end = endHeader ? content.indexOf(endHeader) : -1;
+  const section = end > start ? content.slice(start, end) : content.slice(start);
+  if (section.trim().length < 200) {
+    throw new Error(`browse/sections/command-list.md slice at "${startHeader}" is empty/stub — regenerate with: bun run gen:skill-docs`);
+  }
+  return section;
+}
+
 // --- Diff-based test selection (LLM_JUDGE_TOUCHFILES, not the E2E table) ---
 const selectedTests = computeDiffSelection(LLM_JUDGE_TOUCHFILES, 'LLM-judge');
 
@@ -53,10 +85,9 @@ describeIfSelected('LLM-as-judge quality evals', [
 ], () => {
   testIfSelected('command reference table', async () => {
     const t0 = Date.now();
-    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Full Command List');
-    const section = content.slice(start);
+    // Browse carve: the command reference lives in the generated on-demand
+    // section browse/sections/command-list.md now (read via non-empty guard).
+    const section = sliceBrowseSection('## Full Command List');
 
     const scores = await judge('command reference table', section);
     console.log('Command reference scores:', JSON.stringify(scores, null, 2));
@@ -82,11 +113,10 @@ describeIfSelected('LLM-as-judge quality evals', [
 
   testIfSelected('snapshot flags reference', async () => {
     const t0 = Date.now();
-    // P2 (v1.2.0): snapshot flags moved from the root router to browse/SKILL.md.
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Snapshot Flags');
-    const end = content.indexOf('## CSS Inspector');
-    const section = content.slice(start, end);
+    // Browse carve: snapshot flags live in browse/sections/command-list.md now,
+    // ordered before '## Full Command List' (the '## CSS Inspector' end boundary
+    // stayed in the skeleton).
+    const section = sliceBrowseSection('## Snapshot Flags', '## Full Command List');
 
     const scores = await judge('snapshot flags reference', section);
     console.log('Snapshot flags scores:', JSON.stringify(scores, null, 2));
@@ -109,9 +139,8 @@ describeIfSelected('LLM-as-judge quality evals', [
 
   testIfSelected('browse/SKILL.md reference', async () => {
     const t0 = Date.now();
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Snapshot Flags');
-    const section = content.slice(start);
+    // Browse carve: flags + commands are the whole generated section file.
+    const section = sliceBrowseSection('## Snapshot Flags');
 
     const scores = await judge('browse skill reference (flags + commands)', section);
     console.log('Browse SKILL.md scores:', JSON.stringify(scores, null, 2));
@@ -162,10 +191,8 @@ describeIfSelected('LLM-as-judge quality evals', [
 
   testIfSelected('regression vs baseline', async () => {
     const t0 = Date.now();
-    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
-    const generated = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const genStart = generated.indexOf('## Full Command List');
-    const genSection = generated.slice(genStart);
+    // Browse carve: the command reference lives in browse/sections/command-list.md.
+    const genSection = sliceBrowseSection('## Full Command List');
 
     const baseline = `## Command Reference
 
@@ -249,14 +276,38 @@ Scores are 1-5 overall quality.`,
 
 // --- Part 7: QA skill quality evals (C6) ---
 
-describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.md health rubric', 'qa/SKILL.md anti-refusal'], () => {
-  const qaContent = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+/**
+ * QA carve (token-reduction Phase 4): the '## Modes', '## Workflow',
+ * '## Health Score Rubric', '## Framework-Specific Guidance', and
+ * '## Important Rules' blocks moved from qa/SKILL.md into the generated
+ * on-demand section qa/sections/qa-patterns.md. Monolith-tolerant: falls back
+ * to the skeleton when the section file doesn't exist (pre-carve checkout).
+ */
+function readQaPatterns(): string {
+  const sectionPath = path.join(ROOT, 'qa', 'sections', 'qa-patterns.md');
+  return fs.existsSync(sectionPath)
+    ? fs.readFileSync(sectionPath, 'utf-8')
+    : fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+}
 
+/** Slice out of the qa-patterns section, guarded non-empty: judging an empty
+ * slice would silently pass garbage to the judge. */
+function sliceQaPatterns(startHeader: string, endHeader?: string): string {
+  const content = readQaPatterns();
+  const start = content.indexOf(startHeader);
+  if (start < 0) throw new Error(`qa/sections/qa-patterns.md: "${startHeader}" not found — regenerate with: bun run gen:skill-docs`);
+  const end = endHeader ? content.indexOf(endHeader, start) : -1;
+  const section = end > start ? content.slice(start, end) : content.slice(start);
+  if (section.trim().length < 200) {
+    throw new Error(`qa/sections/qa-patterns.md slice at "${startHeader}" is empty/stub — regenerate with: bun run gen:skill-docs`);
+  }
+  return section;
+}
+
+describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.md health rubric', 'qa/SKILL.md anti-refusal'], () => {
   testIfSelected('qa/SKILL.md workflow', async () => {
     const t0 = Date.now();
-    const start = qaContent.indexOf('## Workflow');
-    const end = qaContent.indexOf('## Health Score Rubric');
-    const section = qaContent.slice(start, end);
+    const section = sliceQaPatterns('## Workflow', '## Health Score Rubric');
 
     const scores = await callJudge<JudgeScore>(`You are evaluating the quality of a QA testing workflow document for an AI coding agent.
 
@@ -297,8 +348,7 @@ ${section}`);
 
   testIfSelected('qa/SKILL.md health rubric', async () => {
     const t0 = Date.now();
-    const start = qaContent.indexOf('## Health Score Rubric');
-    const section = qaContent.slice(start);
+    const section = sliceQaPatterns('## Health Score Rubric');
 
     const scores = await callJudge<JudgeScore>(`You are evaluating a health score rubric that an AI agent must follow to compute a numeric QA score.
 
@@ -338,13 +388,14 @@ ${section}`);
 
   testIfSelected('qa/SKILL.md anti-refusal', async () => {
     const t0 = Date.now();
-    // Extract both the diff-aware mode section and Important Rules section
-    const diffAwareStart = qaContent.indexOf('### Diff-aware');
-    const diffAwareEnd = qaContent.indexOf('### Full');
-    const rulesStart = qaContent.indexOf('## Important Rules');
-    const rulesEnd = qaContent.indexOf('## Framework-Specific');
-    const diffAwareSection = qaContent.slice(diffAwareStart, diffAwareEnd);
-    const rulesSection = qaContent.slice(rulesStart, rulesEnd);
+    // Extract both the diff-aware mode section and Important Rules section.
+    // (Pre-carve this sliced '## Important Rules' → '## Framework-Specific',
+    // which was EMPTY — Framework-Specific precedes Important Rules — so the
+    // judge only ever saw excerpt 1. The section-file slice fixes that: rules
+    // run to the end of qa-patterns.md, so rule 12 "Never refuse to use the
+    // browser" now actually reaches the judge.)
+    const diffAwareSection = sliceQaPatterns('### Diff-aware', '### Full');
+    const rulesSection = sliceQaPatterns('## Important Rules');
 
     const result = await callJudge<{ would_browse: boolean; fallback_behavior: string; confidence: number; reasoning: string }>(`You are evaluating whether a QA testing skill document would cause an AI agent to USE THE BROWSER or REFUSE to use the browser in a specific scenario.
 
@@ -470,10 +521,8 @@ describeIfSelected('Baseline score pinning', ['baseline score pinning'], () => {
     const baselines = JSON.parse(fs.readFileSync(baselinesPath, 'utf-8'));
     const regressions: string[] = [];
 
-    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
-    const skillContent = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const cmdStart = skillContent.indexOf('## Full Command List');
-    const cmdSection = skillContent.slice(cmdStart);
+    // Browse carve: the command reference lives in browse/sections/command-list.md.
+    const cmdSection = sliceBrowseSection('## Full Command List');
     const cmdScores = await judge('command reference table', cmdSection);
 
     for (const dim of ['clarity', 'completeness', 'actionability'] as const) {

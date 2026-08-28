@@ -146,9 +146,9 @@ function gbrainConfigPath(env?: NodeJS.ProcessEnv): string {
  * cwd's NEAREST-ANCESTOR project scope only (#2499 made project scope
  * visible; the per-project scoping fixes the machine-wide bleed where ONE
  * project's remote registration reclassified broken local engines as
- * thin-client for EVERY cwd). Ancestor matching mirrors the
- * GBRAIN_MCP_ENTRY_JQ resolution in
- * scripts/resolvers/preamble/generate-brain-sync-block.ts: cwd == key or
+ * thin-client for EVERY cwd). Ancestor matching mirrors the inline jq
+ * resolution in bin/gstack-skill-start (the single bash copy of the #2499
+ * resolution, moved there in token-reduction Phase 1): cwd == key or
  * cwd startswith key + separator, longest matching key that actually
  * carries a gbrain entry wins (a nested project WITHOUT gbrain doesn't
  * shadow its parent's registration).

@@ -85,7 +85,9 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
 
           const budgetMs = 900_000; // 15 min
           const start = Date.now();
-          // Phase markers in autoplan/SKILL.md (lines 1126, 1211, 1331, 1437):
+          // Phase markers live in autoplan's carved phase sections
+          // (autoplan/sections/{ceo,design,eng,dx}-phase.md — the skeleton
+          // STOP-Reads each one at its phase boundary):
           //   "**Phase 1 complete." / "**Phase 2 complete." / "**Phase 3 complete." / "**Phase 3.5 complete."
           const phasePattern = /\*\*Phase\s+(\d+(?:\.\d+)?)\s+complete\.?\*\*/g;
 

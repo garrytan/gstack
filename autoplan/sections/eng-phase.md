@@ -1,0 +1,108 @@
+<!-- AUTO-GENERATED from eng-phase.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+Follow plan-eng-review/SKILL.md — all sections, full depth.
+Override: every AskUserQuestion → auto-decide using the 6 principles.
+
+**Override rules:**
+- Scope challenge: never reduce (P2)
+- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+
+  **Codex eng voice** (via Bash):
+  ```bash
+  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+
+  Review this plan for architectural issues, missing edge cases,
+  and hidden complexity. Be adversarial.
+
+  Also consider these findings from prior review phases:
+  CEO: <insert CEO consensus table summary — key concerns, DISAGREEs>
+  Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
+
+  File: <plan_path>" -C "$_REPO_ROOT" -s read-only -c 'web_search="cached"' < /dev/null
+  _CODEX_EXIT=$?
+  if [ "$_CODEX_EXIT" = "124" ]; then
+    _gstack_codex_log_event "codex_timeout" "600"
+    _gstack_codex_log_hang "autoplan" "0"
+    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
+  fi
+  ```
+  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+
+  **Claude eng subagent** (via Agent tool):
+  "Read the plan file at <plan_path>. You are an independent senior engineer
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Architecture: Is the component structure sound? Coupling concerns?
+  2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
+  3. Tests: What's missing from the test plan? What would break at 2am Friday?
+  4. Security: New attack surface? Auth boundaries? Input validation?
+  5. Hidden complexity: What looks simple but isn't?
+  For each finding: what's wrong, severity, and the fix."
+  NO prior-phase context — subagent must be truly independent.
+
+  Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
+
+- Architecture choices: explicit over clever (P5). If codex disagrees with valid reason → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
+- Evals: always include all relevant suites (P1)
+- Test plan: generate artifact at `~/.gstack/projects/$SLUG/{user}-{branch}-test-plan-{datetime}.md`
+- TODOS.md: collect all deferred scope expansions from Phase 1, auto-write
+
+**Required execution checklist (Eng):**
+
+1. Step 0 (Scope Challenge): Read actual code referenced by the plan. Map each
+   sub-problem to existing code. Run the complexity check. Produce concrete findings.
+
+2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present
+   Codex output under CODEX SAYS (eng — architecture challenge) header. Present subagent
+   output under CLAUDE SUBAGENT (eng — independent review) header. Produce eng consensus
+   table:
+
+```
+ENG DUAL VOICES — CONSENSUS TABLE:
+═══════════════════════════════════════════════════════════════
+  Dimension                           Claude  Codex  Consensus
+  ──────────────────────────────────── ─────── ─────── ─────────
+  1. Architecture sound?               —       —      —
+  2. Test coverage sufficient?         —       —      —
+  3. Performance risks addressed?      —       —      —
+  4. Security threats covered?         —       —      —
+  5. Error paths handled?              —       —      —
+  6. Deployment risk manageable?       —       —      —
+═══════════════════════════════════════════════════════════════
+CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
+Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
+```
+
+3. Section 1 (Architecture): Produce ASCII dependency graph showing new components
+   and their relationships to existing ones. Evaluate coupling, scaling, security.
+
+4. Section 2 (Code Quality): Identify DRY violations, naming issues, complexity.
+   Reference specific files and patterns. Auto-decide each finding.
+
+5. **Section 3 (Test Review) — NEVER SKIP OR COMPRESS.**
+   This section requires reading actual code, not summarizing from memory.
+   - Read the diff or the plan's affected files
+   - Build the test diagram: list every NEW UX flow, data flow, codepath, and branch
+   - For EACH item in the diagram: what type of test covers it? Does one exist? Gaps?
+   - For LLM/prompt changes: which eval suites must run?
+   - Auto-deciding test gaps means: identify the gap → decide whether to add a test
+     or defer (with rationale and principle) → log the decision. It does NOT mean
+     skipping the analysis.
+   - Write the test plan artifact to disk
+
+6. Section 4 (Performance): Evaluate N+1 queries, memory, caching, slow paths.
+
+**Mandatory outputs from Phase 3:**
+- "NOT in scope" section
+- "What already exists" section
+- Architecture ASCII diagram (Section 1)
+- Test diagram mapping codepaths to coverage (Section 3)
+- Test plan artifact written to disk (Section 3)
+- Failure modes registry with critical gap flags
+- Completion Summary (the full summary from the Eng skill)
+- TODOS.md updates (collected from all phases)
+
+**PHASE 3 COMPLETE.** Emit phase-transition summary:
+> **Phase 3 complete.** Codex: [N concerns]. Claude subagent: [N issues].
+> Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
+> Passing to Phase 3.5 (DX Review) or Phase 4 (Final Gate).
