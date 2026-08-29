@@ -65,7 +65,17 @@ for (const file of SKILL_FILES) {
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
 
+// Skills the claude host never generates (e.g. the /claude outside-voice
+// wrapper, which only exists for non-Claude hosts) — a missing output for
+// these is intentional, not staleness.
+const CLAUDE_SKIP_SKILLS = new Set(getHostConfig('claude').generation.skipSkills ?? []);
+
 for (const { tmpl, output } of TEMPLATES) {
+  const skillDir = tmpl.includes('/') ? tmpl.split('/')[0] : '';
+  if (skillDir && CLAUDE_SKIP_SKILLS.has(skillDir)) {
+    console.log(`  -  ${output.padEnd(30)} — not generated for claude host (skipSkills)`);
+    continue;
+  }
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {
@@ -90,7 +100,7 @@ for (const file of SKILL_FILES) {
 
 // ─── External Host Skills (config-driven) ───────────────────
 
-import { getExternalHosts } from '../hosts/index';
+import { getExternalHosts, getHostConfig } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
