@@ -62,19 +62,6 @@ function installPrepushHook(): void {
   const hookPath = path.join(dir, "pre-push");
   const prepushBin = path.join(import.meta.dir, "gstack-redact-prepush");
 
-  // If a non-managed hook exists, preserve it as pre-push.local and chain it.
-  if (fs.existsSync(hookPath)) {
-    const existing = fs.readFileSync(hookPath, "utf8");
-    if (existing.includes(MANAGED_MARKER)) {
-      process.stdout.write("gstack-redact: pre-push hook already installed.\n");
-      return;
-    }
-    const localPath = path.join(dir, "pre-push.local");
-    fs.renameSync(hookPath, localPath);
-    fs.chmodSync(localPath, 0o755);
-    process.stdout.write("gstack-redact: preserved existing hook as pre-push.local (chained).\n");
-  }
-
   // stdin is single-consume: capture it once, feed both the chained hook and ours.
   // The `printf x` sentinel preserves the trailing newline that `$(cat)` strips.
   // Without it, a chained shell pre-push.local built on `while read` silently
@@ -91,6 +78,39 @@ if [ -x "$_local" ]; then
 fi
 printf '%s' "$_input" | bun "${prepushBin}" "$@"
 `;
+
+  // If a non-managed hook exists, preserve it as pre-push.local and chain it.
+  if (fs.existsSync(hookPath)) {
+    const existing = fs.readFileSync(hookPath, "utf8");
+    if (existing.includes(MANAGED_MARKER)) {
+      // A hook we already own. Returning here unconditionally froze every
+      // existing install on whatever wrapper it first received: the `printf x`
+      // fail-open fix landed in v1.64.0.0 and still had not reached a single
+      // repo that got the hook before it, because the only writer is gated on
+      // this branch. A wrapper naming a gstack that has since been moved or
+      // removed stays pointed at that dead path for the same reason.
+      //
+      // Rewrite when the body has drifted from what this version generates;
+      // stay a no-op when it has not, so the command is still idempotent. The
+      // chained pre-push.local is never touched on either path — it is the
+      // user's, not ours.
+      if (existing === wrapper) {
+        process.stdout.write("gstack-redact: pre-push hook already installed.\n");
+        return;
+      }
+      fs.writeFileSync(hookPath, wrapper, { mode: 0o755 });
+      fs.chmodSync(hookPath, 0o755);
+      process.stdout.write(
+        `gstack-redact: refreshed stale managed pre-push hook at ${hookPath}\n`,
+      );
+      return;
+    }
+    const localPath = path.join(dir, "pre-push.local");
+    fs.renameSync(hookPath, localPath);
+    fs.chmodSync(localPath, 0o755);
+    process.stdout.write("gstack-redact: preserved existing hook as pre-push.local (chained).\n");
+  }
+
   fs.writeFileSync(hookPath, wrapper, { mode: 0o755 });
   fs.chmodSync(hookPath, 0o755);
   process.stdout.write(`gstack-redact: installed pre-push hook at ${hookPath}\n`);
