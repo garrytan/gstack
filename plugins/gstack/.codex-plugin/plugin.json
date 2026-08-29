@@ -1,0 +1,13 @@
+{
+  "id": "gstack",
+  "name": "gstack",
+  "version": "0.1.0",
+  "description": "Gstack skills for Codex.",
+  "author": { "name": "gstack" },
+  "homepage": "https://github.com/garrytan/gstack",
+  "repository": "https://github.com/garrytan/gstack",
+  "license": "MIT",
+  "keywords": ["engineering", "review", "qa", "shipping"],
+  "skills": "./skills/",
+  "interface": { "displayName": "gstack", "shortDescription": "AI engineering workflows", "longDescription": "Plan, review, test, debug, document, and ship software with focused engineering skills.", "developerName": "gstack", "category": "Coding", "capabilities": ["Planning", "Code review", "QA"], "websiteURL": "https://github.com/garrytan/gstack", "brandColor": "#FFA000", "composerIcon": "./assets/icon.png", "logo": "./assets/icon.png", "defaultPrompt": ["Review my current changes before they land.", "Plan this feature and lock the engineering details.", "QA this application and fix what you find."] }
+}

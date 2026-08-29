@@ -15,6 +15,12 @@ description: |
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/.codex/skills/gstack"
+
+for _PLUGIN_START in "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/*/gstack/*/skills/gstack/bin/gstack-skill-start; do
+  [ -x "$_PLUGIN_START" ] || continue
+  GSTACK_ROOT="${_PLUGIN_START%/bin/gstack-skill-start}"
+  break
+done
 [ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.agents/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"

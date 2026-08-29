@@ -1,0 +1,12 @@
+{
+  "name": "gstack-local",
+  "interface": { "displayName": "gstack" },
+  "plugins": [
+    {
+      "name": "gstack",
+      "source": { "source": "local", "path": "./plugins/gstack" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Coding"
+    }
+  ]
+}

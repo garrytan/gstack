@@ -13,7 +13,11 @@ bin/gstack-global-discover*
 .claude/gstack-rendered/
 .claude/scheduled_tasks.lock
 .claude/*.lock
-.agents/
+.agents/*
+!.agents/plugins/
+!.agents/plugins/marketplace.json
+.agents/skills/
+plugins/gstack/skills/
 .factory/
 .kiro/
 .opencode/
