@@ -9,9 +9,9 @@
  *   hosts/*.ts  →  hosts/index.ts  →  host-config.ts (this file)
  *        │                                    │
  *        └── typed configs ──────────────────→ consumed by gen-skill-docs.ts,
- *                                              setup (via host-config-export.ts),
- *                                              skill-check.ts, worktree.ts,
- *                                              platform-detect, uninstall
+ *                                              template resolvers,
+ *                                              host-config-export.ts,
+ *                                              skill-check.ts, worktree.ts
  */
 
 import type { Model } from './models';

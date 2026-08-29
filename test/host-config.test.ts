@@ -586,6 +586,8 @@ describe('host config correctness', () => {
     for (const config of ALL_HOST_CONFIGS) {
       expect(config.runtimeRoot.globalSymlinks.length).toBeGreaterThan(0);
       expect(config.runtimeRoot.globalSymlinks).toContain('bin');
+      expect(config.runtimeRoot.globalSymlinks).toContain('lib');
+      expect(config.runtimeRoot.globalSymlinks).toContain('scripts');
       expect(config.runtimeRoot.globalSymlinks).toContain('ETHOS.md');
     }
   });

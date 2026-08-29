@@ -68,8 +68,9 @@ fi
 # ─── Migration: fix stale Codex descriptions (one-time) ───────
 # Existing installs may have .agents/skills/gstack/SKILL.md with oversized
 # descriptions (>1024 chars) that Codex rejects. We can't regenerate from
-# the runtime root (no bun/scripts), so delete oversized files — the next
-# ./setup or /gstack-upgrade will regenerate them properly.
+# the slim runtime root because it omits the package manifest, dependencies,
+# and template sources, so delete oversized files — the next ./setup or
+# /gstack-upgrade will regenerate them properly.
 # Marker file ensures this runs at most once per install.
 if [ ! -f "$STATE_DIR/.codex-desc-healed" ]; then
   for _AGENTS_SKILL in "$GSTACK_DIR"/.agents/skills/*/SKILL.md; do

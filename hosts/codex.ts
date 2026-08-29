@@ -18,8 +18,9 @@ const codex = defineHost({
 
   // generateMetadata emits agents/openai.yaml (the format is hardcoded in
   // gen-skill-docs.ts). Codex also gets a repo-local sidecar at
-  // .agents/skills/gstack (symlinked runtime assets: bin, browse, review, qa,
-  // ETHOS.md) — that behavior lives in setup's create_agents_sidecar, not here.
+  // .agents/skills/gstack (symlinked runtime assets: bin, lib, scripts, browse,
+  // review, qa, ETHOS.md) — that behavior lives in setup's
+  // create_agents_sidecar, not here.
   generation: {
     generateMetadata: true,
     skipSkills: ['codex'],  // Codex skill is a Claude wrapper around codex exec
