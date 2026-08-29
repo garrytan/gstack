@@ -23,6 +23,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { canRevokeWrites } from './helpers/fs-caps';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
@@ -371,7 +372,7 @@ describe('gstack-brain-sync secret scan', () => {
 // ---------------------------------------------------------------
 describe('gstack-brain-sync egress receipt gate', () => {
   test('refused receipt leaves the queue intact, makes no commit, and next run retries', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod is advisory there
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
@@ -624,7 +625,7 @@ describe('#2549 queue integrity', () => {
   });
 
   test('receipt refusal at the detector skips the retry without wedging the drain', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod advisory there
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     initWithMode('full');
     fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
     fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'), '{"skill":"a","ts":"2026-01-01T00:00:00Z"}\n');
@@ -792,7 +793,7 @@ describe('C12 spool queue', () => {
   });
 
   test('at-least-once: a drain that fails before finalize leaves every spool file for the next run', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod advisory there
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     initWithMode('full');
     fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
     fs.mkdirSync(path.join(tmpHome, 'retros'), { recursive: true });

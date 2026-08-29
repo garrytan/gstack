@@ -14,6 +14,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { canRevokeReads } from './helpers/fs-caps';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -344,7 +345,7 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
   });
 
   test('store exists but unreadable → fail-closed refusal, never bypassed', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod semantics differ
+    if (!canRevokeReads()) return; // chmod is advisory here (win32, root, DAC-override containers)
     makeRepo();
     expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
     fs.chmodSync(policyFile(), 0o000);

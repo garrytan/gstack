@@ -146,6 +146,12 @@ jobs:
           - name: e2e-ship-docsync
             file: test/skill-e2e-ship-docsync.test.ts
             tier: gate
+          # Consent-gate guardrail for the Third-Party Web Actions contract
+          # (Aside recommended-driver rewrite): hermetic shims, deterministic
+          # grep assertions, gate tier in E2E_TIERS.
+          - name: e2e-third-party-actions
+            file: test/skill-e2e-third-party-actions.test.ts
+            tier: gate
           - name: e2e-routing
             file: test/skill-routing-e2e.test.ts
           - name: e2e-codex

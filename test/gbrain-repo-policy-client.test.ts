@@ -13,6 +13,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { canRevokeReads } from "./helpers/fs-caps";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -140,7 +141,7 @@ describe("repoPolicyTierBatch (TypeScript client)", () => {
   });
 
   test("store unreadable on disk (chmod 000): whole batch classified unreadable", () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return; // chmod semantics differ
+    if (!canRevokeReads()) return; // chmod is advisory here (win32, root, DAC-override containers)
     expect(run(["set", "https://github.com/foo/bar", "deny"]).status).toBe(0);
     fs.chmodSync(policyFile(), 0o000);
     try {

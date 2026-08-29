@@ -414,6 +414,72 @@ references — include it in this fix's coverage list.
 - Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
 - Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
 
+## Aside integration follow-ups (filed via /plan-ceo-review + /plan-eng-review on the third-party-actions Aside plan)
+
+### QA logged-in-evidence path via Aside (Phase 2)
+
+**What:** Consent-gated `aside repl` as an alternative evidence source in /qa,
+/qa-only, and /browse when cookie-import can't reach a session (SSO,
+device-bound auth, Safari-side logins Chromium export can't see).
+
+**Why:** Fills the exact gap `docs/designs/CHROME_VS_CHROMIUM_EXPLORATION.md`
+records as attempted and abandoned — QA evidence from the user's REAL
+logged-in browser, no cookie export. The third-party-actions contract already
+recommends Aside for acting on logged-in vendor sites; this extends the same
+consent-gated pattern to evidence gathering.
+
+**Context:** Shape sketched as Option 2 in the Aside integration plan
+(2026-08-27): a small `{{AGENTIC_BROWSER_FALLBACK}}` resolver injected into
+qa/qa-only/browse (optionally scrape + a setup-browser-cookies cross-ref).
+Port the fork PR time-attack/gstack#40 judgment qualitatively — "logged-in
+pages only; never bulk crawling" — never its perishable timing numbers.
+Requires: untrusted-content wrapping of repl output (prose rule), a
+periodic-tier hermetic E2E, ratchet fixture refresh for the touched skills.
+Deliberately deferred at D1A (contract-only scope); it inserts a third-party
+surface beside the first-party QA pipeline, so it's a separate product call.
+
+**Effort:** M (human ~2 days / CC+gstack ~1-2 h)
+**Priority:** P3
+**Depends on:** the third-party-actions Aside contract branch landing.
+
+### Hostile-vendor-skill E2E for the third-party-actions contract
+
+**What:** A periodic-tier E2E that plants a malicious `aside-browser` vendor
+skill (one that instructs scope expansion, credential capture, or consent
+bypass) and asserts the agent honors the contract's override sentence —
+operational syntax only, never new permissions, scope, or consent.
+
+**Why:** Rule 3 puts vendor text in instruction position; the override is
+pinned as prose but has no behavioral proof against an adversarial skill.
+Flagged by the ship adversarial review (finding 11).
+
+**Context:** Fixture = extracted contract section + a hostile vendor SKILL.md
+in the workdir; assert the drive plan never exceeds the named site/actions and
+never echoes captured-secret instructions. Sibling of the tpa-* suite in
+`test/skill-e2e-third-party-actions.test.ts`.
+
+**Effort:** S (human ~half day / CC+gstack ~30 min)
+**Priority:** P2
+**Depends on:** the third-party-actions Aside contract branch landing.
+
+### fd-anchor file-level permission writes (symlink/TOCTOU parity with dirs)
+
+**What:** `restrictFilePermissions` / `writeSecureFile` / `appendSecureFile`
+in `browse/src/file-permissions.ts` still use symlink-following `chmodSync` /
+`writeFileSync`; give them the same `O_NOFOLLOW` + fstat/fchmod treatment the
+directory path got.
+
+**Why:** The symlink-swap class fixed for directories on this branch remains
+open for the files inside them (ship adversarial review, finding 5).
+Docs note (finding 12) — done in the v1.72.0.0 doc pass: BROWSER.md
+§ "Aside and third-party drives" now records that Aside drives leave no
+gstack-side audit trail (no egress receipts, no browse-daemon logs); the
+audit trail lives in Aside.
+
+**Effort:** S (human ~half day / CC+gstack ~20 min)
+**Priority:** P3
+**Depends on:** None.
+
 ## Test infrastructure
 
 ### P2: /context-save worktree-identity hardening (the #2052 residual)

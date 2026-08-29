@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.71.1.0] - 2026-08-28
+## [1.72.1.0] - 2026-08-29
 
 **Slim runtime installs now carry every asset their commands load.**
 
@@ -15,6 +15,54 @@ Windows copy installs, including Cursor's repository sidecar and negative
 controls for both missing `lib/` and missing `scripts/` layouts. The declarative
 host defaults and host-authoring documentation now describe the same runtime
 asset contract.
+
+## [1.72.0.0] - 2026-08-28
+
+**"Go register an API key" now drives your real browser.**
+**Aside is the recommended driver, consent asked every single time.**
+
+When a workflow hits a third-party website moment, registering an API key, creating a vendor account, wiring a webhook, gstack now checks for the Aside AI browser and offers to drive it: your real logged-in sessions, no cookie export, no re-auth. You approve each drive per task, by name and by site. Passwords, payment, CAPTCHAs, and identity stay yours; Apple credential creation is never a drive target in any skill. No Aside installed? On a Mac you get one download pointer (aside.com, macOS 15+), once, and gstack's own visible browser remains the fallback everywhere. gstack never runs an installer for you, and a detected binary is never treated as consent.
+
+This release also fixes a real hardening bug: on hosts where the process holds CAP_FOWNER (Docker as root, CI sandboxes), the browse daemon's owner-only chmod could land on `/tmp` itself when a state file was configured there, locking the whole machine's `access(2)` checks out for everyone. The permission code now refuses shared, sticky, symlinked, or foreign-owned directories, warns instead of going silent, and pins the check and the chmod to one inode.
+
+### The numbers that matter
+
+Source: this branch's test runs on a Linux CAP_FOWNER sandbox, plus the eval records under `~/.gstack/projects/<slug>/evals/`.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Drivers offered at a third-party web moment | 1 ($B headed) | 2 (Aside recommended, $B fallback) | +1 |
+| `/tmp` after a `BROWSE_STATE_FILE=/tmp/x.json` boot on a CAP_FOWNER host | chmod 0700, machine-wide breakage | refused, warned once | fixed |
+| `resolve-user-slug` on coreutils-only Linux with a git email | exit 127 | exit 0 | fixed |
+| Prose pins guarding the consent contract | 0 | 21 tests, 254 asserts | new |
+| Live consent-gate E2E cases (gate tier, hermetic shims) | 0 | 5, all passing at ~$0.35/run | new |
+
+The consent gate is the number to care about: five real `claude -p` runs prove the agent offers Aside only when detected, degrades cleanly when it is broken or absent, pitches the download exactly once on macOS, and refuses browser drives for Apple credentials under any framing.
+
+### What this means for you
+
+The next time a skill says "you need a Duffel test token," it can just go get it with you watching, in the browser where you are already signed in. You approve the site and the actions first, every time, and the secret lands in an owner-only file, verified with one read-only API call, never echoed to chat. If you would rather not install anything, nothing changes: the first-party browser keeps working exactly as before. Docker-as-root users should upgrade for the `/tmp` fix alone.
+
+### Itemized changes
+
+### Added
+- Third-Party Web Actions contract (ship, spec, office-hours, land-and-deploy, setup-deploy) now names the Aside AI browser as the recommended driver: runtime detection probe with a portable timeout guard, detection-conditional consent options, step-wise drive discipline with the vendor's confirm mode left on, and a failure path that quotes errors (redacted), retries once, and falls back only with fresh consent.
+- Credential boundaries hardened in the same contract: secret-minimization preference (password-manager autofill, human-used copy buttons), Apple credential creation banned as a drive target in every skill, and vendor `--help`/skill text explicitly scoped to operational syntax, never new permissions.
+- `test/third-party-actions.test.ts`: 21 pin tests covering every load-bearing sentence of the contract, plus repo-wide tripwires (an `aside` command allowlist of `--version`/`--help` only, and a ban on Aside installer invocations in any generated doc).
+- `test/skill-e2e-third-party-actions.test.ts`: five hermetic gate-tier E2E cases (present, absent-Linux, present-but-broken, absent-macOS pitch, Apple credential ban) wired into CI's eval matrix; the absent cases actively mask any real `aside` binary on the host so dev machines cannot leak into detection.
+
+### Changed
+- The v1.65.0.0 stance of driving only gstack's own browser stack is superseded by explicit user directive: Aside is the one product gstack recommends by name. Never-auto-install and per-task consent survive unchanged and are now pin-tested.
+- The setup flow's bun-installer checksum verification resolves `sha256sum` before `shasum`, so it works on coreutils-only Linux.
+
+### Fixed
+- `restrictDirectoryPermissions` no longer chmods shared sticky directories (`/tmp`, `/var/tmp`), foreign-owned directories, symlinked state dirs, or world-writable mounts when running as root; refusals warn once per process instead of failing silent, owned-but-unreadable dirs still self-repair, and the check-then-act race is closed with fd-anchored fstat/fchmod.
+- `gstack-config resolve-user-slug` exited 127 on Linux distros without perl's `shasum` whenever a git email was set; both hashing call sites now resolve `sha256sum` first and fall back to `shasum -a 256`.
+- A path-validation test assumed `/etc/crontab` exists (absent on Amazon Linux and minimal Fedora); it now uses `/etc/passwd`.
+
+### For contributors
+- `test/helpers/fs-caps.ts`: functional capability probes (`canRevokeWrites`, `canRevokeReads`) replace uid-0-only guards across 14 chmod-based test files, so suites skip honestly on CAP_DAC_OVERRIDE containers instead of asserting revocations the kernel ignores.
+- Five `tpa-*` entries registered across `E2E_TOUCHFILES`/`E2E_TIERS` with template-level deps, the eval matrix row carries `tier: gate`, and `eval:bg:periodic`'s detach timeout rose to 36000s to cover the grown periodic shard census (floor-enforced by test).
 
 ## [1.71.0.0] - 2026-08-27
 

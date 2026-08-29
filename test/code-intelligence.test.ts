@@ -9,6 +9,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { canRevokeReads } from "./helpers/fs-caps";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -432,7 +433,7 @@ describe("consent unification — deny tier wins (R1)", () => {
   });
 
   test("unreadable policy store fails closed (consent vetoed) for BOTH op classes", () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return; // chmod semantics differ
+    if (!canRevokeReads()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "ci-veto-"));
     try {
       const env = { ...process.env, GSTACK_HOME: home };

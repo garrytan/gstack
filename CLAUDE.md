@@ -5,13 +5,13 @@
 ```bash
 bun install          # install dependencies
 bun run test         # run free tests via the strict parallel runner (~90-100s full suite)
-bun run test:evals   # run paid evals: LLM judge + E2E (diff-based, ~$4/run max)
+bun run test:evals   # run paid evals: LLM judge + E2E (diff-based, ~$4.35/run max)
 bun run test:evals:all  # run ALL paid evals regardless of diff
 bun run test:gate    # run gate-tier tests only (CI default, blocks merge)
 bun run test:periodic  # run periodic-tier tests only (weekly cron / manual)
 bun run test:gate:sharded    # gate tier via the sharded paid runner (one Bun process per test file)
 bun run test:periodic:sharded  # periodic tier via the sharded paid runner (implies EVALS_ALL=1)
-bun run test:e2e     # run E2E tests only (diff-based, ~$3.85/run max)
+bun run test:e2e     # run E2E tests only (diff-based, ~$4.20/run max)
 bun run test:e2e:all # run ALL E2E tests regardless of diff
 bun run eval:select  # show which tests would run based on current diff
 bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
@@ -67,7 +67,7 @@ in sync.
 
 ```bash
 bun run test         # run before every commit — free, ~90-100s for the full ~7,000-test suite
-bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
+bun run test:evals   # run before shipping — paid, diff-based (~$4.35/run max)
 ```
 
 `bun run test` routes through `scripts/test-free-shards.ts` (N concurrent
@@ -634,7 +634,7 @@ the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
   (stray `claude`/`codex` grandchildren included), a per-shard
   `GSTACK_EVAL_DIR=<evalDir>/shards/<slug>/` honored by the `EvalCollector`
   constructor, and an aggregate that separates failed vs timed-out vs
-  never-started shards — the detach timeouts (25200s gate / 32400s periodic;
+  never-started shards — the detach timeouts (25200s gate / 36000s periodic;
   floor enforced against the live shard census by
   test/eval-detach-timeout-floor.test.ts)
   are sized against worst-case shard wall clock. `EVALS_JOBS` sets the shard

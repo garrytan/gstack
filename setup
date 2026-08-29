@@ -55,7 +55,7 @@ if ! command -v bun >/dev/null 2>&1; then
   echo '  BUN_VERSION="1.3.10"' >&2
   echo '  tmpfile=$(mktemp)' >&2
   echo '  curl -fsSL "https://bun.sh/install" -o "$tmpfile"' >&2
-  echo '  echo "Verify checksum before running: shasum -a 256 $tmpfile"' >&2
+  echo '  echo "Verify checksum before running: sha256sum $tmpfile   # or: shasum -a 256 $tmpfile"' >&2
   echo '  BUN_VERSION="$BUN_VERSION" bash "$tmpfile" && rm "$tmpfile"' >&2
   exit 1
 fi

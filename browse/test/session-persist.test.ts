@@ -16,6 +16,7 @@
  */
 
 import { describe, test, expect, afterAll } from 'bun:test';
+import { canRevokeWrites } from '../../test/helpers/fs-caps';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -128,7 +129,7 @@ describe('session-persist units', () => {
 
   test('a failed snapshot write preserves the previous good snapshot', async () => {
     // chmod-based read-only dirs don't bind on Windows or when running as root.
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const dir = path.join(tmpRoot, 'ro');
     fs.mkdirSync(dir);
     const file = path.join(dir, 'session-state.json');

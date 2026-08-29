@@ -11,6 +11,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { canRevokeWrites } from "../../test/helpers/fs-caps";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -108,7 +109,7 @@ describe("receiptedFetch", () => {
   });
 
   test("fail-open: unwritable ledger warns on stderr and the call proceeds", async () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     fs.mkdirSync(path.join(home, "security"), { recursive: true, mode: 0o500 });
     let fetched = false;
     const stub = (async () => { fetched = true; return new Response("{}", { status: 200 }); }) as typeof globalThis.fetch;

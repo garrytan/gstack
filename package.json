@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.71.1",
+  "version": "1.72.1",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -39,7 +39,7 @@
     "eval:bg": "bin/gstack-detach --label evals --lock gstack-evals --timeout 5400 -- bun run test:evals",
     "eval:bg:all": "bin/gstack-detach --label evals-all --lock gstack-evals --timeout 7200 -- bun run test:evals:all",
     "eval:bg:gate": "bin/gstack-detach --label evals-gate --lock gstack-evals --timeout 25200 -- bun run test:gate:sharded",
-    "eval:bg:periodic": "bin/gstack-detach --label evals-periodic --lock gstack-evals --timeout 32400 -- bun run test:periodic:sharded",
+    "eval:bg:periodic": "bin/gstack-detach --label evals-periodic --lock gstack-evals --timeout 36000 -- bun run test:periodic:sharded",
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",

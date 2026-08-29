@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { canRevokeWrites } from '../../test/helpers/fs-caps';
 import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug, resolveGstackHome, resolveChromiumProfile, cleanSingletonLocks } from '../src/config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -129,6 +130,7 @@ describe('config', () => {
     });
 
     test('logs warning to browse-server.log on non-ENOENT gitignore error', () => {
+      if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
       const tmpDir = path.join(os.tmpdir(), `browse-gitignore-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
       // Create a read-only .gitignore (no .gstack/ entry → would try to append)

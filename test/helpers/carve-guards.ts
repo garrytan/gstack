@@ -150,7 +150,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
-    maxSkeletonBytes: 71_300, // token-reduction Phases 1-2 + #2700 document-release anchors; measured 70,568 post-merge regen
+    maxSkeletonBytes: 73_601, // Aside third-party-actions contract + review-fix sentences; measured 72,872
     minUnionBytes: 181_000, // token-reduction Phases 1-2 (v1.69.x branch); measured union 201,464
     mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
@@ -295,7 +295,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 68_200, // token-reduction Phase 4 wave 4 (v1.69.x branch): 2A/2B carved out; measured 66,852
+    maxSkeletonBytes: 69_978, // Aside third-party-actions contract + review-fix sentences; measured 69,285
     minUnionBytes: 115_800, // Phase 4 wave 4; measured union 118,175
     mustContain: ['design doc', 'problem statement'],
     maxSizeRatio: 1.12,
@@ -477,7 +477,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined, // operational skill
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 57_500, // Phase 4 wave 1; estimated ~56.2KB rendered — re-measured at regen
+    maxSkeletonBytes: 58_733, // Aside third-party-actions contract + review-fix sentences; measured 58,151
     minUnionBytes: 91_000, // Phase 4 wave 1; estimated union ~94.9KB
     mustContain: ['readiness', 'merge', 'canary', 'revert', 'staging'],
   },
@@ -541,7 +541,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 51_200, // Phase 4 wave 2: Phases 4.5-5 carved at the post-confirmation boundary; measured 50,681
+    maxSkeletonBytes: 53_645, // Aside third-party-actions contract + review-fix sentences; measured 53,114
     minUnionBytes: 64_500, // measured union 67,430
     mustContain: ['HARD GATE', 'dedupe', 'quality gate', 'acceptance criteria', 'archive'],
   },

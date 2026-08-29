@@ -15,6 +15,7 @@
  *   - ground truth against THIS repo via test/helpers/skill-census.ts
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { canRevokeWrites } from "./helpers/fs-caps";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -477,7 +478,7 @@ describe("--exact (opt-in measurement; offline here via an injected fetch)", () 
   });
 
   it("fail-open: an unwritable ledger degrades --exact to the offline estimate, sending nothing", async () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-refuse-"));
     fs.mkdirSync(path.join(home, "security"), { recursive: true, mode: 0o500 });
     let called = false;

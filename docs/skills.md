@@ -661,6 +661,12 @@ Every `/ship` run builds a code path map from your diff, searches for correspond
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
 
+### Third-party web actions (v1.72.0.0+)
+
+Sometimes the release work leaves the terminal: registering an API key, creating a vendor account, wiring a webhook or OAuth app. Instead of handing you a manual step list, `/ship` (and `/spec`, `/office-hours`, `/land-and-deploy`, `/setup-deploy`) offers to drive the browser for you. The recommended driver is the Aside AI browser when it's installed — it acts across your real logged-in sessions, which is exactly what vendor dashboards need. gstack's own visible browser (`$B` headed mode with handoff for sign-in) is the fallback on every platform.
+
+The consent rules are strict and pin-tested: one explicit question per task naming the exact site and actions, no standing permission, no auto-install ever (on a Mac without Aside you get one download pointer — aside.com, macOS 15+ — once per task). Passwords, payment, CAPTCHAs, and identity verification stay yours; Apple credential creation is never a drive target in any skill. A captured secret never appears in chat — it lands in an owner-only file and gets verified with one read-only API call before gstack claims success.
+
 ---
 
 ## `/land-and-deploy`

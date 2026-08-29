@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { canRevokeWrites } from './helpers/fs-caps';
 import {
   EGRESS_RECEIPT_FAILED,
   LEDGER_WARN_BYTES,
@@ -67,7 +68,7 @@ describe('egress receipt library', () => {
   });
 
   test('fail-closed: unwritable security dir throws typed EGRESS_RECEIPT_FAILED', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod is advisory there
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     writeReceipt({ home, sink: 'a', host: 'h', payloadClass: 'c', consent: 'k=v' });
     fs.chmodSync(path.join(home, 'security'), 0o500);
     try {
@@ -247,7 +248,7 @@ describe('gstack-egress-receipt shell bridge', () => {
   });
 
   test('write exits 3 with EGRESS_RECEIPT_FAILED when the ledger is unwritable', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     fs.mkdirSync(path.join(home, 'security'), { recursive: true, mode: 0o500 });
     const write = spawnSync(bin, ['write', '--sink', 's', '--host', 'h', '--class', 'c', '--no-payload'],
       { encoding: 'utf-8', env: { ...process.env, GSTACK_HOME: home } });
