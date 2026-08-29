@@ -1,5 +1,8 @@
 # gstack development
 
+Cursor Agent: product workflows live in `.cursor/skills/` and `AGENTS.md`. This file is the **contributor handbook** for developing gstack itself (tests, templates, evals). Map Claude Code tool names here to Cursor equivalents (`Bash` → `Shell`, `AskUserQuestion` → `AskQuestion`). See [docs/CURSOR.md](docs/CURSOR.md).
+
+
 ## Commands
 
 ```bash

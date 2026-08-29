@@ -16,6 +16,7 @@
     "build:diagram-render": "cd lib/diagram-render && bun install && bun run scripts/build.ts",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "gen:skill-docs:user": "bun run scripts/gen-skill-docs.ts --respect-detection",
+    "gen:cursor-native": "bun run scripts/gen-cursor-native.ts",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
     "test": "bun run scripts/test-free-shards.ts && (bun run slop:diff 2>/dev/null || true)",

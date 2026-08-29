@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/careful.sh",
+        "timeout": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/freeze.sh",
+        "matcher": "Write|StrReplace|EditNotebook",
+        "failClosed": true,
+        "timeout": 10
+      }
+    ]
+  }
+}

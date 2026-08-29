@@ -1,13 +1,10 @@
-# gstack — AI Engineering Workflow
+# gstack — AI Engineering Workflow (Cursor)
 
-gstack is a collection of SKILL.md files that give AI agents structured roles for
-software development. Each skill is a specialist: CEO reviewer, eng manager,
-designer, QA lead, release engineer, debugger, and more.
+gstack is a collection of specialist skills for software development: CEO reviewer, eng manager, designer, QA lead, release engineer, debugger, and more.
+
+This checkout is **Cursor-native**. Skills live in `.cursor/skills/`. Type `/office-hours` (or any skill name) in Agent chat, or `@` a skill to attach it. The agent also auto-invokes a skill when your request matches its description.
 
 ## Available skills
-
-Skills live in `.agents/skills/` (or `~/.claude/skills/gstack/` on Claude Code).
-Invoke them by name (e.g., `/office-hours`).
 
 ### Plan-mode reviews
 
@@ -18,17 +15,17 @@ Invoke them by name (e.g., `/office-hours`).
 | `/plan-eng-review` | Lock architecture, data flow, edge cases, and tests. |
 | `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |
 | `/plan-devex-review` | DX-mode review: TTHW, magical moments, friction points, persona traces. |
-| `/plan-tune` | Self-tune AskUserQuestion sensitivity per question. |
+| `/plan-tune` | Self-tune AskQuestion sensitivity per question. |
 | `/autoplan` | One command runs CEO → design → eng → DX review. |
 | `/design-consultation` | Build a complete design system from scratch. |
-| `/spec` | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
+| `/spec` | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue. |
 
 ### Implementation + review
 
 | Skill | What it does |
 |-------|-------------|
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
-| `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. |
+| `/codex` | Second opinion via OpenAI Codex CLI. Review, challenge, or consult modes. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
@@ -57,15 +54,15 @@ Invoke them by name (e.g., `/office-hours`).
 | Skill | What it does |
 |-------|-------------|
 | `/context-save` | Save working context (git state, decisions, remaining work). |
-| `/context-restore` | Resume from a saved context, even across Conductor workspaces. |
+| `/context-restore` | Resume from a saved context. |
 | `/learn` | Manage what gstack learned across sessions. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |
 | `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
-| `/benchmark-models` | Cross-model benchmark for skills (Claude, GPT, Gemini side-by-side). |
+| `/benchmark-models` | Cross-model benchmark for skills. |
 | `/cso` | OWASP Top 10 + STRIDE security audit. |
 | `/setup-gbrain` | Set up gbrain for cross-machine session memory sync. |
-| `/sync-gbrain` | Keep gbrain current with this repo's code; refresh agent search guidance in CLAUDE.md. |
+| `/sync-gbrain` | Keep gbrain current with this repo's code. |
 
 ### Browser + agent integration
 
@@ -74,27 +71,17 @@ Invoke them by name (e.g., `/office-hours`).
 | `/browse` | Headless browser — real Chromium, real clicks, ~100ms/command. |
 | `/open-gstack-browser` | Launch the visible GStack Browser with sidebar + stealth. |
 | `/setup-browser-cookies` | Import cookies from your real browser for authenticated testing. |
-| `/pair-agent` | Pair a remote AI agent (OpenClaw, Codex, etc.) with your browser. |
+| `/pair-agent` | Pair a remote AI agent with your browser. |
 
-### iOS QA — drive real iPhones over USB or Tailscale (v1.43.0.0+)
+### iOS QA
 
 | Skill | What it does |
 |-------|-------------|
-| `/ios-qa` | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. Optionally exposes the device over Tailscale so remote agents can drive it. |
+| `/ios-qa` | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. |
 | `/ios-fix` | Autonomous iOS bug fixer with regression snapshot capture. |
 | `/ios-design-review` | Designer's-eye QA on a real iPhone — 10-dimension Apple HIG rubric. |
-| `/ios-clean` | Convenience: strip DebugBridge + #if DEBUG wiring before a Release build. |
+| `/ios-clean` | Strip DebugBridge + #if DEBUG wiring before a Release build. |
 | `/ios-sync` | Regenerate the iOS debug bridge against the latest upstream templates. |
-
-Companion CLIs (run on the Mac that's plugged into the device):
-
-| Command | What it does |
-|---------|-------------|
-| `gstack-ios-qa-daemon` | Mac-side broker. Loopback by default; `--tailnet` adds a Tailscale-facing listener with capability tiers and audit logging. |
-| `gstack-ios-qa-mint` | Owner-grant CLI for the tailnet allowlist (`grant`/`revoke`/`list`). |
-| `gstack-ios-qa-regen` | Regenerate the canonical local DebugBridge package and typed accessors (`--app-source` / `--bridge-dir`). |
-
-End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md).
 
 ### Safety + scoping
 
@@ -107,6 +94,23 @@ End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-t
 | `/make-pdf` | Turn any markdown file into a publication-quality PDF. |
 | `/diagram` | English in, diagram out: mermaid source + editable .excalidraw + SVG/PNG, offline. |
 
+## How to invoke
+
+1. Type `/` in Agent chat and pick a skill (e.g. `/review`).
+2. Or say the work in plain language — routing in `.cursor/rules/gstack.mdc` plus each skill's `description` tells the agent when to load it.
+3. When a skill matches, **Read `.cursor/skills/<name>/SKILL.md` and follow it**. Do not skip to a thinner improvisation.
+
+## Cursor tools
+
+| Do | Don't |
+|----|-------|
+| `AskQuestion` | AskUserQuestion |
+| `Shell` | Bash |
+| `Task` | Agent |
+| `StrReplace` | Edit |
+| `AGENTS.md` | CLAUDE.md for product config |
+| browse binary (`$B` / `bun run dev`) | Chrome MCP tools |
+
 ## Build commands
 
 ```bash
@@ -114,24 +118,20 @@ bun install              # install dependencies
 bun run test             # run free tests via the strict shard runner (no API spend, ~90-100s)
 bun run test:windows     # curated Windows-safe subset (runs on windows-latest)
 bun run build            # generate docs + compile binaries
-bun run gen:skill-docs   # regenerate SKILL.md files from templates
+bun run gen:skill-docs   # regenerate Claude-host SKILL.md files from templates
+bun run gen:cursor-native  # regenerate .cursor/skills/ from templates
 bun run skill:check      # health dashboard for all skills
 ```
 
 ## Platform support
 
 - **macOS** + **Linux**: full test suite supported.
-- **Windows**: curated Windows-safe subset runs on `windows-latest` via the
-  `windows-free-tests` CI job. Setup script (`./setup`) requires Git Bash or
-  MSYS today; native PowerShell support is a future expansion. The `bin/gstack-paths`
-  helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
-  installs work on every platform.
+- **Windows**: curated Windows-safe subset runs on `windows-latest`. Setup (`./setup`) requires Git Bash or MSYS today. `bin/gstack-paths` resolves state roots through `GSTACK_HOME`.
 
 ## Key conventions
 
-- SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
-- Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
-- The browse binary provides headless browser access. Use `$B <command>` in skills.
-- Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
-- State paths resolve via `bin/gstack-paths` (sourced via `eval "$(...)"`). Honors `GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLANS_DIR`.
-- The `claude` CLI binary resolves via `browse/src/claude-bin.ts` (`Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.
+- Cursor skills in `.cursor/skills/` are generated from `.tmpl` templates by `bun run gen:cursor-native`. Edit the template, then regenerate.
+- Original `*/SKILL.md` files are the Claude Code host output. Cursor Agent should not follow those; use `.cursor/skills/` instead.
+- The browse binary provides headless browser access. Use `$B <command>` in skills, or `bun run dev <command>` until `browse/dist/browse` is built (`./setup` or `bun run build`).
+- Safety skills write state under `~/.gstack/` (or `$GSTACK_HOME`). Cursor hooks in `.cursor/hooks.json` enforce `/careful` and `/freeze` only after those files exist.
+- Persist project-specific commands (test, eval, deploy) in `AGENTS.md` so they are not re-asked.

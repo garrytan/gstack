@@ -18,7 +18,19 @@ bin/gstack-global-discover*
 .kiro/
 .opencode/
 .slate/
-.cursor/
+# Generated host-install slice lives under .cursor/skills/gstack-*/
+# (from gen:skill-docs --host cursor). Native skills/rules/hooks are tracked.
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+!.cursor/hooks.json
+!.cursor/hooks/
+!.cursor/hooks/**
+!.cursor/skills/
+!.cursor/skills/**
+.cursor/skills/gstack-*/
+!.cursor/skills/gstack-upgrade/
+!.cursor/skills/gstack-upgrade/**
 .openclaw/
 .hermes/
 .gbrain/

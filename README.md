@@ -33,6 +33,8 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Quick start
 
+**In Cursor (this checkout):** open the repo, type `/office-hours` in Agent chat. Skills load from `.cursor/skills/`. See [docs/CURSOR.md](docs/CURSOR.md).
+
 1. Install gstack (30 seconds — see below)
 2. Run `/office-hours` — describe what you're building
 3. Run `/plan-ceo-review` on any feature idea
@@ -42,7 +44,9 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
+**Cursor (native, this repo):** clone, `bun install`, optionally `./setup` to build the browse binary. Skills, rules, and hooks are already in `.cursor/`. Full walkthrough: [docs/CURSOR.md](docs/CURSOR.md).
+
+**Requirements (Claude Code install):** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
 
 ### Step 1: Install on your machine
 
