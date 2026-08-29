@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.74.0.0] - 2026-08-29
+
+**gstack is now installable as a repo-local Codex plugin.**
+
+Run `bun run plugin:codex:prepare`, add this repository as the `gstack-local`
+marketplace, then install `gstack@gstack-local`. The preparation step reuses
+the existing Codex generator and copies dereferenced skills because Codex's
+plugin cache does not preserve symlinks. Rerun preparation and plugin add after
+pulling updates.
+
+### Added
+- A minimal Codex plugin manifest, local marketplace entry, icon, and three
+  starter prompts.
+- Plugin-cache discovery in the Codex preamble, while preserving global and
+  active-repository installation precedence.
+- Generator and routing tests for plugin metadata and executable cache lookup.
+
 ## [1.72.0.0] - 2026-08-28
 
 **"Go register an API key" now drives your real browser.**
