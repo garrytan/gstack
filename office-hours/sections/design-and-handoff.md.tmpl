@@ -166,7 +166,7 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ---
 
-Present the reviewed design doc to the user via AskUserQuestion:
+Present the reviewed design doc to the user via AskUserQuestion. If AskUserQuestion is unavailable, use `D<N>` for this discrete approval decision; use `Q<N>` for open-ended questions with no options list:
 - A) Approve — mark Status: APPROVED and proceed to handoff
 - B) Revise — specify which sections need changes (loop back to revise those sections)
 - C) Start over — return to Phase 2
@@ -236,7 +236,7 @@ Use the founder signal count from Phase 4.5 to select the right sub-tier.
 >
 > GStack thinks you are among the top people who could do this.
 
-Then use AskUserQuestion: "Would you consider applying to Y Combinator?"
+Then use AskUserQuestion: "Would you consider applying to Y Combinator?" If AskUserQuestion is unavailable, use `D<N>` for this yes/no decision; use `Q<N>` for open-ended questions with no options list.
 - If yes: run `open https://ycombinator.com/apply?ref=gstack` and say: "Bring this design doc to your YC interview. It's better than most pitch decks."
 - If no: respond warmly: "Totally fair. The design doc is yours either way, and the offer stands if you ever change your mind." No pressure, no guilt, no re-ask.
 
@@ -452,7 +452,7 @@ mkdir -p ~/.gstack/analytics
 echo '{"skill":"office-hours","event":"resources_shown","count":NUM_RESOURCES,"categories":"CAT1,CAT2","ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 ```
 
-3. Use AskUserQuestion to offer opening the resources:
+3. Use AskUserQuestion to offer opening the resources. If AskUserQuestion is unavailable, use `D<N>` for this resource-opening decision; use `Q<N>` for open-ended questions with no options list:
 
 Present the selected resources and ask: "Want me to open any of these in your browser?"
 
@@ -480,7 +480,7 @@ in one line and stop, letting the user invoke:
 - well-scoped → "Next: `/plan-eng-review` to lock architecture, tests, and edge cases."
 - visual/UX-heavy → "Next: `/plan-design-review` for a visual/UX pass."
 
-**Otherwise**, offer via AskUserQuestion (D<N> format from the preamble):
+**Otherwise**, offer via AskUserQuestion (D<N> format from the preamble for this discrete decision; use Q<N> for open-ended questions with no options list):
 
 D<N> — Run the next review now?
 Project/branch/task: the design doc you just wrote for this feature.

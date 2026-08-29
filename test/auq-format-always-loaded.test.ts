@@ -47,6 +47,16 @@ const MANDATORY: Array<{ name: string; re: RegExp }> = [
   { name: 'Completeness coverage rule', re: /Completeness\s*:/i },
   { name: 'kind-vs-coverage rule', re: /options differ in kind/i },
   { name: 'Self-check checklist', re: /Self-check before emitting/i },
+  // The Q<N> open-question prose form (#2719) must be ALWAYS-LOADED too. In Conductor
+  // sessions AskUserQuestion is disabled, so Phase2A/2B open-ended diagnostic questions
+  // render as Form1 prose. If this block is stranded in an on-demand section, the model
+  // silently drops the question and skips to the deliverable. Same guarantee as the D<N>
+  // decision-brief format above.
+  { name: 'Form1 (Q<N>) open-question prose heading', re: /Form1\s*:\s*Open-Question Prose Form\s*\(Q<N>\)/i },
+  { name: 'Q<N> verbatim question placeholder', re: /Q<N>\s*—\s*<question, verbatim>/ },
+  { name: 'Q<N> "Why I\'m asking" field', re: /Why I'm asking/i },
+  { name: 'Q<N> "Reply in your own words" wait line', re: /Reply in your own words — I'll wait\./ },
+  { name: 'Q-numbering independent of D-numbering', re: /first open-ended question in a skill invocation is `Q1`/ },
   // The runtime-failure fallback must be ALWAYS-LOADED too: when an AUQ call errors
   // mid-skill, the model needs the prose-fallback rule in context that instant, not
   // stranded in an on-demand section. Same guarantee as the format spec above.

@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.72.1.0] - 2026-08-29
+
+**Open-ended questions now survive Conductor sessions.**
+**Q<N> prose form keeps Phase2A diagnostics from being silently dropped.**
+
+In Conductor sessions AskUserQuestion is disabled, so every question renders as prose. But the fallback only had a format for multiple-choice decision briefs. Startup-diagnostic questions (Phase2A/2B in office-hours) have no option set, so the model had no form to render and quietly skipped them, jumping straight to the deliverable. This release adds Form1, the `Q<N>` Open-Question Prose Form, to the always-loaded AskUserQuestion format: the verbatim question, why you are asking, what a strong answer sounds like, and an explicit "reply in your own words, I will wait." Any skill that fires an open-ended question in a Conductor session now renders it as a compliant prose brief instead of dropping it.
+
+The `Q<N>` numbering is independent of `D<N>` decision numbering, and the form rides in the same preamble resolver as the decision-brief format, so every interactive skill inherits it with no per-skill wiring.
+
+### The numbers that matter
+
+Source: `test/resolver-ask-user-format.test.ts` and `test/auq-format-always-loaded.test.ts` (both free, run in `bun run test`).
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Conductor prose forms in the shared AUQ format | 1 (`D<N>` only) | 2 (`Q<N>` + `D<N>`) | +1 |
+| Interactive skills shipping the `Q<N>` open-question form | 0 | 40 | new |
+| Pin tests locking the `Q<N>` contract | 0 | 16 (11 resolver + 5 always-loaded) | new |
+| `open_question_tag_prefix` in office-hours frontmatter | — | `Q` | new |
+| Phase2A/2B sections naming the `Q<N>`-not-`D<N>` rule | 0 | 2 | new |
+
+The number to care about is the always-loaded guarantee: 40 interactive skills now carry the `Q<N>` form in their SKILL.md skeleton, so the open-question prose form is in context the instant any diagnostic fires. A carve or refactor that strands it in an on-demand section fails the always-loaded test in milliseconds.
+
+### What this means for you
+
+If you run office-hours (or any diagnostic skill) inside Conductor, the Phase2A and Phase2B forcing questions will now actually be asked instead of skipped. The model renders each one as a `Q<N>` prose brief, waits for your typed answer, and continues. Decision points still use the `D<N>` decision-brief format exactly as before.
+
+### Itemized changes
+
+### Added
+- Form1 `Q<N>` Open-Question Prose Form in the shared AskUserQuestion format resolver (`scripts/resolvers/preamble/generate-ask-user-format.ts`): verbatim question, "Why I'm asking," "What strong answer sounds like," and "Reply in your own words, I'll wait."
+- `open_question_tag_prefix: Q` frontmatter field on the office-hours skill, so hosts can route open-question tags without hardcoding.
+- Parallel `Q<N>` clauses alongside every `D<N>` instruction in office-hours (goal question, prior-design gate, privacy gate, premise confirmation, Phase4 alternatives) and design-and-handoff (approval, YC question, resource-opening, next-skill recommendations).
+- Phase2A and Phase2B sections now state the exact rule: "Because startup-diagnostic questions are open-ended (no fixed option set), always use the `Q<N>` open-question prose form, never the `D<N>` decision-brief format."
+- `test/resolver-ask-user-format.test.ts`: 11 new pins for the `Q<N>` contract (block fields, Q1 independence from D-numbering, self-check coverage, Conductor fallback and continuation mapping, Format-section declaration).
+- `test/auq-format-always-loaded.test.ts`: 5 new mandatory always-loaded entries so the `Q<N>` form cannot be stranded in an on-demand section.
+
+### For contributors
+- Closes issue #2719: Conductor sessions silently dropped open-ended diagnostic questions because the prose fallback only covered decision briefs.
+
 ## [1.72.0.0] - 2026-08-28
 
 **"Go register an API key" now drives your real browser.**
