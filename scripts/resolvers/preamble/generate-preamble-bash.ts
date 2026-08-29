@@ -20,9 +20,18 @@ import { getHostConfig } from '../../../hosts/index';
  */
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
+  const codexPluginRoot = ctx.host === 'codex'
+    ? `
+
+for _PLUGIN_START in "\${CODEX_HOME:-\$HOME/.codex}"/plugins/cache/*/gstack/*/skills/gstack/bin/gstack-skill-start; do
+  [ -x "\$_PLUGIN_START" ] || continue
+  GSTACK_ROOT="\${_PLUGIN_START%/bin/gstack-skill-start}"
+  break
+done`
+    : '';
   const runtimeRoot = hostConfig.usesEnvVars
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
+GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"${codexPluginRoot}
 [ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"

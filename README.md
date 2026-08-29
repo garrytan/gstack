@@ -136,6 +136,16 @@ make it stick across upgrades. After changing your Codex model, rerun
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
 
+### Codex plugin marketplace (repo-local)
+
+```bash
+bun run plugin:codex:prepare
+codex plugin marketplace add .
+codex plugin add gstack@gstack-local
+```
+
+After pulling gstack updates, rerun the prepare and final add commands.
+
 ## See it work
 
 ```

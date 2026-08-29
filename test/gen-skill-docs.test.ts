@@ -605,6 +605,21 @@ describe('gen-skill-docs', () => {
   });
 });
 
+describe('local Codex plugin packaging', () => {
+  test('package command and marketplace expose the gstack plugin', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
+    expect(pkg.scripts['plugin:codex:prepare']).toBe('bash scripts/prepare-codex-plugin.sh');
+    const marketplace = JSON.parse(fs.readFileSync(path.join(ROOT, '.agents/plugins/marketplace.json'), 'utf-8'));
+    const entry = marketplace.plugins.find((plugin: any) => plugin.name === 'gstack');
+    expect(marketplace.name).toBe('gstack-local');
+    expect(entry).toMatchObject({ name: 'gstack', source: { source: 'local', path: './plugins/gstack' }, policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Coding' });
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'plugins/gstack/.codex-plugin/plugin.json'), 'utf-8'));
+    expect(manifest).toMatchObject({ id: 'gstack', version: '0.1.0', skills: './skills/', interface: { composerIcon: './assets/icon.png', logo: './assets/icon.png' } });
+    expect(fs.readFileSync(path.join(ROOT, 'plugins/gstack', manifest.interface.logo)).subarray(1, 4).toString()).toBe('PNG');
+    expect(manifest.name).toBe(entry.name);
+  });
+});
+
 describe('BASE_BRANCH_DETECT resolver', () => {
   // Find a generated SKILL.md that uses the placeholder (ship is guaranteed to)
   const shipContent = readShipUnion();

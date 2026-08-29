@@ -17,7 +17,7 @@
  * Re-derived from community PR #2500 by @gamerey43.
  */
 import { describe, test, expect } from 'bun:test';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -95,6 +95,36 @@ describe('routing probe checks AGENTS.md too (#2500)', () => {
         { cwd: dir, encoding: 'utf-8' },
       );
       expect(out).toContain('HAS_ROUTING: no');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('preamble runtime resolution', () => {
+  test('adds the Codex-only plugin probe between global and repo-local roots', () => {
+    const rendered = generatePreambleBash(makeCtx('codex'));
+    const positions = ['$HOME/.codex/skills/gstack', 'plugins/cache/*/gstack/*/skills/gstack/bin/gstack-skill-start', '$_ROOT/.agents/skills/gstack'].map(value => rendered.indexOf(value));
+    expect(positions.every(position => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(rendered).toContain('for _PLUGIN_START in');
+    expect(rendered).toContain('[ -x "$_PLUGIN_START" ]');
+    for (const { name } of ALL_HOST_CONFIGS.filter(config => config.name !== 'codex'))
+      expect(generatePreambleBash(makeCtx(name))).not.toContain('plugins/cache/*/gstack/*/skills/gstack/bin/gstack-skill-start');
+  });
+
+  test('live probe skips non-executable matches and selects the first executable plugin', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-probe-'));
+    try {
+      for (const [market, mode] of [['a', 0o644], ['b', 0o755]] as const) {
+        const start = path.join(dir, '.codex/plugins/cache', market, 'gstack/0.1.0/skills/gstack/bin/gstack-skill-start');
+        fs.mkdirSync(path.dirname(start), { recursive: true });
+        fs.writeFileSync(start, '#!/bin/sh\n', { mode });
+      }
+      const rendered = generatePreambleBash(makeCtx('codex'));
+      const rootProbe = rendered.slice(rendered.indexOf('_ROOT='), rendered.indexOf('GSTACK_BIN='));
+      const output = execFileSync('bash', ['-c', `${rootProbe}\nprintf '%s' "$GSTACK_ROOT"`], { cwd: dir, env: { ...process.env, HOME: dir }, encoding: 'utf8' });
+      expect(output).toBe(path.join(dir, '.codex/plugins/cache/b/gstack/0.1.0/skills/gstack'));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
