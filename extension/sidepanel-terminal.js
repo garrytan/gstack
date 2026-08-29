@@ -391,7 +391,13 @@
   function ensureXterm() {
     if (term) return;
     term = new Terminal({
-      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, "Noto Sans Mono CJK KR", "Malgun Gothic", monospace',
+      // Windows Latin monospace (Consolas, always present; Cascadia ships with Terminal/VS)
+      // MUST precede the CJK fallbacks: xterm sizes the character cell from the first
+      // resolved font's advance width, and Malgun Gothic (the Windows Korean UI font, the
+      // first that resolves here when the Mac/Linux fonts are absent) advances Latin glyphs
+      // in a full-width CJK cell — doubling every cell into spaced-out text. The CJK fonts
+      // stay last for actual CJK glyph coverage.
+      fontFamily: '"JetBrains Mono", "SF Mono", "Cascadia Mono", "Cascadia Code", Consolas, Menlo, "DejaVu Sans Mono", "Noto Sans Mono CJK KR", "Malgun Gothic", monospace',
       fontSize: 13,
       theme: { background: '#0a0a0a', foreground: '#e5e5e5' },
       cursorBlink: true,
