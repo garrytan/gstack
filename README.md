@@ -120,6 +120,9 @@ Or target a specific agent with `./setup --host <name>`:
 | Slate | `--host slate` | `~/.slate/skills/gstack-*/` |
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
 | Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
+| Grok Build | `--host grok` | `~/.grok/skills/gstack-*/` |
+| Pi | `--host pi` | `~/.pi/agent/skills/gstack-*/` |
+| Antigravity CLI | `--host agy` | `~/.gemini/config/skills/gstack-*/` |
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
 
 For Codex, setup reads the top-level `model` from
@@ -398,6 +401,9 @@ rm -rf ~/.kiro/skills/gstack* 2>/dev/null
 rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
 rm -rf ~/.cursor/skills/gstack* 2>/dev/null
 rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null
+rm -rf ~/.grok/skills/gstack* 2>/dev/null
+rm -rf ~/.pi/agent/skills/gstack* 2>/dev/null
+rm -rf ~/.gemini/config/skills/gstack* 2>/dev/null
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null
