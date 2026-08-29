@@ -26,6 +26,8 @@ Both are outcome-framed. Only one has the 'whoa.' Builder mode's job is to surfa
 
 Ask these **ONE AT A TIME** via AskUserQuestion. The goal is to brainstorm and sharpen the idea, not interrogate.
 
+Because startup-diagnostic questions are open-ended (no fixed option set), always use the `Q<N>` open-question prose form, never the `D<N>` decision-brief format.
+
 - **What's the coolest version of this?** What would make it genuinely delightful?
 - **Who would you show this to?** What would make them say "whoa"?
 - **What's the fastest path to something you can actually use or share?**

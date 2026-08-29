@@ -107,7 +107,9 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
 
   test('includes self-check before emitting', () => {
     expect(out).toContain('Self-check before emitting');
-    expect(out).toMatch(/D<N> header present/);
+    // The self-check now distinguishes Q<N> (open-ended) from D<N> (decision)
+    // instead of a single "D<N> header present" line.
+    expect(out).toMatch(/Open-ended questions with no options use Q<N>; decision points with discrete options use D<N>/);
     expect(out).toMatch(/Net line closes/);
   });
 
@@ -244,6 +246,58 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
     expect(out).toMatch(/one-way\b[\s\S]*typed confirmation/i);
     expect(out).toMatch(/never proceed on a vague/i);
     expect(out).toMatch(/Continuation — mapping a typed reply/);
+  });
+});
+
+describe('generateAskUserFormat — Q<N> open-question prose form (#2719)', () => {
+  const out = generateAskUserFormat(makeCtx());
+
+  test('Form1 heading and text fence are present', () => {
+    expect(out).toContain('Form1: Open-Question Prose Form (Q<N>)');
+    expect(out).toMatch(/```text/);
+  });
+
+  test('Q<N> block contains verbatim question placeholder', () => {
+    expect(out).toContain('Q<N> — <question, verbatim>');
+  });
+
+  test('Q<N> block requires "Why I\'m asking"', () => {
+    expect(out).toContain("Why I'm asking: <1-2 sentences: stakes, what weak answer would mean>");
+  });
+
+  test('Q<N> block requires "What strong answer sounds like"', () => {
+    expect(out).toContain('What strong answer sounds like: <section\'s "push until you hear" line>');
+  });
+
+  test('Q<N> block ends with "Reply in your own words — I\'ll wait."', () => {
+    expect(out).toContain('Reply in your own words — I\'ll wait.');
+  });
+
+  test('Q-numbering starts at Q1, independent of D-numbering', () => {
+    expect(out).toMatch(/first open-ended question in a skill invocation is `Q1`/);
+    expect(out).toMatch(/Independent of D-numbering/);
+  });
+
+  test('self-check includes Q<N> vs D<N> selection rule', () => {
+    expect(out).toMatch(/Open-ended questions with no options use Q<N>; decision points with discrete options use D<N>/);
+  });
+
+  test('self-check includes Q<N> required fields', () => {
+    expect(out).toMatch(/Q<N> open-question prose has the verbatim question, why you're asking, what a strong answer sounds like/);
+  });
+
+  test('Conductor prose fallback references both Q<N> and D<N>', () => {
+    expect(out).toMatch(/Form1.*Q<N>.*for open-ended questions/);
+    expect(out).toMatch(/Form2.*D<N>.*for multiple-choice decision briefs/);
+  });
+
+  test('prose fallback continuation maps both Q<N> and D<N>', () => {
+    expect(out).toMatch(/`Q<N>` for open-ended questions, `D<N>` for decision briefs/);
+    expect(out).toMatch(/a free-text reply maps to the single most-recent UNANSWERED `Q<N>`/);
+  });
+
+  test('Format section declares Q<N> for open-ended and D<N> for decision', () => {
+    expect(out).toMatch(/Use `Q<N>` for open-ended questions with no options list; use `D<N>` for decision points/);
   });
 });
 

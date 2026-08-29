@@ -7,8 +7,8 @@ export function generateAskUserFormat(ctx: TemplateContext): string {
 
 Branch on the skill-start STATUS lines, in this order:
 
-1. **\`CONDUCTOR_SESSION: true\` echoed** → do NOT call AskUserQuestion at all (neither native nor any \`mcp__*__AskUserQuestion\` variant): render EVERY decision brief as the **prose form** below and STOP. Proactive, not a failure reaction — Conductor disables native AUQ and its MCP variant is flaky (\`[Tool result missing due to internal error]\`). **Auto-decide preferences still apply first:** a surfaced \`[plan-tune auto-decide] <id> → <option>\` result means proceed with that option, no prose — enforced HERE since no tool call ever happens. Capture each Conductor prose brief with \`bin/gstack-question-log\` (the PostToolUse hook never fires on a prose path; \`/plan-tune\` learning depends on it).
-2. **Any \`mcp__*__AskUserQuestion\` variant in your tool list** → prefer it (hosts may disable native via \`--disallowedTools\`; calling native there silently fails). Same shape, same decision-brief format.
+1. **\`CONDUCTOR_SESSION: true\` echoed** → do NOT call AskUserQuestion at all (neither native nor any \`mcp__*__AskUserQuestion\` variant): render EVERY open-ended question or decision brief as the matching **prose form** below and STOP. Proactive, not a failure reaction — Conductor disables native AUQ and its MCP variant is flaky (\`[Tool result missing due to internal error]\`). **Auto-decide preferences still apply first:** a surfaced \`[plan-tune auto-decide] <id> → <option>\` result means proceed with that option, no prose — enforced HERE since no tool call ever happens. Capture each Conductor prose brief with \`bin/gstack-question-log\` (the PostToolUse hook never fires on a prose path; \`/plan-tune\` learning depends on it).
+2. **Any \`mcp__*__AskUserQuestion\` variant in your tool list** → prefer it (hosts may disable native via \`--disallowedTools\`; calling native there silently fails). Same shape, same open-question or decision-brief format.
 3. **Unavailable (no variant) OR a call fails** → do NOT silently auto-decide or write the decision to the plan file as a substitute; follow the **failure fallback** below.
 
 ### When AskUserQuestion is unavailable or a call fails
@@ -23,21 +23,38 @@ Tell three outcomes apart:
      - \`headless\` → \`BLOCKED — AskUserQuestion unavailable\`; stop and wait (no human can answer).
      - \`interactive\` → **prose fallback** (below).
 
-**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
+**Prose fallback — render the question as a markdown message, not a tool call.** Pick the matching form below: **Form1 (\`Q<N>\`)** for open-ended questions with no options list; **Form2 (\`D<N>\`)** for multiple-choice decision briefs. For decision briefs, same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). A \`D<N>\` brief MUST surface this triad:
 
 1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
 2. **Completeness scores per choice** — explicit \`Completeness: X/10\` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
 3. **The recommendation and why** — a \`Recommendation: <choice> because <reason>\` line plus the \`(recommended)\` marker on that choice.
 
-Layout: a \`D<N>\` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its \`(recommended)\` marker, its \`Completeness: X/10\`, and 2-4 sentences of reasoning — never a bare bullet list; a closing \`Net:\` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+Layout for \`D<N>\`: a \`D<N>\` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its \`(recommended)\` marker, its \`Completeness: X/10\`, and 2-4 sentences of reasoning — never a bare bullet list; a closing \`Net:\` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Layout for \`Q<N>\`: the open-question prose form below (question verbatim, why you're asking, what a strong answer sounds like). Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
 
-**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (\`D<N>\`, or \`D<N>.k\` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which \`D<N>.k\` it answers. Never apply a bare letter ambiguously across a chain.
+**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (\`Q<N>\` for open-ended questions, \`D<N>\` for decision briefs, or \`D<N>.k\` in a split chain). The user references it (e.g. "3.2: B" or "Q2: …"). A bare letter maps to the single most-recent UNANSWERED \`D<N>\` brief; a free-text reply maps to the single most-recent UNANSWERED \`Q<N>\`. If more than one is open (a split chain, or a mix of Q and D), do NOT guess — ask which \`Q<N>\` / \`D<N>.k\` it answers. Never apply a bare letter ambiguously across a chain.
 
 **One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
+Every AskUserQuestion is a decision brief or an open-ended question and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output. Use \`Q<N>\` for open-ended questions with no options list; use \`D<N>\` for decision points with discrete, mutually-exclusive options.
+
+#### Form1: Open-Question Prose Form (Q<N>)
+
+Use this format for open-ended questions with no fixed option set (e.g., Phase2A/2B startup diagnostic questions).
+
+\`\`\`text
+Q<N> — <question, verbatim>
+Why I'm asking: <1-2 sentences: stakes, what weak answer would mean>
+What strong answer sounds like: <section's "push until you hear" line>
+Reply in your own words — I'll wait.
+\`\`\`
+
+Q-numbering: first open-ended question in a skill invocation is \`Q1\`; increment yourself. Independent of D-numbering. This is a model-level instruction, not a runtime counter.
+
+#### Form2: Decision Brief Prose Form (Decision Points)
+
+Use this format for decision points that present discrete, mutually-exclusive options.
 
 \`\`\`
 D<N> — <one-line question title>
@@ -96,15 +113,16 @@ on demand when a question contains CJK.
 ### Self-check before emitting
 
 Before calling AskUserQuestion, verify:
-- [ ] D<N> header present
-- [ ] ELI10 paragraph present (stakes line too)
-- [ ] Recommendation line present with concrete reason
-- [ ] Completeness scored (coverage) OR kind-note present (kind)
-- [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
-- [ ] (recommended) label on one option (even for neutral-posture)
-- [ ] Dual-scale effort labels on effort-bearing options (human / CC)
-- [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose — unless \`CONDUCTOR_SESSION: true\` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + \`(recommended)\` — and a "reply with a letter" instruction, then STOP)
+- [ ] Open-ended questions with no options use Q<N>; decision points with discrete options use D<N>
+- [ ] Q<N> open-question prose has the verbatim question, why you're asking, what a strong answer sounds like, and "Reply in your own words — I'll wait."
+- [ ] D<N> decision brief has ELI10 paragraph present (stakes line too)
+- [ ] D<N> decision brief has Recommendation line present with concrete reason
+- [ ] D<N> decision brief has Completeness scored (coverage) OR kind-note present (kind)
+- [ ] Every D<N> option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
+- [ ] (recommended) label on one D<N> option (even for neutral-posture)
+- [ ] Dual-scale effort labels on effort-bearing D<N> options (human / CC)
+- [ ] Net line closes the D<N> decision
+- [ ] You are calling the tool, not writing prose — unless \`CONDUCTOR_SESSION: true\` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: Q<N> open-question prose for open-ended questions, or D<N> prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + \`(recommended)\` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \\u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain

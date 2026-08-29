@@ -70,6 +70,8 @@ These examples show the difference between soft exploration and rigorous diagnos
 
 Ask these questions **ONE AT A TIME** via AskUserQuestion. Push on each one until the answer is specific, evidence-based, and uncomfortable. Comfort means the founder hasn't gone deep enough.
 
+Because startup-diagnostic questions are open-ended (no fixed option set), always use the `Q<N>` open-question prose form, never the `D<N>` decision-brief format.
+
 **Smart routing based on product stage — you don't always need all six:**
 - Pre-product → Q1, Q2, Q3
 - Has users → Q2, Q4, Q5
