@@ -18,10 +18,11 @@ gstack/
 │   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # IDE hosts
 │   ├── hermes.ts, gbrain.ts  # Agent runtime hosts
 │   └── index.ts     # Registry: exports all, derives Host type
-├── scripts/         # Build + DX tooling
+├── scripts/         # Runtime data/modules + build and DX tooling
+│   ├── one-way-doors.ts, archetypes.ts, brain-cache-spec.ts  # Runtime dependencies
 │   ├── gen-skill-docs.ts  # Template → SKILL.md generator (config-driven)
 │   ├── host-config.ts     # HostConfig interface + validator
-│   ├── host-config-export.ts  # Shell bridge for setup script
+│   ├── host-config-export.ts  # Host config inspection/export CLI
 │   ├── resolvers/   # Template resolver modules (preamble, design, review, gbrain, etc.)
 │   ├── skill-check.ts     # Health dashboard
 │   ├── test-paid-shards.ts  # Sharded paid-tier runner (one Bun process per shard)

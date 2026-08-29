@@ -4,7 +4,9 @@ gstack uses a declarative host config system. Each supported AI coding agent
 (Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes,
 GBrain) is defined as a typed TypeScript config object built by the
 `defineHost()` factory. Adding a new host means creating one file and
-re-exporting it. Zero code changes to the generator, setup, or tooling.
+re-exporting it for generation and shared tooling. `setup` still has explicit
+per-host dispatch and runtime-root implementations, so a host that needs a
+slim runtime root must add or update its corresponding setup branch as well.
 
 ## How it works
 
@@ -25,16 +27,20 @@ hosts/
 ```
 
 Each config file calls `defineHost()` and exports the resulting `HostConfig`
-object, which tells the generator:
+object, which centralizes:
 - Where to put generated skills (paths)
 - How to transform frontmatter (allowlist/denylist fields)
 - What Claude-specific references to rewrite (paths, tool names)
-- What binary to detect for auto-install
+- What CLI binaries the inspection/export tooling can detect
 - What resolver sections to suppress
-- What assets to symlink at install time
+- What assets a slim runtime root is expected to contain
 
-The generator, setup script, platform-detect, uninstall, health checks, worktree
-copy, and tests all read from these configs. None of them have per-host code.
+The generator, template resolvers, skill checks, worktree copy, config
+inspection/export CLI, and tests read from these configs. The setup and
+uninstall scripts do not yet consume every corresponding field; in particular,
+host configs and setup's explicit runtime-root implementations are maintained
+separately. Keep both layers in sync until setup becomes fully table-driven
+(tracked in `TODOS.md`).
 
 ## Step-by-step: add a new host
 
