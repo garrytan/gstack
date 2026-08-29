@@ -48,6 +48,11 @@ describe("HIGH credential patterns", () => {
     ["gitlab.token", "remote: glpat-" + "Ab12Cd34Ef56Gh78Ij90"],
     ["gitlab.token", "trigger glptt-" + "a1b2c3d4e5f6a7b8c9d0e1f2"],
     ["gitlab.token", "deploy gldt-" + "Zy98Xw76Vu54Ts32Rq10"],
+    ["groq.key", "gsk_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMn"],
+    ["tavily.key", "tvly-" + "AbCdEfGhIjKlMnOpQrStUvWx"],
+    ["tavily.key", "tvly-dev-" + "AbCdEfGhIjKlMnOpQrStUvWx"],
+    ["notion.token", "ntn_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"],
+    ["notion.token", "secret_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"],
     ["huggingface.token", "hf_" + "AbCdEfGhIjKlMnOpQrStUvWxYz012345"],
     ["npm.token", "npm_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
     ["digitalocean.token", "dop_v1_" + "0123456789abcdef".repeat(4)],
@@ -261,6 +266,11 @@ describe("#1946 pattern negatives (placeholders never fire)", () => {
   test("short or placeholder shapes don't trip the new HIGH patterns", () => {
     expect(ids("glpat-xxxx")).not.toContain("gitlab.token");
     expect(ids("hf_token")).not.toContain("huggingface.token");
+    expect(ids("gsk_key")).not.toContain("groq.key");
+    expect(ids("tvly-key")).not.toContain("tavily.key");
+    expect(ids("ntn_token")).not.toContain("notion.token");
+    // `secret_` is an ordinary word; only the length makes it a credential.
+    expect(ids("secret_value")).not.toContain("notion.token");
     expect(ids("npm_install")).not.toContain("npm.token");
     expect(ids("dop_v1_short")).not.toContain("digitalocean.token");
     // pem header WITHOUT the GCP JSON shape stays pem.private_key only.

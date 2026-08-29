@@ -439,6 +439,33 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b(gl(?:pat|ptt|dt)-[A-Za-z0-9_-]{20,})\b/,
   },
   {
+    id: "groq.key",
+    tier: "HIGH",
+    category: "secret",
+    description: "Groq API key",
+    regex: /\b(gsk_[A-Za-z0-9]{20,})\b/,
+  },
+  {
+    id: "tavily.key",
+    tier: "HIGH",
+    category: "secret",
+    description: "Tavily API key (incl. tvly-dev-/tvly-prod-)",
+    // Explicit environment infixes rather than a globally-optional segment,
+    // which would also match separator-less tvly-devabc… (same reasoning as
+    // openai.key above).
+    regex: /\b(tvly-(?:dev-|prod-)?[A-Za-z0-9]{16,})\b/,
+  },
+  {
+    id: "notion.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "Notion integration token (ntn_ current, secret_ legacy)",
+    // Two explicit shapes. The legacy `secret_` form keeps a high {40,} floor
+    // because the prefix is an ordinary English word — the length is what makes
+    // it a credential rather than prose.
+    regex: /\b(ntn_[A-Za-z0-9]{40,}|secret_[A-Za-z0-9]{40,})\b/,
+  },
+  {
     id: "huggingface.token",
     tier: "HIGH",
     category: "secret",
