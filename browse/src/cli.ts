@@ -14,7 +14,7 @@ import * as path from 'path';
 import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled, resolveChromiumProfile } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent } from './terminal-agent-control';
@@ -257,9 +257,12 @@ function cleanupLegacyState(): void {
 }
 
 // ─── Chromium profile lock helpers (#1781) ─────────────────────
-/** Profile dir used by headed/connect Chromium sessions. */
+/** Profile dir used by headed/connect Chromium sessions. Must resolve exactly
+ * as browser-manager does (config.resolveChromiumProfile), or the lock cleanup
+ * and orphan kill below target a different profile than the one being launched
+ * and evict an unrelated browser. */
 function chromiumProfileDir(): string {
-  return path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  return resolveChromiumProfile();
 }
 
 /** Remove Chromium SingletonLock/Socket/Cookie so a relaunch can acquire the
