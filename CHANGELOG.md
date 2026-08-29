@@ -13,8 +13,8 @@ pulling updates.
 ### Added
 - A minimal Codex plugin manifest, local marketplace entry, icon, and three
   starter prompts.
-- Plugin-cache discovery in the Codex preamble, while preserving global and
-  active-repository installation precedence.
+- Plugin-cache discovery in the Codex preamble, with active-repository installs
+  still taking precedence and the global install remaining the fallback.
 - Generator and routing tests for plugin metadata and executable cache lookup.
 
 ## [1.72.0.0] - 2026-08-28
