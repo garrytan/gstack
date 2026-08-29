@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { execFileSync, execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { execFileSync, execSync, ExecSyncOptionsWithStringEncoding, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -54,6 +54,20 @@ function runReadArgs(args: string[] = []): string {
   } catch {
     return '';
   }
+}
+
+function runReadResult(args: string[] = []): { stdout: string; stderr: string; exitCode: number } {
+  const result = spawnSync(path.join(BIN, 'gstack-timeline-read'), args, {
+    cwd: ROOT,
+    env: { ...process.env, GSTACK_HOME: tmpDir },
+    encoding: 'utf-8',
+    timeout: 15000,
+  });
+  return {
+    stdout: (result.stdout || '').trim(),
+    stderr: (result.stderr || '').trim(),
+    exitCode: result.status ?? 1,
+  };
 }
 
 beforeEach(() => {
@@ -175,5 +189,17 @@ describe('gstack-timeline-read', () => {
 
     expect(unlimitedEvents).toBe(5);
     expect(limitedEvents).toBe(2);
+  });
+
+  test('rejects malformed --limit values', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'completed', branch: 'main', outcome: 'approved', ts: '2026-03-28T10:00:00Z' }));
+
+    for (const value of ['1abc', 'nope', '0', '-1', '1.5']) {
+      const result = runReadResult(['--limit', value]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('gstack-timeline-read: --limit requires a positive integer');
+    }
   });
 });
