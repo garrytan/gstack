@@ -302,6 +302,28 @@ describe("PII patterns", () => {
       scan("bob@acme.co", { repoVisibility: "private", repoPublicEmails: ["bob@acme.co"] }).findings,
     ).toHaveLength(0);
   });
+  // A git SSH remote's `git@host` is a transport user@host, not a person's
+  // address. Suppressed by URL SHAPE rather than by allowlisting the `git`
+  // local part: a bare `git@` entry would also silently hide a real address
+  // at a domain that merely starts with "git".
+  test("ssh git remotes are not flagged as emails", () => {
+    expect(ids("set :repo_url, 'git@github.com:acme/widgets.git'")).not.toContain(
+      "pii.email",
+    );
+    expect(ids("git clone git@gitlab.com:acme/widgets.git")).not.toContain("pii.email");
+    expect(ids("git@bitbucket.org:acme/widgets.git")).not.toContain("pii.email");
+    expect(ids("git@ssh.dev.azure.com:v3/acme/widgets/widgets")).not.toContain("pii.email");
+    expect(ids("ssh -T git@github.com")).not.toContain("pii.email");
+    // General case: any host in <user>@<host>:<path>.git position.
+    expect(ids("git@git.acme-internal.net:infra/tools.git")).not.toContain("pii.email");
+    expect(ids("ssh://git@scm.acme-internal.net/infra/tools.git")).not.toContain("pii.email");
+  });
+  test("a real address is still flagged, including at a git host", () => {
+    expect(ids("ping alex@github.com about the issue")).toContain("pii.email");
+    // A domain that merely STARTS WITH "git" is not a git host — this is the
+    // case a bare `git@` local-part allowlist would have wrongly suppressed.
+    expect(ids("contact git@gitmail.com for access")).toContain("pii.email");
+  });
   test("phone E.164 flags, skips compact timestamps", () => {
     expect(ids("call +14155550123 now")).toContain("pii.phone.e164");
     expect(ids("backup stamp 20260727202423 ran late")).not.toContain("pii.phone.e164");
