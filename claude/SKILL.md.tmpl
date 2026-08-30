@@ -64,7 +64,10 @@ All `claude -p` calls MUST include:
 - `--disable-slash-commands`
 - `--setting-sources project` so repository settings still apply without loading
   user-level hooks that can block a nested, non-interactive Claude process
-- `--strict-mcp-config` so nested Claude does not inherit unrelated MCP servers
+- `--strict-mcp-config` so nested Claude runs with NO MCP servers (project
+  `.mcp.json` and user MCP alike). Review/challenge/consult are read-only
+  outside voices that don't use MCP tools. If a repos' MCP genuinely matters,
+  pass an explicit `--mcp-config <path>` on the nested invocation.
 - Review/challenge: `--tools ""`
 - Consult: `--allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write`
 

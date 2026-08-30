@@ -1951,12 +1951,22 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('--tools ""');
     expect(content).toContain('--allowedTools Read,Grep,Glob');
     expect(content).toContain('--disallowedTools Bash,Edit,Write');
-expect(content).toContain('Do not infer authentication state from credential files');
+    expect(content).toContain('Do not infer authentication state from credential files');
     expect(content).toContain('run the actual `claude -p`');
     expect(content).not.toContain('AUTH_MISSING');
     expect(content).not.toContain('$HOME/.claude/.credentials.json');
     expect(content).toContain('--setting-sources project --strict-mcp-config');
     expect(content).toContain('is_error');
+  });
+
+  test('benchmark-models judge probe matches the claude auth status contract', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'benchmark-models', 'SKILL.md'), 'utf-8');
+    const tmpl = fs.readFileSync(path.join(ROOT, 'benchmark-models', 'SKILL.md.tmpl'), 'utf-8');
+    for (const src of [content, tmpl]) {
+      expect(src).toContain('claude auth status --json');
+      expect(src).toContain('"loggedIn"[[:space:]]*:[[:space:]]*true');
+      expect(src).not.toContain('.credentials.json');
+    }
   });
 
   test('Claude temp file templates are accepted by host mktemp', () => {

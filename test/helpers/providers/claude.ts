@@ -22,7 +22,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       return { ok: false, reason: 'claude CLI not found on PATH. Install from https://claude.ai/download or npm i -g @anthropic-ai/claude-code (or set GSTACK_CLAUDE_BIN)' };
     }
-if (process.env.ANTHROPIC_API_KEY?.trim()) {
+    if (process.env.ANTHROPIC_API_KEY?.trim()) {
       return { ok: true };
     }
 
@@ -35,15 +35,16 @@ if (process.env.ANTHROPIC_API_KEY?.trim()) {
         env: process.env,
       },
     );
-    if (!auth.error && auth.status === 0) {
-      try {
-        const status = JSON.parse(auth.stdout) as { loggedIn?: unknown };
-        if (status.loggedIn === true) {
-          return { ok: true };
-        }
-      } catch (err) {
-        if (!(err instanceof SyntaxError)) throw err;
+    if (auth.error || auth.status !== 0) {
+      return { ok: false, reason: 'Could not verify Claude auth: `claude auth status` failed. Run `claude auth login`, or export ANTHROPIC_API_KEY.' };
+    }
+    try {
+      const status = JSON.parse(auth.stdout) as { loggedIn?: unknown };
+      if (status.loggedIn === true) {
+        return { ok: true };
       }
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
     }
     return { ok: false, reason: 'No Claude auth found. Run `claude auth login`, or export ANTHROPIC_API_KEY.' };
   }
