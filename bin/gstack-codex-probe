@@ -168,9 +168,13 @@ _gstack_codex_timeout_wrapper() {
       # its detached sleep expires harmlessly.
       kill "$_watch_pid" 2>/dev/null
       wait "$_watch_pid" 2>/dev/null
-    elif [ "$_rc" -ge 128 ]; then
-      _rc=124  # killed by the watchdog: report timeout(1)'s code
     fi
+    # timeout(1) contract: any signal fatal to the command while a watch is
+    # armed is a timeout. Mapping must not depend on the watchdog subshell's
+    # reap timing — after a deadline kill it can linger as a zombie, so the
+    # old elif (map only when the watchdog was already gone) intermittently
+    # leaked the raw TERM code (143) under load.
+    [ "$_rc" -ge 128 ] && _rc=124
     return "$_rc"
   fi
 }
