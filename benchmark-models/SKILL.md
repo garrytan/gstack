@@ -219,7 +219,7 @@ If at least one is OK: AskUserQuestion:
 ## Step 3: Decide on judge
 
 ```bash
-if [ -n "$ANTHROPIC_API_KEY" ] || (claude auth status --json 2>/dev/null | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true'); then echo "JUDGE_AVAILABLE"; else echo "JUDGE_UNAVAILABLE"; fi
+if [ -n "$ANTHROPIC_API_KEY" ]; then echo "JUDGE_AVAILABLE"; else echo "JUDGE_UNAVAILABLE"; fi
 ```
 
 If judge is available, AskUserQuestion:

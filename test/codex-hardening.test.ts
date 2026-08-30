@@ -300,11 +300,54 @@ describe('gstack-codex-probe: timeout wrapper + namespace hygiene', () => {
         spawnSync('bash', ['-c', `command -v ${tool}`]).stdout.toString().trim() || `/bin/${tool}`;
       fs.symlinkSync(which('bash'), path.join(dir, 'bash'));
       fs.symlinkSync(which('sleep'), path.join(dir, 'sleep'));
+      fs.symlinkSync(which('sh'), path.join(dir, 'sh'));
       const r = runProbe({
         snippet: `_gstack_codex_timeout_wrapper 1 sleep 30; echo "rc=$?"`,
         env: { PATH: dir },
       });
       expect(r.stdout).toContain('rc=124');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('TERM-fatal command maps to 124 even when the watchdog did not fire (contract pin)', () => {
+    // Force the bash-watchdog branch (PATH holds only bash+sleep, no gtimeout).
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-watchdog-'));
+    try {
+      const which = (tool: string) =>
+        spawnSync('bash', ['-c', `command -v ${tool}`]).stdout.toString().trim() || `/bin/${tool}`;
+      fs.symlinkSync(which('bash'), path.join(dir, 'bash'));
+      fs.symlinkSync(which('sleep'), path.join(dir, 'sleep'));
+      fs.symlinkSync(which('sh'), path.join(dir, 'sh'));
+      // Regression: the 124-map lived in the watchdog-already-reaped branch, so
+      // a TERM death while the watchdog still answered kill -0 leaked the raw
+      // 143. A self-TERM dies instantly — the watchdog (5s) can never have
+      // fired — yet the wrapper must report timeout(1)'s 124 deterministically.
+      const r = runProbe({
+        snippet: `_gstack_codex_timeout_wrapper 5 sh -c 'kill -TERM $$'; echo "rc=$?"`,
+        env: { PATH: dir },
+      });
+      expect(r.stdout).toContain('rc=124');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('self-inflicted non-TERM signals keep their own exit code (not a timeout)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-watchdog-'));
+    try {
+      const which = (tool: string) =>
+        spawnSync('bash', ['-c', `command -v ${tool}`]).stdout.toString().trim() || `/bin/${tool}`;
+      fs.symlinkSync(which('bash'), path.join(dir, 'bash'));
+      fs.symlinkSync(which('sleep'), path.join(dir, 'sleep'));
+      fs.symlinkSync(which('sh'), path.join(dir, 'sh'));
+      // timeout(1) fidelity: a segfault before the deadline is 139, never 124.
+      const r = runProbe({
+        snippet: `_gstack_codex_timeout_wrapper 5 sh -c 'kill -SEGV $$'; echo "rc=$?"`,
+        env: { PATH: dir },
+      });
+      expect(r.stdout).toContain('rc=139');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

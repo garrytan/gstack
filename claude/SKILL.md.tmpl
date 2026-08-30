@@ -63,7 +63,10 @@ All `claude -p` calls MUST include:
 
 - `--disable-slash-commands`
 - `--setting-sources project` so repository settings still apply without loading
-  user-level hooks that can block a nested, non-interactive Claude process
+  user-level hooks that can block a nested, non-interactive Claude process.
+  This also drops user settings (env block, model, permissions); a host that
+  keeps its key or proxy in user-level settings must pass an explicit
+  `--setting-sources user,project` to restore it
 - `--strict-mcp-config` so nested Claude runs with NO MCP servers (project
   `.mcp.json` and user MCP alike). Review/challenge/consult are read-only
   outside voices that don't use MCP tools. If a repos' MCP genuinely matters,

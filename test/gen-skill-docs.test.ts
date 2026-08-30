@@ -1959,13 +1959,13 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('is_error');
   });
 
-  test('benchmark-models judge probe matches the claude auth status contract', () => {
+  test('benchmark-models judge probe gates purely on ANTHROPIC_API_KEY', () => {
     const content = fs.readFileSync(path.join(ROOT, 'benchmark-models', 'SKILL.md'), 'utf-8');
     const tmpl = fs.readFileSync(path.join(ROOT, 'benchmark-models', 'SKILL.md.tmpl'), 'utf-8');
     for (const src of [content, tmpl]) {
-      expect(src).toContain('claude auth status --json');
-      expect(src).toContain('"loggedIn"[[:space:]]*:[[:space:]]*true');
+      expect(src).toContain('JUDGE_AVAILABLE');
       expect(src).not.toContain('.credentials.json');
+      expect(src).toMatch(/if \[ -n "\$ANTHROPIC_API_KEY" \]; then echo "JUDGE_AVAILABLE"/);
     }
   });
 
