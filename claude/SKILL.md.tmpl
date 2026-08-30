@@ -62,6 +62,9 @@ skills from inside this skill.
 All `claude -p` calls MUST include:
 
 - `--disable-slash-commands`
+- `--setting-sources project` so repository settings still apply without loading
+  user-level hooks that can block a nested, non-interactive Claude process
+- `--strict-mcp-config` so nested Claude does not inherit unrelated MCP servers
 - Review/challenge: `--tools ""`
 - Consult: `--allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write`
 
@@ -176,7 +179,7 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --setting-sources project --strict-mcp-config --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -223,7 +226,7 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --setting-sources project --strict-mcp-config --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -276,14 +279,14 @@ For a new session:
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --setting-sources project --strict-mcp-config --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 For a resumed session:
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --resume "<session-id>" --setting-sources project --strict-mcp-config --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Parse and save the session id:

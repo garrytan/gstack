@@ -89,7 +89,7 @@ If at least one is OK: AskUserQuestion:
 ## Step 3: Decide on judge
 
 ```bash
-[ -n "$ANTHROPIC_API_KEY" ] || grep -q 'ANTHROPIC' "$HOME/.claude/.credentials.json" 2>/dev/null && echo "JUDGE_AVAILABLE" || echo "JUDGE_UNAVAILABLE"
+if [ -n "$ANTHROPIC_API_KEY" ] || (claude auth status --json 2>/dev/null | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true'); then echo "JUDGE_AVAILABLE"; else echo "JUDGE_UNAVAILABLE"; fi
 ```
 
 If judge is available, AskUserQuestion:

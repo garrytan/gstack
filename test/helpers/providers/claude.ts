@@ -1,9 +1,6 @@
 import type { ProviderAdapter, RunOpts, RunResult, AvailabilityCheck } from './types';
 import { estimateCostUsd } from '../pricing';
 import { execFileSync, spawnSync } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { resolveClaudeCommand } from '../../../browse/src/claude-bin';
 
 /**
@@ -25,33 +22,30 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       return { ok: false, reason: 'claude CLI not found on PATH. Install from https://claude.ai/download or npm i -g @anthropic-ai/claude-code (or set GSTACK_CLAUDE_BIN)' };
     }
-    // Auth sniff: ~/.claude/.credentials.json OR ANTHROPIC_API_KEY OR (macOS)
-    // the Keychain entry subscription installs use instead of the creds file.
-    // #1890: the default macOS install stores OAuth under the generic-password
-    // service "Claude Code-credentials" and never writes .credentials.json,
-    // so the file-or-env sniff reported "No Claude auth found" while
-    // `claude -p` worked fine. Metadata probe only (no -w — never reads the
-    // secret), and any failure of `security` itself falls through to the
-    // not-found reason rather than throwing.
-    const credsPath = path.join(os.homedir(), '.claude', '.credentials.json');
-    const hasCreds = fs.existsSync(credsPath);
-    const hasKey = !!process.env.ANTHROPIC_API_KEY;
-    let hasKeychain = false;
-    if (!hasCreds && !hasKey && process.platform === 'darwin') {
+if (process.env.ANTHROPIC_API_KEY?.trim()) {
+      return { ok: true };
+    }
+
+    const auth = spawnSync(
+      resolved.command,
+      [...resolved.argsPrefix, 'auth', 'status', '--json'],
+      {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        env: process.env,
+      },
+    );
+    if (!auth.error && auth.status === 0) {
       try {
-        const probe = spawnSync('security', ['find-generic-password', '-s', 'Claude Code-credentials'], {
-          stdio: 'ignore',
-          timeout: 5000,
-        });
-        hasKeychain = probe.status === 0;
-      } catch {
-        hasKeychain = false;
+        const status = JSON.parse(auth.stdout) as { loggedIn?: unknown };
+        if (status.loggedIn === true) {
+          return { ok: true };
+        }
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) throw err;
       }
     }
-    if (!hasCreds && !hasKey && !hasKeychain) {
-      return { ok: false, reason: 'No Claude auth found. Log in via `claude` interactive session, or export ANTHROPIC_API_KEY.' };
-    }
-    return { ok: true };
+    return { ok: false, reason: 'No Claude auth found. Run `claude auth login`, or export ANTHROPIC_API_KEY.' };
   }
 
   async run(opts: RunOpts): Promise<RunResult> {
@@ -60,7 +54,15 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       throw new Error('claude CLI not resolvable (set GSTACK_CLAUDE_BIN or install)');
     }
-    const args = [...resolved.argsPrefix, '-p', '--output-format', 'json'];
+    const args = [
+      ...resolved.argsPrefix,
+      '-p',
+      '--setting-sources',
+      'project',
+      '--strict-mcp-config',
+      '--output-format',
+      'json',
+    ];
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
