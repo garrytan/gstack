@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.75.1.0] - 2026-08-30
+
+**Claude auth detection now asks the CLI instead of guessing from files.**
+
+The claude outside-voice skill and the benchmark provider adapter no longer
+peek at `~/.claude/.credentials.json` or the macOS keychain. They run
+`claude auth status --json` -- the CLI's own auth truth -- which is correct
+for the default macOS install that stores OAuth in the keychain and never
+writes a credentials file. A probe that fails is now told apart from a clean
+logged-out answer, so a broken CLI isn't mislabeled "please log in."
+
+Nested `claude -p` review/challenge/consult runs are isolated: `--setting-sources project` keeps repository settings without loading user-level hooks, and `--strict-mcp-config` runs them with no MCP servers (read-only outside voices don't use MCP; an explicit `--mcp-config` restores it when one does). The benchmark-models quality judge gates on `ANTHROPIC_API_KEY` only, matching the judge's direct SDK requirement.
+
+The codex-probe bash watchdog now reports `timeout(1)`'s exit 124 only when its TERM actually killed the command, and does so regardless of when the timer subshell gets reaped -- an intermittent leak of the raw 143 under load is gone, and a self-inflicted crash still keeps its own exit code.
+
+### Fixed
+
+- Claude auth detection uses `claude auth status --json` instead of credentials-file / keychain sniffing (works for the default macOS OAuth/keychain install).
+- A failed or hanging `claude auth status` probe is reported as "could not verify" instead of a misleading "not logged in".
+- Nested claude outside-voice runs no longer load user-level hooks or unrelated MCP servers.
+- codex-probe watchdog intermittently returned raw TERM code (143) instead of 124 when the timer subshell lingered as a zombie; TERM-kills now always map to 124 and other signals keep their codes.
+- benchmark-models judge gate now checks `ANTHROPIC_API_KEY` (the judge's real SDK requirement) instead of CLI login state.
+
+### Removed
+
+- macOS Keychain / credentials-file auth sniffing and its obsolete test.
+
 ## [1.75.0.0] - 2026-08-29
 
 **Your review now hunts over-built code, not just broken code.**
