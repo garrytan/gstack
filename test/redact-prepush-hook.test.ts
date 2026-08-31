@@ -381,6 +381,87 @@ describe("install / chaining", () => {
     expect(r.status).toBe(1);
   });
 
+  // Regression: install returned early on ANY hook carrying the managed marker,
+  // so the only writer was unreachable once a hook existed. Every fix to the
+  // wrapper — including the `printf x` fail-open fix of v1.64.0.0 — stopped at
+  // repos that had never had the hook. The pre-existing newline test above
+  // cannot catch this: it installs into a repo with no prior managed hook, which
+  // is the one case that was never broken.
+  test("a stale managed hook is rewritten, and the refresh delivers the newline fix", () => {
+    const hookDir = path.join(repo, ".git", "hooks");
+    fs.mkdirSync(hookDir, { recursive: true });
+    const hook = path.join(hookDir, "pre-push");
+
+    // The v1.63-era wrapper, verbatim: same marker, `$(cat)` with no sentinel.
+    fs.writeFileSync(
+      hook,
+      [
+        "#!/usr/bin/env bash",
+        "# gstack-redact pre-push (managed)",
+        "set -euo pipefail",
+        '_input="$(cat)"',
+        '_local="$(git rev-parse --git-path hooks/pre-push.local)"',
+        'if [ -x "$_local" ]; then',
+        `  printf '%s' "$_input" | "$_local" "$@" || exit $?`,
+        "fi",
+        `printf '%s' "$_input" | bun ${JSON.stringify(PREPUSH)} "$@"`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    // A chained local hook of the shape the old wrapper starved: a bare
+    // `while read`, which never enters its body without a trailing newline.
+    const seen = path.join(repo, "seen.txt");
+    fs.writeFileSync(
+      path.join(hookDir, "pre-push.local"),
+      `#!/usr/bin/env bash\nwhile read -r a _b _c _d; do echo "$a" >> ${JSON.stringify(seen)}; done\nexit 0\n`,
+      { mode: 0o755 },
+    );
+
+    const r = spawnSync("bun", [REDACT, "install-prepush-hook"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("refreshed stale managed pre-push hook");
+    expect(fs.readFileSync(hook, "utf8")).toContain("printf x");
+
+    // The chained hook is the user's; a refresh must not rename or rewrite it.
+    expect(fs.readFileSync(path.join(hookDir, "pre-push.local"), "utf8")).toContain("while read");
+
+    // Behavioural half: the refreshed wrapper actually feeds the final ref line.
+    const sha = "c".repeat(40);
+    const run = spawnSync("bash", [hook], {
+      cwd: repo,
+      input: Buffer.from(`refs/heads/main ${sha} refs/heads/main ${ZERO}\n`),
+      encoding: "utf8",
+      env: { ...process.env, GSTACK_REDACT_PREPUSH: "skip" },
+    });
+    expect(run.status).toBe(0);
+    expect(fs.readFileSync(seen, "utf8").trim()).toBe("refs/heads/main");
+  });
+
+  test("install stays idempotent: an up-to-date managed hook is not rewritten", () => {
+    const hookDir = path.join(repo, ".git", "hooks");
+    fs.mkdirSync(hookDir, { recursive: true });
+    const hook = path.join(hookDir, "pre-push");
+
+    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo });
+    const first = fs.readFileSync(hook, "utf8");
+    const stamp = fs.statSync(hook).mtimeMs;
+
+    const again = spawnSync("bun", [REDACT, "install-prepush-hook"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    expect(again.status).toBe(0);
+    expect(again.stdout).toContain("already installed");
+    expect(again.stdout).not.toContain("refreshed");
+    expect(fs.readFileSync(hook, "utf8")).toBe(first);
+    expect(fs.statSync(hook).mtimeMs).toBe(stamp);
+  });
+
   test("uninstall restores the chained original", () => {
     const hookDir = path.join(repo, ".git", "hooks");
     fs.mkdirSync(hookDir, { recursive: true });
