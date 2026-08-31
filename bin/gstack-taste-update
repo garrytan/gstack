@@ -31,9 +31,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { resolveSlug } from '../lib/bin-context';
 
-const STATE_DIR = process.env.GSTACK_STATE_DIR || path.join(process.env.HOME || '/', '.gstack');
+const HERE = import.meta.dir;
+
+// GSTACK_HOME is the var the rest of gstack reads; GSTACK_STATE_DIR stays first
+// so anything already setting it keeps working
+const STATE_DIR = process.env.GSTACK_STATE_DIR || process.env.GSTACK_HOME || path.join(process.env.HOME || '/', '.gstack');
 const SCHEMA_VERSION = 1;
 const SESSION_CAP = 50;
 const DECAY_PER_WEEK = 0.05;
@@ -63,13 +67,10 @@ interface TasteProfile {
   sessions: SessionRecord[];
 }
 
+// the canonical slug comes from gstack-slug, never from the directory name —
+// a repo whose folder is not owner-repo would otherwise split its own profile
 function getSlug(): string {
-  try {
-    const output = execSync('git rev-parse --show-toplevel', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    return path.basename(output);
-  } catch {
-    return 'unknown';
-  }
+  return resolveSlug(`${HERE}/gstack-slug`);
 }
 
 function profilePath(slug: string): string {
