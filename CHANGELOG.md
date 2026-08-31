@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.77.1.0] - 2026-08-31
+
+### Fixed
+
+- **Feature discovery acknowledgements now follow you across projects**: `/ship` and other skills store their continuous-checkpoint and model-overlay acknowledgements in `GSTACK_HOME`, so project-local gstack symlinks no longer make the same prompts reappear. CI and hermetic eval environments now seed that same state consistently, with regression coverage for prompt ordering and repeat suppression (#2728).
+
 ## [1.76.0.0] - 2026-08-31
 
 **Ship's doc-sync now survives Conductor.**
