@@ -744,7 +744,7 @@ function dateOnly(ts: string | undefined): string {
   }
 }
 
-function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
+export function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
   const remote = resolveGitRemote(session.cwd);
   const slug_repo = repoSlug(remote);
   const date = dateOnly(session.start_time);
@@ -762,7 +762,7 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
   const stats = statSync(path);
   const sha = fileSha256(path);
 
-  const frontmatter = [
+  const fmLines = [
     "---",
     `agent: ${session.agent}`,
     `session_id: ${session.session_id}`,
@@ -773,10 +773,21 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     `message_count: ${session.message_count}`,
     `tool_calls: ${session.tool_calls}`,
     `source_path: ${path}`,
-    session.partial ? "partial: true" : "",
-    "---",
-    "",
-  ].filter((l) => l !== "").join("\n");
+  ];
+  if (session.partial) fmLines.push("partial: true");
+  fmLines.push("---");
+  // The closing `---` fence MUST terminate its own line. session.body always
+  // starts with "## " (never a newline), so without the trailing "\n" the fence
+  // renders as `---## User`, which gray-matter/gbrain reject as a closer (the
+  // fence regex in gbrain markdown.ts requires `\n---(\r?\n|$)`). gbrain then
+  // scans to the next standalone `---` in the transcript, parses the prose
+  // between as YAML, and drops the whole page with "Invalid YAML frontmatter".
+  // A prior `.filter((l) => l !== "")` — added to drop the empty non-partial
+  // line — also stripped the blank that used to terminate the fence line, so
+  // every transcript whose body carries a later `---` horizontal rule silently
+  // failed to ingest. The explicit `+ "\n\n"` restores the fence newline plus a
+  // blank separator, matching the artifact-page branch in renderPageBody().
+  const frontmatter = fmLines.join("\n") + "\n\n";
 
   return {
     slug,
@@ -890,7 +901,7 @@ function gbrainAvailable(): boolean {
  * We do NOT set `slug:` in frontmatter — the staging-dir filename is the
  * source of truth and gbrain rejects mismatches.
  */
-function renderPageBody(page: PageRecord): string {
+export function renderPageBody(page: PageRecord): string {
   let body = page.body;
   if (body.startsWith("---\n")) {
     const end = body.indexOf("\n---", 4);
@@ -1314,6 +1325,49 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
  *   redundant defense-in-depth and made it opt-in via `--scan-secrets`
  *   for users who want belt-and-suspenders.
  */
+/**
+ * Disambiguate colliding page slugs before staging (#2653).
+ *
+ * Two distinct source files can map to one transcript slug
+ * (transcripts/<agent>/<repo>/<date>-<session_id[:12]>): a session resumed
+ * under the same session_id on one day, or two session_ids sharing a 12-char
+ * prefix. writeStaged() names each file `${slug}.md`, so the second OVERWRITES
+ * the first — `written` counts both but only one lands on disk, gbrain collects
+ * N-1 of N, and the staged-vs-collected reconciliation guard (correctly) fails
+ * the whole batch. It repeats every run until the inputs age out of the window.
+ *
+ * Fix: keep the first occurrence's slug; give each later collider a stable
+ * `-<sha8(source_path)>` suffix. Deterministic (same source path → same slug
+ * across runs, so incremental dedup and gbrain's session_id dedup still line
+ * up) and it mutates slug + page_slug together so every downstream consumer
+ * (writeStaged, readNewFailures mapping, state recording) computes the same key.
+ *
+ * NOTE (Ryan-local, not upstream): this is a working-tree patch on top of the
+ * gstack install. `/gstack-upgrade` does `git reset --hard origin/main` and
+ * silently discards it. If the "accounted for N-1 of N staged" failure returns
+ * after an upgrade, re-apply this. See memory
+ * feedback_gstack_memory_ingest_slug_collision.
+ */
+export function disambiguateSlugs(pages: PreparedPage[]): void {
+  const seen = new Set<string>();
+  for (const p of pages) {
+    if (!seen.has(p.slug)) {
+      seen.add(p.slug);
+      continue;
+    }
+    const suffix = createHash("sha256").update(p.source_path).digest("hex").slice(0, 8);
+    let candidate = `${p.slug}-${suffix}`;
+    // Guarantee uniqueness even if a prior page already took the suffixed slug
+    // (two colliders sharing a source_path-hash prefix is astronomically
+    // unlikely, but a stuck source is not the place to trust luck).
+    let n = 1;
+    while (seen.has(candidate)) candidate = `${p.slug}-${suffix}-${n++}`;
+    seen.add(candidate);
+    p.slug = candidate;
+    p.page_slug = candidate;
+  }
+}
+
 function preparePages(
   args: CliArgs,
   ctx: WalkContext,
@@ -1476,6 +1530,11 @@ function preparePages(
   if (args.limit !== null && finalPrepared.length > args.limit) {
     finalPrepared = finalPrepared.slice(0, args.limit);
   }
+
+  // Colliding path-derived slugs would overwrite in the staging dir, so two
+  // source files land as one page and the staged-vs-collected guard fails the
+  // whole batch every run (#2653). Disambiguate before staging.
+  disambiguateSlugs(finalPrepared);
 
   // Derived from the FINAL set: partial counts must describe pages that are
   // actually eligible and within the limit, not the whole scanned corpus.
