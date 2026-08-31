@@ -210,7 +210,7 @@ positives and Chromium profile lock conflicts.
 ```bash
 # Kill any existing browse server
 if [ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.gstack/browse.json" ]; then
-  _OLD_PID=$(cat "$(git rev-parse --show-toplevel)/.gstack/browse.json" 2>/dev/null | grep -o '"pid":[0-9]*' | grep -o '[0-9]*')
+  _OLD_PID=$(cat "$(git rev-parse --show-toplevel)/.gstack/browse.json" 2>/dev/null | grep -o '"pid":[[:space:]]*[0-9]*' | grep -o '[0-9]*')
   [ -n "$_OLD_PID" ] && kill "$_OLD_PID" 2>/dev/null || true
   sleep 1
   [ -n "$_OLD_PID" ] && kill -9 "$_OLD_PID" 2>/dev/null || true
@@ -255,7 +255,7 @@ $B status
 Confirm the output shows `Mode: headed`. Read the port from the state file:
 
 ```bash
-cat "$(git rev-parse --show-toplevel 2>/dev/null)/.gstack/browse.json" 2>/dev/null | grep -o '"port":[0-9]*' | grep -o '[0-9]*'
+cat "$(git rev-parse --show-toplevel 2>/dev/null)/.gstack/browse.json" 2>/dev/null | grep -o '"port":[[:space:]]*[0-9]*' | grep -o '[0-9]*'
 ```
 
 The port should be **34567**. If it's different, note it — the user may need it
