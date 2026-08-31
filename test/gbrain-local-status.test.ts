@@ -62,7 +62,7 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain?: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "throws" | "slow" | "thin-refusal";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "throws" | "slow" | "thin-refusal";
   withConfig?: boolean;
   /** #2051: config carries gbrain's remote_mcp thin-client marker. */
   thinClientConfig?: boolean;
@@ -116,7 +116,7 @@ function makeEnv(opts: {
 }
 
 function makeFakeGbrainScript(
-  behavior: "ok" | "broken-db" | "broken-config" | "engine-locked" | "throws" | "slow" | "thin-refusal",
+  behavior: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "throws" | "slow" | "thin-refusal",
 ): string {
   // "slow": healthy engine on a cold pooler connection (#1964) — sleeps past
   // the (test-lowered) probe timeout, then would answer fine.
@@ -141,6 +141,8 @@ exit 0
         ? 'echo "Error: malformed config.json at ~/.gbrain/config.json" >&2'
         : behavior === "engine-locked"
           ? 'echo "gbrain sources: connect timed out (default 10000ms; pass --timeout=Ns to override)." >&2'
+        : behavior === "engine-locked-v43"
+          ? "echo \"GBrains local database is already open through gbrain serve (MCP, PID 12345). This brain uses PGLite, so a separate CLI process cannot open it at the same time. Stop gbrain serve, then retry this CLI command.\" >&2"
         : behavior === "throws"
           ? 'echo "unexpected gbrain failure" >&2'
           : behavior === "thin-refusal"
@@ -248,6 +250,19 @@ describe("lib/gbrain-local-status — status classification", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked", withConfig: true });
     restoreEnv = applyEnv(env);
     expect(localEngineStatus({ noCache: true })).toBe("engine-locked");
+  });
+
+  it("returns 'engine-locked' when gbrain >= 0.43 refuses with 'already open through' and exit 1", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked-v43", withConfig: true });
+    restoreEnv = applyEnv(env);
+    expect(localEngineStatus({ noCache: true })).toBe("engine-locked");
+  });
+
+  it("classifies the >= 0.43 held-lock refusal on a non-PGLite engine as broken-db", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked-v43", withConfig: true });
+    restoreEnv = applyEnv(env);
+    writeFileSync(env.configPath, JSON.stringify({ engine: "postgres", database_url: "postgres://fake" }));
+    expect(localEngineStatus({ noCache: true })).toBe("broken-db");
   });
 
   it("classifies a non-PGLite connect timeout as unreachable DB, not malformed config", () => {
