@@ -22,6 +22,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 let bm: BrowserManager;
+
+// The command handlers take (command, args, session: TabSession, bm) — mirror
+// the real call sites (browse/src/cli.ts, browse/test/commands.test.ts) by
+// resolving the active TabSession from the manager on every call. Passing the
+// manager itself where a session is expected breaks as soon as a handler uses
+// a session method the manager doesn't delegate (e.g. clearLoadedHtml).
+const writeCmd = (cmd: string, args: string[]) =>
+  handleWriteCommand(cmd, args, bm.getActiveSession(), bm);
+const readCmd = (cmd: string, args: string[]) =>
+  handleReadCommand(cmd, args, bm.getActiveSession(), bm);
 let baseUrl: string;
 let server: ReturnType<typeof Bun.serve>;
 let tmpDir: string;
@@ -121,10 +131,15 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { server.stop(); } catch {}
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  setTimeout(() => process.exit(0), 500);
+  // Close only this file's own browser — never process.exit(): bun test runs
+  // all files in one process, so a delayed exit kills the whole suite
+  // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+  // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+  // so race it at 3s and abandon; the child is reaped at process exit.
+  try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
 });
 
 // ─── The critical test: browser click → file on disk ─────────────
@@ -137,32 +152,32 @@ describe('Submit: browser click → feedback.json on disk', () => {
     serverState = 'serving';
 
     // Navigate to the board (board JS uses relative URLs + location.protocol detect)
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await writeCmd('goto', [baseUrl]);
 
     // Verify the board detects HTTP mode (so postFeedback will actually fetch
     // instead of falling into the file:// DOM-only path)
-    const httpDetected = await handleReadCommand('js', [
+    const httpDetected = await readCmd('js', [
       "location.protocol === 'http:' || location.protocol === 'https:'"
-    ], bm);
+    ]);
     expect(httpDetected).toBe('true');
 
     // User picks variant A, rates it 5 stars
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.querySelectorAll("input[name=\\"preferred\\"]")[0].click()'
-    ], bm);
-    await handleReadCommand('js', [
+    ]);
+    await readCmd('js', [
       'document.querySelectorAll(".stars")[0].querySelectorAll(".star")[4].click()'
-    ], bm);
+    ]);
 
     // User adds overall feedback
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.getElementById("overall-feedback").value = "Ship variant A"'
-    ], bm);
+    ]);
 
     // User clicks Submit
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.getElementById("submit-btn").click()'
-    ], bm);
+    ]);
 
     // Wait a beat for the async POST to complete
     await new Promise(r => setTimeout(r, 300));
@@ -184,21 +199,21 @@ describe('Submit: browser click → feedback.json on disk', () => {
     await new Promise(r => setTimeout(r, 500));
 
     // After submit, the page should be read-only
-    const submitBtnExists = await handleReadCommand('js', [
+    const submitBtnExists = await readCmd('js', [
       'document.getElementById("submit-btn").style.display'
-    ], bm);
+    ]);
     // submit button is hidden after post-submit lifecycle
     expect(submitBtnExists).toBe('none');
 
-    const successVisible = await handleReadCommand('js', [
+    const successVisible = await readCmd('js', [
       'document.getElementById("success-msg").style.display'
-    ], bm);
+    ]);
     expect(successVisible).toBe('block');
 
     // Success message should mention /design-shotgun
-    const successText = await handleReadCommand('js', [
+    const successText = await readCmd('js', [
       'document.getElementById("success-msg").textContent'
-    ], bm);
+    ]);
     expect(successText).toContain('design-shotgun');
   });
 });
@@ -211,17 +226,17 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     serverState = 'serving';
 
     // Fresh page
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await writeCmd('goto', [baseUrl]);
 
     // User clicks "Totally different" chiclet
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"different\\"]").click()'
-    ], bm);
+    ]);
 
     // User clicks Regenerate
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.getElementById("regen-btn").click()'
-    ], bm);
+    ]);
 
     // Wait for async POST
     await new Promise(r => setTimeout(r, 300));
@@ -244,12 +259,12 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     if (fs.existsSync(pendingPath)) fs.unlinkSync(pendingPath);
     serverState = 'serving';
 
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await writeCmd('goto', [baseUrl]);
 
     // Click "More like this" on variant B (index 1)
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.querySelectorAll(".more-like-this")[1].click()'
-    ], bm);
+    ]);
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -263,21 +278,21 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
 
   test('board shows spinner after regenerate (user stays on same tab)', async () => {
     serverState = 'serving';
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await writeCmd('goto', [baseUrl]);
 
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"different\\"]").click()'
-    ], bm);
-    await handleReadCommand('js', [
+    ]);
+    await readCmd('js', [
       'document.getElementById("regen-btn").click()'
-    ], bm);
+    ]);
 
     await new Promise(r => setTimeout(r, 300));
 
     // Board should show "Generating new designs..." text
-    const bodyText = await handleReadCommand('js', [
+    const bodyText = await readCmd('js', [
       'document.body.textContent'
-    ], bm);
+    ]);
     expect(bodyText).toContain('Generating new designs');
   });
 });
@@ -291,15 +306,15 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     if (fs.existsSync(feedbackPath)) fs.unlinkSync(feedbackPath);
     serverState = 'serving';
 
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await writeCmd('goto', [baseUrl]);
 
     // Step 1: User clicks Regenerate
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"match\\"]").click()'
-    ], bm);
-    await handleReadCommand('js', [
+    ]);
+    await readCmd('js', [
       'document.getElementById("regen-btn").click()'
-    ], bm);
+    ]);
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -329,21 +344,21 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     expect(serverState).toBe('serving');
 
     // Step 4: Board auto-refreshes (simulated by navigating again)
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await writeCmd('goto', [baseUrl]);
 
     // Verify the board is fresh (no prior picks)
-    const status = await handleReadCommand('js', [
+    const status = await readCmd('js', [
       'document.getElementById("status").textContent'
-    ], bm);
+    ]);
     expect(status).toBe('');
 
     // Step 5: User picks variant C on round 2 and submits
-    await handleReadCommand('js', [
+    await readCmd('js', [
       'document.querySelectorAll("input[name=\\"preferred\\"]")[2].click()'
-    ], bm);
-    await handleReadCommand('js', [
+    ]);
+    await readCmd('js', [
       'document.getElementById("submit-btn").click()'
-    ], bm);
+    ]);
 
     await new Promise(r => setTimeout(r, 300));
 

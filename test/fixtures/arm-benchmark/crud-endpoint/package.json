@@ -1,0 +1,7 @@
+{
+  "name": "notes-api",
+  "private": true,
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

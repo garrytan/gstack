@@ -60,14 +60,20 @@ export async function writeAudit(row: AuditRow, path: string = defaultAuditPath(
   await appendFile(path, JSON.stringify(row) + '\n', { mode: 0o600 });
 }
 
+// Non-reversible identifier for tokens/identities in logs and API responses.
+// Same device salt as the attempts log, so ids correlate across both.
+export async function saltedHash(raw: string): Promise<string> {
+  const salt = await loadDeviceSalt();
+  return createHash('sha256').update(salt + ':' + raw).digest('hex').slice(0, 16);
+}
+
 export async function writeAttempt(opts: {
   rawIdentity: string;
   endpoint: string;
   reason: AttemptRow['reason'];
   path?: string;
 }): Promise<void> {
-  const salt = await loadDeviceSalt();
-  const hash = createHash('sha256').update(salt + ':' + opts.rawIdentity).digest('hex').slice(0, 16);
+  const hash = await saltedHash(opts.rawIdentity);
   const row: AttemptRow = {
     ts: new Date().toISOString(),
     identity_canon: hash,

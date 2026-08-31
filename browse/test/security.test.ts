@@ -1,27 +1,22 @@
 /**
  * Unit tests for browse/src/security.ts — pure-string operations that must
  * behave deterministically in the compiled browse binary AND in the
- * sidebar-agent bun process. No ML, no network, no subprocess spawning.
+ * security sidecar subprocess. No ML, no network, no subprocess spawning.
+ *
+ * Note: combineVerdict retains vote handling for transcript_classifier and
+ * deberta_content signals even though those layers have no live producer
+ * (the Haiku transcript and DeBERTa ensemble layers were removed). The
+ * tests below that feed such signals pin the retained combiner behavior.
  */
 
 import { describe, test, expect } from 'bun:test';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import {
   THRESHOLDS,
   combineVerdict,
   generateCanary,
   injectCanary,
   checkCanaryInStructure,
-  hashPayload,
-  logAttempt,
-  writeSessionState,
-  readSessionState,
-  getStatus,
   extractDomain,
-  buildTelemetrySpawnCommand,
-  resolveBashBinary,
   type LayerSignal,
 } from '../src/security';
 
@@ -109,7 +104,8 @@ describe('combineVerdict — ensemble rule', () => {
     expect(r.reason).toBe('ensemble_agreement');
   });
 
-  // --- 3-way ensemble (DeBERTa opt-in) ---
+  // --- 3-way ensemble vote handling (deberta_content has no live producer;
+  //     these pin the retained combiner semantics) ---
 
   test('3-way: DeBERTa + testsavant at WARN → BLOCK (two ML classifiers agreeing)', () => {
     // Two scalar-layer block-votes; transcript offers no vote.
@@ -150,10 +146,9 @@ describe('combineVerdict — ensemble rule', () => {
   });
 
   test('DeBERTa disabled (confidence 0, meta.disabled) does not degrade verdict', () => {
-    // When ensemble is not enabled, scanPageContentDeberta returns
-    // confidence=0 with meta.disabled. combineVerdict must treat this
-    // identically to a safe/absent signal — never let the zero drag
-    // down what testsavant + transcript would have said.
+    // A disabled ensemble layer reports confidence=0 with meta.disabled.
+    // combineVerdict must treat this identically to a safe/absent signal —
+    // never let the zero drag down what the other layers would have said.
     const r = combineVerdict([
       { layer: 'testsavant_content', confidence: 0.8 },
       { layer: 'deberta_content', confidence: 0, meta: { disabled: true } },
@@ -239,80 +234,17 @@ describe('canary', () => {
 
 // ─── Payload hashing ─────────────────────────────────────────
 
-describe('hashPayload', () => {
-  test('same payload produces same hash (deterministic with persistent salt)', () => {
-    const h1 = hashPayload('attack string');
-    const h2 = hashPayload('attack string');
-    expect(h1).toBe(h2);
-  });
-
-  test('different payloads produce different hashes', () => {
-    expect(hashPayload('a')).not.toBe(hashPayload('b'));
-  });
-
-  test('hash is sha256 hex (64 chars)', () => {
-    const h = hashPayload('test');
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
 
 // ─── Attack log + rotation ───────────────────────────────────
 
-describe('logAttempt', () => {
-  test('writes attempts.jsonl with correct shape', () => {
-    const ok = logAttempt({
-      ts: '2026-04-19T12:34:56Z',
-      urlDomain: 'example.com',
-      payloadHash: 'deadbeef',
-      confidence: 0.9,
-      layer: 'testsavant_content',
-      verdict: 'block',
-    });
-    expect(ok).toBe(true);
 
-    const logPath = path.join(os.homedir(), '.gstack', 'security', 'attempts.jsonl');
-    const content = fs.readFileSync(logPath, 'utf8');
-    const lines = content.split('\n').filter(Boolean);
-    const last = JSON.parse(lines[lines.length - 1]);
-    expect(last.urlDomain).toBe('example.com');
-    expect(last.payloadHash).toBe('deadbeef');
-    expect(last.verdict).toBe('block');
-  });
-});
-
-// ─── Session state (cross-process, atomic) ───────────────────
-
-describe('session state', () => {
-  test('write + read round-trip', () => {
-    const state = {
-      sessionId: 'test-session-123',
-      canary: 'CANARY-TEST',
-      warnedDomains: ['example.com'],
-      classifierStatus: { testsavant: 'ok' as const, transcript: 'ok' as const },
-      lastUpdated: '2026-04-19T12:34:56Z',
-    };
-    writeSessionState(state);
-    const got = readSessionState();
-    expect(got).not.toBeNull();
-    expect(got!.sessionId).toBe('test-session-123');
-    expect(got!.canary).toBe('CANARY-TEST');
-    expect(got!.warnedDomains).toEqual(['example.com']);
-  });
-});
-
-// ─── Status reporting for shield icon ────────────────────────
-
-describe('getStatus', () => {
-  test('returns a valid SecurityStatus shape', () => {
-    const s = getStatus();
-    expect(['protected', 'degraded', 'inactive']).toContain(s.status);
-    expect(s.layers).toBeDefined();
-    expect(['ok', 'degraded', 'off']).toContain(s.layers.testsavant);
-    expect(['ok', 'degraded', 'off']).toContain(s.layers.transcript);
-    expect(['ok', 'off']).toContain(s.layers.canary);
-    expect(s.lastUpdated).toBeTruthy();
-  });
-});
+// NOTE (#2557): the session-state + getStatus tests that lived here wrote
+// REAL fixture data into ~/.gstack/security/session-state.json — after which
+// /health reported a false-green 'protected' indefinitely. The surfaces they
+// covered (SessionState, read/writeSessionState, getStatus, the /health
+// security field, the sidepanel SEC shield) were dead since the PTY terminal
+// rewrite and are now removed. server-security-surface.test.ts pins the
+// removal + the live L4 wiring.
 
 // ─── URL domain extraction ───────────────────────────────────
 
@@ -330,74 +262,6 @@ describe('extractDomain', () => {
 
 // ─── Bash binary resolution (Windows shebang-script invocation) ─────
 
-describe('resolveBashBinary', () => {
-  test('on POSIX, returns the system bash via Bun.which', () => {
-    if (process.platform === 'win32') return;
-    const out = resolveBashBinary({ PATH: process.env.PATH ?? '' });
-    expect(out).toBeTruthy();
-    expect(out!.endsWith('bash')).toBe(true);
-  });
-
-  test('honors GSTACK_BASH_BIN absolute-path override', () => {
-    // Construct a synthetic absolute path; the helper short-circuits on
-    // path.isAbsolute and never touches the filesystem, so this is portable.
-    const fake = process.platform === 'win32' ? 'C:\\opt\\bash.exe' : '/opt/custom/bash';
-    const out = resolveBashBinary({ GSTACK_BASH_BIN: fake, PATH: '' });
-    expect(out).toBe(fake);
-  });
-
-  test('strips wrapping double quotes from override values', () => {
-    const fake = process.platform === 'win32' ? 'C:\\opt\\bash.exe' : '/opt/custom/bash';
-    const out = resolveBashBinary({ GSTACK_BASH_BIN: `"${fake}"`, PATH: '' });
-    expect(out).toBe(fake);
-  });
-
-  test('BASH_BIN works as a fallback when GSTACK_BASH_BIN is unset', () => {
-    const fake = process.platform === 'win32' ? 'C:\\opt\\bash.exe' : '/opt/custom/bash';
-    const out = resolveBashBinary({ BASH_BIN: fake, PATH: '' });
-    expect(out).toBe(fake);
-  });
-
-  test('returns null when nothing resolves (override is unset and PATH is empty)', () => {
-    // Empty PATH means Bun.which finds nothing.
-    const out = resolveBashBinary({ PATH: '' });
-    expect(out).toBeNull();
-  });
-});
 
 // ─── Telemetry spawn command (Windows bash wrapper, v1.24-aligned) ──
 
-describe('buildTelemetrySpawnCommand', () => {
-  const bin = '/home/user/.claude/skills/gstack/bin/gstack-telemetry-log';
-  const args = ['--event-type', 'attack_attempt', '--confidence', '0.95'];
-
-  test('on POSIX, returns the binary path and args unchanged', () => {
-    if (process.platform === 'win32') return;
-    const out = buildTelemetrySpawnCommand(bin, args);
-    expect(out).not.toBeNull();
-    expect(out!.cmd).toBe(bin);
-    expect(out!.cmdArgs).toEqual(args);
-  });
-
-  test('on win32 with bash resolvable, wraps the call in bash with the script as first arg', () => {
-    if (process.platform !== 'win32') return;
-    const fakeBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
-    const out = buildTelemetrySpawnCommand(bin, args, { GSTACK_BASH_BIN: fakeBash, PATH: '' });
-    expect(out).not.toBeNull();
-    expect(out!.cmd).toBe(fakeBash);
-    expect(out!.cmdArgs).toEqual([bin, ...args]);
-  });
-
-  test('on win32 with bash unresolvable, returns null so caller skips spawn', () => {
-    if (process.platform !== 'win32') return;
-    // No override, empty PATH — Bun.which finds nothing on Windows.
-    const out = buildTelemetrySpawnCommand(bin, args, { PATH: '' });
-    expect(out).toBeNull();
-  });
-
-  test('does not mutate the caller-supplied args array', () => {
-    const originalArgs = [...args];
-    buildTelemetrySpawnCommand(bin, args);
-    expect(args).toEqual(originalArgs);
-  });
-});

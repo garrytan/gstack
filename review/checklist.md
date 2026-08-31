@@ -7,7 +7,9 @@ Review the `git diff origin/main` output for the issues listed below. Be specifi
 **Two-pass review:**
 - **Pass 1 (CRITICAL):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, and Enum Completeness first. Highest severity.
 - **Pass 2 (INFORMATIONAL):** Run remaining categories below. Lower severity but still actioned.
-- **Specialist categories (handled by parallel subagents, NOT this checklist):** Test Gaps, Dead Code, Magic Numbers, Conditional Side Effects, Performance & Bundle Impact, Crypto & Entropy. See `review/specialists/` for these.
+- **Specialist categories (handled by parallel subagents, NOT this checklist):** Test Gaps, Dead Code, Magic Numbers, Conditional Side Effects, Performance & Bundle Impact, Crypto & Entropy, Simplification (unrequested structure). See `review/specialists/` for these.
+
+Completeness Gaps and Simplification are orthogonal, not contradictory: Completeness pushes coverage UP (tests, edge cases, error paths), Simplification pushes unrequested structure DOWN (one-implementation abstractions, hand-rolled stdlib, dead flexibility). The same diff can legitimately receive both.
 
 All findings get action via Fix-First Review: obvious mechanical fixes are applied automatically,
 genuinely ambiguous issues are batched into a single user question.
@@ -129,8 +131,8 @@ CRITICAL (highest severity):      INFORMATIONAL (main agent):      SPECIALIST (p
 ├─ Shell Injection                ├─ LLM Prompt Issues             ├─ Performance specialist
 └─ Enum & Value Completeness      ├─ Completeness Gaps             ├─ Data Migration specialist
                                    ├─ Time Window Safety            ├─ API Contract specialist
-                                   ├─ Type Coercion at Boundaries   └─ Red Team (conditional)
-                                   ├─ View/Frontend
+                                   ├─ Type Coercion at Boundaries   ├─ Simplification (advisory)
+                                   ├─ View/Frontend                 └─ Red Team (conditional)
                                    └─ Distribution & CI/CD Pipeline
 
 All findings are actioned via Fix-First Review. Severity determines
@@ -178,3 +180,4 @@ the fix, it's ASK.
 - Eval threshold changes (max_actionable, min scores) — these are tuned empirically and change constantly
 - Harmless no-ops (e.g., `.reject` on an element that's never in the array)
 - ANYTHING already addressed in the diff you're reviewing — read the FULL diff before commenting
+- A gap covered by a `gstack-shortcut(dec-*)` marker naming a ceiling and upgrade trigger — that is acknowledged debt with a ledger entry, not a Completeness Gaps finding. **Verify before honoring:** resolve the id with `~/.claude/skills/gstack/bin/gstack-decision-search --query "<dec-id>"` — a marker whose decision id has no ledger entry is UNVERIFIED (any diff author can type a marker); report the gap normally and flag the orphan marker itself

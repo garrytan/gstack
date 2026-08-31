@@ -60,12 +60,13 @@ private func debugBridgeAccessibilityChildren(of element: NSObject) -> [NSObject
 
 @MainActor
 enum ScreenshotBridgeImpl {
-    /// Capture a PNG of the active window. Uses UIGraphicsImageRenderer
+    /// Capture a PNG of the visible UI. Uses UIGraphicsImageRenderer
     /// (modern API, replaces UIGraphicsBeginImageContext). Returns nil if
-    /// no key window is available (e.g., app backgrounded).
+    /// no window is available (e.g., app backgrounded).
     static func capturePNG() -> Data? {
-        guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return nil }
-        let bounds = window.bounds
+        guard let scene = activeScene() else { return nil }
+        let windows = orderedWindows(in: scene)
+        guard let bounds = windows.first?.bounds else { return nil }
         let format = UIGraphicsImageRendererFormat.default()
         // /tap consumes UIKit window points. Render at 1x so screenshot pixels
         // use that same coordinate space on 2x/3x devices.
@@ -75,23 +76,72 @@ enum ScreenshotBridgeImpl {
             // drawHierarchy is the documented way to snapshot real UIKit
             // layers including layer-backed views. afterScreenUpdates: false
             // because we want the CURRENT visible state, not a forced layout.
-            window.drawHierarchy(in: bounds, afterScreenUpdates: false)
+            //
+            // Back-to-front across every window: a UIMenu, alert or action
+            // sheet lives in its OWN window, so drawing only the key window
+            // silently drops it from the screenshot.
+            for window in windows.reversed() {
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+            }
         }
         return image.pngData()
     }
 
-    private static func activeScene() -> UIWindowScene? {
+    static func activeScene() -> UIWindowScene? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }
             ?? (UIApplication.shared.connectedScenes.first as? UIWindowScene)
     }
 
-    private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
+    static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
         let windows = scene.windows.filter { window in
             !window.isHidden && !String(describing: type(of: window)).contains("PassThroughWindow")
         }
         return windows.first(where: { $0.isKeyWindow }) ?? windows.max(by: { $0.windowLevel < $1.windowLevel })
+    }
+
+    /// Visible windows, front-most first: higher `windowLevel` wins, and within
+    /// a level the later window sits on top. Menus, alerts and action sheets
+    /// get their own window, so `isKeyWindow` alone does not find them.
+    /// PassThroughWindow overlays stay filtered (same rule as activeKeyWindow).
+    static func orderedWindows(in scene: UIWindowScene) -> [UIWindow] {
+        scene.windows
+            .filter {
+                !$0.isHidden && $0.alpha > 0.01 && !$0.bounds.isEmpty
+                    && !String(describing: type(of: $0)).contains("PassThroughWindow")
+            }
+            .enumerated()
+            .sorted {
+                ($0.element.windowLevel.rawValue, Double($0.offset))
+                    > ($1.element.windowLevel.rawValue, Double($1.offset))
+            }
+            .map(\.element)
+    }
+
+    /// The window the user is actually touching — front-most, not merely key.
+    static func frontmostWindow() -> UIWindow? {
+        guard let scene = activeScene() else { return nil }
+        return orderedWindows(in: scene).first ?? activeKeyWindow(in: scene)
+    }
+
+    /// Roots to search, front-most first: for each window, the top-most
+    /// presented view controller's view before the window itself.
+    ///
+    /// Tree order is NOT front-most order. A presented sheet sits *after* the
+    /// screen it covers in `window.subviews`, so a walk rooted at the window
+    /// emits the covered screen first and a client taking the first match for a
+    /// label gets a control the user cannot reach.
+    static func searchRoots() -> [UIView] {
+        guard let scene = activeScene() else { return [] }
+        var roots: [UIView] = []
+        for window in orderedWindows(in: scene) {
+            var controller = window.rootViewController
+            while let presented = controller?.presentedViewController { controller = presented }
+            if let view = controller?.view, view !== window { roots.append(view) }
+            roots.append(window)
+        }
+        return roots
     }
 }
 
@@ -103,19 +153,26 @@ enum ElementsBridgeImpl {
     /// Each entry has frame (in window coords), accessibility label,
     /// identifier, traits as a bitmask, and a parent path. Skips
     /// non-accessible / hidden views.
+    /// Front-most content first, so a client taking the first match for a
+    /// label gets the element the user can actually reach — a presented view
+    /// is also reachable through its window, so the roots overlap by design
+    /// and the shared visited set emits each view once, at its front-most
+    /// position.
     static func snapshot() -> [JSONDict] {
-        guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return [] }
         var elements: [JSONDict] = []
         var visited = Set<ObjectIdentifier>()
         var remaining = 2_048
-        collect(
-            view: window,
-            parentPath: "",
-            window: window,
-            visited: &visited,
-            remaining: &remaining,
-            into: &elements
-        )
+        for root in ScreenshotBridgeImpl.searchRoots() {
+            guard let window = (root as? UIWindow) ?? root.window else { continue }
+            collect(
+                view: root,
+                parentPath: "",
+                window: window,
+                visited: &visited,
+                remaining: &remaining,
+                into: &elements
+            )
+        }
         return elements
     }
 
@@ -263,20 +320,6 @@ enum ElementsBridgeImpl {
             }
         }
     }
-
-    private static func activeScene() -> UIWindowScene? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-            ?? (UIApplication.shared.connectedScenes.first as? UIWindowScene)
-    }
-
-    private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
-        let windows = scene.windows.filter { window in
-            !window.isHidden && !String(describing: type(of: window)).contains("PassThroughWindow")
-        }
-        return windows.first(where: { $0.isKeyWindow }) ?? windows.max(by: { $0.windowLevel < $1.windowLevel })
-    }
 }
 
 // MARK: - MutationBridge implementation
@@ -301,7 +344,9 @@ enum MutationBridgeImpl {
         guard let x = payload["x"] as? NSNumber,
               let y = payload["y"] as? NSNumber else { return false }
         let point = CGPoint(x: x.doubleValue, y: y.doubleValue)
-        guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return false }
+        // Front-most, not merely key: a menu/alert/sheet lives in its own
+        // window, and a tap aimed there must not land on the covered screen.
+        guard let window = ScreenshotBridgeImpl.frontmostWindow() else { return false }
         if let element = findActivatableAXElement(at: point, in: window),
            element.accessibilityActivate() {
             return true
@@ -353,8 +398,10 @@ enum MutationBridgeImpl {
     /// Set text on the first responder if it's a UITextField or UITextView.
     private static func handleType(_ payload: JSONDict) -> Bool {
         guard let text = payload["text"] as? String else { return false }
-        guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return false }
-        guard let responder = findFirstResponder(in: window) else { return false }
+        // Search front-most roots first: the focused field in a presented
+        // sheet wins over a same-named field on the covered screen.
+        guard let responder = ScreenshotBridgeImpl.searchRoots()
+            .lazy.compactMap({ findFirstResponder(in: $0) }).first else { return false }
         if let field = responder as? UITextField {
             field.text = text
             field.sendActions(for: .editingChanged)
@@ -379,8 +426,10 @@ enum MutationBridgeImpl {
         let from = CGPoint(x: fx.doubleValue, y: fy.doubleValue)
         let to = CGPoint(x: tx.doubleValue, y: ty.doubleValue)
 
-        guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return false }
-        guard let hit = window.hitTest(from, with: nil) else { return false }
+        // Hit-test front-most roots first (sheet before covered screen).
+        guard let hit = ScreenshotBridgeImpl.searchRoots()
+            .lazy.compactMap({ $0.hitTest($0.convert(from, from: nil), with: nil) })
+            .first else { return false }
 
         // Find the nearest enclosing UIScrollView.
         var node: UIView? = hit
@@ -419,20 +468,6 @@ enum MutationBridgeImpl {
             if let found = findFirstResponder(in: sub) { return found }
         }
         return nil
-    }
-
-    private static func activeScene() -> UIWindowScene? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-            ?? (UIApplication.shared.connectedScenes.first as? UIWindowScene)
-    }
-
-    private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
-        let windows = scene.windows.filter { window in
-            !window.isHidden && !String(describing: type(of: window)).contains("PassThroughWindow")
-        }
-        return windows.first(where: { $0.isKeyWindow }) ?? windows.max(by: { $0.windowLevel < $1.windowLevel })
     }
 }
 

@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import { outcomeJudge } from './helpers/llm-judge';
 import { judgePassed } from './helpers/eval-store';
@@ -97,7 +98,7 @@ CRITICAL RULES:
 - The report MUST exist at ${reportPath} when you finish`,
       workingDirectory: testWorkDir,
       maxTurns: 50,
-      timeout: 300_000,
+      timeout: CAPTURE_MS,
       testName: `qa-${label}`,
       runId,
       model: 'claude-opus-4-7',
@@ -174,17 +175,17 @@ CRITICAL RULES:
   // B6: Static dashboard — broken link, disabled submit, overflow, missing alt, console error
   testConcurrentIfSelected('qa-b6-static', async () => {
     await runPlantedBugEval('qa-eval.html', 'qa-eval-ground-truth.json', 'b6-static');
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
   // B7: SPA — broken route, stale state, async race, missing aria, console warning
   testConcurrentIfSelected('qa-b7-spa', async () => {
     await runPlantedBugEval('qa-eval-spa.html', 'qa-eval-spa-ground-truth.json', 'b7-spa');
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
   // B8: Checkout — email regex, NaN total, CC overflow, missing required, stripe error
   testConcurrentIfSelected('qa-b8-checkout', async () => {
     await runPlantedBugEval('qa-eval-checkout.html', 'qa-eval-checkout-ground-truth.json', 'b8-checkout');
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
 });
 

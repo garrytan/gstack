@@ -52,8 +52,9 @@ import {
   readSync,
   closeSync,
   rmSync,
+  realpathSync,
 } from "fs";
-import { join, basename, dirname } from "path";
+import { join, basename, dirname, delimiter } from "path";
 import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
@@ -65,7 +66,9 @@ import {
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
 import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
+import { writeReceipt } from "../lib/egress-receipt";
 import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
+import { hasRepoPolicyStore, repoPolicyTierBatch } from "../lib/gbrain-repo-policy-client";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -139,6 +142,14 @@ interface ProbeReport {
   new_count: number;
   updated_count: number;
   unchanged_count: number;
+  skipped_unattributed: number;
+  /**
+   * #2392 parity: transcripts whose remote's trust tier is `deny` /
+   * `read-only`. Probe applies the SAME per-remote policy filter --bulk
+   * applies, so its ingestible counts match what --bulk would write.
+   */
+  skipped_policy_deny: number;
+  skipped_policy_readonly: number;
   estimate_minutes: number;
 }
 
@@ -147,6 +158,14 @@ interface BulkResult {
   skipped_secret: number;
   skipped_dedup: number;
   skipped_unattributed: number;
+  /**
+   * #2392: transcripts skipped because their git remote's trust tier in
+   * ~/.gstack/gbrain-repo-policy.json is `read-only` (search allowed, page
+   * writes never — and transcript ingest writes pages).
+   */
+  skipped_policy_readonly: number;
+  /** #2392: transcripts skipped because their remote's trust tier is `deny`. */
+  skipped_policy_deny: number;
   failed: number;
   duration_ms: number;
   partial_pages: number;
@@ -541,7 +560,7 @@ interface ParsedSession {
   partial: boolean;
 }
 
-function parseTranscriptJsonl(path: string): ParsedSession | null {
+export function parseTranscriptJsonl(path: string): ParsedSession | null {
   // Best-effort tolerant parser. Handles truncated last lines (D10 partial-flag).
   let raw: string;
   try {
@@ -617,10 +636,22 @@ function parseTranscriptJsonl(path: string): ParsedSession | null {
       const tool = rec?.name || rec?.tool || rec?.tool_call?.name || "tool";
       bodyParts.push(`### Tool call: ${tool}`);
     } else if (isCodex && rec?.payload?.message) {
-      // Codex shape: each record has payload.message
+      // Legacy Codex shape: each record has payload.message
       const msg = rec.payload.message;
       const role = msg.role || "user";
       const content = extractContentText(msg);
+      if (content) {
+        bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
+        messageCount++;
+      }
+    } else if (isCodex && rec?.type === "response_item" && rec?.payload?.type === "message") {
+      // Current Codex rollout shape (#2105): records are
+      // { type: 'response_item', payload: { type: 'message', role, content: [...] } }.
+      // The legacy payload.message branch never fires on these, which rendered
+      // every Codex session as an empty shell (message_count: 0, 243/243 on
+      // the reporting machine). Flatten payload.content like the Claude branch.
+      const role = rec.payload.role || "user";
+      const content = extractContentText(rec.payload);
       if (content) {
         bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
         messageCount++;
@@ -663,8 +694,21 @@ function extractContentText(rec: any): string {
   return "";
 }
 
+// Memo: probe and prepare both resolve remotes per-transcript, and transcripts
+// share a small set of cwds — without this an 11.7K-file probe would spawn git
+// 11.7K times instead of once per distinct cwd.
+const REMOTE_MEMO = new Map<string, string>();
+
 function resolveGitRemote(cwd: string): string {
   if (!cwd) return "";
+  const memo = REMOTE_MEMO.get(cwd);
+  if (memo !== undefined) return memo;
+  const resolved = resolveGitRemoteUncached(cwd);
+  REMOTE_MEMO.set(cwd, resolved);
+  return resolved;
+}
+
+function resolveGitRemoteUncached(cwd: string): string {
   try {
     // execFileSync (no shell) so `cwd` cannot trigger command substitution.
     // Transcript JSONL records are an untrusted surface (a poisoned `.cwd`
@@ -744,7 +788,11 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     source_path: path,
     session_id: session.session_id,
     cwd: session.cwd,
-    git_remote: remote,
+    // Store the normalized sentinel, matching the frontmatter above: a raw ""
+    // is falsy and slid through the policy filter's !p.git_remote fast-path,
+    // so under --include-unattributed a `_unattributed → deny` policy never
+    // applied to exactly the pages it names (#2353).
+    git_remote: remote || "_unattributed",
     start_time: session.start_time,
     end_time: session.end_time,
     partial: session.partial,
@@ -886,6 +934,14 @@ interface PreparedPage {
   /** Carry-through fields for state recording on success. */
   page_slug: string;
   partial: boolean;
+  /** Memory type — the per-remote policy filter (#2392) applies to transcripts only. */
+  type: MemoryType;
+  /**
+   * Canonical git remote ("host/org/repo") for transcript pages; undefined
+   * for artifacts (whose PageRecord.git_remote is a project slug, not a
+   * remote — artifacts are never policy-filtered).
+   */
+  git_remote?: string;
 }
 
 interface StagingResult {
@@ -1032,6 +1088,105 @@ export function readNewFailures(
 
 // ── Main ingest passes ─────────────────────────────────────────────────────
 
+/**
+ * The ONE attribution gate (#2394): a transcript is attributable iff its cwd
+ * resolves to a git remote. Both probeMode (via transcriptCwdFromPrefix +
+ * resolveGitRemote — the same memoized resolver) and preparePages route
+ * through THIS logic, so the two stages' post-attribution counts are
+ * structurally identical — the parity the probe report promises.
+ */
+function sessionIsAttributable(cwd: string | undefined | null): boolean {
+  if (!cwd) return false;
+  return resolveGitRemote(cwd) !== "";
+}
+
+/**
+ * Bounded prefix for the probe's cheap-parse (plan C7): transcripts run to
+ * tens of MB, and the probe only needs the cwd, which both agent formats put
+ * on the FIRST records. 256KB is orders of magnitude past any real header.
+ */
+const TRANSCRIPT_PROBE_MAX_BYTES = 256 * 1024;
+
+/**
+ * Lightweight cwd extraction for the probe: reads a BOUNDED prefix (first
+ * 256KB, never the whole file — plan C7: the probe must stay a cheap parse on
+ * multi-MB transcripts) and extracts the cwd with EXACTLY
+ * parseTranscriptJsonl's rules. The caller resolves attribution/policy via
+ * resolveGitRemote (memoized). Avoids the full parse (body rendering, message
+ * counting) because probe only needs the cwd.
+ *
+ * Extraction MIRRORS parseTranscriptJsonl (the single source of truth for
+ * cwd semantics — keep the two in lockstep):
+ *   - the first PARSEABLE line decides the format (Codex: type=session_meta
+ *     or payload.id; else Claude Code);
+ *   - Codex cwd comes from that FIRST record ONLY (payload.cwd || cwd) —
+ *     a cwd appearing only on a later record is NOT used, exactly as
+ *     parseTranscriptJsonl ignores it, so probe and prepare can never
+ *     diverge on the same file;
+ *   - Claude Code cwd comes from the first record that carries one;
+ *   - unparseable lines are skipped (the truncated-tail case included).
+ *
+ * Non-transcript types (artifacts) always pass — the attribution filter in
+ * preparePages only applies to transcripts (#2394).
+ */
+function transcriptCwdFromPrefix(path: string): string {
+  // Chunked read until the prefix contains at least one COMPLETE record
+  // (newline), up to the hard cap — a first record larger than one chunk
+  // (giant pasted prompt) must not truncate mid-JSON and mis-classify a
+  // session --bulk would accept (probe/bulk parity).
+  let raw: string;
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const chunk = Buffer.alloc(TRANSCRIPT_PROBE_MAX_BYTES);
+      let acc = "";
+      let offset = 0;
+      const HARD_CAP = TRANSCRIPT_PROBE_MAX_BYTES * 16; // 4MB ceiling
+      while (offset < HARD_CAP) {
+        const n = readSync(fd, chunk, 0, chunk.length, offset);
+        if (n <= 0) break;
+        acc += chunk.toString("utf-8", 0, n);
+        offset += n;
+        if (acc.includes("\n")) break; // at least one complete record
+      }
+      raw = acc;
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+  const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return "";
+
+  let cwd = "";
+  let sawFirstParseable = false;
+  for (const line of lines) {
+    let rec: any;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue; // mirrors parseTranscriptJsonl: unparseable lines are skipped
+    }
+    if (!sawFirstParseable) {
+      sawFirstParseable = true;
+      // Format detection mirrors parseTranscriptJsonl's `first` record check.
+      const isCodex = rec?.type === "session_meta" || rec?.payload?.id != null;
+      if (isCodex) {
+        // Codex: cwd comes from the session_meta FIRST record only.
+        cwd = rec.payload?.cwd || rec.cwd || "";
+        break;
+      }
+    }
+    // Claude Code: first record with a cwd wins (the first record included).
+    if (rec?.cwd) {
+      cwd = rec.cwd;
+      break;
+    }
+  }
+  return cwd;
+}
+
 async function probeMode(args: CliArgs): Promise<ProbeReport> {
   const state = loadState();
   const ctx = makeWalkContext(args, state);
@@ -1052,8 +1207,56 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
   let newCount = 0;
   let updatedCount = 0;
   let unchangedCount = 0;
+  let skippedUnattributed = 0;
+  let skippedPolicyDeny = 0;
+  let skippedPolicyReadonly = 0;
 
+  // Two-phase walk (#2392 parity): collect candidates first (remembering each
+  // transcript's resolved remote), THEN apply the same per-remote policy
+  // filter --bulk applies via one repoPolicyTierBatch spawn. Counting during
+  // the walk would report policy-denied transcripts as ingestible — probe's
+  // numbers must match what --bulk would actually write.
+  const candidates: Array<{ path: string; type: MemoryType; remote: string }> = [];
   for (const { path, type } of walkAllSources(ctx)) {
+    // Apply the same attribution filter preparePages uses (#2394):
+    // skip transcripts with no resolvable git remote unless --include-unattributed.
+    let remote = "";
+    if (type === "transcript") {
+      const cwd = transcriptCwdFromPrefix(path);
+      remote = cwd ? resolveGitRemote(cwd) : "";
+      if (!args.includeUnattributed && remote === "") {
+        skippedUnattributed++;
+        continue;
+      }
+    }
+    candidates.push({ path, type, remote });
+  }
+
+  // Batch policy check — same hasRepoPolicyStore fast path as preparePages:
+  // no store on disk → zero policy work. Only transcripts with a resolved
+  // remote are policy-filtered; artifacts never are (#2392). A missing or
+  // errored verdict counts as "none" here — probe is read-only and must not
+  // hard-fail the way the write path does.
+  if (hasRepoPolicyStore()) {
+    const remotes = [...new Set(candidates.filter((c) => c.type === "transcript" && c.remote).map((c) => c.remote))];
+    if (remotes.length > 0) {
+      const verdicts = repoPolicyTierBatch(remotes);
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        const c = candidates[i];
+        if (c.type !== "transcript" || !c.remote) continue;
+        const tier = verdicts.get(c.remote)?.tier ?? "none";
+        if (tier === "deny") {
+          skippedPolicyDeny++;
+          candidates.splice(i, 1);
+        } else if (tier === "read-only") {
+          skippedPolicyReadonly++;
+          candidates.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  for (const { path, type } of candidates) {
     totalFiles++;
     let size = 0;
     try {
@@ -1082,6 +1285,9 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
     new_count: newCount,
     updated_count: updatedCount,
     unchanged_count: unchangedCount,
+    skipped_unattributed: skippedUnattributed,
+    skipped_policy_deny: skippedPolicyDeny,
+    skipped_policy_readonly: skippedPolicyReadonly,
     estimate_minutes: estimateMinutes,
   };
 }
@@ -1117,8 +1323,16 @@ function preparePages(
   skippedSecret: number;
   skippedDedup: number;
   skippedUnattributed: number;
+  skippedPolicyReadonly: number;
+  skippedPolicyDeny: number;
   parseFailed: number;
   partialPages: number;
+  /**
+   * #2392: set when the per-remote policy store EXISTS but could not be
+   * read (corrupt file, spawn failure). The caller must abort before any
+   * writes — proceeding would bypass a possibly-set deny policy.
+   */
+  policyError?: string;
 } {
   const prepared: PreparedPage[] = [];
   let skippedSecret = 0;
@@ -1127,8 +1341,16 @@ function preparePages(
   let parseFailed = 0;
   let partialPages = 0;
 
+  // --limit semantics: "stop after N pages WRITTEN" = N policy-eligible pages.
+  // When a per-remote policy store exists, eligibility is only known after the
+  // batch policy check below, so the walk must not stop early — a denied-first
+  // corpus would otherwise consume the limit and starve permitted pages. With
+  // no store on disk, every prepared page is eligible and the in-loop break
+  // keeps --limit cheap.
+  const policyStoreExists = hasRepoPolicyStore();
+
   for (const { path, type } of walkAllSources(ctx)) {
-    if (args.limit !== null && prepared.length >= args.limit) break;
+    if (args.limit !== null && !policyStoreExists && prepared.length >= args.limit) break;
 
     if (args.mode === "incremental" && !fileChangedSinceState(path, state)) {
       skippedDedup++;
@@ -1162,16 +1384,15 @@ function preparePages(
           parseFailed++;
           continue;
         }
-        if (!args.includeUnattributed && !session.cwd) {
+        // The SAME gate probeMode uses (#2394) — routing both through
+        // sessionIsAttributable is what makes probe counts trustworthy.
+        // (Semantically identical to the old two-step check: no cwd, or a cwd
+        // whose remote resolves empty, both rendered git_remote "_unattributed".)
+        if (!args.includeUnattributed && !sessionIsAttributable(session.cwd)) {
           skippedUnattributed++;
           continue;
         }
         page = buildTranscriptPage(path, session);
-        if (!args.includeUnattributed && page.git_remote === "_unattributed") {
-          skippedUnattributed++;
-          continue;
-        }
-        if (page.partial) partialPages++;
       } else {
         page = buildArtifactPage(path, type);
       }
@@ -1187,16 +1408,89 @@ function preparePages(
       rendered_body: renderPageBody(page),
       page_slug: page.slug,
       partial: page.partial ?? false,
+      type,
+      // Only transcripts carry a real remote; buildArtifactPage's git_remote
+      // is a project slug, and artifacts are never policy-filtered (#2392).
+      git_remote: type === "transcript" ? page.git_remote : undefined,
     });
   }
 
+  // #2392: per-remote trust policy for transcript pages — the same store the
+  // code-import gate honors (bin/gstack-gbrain-sync.ts). One batch spawn for
+  // all distinct remotes in the run; no store on disk → zero policy work.
+  // Runs AFTER the loop because preparePages accumulates fully in memory (no
+  // writes happen until the caller stages), so filtering here is still
+  // strictly before any write.
+  let finalPrepared = prepared;
+  let skippedPolicyReadonly = 0;
+  let skippedPolicyDeny = 0;
+  let policyError: string | undefined;
+  if (policyStoreExists) {
+    const remotes = [
+      ...new Set(
+        prepared
+          .filter((p) => p.type === "transcript" && p.git_remote)
+          .map((p) => p.git_remote as string),
+      ),
+    ];
+    if (remotes.length > 0) {
+      const verdicts = repoPolicyTierBatch(remotes);
+      // The store EXISTS (checked above), so an unreadable/spawn-failed
+      // result is a HARD ERROR — match the fail-closed polarity of
+      // gstack-gbrain-sync's code-import gate: never bypass a set policy.
+      const broken = remotes.find((r) => {
+        const v = verdicts.get(r);
+        return !v || v.error !== undefined;
+      });
+      if (broken) {
+        const kind = verdicts.get(broken)?.error === "spawn-failed"
+          ? "the policy helper could not be spawned (bash missing from PATH?)"
+          : "the policy store could not be read (corrupt file?)";
+        policyError =
+          `repo policy store exists but ${kind} — refusing transcript ingest rather than ` +
+          `bypassing a possibly-set deny policy. Inspect with: gstack-gbrain-repo-policy list; ` +
+          `re-run /setup-gbrain if the store is corrupt.`;
+      } else {
+        finalPrepared = prepared.filter((p) => {
+          if (p.type !== "transcript" || !p.git_remote) return true;
+          const tier = verdicts.get(p.git_remote)?.tier ?? "none";
+          if (tier === "read-only") {
+            // Honoring an explicit user setting (search allowed, page writes
+            // never) — transcript ingest writes pages, so skip.
+            skippedPolicyReadonly++;
+            return false;
+          }
+          if (tier === "deny") {
+            skippedPolicyDeny++;
+            return false;
+          }
+          return true; // read-write, or none (no policy set for this remote)
+        });
+      }
+    }
+  }
+
+  // --limit applies AFTER policy filtering, over permitted pages only. In the
+  // no-store fast path the walk already stopped at the limit, so this slice
+  // is a no-op there.
+  if (args.limit !== null && finalPrepared.length > args.limit) {
+    finalPrepared = finalPrepared.slice(0, args.limit);
+  }
+
+  // Derived from the FINAL set: partial counts must describe pages that are
+  // actually eligible and within the limit, not the whole scanned corpus.
+  partialPages = finalPrepared.filter((p) => p.partial).length;
+
   return {
-    prepared,
+    prepared: finalPrepared,
     skippedSecret,
     skippedDedup,
     skippedUnattributed,
+    skippedPolicyReadonly,
+    skippedPolicyDeny,
     parseFailed,
     partialPages,
+    policyError,
   };
 }
 
@@ -1406,9 +1700,43 @@ export function resolveImportTimeoutMs(
   return n;
 }
 
-function runGbrainImport(
+/**
+ * True when the import failed because the installed gbrain predates
+ * --include-gitignored. gbrain's subcommand --help is generic (no flag list),
+ * so the only reliable probe is the attempt itself.
+ */
+function failedOnUnknownIncludeGitignored(status: number | null, stderr: string): boolean {
+  if (status === 0 || status === null) return false;
+  return /(unknown|unexpected|unrecognized|invalid)[^\n]*--include-gitignored|--include-gitignored[^\n]*(unknown|unexpected|unrecognized|invalid)/i.test(
+    stderr,
+  );
+}
+
+async function runGbrainImport(
   stagingDir: string,
   timeoutMs: number,
+): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+  const first = await runGbrainImportOnce(stagingDir, timeoutMs, true);
+  if (failedOnUnknownIncludeGitignored(first.status, first.stderr)) {
+    // Older gbrain: retry without the flag. If .gitignore then hides the
+    // staged pages, the imported<staged reconciliation guard below refuses
+    // to advance state and names the remedy — loud failure, never silent
+    // loss, and never a hard-block for gbrain versions that don't need the
+    // flag's semantics.
+    console.error(
+      "[memory-ingest] installed gbrain does not support --include-gitignored — " +
+        "retrying without it. If the import then collects 0 files, upgrade gbrain " +
+        "(gstack-gbrain-install) so staged pages inside gitignored dirs are visible.",
+    );
+    return runGbrainImportOnce(stagingDir, timeoutMs, false);
+  }
+  return first;
+}
+
+function runGbrainImportOnce(
+  stagingDir: string,
+  timeoutMs: number,
+  includeGitignored: boolean,
 ): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   installSignalForwarder();
   return new Promise((resolve) => {
@@ -1416,7 +1744,47 @@ function runGbrainImport(
     // inside Next.js / Prisma / Rails projects with their own
     // .env.local (codex review #7 — defense in depth on top of the
     // parent gstack-gbrain-sync seeding the bun grandchild's env).
-    const child = spawnGbrainAsync(["import", stagingDir, "--no-embed", "--json"]);
+    // --include-gitignored is load-bearing, not a convenience. Pages are
+    // staged into ~/.gstack/.staging-ingest-<pid>-<ts>/, and ~/.gstack is a
+    // git repo whose .gitignore is `*`. `gbrain import` honours .gitignore,
+    // so without this flag it collects files=0 and imports NOTHING, while
+    // still reporting `written: N` from the staged count. Silent data loss
+    // on every run. A working run logs `import.collect_files done ... files=N`
+    // with N > 0 and takes minutes, not seconds.
+    //
+    // GIT_CEILING_DIRECTORIES is the second layer of the same #2144 defense:
+    // it stops git's upward repo discovery at the staging dir's parent, so a
+    // git-enumerating collector fails cleanly out of the git fast path and
+    // falls back to its plain FS walk even on gbrain builds whose flag
+    // semantics drift. The ceiling must be the REAL path — git compares
+    // canonicalized directories during discovery, and a staging dir reached
+    // through a symlink (macOS /var -> /private/var, symlinked $GSTACK_HOME)
+    // otherwise never matches the ceiling entry. Scoped to this one child;
+    // no on-disk state, staging-guard/resume contracts untouched.
+    let ceiling: string;
+    try {
+      ceiling = realpathSync(dirname(stagingDir));
+    } catch {
+      ceiling = dirname(stagingDir); // staging parent vanished mid-run; spawn will fail loudly anyway
+    }
+    const baseEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      // path.delimiter, not ':' — git splits this on ';' on Windows, and
+      // drive-letter paths contain ':' themselves.
+      GIT_CEILING_DIRECTORIES: process.env.GIT_CEILING_DIRECTORIES
+        ? `${ceiling}${delimiter}${process.env.GIT_CEILING_DIRECTORIES}`
+        : ceiling,
+    };
+    const child = spawnGbrainAsync(
+      [
+        "import",
+        stagingDir,
+        "--no-embed",
+        ...(includeGitignored ? ["--include-gitignored"] : []),
+        "--json",
+      ],
+      { baseEnv },
+    );
     _activeImportChild = child;
     let stdout = "";
     let stderr = "";
@@ -1469,6 +1837,25 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   let written = 0;
   let failed = 0;
 
+  // #2392 HARD ERROR: the policy store exists but could not be consulted.
+  // Abort before ANY write — state recording, staging, gbrain import — so a
+  // corrupt store can never silently bypass a set deny/read-only policy.
+  if (prep.policyError) {
+    console.error(`[memory-ingest] ERR: ${prep.policyError}`);
+    return {
+      written: 0,
+      skipped_secret: prep.skippedSecret,
+      skipped_dedup: prep.skippedDedup,
+      skipped_unattributed: prep.skippedUnattributed,
+      skipped_policy_readonly: prep.skippedPolicyReadonly,
+      skipped_policy_deny: prep.skippedPolicyDeny,
+      failed: prep.parseFailed + prep.prepared.length,
+      duration_ms: Date.now() - t0,
+      partial_pages: prep.partialPages,
+      system_error: prep.policyError,
+    };
+  }
+
   if (args.noWrite) {
     // --no-write: skip the gbrain import call but still record state for
     // prepared pages (treat them as ingested for dedup purposes). Matches
@@ -1497,6 +1884,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       skipped_secret: prep.skippedSecret,
       skipped_dedup: prep.skippedDedup,
       skipped_unattributed: prep.skippedUnattributed,
+      skipped_policy_readonly: prep.skippedPolicyReadonly,
+      skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
@@ -1513,6 +1902,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       skipped_secret: prep.skippedSecret,
       skipped_dedup: prep.skippedDedup,
       skipped_unattributed: prep.skippedUnattributed,
+      skipped_policy_readonly: prep.skippedPolicyReadonly,
+      skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
@@ -1528,6 +1919,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       skipped_secret: prep.skippedSecret,
       skipped_dedup: prep.skippedDedup,
       skipped_unattributed: prep.skippedUnattributed,
+      skipped_policy_readonly: prep.skippedPolicyReadonly,
+      skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed + prep.prepared.length,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
@@ -1675,6 +2068,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
         skipped_secret: prep.skippedSecret,
         skipped_dedup: prep.skippedDedup,
         skipped_unattributed: prep.skippedUnattributed,
+        skipped_policy_readonly: prep.skippedPolicyReadonly,
+        skipped_policy_deny: prep.skippedPolicyDeny,
         failed,
         duration_ms: Date.now() - t0,
         partial_pages: prep.partialPages,
@@ -1690,6 +2085,38 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // spawn, parent termination orphans the gbrain process (observed
     // during 2026-05-10 cold-run testing — gbrain kept running 15 min
     // after the orchestrator timed out).
+    //
+    // Egress receipt BEFORE the import (fail-closed): the gbrain DB may be a
+    // remote Postgres, so the ingest is a potential off-machine send. The
+    // gbrain subprocess owns the wire bytes (content-free receipt, sha256
+    // null). The remote-http branch above stages locally only — its egress
+    // happens in gstack-brain-sync, which writes its own receipt at the push.
+    try {
+      writeReceipt({
+        sink: "memory-ingest",
+        host: "gbrain-db (user-configured DATABASE_URL)",
+        payloadClass: `transcript-pages count=${staging.written} (sent by gbrain subprocess)`,
+        bytes: 0,
+        sha256: null,
+        consent: "gbrain setup consent (/setup-gbrain)",
+      });
+    } catch (err) {
+      const msg = `EGRESS_RECEIPT_FAILED: ${(err as Error).message} — ingest refused`;
+      console.error(`[memory-ingest] ERR: ${msg}`);
+      failed += prep.prepared.length;
+      return {
+        written: 0,
+        skipped_secret: prep.skippedSecret,
+        skipped_dedup: prep.skippedDedup,
+        skipped_unattributed: prep.skippedUnattributed,
+        skipped_policy_readonly: prep.skippedPolicyReadonly,
+        skipped_policy_deny: prep.skippedPolicyDeny,
+        failed,
+        duration_ms: Date.now() - t0,
+        partial_pages: prep.partialPages,
+        system_error: msg,
+      };
+    }
     const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs());
 
     const stdout = importResult.stdout || "";
@@ -1720,6 +2147,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
           skipped_secret: prep.skippedSecret,
           skipped_dedup: prep.skippedDedup,
           skipped_unattributed: prep.skippedUnattributed,
+          skipped_policy_readonly: prep.skippedPolicyReadonly,
+          skipped_policy_deny: prep.skippedPolicyDeny,
           failed,
           duration_ms: Date.now() - t0,
           partial_pages: prep.partialPages,
@@ -1738,6 +2167,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
         skipped_secret: prep.skippedSecret,
         skipped_dedup: prep.skippedDedup,
         skipped_unattributed: prep.skippedUnattributed,
+        skipped_policy_readonly: prep.skippedPolicyReadonly,
+        skipped_policy_deny: prep.skippedPolicyDeny,
         failed,
         duration_ms: Date.now() - t0,
         partial_pages: prep.partialPages,
@@ -1766,6 +2197,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
         skipped_secret: prep.skippedSecret,
         skipped_dedup: prep.skippedDedup,
         skipped_unattributed: prep.skippedUnattributed,
+        skipped_policy_readonly: prep.skippedPolicyReadonly,
+        skipped_policy_deny: prep.skippedPolicyDeny,
         failed,
         duration_ms: Date.now() - t0,
         partial_pages: prep.partialPages,
@@ -1781,6 +2214,51 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       staging.stagedPathToSource,
     );
     failed += failedSources.size;
+
+    // Reconcile gbrain's own accounting against what we staged. Without this,
+    // a batch that gbrain never SAW is indistinguishable from a batch that
+    // succeeded: readNewFailures() only reports PER-FILE failures, so when
+    // `gbrain import` collects zero files it writes nothing to
+    // sync-failures.jsonl, failedSources is empty, and every prepared file
+    // gets state-recorded as ingested. The pass then reports "N written"
+    // while the brain gained nothing — and because state now says "done",
+    // no future run retries. Silent, permanent data loss.
+    //
+    // Observed cause: `gbrain import` honours .gitignore, and
+    // `gstack-artifacts-init` writes `.gitignore = "*"` into $GSTACK_HOME.
+    // makeStagingDir() stages under $GSTACK_HOME, so on any machine that has
+    // run artifacts-init, collect_files returns 0 for every batch.
+    //
+    // `skipped` counts content_hash no-ops, which ARE successful landings.
+    const expectedLandings = prep.prepared.length - failedSources.size;
+    const accountedLandings =
+      (importJson.imported ?? 0) + (importJson.skipped ?? 0);
+    if (accountedLandings < expectedLandings) {
+      const collected =
+        importJson.total_files !== undefined
+          ? ` gbrain collected ${importJson.total_files} file(s) from the staging dir.`
+          : "";
+      const msg =
+        `gbrain import accounted for ${accountedLandings} of ${expectedLandings} staged page(s) ` +
+        `(imported=${importJson.imported ?? 0}, unchanged=${importJson.skipped ?? 0}).${collected} ` +
+        `Refusing to advance state — the unaccounted pages would be marked ingested without ` +
+        `landing in the brain. If the count is 0, check whether ${stagingDir} is inside a git ` +
+        `repo that ignores it (gbrain import honours .gitignore).`;
+      console.error(`[memory-ingest] ERR: ${msg}`);
+      failed += prep.prepared.length;
+      return {
+        written: 0,
+        skipped_secret: prep.skippedSecret,
+        skipped_dedup: prep.skippedDedup,
+        skipped_unattributed: prep.skippedUnattributed,
+        skipped_policy_readonly: prep.skippedPolicyReadonly,
+        skipped_policy_deny: prep.skippedPolicyDeny,
+        failed,
+        duration_ms: Date.now() - t0,
+        partial_pages: prep.partialPages,
+        system_error: msg,
+      };
+    }
 
     // Phase 3: state recording. Only files that landed in gbrain get
     // their mtime+sha256 stamped. Failed source paths are deliberately
@@ -1820,6 +2298,18 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
             : ""),
       );
     }
+    // Silent-zero pathology detector (#2144's other half): pages were staged
+    // but NOTHING imported or skipped-as-unchanged. That shape hid the dead
+    // ingest for months — it must be loud even under --quiet, because a run
+    // that indexes nothing is otherwise indistinguishable from a healthy one.
+    const importedCount = (importJson.imported ?? 0) + (importJson.skipped ?? 0);
+    if (prep.prepared.length > 0 && importedCount === 0 && (importJson.errors ?? 0) === 0) {
+      console.error(
+        `[memory-ingest] WARNING: ${prep.prepared.length} page(s) staged but gbrain collected ZERO ` +
+          `(no imports, no unchanged-skips, no errors). This is the #2144 silent-zero shape — ` +
+          `check gbrain's import.collect_files log line and your gbrain version.`,
+      );
+    }
   } finally {
     // #1802 D1: in remote-http mode `stagingDir` is the PERSISTENT transcript
     // dir (makePersistentTranscriptDir, under ~/.gstack/transcripts/) that
@@ -1842,6 +2332,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     skipped_secret: prep.skippedSecret,
     skipped_dedup: prep.skippedDedup,
     skipped_unattributed: prep.skippedUnattributed,
+    skipped_policy_readonly: prep.skippedPolicyReadonly,
+    skipped_policy_deny: prep.skippedPolicyDeny,
     failed: failed + prep.parseFailed,
     duration_ms: Date.now() - t0,
     partial_pages: prep.partialPages,
@@ -1869,6 +2361,15 @@ function printProbeReport(r: ProbeReport, json: boolean): void {
   console.log(`New (never ingested):  ${r.new_count}`);
   console.log(`Updated (mtime/hash):  ${r.updated_count}`);
   console.log(`Unchanged:             ${r.unchanged_count}`);
+  if (r.skipped_unattributed > 0) {
+    console.log(`Skipped (unattributed): ${r.skipped_unattributed}  (no git remote; use --include-unattributed to include)`);
+  }
+  if (r.skipped_policy_deny > 0) {
+    console.log(`Skipped (policy deny):  ${r.skipped_policy_deny}  (remote tier is deny; change with: gstack-gbrain-repo-policy set <remote> read-write)`);
+  }
+  if (r.skipped_policy_readonly > 0) {
+    console.log(`Skipped (policy read-only): ${r.skipped_policy_readonly}  (remote tier is read-only; transcript ingest writes pages)`);
+  }
   console.log("By type:");
   for (const [t, v] of Object.entries(r.by_type)) {
     if (v.count > 0) {
@@ -1885,6 +2386,12 @@ function printBulkResult(r: BulkResult, args: CliArgs): void {
   console.log(`  skipped (dedup):       ${r.skipped_dedup}`);
   console.log(`  skipped (secret-scan): ${r.skipped_secret}`);
   console.log(`  skipped (unattrib):    ${r.skipped_unattributed}`);
+  if (r.skipped_policy_readonly > 0) {
+    console.log(`  skipped (policy read-only): ${r.skipped_policy_readonly}  (remote tier is read-only; transcript ingest writes pages)`);
+  }
+  if (r.skipped_policy_deny > 0) {
+    console.log(`  skipped (policy deny):      ${r.skipped_policy_deny}  (change with: gstack-gbrain-repo-policy set <remote> read-write)`);
+  }
   console.log(`  failed:                ${r.failed}`);
   console.log(`  duration:              ${(r.duration_ms / 1000).toFixed(1)}s`);
   if (args.benchmark) {

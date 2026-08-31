@@ -296,7 +296,10 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
     });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe('defer');
+    // #2035: memory-nugget delivery is additionalContext-ONLY. Emitting a
+    // permissionDecision here (the old 'defer') pauses the tool call for a
+    // resumption that never comes in interactive sessions.
+    expect('permissionDecision' in (parsed.hookSpecificOutput ?? {})).toBe(false);
     expect(parsed.hookSpecificOutput?.additionalContext).toContain('verbose explanations');
   });
 });

@@ -87,5 +87,5 @@ export function mintSkillToken(opts: MintSkillTokenOptions): TokenInfo {
  * token returns false but is not an error.
  */
 export function revokeSkillToken(skillName: string, spawnId: string): boolean {
-  return revokeToken(skillClientId(skillName, spawnId));
+  return Boolean(revokeToken(skillClientId(skillName, spawnId)));
 }

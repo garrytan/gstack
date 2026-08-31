@@ -103,7 +103,7 @@ export function resolveBrowseAuth(opts: BrowseClientOptions = {}): ResolvedAuth 
 
 function defaultStateFile(): string | null {
   try {
-    const proc = cp.spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8', timeout: 2000 });
+    const proc = cp.spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8', timeout: 2000, windowsHide: true });
     const root = proc.status === 0 ? proc.stdout.trim() : null;
     const base = root || process.cwd();
     return path.join(base, '.gstack', 'browse.json');

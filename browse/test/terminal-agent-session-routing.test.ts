@@ -13,7 +13,7 @@ import * as path from 'path';
 //   - {type:"start"} triggers spawn for eager UX after forceRestart
 //   - maybeSpawnPty helper is the single entry point for both spawn paths
 
-const AGENT_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'terminal-agent.ts');
+const AGENT_TS = path.resolve(import.meta.path, '..', '..', 'src', 'terminal-agent.ts');
 
 describe('terminal-agent session routing (v1.44+ Commit 2)', () => {
   test('1. validTokens is a Map binding token → sessionId', () => {

@@ -212,7 +212,7 @@ export async function handleReadCommand(
   command: string,
   args: string[],
   session: TabSession,
-  bm?: BrowserManager,
+  bm: BrowserManager,
 ): Promise<string> {
   const page = session.getPage();
   // Frame-aware target for content extraction
@@ -293,7 +293,7 @@ export async function handleReadCommand(
       const { outPath, raw, rest } = parseOutArgs(args);
       const expr = rest[0];
       if (!expr) throw new Error('Usage: browse js <expression> [--out <file>] [--raw]');
-      if (bm) assertJsOriginAllowed(bm, page.url());
+      assertJsOriginAllowed(bm, page.url());
       const wrapped = wrapForEvaluate(expr);
       const result = await target.evaluate(wrapped);
       const str = resultToString(result);
@@ -308,7 +308,7 @@ export async function handleReadCommand(
       const { outPath, raw, rest } = parseOutArgs(args);
       const filePath = rest[0];
       if (!filePath) throw new Error('Usage: browse eval <js-file> [--out <file>] [--raw]');
-      if (bm) assertJsOriginAllowed(bm, page.url());
+      assertJsOriginAllowed(bm, page.url());
       validateReadPath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');

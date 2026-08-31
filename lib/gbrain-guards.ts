@@ -36,7 +36,9 @@ import { execGbrainJson, execGbrainText, NEEDS_SHELL_ON_WINDOWS } from "./gbrain
 import { parseSourcesList, type GbrainSourceRow } from "./gbrain-sources";
 
 export function gbrainHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.GBRAIN_HOME || join(homedir(), ".gbrain");
+  // #2521: GBRAIN_HOME is a PARENT dir per gbrain's configDir() contract —
+  // gbrain appends `.gbrain` itself, so gstack must too.
+  return env.GBRAIN_HOME ? join(env.GBRAIN_HOME, ".gbrain") : join(homedir(), ".gbrain");
 }
 
 /**

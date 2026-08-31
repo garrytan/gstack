@@ -1,0 +1,98 @@
+#!/usr/bin/env bun
+/**
+ * gstack-issue-guard — fetch tracker text and emit it inside the untrusted
+ * trust envelope (lib/tracker-guard.ts). The ONLY sanctioned path for reading
+ * PR/issue body text into an agent's context — the wiring scanner
+ * (test/tracker-guard-wiring.test.ts) fails CI on raw reads outside it.
+ *
+ *   gstack-issue-guard issue <n>       # gh issue: title + body + comments
+ *   gstack-issue-guard pr-body         # gh: current PR body
+ *   gstack-issue-guard pr-comments     # gh: current PR issue-comments
+ *   gstack-issue-guard --stdin [--source <label>]   # envelope stdin (works for glab too)
+ *
+ * Failure polarity: a gh/glab fetch failure exits NON-ZERO with NO envelope on
+ * stdout — never emit a fake-trusted empty envelope. Callers own their error
+ * contract (greptile-triage skips silently; others surface the error).
+ * Empty content IS enveloped (with a note): "empty" is data, "failed" is not.
+ *
+ * gh is spawned via an argv array — never string concatenation — and the
+ * issue number is validated before use.
+ */
+
+import { spawnSync } from "child_process";
+import { wrapUntrustedTrackerContent } from "../lib/tracker-guard";
+import { flagValue } from "../lib/bin-context";
+
+function gh(args: string[]): { ok: boolean; out: string; err: string } {
+  try {
+    const r = spawnSync("gh", args, { encoding: "utf-8", timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
+    return { ok: r.status === 0, out: r.stdout ?? "", err: r.stderr ?? "" };
+  } catch (e: any) {
+    return { ok: false, out: "", err: String(e?.message ?? e) };
+  }
+}
+
+function fail(msg: string): never {
+  console.error(`gstack-issue-guard: ${msg}`);
+  process.exit(1);
+}
+
+const [, , mode, ...rest] = process.argv;
+
+if (mode === "--stdin") {
+  const source = flagValue(rest, "--source");
+  const text = await Bun.stdin.text();
+  console.log(wrapUntrustedTrackerContent(text, source ?? "stdin"));
+  process.exit(0);
+}
+
+if (mode === "issue") {
+  const n = rest[0] ?? "";
+  if (!/^[0-9]+$/.test(n)) fail(`issue number must be numeric, got: ${JSON.stringify(n)}`);
+  const r = gh(["issue", "view", n, "--json", "title,body,comments"]);
+  if (!r.ok) fail(`gh issue view failed: ${r.err.trim() || "unknown error"}`);
+  let title = "";
+  let body = "";
+  let comments: { author?: { login?: string }; body?: string }[] = [];
+  try {
+    const j = JSON.parse(r.out);
+    title = typeof j.title === "string" ? j.title : "";
+    body = typeof j.body === "string" ? j.body : "";
+    comments = Array.isArray(j.comments) ? j.comments : [];
+  } catch {
+    fail("gh returned unparseable JSON");
+  }
+  const parts = [`TITLE: ${title}`, "", body];
+  for (const c of comments) {
+    parts.push("", `--- comment by ${c?.author?.login ?? "unknown"} ---`, c?.body ?? "");
+  }
+  console.log(wrapUntrustedTrackerContent(parts.join("\n"), `issue #${n}`));
+  process.exit(0);
+}
+
+if (mode === "pr-body") {
+  const r = gh(["pr", "view", "--json", "body", "--jq", ".body"]);
+  if (!r.ok) fail(`gh pr view failed: ${r.err.trim() || "unknown error"}`);
+  console.log(wrapUntrustedTrackerContent(r.out, "pr body"));
+  process.exit(0);
+}
+
+if (mode === "pr-comments") {
+  const r = gh(["pr", "view", "--json", "comments"]);
+  if (!r.ok) fail(`gh pr view failed: ${r.err.trim() || "unknown error"}`);
+  let comments: { author?: { login?: string }; body?: string }[] = [];
+  try {
+    const j = JSON.parse(r.out);
+    comments = Array.isArray(j.comments) ? j.comments : [];
+  } catch {
+    fail("gh returned unparseable JSON");
+  }
+  const parts: string[] = [];
+  for (const c of comments) {
+    parts.push(`--- comment by ${c?.author?.login ?? "unknown"} ---`, c?.body ?? "", "");
+  }
+  console.log(wrapUntrustedTrackerContent(parts.join("\n"), "pr comments"));
+  process.exit(0);
+}
+
+fail("usage: gstack-issue-guard issue <n> | pr-body | pr-comments | --stdin [--source <label>]");

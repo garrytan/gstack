@@ -342,8 +342,15 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
   it('timeout fires, exit code 124, token revoked', async () => {
     const dir = makeSkillDir(tiers.bundled, 'sleeper',
       'name: sleeper\nhost: x.com\ntrusted: true',
-      // Sleep longer than the test timeout; the spawn should kill us.
-      `await new Promise(r => setTimeout(r, 30000)); console.log("done");`,
+      // The child's self-lifetime is a bound, not a wait — the test blocks
+      // only for the 1s spawn timeout that kills it. 8s is sized to be far
+      // above that 1s (the kill always lands first) but below this test's
+      // 10s ceiling: if the timeout-kill ever regresses, the child completes,
+      // prints "done", and the assertions below fail cleanly in-budget
+      // instead of the test opaquely timing out while the child lingers.
+      // (runToFiles gives skill children no stdin pipe, so a parent-death
+      // EOF lifetime isn't available here — self-timing is required.)
+      `await new Promise(r => setTimeout(r, 8000)); console.log("done");`,
     );
     const skill = readBrowserSkill('sleeper', tiers)!;
     const result = await spawnSkill({
@@ -351,6 +358,9 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
     });
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBe(124);
+    // The kill must land before the script completes — "done" ever appearing
+    // means the child outlived its timeout.
+    expect(result.stdout).not.toContain('done');
     expect(listTokens().filter(t => t.clientId.startsWith('skill:sleeper:'))).toEqual([]);
   }, 10_000);
 
@@ -381,4 +391,43 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
     expect(result.truncated).toBe(true);
     expect(result.stdout.length).toBeLessThanOrEqual(1024 * 1024);
   }, 10_000);
+});
+
+describe('subprocess capture goes through temp files, not pipes', () => {
+  // Tripwire. Capturing a child's output through `stdout: 'pipe'` is lossy
+  // here: under a loaded parent, the first piped spawn in the process
+  // intermittently yields an empty stderr even though the child wrote it and
+  // exited 0. Neither draining before awaiting exit nor a manual getReader()
+  // loop avoids it — both were measured losing the same bytes. It flaked
+  // `$B skill test` (a dropped stderr left only bun's banner) and would blank
+  // a skill's JSON result on `$B skill run` while still reporting success.
+  //
+  // runToFiles() points the child's fds at temp files instead, so the kernel
+  // has flushed everything by the time the child exits. This test fails if a
+  // refactor reintroduces pipe capture in this module.
+  //
+  // Comments are stripped first, so the module's own prose — which names the
+  // banned pattern in order to explain it — doesn't trip checks meant for code.
+  const src = fs.readFileSync(
+    path.join(import.meta.dir, '..', 'src', 'browser-skill-commands.ts'), 'utf-8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  it("does not spawn with stdout/stderr: 'pipe'", () => {
+    expect(src).not.toMatch(/std(out|err):\s*'pipe'/);
+  });
+
+  it('does not read child output via Response(proc.stdout/stderr) or getReader', () => {
+    expect(src).not.toMatch(/new Response\(\s*proc\.(stdout|stderr)/);
+    expect(src).not.toMatch(/proc\.(stdout|stderr)[\s\S]{0,40}getReader\(/);
+  });
+
+  it('every spawn site routes through runToFiles', () => {
+    // The structural invariant: runToFiles owns the module's only Bun.spawn,
+    // so any present or future spawn site inherits the file-based capture.
+    // Counted rather than name-checked so adding a spawn site that bypasses
+    // the helper fails here instead of silently reintroducing the bug.
+    expect(src.match(/Bun\.spawn\(/g) ?? []).toHaveLength(1);
+    expect((src.match(/await runToFiles\(/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
 });

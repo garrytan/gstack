@@ -76,9 +76,9 @@ flat harness layouts so stale bridge sources cannot shadow the package.
    #endif
    ```
 
-The three Swift targets split as: `DebugBridgeCore` is cross-platform (so `swift build` on a CI Mac host can validate the bulk of the code without UIKit), `DebugBridgeUI` and `DebugBridgeTouch` are iOS-only (they link UIKit). `DebugBridgeTouch` is Objective-C — it carries the KIF-derived UITouch synthesis with the iOS 18+ `_UIHitTestContext` fix that makes SwiftUI Button taps actually fire.
+The three SwiftPM targets split as: `DebugBridgeCore` is cross-platform (so `swift build` on a CI Mac host can validate the bulk of the code without UIKit), `DebugBridgeUI` and `DebugBridgeTouch` are iOS-only (they link UIKit). `DebugBridgeTouch` is Objective-C — it carries the KIF-derived UITouch synthesis with the iOS 18+ `_UIHitTestContext` fix that makes SwiftUI Button taps actually fire.
 
-The structural Release-build guard is the `.when(configuration: .debug)` clause in `Package.swift`. SwiftPM refuses to link any `DebugBridge*` target in a Release build, so the bridge cannot ship to TestFlight even if you forget to clean up.
+The structural Release-build guard is layered. The `.when(configuration: .debug)` clause in `Package.swift` means SwiftPM refuses to link any `DebugBridge*` target in a Release build, so the bridge cannot ship to TestFlight even if you forget to clean up. On top of that, `DebugBridgeTouch.m`'s private-API touch synthesis is compiled behind `#if TARGET_OS_IOS && DEBUG` (with `DEBUG` defined for that target only in the debug configuration via `cSettings` in `Package.swift`), so a Release compile of the touch bridge emits an empty translation unit — zero private symbols in the binary even if the linker guard were bypassed.
 
 ## Step 2: Build + install to the device
 

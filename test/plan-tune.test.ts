@@ -475,7 +475,14 @@ describe('preamble — QUESTION_TUNING injection', () => {
       preambleTier: 2,
     };
     const out = generatePreamble(ctx);
-    expect(out).toContain('QUESTION_TUNING: $_QUESTION_TUNING');
+    // Phase 1: the config echo moved into bin/gstack-skill-start; the render's
+    // section gates itself on the echoed key.
+    const script = fs.readFileSync(
+      path.join(import.meta.dir, '..', 'bin', 'gstack-skill-start'),
+      'utf-8',
+    );
+    expect(script).toContain('echo "QUESTION_TUNING: $_QUESTION_TUNING"');
+    expect(out).toContain('QUESTION_TUNING: false');
     expect(out).toContain('## Question Tuning');
     expect(out).toContain('gstack-question-preference --check');
     expect(out).toContain('gstack-question-log');

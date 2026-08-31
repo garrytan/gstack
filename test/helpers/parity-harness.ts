@@ -206,26 +206,8 @@ export function runParityChecks(opts: {
  */
 const MONOLITH_INVARIANTS: ParityInvariant[] = [
   // cso is now carved — its invariant is generated from CARVE_GUARDS below.
-  {
-    skill: 'review',
-    mustContain: ['confidence', 'P1', 'P2'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // The adversarial step swapped its bare `command -v codex` check for the shared
-    // codexPreflight() block (install + auth tri-state + CODEX_MODE branch prose),
-    // landing ~6.3% over the v1.53.0.0 baseline. Intentional: it adds proper
-    // not-installed vs not-authed handling, not slop.
-    maxSizeRatio: 1.08,
-    minBytes: 70_000,
-  },
-  {
-    skill: 'qa',
-    mustContain: ['bug', 'browse', 'fix'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // v1.2.0 activation lift: the unified first-run-guidance section (P4 scaffold +
-    // P3 loop tip) is added to every skill's shared preamble — intentional, ~1KB.
-    maxSizeRatio: 1.07,
-    minBytes: 50_000,
-  },
+  // review, codex, land-and-deploy (w1), autoplan (w2), qa (w3) carved in token-reduction Phase 4
+  // wave 1 (v1.69.x branch) — their invariants generate from CARVE_GUARDS too.
   {
     skill: 'investigate',
     mustContain: ['root cause', 'hypothes'],
@@ -234,16 +216,13 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // cross-session decision-memory nudge) lands this skill just over the strict 1.05;
     // headroom for the shared preamble additions (matches the carved-skill overrides).
     // v1.2.0 activation lift adds the first-run-guidance section on top.
-    maxSizeRatio: 1.09,
+    // 1.09 → 1.10: the plan-mode preamble reword (scope-gate auto-select-B
+    // change) adds ~250 B to every skill's shared preamble; investigate was
+    // the closest to its ceiling (landed 1.092).
+        // Fork port wave 2 (D1): the evidence-before-claimed-limitations preamble
+    // directive adds ~0.45KB to every tier-2+ skill. Measured values noted.
+    maxSizeRatio: 1.12, // D1 measured
     minBytes: 30_000,
-  },
-  {
-    skill: 'autoplan',
-    mustContain: ['ceo', 'eng', 'design'],
-    mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    // v1.2.0 activation lift: shared first-run-guidance preamble section.
-    maxSizeRatio: 1.07,
-    minBytes: 70_000,
   },
 ];
 

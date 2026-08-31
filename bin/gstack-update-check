@@ -13,8 +13,39 @@
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
 set -euo pipefail
 
+# A crash must not read as "up to date" (#1974). With set -e, any unguarded
+# failure used to exit silently — and silence IS the up-to-date signal, so a
+# broken check was indistinguishable from a current install (observed live as
+# a 45-release silent-staleness incident). -E propagates the trap into
+# functions/subshells; exit 0 keeps callers' `|| true` from eating the line.
+set -E
+trap 'rc=$?; echo "CHECK_FAILED gstack-update-check crashed (line $LINENO, rc=$rc) — update status UNKNOWN, not up-to-date"; exit 0' ERR
+
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+
+# Egress receipt helpers (_receipted_curl / _receipted_git). Update checks
+# are fail-OPEN: a receipt hiccup warns but never blocks the version check.
+. "$GSTACK_DIR/bin/gstack-egress-lib.sh"
+
+# _receipted_version_fetch <url>
+#   Receipted bodyless GET for a VERSION file (fail-open). Local reads
+#   (file://, or a URL with no network host) never leave the machine — they
+#   are not egress, so they get no receipt.
+_receipted_version_fetch() {
+  local url="$1" host scheme
+  scheme="${url%%://*}"
+  host="${url#*://}"; host="${host%%/*}"
+  case "$scheme" in
+    http|https|git|ssh|ftp|ftps)
+      GSTACK_HOME="$STATE_DIR" _receipted_curl open update-check "$host" version-fetch "update_check!=false" --no-payload \
+        curl -sf --max-time 5 "$url" || true
+      ;;
+    *)
+      curl -sf --max-time 5 "$url" 2>/dev/null || true
+      ;;
+  esac
+}
 CACHE_FILE="$STATE_DIR/last-update-check"
 MARKER_FILE="$STATE_DIR/just-upgraded-from"
 SNOOZE_FILE="$STATE_DIR/update-snoozed"
@@ -172,12 +203,19 @@ _SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
 _TEL_TIER="$("$GSTACK_DIR/bin/gstack-config" get telemetry 2>/dev/null || true)"
 if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" ]; then
   _OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  curl -sf --max-time 5 \
-    -X POST "${_SUPA_URL}/functions/v1/update-check" \
-    -H "Content-Type: application/json" \
-    -H "apikey: ${_SUPA_KEY}" \
-    -d "{\"version\":\"$LOCAL\",\"os\":\"$_OS\"}" \
-    >/dev/null 2>&1 &
+  # Receipted (fail-open) and fully backgrounded: the receipt write happens
+  # inside the background subshell, so it can never block this script's exit.
+  _PING_FILE="$(mktemp "${TMPDIR:-/tmp}/gstack-update-ping-XXXXXX" 2>/dev/null)" || _PING_FILE=""
+  if [ -n "$_PING_FILE" ]; then
+    printf '{"version":"%s","os":"%s"}' "$LOCAL" "$_OS" > "$_PING_FILE"
+    _SUPA_HOST="${_SUPA_URL#*://}"; _SUPA_HOST="${_SUPA_HOST%%/*}"
+    GSTACK_HOME="$STATE_DIR" _receipted_curl open update-check "$_SUPA_HOST" update-check-ping "telemetry=$_TEL_TIER" "$_PING_FILE" \
+      curl -sf --max-time 5 \
+      -X POST "${_SUPA_URL}/functions/v1/update-check" \
+      -H "Content-Type: application/json" \
+      -H "apikey: ${_SUPA_KEY}" \
+      >/dev/null 2>&1 &
+  fi
 fi
 
 # Resolve VERSION via a SHA-pinned raw URL. GitHub's branch-raw CDN
@@ -193,12 +231,14 @@ REMOTE=""
 if [ -z "${GSTACK_REMOTE_URL:-}" ]; then
   # Disable credential prompts and apply a 5-second low-speed timeout so a
   # flaky network or captive portal can't hang every skill preamble.
-  _LSR_LINE="$(GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
-    git ls-remote "$REMOTE_REPO" refs/heads/main 2>/dev/null || true)"
+  _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
+  _LSR_LINE="$(GSTACK_HOME="$STATE_DIR" _receipted_git open update-check "${_REPO_HOST:-unknown}" version-ls-remote "update_check!=false" \
+    bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
+      git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
   _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
   if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
     _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
-    REMOTE="$(curl -sf --max-time 5 "$_SHA_URL" 2>/dev/null || true)"
+    REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
   fi
 fi
 
@@ -206,7 +246,7 @@ fi
 # network, mirror without refs/heads/main) or when GSTACK_REMOTE_URL was
 # explicitly overridden.
 if [ -z "$REMOTE" ]; then
-  REMOTE="$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null || true)"
+  REMOTE="$(_receipted_version_fetch "$REMOTE_URL")"
 fi
 REMOTE="$(echo "$REMOTE" | tr -d '[:space:]')"
 

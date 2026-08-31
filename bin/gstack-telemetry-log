@@ -210,6 +210,13 @@ fi
 STEP_FIELD="null"
 [ -n "$FAILED_STEP" ] && STEP_FIELD="\"$(json_safe "$FAILED_STEP")\""
 
+# Integrity first: a non-numeric duration would splice raw text into the
+# JSON line ("duration_s":%s) and corrupt the whole JSONL stream — the range
+# caps below silently no-op on non-integers because both test(1) comparisons
+# fail. Reject anything that isn't a plain integer.
+case "$DURATION" in
+  ''|*[!0-9]*) DURATION="" ;;
+esac
 # Cap unreasonable durations
 if [ -n "$DURATION" ] && [ "$DURATION" -gt 86400 ] 2>/dev/null; then
   DURATION=""  # null if > 24h

@@ -6,8 +6,9 @@
  *
  *   "**Phase 1 complete." (CEO)        →
  *   "**Phase 2 complete." (Design — only if UI scope detected) →
- *   "**Phase 3 complete." (Eng)        →
- *   "**Phase 3.5 complete." (DX — optional, skipped if no DX scope)
+ *   "**Phase 2.5 complete." (DX — optional, skipped if no DX scope) →
+ *   "**Phase 3 complete." (Eng — always runs, always LAST: the required
+ *     gate reviews the final amended plan)
  *
  * Why this exists: each individual phase has its own plan-mode smoke
  * test. Nothing verifies the SEQUENCING — that phases don't run in
@@ -24,7 +25,9 @@
  * Cost: ~$5-8/run, 10-15 min wall clock. Periodic — runs weekly.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { PTY_LONG_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -36,8 +39,7 @@ import {
   isNumberedOptionListVisible,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const UI_FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
@@ -71,6 +73,7 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           permissionMode: 'plan',
           cwd: tempDir,
           timeoutMs: 1_080_000, // 18 min, slightly above test budget
+          seedSkills: true,
         });
 
         const hits: PhaseHit[] = [];
@@ -84,8 +87,10 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
 
           const budgetMs = 900_000; // 15 min
           const start = Date.now();
-          // Phase markers in autoplan/SKILL.md (lines 1126, 1211, 1331, 1437):
-          //   "**Phase 1 complete." / "**Phase 2 complete." / "**Phase 3 complete." / "**Phase 3.5 complete."
+          // Phase markers live in autoplan's carved phase sections
+          // (autoplan/sections/{ceo,design,eng,dx}-phase.md — the skeleton
+          // STOP-Reads each one at its phase boundary):
+          //   "**Phase 1 complete." / "**Phase 2 complete." / "**Phase 2.5 complete." / "**Phase 3 complete."
           const phasePattern = /\*\*Phase\s+(\d+(?:\.\d+)?)\s+complete\.?\*\*/g;
 
           let lastPermSig = '';
@@ -160,17 +165,26 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           );
         }
 
-        // Sequencing: CEO must end before Eng ends. Design (if observed)
-        // must end after CEO and before Eng.
+        // Sequencing: CEO must end before Eng ends — and Eng is the terminal
+        // phase (the required gate reviews the final amended plan). Design and
+        // DX (if observed) must end after CEO and before Eng.
         expect(ceo.ts).toBeLessThan(eng.ts);
         if (design) {
           expect(design.ts).toBeGreaterThan(ceo.ts);
           expect(design.ts).toBeLessThan(eng.ts);
         }
+        const dx = hits.find(h => h.phase === 2.5);
+        if (dx) {
+          expect(dx.ts).toBeGreaterThan(ceo.ts);
+          expect(dx.ts).toBeLessThan(eng.ts);
+        }
+        // No phase marker may appear after Eng's (Eng-last invariant).
+        const maxTs = Math.max(...hits.map(h => h.ts));
+        expect(eng.ts).toBe(maxTs);
       } finally {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
       }
     },
-    1_200_000, // 20 min absolute test ceiling
+    PTY_LONG_MS, // 20 min absolute test ceiling
   );
 });

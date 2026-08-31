@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.60.1.0",
+  "version": "1.76.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -14,21 +14,24 @@
     "dev:make-pdf": "bun run make-pdf/src/cli.ts",
     "dev:design": "bun run design/src/cli.ts",
     "build:diagram-render": "cd lib/diagram-render && bun install && bun run scripts/build.ts",
+    "build:gates": "bun build --compile make-pdf/src/cli.ts --outfile make-pdf/dist/pdf && bun build --compile browse/src/cli.ts --outfile browse/dist/browse && bun run build:diagram-render",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "gen:skill-docs:user": "bun run scripts/gen-skill-docs.ts --respect-detection",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
-    "test": "bun test browse/test/ test/ make-pdf/test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts && (bun run slop:diff 2>/dev/null || true)",
+    "test": "bun run scripts/test-free-shards.ts",
     "test:free": "bun run scripts/test-free-shards.ts",
     "test:windows": "bun run scripts/test-free-shards.ts --windows-only",
-    "test:evals": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:e2e": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:e2e:all": "EVALS=1 EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:gate": "EVALS=1 EVALS_TIER=gate bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:periodic": "EVALS=1 EVALS_TIER=periodic EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:codex": "EVALS=1 bun test test/codex-e2e.test.ts",
-    "test:codex:all": "EVALS=1 EVALS_ALL=1 bun test test/codex-e2e.test.ts",
+    "test:evals": "EVALS=1 bun test --retry 1 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval*.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e*.test.ts test/gemini-e2e.test.ts test/llm-judge-recommendation.test.ts test/carve-section-loading.test.ts",
+    "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test --retry 1 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval*.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e*.test.ts test/gemini-e2e.test.ts test/llm-judge-recommendation.test.ts test/carve-section-loading.test.ts",
+    "test:e2e": "EVALS=1 bun test --retry 1 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e*.test.ts test/gemini-e2e.test.ts test/carve-section-loading.test.ts",
+    "test:e2e:all": "EVALS=1 EVALS_ALL=1 bun test --retry 1 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e*.test.ts test/gemini-e2e.test.ts test/carve-section-loading.test.ts",
+    "test:gate": "EVALS=1 EVALS_TIER=gate bun test --retry 1 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval*.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e*.test.ts test/gemini-e2e.test.ts test/llm-judge-recommendation.test.ts test/carve-section-loading.test.ts",
+    "test:periodic": "EVALS=1 EVALS_TIER=periodic EVALS_ALL=1 bun test --retry 1 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval*.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e*.test.ts test/gemini-e2e.test.ts test/llm-judge-recommendation.test.ts test/carve-section-loading.test.ts",
+    "test:gate:sharded": "bun run scripts/test-paid-shards.ts --tier gate",
+    "test:periodic:sharded": "EVALS_ALL=1 bun run scripts/test-paid-shards.ts --tier periodic",
+    "test:codex": "EVALS=1 bun test test/codex-e2e.test.ts test/codex-e2e-sol-scope.test.ts",
+    "test:codex:all": "EVALS=1 EVALS_ALL=1 bun test test/codex-e2e.test.ts test/codex-e2e-sol-scope.test.ts",
     "test:gemini": "EVALS=1 bun test test/gemini-e2e.test.ts",
     "test:gemini:all": "EVALS=1 EVALS_ALL=1 bun test test/gemini-e2e.test.ts",
     "skill:check": "bun run scripts/skill-check.ts",
@@ -36,8 +39,8 @@
     "start": "bun run browse/src/server.ts",
     "eval:bg": "bin/gstack-detach --label evals --lock gstack-evals --timeout 5400 -- bun run test:evals",
     "eval:bg:all": "bin/gstack-detach --label evals-all --lock gstack-evals --timeout 7200 -- bun run test:evals:all",
-    "eval:bg:gate": "bin/gstack-detach --label evals-gate --lock gstack-evals --timeout 3600 -- bun run test:gate",
-    "eval:bg:periodic": "bin/gstack-detach --label evals-periodic --lock gstack-evals --timeout 5400 -- bun run test:periodic",
+    "eval:bg:gate": "bin/gstack-detach --label evals-gate --lock gstack-evals --timeout 25200 -- bun run test:gate:sharded",
+    "eval:bg:periodic": "bin/gstack-detach --label evals-periodic --lock gstack-evals --timeout 37800 -- bun run test:periodic:sharded",
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
@@ -49,14 +52,14 @@
     "slop:diff": "bun run scripts/slop-diff.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.1.0",
+    "@huggingface/transformers": "^4.2.0",
     "@ngrok/ngrok": "^1.7.0",
-    "diff": "^7.0.0",
+    "cross-spawn": "^7.0.6",
+    "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
-    "marked": "^18.0.2",
+    "marked": "^18.0.9",
     "playwright": "^1.62.1",
-    "puppeteer-core": "^24.40.0",
-    "socks": "^2.8.8"
+    "socks": "^2.8.9"
   },
   "engines": {
     "bun": ">=1.0.0"
@@ -78,6 +81,9 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "overrides": {
-    "basic-ftp": "5.3.1"
+    "adm-zip": "^0.6.0"
+  },
+  "patchedDependencies": {
+    "playwright-core@1.62.1": "patches/playwright-core@1.62.1.patch"
   }
 }

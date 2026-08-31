@@ -2,9 +2,12 @@
  * Coverage for PR #1620 — Post-failure PR-state check after `gh pr merge`
  * non-zero exit.
  *
- * The fix lives in land-and-deploy/SKILL.md.tmpl as Step §4a-postfail.
- * After ANY non-zero `gh pr merge`, the skill must query authoritative PR
- * state via `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
+ * The fix lives in land-and-deploy/sections/merge-and-deploy.md.tmpl as Step
+ * §4a-postfail (the Step 4/5 body was carved out of the skeleton into an
+ * on-demand section — prompt-token-load-reduction carve; the skeleton keeps
+ * only the STOP-Read pointer). After ANY non-zero `gh pr merge`, the skill
+ * must query authoritative PR state via
+ * `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
  * branch on the result instead of retrying `gh pr merge` (cli/cli#3442,
  * cli/cli#13380).
  *
@@ -25,8 +28,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const TMPL = path.join(ROOT, "land-and-deploy", "SKILL.md.tmpl");
-const MD = path.join(ROOT, "land-and-deploy", "SKILL.md");
+const TMPL = path.join(ROOT, "land-and-deploy", "sections", "merge-and-deploy.md.tmpl");
+const MD = path.join(ROOT, "land-and-deploy", "sections", "merge-and-deploy.md");
 
 function readTmpl(): string {
   return fs.readFileSync(TMPL, "utf-8");
@@ -87,6 +90,26 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/continue to §4a/);
   });
 
+  // #2656: the failed merge carried --delete-branch; the recovery path must
+  // reconcile the remote branch instead of silently dropping that half.
+  test("MERGED branch reconciles the remote branch (ls-remote, confirm-first delete)", () => {
+    const body = readTmpl();
+    expect(body).toMatch(/git ls-remote --heads origin "\$BRANCH"/);
+    expect(body).toMatch(/gh pr view --json headRefName -q \.headRefName/);
+    expect(body).toMatch(/git push origin --delete "\$BRANCH"/);
+    // Confirm-first: deletion is offered, never unilateral.
+    expect(body).toMatch(/Delete it\?/);
+  });
+
+  test("MERGED branch reconciliation distinguishes branch-absent from check-failed", () => {
+    const body = readTmpl();
+    // exit 0 + empty output = already clean (idempotent re-runs)...
+    expect(body).toMatch(/already been cleaned up/);
+    // ...non-zero exit = unknown state, never read as a clean branch.
+    expect(body).toMatch(/Couldn't verify remote branch state/);
+    expect(body).toMatch(/never read a failed check as a clean branch/);
+  });
+
   test("OPEN branch checks autoMergeRequest before treating as failure", () => {
     const body = readTmpl();
     expect(body).toMatch(/gh pr view --json autoMergeRequest/);
@@ -103,7 +126,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/never call `gh pr merge` a second time/);
   });
 
-  test("Generated SKILL.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
+  test("Generated merge-and-deploy.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
     const md = readMd();
     expect(md).toMatch(/### 4a-postfail: Post-failure PR-state check/);
     expect(md).toMatch(/state == "MERGED"/);

@@ -12,6 +12,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId, evalsEnabled,
@@ -19,6 +20,7 @@ import {
   logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { extractSkillBody } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -43,11 +45,14 @@ function setupWorkdir(suffix: string): { workDir: string; gstackHome: string; sl
   run('git', ['commit', '-m', 'initial']);
 
   // Install skills into .claude/skills/ for claude -p auto-discovery.
+  // The tests exercise the full save/restore/list flows, so keep the whole
+  // skill-specific body but drop the ~780-line shared preamble the tests
+  // never touch (CLAUDE.md: "E2E test fixtures: extract, don't copy").
   const skillsDir = path.join(workDir, '.claude', 'skills');
   for (const skill of ['context-save', 'context-restore']) {
     const destDir = path.join(skillsDir, skill);
     fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(path.join(ROOT, skill, 'SKILL.md'), path.join(destDir, 'SKILL.md'));
+    fs.writeFileSync(path.join(destDir, 'SKILL.md'), extractSkillBody(path.join(ROOT, skill)));
   }
 
   // Install the bin scripts referenced by the preamble.
@@ -159,7 +164,7 @@ describeIfSelected('Context Skills E2E (live-fire)', [
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 12,
       allowedTools: ['Skill', 'Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-save-routing',
       runId,
     });
@@ -181,7 +186,7 @@ describeIfSelected('Context Skills E2E (live-fire)', [
     expect(routedToContextSave).toBe(true);
     expect(files.length).toBeGreaterThan(0);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // ── 2. Round-trip: save then restore in the same session ─────────────
   testConcurrentIfSelected('context-save-then-restore-roundtrip', async () => {
@@ -201,7 +206,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 25,
       allowedTools: ['Skill', 'Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'context-save-then-restore-roundtrip',
       runId,
     });
@@ -228,7 +233,7 @@ Do NOT use AskUserQuestion.`,
     expect(files.length).toBeGreaterThan(0);
     expect(restoreMentionsTitle).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 240_000);
+  }, CAPTURE_MS);
 
   // ── 3. /context-restore <fragment> loads the matching save ───────────
   testConcurrentIfSelected('context-restore-fragment-match', async () => {
@@ -251,7 +256,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 10,
       allowedTools: ['Skill', 'Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-restore-fragment-match',
       runId,
     });
@@ -275,7 +280,7 @@ Do NOT use AskUserQuestion.`,
     expect(loadedPayments).toBe(true);
     expect(didNotLoadOthers).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // ── 4. /context-restore with zero saves → graceful empty-state ───────
   testConcurrentIfSelected('context-restore-empty-state', async () => {
@@ -290,7 +295,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 8,
       allowedTools: ['Skill', 'Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'context-restore-empty-state',
       runId,
     });
@@ -315,7 +320,7 @@ Do NOT use AskUserQuestion.`,
     expect(routedToRestore).toBe(true);
     expect(gracefulMessage).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 150_000);
+  }, CAPTURE_MS);
 
   // ── 5. /context-restore list redirects to /context-save list ─────────
   testConcurrentIfSelected('context-restore-list-delegates', async () => {
@@ -330,7 +335,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 8,
       allowedTools: ['Skill', 'Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'context-restore-list-delegates',
       runId,
     });
@@ -353,7 +358,7 @@ Do NOT use AskUserQuestion.`,
     expect(routedToRestore).toBe(true);
     expect(mentionsSaveList).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 150_000);
+  }, CAPTURE_MS);
 
   // ── 6. Legacy compat: pre-rename save files still load ───────────────
   testConcurrentIfSelected('context-restore-legacy-compat', async () => {
@@ -377,7 +382,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 8,
       allowedTools: ['Skill', 'Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-restore-legacy-compat',
       runId,
     });
@@ -410,7 +415,7 @@ Do NOT use AskUserQuestion.`,
     expect(routedToRestore).toBe(true);
     expect(loadedLegacy).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // ── 7. /context-save list: default filters to current branch ─────────
   testConcurrentIfSelected('context-save-list-current-branch', async () => {
@@ -433,7 +438,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 10,
       allowedTools: ['Skill', 'Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-save-list-current-branch',
       runId,
     });
@@ -443,12 +448,18 @@ Do NOT use AskUserQuestion.`,
     // Broad surface: the list output may only appear in bash tool_result
     // entries (find output, file reads) rather than the agent's final text.
     const out = fullOutputSurface(result);
-    // Must show the main-branch save. Hide the other branches' saves.
-    // Match by filename timestamp (stable, unambiguous) plus a looser
-    // prose check.
+    // Must show the main-branch save. Match by filename timestamp (stable,
+    // unambiguous) plus a looser prose check.
     const showsMain = /20260101-120000|main-work/.test(out);
-    const hidesAlpha = !/20260202-120000/.test(out);
-    const hidesBeta = !/20260303-120000/.test(out);
+    // The hide-assertions scan the FINAL TEXT only. This test went 0-for-26
+    // ($5.28 burned, zero passes) because they used the broad surface: any
+    // agent that ran `ls` on the checkpoints dir — the natural first step of
+    // a list flow — surfaced all three filenames in a tool_result and failed,
+    // even when its user-facing listing filtered correctly. What must hide
+    // the other branches is the LISTING the user sees, not the agent's eyes.
+    const finalText = result.output ?? '';
+    const hidesAlpha = !/20260202-120000|LISTCURR_ALPHA_TOKEN/.test(finalText);
+    const hidesBeta = !/20260303-120000|LISTCURR_BETA_TOKEN/.test(finalText);
     const routed = skillCalls(result).includes('context-save');
     const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
 
@@ -462,7 +473,7 @@ Do NOT use AskUserQuestion.`,
     expect(hidesAlpha).toBe(true);
     expect(hidesBeta).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // ── 8. /context-save list --all: shows every branch ──────────────────
   testConcurrentIfSelected('context-save-list-all-branches', async () => {
@@ -484,7 +495,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 10,
       allowedTools: ['Skill', 'Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-save-list-all-branches',
       runId,
     });
@@ -510,5 +521,5 @@ Do NOT use AskUserQuestion.`,
     expect(routed).toBe(true);
     expect(filesShown).toBe(3);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 180_000);
+  }, CAPTURE_MS);
 });

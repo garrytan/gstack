@@ -22,7 +22,9 @@
  * carries the same {{PREAMBLE}} format spec + Step 0 prose as verbose, with
  * strictly less unrelated review-section text in context.
  */
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   setupPlanCeoDir,
@@ -33,8 +35,7 @@ import {
 } from './helpers/auq-sdk-capture';
 import { judgeRecommendation } from './helpers/llm-judge';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const runId = `auq-ab-${process.env.EVALS_RUN_ID ?? 'local'}`;
 
 async function grade(label: string, dir: string) {
@@ -109,6 +110,6 @@ describeE2E('AUQ no-degradation: verbose vs carved (periodic)', () => {
       // eslint-disable-next-line no-console
       console.log('[AUQ-AB] NO DEGRADATION:\n' + summary);
     },
-    600_000,
+    CAPTURE_LONG_MS,
   );
 });

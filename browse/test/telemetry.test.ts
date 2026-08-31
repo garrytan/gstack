@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -8,8 +8,21 @@ const TELEMETRY_FILE = path.join(TMP_HOME, 'analytics', 'browse-telemetry.jsonl'
 
 // Use GSTACK_HOME env to redirect telemetry writes (read each call,
 // not cached at module-load).
-process.env.GSTACK_HOME = TMP_HOME;
-process.env.GSTACK_TELEMETRY_OFF = '0';
+// Scoped to this file's execution window — module-scope env assignment
+// leaks into sibling files in the shard process (see
+// test/gstack-home-module-scope.test.ts).
+const ORIGINAL_GSTACK_HOME = process.env.GSTACK_HOME;
+const ORIGINAL_TELEMETRY_OFF = process.env.GSTACK_TELEMETRY_OFF;
+beforeAll(() => {
+  process.env.GSTACK_HOME = TMP_HOME;
+  process.env.GSTACK_TELEMETRY_OFF = '0';
+});
+afterAll(() => {
+  if (ORIGINAL_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIGINAL_GSTACK_HOME;
+  if (ORIGINAL_TELEMETRY_OFF === undefined) delete process.env.GSTACK_TELEMETRY_OFF;
+  else process.env.GSTACK_TELEMETRY_OFF = ORIGINAL_TELEMETRY_OFF;
+});
 
 beforeEach(async () => {
   await fs.rm(TMP_HOME, { recursive: true, force: true });

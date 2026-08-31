@@ -4,7 +4,7 @@
 
 Review the diff for structural issues that tests don't catch.
 
-1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+1. Read `~/.claude/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
 2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
 
@@ -118,7 +118,7 @@ If Codex is available, run a lightweight design check on the diff:
 ```bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_DRL"
+codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR_DRL"
 ```
 
 Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
@@ -183,6 +183,7 @@ Based on the scope signals above, select which specialists to dispatch.
 5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
 6. **API Contract** — if SCOPE_API=true. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
 7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `~/.claude/skills/gstack/review/design-checklist.md`
+8. **Simplification** — if DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/simplification.md`. Advisory-only lens: hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
 
 ### Adaptive gating
 
@@ -192,7 +193,7 @@ For each conditional specialist that passed scope gating, check the `gstack-spec
 - If tagged `[GATE_CANDIDATE]` (0 findings in 10+ dispatches): skip it. Print: "[specialist] auto-gated (0 findings in N reviews)."
 - If tagged `[NEVER_GATE]`: always dispatch regardless of hit rate. Security and data-migration are insurance policy specialists — they should run even when silent.
 
-**Force flags:** If the user's prompt includes `--security`, `--performance`, `--testing`, `--maintainability`, `--data-migration`, `--api-contract`, `--design`, or `--all-specialists`, force-include that specialist regardless of gating.
+**Force flags:** If the user's prompt includes `--security`, `--performance`, `--testing`, `--maintainability`, `--data-migration`, `--api-contract`, `--design`, `--simplification`, or `--all-specialists`, force-include that specialist regardless of gating.
 
 Note which specialists were selected, gated, and skipped. Print the selection:
 "Dispatching N specialists: [names]. Skipped: [names] (scope not detected). Gated: [names] (0 findings in N+ reviews)."
@@ -245,7 +246,7 @@ CHECKLIST:
 
 **Subagent configuration:**
 - Use `subagent_type: "general-purpose"`
-- Do NOT use `run_in_background` — all specialists must complete before merge
+- Pass `run_in_background: false` on every specialist Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198, and all specialists must complete before merge. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.)
 - If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.
 
 ---
@@ -277,8 +278,14 @@ Group findings by fingerprint. For findings sharing the same fingerprint:
 - Confidence 3-4: move to appendix (suppress from main findings)
 - Confidence 1-2: suppress entirely
 
+**Advisory carve-out (simplification specialist):**
+Findings with `"advisory": true` are excluded from BOTH the quality_score
+summation and the findings-count header below — they are structure suggestions,
+not defects, and must not make "5 findings … 10/10" look contradictory. In
+Fix-First they are ASK-only: NEVER auto-applied, even when mechanical.
+
 **Compute PR Quality Score:**
-After merging, compute the quality score:
+After merging, compute the quality score over NON-advisory findings only:
 `quality_score = max(0, 10 - (critical_count * 2 + informational_count * 0.5))`
 Cap at 10. Log this in the review result at the end.
 
@@ -288,7 +295,8 @@ Present the merged findings in the same format as the current review:
 ```
 SPECIALIST REVIEW: N findings (X critical, Y informational) from Z specialists
 
-[For each finding, in order: CRITICAL first, then INFORMATIONAL, sorted by confidence descending]
+[For each finding, in order: CRITICAL first, then INFORMATIONAL, sorted by confidence descending;
+ advisory findings last, each rendered with an [ADVISORY] label in place of the severity]
 [SEVERITY] (confidence: N/10, specialist: name) path:line — summary
   Fix: recommended fix
   [If MULTI-SPECIALIST CONFIRMED: show confirmation note]
@@ -296,16 +304,29 @@ SPECIALIST REVIEW: N findings (X critical, Y informational) from Z specialists
 PR Quality Score: X/10
 ```
 
+**Simplification footer (after the score line):**
+- If the simplification specialist was dispatched and returned findings, sum
+  their `lines_removable` values and print: `net: -N lines possible` (omit
+  findings without the field from the sum).
+- If it was dispatched and returned NO FINDINGS, print:
+  `Simplification: lean already — nothing to cut.`
+- If it was not dispatched, print neither line.
+
 These findings flow into the Fix-First flow (item 4) alongside the checklist pass (Step 9).
-The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification.
+The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification (except advisory findings, which are ASK-only per the carve-out above).
 
 **Compile per-specialist stats:**
 After merging findings, compile a `specialists` object for the review-log persist.
-For each specialist (testing, maintainability, security, performance, data-migration, api-contract, design, red-team):
+For each specialist (testing, maintainability, security, performance, data-migration, api-contract, design, simplification, red-team):
 - If dispatched: `{"dispatched": true, "findings": N, "critical": N, "informational": N}`
 - If skipped by scope: `{"dispatched": false, "reason": "scope"}`
 - If skipped by gating: `{"dispatched": false, "reason": "gated"}`
 - If not applicable (e.g., red-team not activated): omit from the object
+
+Advisory findings COUNT in the stats `findings` field — the advisory
+carve-out governs the quality score and the findings-count header only.
+Logging simplification's advisories as `findings: 0` would auto-gate the
+lens into permanent silence after 10 dispatches.
 
 Include the Design specialist even though it uses `design-checklist.md` instead of the specialist schema files.
 Remember these stats — you will need them for the review-log entry in Step 5.8.
@@ -383,7 +404,8 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
 7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
+   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) on the fixed code, then re-run this review (Step 9 items 2-6) against the updated diff. Repeat until one full pass applies ZERO fixes — tests green and review clean — then continue to Step 12. NEVER stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no user decision in it, and stopping there breaks the fully-automated contract (#2391).
+   - **Bound: 3 fix cycles.** If the 3rd cycle still applies fixes, STOP and report which findings keep reappearing — a review that won't converge is a genuine blocker worth human eyes, not a re-run request.
    - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 12.
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`

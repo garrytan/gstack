@@ -19,6 +19,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   listBrowserSkills,
@@ -185,19 +186,123 @@ async function handleTest(args: string[], ctx: SkillCommandContext): Promise<str
     throw new Error(`Skill "${name}" has no script.test.ts at ${testFile}`);
   }
 
-  const proc = Bun.spawn(['bun', 'test', testFile], {
+  const { stdout, stderr, exitCode } = await runToFiles(['bun', 'test', testFile], {
     cwd: skill.dir,
-    stdout: 'pipe',
-    stderr: 'pipe',
     env: process.env,
   });
-  const exitCode = await proc.exited;
-  const stdout = proc.stdout ? await new Response(proc.stdout).text() : '';
-  const stderr = proc.stderr ? await new Response(proc.stderr).text() : '';
+
   if (exitCode !== 0) {
-    throw new Error(`Skill "${name}" tests failed (exit ${exitCode}).\n${stderr}`);
+    throw new Error(`Skill "${name}" tests failed (exit ${exitCode}).\n${stderr || stdout}`);
   }
-  return stderr || stdout || `tests passed for "${name}"`;
+
+  // Return both streams, concatenated in bun's own layout (banner, blank line,
+  // summary). Picking one drops half the report, and the half callers assert on
+  // (the summary) is the half that lives on stderr.
+  const report = (stdout + stderr).trim();
+  if (!report) {
+    // A passing `bun test` always prints a summary, so exit 0 with no output at
+    // all means we failed to capture the run rather than that it went well.
+    // Say so instead of returning a synthetic "passed" that can't be verified.
+    throw new Error(`Skill "${name}" tests exited 0 but produced no output — the run was not captured.`);
+  }
+  return report + '\n';
+}
+
+interface RunToFilesOptions {
+  cwd: string;
+  env: Record<string, string> | NodeJS.ProcessEnv;
+  /** Kill the child after this many ms. Omit for no timeout. */
+  timeoutMs?: number;
+  /** Cap the captured stdout. Bytes past the cap are dropped, `truncated` set. */
+  maxStdoutBytes?: number;
+}
+
+interface RunToFilesResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+  truncated: boolean;
+}
+
+/**
+ * Run a command, capturing stdout/stderr by pointing the child's file
+ * descriptors at temp files rather than at pipes.
+ *
+ * Why not `stdout: 'pipe'`: under a loaded parent, the FIRST piped spawn in a
+ * process intermittently yields an empty stderr even though the child wrote it
+ * and exited 0. The data is lost inside Bun's async pipe plumbing, so neither
+ * draining before awaiting exit nor a manual `getReader()` loop avoids it —
+ * both were measured losing the same bytes in the same position. It surfaced in
+ * `$B skill test`, where `bun test` splits its report across streams (banner ->
+ * stdout, pass/fail summary -> stderr) so a dropped stderr silently degraded
+ * the result to just the banner; for `$B skill run` the same loss would blank
+ * the skill's JSON result and still look like success.
+ *
+ * Writing to files takes user-space streams out of the path: the kernel has
+ * flushed every byte by the time the child exits, so the post-exit read is
+ * always complete. It also removes the pipe-buffer stall risk on chatty
+ * children. `Bun.spawnSync` captures reliably too, but blocking the event loop
+ * is not an option here — a spawned skill calls back into this same daemon on
+ * GSTACK_PORT, so a synchronous wait would deadlock it.
+ */
+async function runToFiles(cmd: string[], opts: RunToFilesOptions): Promise<RunToFilesResult> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-'));
+  const outPath = path.join(dir, 'stdout');
+  const errPath = path.join(dir, 'stderr');
+  try {
+    // Hand Bun the destinations as BunFiles rather than raw fds we opened: Bun
+    // then owns the descriptors for the child's whole lifetime. Opening them
+    // here and closing them after exit instead put us in Bun's fd bookkeeping,
+    // which surfaced as a stray EBADF from epoll_ctl on a later spawn.
+    const proc = Bun.spawn(cmd, {
+      windowsHide: true,
+      cwd: opts.cwd,
+      env: opts.env as any,
+      stdout: Bun.file(outPath) as any,
+      stderr: Bun.file(errPath) as any,
+    });
+
+    let timedOut = false;
+    const killer = opts.timeoutMs === undefined ? undefined : setTimeout(() => {
+      timedOut = true;
+      try { proc.kill(); } catch {}
+    }, opts.timeoutMs);
+
+    const exitCode = await proc.exited;
+    if (killer !== undefined) clearTimeout(killer);
+
+    // The child's own writes are flushed by the kernel when it exits, so
+    // everything it wrote is readable here.
+    const cap = opts.maxStdoutBytes ?? Infinity;
+    const stdout = readCappedFile(outPath, cap);
+    const stderr = readCappedFile(errPath, cap);
+    return {
+      stdout: stdout.text,
+      stderr: stderr.text,
+      exitCode: timedOut ? 124 : exitCode,
+      timedOut,
+      truncated: stdout.truncated,
+    };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+interface CappedRead { text: string; truncated: boolean; }
+
+/** Read at most `capBytes` from a file, reporting whether anything was dropped. */
+function readCappedFile(p: string, capBytes: number): CappedRead {
+  const size = fs.statSync(p).size;
+  if (size <= capBytes) return { text: fs.readFileSync(p, 'utf-8'), truncated: false };
+  const fd = fs.openSync(p, 'r');
+  try {
+    const buf = Buffer.alloc(capBytes);
+    const read = fs.readSync(fd, buf, 0, capBytes, 0);
+    return { text: buf.subarray(0, read).toString('utf-8'), truncated: true };
+  } finally {
+    try { fs.closeSync(fd); } catch {}
+  }
 }
 
 // ─── rm ─────────────────────────────────────────────────────────
@@ -263,69 +368,17 @@ export async function spawnSkill(opts: SpawnSkillOptions): Promise<SpawnSkillRes
       throw new Error(`Skill "${opts.skill.name}" missing script.ts at ${scriptPath}`);
     }
 
-    const proc = Bun.spawn(['bun', 'run', scriptPath, '--', ...opts.skillArgs], {
+    // Captured via temp files, not pipes — see runToFiles for why. A dropped
+    // read here would blank the skill's JSON result and still report success.
+    return await runToFiles(['bun', 'run', scriptPath, '--', ...opts.skillArgs], {
       cwd: opts.skill.dir,
       env,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      timeoutMs: opts.timeoutSeconds * 1000,
+      maxStdoutBytes: MAX_STDOUT_BYTES,
     });
-
-    let timedOut = false;
-    const killer = setTimeout(() => {
-      timedOut = true;
-      try { proc.kill(); } catch {}
-    }, opts.timeoutSeconds * 1000);
-
-    const stdoutPromise = readCapped(proc.stdout, MAX_STDOUT_BYTES);
-    const stderrPromise = readCapped(proc.stderr, MAX_STDOUT_BYTES);
-
-    const exitCode = await proc.exited;
-    clearTimeout(killer);
-
-    const stdoutResult = await stdoutPromise;
-    const stderrResult = await stderrPromise;
-
-    return {
-      stdout: stdoutResult.text,
-      stderr: stderrResult.text,
-      exitCode: timedOut ? 124 : exitCode,
-      timedOut,
-      truncated: stdoutResult.truncated,
-    };
   } finally {
     revokeSkillToken(opts.skill.name, spawnId);
   }
-}
-
-interface CappedRead { text: string; truncated: boolean; }
-
-async function readCapped(stream: ReadableStream<Uint8Array> | undefined, capBytes: number): Promise<CappedRead> {
-  if (!stream) return { text: '', truncated: false };
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let truncated = false;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.length;
-      if (total > capBytes) {
-        truncated = true;
-        // Take only what fits; drop the rest of the stream (release reader).
-        const fits = value.length - (total - capBytes);
-        if (fits > 0) chunks.push(value.subarray(0, fits));
-        try { await reader.cancel(); } catch {}
-        break;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    try { reader.releaseLock(); } catch {}
-  }
-  const buf = Buffer.concat(chunks.map(c => Buffer.from(c)));
-  return { text: buf.toString('utf-8'), truncated };
 }
 
 // ─── env construction (security-critical) ───────────────────────

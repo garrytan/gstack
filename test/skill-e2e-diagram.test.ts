@@ -17,6 +17,7 @@
  * with its preamble.
  */
 import { describe, expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -73,7 +74,7 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
         workingDirectory: dir,
         maxTurns: 25,
         allowedTools: ['Bash', 'Read', 'Write'],
-        timeout: 240_000,
+        timeout: CAPTURE_MS,
         testName: 'diagram-triplet',
         runId,
       });
@@ -98,7 +99,7 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
     } finally {
       try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 
   testConcurrentIfSelected('diagram-authoring-quality', async () => {
     const dir = setupDir('diagram-quality-');
@@ -111,7 +112,7 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
         workingDirectory: dir,
         maxTurns: 25,
         allowedTools: ['Bash', 'Read', 'Write'],
-        timeout: 240_000,
+        timeout: CAPTURE_MS,
         testName: 'diagram-authoring-quality',
         runId,
       });
@@ -149,5 +150,5 @@ Respond with JSON: {"score": N, "reasoning": "..."}`,
     } finally {
       try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 });

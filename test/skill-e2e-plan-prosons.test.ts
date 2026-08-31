@@ -27,6 +27,7 @@
  *   cases will land as follow-up PRs per skill.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
@@ -161,7 +162,7 @@ ${captureInstruction(outFile)}
 After writing the file, stop.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-review-prosons-format',
       runId,
       model: 'claude-opus-4-7',
@@ -191,7 +192,7 @@ After writing the file, stop.`,
 
     // (recommended) label on one option
     expect(captured).toMatch(RECOMMENDED_LABEL_RE);
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- Case 2: Hard-stop escape NEGATIVE (CT2) ---
@@ -220,7 +221,7 @@ ${captureInstruction(outFile)}
 After writing the file, stop.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-review-prosons-hardstop-neg',
       runId,
       model: 'claude-opus-4-7',
@@ -241,7 +242,7 @@ After writing the file, stop.`,
     // Must have real pros and cons (≥2 ✅ + ≥1 ❌ per option)
     expect(countChars(captured, '✅')).toBeGreaterThanOrEqual(4);
     expect(countChars(captured, '❌')).toBeGreaterThanOrEqual(2);
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- Case 3: Neutral-posture NEGATIVE (CT2) ---
@@ -270,7 +271,7 @@ ${captureInstruction(outFile)}
 After writing the file, stop.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-review-prosons-neutral-neg',
       runId,
       model: 'claude-opus-4-7',
@@ -292,7 +293,7 @@ After writing the file, stop.`,
     expect(captured).toMatch(RECOMMENDED_LABEL_RE);
     // Recommendation line must contain "because" (concrete reason, not "no preference")
     expect(captured).toMatch(/[Rr]ecommendation:.*because/);
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- Case 4: Hard-stop POSITIVE (escape allowed when legitimately one-sided) ---
@@ -321,7 +322,7 @@ ${captureInstruction(outFile)}
 After writing the file, stop.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-ceo-review-prosons-cadence',
       runId,
       model: 'claude-opus-4-7',
@@ -344,7 +345,7 @@ After writing the file, stop.`,
     const hasEscape = HARD_STOP_ESCAPE_RE.test(captured);
     const hasProsAndCons = countChars(captured, '✅') >= 1 && countChars(captured, '❌') >= 1;
     expect(hasEscape || hasProsAndCons).toBe(true);
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 afterAll(async () => {

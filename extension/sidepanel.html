@@ -6,16 +6,6 @@
   <link rel="stylesheet" href="lib/xterm.css">
 </head>
 <body>
-  <!-- Security shield — reflects ~/.gstack/security/session-state.json status.
-       Hidden until the sidebar knows its state (avoids flicker on first load).
-       Consumes /health.security — see browse/src/security.ts getStatus(). -->
-  <div class="security-shield" id="security-shield" role="status" aria-label="Security status: unknown" style="display:none" title="Security">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    </svg>
-    <span class="security-shield-label" id="security-shield-label">SEC</span>
-  </div>
-
   <!-- Connection status banner -->
   <div class="conn-banner" id="conn-banner" style="display:none">
     <span class="conn-banner-text" id="conn-banner-text">Reconnecting...</span>

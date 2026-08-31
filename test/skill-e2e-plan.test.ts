@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled,
@@ -81,7 +82,10 @@ Write your complete review directly to ${planDir}/review-output.md
 Focus on reviewing the plan content: architecture, error handling, security, and performance.`,
       workingDirectory: planDir,
       maxTurns: 15,
-      timeout: 360_000,
+      // 540s: the evidence-before-claimed-limitations directive and the
+      // design-doc discovery block (fork port wave 2) add real probing turns;
+      // main cleared this at 243s, the enriched skill needs more headroom.
+      timeout: 540_000,
       testName: 'plan-ceo-review',
       runId,
       model: 'claude-opus-4-7',
@@ -100,7 +104,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       const review = fs.readFileSync(reviewPath, 'utf-8');
       expect(review.length).toBeGreaterThan(200);
     }
-  }, 420_000);
+  }, PTY_MS);
 });
 
 // --- Plan CEO Review (SELECTIVE EXPANSION) E2E ---
@@ -168,7 +172,7 @@ Write your complete review directly to ${planDir}/review-output-selective.md
 Focus on reviewing the plan content: architecture, error handling, security, and performance.`,
       workingDirectory: planDir,
       maxTurns: 15,
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'plan-ceo-review-selective',
       runId,
       model: 'claude-opus-4-7',
@@ -185,7 +189,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       const review = fs.readFileSync(reviewPath, 'utf-8');
       expect(review.length).toBeGreaterThan(200);
     }
-  }, 420_000);
+  }, PTY_MS);
 });
 
 // --- Plan CEO Review SCOPE EXPANSION energy (V1.1 mode-posture regression gate) ---
@@ -236,7 +240,7 @@ Choose SCOPE EXPANSION mode. Skip any AskUserQuestion calls — this is non-inte
 Write your expansion proposals to ${planDir}/proposals.md with ONLY the proposal text — no conversational wrapper, no review summary, no mode analysis. Each proposal separated by "---".`,
       workingDirectory: planDir,
       maxTurns: 15,
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'plan-ceo-review-expansion-energy',
       runId,
       model: 'claude-opus-4-7',
@@ -267,7 +271,7 @@ Write your expansion proposals to ${planDir}/proposals.md with ONLY the proposal
     // Pass threshold: 4/5 on both axes (good — matches posture with minor weakness).
     expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // surface_framing
     expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // decision_preservation
-  }, 600_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Plan Eng Review E2E ---
@@ -345,7 +349,7 @@ Write your complete review directly to ${planDir}/review-output.md
 Focus on architecture, code quality, tests, and performance sections.`,
       workingDirectory: planDir,
       maxTurns: 15,
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'plan-eng-review',
       runId,
       model: 'claude-opus-4-7',
@@ -363,7 +367,7 @@ Focus on architecture, code quality, tests, and performance sections.`,
       const review = fs.readFileSync(reviewPath, 'utf-8');
       expect(review.length).toBeGreaterThan(200);
     }
-  }, 420_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Plan-Eng-Review Test-Plan Artifact E2E ---
@@ -473,7 +477,7 @@ Write your review to ${planDir}/review-output.md`,
       workingDirectory: planDir,
       maxTurns: 25,
       allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep'],
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'plan-eng-review-artifact',
       runId,
       model: 'claude-opus-4-7',
@@ -504,7 +508,7 @@ Write your review to ${planDir}/review-output.md`,
     if (newFiles.length === 0) {
       console.warn('SOFT FAIL: No test-plan artifact written — agent did not follow artifact instructions');
     }
-  }, 420_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Office Hours Spec Review E2E ---
@@ -549,8 +553,14 @@ Summarize what the "Spec Review Loop" section does — specifically:
 
 Write your summary to ${ohDir}/spec-review-summary.md`,
       workingDirectory: ohDir,
-      maxTurns: 8,
-      timeout: 120_000,
+      // 12, not 8 (#2473): the Spec Review Loop content is CARVED out of
+      // SKILL.md into office-hours/sections/, so the agent legitimately needs
+      // discovery hops (grep SKILL.md -> ls sections/ -> read the section)
+      // before it can write. The 8-turn budget predates the carve — observed
+      // failures wrote a correct summary on tool-turn 8 and hit the cap on
+      // the closing text turn (error_max_turns at 9 turns, deterministic).
+      maxTurns: 12,
+      timeout: JUDGE_MS,
       testName: 'office-hours-spec-review',
       runId,
     });
@@ -566,7 +576,7 @@ Write your summary to ${ohDir}/spec-review-summary.md`,
       expect(summary).toMatch(/agent|subagent/);
       expect(summary).toMatch(/3.*iteration|iteration.*3|maximum.*3/);
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Plan CEO Review Benefits-From E2E ---
@@ -610,7 +620,7 @@ Summarize what happens when no design doc is found — specifically:
 Write your summary to ${benefitsDir}/benefits-summary.md`,
       workingDirectory: benefitsDir,
       maxTurns: 8,
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'plan-ceo-review-benefits',
       runId,
     });
@@ -625,7 +635,7 @@ Write your summary to ${benefitsDir}/benefits-summary.md`,
       expect(summary).toMatch(/office.hours/);
       expect(summary).toMatch(/design doc|no design/i);
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Plan Review Report E2E ---
@@ -697,7 +707,7 @@ CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After co
 This review report at the bottom of the plan is the MOST IMPORTANT deliverable of this test.`,
       workingDirectory: planDir,
       maxTurns: 20,
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'plan-review-report',
       runId,
       model: 'claude-opus-4-7',
@@ -759,7 +769,7 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
     ).toBe(true);
 
     console.log('Plan review report found at bottom of plan.md (ends with unresolved status)');
-  }, 420_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Codex Offering E2E ---
@@ -816,7 +826,7 @@ Summarize the Codex/${featureName} integration — answer these specific questio
 Write your summary to ${testDir}/${testName}-summary.md`,
       workingDirectory: testDir,
       maxTurns: 8,
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName,
       runId,
     });
@@ -841,19 +851,19 @@ Write your summary to ${testDir}/${testName}-summary.md`,
 
   testConcurrentIfSelected('codex-offered-office-hours', async () => {
     await checkCodexOffering('office-hours', 'codex-offered-office-hours', 'second opinion');
-  }, 180_000);
+  }, CAPTURE_MS);
 
   testConcurrentIfSelected('codex-offered-ceo-review', async () => {
     await checkCodexOffering('plan-ceo-review', 'codex-offered-ceo-review', 'outside voice');
-  }, 180_000);
+  }, CAPTURE_MS);
 
   testConcurrentIfSelected('codex-offered-design-review', async () => {
     await checkCodexOffering('plan-design-review', 'codex-offered-design-review', 'design outside voices');
-  }, 180_000);
+  }, CAPTURE_MS);
 
   testConcurrentIfSelected('codex-offered-eng-review', async () => {
     await checkCodexOffering('plan-eng-review', 'codex-offered-eng-review', 'outside voice');
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

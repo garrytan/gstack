@@ -15,7 +15,6 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { spawn } from "node:child_process";
@@ -86,7 +85,7 @@ export async function generate(opts: GenerateOptions): Promise<string> {
 
   const to = opts.to ?? "pdf";
   const outputPath = path.resolve(
-    opts.output ?? path.join(os.tmpdir(), `${deriveSlug(input)}.${to}`),
+    opts.output ?? path.join(browseClient.PAYLOAD_TMP_DIR, `${deriveSlug(input)}.${to}`),
   );
 
   // Stage 1: read markdown
@@ -358,7 +357,7 @@ export async function preview(opts: PreviewOptions): Promise<string> {
   progress.end("Rendering HTML", `${rendered.meta.wordCount} words`);
 
   // Write to a stable path under /tmp so the user can reload in the same tab.
-  const previewPath = path.join(os.tmpdir(), `make-pdf-preview-${deriveSlug(input)}.html`);
+  const previewPath = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-preview-${deriveSlug(input)}.html`);
   fs.writeFileSync(previewPath, rendered.html, "utf8");
 
   progress.begin("Opening preview");
@@ -378,7 +377,7 @@ function deriveSlug(p: string): string {
 
 function tmpFile(ext: string): string {
   const hash = crypto.randomBytes(6).toString("hex");
-  return path.join(os.tmpdir(), `make-pdf-${process.pid}-${hash}.${ext}`);
+  return path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-${process.pid}-${hash}.${ext}`);
 }
 
 function tryOpen(pathOrUrl: string): void {

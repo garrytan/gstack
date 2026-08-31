@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled,
@@ -47,7 +48,7 @@ describeIfSelected('Skill E2E tests', [
 Report the results of each command.`,
       workingDirectory: tmpDir,
       maxTurns: 7,
-      timeout: 60_000,
+      timeout: JUDGE_MS,
       testName: 'browse-basic',
       runId,
     });
@@ -56,7 +57,7 @@ Report the results of each command.`,
     recordE2E(evalCollector, 'browse basic commands', 'Skill E2E tests', result);
     expect(result.browseErrors).toHaveLength(0);
     expect(result.exitReason).toBe('success');
-  }, 90_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('browse-snapshot', async () => {
     const result = await runSkillTest({
@@ -69,7 +70,7 @@ Report the results of each command.`,
 Report what each command returned.`,
       workingDirectory: tmpDir,
       maxTurns: 9,
-      timeout: 60_000,
+      timeout: JUDGE_MS,
       testName: 'browse-snapshot',
       runId,
     });
@@ -81,7 +82,7 @@ Report what each command returned.`,
       console.warn('Browse errors (non-fatal):', result.browseErrors);
     }
     expect(result.exitReason).toBe('success');
-  }, 90_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('skillmd-setup-discovery', async () => {
     // P2 (v1.2.0): the browse SETUP/binary-discovery block moved from the root
@@ -104,7 +105,7 @@ Then run: $B text
 Report whether it worked.`,
       workingDirectory: tmpDir,
       maxTurns: 10,
-      timeout: 60_000,
+      timeout: JUDGE_MS,
       testName: 'skillmd-setup-discovery',
       runId,
     });
@@ -112,7 +113,7 @@ Report whether it worked.`,
     recordE2E(evalCollector, 'SKILL.md setup block discovery', 'Skill E2E tests', result);
     expect(result.browseErrors).toHaveLength(0);
     expect(result.exitReason).toBe('success');
-  }, 90_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('skillmd-no-local-binary', async () => {
     // Create a tmpdir with no browse binary — no local .claude/skills/gstack/browse/dist/browse
@@ -149,7 +150,7 @@ Report the exact output. Do NOT try to fix or install anything — just report w
 
     // Clean up
     try { fs.rmSync(emptyDir, { recursive: true, force: true }); } catch {}
-  }, 60_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('skillmd-outside-git', async () => {
     // Create a tmpdir outside any git repo
@@ -182,7 +183,7 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
 
     // Clean up
     try { fs.rmSync(nonGitDir, { recursive: true, force: true }); } catch {}
-  }, 60_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('operational-learning', async () => {
     const opDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-oplearn-'));
@@ -286,7 +287,7 @@ Log the operational learning now. Then say what you logged.`,
 
     // Clean up
     try { fs.rmSync(opDir, { recursive: true, force: true }); } catch {}
-  }, 90_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('session-awareness', async () => {
     const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-session-'));
@@ -353,7 +354,7 @@ Since this is non-interactive, DO NOT actually call AskUserQuestion. Instead, wr
 Remember: _SESSIONS=4, so ELI16 mode is active. The user is juggling multiple windows and may not remember what this conversation is about. Re-ground them.`,
       workingDirectory: sessionDir,
       maxTurns: 8,
-      timeout: 60_000,
+      timeout: JUDGE_MS,
       testName: 'session-awareness',
       runId,
     });
@@ -394,7 +395,7 @@ Remember: _SESSIONS=4, so ELI16 mode is active. The user is juggling multiple wi
 
     // Clean up
     try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
-  }, 90_000);
+  }, JUDGE_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

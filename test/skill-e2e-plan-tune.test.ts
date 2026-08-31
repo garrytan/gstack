@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, expect } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
@@ -151,7 +152,7 @@ IMPORTANT:
       workingDirectory: workDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'plan-tune-inspect',
       runId,
     });
@@ -184,5 +185,5 @@ IMPORTANT:
     if (!noticedOverride) {
       console.warn('Agent did not surface override/skip behavior from the log');
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 });

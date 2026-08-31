@@ -74,6 +74,75 @@ describe('dev-setup: never silently mutates global settings.json', () => {
   });
 });
 
+describe('setup: PT_EXPLICIT provenance (Conductor auto-opt-in respects explicit decisions)', () => {
+  // The phantom-hooks root cause (Bug A): the Conductor auto-opt-in upgraded
+  // PT_DECISION "prompt" → "yes" even when "prompt" came from dev-setup's
+  // EXPLICIT --plan-tune-hooks=prompt flag, so every new Conductor workspace
+  // installed hooks pointing at its ephemeral worktree.
+
+  test('flag and env set PT_EXPLICIT=1', () => {
+    expect(setupSrc).toContain('PT_EXPLICIT=1');
+    const flagIdx = setupSrc.indexOf('PT_DECISION="$PLAN_TUNE_HOOKS_MODE"');
+    const explicitIdx = setupSrc.indexOf('PT_EXPLICIT=1', flagIdx);
+    expect(flagIdx).toBeGreaterThan(-1);
+    expect(explicitIdx).toBeGreaterThan(flagIdx);
+  });
+
+  test('the Conductor auto-opt-in fires only on the true silent fall-through', () => {
+    expect(setupSrc).toMatch(
+      /\[ "\$PT_DECISION" = "prompt" \] && \[ "\$PT_EXPLICIT" -eq 0 \] && \{ \[ -n "\$\{CONDUCTOR_WORKSPACE_PATH:-\}" \] \|\| \[ -n "\$\{CONDUCTOR_PORT:-\}" \]; \}/,
+    );
+  });
+
+  test('config provenance uses gstack-config has (env-resolution-safe), never a hardcoded config grep', () => {
+    // `gstack-config get` returns the default "prompt" for absent keys, so
+    // key PRESENCE must come from `has`, which resolves GSTACK_STATE_ROOT /
+    // GSTACK_HOME / GSTACK_STATE_DIR the same way `get` does. A hardcoded
+    // grep of ~/.gstack/config.yaml misclassifies under env overrides.
+    expect(setupSrc).toMatch(/"\$GSTACK_CONFIG" has plan_tune_hooks/);
+    expect(setupSrc).not.toMatch(/grep -q ["']\^plan_tune_hooks:/);
+  });
+});
+
+describe('gstack-config: has subcommand (key-presence provenance)', () => {
+  let tmpHome2: string;
+  let env2: NodeJS.ProcessEnv;
+
+  beforeAll(() => {
+    tmpHome2 = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cfg-has-'));
+    env2 = { ...process.env, GSTACK_STATE_ROOT: tmpHome2 };
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpHome2, { recursive: true, force: true });
+  });
+
+  function has(key: string): number {
+    try {
+      execSync(`${GSTACK_CONFIG} has '${key}'`, { encoding: 'utf-8', env: env2 });
+      return 0;
+    } catch (e: any) {
+      return e.status ?? 1;
+    }
+  }
+
+  test('absent key exits nonzero even though get returns the default', () => {
+    expect(has('plan_tune_hooks')).not.toBe(0);
+    const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env: env2 }).trim();
+    expect(got).toBe('prompt'); // default — indistinguishable from a saved value via get
+  });
+
+  test('present key exits 0 through the same STATE_DIR resolution as get', () => {
+    execSync(`${GSTACK_CONFIG} set plan_tune_hooks no`, { encoding: 'utf-8', env: env2 });
+    expect(has('plan_tune_hooks')).toBe(0);
+    // GSTACK_STATE_ROOT was the writer — a hardcoded ~/.gstack grep would miss it.
+  });
+
+  test('rejects malformed keys', () => {
+    expect(has('bad key$(touch /tmp/pwned)')).not.toBe(0);
+  });
+});
+
 describe('gstack-config: plan_tune_hooks key', () => {
   // Isolate state: gstack-config reads $GSTACK_HOME/config.yaml. Point it at a
   // fresh temp dir so `get` returns the built-in default rather than whatever

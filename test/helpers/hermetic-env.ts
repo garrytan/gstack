@@ -36,7 +36,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { promotedEnv } from '../../lib/conductor-env-shim';
-import { isProcessAlive } from '../../browse/src/error-handling';
+import { isProcessAlive, safeUnlink } from '../../browse/src/error-handling';
+import { skillCensus, frontmatterName } from './skill-census';
 
 /** Exact env names a hermetic child keeps. Everything not listed (or matched
  * by a prefix rule below) is dropped. */
@@ -210,6 +211,19 @@ export function getHermeticDirs(): HermeticDirs {
       trustedDirs: [repoRoot()],
     });
     fs.writeFileSync(path.join(configDir, '.claude.json'), JSON.stringify(seed, null, 2));
+    // Seed one-time onboarding markers into the CHILD's GSTACK_HOME.
+    // bin/gstack-skill-start reads ${GSTACK_HOME:-$HOME/.gstack} (EOV7), so
+    // the operator-HOME seeding in e2e-helpers.ts no longer reaches hermetic
+    // children — without these, the emission layer fires lake-intro/telemetry
+    // prompts that burn turns and can stall PTY tests waiting on an answer.
+    // Tests that exercise onboarding itself override GSTACK_HOME per-test.
+    for (const f of ['.activated', '.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted', '.first-loop-tip-shown']) {
+      fs.writeFileSync(path.join(gstackHome, f), '');
+    }
+    // The privacy stop-gate is config-keyed, not marker-keyed: on machines
+    // with gbrain installed it fires whenever artifacts_sync_mode is off and
+    // the consent prompt is unrecorded — same PTY-stall class as the markers.
+    fs.writeFileSync(path.join(gstackHome, 'config.yaml'), 'artifacts_sync_mode_prompted: true\n');
   } catch (err) {
     try { fs.rmSync(runRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
     throw err;
@@ -223,6 +237,73 @@ export function getHermeticDirs(): HermeticDirs {
 
   cachedDirs = { configDir, gstackHome, runRoot };
   return cachedDirs;
+}
+
+let cachedSkillsConfigDir: string | null = null;
+
+/**
+ * A hermetic CLAUDE_CONFIG_DIR with the repo's shipped skills REGISTERED in
+ * user scope, mirroring ./setup's registration exactly: each discovered skill
+ * gets a REAL directory `<configDir>/skills/<registryName>/` containing a
+ * SYMLINK to that skill's SKILL.md (absolute path), plus a `sections/`
+ * symlink when the skill has one. registryName is the frontmatter `name:`
+ * (dir-name fallback), NO gstack- prefix; the root SKILL.md router registers
+ * as `_gstack-command`. skillCensus().registryEntries is the authoritative
+ * set of what must appear here.
+ *
+ * The default hermetic dir deliberately seeds no skills — correct for
+ * children that install their own or probe setup behavior — but a PTY test
+ * that TYPES `/office-hours` needs the slash command to exist, or claude
+ * rejects it as Unknown command before any model turn and the gate measures
+ * nothing. Separate dir, same runRoot: opt-in per session, never contaminates
+ * the default-config children, and the existing exit teardown + pid-aware GC
+ * cover it. Ends in `/.claude` for the same plan-path anchoring reason as
+ * HermeticDirs.configDir.
+ *
+ * Two intentional non-hermetic edges:
+ * - Seeding reads the LIVE repo tree BY DESIGN — the skills ARE the subject
+ *   under test; a snapshot would measure stale copies.
+ * - HOME is not hermeticized, so the ~64 absolute
+ *   `~/.claude/skills/gstack/...` preamble references inside each SKILL.md
+ *   still resolve to the operator install (same limitation as CI).
+ */
+export function hermeticSkillsConfigDir(): string {
+  if (cachedSkillsConfigDir) return cachedSkillsConfigDir;
+  const { runRoot } = getHermeticDirs();
+  const configDir = path.join(runRoot, 'with-skills', '.claude');
+  const skillsDir = path.join(configDir, 'skills');
+  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(configDir, '.claude.json'),
+    JSON.stringify(buildSeedConfig({
+      apiKey: process.env.ANTHROPIC_API_KEY ?? process.env.GSTACK_ANTHROPIC_API_KEY,
+      trustedDirs: [repoRoot()],
+    }), null, 2),
+  );
+  const root = repoRoot();
+  for (const rel of skillCensus(root).physicalSkillFiles) {
+    const skillMd = path.join(root, rel);
+    const skillDir = path.dirname(rel);
+    const registryName = rel === 'SKILL.md'
+      ? '_gstack-command'
+      : frontmatterName(skillMd) || skillDir;
+    const target = path.join(skillsDir, registryName);
+    // Idempotent overwrite mirrors setup's re-link: connect-chrome (a dir
+    // symlink to open-gstack-browser) shares its target's frontmatter name,
+    // so the two walk entries collapse to one registry dir.
+    fs.mkdirSync(target, { recursive: true });
+    safeUnlink(path.join(target, 'SKILL.md'));
+    fs.symlinkSync(skillMd, path.join(target, 'SKILL.md'));
+    if (rel !== 'SKILL.md') {
+      const sections = path.join(root, skillDir, 'sections');
+      if (fs.existsSync(sections)) {
+        safeUnlink(path.join(target, 'sections'));
+        fs.symlinkSync(sections, path.join(target, 'sections'));
+      }
+    }
+  }
+  cachedSkillsConfigDir = configDir;
+  return configDir;
 }
 
 /** A dir younger than this is never GC'd even if its pid looks dead — guards

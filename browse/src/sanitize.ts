@@ -17,6 +17,21 @@ export function stripLoneSurrogates(s: string): string {
   return s.replace(LONE_SURROGATE_HIGH, '�').replace(LONE_SURROGATE_LOW, '�');
 }
 
+/**
+ * JSON.stringify replacer that strips lone UTF-16 surrogates from string
+ * values before they get escape-encoded. Pair with stringify when the
+ * consumer will JSON.parse the payload back into JS strings (SSE clients
+ * do this). Required at every JSON/SSE egress that ships page-content-derived
+ * fields — see CLAUDE.md "Unicode sanitization at server egress".
+ *
+ * The replacer must run INSIDE the encoding pipeline: post-stringify regex
+ * is a no-op because JSON.stringify has already converted \uD800 into the
+ * literal escape text "\\ud800" before a regex could see the surrogate.
+ */
+export function sanitizeReplacer(_key: string, value: unknown): unknown {
+  return typeof value === 'string' ? stripLoneSurrogates(value) : value;
+}
+
 // Matches \uD8XX-\uDFXX escape text where the pair is not completed by an
 // adjacent \uDC00-\uDFFF (high) or preceded by \uD800-\uDBFF (low).
 const LONE_SURROGATE_HIGH_ESCAPE = /\\u[Dd][89ABab][0-9A-Fa-f]{2}(?!\\u[Dd][C-Fc-f][0-9A-Fa-f]{2})/g;

@@ -31,6 +31,7 @@
  */
 
 import { expect, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -84,13 +85,17 @@ describeIfSelected('hermetic isolation canaries', ['hermetic-canary', 'hermetic-
 
     try {
       const result = await runSkillTest({
+        // ${VAR:-} expansion, not bare $VAR: when scrubbing WORKS the planted
+        // vars are unset, and under a nounset shell (set -u in the operator's
+        // shell snapshot) a bare expansion of an unset var errors the whole
+        // command — making the canary fail exactly when isolation succeeds.
         prompt: 'Run exactly this bash command and then stop: ' +
-          'echo "CFG=$CLAUDE_CONFIG_DIR"; echo "GH=$GSTACK_HOME"; ' +
-          'echo "CW=$CONDUCTOR_WORKSPACE_PATH"; echo "GP=$GBRAIN_POISON_PROBE"',
+          'echo "CFG=${CLAUDE_CONFIG_DIR:-}"; echo "GH=${GSTACK_HOME:-}"; ' +
+          'echo "CW=${CONDUCTOR_WORKSPACE_PATH:-}"; echo "GP=${GBRAIN_POISON_PROBE:-}"',
         workingDirectory: workDir,
         maxTurns: 3,
         allowedTools: ['Bash'],
-        timeout: 120_000,
+        timeout: JUDGE_MS,
         testName: 'hermetic-canary',
         runId,
         model: CANARY_MODEL,
@@ -125,7 +130,7 @@ describeIfSelected('hermetic isolation canaries', ['hermetic-canary', 'hermetic-
       }
       fs.rmSync(workDir, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 
   testIfSelected('hermetic-sentinel', async () => {
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -154,7 +159,7 @@ describeIfSelected('hermetic isolation canaries', ['hermetic-canary', 'hermetic-
         workingDirectory: workDir,
         maxTurns: 3,
         allowedTools: ['Bash'],
-        timeout: 120_000,
+        timeout: JUDGE_MS,
         testName: 'hermetic-sentinel',
         runId,
         model: CANARY_MODEL,
@@ -184,7 +189,7 @@ describeIfSelected('hermetic isolation canaries', ['hermetic-canary', 'hermetic-
       fs.rmSync(workDir, { recursive: true, force: true });
       fs.rmSync(poisonRoot, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 afterAll(() => finalizeEvalCollector(evalCollector));

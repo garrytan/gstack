@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Export host configs as shell-safe values for consumption by the bash setup script.
+ * Standalone query CLI for host configs (list / get / detect / validate).
+ *
+ * NOT yet wired into ./setup — setup still hand-rolls its host lists (a
+ * known drift source; driving setup from this CLI is queued follow-up work).
+ * Behavior is pinned by test/host-config.test.ts.
  *
  * Usage: bun run scripts/host-config-export.ts <command> [args]
  *
@@ -18,17 +22,9 @@ import { validateAllConfigs } from './host-config';
 import { RESOLVERS } from './resolvers';
 import { execSync } from 'child_process';
 
-const CLI_REGEX = /^[a-z][a-z0-9_-]*$/;
-const PATH_REGEX = /^[a-zA-Z0-9_.\/${}~-]+$/;
 
 function shellEscape(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
-}
-
-function validateValue(val: string, context: string): void {
-  if (!PATH_REGEX.test(val) && !CLI_REGEX.test(val)) {
-    throw new Error(`Unsafe value for ${context}: ${val}`);
-  }
 }
 
 const [command, ...args] = process.argv.slice(2);

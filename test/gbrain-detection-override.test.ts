@@ -9,7 +9,8 @@
  * factory, opencode, openclaw, cursor, kiro).
  *
  * Tests drive gen-skill-docs as a subprocess against a temp GSTACK_HOME
- * with each detection state, then assert what landed in the generated
+ * with each detection state, rendering into an isolated --out-dir (never
+ * writing the working tree), then assert what landed in the rendered
  * Claude-host SKILL.md. This is end-to-end through the actual override
  * pipeline — no mocking — so it catches regressions in either the loader
  * or the suppressedResolvers filter.
@@ -18,9 +19,9 @@
  * generation against the real repo; --host claude scopes to one host).
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -49,33 +50,29 @@ function makeFixture(detectionJson: string | null): FixtureEnv {
 }
 
 /**
- * Run gen-skill-docs with --respect-detection and an isolated GSTACK_HOME.
- * Returns the regenerated office-hours/SKILL.md content WITHOUT writing
- * over the committed file: we use --dry-run to keep the working tree
- * clean, then parse the output via re-reading the committed file... no,
- * that doesn't work for dry-run since dry-run doesn't write.
- *
- * Approach: generate to a temp output dir by running gen-skill-docs in a
- * temp checkout. Simpler alternative: actually regenerate, snapshot the
- * file content, then git-checkout the committed version back. We use this
- * since gen-skill-docs doesn't expose an output-path arg.
+ * Run gen-skill-docs with --respect-detection and an isolated GSTACK_HOME,
+ * rendering into a fresh --out-dir. The working tree is never written: the
+ * generator reads its inputs (templates, resolvers) from the repo but lands
+ * every output in the temp dir, which we snapshot and delete. This replaced
+ * the old mutate-then-restore approach (which regenerated the committed
+ * files in place and only restored the probe files, leaving every OTHER
+ * generated file rewritten — a partial-restore hazard for concurrent
+ * readers).
  */
 function regenAndSnapshot(opts: {
   respectDetection: boolean;
   tmpHome: string;
   files: string[];
 }): Map<string, string> {
-  // Save committed content so we can restore after snapshotting.
-  const original = new Map<string, string>();
-  for (const f of opts.files) {
-    original.set(f, readFileSync(join(REPO_ROOT, f), 'utf-8'));
-  }
+  const outDir = mkdtempSync(join(tmpdir(), 'gbrain-detect-out-'));
 
   const args = [
     'run',
     'scripts/gen-skill-docs.ts',
     '--host',
     'claude',
+    '--out-dir',
+    outDir,
   ];
   if (opts.respectDetection) args.push('--respect-detection');
 
@@ -87,17 +84,14 @@ function regenAndSnapshot(opts: {
       timeout: 30_000,
     });
 
-    // Snapshot the regenerated content.
+    // Snapshot the rendered content from the out-dir.
     const snapshot = new Map<string, string>();
     for (const f of opts.files) {
-      snapshot.set(f, readFileSync(join(REPO_ROOT, f), 'utf-8'));
+      snapshot.set(f, readFileSync(join(outDir, f), 'utf-8'));
     }
     return snapshot;
   } finally {
-    // Always restore so the test leaves the working tree clean.
-    for (const [f, content] of original) {
-      writeFileSync(join(REPO_ROOT, f), content);
-    }
+    rmSync(outDir, { recursive: true, force: true });
   }
 }
 
@@ -150,6 +144,33 @@ describe('gbrain detection override → gen-skill-docs', () => {
 
       // A slow engine must not silently suppress brain features — same
       // treatment as "ok" (matches gstack-gbrain-detect --is-ok).
+      expect(content).toContain('## Save Results to Brain');
+      expect(content).toContain('gbrain put "office-hours/');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with status "engine-locked" (PGLite single-writer, #2456), brain blocks render like "ok"', () => {
+    const { tmpHome, cleanup } = makeFixture(
+      JSON.stringify({
+        gbrain_local_status: 'engine-locked',
+        gbrain_on_path: true,
+        gbrain_version: 'test-0.42.26',
+      }),
+    );
+    try {
+      const snap = regenAndSnapshot({
+        respectDetection: true,
+        tmpHome,
+        files: PROBE_FILES,
+      });
+      const content = probeUnion(snap);
+
+      // PGLite is single-writer: a live `gbrain serve` (the recommended
+      // /setup-gbrain default spawns one at session start) legitimately owns
+      // the embedded DB. gbrain is installed and healthy — a transient lock
+      // must not silently strip brain blocks (same reasoning as "timeout").
       expect(content).toContain('## Save Results to Brain');
       expect(content).toContain('gbrain put "office-hours/');
     } finally {

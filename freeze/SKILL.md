@@ -76,12 +76,22 @@ again. To remove it, run `/unfreeze` or end the session."
 
 ## How it works
 
-The hook reads `file_path` from the Edit/Write tool input JSON, then checks
-whether the path starts with the freeze directory. If not, it returns
-`permissionDecision: "deny"` to block the operation.
+The hook reads `file_path` from the Edit/Write tool input JSON (shared
+real-JSON extractor with /careful — one copy, sourced by both hooks), then
+checks whether the path starts with the freeze directory. If not, it returns a
+`hookSpecificOutput` payload with `permissionDecision: "deny"` to block the
+operation (nested under `hookSpecificOutput` — Claude Code ignores a top-level
+`permissionDecision`).
+
+Polarity is fail-closed: a tool payload the hook cannot parse is DENIED, not
+allowed — a boundary that fails open is not a boundary. A payload that parses
+but has no `file_path` (a non-file tool) is allowed. Symlinks are resolved
+through their FINAL component, so an in-boundary symlink pointing outside the
+boundary is checked against its target.
 
 The freeze boundary persists for the session via the state file. The hook
-script reads it on every Edit/Write invocation.
+script reads it on every Edit/Write invocation. Boundaries containing spaces
+are supported.
 
 ## Notes
 

@@ -103,10 +103,10 @@ export function resultFromGeminiStream(
  * Headless flags always passed:
  *   --output-format stream-json  — NDJSON events (message/tool_use/result)
  *   --yolo                       — auto-approve tools (non-interactive)
- *   --skip-trust                 — trust cwd for this session; required when
- *                                  workdir is a temp/untrusted folder (benchmarks
- *                                  use mkdtemp). Without it headless gemini exits
- *                                  before calling the model.
+ *
+ * --skip-trust is gone: gemini-cli 0.34 removed the flag ("Unknown arguments:
+ * skip-trust") — folder trust is settings-driven now and headless runs no
+ * longer need a flag for temp workdirs.
  */
 export class GeminiAdapter implements ProviderAdapter {
   readonly name = 'gemini';
@@ -136,10 +136,9 @@ export class GeminiAdapter implements ProviderAdapter {
   async run(opts: RunOpts): Promise<RunResult> {
     const start = Date.now();
     // Default to --yolo (non-interactive) and stream-json output so we can parse
-    // tokens + tool calls. --skip-trust is required for headless/temp workdirs
-    // (gemini CLI otherwise exits: "not running in a trusted directory").
-    // Callers can override via extraArgs.
-    const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--yolo', '--skip-trust'];
+    // tokens + tool calls. Callers can override via extraArgs. (--skip-trust was
+    // removed in gemini-cli 0.34; passing it errors at argv parse.)
+    const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--yolo'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs) args.push(...opts.extraArgs);
 

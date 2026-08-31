@@ -1,0 +1,72 @@
+Follow plan-design-review/SKILL.md — all 7 dimensions, full depth.
+Override: every AskUserQuestion → auto-decide using the 6 principles.
+
+**Override rules:**
+- Focus areas: all relevant dimensions (P1)
+- Structural issues (missing states, broken hierarchy): auto-fix (P5)
+- Aesthetic/taste issues: mark TASTE DECISION
+- Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
+- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+
+  **Codex design voice** (via Bash):
+  ```bash
+  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+
+  Read the plan file at <plan_path>. Evaluate this plan's
+  UI/UX design decisions.
+
+  Also consider these findings from the CEO review phase:
+  <insert CEO dual voice findings summary — key concerns, disagreements>
+
+  Does the information hierarchy serve the user or the developer? Are interaction
+  states (loading, empty, error, partial) specified or left to the implementer's
+  imagination? Is the responsive strategy intentional or afterthought? Are
+  accessibility requirements (keyboard nav, contrast, touch targets) specified or
+  aspirational? Does the plan describe specific UI decisions or generic patterns?
+  What design decisions will haunt the implementer if left ambiguous?
+  Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only {{CODEX_WEB_SEARCH_FLAG}} < /dev/null
+  _CODEX_EXIT=$?
+  if [ "$_CODEX_EXIT" = "124" ]; then
+    _gstack_codex_log_event "codex_timeout" "600"
+    _gstack_codex_log_hang "autoplan" "0"
+    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
+  fi
+  ```
+  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+
+  **Claude design subagent** (via Agent tool):
+  "Read the plan file at <plan_path>. You are an independent senior product designer
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Information hierarchy: what does the user see first, second, third? Is it right?
+  2. Missing states: loading, empty, error, success, partial — which are unspecified?
+  3. User journey: what's the emotional arc? Where does it break?
+  4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
+  5. What design decisions will haunt the implementer if left ambiguous?
+  For each finding: what's wrong, severity (critical/high/medium), and the fix."
+  NO prior-phase context — subagent must be truly independent.
+
+  Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
+
+- Design choices: if codex disagrees with a design decision with valid UX reasoning
+  → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
+
+**Required execution checklist (Design):**
+
+1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
+
+2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present under
+   CODEX SAYS (design — UX challenge) and CLAUDE SUBAGENT (design — independent review)
+   headers. Produce design litmus scorecard (consensus table). Use the litmus scorecard
+   format from plan-design-review. Include CEO phase findings in Codex prompt ONLY
+   (not Claude subagent — stays independent).
+
+3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
+   DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
+
+**PHASE 2 COMPLETE.** Emit phase-transition summary:
+> **Phase 2 complete.** Codex: [N concerns]. Claude subagent: [N issues].
+> Consensus: [X/Y confirmed, Z disagreements → surfaced at gate].
+> Passing to Phase 3.
+
+Do NOT begin Phase 3 until all Phase 2 outputs (if run) are written to the plan file.

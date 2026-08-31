@@ -18,14 +18,21 @@ import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 
 const TMP_HOME = path.join(os.tmpdir(), `gstack-cdp-e2e-${process.pid}-${Date.now()}`);
-process.env.GSTACK_HOME = TMP_HOME;
-process.env.GSTACK_TELEMETRY_OFF = '1'; // don't pollute analytics during tests
+// Shard runs execute many test files in ONE bun process: a module-scope env
+// mutation without restore leaks into every LATER file in the shard. This
+// exact leak once pointed a sibling test's GSTACK_HOME at our temp dir,
+// which then got baked into artifacts that outlived it (dangling symlinks
+// into a deleted render dir). Save + restore in afterAll.
+const ORIGINAL_GSTACK_HOME = process.env.GSTACK_HOME;
+const ORIGINAL_TELEMETRY_OFF = process.env.GSTACK_TELEMETRY_OFF;
 
 let testServer: ReturnType<typeof startTestServer>;
 let bm: BrowserManager;
 let baseUrl: string;
 
 beforeAll(async () => {
+  process.env.GSTACK_HOME = TMP_HOME;
+  process.env.GSTACK_TELEMETRY_OFF = '1'; // don't pollute analytics during tests
   await fs.rm(TMP_HOME, { recursive: true, force: true });
   await fs.mkdir(TMP_HOME, { recursive: true });
   testServer = startTestServer(0);
@@ -36,6 +43,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (ORIGINAL_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIGINAL_GSTACK_HOME;
+  if (ORIGINAL_TELEMETRY_OFF === undefined) delete process.env.GSTACK_TELEMETRY_OFF;
+  else process.env.GSTACK_TELEMETRY_OFF = ORIGINAL_TELEMETRY_OFF;
   try { await bm.cleanup?.(); } catch {}
   try { testServer.server.stop(); } catch {}
   await fs.rm(TMP_HOME, { recursive: true, force: true });

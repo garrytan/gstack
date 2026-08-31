@@ -20,6 +20,18 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const BIN_DIR = path.join(ROOT, 'bin');
 const WIREUP_BIN = path.join(BIN_DIR, 'gstack-gbrain-source-wireup');
 
+// Hermetic PATH base (#2255). The missing-gbrain fixtures must not see a
+// user-installed gbrain on the host (e.g. macOS /opt/homebrew/bin), or the
+// "missing" case exits 0 instead of 2. Base is root-owned OS dirs only
+// (/usr/bin:/bin:/usr/sbin:/sbin — where git/python3/jq/coreutils resolve on
+// macOS and Linux) plus BUN_ONLY_DIR, so no user-installed gbrain can be
+// present. The scratch dir holds only a bun symlink, mirroring
+// gbrain-detect-install.test.ts so spawned children can resolve bun on CI
+// regardless of install dir.
+const BUN_ONLY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'wireup-bun-only-'));
+fs.symlinkSync(process.execPath, path.join(BUN_ONLY_DIR, 'bun'));
+const HERMETIC_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:${BUN_ONLY_DIR}`;
+
 let tmpHome: string;
 let gstackHome: string;
 let worktreeDir: string;
@@ -30,10 +42,12 @@ let gbrainStateFile: string;
 function makeFakeGbrain(opts: {
   version?: string | null; // null = "binary missing" (don't write the file)
   syncFails?: boolean;
+  syncHelpNoSource?: boolean; // simulate an older gbrain whose sync lacks --source
 }) {
   const version = opts.version ?? '0.18.2';
   if (version === null) return; // simulate missing binary by NOT writing one
   const syncFails = opts.syncFails ?? false;
+  const syncHelpNoSource = opts.syncHelpNoSource ?? false;
 
   // Stub gbrain reads/writes state from a JSON file. Fields:
   //   sources: [{id, local_path, federated}]
@@ -97,6 +111,13 @@ json.dump(state, open('$STATE','w'), indent=2)
 fi
 
 # sync --repo <p>  → records, optionally fails
+# sync --help → advertise flags (the wireup probes this before choosing the
+# sync form; the default fake mirrors a current gbrain, which HAS --source)
+if [ "$1" = "sync" ] && [ "$2" = "--help" ]; then
+  echo "Usage: gbrain sync [--repo <path>]${syncHelpNoSource ? '' : ' [--source <id>]'}"
+  exit 0
+fi
+
 if [ "$1" = "sync" ]; then
   ${syncFails ? 'echo "sync failed: connection error" >&2; exit 1' : 'echo "1 page imported"; exit 0'}
 fi
@@ -113,7 +134,7 @@ function run(
   opts: { env?: Record<string, string> } = {}
 ) {
   const env = {
-    PATH: `${fakeBinDir}:${process.env.PATH || '/usr/bin:/bin:/opt/homebrew/bin'}`,
+    PATH: `${fakeBinDir}:${HERMETIC_PATH}`,
     HOME: tmpHome,
     GSTACK_HOME: gstackHome,
     GSTACK_BRAIN_WORKTREE: worktreeDir,
@@ -181,6 +202,31 @@ describe('gstack-gbrain-source-wireup — wireup mode', () => {
     expect(state.sources[0].federated).toBe(true);
   });
 
+  test('the real sync targets the REGISTERED source, never --repo (#2662)', () => {
+    // `sync --repo <path>` resolves against the brain's DEFAULT source and can
+    // silently repoint its local_path anchor at our worktree. This case runs
+    // WITHOUT GSTACK_BRAIN_NO_SYNC — the skip-mode cases never reach the sync,
+    // so asserting the sync argv there would be vacuous.
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    const r = run([]);
+    expect(r.status).toBe(0);
+    const calls = gbrainCalls();
+    expect(calls.some((c) => c.startsWith('gbrain sync --source gstack-brain-user'))).toBe(true);
+    expect(calls.some((c) => c.includes('sync --repo'))).toBe(false);
+  });
+
+  test('older gbrain without sync --source: falls back to --repo with an upgrade warning', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({ syncHelpNoSource: true });
+    const r = run([]);
+    expect(r.status).toBe(0);
+    const calls = gbrainCalls();
+    expect(calls.some((c) => c.startsWith('gbrain sync --repo'))).toBe(true);
+    expect(calls.some((c) => c.includes('sync --source '))).toBe(false);
+    expect(r.stderr).toContain('#2662');
+  });
+
   test('idempotent re-run after success: no new sources add call', () => {
     setupGstackRepo('git@github.com:user/gstack-brain-user.git');
     makeFakeGbrain({});
@@ -229,12 +275,50 @@ describe('gstack-gbrain-source-wireup — wireup mode', () => {
 
   test('--strict + gbrain missing on PATH: exits 2', () => {
     setupGstackRepo('git@github.com:user/gstack-brain-user.git');
-    // Don't make a fake gbrain — fakeBinDir is empty. Keep system dirs on PATH
-    // so basic commands (git, awk, sed, etc.) work; only `gbrain` is absent.
-    const r = run(['--strict'], {
-      env: { PATH: `${fakeBinDir}:/usr/bin:/bin:/opt/homebrew/bin` },
-    });
+    // Don't make a fake gbrain — fakeBinDir is empty. run() applies the
+    // hermetic PATH base; only `gbrain` is absent.
+    const r = run(['--strict']);
     expect(r.status).toBe(2);
+  });
+
+  test('--strict + gbrain present in controlled dir: exits 0 (positive control)', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    // Positive control for hermeticity: a gbrain stub in the test-controlled
+    // fakeBinDir (first on the hermetic PATH) IS found, so --strict proceeds
+    // (exit 0). This proves the fixture CAN supply gbrain when present; the
+    // determinism test below proves the host cannot leak one in (#2255).
+    makeFakeGbrain({});
+    const r = run(['--strict'], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(r.status).toBe(0);
+    expect(gbrainCalls().some((c) => c.startsWith('gbrain sources add'))).toBe(true);
+  });
+
+  test('--strict + gbrain present in a host-like dir: still exits 2 (determinism)', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    // Determinism check (#2255, plan TS2): plant a real-looking gbrain stub in
+    // a dir that the OLD fixture would have leaked via process.env.PATH or the
+    // hardcoded /opt/homebrew/bin list. The root-owned-only hermetic base
+    // excludes user-writable dirs, so the child never sees the stub and the
+    // missing case stays deterministic across dev machines. This test fails on
+    // the unpatched fixture (stub found -> exit 0) and passes on the fixed one.
+    const hostLikeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wireup-host-like-'));
+    fs.writeFileSync(
+      path.join(hostLikeDir, 'gbrain'),
+      '#!/bin/bash\necho "gbrain 0.18.2"\n',
+      { mode: 0o755 }
+    );
+    // No env PATH override: run() applies the hermetic base. The stub exists
+    // only in a user-writable dir the base excludes.
+    const r = run(['--strict']);
+    expect(r.status).toBe(2);
+    // Sanity: the stub IS visible to a shell using the host-like PATH, so this
+    // test would catch the old leak if the base ever regressed.
+    const check = spawnSync('bash', ['-c', `command -v gbrain && gbrain --version`], {
+      env: { PATH: `${hostLikeDir}:${process.env.PATH || '/usr/bin:/bin'}` },
+      encoding: 'utf-8',
+    });
+    expect(check.status).toBe(0);
+    expect(check.stdout).toContain('gbrain 0.18.2');
   });
 
   test('source-id derived from origin URL', () => {
@@ -288,6 +372,46 @@ describe('gstack-gbrain-source-wireup — wireup mode', () => {
     const r = run([]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('sync failed');
+  });
+});
+
+describe('gstack-gbrain-source-wireup — ZeroEntropy sunset advisory (#2365)', () => {
+  // The hosted ZeroEntropy API dies Sept 4, 2026; a gbrain on the zeroentropyai
+  // recipe keeps importing but stops embedding SILENTLY. Detection is a
+  // fail-open grep of ~/.gbrain/config.json — missing/other-provider configs
+  // must stay silent and never block the wireup.
+
+  test('config naming zeroentropyai → sunset warning, wireup still succeeds', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    fs.mkdirSync(path.join(tmpHome, '.gbrain'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, '.gbrain', 'config.json'),
+      JSON.stringify({ embedding: { recipe: 'zeroentropyai' } }),
+    );
+    const r = run([], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('ZeroEntropy');
+    expect(r.stderr).toContain('2365');
+  });
+
+  test('config on another provider → no warning (fail-open, no false positive)', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    fs.mkdirSync(path.join(tmpHome, '.gbrain'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, '.gbrain', 'config.json'),
+      JSON.stringify({ embedding: { recipe: 'voyage:voyage-code-3' } }),
+    );
+    const r = run([], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('ZeroEntropy');
+  });
+
+  test('advisory docs entry exists (USING_GBRAIN_WITH_GSTACK.md content pin)', () => {
+    const doc = fs.readFileSync(path.join(ROOT, 'USING_GBRAIN_WITH_GSTACK.md'), 'utf-8');
+    expect(doc).toContain('September 4, 2026');
+    expect(doc).toContain('#2365');
   });
 });
 
@@ -388,9 +512,7 @@ describe('gstack-gbrain-source-wireup — uninstall mode', () => {
     expect(fs.existsSync(worktreeDir)).toBe(true);
     // Now remove the fake gbrain so uninstall sees gbrain missing
     fs.rmSync(path.join(fakeBinDir, 'gbrain'), { force: true });
-    const r = run(['--uninstall'], {
-      env: { PATH: `${fakeBinDir}:/usr/bin:/bin:/opt/homebrew/bin` },
-    });
+    const r = run(['--uninstall']);
     expect(r.status).toBe(0); // best-effort, never fails on gbrain absence
     expect(fs.existsSync(worktreeDir)).toBe(false); // worktree still cleaned up
   });

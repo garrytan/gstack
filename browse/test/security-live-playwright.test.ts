@@ -20,12 +20,30 @@
  * CI). To prime: `bun run browse/src/sidebar-agent.ts` for ~30s and kill it.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
+
+// Per-FILE Chromium profile: this file launches an in-process persistent
+// context (BrowserManager.launch()), and sharing a profile dir with the
+// long-lived browse daemon a sibling file may have spawned kills one side's
+// Chromium (ProcessSingleton on user-data-dir). Scoped via hooks, never
+// module scope (see test/gstack-home-module-scope.test.ts's rationale).
+const ORIGINAL_CHROMIUM_PROFILE = process.env.CHROMIUM_PROFILE;
+let CHROMIUM_PROFILE_DIR: string | undefined;
+beforeAll(() => {
+  CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
+  process.env.CHROMIUM_PROFILE = CHROMIUM_PROFILE_DIR;
+});
+afterAll(() => {
+  if (ORIGINAL_CHROMIUM_PROFILE === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = ORIGINAL_CHROMIUM_PROFILE;
+  if (CHROMIUM_PROFILE_DIR) { try { fs.rmSync(CHROMIUM_PROFILE_DIR, { recursive: true, force: true }); } catch {} }
+});
+
 import {
   markHiddenElements,
   getCleanTextWithStripping,
@@ -42,7 +60,13 @@ const MODEL_CACHE = path.join(
   'onnx',
   'model.onnx',
 );
-const ML_AVAILABLE = fs.existsSync(MODEL_CACHE);
+// Opt-in only (SECURITY_BENCH=1), same rationale as security-bench.test.ts:
+// gating on model-cache existence alone auto-ran ONNX inference on any dev box
+// that ever warmed the classifier — and dlopen'ing onnxruntime inside a
+// `bun test --parallel` worker segfaults Bun intermittently (observed twice:
+// "panic: Segmentation fault ... a bug in Bun" followed by a crashed-worker
+// retry, sometimes wedging the run).
+const ML_AVAILABLE = process.env.SECURITY_BENCH === '1' && fs.existsSync(MODEL_CACHE);
 
 describe('defense-in-depth — live Playwright fixture', () => {
   let testServer: ReturnType<typeof startTestServer>;
@@ -56,9 +80,14 @@ describe('defense-in-depth — live Playwright fixture', () => {
     await bm.launch();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     try { testServer.server.stop(); } catch {}
-    setTimeout(() => process.exit(0), 500);
+    // Close only this file's own browser — never process.exit(): bun test
+    // runs all files in one process, so a delayed exit kills the whole suite
+    // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+    // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+    // so race it at 3s and abandon; the child is reaped at process exit.
+    try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
   });
 
   test('L2 — content-security.ts hidden-element stripper detects the .sneaky div', async () => {

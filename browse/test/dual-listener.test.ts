@@ -48,16 +48,19 @@ describe('Dual-listener surface types', () => {
 });
 
 describe('Tunnel path allowlist', () => {
-  test('TUNNEL_PATHS is a closed set containing exactly /connect, /command, /sidebar-chat', () => {
+  test('TUNNEL_PATHS is a closed set containing exactly /connect, /command', () => {
+    // /sidebar-chat sat in this set long after the endpoint was deleted with
+    // the chat-queue path — a stale entry in the audited tunnel attack
+    // surface. The set is exactly the pair ceremony + command endpoint.
     const paths = extractSetContents(SERVER_SRC, 'TUNNEL_PATHS');
-    expect(paths).toEqual(new Set(['/connect', '/command', '/sidebar-chat']));
+    expect(paths).toEqual(new Set(['/connect', '/command']));
   });
 
   test('TUNNEL_PATHS does NOT contain bootstrap or admin paths', () => {
     const paths = extractSetContents(SERVER_SRC, 'TUNNEL_PATHS');
     // These must never be on the tunnel surface
     const forbidden = [
-      '/health', '/welcome', '/cookie-picker',
+      '/health', '/extension-token', '/welcome', '/cookie-picker',
       '/inspector', '/inspector/pick', '/inspector/events', '/inspector/style',
       '/tunnel/start', '/tunnel/stop',
       '/pair', '/token', '/refs',
@@ -137,15 +140,16 @@ describe('Request handler factory', () => {
   });
 
   test('Tunnel listener bind uses handle.fetchTunnel from buildFetchHandler', () => {
-    // v1.35.0.0: factory returns handle.fetchTunnel; tunnel start sites use it
-    // (BROWSE_TUNNEL=1 startup + BROWSE_TUNNEL_LOCAL_ONLY=1 test path).
+    // v1.35.0.0: factory returns handle.fetchTunnel; tunnel start sites use it.
+    // The BROWSE_TUNNEL=1 startup passes it to the shared startTunnel() helper
+    // (which owns the Bun.serve bind); the BROWSE_TUNNEL_LOCAL_ONLY=1 test path
+    // binds its own listener with it directly.
     // The /tunnel/start handler INSIDE the factory still uses makeFetchHandler('tunnel')
     // because it has the local helper in closure scope.
-    const tunnelOccurrences = SERVER_SRC.match(/fetch: handle\.fetchTunnel/g);
-    expect(tunnelOccurrences).not.toBeNull();
-    expect(tunnelOccurrences!.length).toBeGreaterThanOrEqual(2);
+    expect(SERVER_SRC).toContain('fetchHandler: handle.fetchTunnel');
+    expect(SERVER_SRC).toContain('fetch: handle.fetchTunnel');
     // The factory's internal makeFetchHandler('tunnel') still appears at least
-    // once for the /tunnel/start route's self-reference + the factory's return.
+    // once for the /tunnel/start route's startTunnel call + the factory's return.
     const internalOccurrences = SERVER_SRC.match(/makeFetchHandler\('tunnel'\)/g);
     expect(internalOccurrences).not.toBeNull();
   });
@@ -220,7 +224,9 @@ describe('/command tunnel command allowlist', () => {
       'return handleCommand(body, tokenInfo)'
     );
     expect(commandBlock).toContain("surface === 'tunnel'");
-    expect(commandBlock).toContain('canDispatchOverTunnel(body?.command)');
+    // Args-aware since the --out (disk write) tunnel ban: the dispatch gate
+    // takes both the command and its args.
+    expect(commandBlock).toContain('canDispatchOverTunnel(body?.command, body?.args)');
     expect(commandBlock).toContain('disallowed_command');
     expect(commandBlock).toContain('is not allowed over the tunnel surface');
     expect(commandBlock).toContain('status: 403');
@@ -238,16 +244,26 @@ describe('Tunnel listener lifecycle', () => {
     expect(helperBlock).toContain('tunnelServer.stop');
   });
 
-  test('/tunnel/start binds the tunnel listener on an ephemeral port', () => {
+  test('/tunnel/start binds the tunnel listener on an ephemeral port (via startTunnel)', () => {
     const startBlock = sliceBetween(
       SERVER_SRC,
       "url.pathname === '/tunnel/start' && req.method === 'POST'",
       "url.pathname === '/refs'"
     );
-    expect(startBlock).toContain('Bun.serve');
-    expect(startBlock).toContain('port: 0');
+    // The route delegates to the shared startTunnel() helper, passing the
+    // factory-scoped tunnel-surface handler.
+    expect(startBlock).toContain('startTunnel(');
     expect(startBlock).toContain("makeFetchHandler('tunnel')");
-    expect(startBlock).toContain("addr: tunnelPort");
+    // The helper owns the ephemeral bind and points ngrok at the TUNNEL
+    // port — never the local daemon port.
+    const helperBlock = sliceBetween(
+      SERVER_SRC,
+      'async function startTunnel(',
+      'Module-level validateAuth deleted'
+    );
+    expect(helperBlock).toContain('Bun.serve');
+    expect(helperBlock).toContain('port: 0');
+    expect(helperBlock).toContain("addr: tunnelPort");
   });
 
   test('/tunnel/start hard-fails on tunnel listener bind error (no local fallback)', () => {
@@ -274,13 +290,22 @@ describe('Tunnel listener lifecycle', () => {
   });
 
   test('/tunnel/start tears down tunnel listener when ngrok.forward fails', () => {
+    // startTunnel owns the error-path teardown: boundTunnel.stop(true) plus
+    // the ngrok listener close must both run on any post-bind failure, so a
+    // failed start can't leak sockets or an active ngrok session.
+    const helperBlock = sliceBetween(
+      SERVER_SRC,
+      'async function startTunnel(',
+      'Module-level validateAuth deleted'
+    );
+    expect(helperBlock).toContain('boundTunnel.stop(true)');
+    expect(helperBlock).toContain('tunnelListener.close()');
+    // ...and the route maps that failure to the 500 response.
     const startBlock = sliceBetween(
       SERVER_SRC,
       "url.pathname === '/tunnel/start' && req.method === 'POST'",
       "url.pathname === '/refs'"
     );
-    // boundTunnel.stop(true) must be called on ngrok error
-    expect(startBlock).toContain('boundTunnel.stop(true)');
     expect(startBlock).toContain('Failed to open ngrok tunnel');
   });
 
@@ -290,13 +315,22 @@ describe('Tunnel listener lifecycle', () => {
       "process.env.BROWSE_TUNNEL === '1'",
       'start().catch'
     );
-    expect(startupBlock).toContain('Bun.serve');
-    expect(startupBlock).toContain('port: 0');
     // v1.35.0.0: start() refactored to use handle.fetchTunnel from the factory.
+    // The ephemeral-port bind + ngrok forward now live in the shared
+    // startTunnel() helper the startup path delegates to.
+    expect(startupBlock).toContain('startTunnel(');
     expect(startupBlock).toContain('handle.fetchTunnel');
-    expect(startupBlock).toContain('addr: tunnelPort');
-    // Must NOT forward ngrok at the local port
+    // Must NOT forward ngrok at the local port — neither at the call site
+    // nor inside the helper, which binds port: 0 and forwards at tunnelPort.
     expect(startupBlock).not.toContain('addr: port,');
+    const helperBlock = sliceBetween(
+      SERVER_SRC,
+      'async function startTunnel(',
+      'Module-level validateAuth deleted'
+    );
+    expect(helperBlock).toContain('port: 0');
+    expect(helperBlock).toContain('addr: tunnelPort');
+    expect(helperBlock).not.toContain('addr: port,');
   });
 });
 

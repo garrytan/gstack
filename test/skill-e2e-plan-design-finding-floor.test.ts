@@ -1,17 +1,18 @@
 /**
- * /plan-design-review AskUserQuestion floor regression (gate, paid, real-PTY).
+ * /plan-design-review AskUserQuestion floor regression (periodic, paid, real-PTY).
  *
  * See test/skill-e2e-plan-eng-finding-floor.test.ts for the contract.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
 import { FORCING_FLOOR_DESIGN } from './fixtures/forcing-finding-seeds';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
-describeE2E('/plan-design-review AskUserQuestion floor (gate)', () => {
+describeE2E('/plan-design-review AskUserQuestion floor (periodic)', () => {
   test(
     'seeded forcing finding causes the agent to fire at least one AskUserQuestion',
     async () => {
@@ -19,8 +20,10 @@ describeE2E('/plan-design-review AskUserQuestion floor (gate)', () => {
         skillName: 'plan-design-review',
         slashCommand: '/plan-design-review',
         followUpPrompt: FORCING_FLOOR_DESIGN,
+        // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
+        // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
         cwd: process.cwd(),
-        timeoutMs: 600_000,
+        timeoutMs: CAPTURE_LONG_MS,
         env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
       });
 
@@ -32,6 +35,6 @@ describeE2E('/plan-design-review AskUserQuestion floor (gate)', () => {
         );
       }
     },
-    660_000,
+    PTY_MS,
   );
 });

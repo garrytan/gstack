@@ -149,23 +149,60 @@ describe('gstack-first-task-detect — contract', () => {
   });
 });
 
-describe('first-run-guidance preamble wiring (generated)', () => {
-  const md = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+describe('first-run-guidance wiring (bin/gstack-skill-start emission layer)', () => {
+  // Token-reduction Phase 2: the first-run guidance left the rendered
+  // preamble entirely. The gate, the token→tip case-map, the marker touches,
+  // and the scaffold telemetry all live in bin/gstack-skill-start; the tips
+  // reach the model as GSTACK_INSTRUCTION blocks emitted only when the gate
+  // fires. Tip TEXT + absence-from-renders are pinned by
+  // test/onboarding-moved-literals.test.ts (tombstone) — this suite pins the
+  // gating structure and the enum→tip map coverage.
+  const script = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-skill-start'), 'utf-8');
 
   test('detection is gated to the first-ever run only (ACTIVATED=no, not headless)', () => {
-    expect(md).toContain('if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]');
-    expect(md).toContain('gstack-first-task-detect');
+    expect(script).toContain('if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]');
+    expect(script).toContain('gstack-first-task-detect');
+    // The result is still echoed as a STATUS line (sanitized passthrough).
+    expect(script).toContain("printf 'FIRST_TASK: %s\\n' \"$_FIRST_TASK\"");
   });
 
-  test('emits the unified first-run guidance section branching on ACTIVATED', () => {
-    expect(md).toContain('## First-run guidance (one-time)');
-    expect(md).toContain('`ACTIVATED` is `no`'); // P4 scaffold branch
-    expect(md).toContain('`ACTIVATED` is `yes` AND `FIRST_LOOP_SHOWN` is `no`'); // P3 tip branch
+  test('emission layer branches on ACTIVATED then FIRST_LOOP_SHOWN', () => {
+    // P4 scaffold branch (first-ever run) …
+    expect(script).toContain('if [ "$_ACTIVATED" = "no" ]; then');
+    expect(script).toContain('_emit_block first-run-tip');
+    // … then the P3 loop tip fires exactly once on a later run.
+    expect(script).toContain('elif [ "$_FIRST_LOOP_SHOWN" = "no" ]; then');
+    expect(script).toContain('_emit_block first-loop-tip');
   });
 
-  test('marks activated + logs the scaffold telemetry only on the shown path', () => {
-    expect(md).toContain('first_task_scaffold_shown');
-    expect(md).toContain('touch ~/.gstack/.activated');
-    expect(md).toContain('touch ~/.gstack/.first-loop-tip-shown');
+  test('token→tip case-map covers every tip-bearing enum bucket (nongit excluded)', () => {
+    // The detector's whole enum must map to a tip (nongit intentionally maps
+    // to no tip — no block emits, but activation is still marked). A bucket
+    // added to the detector without a case arm would silently show nothing.
+    const caseStart = script.indexOf('case "$_FIRST_TASK" in');
+    expect(caseStart).toBeGreaterThan(0);
+    const caseBody = script.slice(caseStart, script.indexOf('esac', caseStart));
+    for (const token of ENUM) {
+      if (token === 'nongit') continue;
+      expect(caseBody, `case-map missing enum bucket: ${token}`).toContain(token);
+    }
+    expect(caseBody).not.toContain('nongit');
+  });
+
+  test('script marks activated + logs scaffold telemetry AT EMIT (display-only tips)', () => {
+    // Phase 2 OV6: the model no longer runs these — the script does, when it
+    // emits the block. Telemetry fires only on the shown path (a tip was
+    // actually emitted); activation is marked regardless so detection never
+    // re-fires.
+    expect(script).toMatch(
+      /if \[ -n "\$_FT_TIP" \]; then\n\s*_emit_block first-run-tip[\s\S]*?first_task_scaffold_shown[\s\S]*?fi\n\s*touch "\$_GH\/\.activated"/,
+    );
+    expect(script).toMatch(/_emit_block first-loop-tip[\s\S]{0,500}?touch "\$_GH\/\.first-loop-tip-shown"/);
+    // Telemetry is scoped INSIDE the shown path, not the outer branch.
+    const branch = script.slice(
+      script.indexOf('if [ "$_ACTIVATED" = "no" ]; then'),
+      script.indexOf('touch "$_GH/.activated"'),
+    );
+    expect(branch).toContain('--event-type first_task_scaffold_shown');
   });
 });

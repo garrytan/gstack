@@ -43,3 +43,50 @@ describe("one-way-door credential keyword net (#1839)", () => {
     }
   });
 });
+
+describe("one-way-door credential keyword net (#2024)", () => {
+  const VERBS = ["revoke", "reset", "rotate"];
+  const NOUNS = ["api key", "token", "secret", "credential", "access key", "password"];
+
+  // #2024 repro rows: these leaked as two-way pre-fix because the noun
+  // alternations were mismatched across verbs (revoke lacked secret; reset
+  // lacked secret AND access key). The password-parallel test above passes on
+  // buggy code, so THESE rows are the fails-first proof.
+  test('"reset my secret" / "reset my access key" / "revoke my secret" classify one-way', () => {
+    for (const summary of ["reset my secret", "reset my access key", "revoke my secret"]) {
+      const r = classifyQuestion({ summary });
+      expect(r.oneWay).toBe(true);
+      expect(r.reason).toBe("keyword");
+    }
+  });
+
+  test("full verbs x nouns matrix classifies one-way (singular and plural)", () => {
+    for (const verb of VERBS) {
+      for (const noun of NOUNS) {
+        for (const form of [noun, `${noun}s`]) {
+          const r = classifyQuestion({ summary: `${verb} the production ${form}` });
+          expect(r.oneWay).toBe(true);
+          expect(r.reason).toBe("keyword");
+        }
+      }
+    }
+  });
+
+  // Plural forms leaked before AND after the original #2024 report: \b(...)\b
+  // cannot match "credentials" (no word boundary between the noun and its s).
+  test('plurals: "rotate the credentials" / "revoke all tokens" / "reset the passwords" classify one-way', () => {
+    for (const summary of ["rotate the credentials", "revoke all tokens", "reset the passwords"]) {
+      expect(classifyQuestion({ summary }).oneWay).toBe(true);
+    }
+  });
+
+  test("benign summaries stay two-way (no over-match)", () => {
+    for (const summary of [
+      "reset the flaky test runner",
+      "rotate the log files nightly",
+      "revoke the meeting invite",
+    ]) {
+      expect(classifyQuestion({ summary }).oneWay).toBe(false);
+    }
+  });
+});

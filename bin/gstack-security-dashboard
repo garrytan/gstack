@@ -17,6 +17,9 @@ set -uo pipefail
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 
+# Egress receipt helpers (_receipted_curl): fail-open for read-only stats.
+. "$GSTACK_DIR/bin/gstack-egress-lib.sh"
+
 # Source Supabase config
 if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
   . "$GSTACK_DIR/supabase/config.sh"
@@ -46,10 +49,11 @@ fi
 # surface are indistinguishable from good news.
 TMPBODY="$(mktemp)"
 trap 'rm -f "$TMPBODY"' EXIT
-HTTP_CODE="$(curl -s --max-time 15 -w '%{http_code}' -o "$TMPBODY" \
+SUPA_HOST="${SUPABASE_URL#*://}"; SUPA_HOST="${SUPA_HOST%%/*}"
+HTTP_CODE="$(_receipted_curl open security-dashboard "$SUPA_HOST" community-pulse-fetch "user-invoked dashboard" --no-payload \
+  curl -s --max-time 15 -w '%{http_code}' -o "$TMPBODY" \
   "${SUPABASE_URL}/functions/v1/community-pulse" \
-  -H "apikey: ${ANON_KEY}" \
-  2>/dev/null || true)"
+  -H "apikey: ${ANON_KEY}" || true)"
 # curl prints its own 000 before a non-zero exit — a `|| echo` here would
 # double it to "000000" in user-facing output. Normalize to the last 3 chars.
 HTTP_CODE="$(printf '%s' "$HTTP_CODE" | tr -d '[:space:]' | tail -c 3)"

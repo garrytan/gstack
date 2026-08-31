@@ -18,6 +18,7 @@
  * accordingly.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
@@ -134,7 +135,7 @@ ${captureInstruction(outFile)}
 After writing the file, stop. Do not continue the review.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-ceo-review-format-mode',
       runId,
       model: 'claude-opus-4-7',
@@ -160,7 +161,7 @@ After writing the file, stop. Do not continue the review.`,
       result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- Case 2: plan-ceo-review approach menu (coverage-differentiated) ---
@@ -191,7 +192,7 @@ ${captureInstruction(outFile)}
 After writing the file, stop. Do not continue the review.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-ceo-review-format-approach',
       runId,
       model: 'claude-opus-4-7',
@@ -216,7 +217,7 @@ After writing the file, stop. Do not continue the review.`,
       result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- Case 3: plan-eng-review coverage-differentiated per-issue AskUserQuestion ---
@@ -250,7 +251,7 @@ ${captureInstruction(outFile)}
 After writing the file with that ONE question, stop. Do not continue the review.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-eng-review-format-coverage',
       runId,
       model: 'claude-opus-4-7',
@@ -275,7 +276,7 @@ After writing the file with that ONE question, stop. Do not continue the review.
       result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- Case 4: plan-eng-review kind-differentiated per-issue AskUserQuestion ---
@@ -306,7 +307,7 @@ ${captureInstruction(outFile)}
 After writing the file with that ONE question, stop. Do not continue the review.`,
       workingDirectory: planDir,
       maxTurns: 10,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'plan-eng-review-format-kind',
       runId,
       model: 'claude-opus-4-7',
@@ -332,7 +333,7 @@ After writing the file with that ONE question, stop. Do not continue the review.
       result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 afterAll(async () => {

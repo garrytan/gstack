@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Bash shim — Claude Code hooks run `command` strings via /bin/sh, so this
+# wrapper makes the TypeScript hook executable via bun. Settings.json
+# references this file directly.
+#
+# FAIL-OPEN (F5): a Stop-event telemetry repair must never block the session.
+# Every failure path — bun missing, script crash — still exits 0.
+HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
+bun "$HERE/timeline-stop-hook.ts" || true
+exit 0

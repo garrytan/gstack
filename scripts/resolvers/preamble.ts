@@ -28,16 +28,6 @@ import {
   generatePlanModeInfo,
 } from './preamble/generate-completion-status';
 
-// One-time onboarding prompts
-import { generateLakeIntro } from './preamble/generate-lake-intro';
-import { generateTelemetryPrompt } from './preamble/generate-telemetry-prompt';
-import { generateProactivePrompt } from './preamble/generate-proactive-prompt';
-import { generateFirstRunGuidance } from './preamble/generate-first-run-guidance';
-import { generateRoutingInjection } from './preamble/generate-routing-injection';
-import { generateVendoringDeprecation } from './preamble/generate-vendoring-deprecation';
-import { generateSpawnedSessionCheck } from './preamble/generate-spawned-session-check';
-import { generateWritingStyleMigration } from './preamble/generate-writing-style-migration';
-
 // Host-specific instructions
 import { generateBrainHealthInstruction } from './preamble/generate-brain-health-instruction';
 
@@ -53,6 +43,7 @@ import { generateAskUserFormat } from './preamble/generate-ask-user-format';
 import { generateWritingStyle } from './preamble/generate-writing-style';
 import { generateCompletenessSection } from './preamble/generate-completeness-section';
 import { generateConfusionProtocol } from './preamble/generate-confusion-protocol';
+import { generateEvidenceDirective } from './preamble/generate-evidence-directive';
 import { generateContinuousCheckpoint } from './preamble/generate-continuous-checkpoint';
 import { generateContextHealth } from './preamble/generate-context-health';
 
@@ -71,13 +62,17 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 // T3: T2 + repo-mode + search
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
 //
-// Skills by tier:
-//   T1: browse, setup-cookies, benchmark
-//   T2: investigate, cso, retro, doc-release, setup-deploy, canary, context-save, context-restore, health
-//   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
-//   T4: ship, review, qa, qa-only, design-review, land-deploy
+// Which skill gets which tier lives in each template's frontmatter
+// (`preamble-tier: N`). Every template that resolves {{PREAMBLE}} must
+// declare it — there is no default.
 export function generatePreamble(ctx: TemplateContext): string {
-  const tier = ctx.preambleTier ?? 4;
+  const tier = ctx.preambleTier;
+  if (tier === undefined) {
+    throw new Error(
+      `Missing preamble-tier frontmatter in ${ctx.tmplPath}: every template that ` +
+      `resolves {{PREAMBLE}} must declare 'preamble-tier: N' (1-4).`
+    );
+  }
   if (tier < 1 || tier > 4) {
     throw new Error(`Invalid preamble-tier: ${tier} in ${ctx.tmplPath}. Must be 1-4.`);
   }
@@ -91,14 +86,11 @@ export function generatePreamble(ctx: TemplateContext): string {
     // (not interactive-gated); the text applies universally.
     generatePlanModeInfo(ctx),
     generateUpgradeCheck(ctx),
-    generateWritingStyleMigration(ctx),
-    generateLakeIntro(),
-    generateTelemetryPrompt(ctx),
-    generateProactivePrompt(ctx),
-    generateFirstRunGuidance(ctx),
-    generateRoutingInjection(ctx),
-    generateVendoringDeprecation(ctx),
-    generateSpawnedSessionCheck(),
+    // Phase 2: the 8 one-time onboarding generators (lake-intro, telemetry-
+    // prompt, proactive-prompt, first-run-guidance, routing-injection,
+    // vendoring-deprecation, spawned-session-check, writing-style-migration)
+    // moved into bin/gstack-skill-start's instruction-emission layer — their
+    // text appears at runtime only when its gate fires (plan Q2/OV6/F5).
     generateBrainHealthInstruction(ctx),
     // AskUserQuestion Format renders BEFORE the model overlay so the pacing rule
     // is the ambient default; the overlay's behavioral nudges land as subordinate
@@ -113,6 +105,7 @@ export function generatePreamble(ctx: TemplateContext): string {
       generateWritingStyle(ctx),
       generateCompletenessSection(ctx),
       generateConfusionProtocol(ctx),
+      generateEvidenceDirective(ctx),
       generateContinuousCheckpoint(),
       generateContextHealth(ctx),
       generateQuestionTuning(ctx),

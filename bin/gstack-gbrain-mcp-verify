@@ -43,6 +43,10 @@ URL="$1"
 command -v curl >/dev/null 2>&1 || { echo "gstack-gbrain-mcp-verify: curl is required" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "gstack-gbrain-mcp-verify: jq is required (brew install jq)" >&2; exit 2; }
 
+# Egress receipt helpers (_receipted_curl): receipt-before-send, fail-closed.
+. "$(cd "$(dirname "$0")" && pwd)/gstack-egress-lib.sh"
+MCP_HOST=$(echo "$URL" | sed -E 's|^[a-z]+://([^/]+).*|\1|')
+
 emit() {
   # emit <status> <server_name> <server_version> <error_class> <error_text> <url_supported> <raw_body>
   jq -n \
@@ -73,15 +77,20 @@ INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVers
 TMPBODY=$(mktemp -t gstack-mcp-verify.XXXXXX)
 trap 'rm -f "$TMPBODY"' EXIT
 
+# Receipted fail-closed: the payload file is hashed and handed to curl as
+# the exact wire bytes. A refused receipt never hits the network — it lands
+# in the NETWORK class below (curl never ran, no HTTP code).
+INIT_PAYLOAD=$(mktemp -t gstack-mcp-init.XXXXXX)
+printf '%s' "$INIT_BODY" > "$INIT_PAYLOAD"
 set +e
-HTTP_CODE=$(curl -s -o "$TMPBODY" -w '%{http_code}' \
+HTTP_CODE=$(_receipted_curl closed gbrain-mcp-verify "$MCP_HOST" mcp-initialize-probe "user-invoked mcp verify" "$INIT_PAYLOAD" \
+  curl -s -o "$TMPBODY" -w '%{http_code}' \
   --max-time 10 \
   -X POST \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "Authorization: Bearer $GBRAIN_MCP_TOKEN" \
-  -d "$INIT_BODY" \
-  "$URL" 2>/dev/null)
+  "$URL")
 CURL_EXIT=$?
 set -e
 
@@ -150,14 +159,18 @@ URL_SUPPORTED=false
 TOOLS_BODY_FILE=$(mktemp -t gstack-mcp-tools.XXXXXX)
 TOOLS_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 
+# Receipted fail-closed like the initialize probe. A refused receipt skips
+# the probe (nonzero TOOLS_EXIT) and the field stays false — best-effort.
+TOOLS_PAYLOAD=$(mktemp -t gstack-mcp-tools-req.XXXXXX)
+printf '%s' "$TOOLS_REQ" > "$TOOLS_PAYLOAD"
 set +e
-curl -s -o "$TOOLS_BODY_FILE" \
+_receipted_curl closed gbrain-mcp-verify "$MCP_HOST" mcp-tools-list-probe "user-invoked mcp verify" "$TOOLS_PAYLOAD" \
+  curl -s -o "$TOOLS_BODY_FILE" \
   --max-time 10 \
   -X POST \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "Authorization: Bearer $GBRAIN_MCP_TOKEN" \
-  -d "$TOOLS_REQ" \
   "$URL" >/dev/null 2>&1
 TOOLS_EXIT=$?
 set -e

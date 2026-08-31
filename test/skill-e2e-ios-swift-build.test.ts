@@ -18,6 +18,7 @@
 //           gated (no compilation step for DebugBridgeCore/UI)
 
 import { describe, test, expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { spawnSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -321,7 +322,7 @@ describeIfSwift('swift build invariants', () => {
       console.error('swift build stderr:', r.stderr?.toString().slice(0, 4000));
     }
     expect(r.status).toBe(0);
-  }, 180_000);
+  }, CAPTURE_MS);
 
   test('XCTest suite for StateServer passes (validates real Swift impl)', () => {
     const r = spawnSync('swift', ['test', '--filter', 'DebugBridgeCoreTests'], {
@@ -342,7 +343,7 @@ describeIfSwift('swift build invariants', () => {
     // Guard against an empty pass-by-no-tests (filter typo / target rename):
     // we expect at least one StateServer smoke test to actually execute.
     expect(combined).toContain('StateServerSmokeTests');
-  }, 240_000);
+  }, CAPTURE_MS);
 
   // Codex-flagged: Release-build guard must be STRUCTURAL, not advisory.
   // The Package.swift's `.when(configuration: .debug)` setting causes Swift
@@ -386,5 +387,5 @@ describeIfSwift('swift build invariants', () => {
       }
     }
     expect(foundForbidden).toBe(0);
-  }, 300_000);
+  }, CAPTURE_MS);
 });

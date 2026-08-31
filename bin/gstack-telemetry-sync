@@ -13,6 +13,9 @@ set -uo pipefail
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+
+# Egress receipt helpers (_receipted_curl): receipt-before-send, fail-closed.
+. "$GSTACK_DIR/bin/gstack-egress-lib.sh"
 ANALYTICS_DIR="$STATE_DIR/analytics"
 JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"
 CURSOR_FILE="$ANALYTICS_DIR/.last-sync-line"
@@ -78,15 +81,27 @@ while IFS= read -r LINE; do
   [ -z "$LINE" ] && continue
   echo "$LINE" | grep -q '^{' || continue
 
-  # Strip local-only fields (keep v, ts, sessions as-is for edge function)
-  CLEAN="$(echo "$LINE" | sed \
-    -e 's/,"_repo_slug":"[^"]*"//g' \
-    -e 's/,"_branch":"[^"]*"//g' \
-    -e 's/,"repo":"[^"]*"//g')"
-
-  # If anonymous tier, strip installation_id
-  if [ "$TIER" = "anonymous" ]; then
-    CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+  # Strip local-only fields (keep v, ts, sessions as-is for edge function).
+  # jq del() is structural — a value containing an escaped quote (repo names,
+  # branch names) can't smuggle the field past a regex or corrupt the strip.
+  # The sed path stays only as a jq-less fallback.
+  if command -v jq >/dev/null 2>&1; then
+    if [ "$TIER" = "anonymous" ]; then
+      CLEAN="$(printf '%s' "$LINE" | jq -c 'del(._repo_slug, ._branch, .repo, .installation_id)' 2>/dev/null)" || CLEAN=""
+    else
+      CLEAN="$(printf '%s' "$LINE" | jq -c 'del(._repo_slug, ._branch, .repo)' 2>/dev/null)" || CLEAN=""
+    fi
+    # A line jq can't parse is malformed telemetry — drop it rather than
+    # forwarding bytes the strip never touched.
+    [ -z "$CLEAN" ] && continue
+  else
+    CLEAN="$(echo "$LINE" | sed \
+      -e 's/,"_repo_slug":"[^"]*"//g' \
+      -e 's/,"_branch":"[^"]*"//g' \
+      -e 's/,"repo":"[^"]*"//g')"
+    if [ "$TIER" = "anonymous" ]; then
+      CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
+    fi
   fi
 
   if [ "$FIRST" = "true" ]; then
@@ -114,12 +129,31 @@ RESP_FILE="$(mktemp "${TMPDIR:-/tmp}/gstack-sync-XXXXXX")" || {
   exit 0
 }
 trap 'rm -f "$RESP_FILE"' EXIT
-HTTP_CODE="$(curl -s -w '%{http_code}' --max-time 10 \
+
+# Egress receipt BEFORE the send (fail-closed): the batch is written to a
+# temp file, the receipt hashes those exact bytes, and curl sends the SAME
+# file. On refusal nothing is sent and the cursor does not advance, so the
+# batch stays buffered and the next run retries. The helper consumes the
+# payload file.
+PAYLOAD_FILE="$(mktemp "${TMPDIR:-/tmp}/gstack-sync-payload-XXXXXX")" || {
+  echo "gstack-telemetry-sync: mktemp failed — skipping this run" >&2
+  exit 0
+}
+printf '%s' "$BATCH" > "$PAYLOAD_FILE"
+DEST_HOST="${SUPABASE_URL#*://}"
+DEST_HOST="${DEST_HOST%%/*}"
+HTTP_CODE="$(GSTACK_HOME="$STATE_DIR" _receipted_curl closed telemetry-sync "$DEST_HOST" telemetry-events "telemetry=$TIER" "$PAYLOAD_FILE" \
+  curl -s -w '%{http_code}' --max-time 10 \
   -X POST "${SUPABASE_URL}/functions/v1/telemetry-ingest" \
   -H "Content-Type: application/json" \
   -H "apikey: ${ANON_KEY}" \
-  -o "$RESP_FILE" \
-  -d "$BATCH" 2>/dev/null || echo "000")"
+  -o "$RESP_FILE" || echo "000")"
+
+# Best-effort response-status record for the receipt above (overrides the
+# helper's generic exit-code outcome with the HTTP status).
+if [ -n "${_GSTACK_EGRESS_LAST_RECEIPT:-}" ]; then
+  GSTACK_HOME="$STATE_DIR" "$GSTACK_DIR/bin/gstack-egress-receipt" outcome "$_GSTACK_EGRESS_LAST_RECEIPT" "$HTTP_CODE" 2>/dev/null || true
+fi
 
 # ─── Update cursor on success (2xx) ─────────────────────────
 case "$HTTP_CODE" in

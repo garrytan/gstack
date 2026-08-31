@@ -13,6 +13,7 @@ import { spawnSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { atomicWriteSync } from './fs-atomic';
 import * as os from 'os';
 
 // --- Interfaces ---
@@ -84,9 +85,9 @@ function loadDedupIndex(): DedupIndex {
 function saveDedupIndex(index: DedupIndex): void {
   const dir = path.dirname(getDedupPath());
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = getDedupPath() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(index, null, 2));
-  fs.renameSync(tmp, getDedupPath());
+  // Was a bare '.tmp' suffix — the deterministic-tmp collision race the
+  // shared helper exists to prevent.
+  atomicWriteSync(getDedupPath(), JSON.stringify(index, null, 2));
 }
 
 // --- WorktreeManager ---

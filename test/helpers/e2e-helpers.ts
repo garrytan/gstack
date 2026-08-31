@@ -1,8 +1,8 @@
 /**
  * Shared helpers for E2E test files.
  *
- * Extracted from the monolithic skill-e2e.test.ts to support splitting
- * tests across multiple files by category.
+ * Extracted from the (since-deleted) pre-split monolith to support
+ * splitting tests across multiple skill-e2e-*.test.ts files by category.
  */
 
 import '../../lib/conductor-env-shim';
@@ -15,6 +15,7 @@ import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIE
 import { WorktreeManager } from '../../lib/worktree';
 import type { HarvestResult } from '../../lib/worktree';
 import { spawnSync } from 'child_process';
+import { preflightAnthropicApi } from './anthropic-preflight';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -32,25 +33,83 @@ export const evalsEnabled = !!process.env.EVALS;
 // --- Diff-based test selection ---
 // When EVALS_ALL is not set, only run tests whose touchfiles were modified.
 // Set EVALS_ALL=1 to force all tests. Set EVALS_BASE to override base branch.
-export let selectedTests: string[] | null = null; // null = run all
 
-if (evalsEnabled && !process.env.EVALS_ALL) {
+/**
+ * Compute the diff-based selection for a touchfiles table. Returns null for
+ * "run all" (EVALS off, EVALS_ALL=1, or no diff vs the base branch — e.g. on
+ * main). Shared by this module (E2E_TOUCHFILES) and skill-llm-eval.test.ts
+ * (LLM_JUDGE_TOUCHFILES) so the selection logic exists exactly once.
+ */
+export function computeDiffSelection(
+  touchfiles: Record<string, string[]>,
+  label: string,
+): string[] | null {
+  if (!evalsEnabled || process.env.EVALS_ALL) return null;
   const baseBranch = process.env.EVALS_BASE
     || detectBaseBranch(ROOT)
     || 'main';
   const changedFiles = getChangedFiles(baseBranch, ROOT);
+  // If changedFiles is empty (e.g., on main branch), run all
+  if (changedFiles.length === 0) return null;
 
-  if (changedFiles.length > 0) {
-    const selection = selectTests(changedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES);
-    selectedTests = selection.selected;
-    process.stderr.write(`\nE2E selection (${selection.reason}): ${selection.selected.length}/${Object.keys(E2E_TOUCHFILES).length} tests\n`);
-    if (selection.skipped.length > 0) {
-      process.stderr.write(`  Skipped: ${selection.skipped.join(', ')}\n`);
-    }
-    process.stderr.write('\n');
+  const selection = selectTests(changedFiles, touchfiles, GLOBAL_TOUCHFILES);
+  process.stderr.write(`\n${label} selection (${selection.reason}): ${selection.selected.length}/${Object.keys(touchfiles).length} tests\n`);
+  if (selection.skipped.length > 0) {
+    process.stderr.write(`  Skipped: ${selection.skipped.join(', ')}\n`);
   }
-  // If changedFiles is empty (e.g., on main branch), selectedTests stays null → run all
+  process.stderr.write('\n');
+  return selection.selected;
 }
+
+/**
+ * Parse the sharded paid runner's precomputed selection (EVALS_SELECTION_JSON,
+ * written by serializePaidDiffSelection in scripts/test-paid-shards.ts).
+ * Returns { selected: null } for run-all. THROWS on any parse/shape failure —
+ * resolveModuleSelection turns that into a fail-open local recompute.
+ */
+export function parseEvalsSelectionJson(raw: string): { selected: string[] | null; reason: string } {
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+  const { selected, reason } = parsed as { selected?: unknown; reason?: unknown };
+  if (selected !== null
+    && !(Array.isArray(selected) && selected.every((s) => typeof s === 'string'))) {
+    throw new Error('selected must be null or string[]');
+  }
+  return {
+    selected: selected as string[] | null,
+    reason: typeof reason === 'string' ? reason : 'parent selection',
+  };
+}
+
+/**
+ * Resolve the module-load E2E selection: prefer the parent shard runner's
+ * EVALS_SELECTION_JSON — skipping this module's own git walk and, when
+ * touchfiles-data.ts is in the diff, the per-child bun subprocess that
+ * evaluates the old data file (test-selection.ts map-diff path, one per
+ * shard). On ANY parse/shape failure, fall back to computing locally
+ * (fail-open preserved) with one stderr warning.
+ */
+export function resolveModuleSelection(
+  raw: string | undefined,
+  compute: () => string[] | null,
+  stderrWrite: (text: string) => void = (text) => process.stderr.write(text),
+): string[] | null {
+  if (raw) {
+    try {
+      const { selected, reason } = parseEvalsSelectionJson(raw);
+      stderrWrite(`\nE2E selection (parent-propagated: ${reason}): ${selected === null ? 'all' : selected.length} tests\n`);
+      return selected;
+    } catch (err) {
+      stderrWrite(`WARNING: malformed EVALS_SELECTION_JSON (${err instanceof Error ? err.message : String(err)}) — falling back to local selection\n`);
+    }
+  }
+  return compute();
+}
+
+export let selectedTests: string[] | null = resolveModuleSelection(
+  evalsEnabled ? process.env.EVALS_SELECTION_JSON : undefined,
+  () => computeDiffSelection(E2E_TOUCHFILES, 'E2E'),
+); // null = run all
 
 // EVALS_TIER: filter tests by tier after diff-based selection.
 // 'gate' = gate tests only (CI default — blocks merge)
@@ -72,9 +131,14 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 
 export const describeE2E = evalsEnabled ? describe : describe.skip;
 
-/** Wrap a describe block to skip entirely if none of its tests are selected. */
-export function describeIfSelected(name: string, testNames: string[], fn: () => void) {
-  const anySelected = selectedTests === null || testNames.some(t => selectedTests!.includes(t));
+/**
+ * Wrap a describe block to skip entirely if none of its tests are selected.
+ * `selected` defaults to this module's E2E selection (diff + EVALS_TIER);
+ * pass an explicit selection (e.g. computeDiffSelection over
+ * LLM_JUDGE_TOUCHFILES) to reuse the gating against a different table.
+ */
+export function describeIfSelected(name: string, testNames: string[], fn: () => void, selected: string[] | null = selectedTests) {
+  const anySelected = selected === null || testNames.some(t => selected.includes(t));
   (anySelected ? describeE2E : describe.skip)(name, fn);
 }
 
@@ -182,6 +246,7 @@ export function recordE2E(
     transcript: result.transcript,
     output: result.output?.slice(0, 2000),
     turns_used: result.costEstimate.turnsUsed,
+    tokens_used: result.costEstimate.estimatedTokens,
     browse_errors: result.browseErrors,
     exit_reason: result.exitReason,
     timeout_at_turn: result.exitReason === 'timeout' ? result.costEstimate.turnsUsed : undefined,
@@ -251,35 +316,37 @@ export async function finalizeEvalCollector(evalCollector: EvalCollector | null)
 
 // Pre-seed preamble state files so E2E tests don't waste turns on lake intro + telemetry prompts.
 // These are one-time interactive prompts that burn 3-7 turns per test if not pre-seeded.
+// NOTE: since gstack-skill-start honors GSTACK_HOME (EOV7), hermetic children read the
+// temp GSTACK_HOME that hermetic-env.ts seeds (the canonical marker list lives there);
+// this operator-HOME seeding only serves EVALS_HERMETIC=0 debug runs.
 if (evalsEnabled) {
   const gstackDir = path.join(os.homedir(), '.gstack');
   fs.mkdirSync(gstackDir, { recursive: true });
-  for (const f of ['.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted']) {
+  // Marker list kept at parity with hermetic-env.ts's child-GSTACK_HOME seed
+  // (the canonical set for the emission layer's gates).
+  for (const f of ['.activated', '.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted', '.first-loop-tip-shown']) {
     const p = path.join(gstackDir, f);
     if (!fs.existsSync(p)) fs.writeFileSync(p, '');
   }
 }
 
-// Fail fast if Anthropic API is unreachable — don't burn through tests getting ConnectionRefused
+// Fail fast if Anthropic API is unreachable — don't burn through tests getting
+// ConnectionRefused. The sharded paid runner pings once in the parent and sets
+// EVALS_PREFLIGHT_OK=1 for its children, so per-file module loads skip this
+// (was: ~30 paid pings per full sharded run, one per importing file).
 if (evalsEnabled) {
-  const check = spawnSync('sh', ['-c', 'echo "ping" | claude -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions'], {
-    stdio: 'pipe', timeout: 30_000,
-  });
-  const output = check.stdout?.toString() || '';
-  if (output.includes('ConnectionRefused') || output.includes('Unable to connect')) {
-    throw new Error('Anthropic API unreachable — aborting E2E suite. Fix connectivity and retry.');
-  }
+  preflightAnthropicApi();
 }
 
 /** Skip an individual test if not selected (for multi-test describe blocks). */
-export function testIfSelected(testName: string, fn: () => Promise<void>, timeout: number) {
-  const shouldRun = selectedTests === null || selectedTests.includes(testName);
+export function testIfSelected(testName: string, fn: () => Promise<void>, timeout: number, selected: string[] | null = selectedTests) {
+  const shouldRun = selected === null || selected.includes(testName);
   (shouldRun ? test : test.skip)(testName, fn, timeout);
 }
 
 /** Concurrent version — runs in parallel with other concurrent tests within the same describe block. */
-export function testConcurrentIfSelected(testName: string, fn: () => Promise<void>, timeout: number) {
-  const shouldRun = selectedTests === null || selectedTests.includes(testName);
+export function testConcurrentIfSelected(testName: string, fn: () => Promise<void>, timeout: number, selected: string[] | null = selectedTests) {
+  const shouldRun = selected === null || selected.includes(testName);
   (shouldRun ? test.concurrent : test.skip)(testName, fn, timeout);
 }
 

@@ -14,7 +14,6 @@ import {
   buildGStackLaunchArgs,
   readHostProfile,
   AUTOMATION_ARTIFACT_CLEANUP_SCRIPT,
-  WEBDRIVER_MASK_SCRIPT,
   STEALTH_LAUNCH_ARGS,
   STEALTH_IGNORE_DEFAULT_ARGS,
 } from '../src/stealth';
@@ -235,10 +234,6 @@ describe('buildGStackLaunchArgs — Pack 1 cmdline-switch construction', () => {
 });
 
 describe('backwards-compat exports', () => {
-  test('WEBDRIVER_MASK_SCRIPT still exported', () => {
-    expect(WEBDRIVER_MASK_SCRIPT).toContain("'webdriver'");
-    expect(WEBDRIVER_MASK_SCRIPT).toContain('false');
-  });
   test('STEALTH_LAUNCH_ARGS still includes blink-features=AutomationControlled', () => {
     expect(STEALTH_LAUNCH_ARGS).toContain('--disable-blink-features=AutomationControlled');
   });

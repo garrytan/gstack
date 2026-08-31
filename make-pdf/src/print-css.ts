@@ -37,8 +37,8 @@
 // Metric-compatible sans stack: Helvetica (macOS), Liberation Sans (Linux,
 // ships via fonts-liberation), Arial (Windows). Shared by every text surface.
 const SANS_STACK = `Helvetica, "Liberation Sans", Arial`;
-// CJK fallback families, appended to the body stack only.
-const CJK_STACK = `"Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei"`;
+// CJK fallback families (Simplified-Chinese first), appended to the body stack only.
+const CJK_STACK = `"PingFang SC", "Heiti SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP"`;
 // Color-emoji families: Apple (macOS), Segoe (Windows), Noto (Linux).
 const EMOJI_FAMILIES = `"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"`;
 

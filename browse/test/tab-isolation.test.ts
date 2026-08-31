@@ -99,6 +99,35 @@ describe('Tab Isolation', () => {
       expect(() => bm.transferTab(999, 'agent-1')).toThrow('Tab 999 not found');
     });
   });
+
+  // D3: revocation must release tab ownership, or a same-name re-pair inherits
+  // the revoked agent's authenticated tabs (own-only access keys on
+  // owner === clientId). Prime the ownership map directly — newTab needs a
+  // real browser (see the file header note on private-map injection).
+  describe('releaseClientTabs (D3)', () => {
+    it('deletes only the target client\'s ownership and returns the released ids', () => {
+      const own = (bm as any).tabOwnership as Map<number, string>;
+      own.set(1, 'codex'); own.set(2, 'codex'); own.set(3, 'other');
+      const released = bm.releaseClientTabs('codex').sort((a, b) => a - b);
+      expect(released).toEqual([1, 2]);
+      expect(bm.getTabOwner(1)).toBeNull();
+      expect(bm.getTabOwner(2)).toBeNull();
+      expect(bm.getTabOwner(3)).toBe('other');
+    });
+
+    it('after release, own-only access to the freed tab is denied even for the same name', () => {
+      const own = (bm as any).tabOwnership as Map<number, string>;
+      own.set(1, 'codex');
+      expect(bm.checkTabAccess(1, 'codex', { ownOnly: true })).toBe(true); // owns it
+      bm.releaseClientTabs('codex');
+      // Ownership gone → a re-paired 'codex' can no longer read/write tab 1.
+      expect(bm.checkTabAccess(1, 'codex', { ownOnly: true })).toBe(false);
+    });
+
+    it('is a no-op on a client that owns nothing', () => {
+      expect(bm.releaseClientTabs('nobody')).toEqual([]);
+    });
+  });
 });
 
 // Test the instruction block generator

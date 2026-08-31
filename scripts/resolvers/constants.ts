@@ -45,6 +45,26 @@ export const OPENAI_LITMUS_CHECKS = [
 ];
 
 /**
+ * Web-search flag for every codex invocation (#2525).
+ *
+ * codex >=0.144 deprecated the legacy `--enable`-based web_search_cached
+ * spelling (web search is on by default; the deprecation notice says to set
+ * `web_search` to "live", "indexed", "cached", or "disabled" at the top
+ * level), and `--enable <FEATURE>` now means `-c features.<name>=true`
+ * (verified on 0.147.0), so the legacy spelling is headed for hard
+ * rejection. This is the ONE source
+ * of truth: resolvers interpolate it directly and templates reference it via
+ * the {{CODEX_WEB_SEARCH_FLAG}} token — never write the flag inline.
+ *
+ * Semantics note: unlike the legacy flag (which yielded to an existing
+ * top-level `web_search` in config.toml), the -c form explicitly overrides
+ * it. Deliberate: gstack wants deterministic cached search for review
+ * invocations. Native `codex review` disables web search regardless of
+ * configuration, so on that path the flag is a harmless no-op.
+ */
+export const CODEX_WEB_SEARCH_FLAG = `-c 'web_search="cached"'`;
+
+/**
  * Shared Codex error handling block for resolver output.
  * Used by ADVERSARIAL_STEP, CODEX_PLAN_REVIEW, CODEX_SECOND_OPINION,
  * DESIGN_OUTSIDE_VOICES, DESIGN_REVIEW_LITE, DESIGN_SKETCH.
@@ -98,10 +118,20 @@ _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   ${m}="disabled"
+# Running-under-Codex presence probe (#2519): a live Codex session exports
+# CODEX_THREAD_ID / CODEX_SANDBOX into every shell it spawns (verified
+# against a live \`codex exec 'env | grep -i codex'\` capture, codex 0.147.0).
+# Nested codex spawns from inside a Codex host multiply token burn
+# (observed: one /review = 15M tokens). GSTACK_FORCE_CODEX_REVIEW=1 forces
+# the nested passes anyway.
+elif [ "\${GSTACK_FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "\${CODEX_THREAD_ID:-}" ] || [ -n "\${CODEX_SANDBOX:-}" ]; }; then
+  ${m}="under_codex"
 elif ! command -v codex >/dev/null 2>&1; then
   ${m}="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   ${m}="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
+elif ! _gstack_codex_model_probe; then
+  ${m}="model_unusable"
 else
   ${m}="ready"; _gstack_codex_version_check 2>/dev/null || true
 fi
@@ -111,6 +141,8 @@ echo "CODEX_MODE: $${m}"
 Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
 - **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: \`npm install -g @openai/codex\`." Fall back to the Claude subagent path.
+- **\`under_codex\`** — this session is already running INSIDE a Codex host, so spawning codex again is the same model reviewing itself at multiplied token cost (#2519). Print exactly one line: "[running under Codex — nested codex passes skipped; set GSTACK_FORCE_CODEX_REVIEW=1 to force]" and skip the codex invocations below; run the section's free in-host pass instead if it defines one.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run \`codex login\` or set \`$CODEX_API_KEY\`." Fall back to the Claude subagent path.
+- **\`model_unusable\`** — authed but the account cannot use its configured model (#2477: HTTP 400 on every call, usually a stale \`model =\` pin in \`~/.codex/config.toml\`). Relay the probe's HINT lines, tell the user the one-line fix (update the pin; \`[notice.model_migrations]\` names the replacement), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to \`ready\`.
 - **\`ready\`** — run the Codex pass below.`;
 }

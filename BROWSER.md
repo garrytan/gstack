@@ -49,7 +49,7 @@ $B connect                       # headed Chromium + Side Panel extension
 5. [Snapshot system + ref-based selection](#snapshot-system)
 6. [Browser-skills runtime](#browser-skills-runtime)
 7. [Domain-skills (per-site agent notes)](#domain-skills)
-8. [Real-browser mode (`$B connect`)](#real-browser-mode) — including [`--headed` + `--proxy` + `--navigate` (v1.28.0.0)](#headed-mode--proxy--browser-native-downloads-v12800)
+8. [Real-browser mode (`$B connect`)](#real-browser-mode) — including [`--headed` + `--proxy` + `--navigate` (v1.28.0.0)](#headed-mode--proxy--browser-native-downloads-v12800) and [Aside and third-party drives (v1.72.0.0+)](#aside-and-third-party-drives-v17200)
 9. [Side Panel + sidebar agent](#side-panel--sidebar-agent)
 10. [Pair-agent — remote agents over an ngrok tunnel](#pair-agent)
 11. [Authentication + tokens](#authentication)
@@ -168,8 +168,18 @@ for the full design + decision trail.
 1. **First call.** CLI checks `<project>/.gstack/browse.json` for a running
    server. None found — it spawns `bun run browse/src/server.ts` in the
    background. Daemon launches headless Chromium via Playwright, picks a
-   random port (10000–60000), generates a bearer token, writes the state
-   file (chmod 600), starts accepting requests. ~3 seconds.
+   random port (10000–49151, deliberately below the macOS ephemeral pool
+   49152-65535 so the OS never hands a colliding port to another process),
+   generates a bearer token, writes the state file (chmod 600), starts
+   accepting requests. ~3 seconds. One launch-time exception to fail-fast:
+   when a macOS XProtect definition update SIGKILLs the pinned Chromium at
+   spawn, the daemon classifies the kill signature, clears the quarantine
+   flag on the Playwright cache, reinstalls the pinned revision from the
+   gstack install root (bounded ~120s), and retries once — at most once per
+   daemon process. If the heal can't complete, the original launch error
+   plus manual `bunx playwright install chromium` guidance lands on daemon
+   stderr (see `browse-daemon.log`). Wired at all three launch sites in
+   `browser-manager.ts` via `browse/src/xprotect-heal.ts`.
 2. **Subsequent calls.** CLI reads the state file, sends an HTTP POST with
    the bearer token, prints the response. ~100-200ms round trip.
 3. **Idle shutdown.** After 30 minutes of no commands, daemon shuts down and
@@ -177,6 +187,13 @@ for the full design + decision trail.
 4. **Crash recovery.** If Chromium crashes, the daemon exits immediately —
    no self-healing, don't hide failure. CLI detects the dead daemon on the
    next call and starts a fresh one.
+5. **Busy vs dead.** A daemon that stops answering HTTP while its process is
+   alive is busy, not dead. The CLI gives `/health` a bounded ~8s to recover,
+   then reports busy with a nonzero exit — it never kills an alive pid.
+   Only an explicit `--force-restart` replaces a live-but-unresponsive
+   daemon (tabs, cookies, and logins are lost). `browse stop` against a
+   daemon that already died is success: the desired end state holds, so it
+   cleans the stale state file instead of booting a daemon just to stop it.
 
 ### Multi-workspace isolation
 
@@ -186,8 +203,8 @@ collisions. State at `<project>/.gstack/browse.json`.
 
 | Workspace | State file | Port |
 |-----------|-----------|------|
-| `/code/project-a` | `/code/project-a/.gstack/browse.json` | random (10000–60000) |
-| `/code/project-b` | `/code/project-b/.gstack/browse.json` | random (10000–60000) |
+| `/code/project-a` | `/code/project-a/.gstack/browse.json` | random (10000–49151) |
+| `/code/project-b` | `/code/project-b/.gstack/browse.json` | random (10000–49151) |
 
 ---
 
@@ -311,13 +328,19 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | Command | Description |
 |---------|-------------|
 | `status` | Daemon health + mode (headless / headed / cdp) |
-| `stop` | Shut down daemon |
+| `stop` | Shut down daemon (succeeds even if the daemon already died — never boots one just to stop it) |
 | `restart` | Restart daemon |
 | `connect` | Launch headed GStack Browser with Side Panel extension |
 | `disconnect` | Close headed Chrome, return to headless |
 | `focus [@ref]` | Bring headed Chrome to foreground (macOS); `@ref` also scrolls into view |
 | `state save\|load <name>` | Save or load browser state (cookies + URLs) |
 | `memory [--json]` | Snapshot Bun heap + per-tab JS heap + Chromium process tree + bounded buffer sizes. Use `--json` for programmatic consumers; text mode renders sorted top-10 tabs with "and N more" tail. |
+
+The daemon's own stdout/stderr persists to `<project>/.gstack/browse-daemon.log`
+(append mode, rotated to `.log.1` at the size cap, single generation), with
+tokens and unsanitized page content kept out — check it when a daemon dies
+without an obvious cause. A live-but-unresponsive daemon is never auto-killed;
+pass `--force-restart` to replace it explicitly (see "Daemon lifecycle" above).
 
 ### Handoff
 
@@ -546,6 +569,21 @@ with your tabs and bookmarks stays untouched.
 - **Demos** where you're sharing your screen
 - **Pair-agent** sessions (the remote agent drives your local browser)
 
+### Aside and third-party drives (v1.72.0.0+)
+
+For third-party website moments (registering an API key, configuring a vendor
+dashboard), the workflow skills (`/ship`, `/spec`, `/office-hours`,
+`/land-and-deploy`, `/setup-deploy`) recommend the Aside AI browser when it's
+installed — it acts across your real logged-in sessions — with `$B` headed
+mode + handoff as the universal fallback. Consent is per-task and explicit;
+gstack never installs Aside for you, and a detected binary is never treated
+as consent.
+
+One observability caveat: drives through Aside happen entirely inside Aside,
+so they leave no gstack-side audit trail — no egress receipts, no
+browse-daemon logs. The audit trail for those drives lives in Aside itself.
+Drives through `$B` keep the normal daemon logs and egress receipts.
+
 ### CDP-aware skills
 
 When in real-browser mode, `/qa` and `/design-review` automatically skip
@@ -705,6 +743,10 @@ Or do it manually: `chrome://extensions` → toggle Developer mode → Load
 unpacked → navigate to `~/.claude/skills/gstack/extension` → pin the
 extension → enter the port from `$B status`.
 
+v1.63 pinned the extension identity via the manifest `key` field, so existing
+unpacked installs get a new extension ID and panel-local state (saved port)
+resets once — a one-time in-product notice explains this.
+
 ---
 
 ## Pair-agent
@@ -758,6 +800,15 @@ remote agent that tries them gets a 403 plus a fresh entry in the denial log.
 + domain only (no raw IP, no full request body), rotates at 10MB with 5
 generations. Per-device salt at `~/.gstack/security/device-salt` (mode 0600).
 
+### Tunnel egress receipts (v1.63+)
+
+Every tunnel session open writes a hash-chained egress receipt (sink
+`browse-tunnel`) to `~/.gstack/security/egress.jsonl` BEFORE ngrok forwards
+anything. Fail-closed: if the receipt can't be written, the tunnel listener
+is torn down and the start is refused. Inspect the ledger with
+`bin/gstack-egress list` and verify chain integrity with
+`bin/gstack-egress verify` (exit 3 on tamper).
+
 See [`docs/REMOTE_BROWSER_ACCESS.md`](docs/REMOTE_BROWSER_ACCESS.md) for the
 full operator guide.
 
@@ -800,6 +851,19 @@ The Terminal pane uses a separate session cookie, `gstack_pty`, minted via
 PTY, can't dispatch arbitrary `/command` calls. `/health` endpoint MUST NOT
 surface this token.
 
+### Extension token bootstrap (v1.63+)
+
+`GET /health` is liveness/status only — it never carries a token, in any
+mode. The Side Panel extension bootstraps the root token via
+`POST /extension-token` on the local listener. The server releases the
+token only when the caller's Origin is exactly
+`chrome-extension://<GSTACK_EXTENSION_ID>` — the `key` field in
+`extension/manifest.json` pins the extension ID (`GSTACK_EXTENSION_ID` in
+`browse/src/server.ts`; derivation reproducible via
+`bun browse/scripts/extension-id.ts`) — AND the parsed Host hostname is
+loopback. Anything else gets a detail-free 403. The endpoint is never
+added to `TUNNEL_PATHS`, so the tunnel surface 404s it by default-deny.
+
 ### Token registry
 
 `browse/src/token-registry.ts` handles mint/validate/revoke for all three
@@ -811,57 +875,54 @@ startup.
 
 ## Security stack
 
-Layered defense against prompt injection. Every layer runs synchronously on
-every user message and every tool output that could carry untrusted content
-(Read, Glob, Grep, WebFetch, page text from `$B`).
+Layered defense against prompt injection on untrusted page content.
 
 | Layer | Module | Lives in |
 |-------|--------|----------|
-| **L1** Datamarking | `content-security.ts` | both server + sidebar agent |
-| **L2** Hidden-element strip | `content-security.ts` | both |
-| **L3** ARIA + URL blocklist + envelope wrapping | `content-security.ts` | both |
-| **L4** TestSavantAI ML classifier (22MB ONNX) | `security-classifier.ts` | sidebar-agent only* |
-| **L4b** Claude Haiku transcript check | `security-classifier.ts` | sidebar-agent only |
-| **L5** Canary token (session-exfil detection) | `security.ts` | both — inject in compiled, check in agent |
-| **L6** `combineVerdict` ensemble | `security.ts` | both |
+| **L1** Datamarking | `content-security.ts` | server + page-content read path |
+| **L2** Hidden-element strip | `content-security.ts` | server + page-content read path |
+| **L3** ARIA + URL blocklist + envelope wrapping | `content-security.ts` | server + page-content read path |
+| **L4** TestSavantAI ML classifier (112MB ONNX) | `security-classifier.ts` | security sidecar subprocess* |
+| Canary token utilities | `security.ts` | pure functions — no live injector today |
+| `combineVerdict` ensemble | `security.ts` | server (inline L4 verdict path) |
 
 \* `security-classifier.ts` cannot be imported from the compiled browse
 binary — `@huggingface/transformers` v4 requires `onnxruntime-node` which
 fails to `dlopen` from Bun compile's temp extract dir. The compiled binary
-runs L1–L3, L5, L6 only.
+runs L1–L3 plus the pure parts of `security.ts`; L4 runs in a plain-Node
+sidecar (`security-sidecar-entry.ts`, spawned lazily by
+`security-sidecar-client.ts` on the first `/pty-inject-scan`).
 
 ### Thresholds
 
 - `BLOCK: 0.85` — single-layer score that would cause BLOCK if cross-confirmed
-- `WARN: 0.75` — cross-confirm threshold. When L4 AND L4b both >= 0.75 → BLOCK
-- `LOG_ONLY: 0.40` — gates transcript classifier (skip Haiku when all layers < 0.40)
+- `WARN: 0.75` — cross-confirm threshold in `combineVerdict`
+- `LOG_ONLY: 0.40` — log-only floor
 - `SOLO_CONTENT_BLOCK: 0.92` — single-layer threshold for label-less content classifiers
 
 ### Ensemble rule
 
-BLOCK only when the ML content classifier AND the transcript classifier both
-report >= WARN. Single-layer high confidence degrades to WARN — this is the
-Stack Overflow instruction-writing FP mitigation. **Canary leak always
-BLOCKs (deterministic).**
+`combineVerdict` retains multi-layer ensemble semantics (2-of-N block votes;
+single-layer high confidence degrades to WARN — the Stack Overflow
+instruction-writing FP mitigation), but only L4 (testsavant) is live today:
+the Haiku transcript and DeBERTa ensemble layers were removed along with the
+sidebar chat pipeline that hosted them. **Canary leak always BLOCKs
+(deterministic).**
 
 ### Env knobs
 
 - `GSTACK_SECURITY_OFF=1` — emergency kill switch. Classifier stays off
-  even if warmed. Canary is still injected; just the ML scan is skipped.
-- `GSTACK_SECURITY_ENSEMBLE=deberta` — opt-in DeBERTa-v3 ensemble. Adds
-  ProtectAI DeBERTa-v3-base-injection-onnx as L4c classifier. 721MB
-  first-run download. With ensemble enabled, BLOCK requires 2-of-3 ML
-  classifiers agreeing at >= WARN.
+  even if warmed. Just the ML scan is skipped.
 - Classifier model cache: `~/.gstack/models/testsavant-small/` (112MB, first
-  run only) plus `~/.gstack/models/deberta-v3-injection/` (721MB, only when
-  ensemble enabled).
+  run only).
 - Attack log: `~/.gstack/security/attempts.jsonl` (salted SHA-256 + domain
   only, rotates at 10MB, 5 generations).
 - Per-device salt: `~/.gstack/security/device-salt` (0600).
-- Session state: `~/.gstack/security/session-state.json` (cross-process,
-  atomic).
 
-A shield icon in the sidebar header shows the live status. See
+There is no security status indicator in the sidebar and no `security`
+field on `/health` (#2557): the session-state file that fed them lost its
+only writer when the chat-path agent was removed, so they reported stale or
+empty data. The live defenses report through their own call sites. See
 ARCHITECTURE.md § "Prompt injection defense" for the full threat model.
 
 ---
@@ -1069,6 +1130,19 @@ $B state load my-session         # restore
 In-memory `load-html` content is intentionally NOT persisted (avoid leaking
 secrets to disk).
 
+Manual save/load is one-shot. For state that survives daemon restarts
+automatically, opt in with `BROWSE_PERSIST_STATE=1` in the daemon's
+environment: the headless daemon snapshots cookies + per-tab
+URL/localStorage/sessionStorage to `<stateDir>/session-state.json` (0600,
+atomic writes) every 30 seconds and at clean shutdown, then restores it off
+the boot path on the next launch. Default OFF — cookies on disk are a real
+cost, so the user opts in. Headless only (headed mode's persistent Chromium
+profile already owns its state). Loaded HTML and tab ownership are never
+persisted, cookies for localhost, `.internal`, loopback IP literals
+(127.0.0.0/8, `::1`), and link-local/cloud-metadata addresses
+(169.254.0.0/16) are dropped on restore, and a corrupt snapshot is quarantined to
+`session-state.json.corrupt` so persistence can never block a launch.
+
 ### Watch
 
 ```bash
@@ -1105,7 +1179,13 @@ untrusted). Untrusted methods (data-exfil-shaped, e.g.
 ```bash
 $B cdp Page.getLayoutMetrics
 $B cdp Network.enable
-$B cdp Accessibility.getFullAXTree --json '{"max_depth":5}'
+$B cdp Accessibility.getFullAXTree '{"depth":5}'
+
+# Perf measurement on a simulated low-end client (overrides persist on the
+# tab until you clear them — callers own restoration):
+$B cdp Emulation.setCPUThrottlingRate '{"rate":4}'   # clear: '{"rate":1}'
+$B cdp Network.emulateNetworkConditions '{"offline":false,"latency":150,"downloadThroughput":195000,"uploadThroughput":97500}'
+# clear: '{"offline":false,"latency":0,"downloadThroughput":-1,"uploadThroughput":-1}'
 ```
 
 To discover allowed methods: read `browse/src/cdp-allowlist.ts`.
@@ -1174,8 +1254,8 @@ collisions.
 
 | Workspace | State file | Port |
 |-----------|-----------|------|
-| `/code/project-a` | `/code/project-a/.gstack/browse.json` | random (10000–60000) |
-| `/code/project-b` | `/code/project-b/.gstack/browse.json` | random (10000–60000) |
+| `/code/project-a` | `/code/project-a/.gstack/browse.json` | random (10000–49151) |
+| `/code/project-b` | `/code/project-b/.gstack/browse.json` | random (10000–49151) |
 
 Browser-skills three-tier lookup walks project → global → bundled, so a
 project-tier skill at `/code/project-a/.gstack/browser-skills/foo/` shadows
@@ -1187,9 +1267,9 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BROWSE_PORT` | 0 (random 10000–60000) | Fixed port for the HTTP server (debug override) |
+| `BROWSE_PORT` | 0 (random 10000–49151) | Fixed port for the HTTP server (debug override) |
 | `BROWSE_IDLE_TIMEOUT` | 1800000 (30 min) | Idle shutdown timeout in ms |
-| `BROWSE_STATE_FILE` | `.gstack/browse.json` | Path to state file |
+| `BROWSE_STATE_FILE` | `.gstack/browse.json` | Path to state file. Its parent dir gets owner-only (0700) hardening only when gstack owns it — shared sticky dirs (`/tmp`, `/var/tmp`), foreign-owned dirs, symlinked dirs, and (under root) any world-writable dir are left untouched with a one-time warning (v1.72.0.0+) |
 | `BROWSE_SERVER_SCRIPT` | auto-detected | Path to `server.ts` |
 | `BROWSE_CDP_URL` | (none) | Set to `channel:chrome` for real-browser mode |
 | `BROWSE_CDP_PORT` | 0 | CDP port (used internally) |
@@ -1198,7 +1278,6 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `BROWSE_TUNNEL_LOCAL_ONLY` | 0 | Test-only — bind both listeners locally without ngrok |
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
 | `GSTACK_SECURITY_OFF` | unset | Emergency kill switch — disable ML classifier |
-| `GSTACK_SECURITY_ENSEMBLE` | unset | Set to `deberta` for 3-classifier ensemble (721MB download) |
 | `GSTACK_STEALTH` | unset | Set to `extended` (also accepts `1`/`true`) to layer six aggressive patches (WebGL spoof, faked plugins, mediaDevices) on top of Layer C. Actively lies; can break sites. |
 | `GSTACK_CDP_STEALTH` | unset | Set to `on`/`1`/`true` to emit `--gstack-suppress-prepare-stack-trace` (gbrowser Pack 2 / B11 C++ patch only; no-op on stock Chromium) |
 | `GSTACK_GPU_VENDOR`, `GSTACK_GPU_RENDERER`, `GSTACK_GPU_CHIPSET` | unset | Per-install GPU spoof fed to the Pack 1 WebGL/UA-CH C++ patches. Set by gbd from the host profile; emitted as `--gstack-gpu-vendor` / `--gstack-gpu-renderer` / `--gstack-ua-model` cmdline switches only when present. |
@@ -1215,6 +1294,8 @@ browse/
 │   ├── cli.ts                   # Thin client — reads state, sends HTTP, prints
 │   ├── server.ts                # Bun HTTP daemon — routes commands, dual-listener
 │   ├── browser-manager.ts       # Chromium lifecycle, tabs, ref map, crash detection
+│   ├── port-allocator.ts        # Fixed 10000-49151 scan range for every long-lived listener (never port:0)
+│   ├── xprotect-heal.ts         # macOS XProtect launch-kill classify + quarantine-clear + bounded reinstall
 │   ├── socks-bridge.ts          # Local 127.0.0.1 SOCKS5 bridge that handles auth handshakes Chromium can't speak
 │   ├── proxy-config.ts          # --proxy URL parsing + cred resolution (URL vs env, fail-fast on both)
 │   ├── proxy-redact.ts          # Cred-redaction helper for any proxy URL surfaced to logs/errors
@@ -1246,7 +1327,9 @@ browse/
 │   ├── url-validation.ts        # URL safety checks for goto
 │   ├── content-security.ts      # L1-L3: datamarking, hidden strip, ARIA, URL blocklist, envelopes
 │   ├── security.ts              # L5 canary + L6 verdict combiner + thresholds
-│   ├── security-classifier.ts   # L4 ML classifier (TestSavant + optional DeBERTa ensemble)
+│   ├── security-classifier.ts   # L4 ML classifier (TestSavantAI, runs in the security sidecar)
+│   ├── security-sidecar-entry.ts # Sidecar subprocess entrypoint hosting the ONNX classifier
+│   ├── security-sidecar-client.ts # server.ts-side client that drives the sidecar
 │   ├── terminal-agent.ts        # Side Panel Claude PTY manager (auth + lifecycle)
 │   ├── sidebar-utils.ts         # Sidebar URL sanitization + helpers
 │   ├── cookie-import-browser.ts # Decrypt + import cookies from real Chromium browsers
@@ -1393,9 +1476,7 @@ foundation.
 
 The prompt-injection L4 layer uses
 [TestSavantAI/distilbert-v1.1-32](https://huggingface.co/TestSavantAI/distilbert-v1.1-32)
-(112MB ONNX), and the optional ensemble layer uses
-[ProtectAI/deberta-v3-base-prompt-injection-v2](https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2)
-(721MB ONNX) — both run locally via `@huggingface/transformers`.
+(112MB ONNX), run locally via `@huggingface/transformers`.
 
 The CDP escape hatch is gated by an allowlist directly inspired by Codex's
 T2 outside-voice review during the v1.4 design pass: deny-default with an

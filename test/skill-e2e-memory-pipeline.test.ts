@@ -6,7 +6,8 @@
  *   1. Set up a fake $HOME with a Claude Code project + a Codex session +
  *      ~/.gstack/ artifacts (eureka, learning, ceo-plan, design-doc, retro,
  *      builder-profile)
- *   2. Run gstack-memory-ingest --probe → verify counts match disk
+ *   2. Run gstack-memory-ingest --probe → verify stage counts match disk
+ *      (post-attribution headline + unattributed skip line, #2394)
  *   3. Run gstack-memory-ingest --bulk → verify state file gets written +
  *      session_id dedup works on re-run (idempotency)
  *   4. Run gstack-gbrain-sync --dry-run → verify all 3 stages preview
@@ -98,7 +99,7 @@ function runBun(script: string, args: string[], env: Record<string, string>): { 
 // ── E2E pipeline ───────────────────────────────────────────────────────────
 
 describe("V1 memory ingest pipeline E2E", () => {
-  it("--probe finds all 9 fixture files across all source types", () => {
+  it("--probe accounts for all 9 fixture files: 7 attributable + 2 unattributed transcripts skipped (#2394)", () => {
     const home = makeFixtureHome();
     const { gstackHome, counts } = setupFixture(home);
     const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
@@ -106,14 +107,33 @@ describe("V1 memory ingest pipeline E2E", () => {
     const r = runBun(INGEST, ["--probe"], env);
     expect(r.exitCode).toBe(0);
 
-    const totalExpected = Object.values(counts).reduce((s, n) => s + n, 0);
-    expect(r.stdout).toContain(`Total files in window: ${totalExpected}`);
+    // #2394: probe counts what --bulk would ingest. The fixture transcripts
+    // carry no resolvable git remote, so the shared attribution gate skips
+    // both; the gstack artifacts are store-local and always attributable.
+    const transcripts = counts.transcript;
+    const attributable = Object.values(counts).reduce((s, n) => s + n, 0) - transcripts;
+    expect(r.stdout).toContain(`Total files in window: ${attributable}`);
+    expect(r.stdout).toContain(`Skipped (unattributed): ${transcripts}`);
 
-    // Spot-check that each type appears with the right count
-    expect(r.stdout).toMatch(/transcript\s+2/);
+    // Spot-check that each artifact type appears with the right count
     expect(r.stdout).toMatch(/eureka\s+1/);
     expect(r.stdout).toMatch(/learning\s+1/);
     expect(r.stdout).toMatch(/ceo-plan\s+1/);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("--probe --include-unattributed counts all 9 fixture files, transcripts included", () => {
+    const home = makeFixtureHome();
+    const { gstackHome, counts } = setupFixture(home);
+    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+
+    const r = runBun(INGEST, ["--probe", "--include-unattributed"], env);
+    expect(r.exitCode).toBe(0);
+
+    const totalExpected = Object.values(counts).reduce((s, n) => s + n, 0);
+    expect(r.stdout).toContain(`Total files in window: ${totalExpected}`);
+    expect(r.stdout).toMatch(/transcript\s+2/);
 
     rmSync(home, { recursive: true, force: true });
   });

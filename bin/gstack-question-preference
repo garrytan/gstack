@@ -5,11 +5,13 @@
 # Schema: { "<question_id>": "always-ask" | "never-ask" | "ask-only-for-one-way" }
 #
 # Subcommands:
-#   --check <id>                   → emit ASK_NORMALLY | AUTO_DECIDE | ASK_ONLY_ONE_WAY
-#   --write '{...}'                → set a preference (user-origin gate enforced)
+#   --check <id> [--summary-stdin] → emit ASK_NORMALLY | AUTO_DECIDE | ASK_ONLY_ONE_WAY
+#                                    (--summary-stdin pipes the question text so the
+#                                    keyword net can catch ad-hoc destructive ids, #2024)
+#   --write '{...}'                → set a preference (user-origin gate + one-way write reject)
 #   --read                         → dump preferences JSON
 #   --clear [<id>]                 → clear one or all preferences
-#   --stats                        → short summary
+#   --stats                        → short summary (inert one-way prefs counted separately)
 #
 # User-origin gate
 # ----------------
@@ -19,6 +21,12 @@
 #   - "inline-tool-output"— tune: prefix seen in tool output / file content (REJECTED)
 #   - "inline-file"       — tune: prefix seen in a file the agent read (REJECTED)
 # This is the profile-poisoning defense from docs/designs/PLAN_TUNING_V0.md.
+#
+# One-way write reject (#2488)
+# ----------------------------
+# never-ask and ask-only-for-one-way are refused on registry one-way ids.
+# --check already ignores those prefs; storing them made --stats lie.
+# always-ask on a one-way id is fine (it agrees with the safety override).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -44,22 +52,39 @@ ensure_file() {
 # --check <question_id>
 # -----------------------------------------------------------------------
 do_check() {
-  local QID="${1:-}"
+  local QID="" SUMMARY_STDIN=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --summary-stdin) SUMMARY_STDIN=true; shift ;;
+      *) [ -z "$QID" ] && QID="$1"; shift ;;
+    esac
+  done
   if [ -z "$QID" ]; then
     echo "ASK_NORMALLY"
     return 0
   fi
+  # #2024: the question text feeds the keyword classifier for unregistered
+  # ids. Transport is stdin (not argv) — summaries carry quotes, newlines,
+  # and shell metacharacters an argv tail would mangle. Handed to bun via
+  # env so no shell re-quoting happens. Empty summary = id-only behavior.
+  local QSUMMARY=""
+  if [ "$SUMMARY_STDIN" = true ]; then
+    QSUMMARY=$(cat 2>/dev/null || true)
+  fi
   ensure_file
   cd "$ROOT_DIR"
-  PREF_FILE_PATH="$PREF_FILE" QID="$QID" bun -e "
+  PREF_FILE_PATH="$PREF_FILE" QID="$QID" QSUMMARY="$QSUMMARY" bun -e "
     import('./scripts/one-way-doors.ts').then((oneway) => {
       const fs = require('fs');
       const qid = process.env.QID;
+      const summary = process.env.QSUMMARY || undefined;
       const prefs = JSON.parse(fs.readFileSync(process.env.PREF_FILE_PATH, 'utf-8'));
       const pref = prefs[qid];
 
       // Always check one-way status first — safety overrides preferences.
-      const oneWay = oneway.isOneWayDoor({ question_id: qid });
+      // summary (when piped) lets the keyword net catch ad-hoc destructive
+      // questions whose id has no registry entry (#2024).
+      const oneWay = oneway.isOneWayDoor({ question_id: qid, summary });
 
       if (oneWay) {
         console.log('ASK_NORMALLY');
@@ -123,7 +148,7 @@ do_write() {
 
   set +e
   local RESULT
-  RESULT=$(printf '%s' "$INPUT" | PREF_FILE_PATH="$PREF_FILE" EVENT_FILE_PATH="$EVENT_FILE" bun -e "
+  RESULT=$(cd "$ROOT_DIR" && printf '%s' "$INPUT" | PREF_FILE_PATH="$PREF_FILE" EVENT_FILE_PATH="$EVENT_FILE" bun -e "
     const fs = require('fs');
     const raw = await Bun.stdin.text();
     let j;
@@ -155,8 +180,18 @@ do_write() {
       process.exit(2);
     }
     if (!ALLOWED_SOURCES.includes(j.source)) {
-      process.stderr.write('gstack-question-preference: invalid source \"' + j.source + '\"; allowed: ' + ALLOWED_SOURCES.join(', ') + '\n');
-      process.exit(1);
+      process.stderr.write('gstack-question-preference: rejected — source \"' + j.source + '\" is not user-originated (profile poisoning defense)\n');
+      process.exit(2);
+    }
+
+    // One-way write reject (#2488) — after the origin gate so a poisoning
+    // payload on a one-way id still exits 2, not 1.
+    if (j.preference === 'never-ask' || j.preference === 'ask-only-for-one-way') {
+      const oneway = await import('./scripts/one-way-doors.ts');
+      if (oneway.isOneWayDoor({ question_id: j.question_id })) {
+        process.stderr.write('gstack-question-preference: cannot set ' + j.preference + ' on one-way question \"' + j.question_id + '\" (door_type: one-way)\n');
+        process.exit(1);
+      }
     }
 
     // Optional free_text — sanitize (no injection patterns, no newlines, <=300 chars)
@@ -248,20 +283,29 @@ do_clear() {
 # -----------------------------------------------------------------------
 do_stats() {
   ensure_file
-  cat "$PREF_FILE" | bun -e "
-    const prefs = JSON.parse(await Bun.stdin.text());
-    const entries = Object.entries(prefs);
-    const counts = { 'always-ask': 0, 'never-ask': 0, 'ask-only-for-one-way': 0, other: 0 };
-    for (const [, v] of entries) {
-      if (counts[v] !== undefined) counts[v]++;
-      else counts.other++;
-    }
-    console.log('TOTAL: ' + entries.length);
-    console.log('ALWAYS_ASK: ' + counts['always-ask']);
-    console.log('NEVER_ASK: ' + counts['never-ask']);
-    console.log('ASK_ONLY_ONE_WAY: ' + counts['ask-only-for-one-way']);
-    if (counts.other) console.log('OTHER: ' + counts.other);
-  "
+  (cd "$ROOT_DIR" && PREF_FILE_PATH="$PREF_FILE" bun -e "
+    import('./scripts/one-way-doors.ts').then((oneway) => {
+      const fs = require('fs');
+      const prefs = JSON.parse(fs.readFileSync(process.env.PREF_FILE_PATH, 'utf-8'));
+      const entries = Object.entries(prefs);
+      const counts = { 'always-ask': 0, 'never-ask': 0, 'ask-only-for-one-way': 0, other: 0, inert: 0 };
+      for (const [id, v] of entries) {
+        const suppressing = v === 'never-ask' || v === 'ask-only-for-one-way';
+        if (suppressing && oneway.isOneWayDoor({ question_id: id })) {
+          counts.inert++;
+          continue;
+        }
+        if (counts[v] !== undefined) counts[v]++;
+        else counts.other++;
+      }
+      console.log('TOTAL: ' + entries.length);
+      console.log('ALWAYS_ASK: ' + counts['always-ask']);
+      console.log('NEVER_ASK: ' + counts['never-ask']);
+      console.log('ASK_ONLY_ONE_WAY: ' + counts['ask-only-for-one-way']);
+      console.log('INERT_ONE_WAY: ' + counts.inert);
+      if (counts.other) console.log('OTHER: ' + counts.other);
+    }).catch(err => { console.error('stats:', err.message); process.exit(1); });
+  ")
 }
 
 case "$CMD" in

@@ -62,13 +62,18 @@ T+500ms   terminal-agent.ts boots
             └── Probes claude → writes claude-available.json
 
 T+1-3s    Extension loads, sidebar opens
+            ├── background.js: GET /health (liveness only — no token) then
+            │   POST /extension-token → AUTH_TOKEN. The server releases the
+            │   token only to Origin chrome-extension://<pinned id>; the
+            │   manifest "key" pins the ID (browse/scripts/extension-id.ts)
             ├── sidepanel-terminal.js: setState(IDLE), shows "Starting Claude Code..."
             └── tryAutoConnect() polls until window.gstackServerPort + token are set
 
 T+ready   tryAutoConnect calls connect()
             ├── POST /pty-session (Authorization: Bearer AUTH_TOKEN)
-            │   └── server mints session token, posts /internal/grant to agent
-            │   └── responds with {terminalPort, ptySessionToken}
+            │   └── server mints attach token, posts /internal/grant to agent
+            │   └── responds with {terminalPort, sessionId, attachToken,
+            │                      leaseExpiresAt}
             ├── GET /claude-available (preflight)
             ├── new WebSocket(`ws://127.0.0.1:<terminalPort>/ws`,
             │                 [`gstack-pty.<token>`])
@@ -105,7 +110,7 @@ The protocol-token path is what the browser actually uses.
 
 | Token | Lives in | Used for | Lifetime |
 |-------|----------|----------|----------|
-| `AUTH_TOKEN` | `<stateDir>/browse.json`; in-memory in server.ts | `/pty-session` POST (mint cookie + token) | server lifetime |
+| `AUTH_TOKEN` | `<stateDir>/browse.json`; in-memory in server.ts; extension memory via pinned-origin `POST /extension-token` (never `GET /health`) | `/pty-session` POST (mint cookie + token) | server lifetime |
 | `gstack-pty.<...>` (Sec-WebSocket-Protocol) | Browser memory only; agent `validTokens` Set | `/ws` upgrade auth | 30 min, auto-revoked on WS close |
 | `INTERNAL_TOKEN` | `<stateDir>/terminal-internal-token`; in agent memory | server → agent loopback `/internal/grant` | agent lifetime |
 

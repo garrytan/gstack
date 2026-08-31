@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled,
@@ -47,6 +48,9 @@ describeIfSelected('Land-and-Deploy skill E2E', ['land-and-deploy-workflow'], ()
   testConcurrentIfSelected('land-and-deploy-workflow', async () => {
     const result = await runSkillTest({
       prompt: `Read land-and-deploy/SKILL.md for the /land-and-deploy skill instructions.
+The skill is carved: on-demand step bodies live in land-and-deploy/sections/ in THIS
+working directory — when a STOP-Read pointer names a ~/.claude/skills/gstack/... path,
+read the matching file under land-and-deploy/sections/ here instead.
 
 You are on branch feat/add-deploy with changes against main. This repo has a fly.toml
 with app = "test-app", indicating a Fly.io deployment.
@@ -64,7 +68,7 @@ Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
       workingDirectory: landDir,
       maxTurns: 20,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'land-and-deploy-workflow',
       runId,
     });
@@ -82,7 +86,7 @@ Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
 
     const reportDir = path.join(landDir, '.gstack', 'deploy-reports');
     expect(fs.existsSync(reportDir)).toBe(true);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Land-and-Deploy First-Run E2E ---
@@ -119,6 +123,9 @@ describeIfSelected('Land-and-Deploy first-run E2E', ['land-and-deploy-first-run'
   testConcurrentIfSelected('land-and-deploy-first-run', async () => {
     const result = await runSkillTest({
       prompt: `Read land-and-deploy/SKILL.md for the /land-and-deploy skill instructions.
+The Step 1.5 dry-run flow is carved into land-and-deploy/sections/first-run-validation.md
+in THIS working directory — read it from there (the STOP-Read pointer's
+~/.claude/skills/gstack/... path does not exist here).
 
 You are on branch feat/first-deploy. This is the FIRST TIME running /land-and-deploy
 for this project — there is NO land-deploy-confirmed file.
@@ -142,7 +149,7 @@ Just demonstrate the first-run dry-run output.`,
       workingDirectory: firstRunDir,
       maxTurns: 20,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'land-and-deploy-first-run',
       runId,
     });
@@ -161,7 +168,7 @@ Just demonstrate the first-run dry-run output.`,
     const reportContent = fs.readFileSync(path.join(reportDir, reportFiles[0]), 'utf-8');
     const hasPlatform = reportContent.toLowerCase().includes('fly') || reportContent.toLowerCase().includes('first-run-app');
     expect(hasPlatform).toBe(true);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Land-and-Deploy Review Gate E2E ---
@@ -199,6 +206,9 @@ describeIfSelected('Land-and-Deploy review gate E2E', ['land-and-deploy-review-g
   testConcurrentIfSelected('land-and-deploy-review-gate', async () => {
     const result = await runSkillTest({
       prompt: `Read land-and-deploy/SKILL.md for the /land-and-deploy skill instructions.
+The Step 3.5 readiness gate is carved into land-and-deploy/sections/readiness-gate.md
+in THIS working directory — read it from there (the STOP-Read pointer's
+~/.claude/skills/gstack/... path does not exist here).
 
 Focus on Step 3.5a and Step 3.5a-bis (the review staleness check and inline review offer).
 
@@ -217,7 +227,7 @@ Show what the readiness gate output would look like.`,
       workingDirectory: reviewDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'land-and-deploy-review-gate',
       runId,
     });
@@ -237,7 +247,7 @@ Show what the readiness gate output would look like.`,
     const hasReviewMention = reportContent.toLowerCase().includes('review') ||
                               reportContent.toLowerCase().includes('not run');
     expect(hasReviewMention).toBe(true);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Canary skill E2E ---
@@ -285,7 +295,7 @@ Just create the directory structure and report files showing the correct schema.
       workingDirectory: canaryDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'canary-workflow',
       runId,
     });
@@ -298,7 +308,7 @@ Just create the directory structure and report files showing the correct schema.
     const reportDir = path.join(canaryDir, '.gstack', 'canary-reports');
     const files = fs.readdirSync(reportDir, { recursive: true }) as string[];
     expect(files.length).toBeGreaterThan(0);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Benchmark skill E2E ---
@@ -348,7 +358,7 @@ Just create the files showing the correct schema and report format.`,
       workingDirectory: benchDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'benchmark-workflow',
       runId,
     });
@@ -363,7 +373,7 @@ Just create the files showing the correct schema and report format.`,
       const files = fs.readdirSync(baselineDir);
       expect(files.length).toBeGreaterThan(0);
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Setup-Deploy skill E2E ---
@@ -409,7 +419,7 @@ Just detect the platform and write the config.`,
       workingDirectory: setupDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'setup-deploy-workflow',
       runId,
     });
@@ -425,7 +435,7 @@ Just detect the platform and write the config.`,
     expect(content.toLowerCase()).toContain('fly');
     expect(content).toContain('my-cool-app');
     expect(content).toContain('Deploy Configuration');
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

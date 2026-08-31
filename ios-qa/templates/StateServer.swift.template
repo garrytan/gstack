@@ -97,10 +97,12 @@ public final class StateServer {
         try? bootToken.write(toFile: bootTokenPath, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: bootTokenPath)
 
-        // 2. Log the boot token EXACTLY ONCE so the daemon can scrape it.
-        //    The daemon will rotate immediately; this log line is dead within
-        //    seconds.
-        logger.notice("gstack-ios-qa-bootstrap token=\(self.bootToken, privacy: .public) port=\(self.port, privacy: .public) build=\(self.appBuildId, privacy: .public)")
+        // 2. Announce bootstrap WITHOUT the token. The daemon reads the boot
+        //    token from the 0600 file above (copyFileFromAppContainer); the
+        //    os_log line that used to carry it had no consumer and handed a
+        //    live credential to anything reading the unified log during the
+        //    launch window. Port/build stay for diagnostics.
+        logger.notice("gstack-ios-qa-bootstrap port=\(self.port, privacy: .public) build=\(self.appBuildId, privacy: .public)")
 
         // 3. Bind both IPv6 and IPv4 loopback. CoreDevice tunnel uses IPv6;
         //    local tooling may use IPv4. Never bind 0.0.0.0 or ::.
@@ -149,7 +151,19 @@ public final class StateServer {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
 
-            let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+            // IPv4 has no CoreDevice tunnel path, so it binds strictly to
+            // loopback at the socket level; IPv6 keeps the wildcard bind and
+            // relies on the per-connection peer check below for tunnel peers.
+            let listener: NWListener
+            switch family {
+            case .ipv4:
+                params.requiredLocalEndpoint = NWEndpoint.hostPort(
+                    host: NWEndpoint.Host("127.0.0.1"),
+                    port: NWEndpoint.Port(rawValue: port)!)
+                listener = try NWListener(using: params)
+            case .ipv6:
+                listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+            }
             listener.stateUpdateHandler = { [weak self] state in
                 Task { @MainActor in
                     if case .ready = state {

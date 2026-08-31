@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * test-free-shards — enumerate, shard, and curate the free test suite.
+ * test-free-shards — enumerate, shard, curate, and run the free test suite.
  *
- * Three jobs:
+ * Four jobs:
  *   1. Enumeration. Walk `browse/test/`, `test/`, `make-pdf/test/` and return
  *      every `*.test.{ts,tsx,js,jsx,mjs,cjs}` that isn't a paid-eval test.
  *   2. Sharding. Stable-hash assign each test to one of N shards. Used by CI
@@ -11,37 +11,103 @@
  *      patterns (`/bin/bash`, `sh -c`, raw `/tmp/`, `chmod`, `xargs`). Files
  *      that match are excluded from the Windows-safe subset — they would fail
  *      on `windows-latest` no matter how the runner shards them.
+ *   4. Execution. Spawn `bun test` children and refuse to trust their exit
+ *      code alone: every byte of output is classified through
+ *      scripts/test-strict-output.ts, so a child that exits 0 without bun's
+ *      terminal summary (a mid-suite process.exit truncation), with `(fail)`
+ *      result lines, or with fewer files run than planned is a FAILURE. An
+ *      external wall-clock timeout SIGKILLs the child's process group and
+ *      reports the shard as timed-out — distinct from failed.
+ *
+ * Execution strategy (decision ledger V3/D6 — evaluate the Bun built-in
+ * first; probed 2026-08 on Bun 1.3.13):
+ *   - Full-suite runs (`bun test` via package.json, `bun run test:free`) use
+ *     N CONCURRENT SHARD PROCESSES, serial within each (the paid runner's
+ *     model). A single `--parallel` invocation was probed and initially
+ *     adopted, then abandoned: three distinct Bun 1.3.13 worker pathologies
+ *     (segfault + crash-retry wedge, skipped-file hooks stalling a worker,
+ *     spawn-heavy files hanging under load) each stalled the whole
+ *     invocation, while process shards isolate any wedge to its own shard.
+ *     Original --parallel probe results, kept for the record: it
+ *     showed --parallel (a) prints the standard `Ran N tests across M files`
+ *     terminal summary, (b) exits non-zero when any file fails, (c) runs each
+ *     file in its own worker process (distinct pids, no shared globals), and
+ *     (d) converts a mid-suite process.exit(0) — which silently truncates a
+ *     serial run at exit 0 — into a per-file `(crashed: exited)` failure with
+ *     a complete summary and exit 1. Strictly SAFER than the serial path and
+ *     ~2x faster on a 6-file probe (0.22s -> 0.11s wall, 280% CPU); the win
+ *     grows with suite size since the serial suite measured 454s.
+ *   - CI-matrix runs (`--shards M --shard i`) keep the hash-partitioned
+ *     one-child-per-shard path. Cross-runner partitioning must be
+ *     deterministic and per-file stable, so bun's own `--shard=M/N`
+ *     (round-robin over sorted paths — every assignment shifts when a file
+ *     lands) is not used, and there are no static per-file weight lists.
+ *     Shard indices are STABLE: assignFilesToShards never renumbers on
+ *     occupancy, and an empty shard is a fast no-op success.
  *
  * Adapted from the McGluut/gstack fork's test-free-shards.ts (190 LOC). The
  * Windows-safe filter is upstream-original — codex flagged that sharding alone
  * doesn't fix POSIX-bound tests, so we curate the subset that actually runs
  * on the windows-latest CI job.
  *
+ * Output contract (v1.66): the full child stream ALWAYS lands in a per-run
+ * log file under os.tmpdir() (path printed once at start and again in the
+ * epilogue). The console is quiet by default — only the runner's own
+ * [test:free] lines, `(fail)` result lines, bun error/crash markers
+ * (`error:`, `panic:`, `crashed`, `Unhandled error`), and the terminal
+ * `Ran N tests across M files` summary reach it; `--verbose` restores full
+ * forwarding. After every run a stable epilogue names the failing tests
+ * (attributed to files via bun's `path/to/file.test.ts:` chunk headers),
+ * crashed+retried workers, and — on a wall-timeout kill — the wedge-suspect
+ * files. The strict classifier consumes the FULL stream regardless of what
+ * the console shows.
+ *
+ * Exit codes: 0 pass, 1 fail, 124 wall-clock timeout.
+ *
  * Usage:
- *   bun run scripts/test-free-shards.ts --list                    # show all
- *   bun run scripts/test-free-shards.ts --windows-only --list     # show curated
- *   bun run scripts/test-free-shards.ts --windows-only            # run curated
- *   bun run scripts/test-free-shards.ts --shards 4 --shard 1      # one shard
+ *   bun run scripts/test-free-shards.ts                            # full suite, N concurrent shard processes
+ *   bun run scripts/test-free-shards.ts --list                     # show all
+ *   bun run scripts/test-free-shards.ts --windows-only --list      # show curated
+ *   bun run scripts/test-free-shards.ts --windows-only             # run curated
+ *   bun run scripts/test-free-shards.ts --shards 4 --shard 1       # one shard (CI matrix)
+ *   bun run scripts/test-free-shards.ts --wall-timeout 600         # override the kill deadline
+ *   bun run scripts/test-free-shards.ts --verbose                  # forward the full child stream
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
+import { StringDecoder } from 'node:string_decoder';
+import { isPaidTestFile } from '../test/helpers/paid-test-set';
+import {
+  BunTestOutputClassifier,
+  exactTestFileSelectors,
+  installChildSignalForwarding,
+  isTerminationRequested,
+  killProcessGroup,
+  strictTestExitCode,
+  stripAnsiLine,
+} from './test-strict-output';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const TEST_ROOTS = ['browse/test', 'test', 'make-pdf/test'] as const;
-const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
-
-// Tests that require API spend, external services, or e2e harnesses.
-// These are filtered out before any sharding or curation.
-const PAID_EVAL_TESTS = [
-  /^browse\/test\/security-review-fullstack\.test\.ts$/,
-  /^test\/skill-e2e-.*\.test\.ts$/,
-  /^test\/skill-llm-eval\.test\.ts$/,
-  /^test\/skill-routing-e2e\.test\.ts$/,
-  /^test\/codex-e2e\.test\.ts$/,
-  /^test\/gemini-e2e\.test\.ts$/,
+// design/test was silently absent from BOTH the package.json test script and
+// this list — design tests (including a teardown bomb) never ran in any CI
+// or local free run. Keep the two lists in sync. This list is the single
+// source of truth for free-suite roots: package.json's `test` script routes
+// through this runner rather than passing its own directory globs.
+export const TEST_ROOTS = [
+  'browse/test',
+  'test',
+  'make-pdf/test',
+  'design/test',
+  // v1.65 orphan wire-in (decision D3a): these ran under NO script or CI —
+  // written coverage that caught nothing. All were green on arrival.
+  'ios-qa/daemon/test',
+  'ios-qa/scripts',
+  'browser-skills',
 ] as const;
+const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 
 // POSIX-only patterns that indicate a test will fail on windows-latest no
 // matter how the runner shards. Codex's v1.18.0.0 review flagged the first
@@ -84,20 +150,13 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // BROWSE_HEADLESS_SKIP=1 to skip the browser launch but still need a working
   // server, which they don't get on Windows.
   { pattern: /BROWSE_HEADLESS_SKIP|spawn\(\[['"]bun['"],\s*['"]run['"]/, reason: 'spawns the browse server subprocess (Bun-driven path is Windows-broken)' },
-  // Tests that read browse/src/sidebar-agent.ts — deleted in v1.14.0.0
-  // sidebar refactor (replaced by sidepanel-terminal.js). 10 security tests
-  // still reference it and fail on import. They've been broken on every
-  // platform since v1.14, but Bun on macOS/Linux reports the failure as a
-  // module-load error (exit 0) while Bun on Windows treats it as a hard
-  // fail (exit 1). Tracked as a follow-up: update or delete these tests.
-  { pattern: /sidebar-agent\.ts/, reason: 'reads deleted browse/src/sidebar-agent.ts (pre-existing breakage from v1.14.0.0 sidebar refactor)' },
 ];
 
 // Explicit known-Windows-incompatible test files that don't fit a regex
 // pattern. Listed here with the precise reason. Prefer adding a pattern above
 // when possible; this list is for environment-/runtime-specific tests where
 // the failure mode is structural rather than detectable via source-file scan.
-const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
+export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
   {
     file: 'test/host-config.test.ts',
     reason: 'asserts "claude" binary on PATH (only true when running inside Claude Code, not on bare CI runner)',
@@ -106,10 +165,255 @@ const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
     file: 'browse/test/findport.test.ts',
     reason: 'asserts Bun.serve.stop() is fire-and-forget — Bun behavior differs on Windows for this polyfill',
   },
+  // First full run of the expanded lane (v1.66, 13 → ~258 files) surfaced
+  // seven POSIX-bound files the content patterns cannot see (their
+  // POSIX-ness is what they TEST, or arrives via a variable). Receipts:
+  // PR #2593 windows-free-tests run 31918591602.
+  {
+    file: 'test/codex-under-codex-detection.test.ts',
+    reason: 'drives the rendered preflight bash under a hardcoded POSIX PATH (/usr/bin:/bin) — bash is unreachable through that PATH on Windows, so every case sees empty output (v1.67 windows lane run 95234224148)',
+  },
+  {
+    file: 'test/regression-pr1169-build-app-sed.test.ts',
+    reason: 'tests sed escape sequences in build-app.sh — sed/bash are the subject under test',
+  },
+  {
+    file: 'test/setup-conductor-worktree.test.ts',
+    reason: 'tests ln -snf symlink semantics in the setup script — POSIX ln is the subject under test',
+  },
+  {
+    file: 'test/artifacts-init-migration.test.ts',
+    reason: 'runs a bash migration script + jq against a scaffolded git state — POSIX toolchain paths break under cmd spawn',
+  },
+  {
+    file: 'test/gstack-decision-semantic.test.ts',
+    reason: 'installs a fake gbrain SHEBANG SHIM on PATH; Windows spawn cannot exec shebang scripts',
+  },
+  {
+    file: 'test/question-log-hook.test.ts',
+    reason: 'spawns the PostToolUse hook script (bash shebang) directly; Windows spawn cannot exec it',
+  },
+  {
+    file: 'browse/test/browser-skills-e2e.test.ts',
+    reason: 'asserts forward-slash tier paths (<repo>/browser-skills/) that resolve with backslashes on Windows',
+  },
+  {
+    file: 'design/test/variants-retry-after.test.ts',
+    reason: 'wall-clock retry-timing assertions — flaky on the slow windows-latest runner even with widened bounds',
+  },
+  // Round-2 census (PR #2593 run 31919227507) after the first seven:
+  {
+    file: 'test/skill-census.test.ts',
+    reason: 'census walk throws at module load on Windows (skill-census.ts:63) — the skills-tree symlink layout needs Developer Mode that CI runners lack',
+  },
+  {
+    file: 'browse/test/browser-manager-unit.test.ts',
+    reason: 'wedges the shard to its wall deadline on windows-latest (in-flight at kill); needs a Windows repro to diagnose — macOS + Linux lanes cover the file',
+  },
+  // Round-3 census (PR #2593 run 31919871680): the round-2 wedge had been
+  // TRUNCATING its shard, so these seven only surfaced once shard 2 completed.
+  // All the same POSIX-environment classes: PID/cmdline identity probing,
+  // bash scripts as the subject under test, env-scrubbed child spawns.
+  {
+    file: 'browse/test/server-embedder-terminal-port.test.ts',
+    reason: 'identity-based terminal-agent kill probes PID/cmdline with POSIX semantics; teardown asserts fail on windows-latest',
+  },
+  {
+    file: 'design/test/daemon-discovery.test.ts',
+    reason: 'verifyIdentity matches a spawned daemon via /proc-style cmdline probing — POSIX identity semantics',
+  },
+  {
+    file: 'test/context-save-hardening.test.ts',
+    reason: 'bash context-save/migration scripts (HOME-unset semantics, random-suffix path) are the subject under test',
+  },
+  {
+    file: 'test/eval-list-cli.test.ts',
+    reason: 'spawns the eval:list CLI via bun with a constructed env — bun resolution fails under Windows spawn',
+  },
+  {
+    file: 'test/memory-cache-injection.test.ts',
+    reason: 'exercises hook/deny-enforcement shell scripts — POSIX toolchain is the subject under test',
+  },
+  {
+    file: 'test/migrations-v1.65.0.0.test.ts',
+    reason: 'bash migration script (bunx re-fetch, .done markers) is the subject under test',
+  },
+  {
+    file: 'test/question-preference-hook.test.ts',
+    reason: 'spawns the PreToolUse preference hook (shebang script) directly; Windows spawn cannot exec it',
+  },
+  // Round-4 census (PR #2593 run 31920052810): unhandled errors with no
+  // (fail) lines — attributed statically (the lane had no log artifact yet).
+  {
+    file: 'browse/test/browser-skill-commands.test.ts',
+    reason: 'spawnSkill spawns bun with a constructed env — bun resolution fails under Windows spawn (unhandled, no (fail) line)',
+  },
+  {
+    file: 'browse/test/security-audit-r2.test.ts',
+    reason: 'symlink-attack fixtures (evil-link) need Developer Mode CI runners lack; expect(toThrow) fires unhandled on Windows',
+  },
+];
+
+// Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for
+// a reason that does not actually apply to them. Each entry documents WHY the
+// pattern hit is a false positive — the point of these files is Windows
+// coverage, so auto-excluding them defeats the regression tests they carry.
+const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
+  {
+    file: 'test/setup-windows-rerun-refresh.test.ts',
+    // Trips the "spawns bin/ shebang script" pattern via path.join(..., 'bin',
+    // 'tool.sh') fixture paths, but every spawn goes through spawnSync('bash',
+    // ['-c', ...]) — Git Bash executes it fine on windows-latest. This file IS
+    // the #2444 Windows regression coverage (IS_WINDOWS=1 copy-refresh path);
+    // excluding it here would keep the bug class unexercised on the one
+    // platform it bites.
+    reason: 'bin/ hits are fixture path segments; spawns bash explicitly — the IS_WINDOWS=1 refresh path must run on windows-latest',
+  },
+  {
+    file: 'test/uninstall-windows-copies.test.ts',
+    // Trips the "spawns bin/ shebang script" pattern via the
+    // path.join(ROOT, 'bin', 'gstack-uninstall') constant, but the script is
+    // always spawned through spawnSync('bash', [UNINSTALL, ...]). This file
+    // carries the #2563 Windows real-dir-copy uninstall coverage — the bug
+    // ONLY reproduces on the copy install shape windows-latest exercises.
+    // The symlink-shape describe block self-skips on win32.
+    reason: 'bin/ hit is a bash-spawned script path; #2563 real-dir uninstall coverage must run on windows-latest',
+  },
+  {
+    file: 'browse/test/file-permissions.test.ts',
+    // Trips the POSIX-mode-bitmask pattern, but every `mode & 0o777` assertion
+    // is platform-guarded: win32-only tests return early, POSIX-only tests
+    // guard the bitmask behind `process.platform !== 'win32'`, and the
+    // symlink-skip regression test both wraps symlinkSync in try/catch
+    // (runners without Developer Mode can't create symlinks) and guards its
+    // bitmask — on win32 it asserts behavior (warns, skips, doesn't throw,
+    // target stays usable), never fake Windows mode bits (dirs stat 0o777
+    // there, so a 0o755 expectation fails on runner semantics, not our code).
+    // This file carries the win32-only icacls-by-SID regression tests, which
+    // can ONLY execute on windows-latest — excluding it here means the
+    // machine-account ACL lockout regression is never exercised on the one
+    // platform it bricks.
+    reason: 'every mode-bitmask assertion is guarded off win32 (behavior asserted instead); win32-only ACL regression tests must run on windows-latest',
+  },
+  {
+    file: 'browse/test/terminal-agent-owner-watchdog.test.ts',
+    // Trips the spawn(['bun','run',...]) pattern, whose reason is the
+    // Playwright-bound browse server. This test spawns terminal-agent.ts,
+    // which imports only fs/path/crypto + local helpers (no Playwright, no
+    // PTY at module scope) and boots under Bun on Windows — the owner-PID
+    // orphan leak it pins was reported on Windows (#2019).
+    reason: 'spawns terminal-agent (no Playwright), not the browse server; owner-orphan leak is a Windows defect',
+  },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;
-export const FREE_TEST_TIMEOUT_MS = 10_000;
+// Per-test timeout passed to `bun test --timeout`. 30s matches what
+// package.json's `test` script used before it was repointed at this runner —
+// the runner is now the single owner of that semantic.
+export const FREE_TEST_TIMEOUT_MS = 30_000;
+// External wall-clock deadline per spawned child (whole shard or the single
+// full-suite --parallel invocation). A wedged child — a spinning main thread
+// no in-process --timeout timer can interrupt — is SIGKILLed at the group
+// level and reported 'timed-out', distinct from 'failed'.
+// ~3.5x the observed full-suite wall (~100-160s). A wedged run should be
+// killed-and-diagnosed (the epilogue prints the in-flight suspects) in
+// minutes, not sat out — 15min of silence was pure diagnosis latency.
+// Override per run with --wall-timeout <secs>.
+export const DEFAULT_WALL_TIMEOUT_MS = 6 * 60_000;
+/**
+ * Full-suite shards scale their wall deadline with shard size:
+ * max(DEFAULT_WALL_TIMEOUT_MS, files × PER_FILE_WALL_MS). The 6-min floor
+ * keeps wedge diagnosis fast on a typical ~70-file local shard, while a
+ * low-core machine (jobs=1 → the whole suite in one shard) or the Windows
+ * lane (~130 files/shard) gets proportional headroom instead of a false
+ * timed-out kill of a healthy run. Explicit --wall-timeout disables scaling.
+ */
+export const PER_FILE_WALL_MS = 5_000;
+export function wallTimeoutForShard(fileCount: number, baseMs = DEFAULT_WALL_TIMEOUT_MS): number {
+  return Math.max(baseMs, fileCount * PER_FILE_WALL_MS);
+}
+
+/**
+ * Wall for a duration-packed shard. The count heuristic above assumes count
+ * approximates cost; LPT packing breaks that BY DESIGN (a shard may hold six
+ * slow Playwright files), so packed shards get max(base, predicted x 3) —
+ * generous against seed drift, still bounded.
+ */
+export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_WALL_TIMEOUT_MS, fileCount = 0): number {
+  // Predictions transfer badly across machines: the committed duration seed
+  // is recorded on fast CI, and a syscall-supervised sandbox replays those
+  // files 2-4x slower (observed: a 253-file shard predicted ~242s wall-killed
+  // at its 725s predicted-x3 wall while genuinely still progressing). The
+  // packed wall may therefore be LOOSER than the count heuristic, never
+  // tighter — it keeps the per-file floor the runner has always guaranteed.
+  return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
+}
+/**
+ * Full-suite parallelism: leave RESERVED_CPUS cores for the parent runner +
+ * OS, cap at MAX_FULL_SUITE_JOBS — beyond ~6 concurrent bun processes the
+ * playwright-heavy shards contend on browser launches instead of finishing
+ * sooner (measured on an M-series dev box).
+ *
+ * GSTACK_FREE_JOBS overrides the computed count (the free runner's analogue
+ * of the paid runner's EVALS_JOBS). Exists for syscall-supervised sandboxes:
+ * on Vercel sandboxes, PID 1 (sandbox-init) installs a seccomp filter whose
+ * user-space supervisor saturates under ~6 concurrent bun+playwright shards
+ * and starts returning EACCES from plain file syscalls (measured: 200/200
+ * `git init` probes in fresh mktemp dirs fail with
+ * "Cannot access work tree: Permission denied" while the suite runs, 0/200
+ * when idle — access(dir, X_OK) = EACCES under strace). Fewer shards keep
+ * the supervisor inside its budget. Not clamped by MAX_FULL_SUITE_JOBS so a
+ * beefy box can also raise it deliberately.
+ */
+export const MAX_FULL_SUITE_JOBS = 6;
+export const RESERVED_CPUS = 2;
+
+export function fullSuiteJobs(): number {
+  const raw = process.env.GSTACK_FREE_JOBS;
+  if (raw !== undefined && raw !== '') {
+    // Strict digits-only: parseInt would silently truncate "2abc" -> 2 and
+    // "3.7" -> 3, defeating the loud-failure contract the error text claims.
+    if (!/^\d+$/.test(raw.trim()) || Number.parseInt(raw, 10) <= 0) {
+      throw new Error(`GSTACK_FREE_JOBS must be a positive integer, got: ${raw}`);
+    }
+    return Number.parseInt(raw, 10);
+  }
+  return Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+}
+
+/**
+ * Files that crash or wedge Bun's --parallel WORKERS but run fine in a plain
+ * serial process. Full-suite mode now uses shard PROCESSES (no workers), so
+ * this list is inert placement-wise — retained as the paper trail of why the
+ * one-invocation --parallel strategy was abandoned, and as the exclusion list
+ * should anyone re-attempt it on a newer Bun.
+ */
+export const WORKER_HOSTILE: Record<string, string> = {
+  'browse/test/security-live-playwright.test.ts':
+    'Bun 1.3.13 segfaults running this file in a --parallel worker ("panic: '
+    + 'Segmentation fault ... a bug in Bun"), and the crashed-worker retry then '
+    + 'wedges the whole invocation past the wall clock. Passes serially.',
+};
+
+/**
+ * TREE-SERIAL files: run in ONE serial shard AFTER the parallel shards.
+ * EMPTY since the 2026-08 dissolution — kept as a mechanism, not a museum:
+ * a test that must regenerate shared repo artifacts IN PLACE (and cannot
+ * render into an out-dir instead) earns an entry here with a reason, and
+ * the runner will serialize it again.
+ *
+ * How it emptied: gen-skill-docs gained a main() guard (imports stopped
+ * regenerating 71 files at load) and --out-dir grew to every host, so all
+ * eight mutators now render into mkdtemps — the live tree is never written
+ * by the suite (pinned by gen-skill-docs-import-purity + each migrated
+ * file's own porcelain/mtime assertions). With zero mutators, the four
+ * ratchet READERS (parity caps, size budgets, carve parity/ordering) get a
+ * quiet tree by construction in any shard, so they rejoined the parallel
+ * phase — the ~35-40s serial tail on every full-suite run is gone.
+ * Keys are pinned against the live file census by test-free-shards.test.ts —
+ * a renamed file fails the suite instead of silently dropping serialization.
+ */
+export const TREE_MUTATING: Record<string, string> = {};
 
 export function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
@@ -118,7 +422,7 @@ export function normalizeRelativePath(filePath: string): string {
 export function isFreeTestFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
   if (!TEST_FILE_REGEX.test(normalized)) return false;
-  return !PAID_EVAL_TESTS.some(pattern => pattern.test(normalized));
+  return !isPaidTestFile(normalized);
 }
 
 /**
@@ -177,10 +481,15 @@ export function curateWindowsSafe(files: string[], rootDir = ROOT): CurationResu
   const safe: string[] = [];
   const excluded: Array<{ file: string; reason: string }> = [];
   const knownBad = new Map(KNOWN_WINDOWS_INCOMPATIBLE.map((e) => [e.file, e.reason]));
+  const knownSafe = new Set(KNOWN_WINDOWS_SAFE.map((e) => e.file));
   for (const relativePath of files) {
     const knownReason = knownBad.get(relativePath);
     if (knownReason) {
       excluded.push({ file: relativePath, reason: knownReason });
+      continue;
+    }
+    if (knownSafe.has(relativePath)) {
+      safe.push(relativePath);
       continue;
     }
     const absolute = path.join(rootDir, relativePath);
@@ -203,6 +512,15 @@ export function stableHash(input: string): number {
   return hash >>> 0;
 }
 
+/**
+ * Hash-partition files across EXACTLY shardCount shards. Empty shards are
+ * preserved: a file's shard index is a pure function of its own path and the
+ * shard count, never of which other files happen to exist. A CI matrix keys
+ * runners off the index, so filtering empty shards (the old behavior) would
+ * renumber every later shard whenever occupancy shifted — runner 3 silently
+ * running shard 4's files. An empty shard is instead a fast no-op success at
+ * run time.
+ */
 export function assignFilesToShards(files: string[], shardCount: number): string[][] {
   if (!Number.isInteger(shardCount) || shardCount <= 0) {
     throw new Error(`Shard count must be a positive integer. Received: ${shardCount}`);
@@ -214,35 +532,148 @@ export function assignFilesToShards(files: string[], shardCount: number): string
     shards[shardIndex].push(file);
   }
 
-  return shards
-    .map(filesInShard => filesInShard.sort())
-    .filter(filesInShard => filesInShard.length > 0);
+  return shards.map(filesInShard => filesInShard.sort());
 }
 
-export function buildShardArgs(files: string[]): string[] {
-  return ['test', ...files, '--max-concurrency=1', `--timeout=${FREE_TEST_TIMEOUT_MS}`];
+// ─── Duration-aware packing (full-suite path ONLY) ─────────────────────────
+// Hash sharding balances file COUNTS (~1.15x spread) but not cost: the 15
+// Playwright-launching files land 4/3/4/1/2/1 across 6 shards, giving a
+// measured 28s–97s shard spread and ~40s of idle tail on every run. LPT
+// packing over recorded per-file durations reclaims most of it. The `--shard`
+// CI-matrix path is deliberately untouched — its contract is stable indices
+// via assignFilesToShards/stableHash (empty shards no-op; see above).
+//
+// One store, no overlay: durations come from the committed seed
+// (scripts/free-test-durations.json), refreshed occasionally via
+// `--record-durations` (each file timed in its own child — exact, and immune
+// to bun's stream buffering, where silent passers print no header to
+// timestamp). GSTACK_FREE_TEST_DURATIONS overrides the path for experiments.
+// The seed is a HINT, not a contract: missing file → hash-shard fallback;
+// unknown file → 75th-percentile pessimism (placed early by LPT, bounding
+// tail risk). Successor note: bun ≥1.3.14 ships native --timings/--shard LPT
+// scheduling — when the repo unpins 1.3.13, this packer is the code to
+// replace (keep it swappable).
+
+export const FREE_TEST_DURATIONS_FILE = 'scripts/free-test-durations.json';
+
+export function loadFreeTestDurations(rootDir = ROOT): Record<string, number> | null {
+  const file = process.env.GSTACK_FREE_TEST_DURATIONS
+    ?? path.join(rootDir, FREE_TEST_DURATIONS_FILE);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf-8');
+  } catch {
+    return null; // no seed — hash sharding, silently (fresh checkouts are normal)
+  }
+  try {
+    const parsed = JSON.parse(raw) as { durations?: Record<string, unknown> };
+    const entries = Object.entries(parsed.durations ?? {})
+      .filter((entry): entry is [string, number] =>
+        typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0);
+    if (entries.length === 0) return null;
+    return Object.fromEntries(entries);
+  } catch (error) {
+    // A corrupt seed (bad merge) must cost a warning, never the suite.
+    console.error(`[test:free] WARNING: corrupt durations seed ${file} (${(error as Error).message}) — falling back to hash sharding`);
+    return null;
+  }
+}
+
+export interface PackedShards {
+  shards: string[][];
+  /** Predicted total per shard, aligned with `shards` — feeds walls + logs. */
+  predictedMs: number[];
+}
+
+/**
+ * Longest-processing-time-first bin packing: files sorted by predicted
+ * duration (desc, path-stable tiebreak) each go to the currently-lightest
+ * shard. Deterministic for a given (files, shardCount, durations).
+ */
+export function packShardsByDuration(
+  files: string[],
+  shardCount: number,
+  durations: Record<string, number>,
+): PackedShards {
+  if (!Number.isInteger(shardCount) || shardCount <= 0) {
+    throw new Error(`Shard count must be a positive integer. Received: ${shardCount}`);
+  }
+  const known = files
+    .map((f) => durations[normalizeRelativePath(f)])
+    .filter((v): v is number => typeof v === 'number')
+    .sort((a, b) => a - b);
+  // Unknown files get the 75th percentile of known durations: pessimistic, so
+  // LPT places them early and a surprise long-runner can't recreate the tail.
+  const fallback = known.length > 0 ? known[Math.min(known.length - 1, Math.floor(known.length * 0.75))] : 1;
+  const predicted = (f: string): number => durations[normalizeRelativePath(f)] ?? fallback;
+
+  const ordered = [...files].sort((a, b) => predicted(b) - predicted(a) || (a < b ? -1 : 1));
+  const shards = Array.from({ length: shardCount }, () => [] as string[]);
+  const loads = new Array<number>(shardCount).fill(0);
+  for (const file of ordered) {
+    let lightest = 0;
+    for (let i = 1; i < shardCount; i += 1) {
+      if (loads[i] < loads[lightest]) lightest = i;
+    }
+    shards[lightest].push(file);
+    loads[lightest] += predicted(file);
+  }
+  return { shards: shards.map((s) => s.sort()), predictedMs: loads };
+}
+
+export interface BuildShardArgsOptions {
+  /**
+   * Pass bun's --parallel (worker-per-file, implies --isolate). No production
+   * caller today — full-suite mode uses N shard PROCESSES after the worker
+   * pathologies documented in main(); retained for a future re-attempt on a
+   * newer Bun (see WORKER_HOSTILE).
+   */
+  parallel?: boolean;
+  rootDir?: string;
+}
+
+export function buildShardArgs(files: string[], options: BuildShardArgsOptions = {}): string[] {
+  // Exact absolute selectors: bun treats positional test paths as substring
+  // filters, so a relative `test/x.test.ts` would ALSO select
+  // `browse/test/x.test.ts` — shard bleed that double-runs files.
+  const selectors = exactTestFileSelectors(files, options.rootDir ?? ROOT);
+  const args = ['test', ...selectors, `--timeout=${FREE_TEST_TIMEOUT_MS}`];
+  if (options.parallel) args.push('--parallel');
+  else args.push('--max-concurrency=1');
+  return args;
 }
 
 type CliOptions = {
   dryRun: boolean;
   listOnly: boolean;
+  recordDurations: boolean;
   windowsOnly: boolean;
+  verbose: boolean;
   shardCount: number;
   shardIndex: number | null;
+  wallTimeoutMs: number;
+  /** True when --wall-timeout was passed explicitly; full-suite mode only auto-scales the default. */
+  wallTimeoutExplicit: boolean;
 };
 
 function parseCliOptions(argv: string[]): CliOptions {
   let dryRun = false;
   let listOnly = false;
+  let recordDurations = false;
   let windowsOnly = false;
+  let verbose = false;
   let shardCount = DEFAULT_SHARD_COUNT;
   let shardIndex: number | null = null;
+  let wallTimeoutMs = DEFAULT_WALL_TIMEOUT_MS;
+  let wallTimeoutExplicit = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--dry-run') { dryRun = true; continue; }
     if (arg === '--list') { listOnly = true; continue; }
+    if (arg === '--record-durations') { recordDurations = true; continue; }
     if (arg === '--windows-only') { windowsOnly = true; continue; }
+    if (arg === '--verbose') { verbose = true; continue; }
     if (arg === '--shards') {
       const value = argv[index + 1];
       if (!value) throw new Error('Missing value for --shards');
@@ -257,10 +688,18 @@ function parseCliOptions(argv: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (arg === '--wall-timeout') {
+      const value = Number.parseInt(argv[index + 1] ?? '', 10);
+      if (!Number.isInteger(value) || value <= 0) throw new Error('--wall-timeout needs a positive integer (seconds)');
+      wallTimeoutMs = value * 1000;
+      wallTimeoutExplicit = true;
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  return { dryRun, listOnly, windowsOnly, shardCount, shardIndex };
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit };
 }
 
 function formatShardSummary(shards: string[][]): string[] {
@@ -271,21 +710,651 @@ function formatShardSummary(shards: string[][]): string[] {
   });
 }
 
-function runShard(files: string[], shardNumber: number, totalShards: number): number {
-  const header = `[test:free] shard ${shardNumber}/${totalShards} (${files.length} files)`;
-  console.log(header);
-  const result = spawnSync(process.execPath, buildShardArgs(files), {
-    cwd: ROOT,
-    stdio: 'inherit',
-    env: process.env,
-  });
-  if (result.status !== 0) {
-    console.error(`${header} failed with exit code ${result.status ?? 1}`);
-  }
-  return result.status ?? 1;
+/**
+ * True when a shard's output shows the run ended WITHOUT bun's final summary
+ * ("Ran N tests across ..."). A process.exit() fired mid-suite skips the
+ * summary AND hands back whatever code the caller passed — historically 0,
+ * which made a truncated shard indistinguishable from a green one. Exit code
+ * alone is therefore not evidence of completion; the summary line is.
+ *
+ * The runner itself now enforces this (and more) through
+ * scripts/test-strict-output.ts inside runFreeShard; this predicate remains
+ * the minimal documented primitive that test/exit-propagation.test.ts drives
+ * with genuine truncated and genuine complete bun runs.
+ */
+export function shardRunLooksTruncated(status: number | null, output: string): boolean {
+  if (status !== 0) return false; // already failing — not the silent case
+  return !/Ran \d+ tests? across \d+ files?/.test(output);
 }
 
-function main(): number {
+// ---------------------------------------------------------------------------
+// Output contract: console filtering + per-file failure attribution.
+//
+// Bun groups each file's output under a `path/to/file.test.ts:` header line
+// (cwd-relative, sometimes ../-prefixed through a symlinked cwd). The
+// reporter tracks the current header while consuming the stream, attributes
+// `(fail)` lines and crash markers to files, and decides which lines reach
+// the console in the default quiet mode. All matching happens on
+// ANSI-stripped lines — colored `(fail)` lines defeated a prior grep.
+// ---------------------------------------------------------------------------
+
+const TEST_PATH_SOURCE = String.raw`\.test\.(?:[cm]?[jt]s|tsx|jsx)`;
+/** A file chunk header: the path bun printed, terminated by a bare colon. */
+const FILE_HEADER_RE = new RegExp(`^(\\S.*${TEST_PATH_SOURCE}):$`);
+/** Same shape strict-output classifies as failed-test, with the name captured. */
+const FAIL_RESULT_CAPTURE_RE = /^\(fail\) (.+) \[\d+(?:\.\d+)?(?:ns|us|µs|ms|s)\]$/;
+/** bun --parallel retries a crashed worker once: `<icon> crashed running <path>, retrying`. */
+const CRASH_RETRY_RE = new RegExp(`crashed running (\\S*${TEST_PATH_SOURCE}), retrying`);
+/** The give-up marker after the retry also crashes: `✗ <path> (crashed: exited)`. */
+const CRASH_FINAL_RE = new RegExp(`(\\S*${TEST_PATH_SOURCE}) \\(crashed: [^)]+\\)`);
+const TERMINAL_SUMMARY_CAPTURE_RE = /^Ran (\d+) tests? across (\d+) files?\. \[/;
+/** Substrings that must reach the console even in the default quiet mode. */
+const CONSOLE_ALWAYS_MARKERS = ['error:', 'panic:', 'Unhandled error', 'crashed'] as const;
+
+export type StreamOrigin = 'stdout' | 'stderr';
+
+export interface FreeRunFailure {
+  /** Planned relative path when attributable, else the raw header path, else null. */
+  file: string | null;
+  testName: string;
+}
+
+export interface FreeRunReport {
+  testsRan: number | null;
+  filesRan: number | null;
+  sawTerminalSummary: boolean;
+  /** Deduped `(fail)` lines in arrival order, attributed to the current file header. */
+  failures: FreeRunFailure[];
+  /** Files that crashed a worker (bun retries once; a second crash is final). Deduped. */
+  crashedFiles: string[];
+  /**
+   * "# Unhandled error between tests" markers, attributed to the chunk they
+   * appeared in. These fail the shard via the strict classifier but produce
+   * NO (fail) lines — without surfacing them here, the epilogue reads
+   * "FAIL — 0 failing test(s)" and the culprit is undiscoverable from CI
+   * output (first Windows lane run: a module-load throw in skill-census).
+   */
+  unhandledErrors: Array<{ file: string | null }>;
+  /**
+   * Wedge-suspect heuristic for a wall-timeout kill: files whose header was
+   * seen but whose chunk never ENDED (chunk end = the next file's header, or
+   * a final crash marker) before the terminal summary — i.e. "started but
+   * never produced a result chunk end". Result lines deliberately do NOT end
+   * a chunk: a file that printed a fail and then wedged stays listed. Known
+   * limits of the approximation:
+   *   - Serial (--shard CI path): bun streams live but prints a file's header
+   *     lazily, on its first output line — a wedged file that printed ANY
+   *     line is listed; a fully silent wedge is not.
+   *   - Parallel (full-suite path): bun buffers a file's whole chunk until it
+   *     COMPLETES, so a wedged file usually never prints a header (see
+   *     filesWithNoOutput), and the LAST flushed chunk before the kill has no
+   *     closing header, so one completed noisy file can be over-listed.
+   */
+  inFlight: string[];
+  /** Planned files never observed in the stream (silent passers + never-flushed wedges). */
+  filesWithNoOutput: number;
+}
+
+interface FileProgress {
+  headerSeen: boolean;
+  /** The file's chunk ended: a later file's header arrived, or it crashed out. */
+  ended: boolean;
+}
+
+/**
+ * Incrementally consumes the child's stdout/stderr (chunk boundaries need not
+ * align to lines), attributing results to files and forwarding only
+ * always-visible lines to `forward` (omit `forward` for verbose/quiet modes —
+ * attribution still runs so the epilogue works in every mode).
+ */
+export class FreeRunReporter {
+  private readonly decoders: Record<StreamOrigin, StringDecoder> = {
+    stdout: new StringDecoder('utf8'),
+    stderr: new StringDecoder('utf8'),
+  };
+  private readonly pending: Record<StreamOrigin, string> = { stdout: '', stderr: '' };
+  private readonly plannedSet: Set<string>;
+  private readonly canonicalCache = new Map<string, string>();
+  private readonly progress = new Map<string, FileProgress>();
+  private readonly failureKeys = new Set<string>();
+  private readonly failures: FreeRunFailure[] = [];
+  private readonly crashed = new Set<string>();
+  private currentFile: string | null = null;
+  private inRecap = false;
+  private readonly unhandled: Array<{ file: string | null }> = [];
+  private testsRan: number | null = null;
+  private filesRan: number | null = null;
+  private sawSummary = false;
+
+  constructor(
+    private readonly plannedFiles: string[],
+    private readonly forward?: (text: string, origin: StreamOrigin) => void,
+  ) {
+    this.plannedSet = new Set(plannedFiles.map(normalizeRelativePath));
+  }
+
+  write(chunk: Uint8Array | string, origin: StreamOrigin): void {
+    this.pending[origin] += typeof chunk === 'string'
+      ? chunk
+      : this.decoders[origin].write(Buffer.from(chunk));
+    let newline = this.pending[origin].indexOf('\n');
+    while (newline !== -1) {
+      this.handleLine(this.pending[origin].slice(0, newline), origin);
+      this.pending[origin] = this.pending[origin].slice(newline + 1);
+      newline = this.pending[origin].indexOf('\n');
+    }
+  }
+
+  /** Flush partial trailing lines (a stream killed mid-line still classifies). */
+  end(): void {
+    for (const origin of ['stdout', 'stderr'] as const) {
+      this.pending[origin] += this.decoders[origin].end();
+      if (this.pending[origin].length > 0) this.handleLine(this.pending[origin], origin);
+      this.pending[origin] = '';
+    }
+  }
+
+  report(): FreeRunReport {
+    const inFlight = this.sawSummary
+      ? []
+      : [...this.progress.entries()]
+          .filter(([, p]) => p.headerSeen && !p.ended)
+          .map(([file]) => file)
+          .sort();
+    return {
+      testsRan: this.testsRan,
+      filesRan: this.filesRan,
+      sawTerminalSummary: this.sawSummary,
+      failures: [...this.failures],
+      crashedFiles: [...this.crashed].sort(),
+      unhandledErrors: [...this.unhandled],
+      inFlight,
+      filesWithNoOutput: this.plannedFiles.filter((f) => !this.progress.has(normalizeRelativePath(f))).length,
+    };
+  }
+
+  private handleLine(rawLine: string, origin: StreamOrigin): void {
+    // GitHub Actions: bun wraps each file's section in ::group::<header>.
+    // Without stripping, the real header fails FILE_HEADER_RE, failures get
+    // attributed to the PREVIOUS file, and the terminal recap's re-printed
+    // (fail) lines land under a second phantom file (observed on the first
+    // Linux run: 5 real failures reported as 10 across 2 files).
+    const line = stripAnsiLine(rawLine).replace(/^::group::/, '');
+    let visible = false;
+
+    // Bun's terminal recap ("N tests failed:") re-prints every (fail) line
+    // WITHOUT re-printing file headers. Attributing those to the stale
+    // currentFile invented a phantom failing file on the first Linux run
+    // (5 real failures reported as 10 across 2 files, one innocent).
+    if (/^\d+ tests? failed:$/.test(line)) {
+      this.inRecap = true;
+      if (this.currentFile) this.progressFor(this.currentFile).ended = true;
+      this.currentFile = null;
+    }
+
+    if (line === '# Unhandled error between tests') {
+      this.unhandled.push({ file: this.currentFile });
+    }
+
+    const header = FILE_HEADER_RE.exec(line);
+    if (header) {
+      const file = this.canonicalize(header[1]);
+      // A new header ends the previous file's chunk — that file is no longer
+      // a wedge suspect. (Bun 1.3.x prints NO (pass) lines, so chunk
+      // delimiters, not result lines, are the completion signal.)
+      if (this.currentFile && this.currentFile !== file) this.progressFor(this.currentFile).ended = true;
+      this.currentFile = file;
+      this.progressFor(file).headerSeen = true;
+    } else {
+      const fail = FAIL_RESULT_CAPTURE_RE.exec(line);
+      const retry = fail ? null : CRASH_RETRY_RE.exec(line);
+      const final = fail || retry ? null : CRASH_FINAL_RE.exec(line);
+      if (fail) {
+        visible = true;
+        // In the recap, a (fail) line only records a failure the main run
+        // somehow never attributed (belt and braces); known names dedupe.
+        const recapDuplicate = this.inRecap
+          && this.failures.some((f) => f.testName === fail[1]);
+        const key = `${this.currentFile ?? ''}\u0000${fail[1]}`;
+        if (!recapDuplicate && !this.failureKeys.has(key)) {
+          this.failureKeys.add(key);
+          this.failures.push({ file: this.currentFile, testName: fail[1] });
+        }
+      } else if (retry) {
+        // The file will run again — a crash+retry does not end its chunk.
+        visible = true;
+        this.crashed.add(this.canonicalize(retry[1]));
+      } else if (final) {
+        visible = true;
+        const file = this.canonicalize(final[1]);
+        this.crashed.add(file);
+        this.progressFor(file).ended = true;
+      } else {
+        const summary = TERMINAL_SUMMARY_CAPTURE_RE.exec(line);
+        if (summary) {
+          visible = true;
+          this.sawSummary = true;
+          this.testsRan = Number.parseInt(summary[1], 10);
+          this.filesRan = Number.parseInt(summary[2], 10);
+        }
+      }
+    }
+
+    if (!visible) visible = CONSOLE_ALWAYS_MARKERS.some((marker) => line.includes(marker));
+    if (visible && this.forward) this.forward(`${rawLine.replace(/\r$/, '')}\n`, origin);
+  }
+
+  private progressFor(file: string): FileProgress {
+    let entry = this.progress.get(file);
+    if (!entry) {
+      entry = { headerSeen: false, ended: false };
+      this.progress.set(file, entry);
+    }
+    return entry;
+  }
+
+  /**
+   * Map a printed path back to its planned relative path. Bun prints paths
+   * relative to the child's (real)cwd, so a symlinked cwd (macOS /tmp) yields
+   * `../..`-prefixed forms — strip the prefix and suffix-match.
+   */
+  private canonicalize(printedPath: string): string {
+    const cached = this.canonicalCache.get(printedPath);
+    if (cached) return cached;
+    const stripped = normalizeRelativePath(printedPath).replace(/^(?:\.{1,2}\/)+/, '');
+    let resolved = stripped;
+    if (!this.plannedSet.has(stripped)) {
+      const match = this.plannedFiles.find(
+        (planned) => stripped.endsWith(`/${planned}`) || planned.endsWith(`/${stripped}`),
+      );
+      if (match) resolved = match;
+    }
+    this.canonicalCache.set(printedPath, resolved);
+    return resolved;
+  }
+}
+
+/**
+ * The stable post-run epilogue. Success is one line; failure names every
+ * failing test (deduped, attributed) and crashed worker; a wall-timeout kill
+ * additionally prints the wedge-suspect list (see FreeRunReport.inFlight for
+ * the heuristic and its limits).
+ */
+export function buildRunEpilogue(
+  status: FreeShardStatus,
+  report: FreeRunReport,
+  elapsedMs: number,
+  logPath: string,
+): string[] {
+  const seconds = Math.round(elapsedMs / 1000);
+  if (status === 'passed') {
+    return [
+      `[test:free] PASS — ${report.testsRan ?? '?'} tests, ${report.filesRan ?? '?'} files, ${seconds}s. Full log: ${logPath}`,
+    ];
+  }
+  const failingFiles = new Set(report.failures.map((f) => f.file ?? '(unattributed)'));
+  const lines = [
+    `[test:free] FAIL — ${report.failures.length} failing test(s) in ${failingFiles.size} file(s), `
+    + `${report.crashedFiles.length} crashed worker(s)${report.unhandledErrors.length > 0 ? `, ${report.unhandledErrors.length} unhandled error(s) between tests` : ''}. Full log: ${logPath}`,
+  ];
+  for (const failure of report.failures) {
+    lines.push(`  ✗ ${failure.file ?? '(unattributed)'} — ${failure.testName}`);
+  }
+  for (const file of report.crashedFiles) {
+    lines.push(`  ⚠ crashed+retried: ${file}`);
+  }
+  for (const u of report.unhandledErrors) {
+    lines.push(`  ⚠ unhandled error between tests (around ${u.file ?? 'unknown file'})`);
+  }
+  if (status === 'timed-out') {
+    if (report.inFlight.length > 0) {
+      lines.push(`  ⏱ in flight at kill: ${report.inFlight.join(', ')}`);
+    } else {
+      lines.push(
+        '  ⏱ in flight at kill: unknown — no open file chunk was observed '
+        + '(bun --parallel buffers a file\'s output until it completes, so a silent wedge never prints); '
+        + `${report.filesWithNoOutput} planned file(s) produced no output before the kill.`,
+      );
+    }
+  }
+  return lines;
+}
+
+export type FreeShardStatus = 'passed' | 'failed' | 'timed-out';
+
+export interface FreeShardOutcome {
+  shard: number;
+  files: string[];
+  status: FreeShardStatus;
+  exitCode: number | null;
+  elapsedMs: number;
+  groupPid: number | null;
+  /**
+   * Repo-relative files with attributed test failures or crashes, deduped.
+   * Feeds the opt-in flaky retry pass (GSTACK_FREE_RETRY_FLAKY) — empty on
+   * pass, and empty when every failure was unattributed (retry would be
+   * meaningless without knowing what to re-run).
+   */
+  failingFiles: string[];
+  /**
+   * Count of failure evidence the retry pass CANNOT re-run by file: fail
+   * lines seen before any file-chunk header, unhandled errors between tests,
+   * and a truncated run (no terminal summary). Nonzero vetoes the flaky
+   * retry for the whole run — retrying only failingFiles would re-run a
+   * subset and mask the rest as a FLAKY-PASS, re-opening the silent-truncation
+   * hole the strict classifier exists to close.
+   */
+  unattributedFailures: number;
+}
+
+export interface ShardCommand {
+  command: string;
+  args: string[];
+}
+
+export interface RunFreeShardOptions {
+  /** External wall-clock deadline; on expiry the child's process GROUP is SIGKILLed. */
+  wallTimeoutMs?: number;
+  rootDir?: string;
+  env?: NodeJS.ProcessEnv;
+  /** Pass bun's --parallel. No production caller today (see BuildShardArgsOptions.parallel). */
+  parallel?: boolean;
+  /** Override the spawned command. Tests inject fake pass/fail/slow commands. */
+  commandFor?: (files: string[]) => ShardCommand;
+  /** Suppress ALL child output from the console (tests). The classifier and the log file still see every byte. */
+  quiet?: boolean;
+  /** Forward the full child stream to the console (legacy firehose). Default: the quiet filtered console. */
+  verbose?: boolean;
+  /**
+   * Console sink for child-stream output (tests inject to assert quiet vs
+   * verbose behavior). Default: process.stdout / process.stderr by origin.
+   * Runner-owned [test:free] lines go through `log`, not this sink.
+   */
+  consoleWrite?: (text: string) => void;
+  /** Per-run full-stream log path (tests inject). Default: a timestamped file under os.tmpdir(). */
+  logFilePath?: string;
+  log?: (line: string) => void;
+}
+
+const EPILOGUE_WORD: Record<FreeShardStatus, string> = {
+  passed: 'pass',
+  failed: 'fail',
+  'timed-out': 'timed-out',
+};
+
+/** One line per shard, printed after the run: `[test:free] shard i/N: M files, XXs, pass|fail|timed-out`. */
+function shardEpilogue(outcome: FreeShardOutcome, totalShards: number): string {
+  return `[test:free] shard ${outcome.shard}/${totalShards}: ${outcome.files.length} files, `
+    + `${Math.round(outcome.elapsedMs / 1000)}s, ${EPILOGUE_WORD[outcome.status]}`;
+}
+
+/**
+ * Run one shard (or the whole suite, in --parallel full-suite mode) in its own
+ * bun process and classify the result strictly.
+ *
+ * Verdict integrity: the child's exit code is never trusted alone. Output is
+ * fed through BunTestOutputClassifier, and strictTestExitCode requires bun's
+ * terminal summary to report EXACTLY the planned file count — a shard that
+ * exits 0 without the summary (mid-suite process.exit truncation), with
+ * `(fail)` result lines, or having run fewer files than planned is a FAILURE.
+ * This is enforced for injected fake commands too (unlike the paid runner),
+ * so tests can pin the summary-missing => failure backstop; fake passing
+ * commands must print a synthetic `Ran N tests across M files. [Xms]` line.
+ *
+ * Per-shard temp isolation: each spawned child gets its own throwaway TMPDIR
+ * (TEMP/TMP on Windows) so shards can't trip over each other's temp files.
+ * Deliberately NOT GSTACK_HOME: injecting one shared scratch home for a whole
+ * invocation made 6,900 tests share a MUTABLE state dir — config tests wrote
+ * keys into it and relink/update-check tests then read them (measured: 12
+ * cross-contamination failures on the first full run). Tests that need
+ * GSTACK_HOME isolation mkdtemp their own per test — the repo convention —
+ * and the hermetic-env machinery covers E2E children.
+ */
+export async function runFreeShard(
+  files: string[],
+  shardNumber: number,
+  totalShards: number,
+  options: RunFreeShardOptions = {},
+): Promise<FreeShardOutcome> {
+  const log = options.log ?? ((line: string) => console.log(line));
+  const label = `[test:free] shard ${shardNumber}/${totalShards}`;
+
+  // Empty shard = fast no-op SUCCESS. Indices are stable for the CI matrix,
+  // so an unoccupied index must not fail or shift work to a different runner.
+  if (files.length === 0) {
+    const outcome: FreeShardOutcome = {
+      shard: shardNumber, files: [], status: 'passed', exitCode: 0, elapsedMs: 0, groupPid: null, failingFiles: [], unattributedFailures: 0,
+    };
+    log(shardEpilogue(outcome, totalShards));
+    return outcome;
+  }
+
+  const rootDir = options.rootDir ?? ROOT;
+  const wallTimeoutMs = options.wallTimeoutMs ?? DEFAULT_WALL_TIMEOUT_MS;
+  log(`${label} (${files.length} files${options.parallel ? ', bun --parallel' : ''})`);
+
+  // Full-stream capture: EVERY child byte lands here, whatever the console
+  // shows. Printed once at start so a wedged or noisy run is inspectable
+  // without a re-run.
+  const logPath = options.logFilePath ?? nextDefaultLogPath();
+  const logStream = fs.createWriteStream(logPath);
+  let logWriteFailed = false;
+  logStream.on('error', (err) => {
+    if (logWriteFailed) return;
+    logWriteFailed = true;
+    console.error(`${label} could not write the full log at ${logPath}: ${err.message}`);
+  });
+  log(`[test:free] full log: ${logPath}`);
+
+  const { command, args } = options.commandFor
+    ? options.commandFor(files)
+    : { command: process.execPath, args: buildShardArgs(files, { parallel: options.parallel, rootDir }) };
+
+  const env = { ...(options.env ?? process.env) };
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-free-shard-'));
+  const childTmp = path.join(stateDir, 'tmp');
+  fs.mkdirSync(childTmp);
+  env.TMPDIR = childTmp;
+  env.TEMP = childTmp;
+  env.TMP = childTmp;
+  // Per-shard Chromium profile (same isolation idea as TMPDIR): nine test
+  // files launch in-process persistent contexts or daemons that default to
+  // the SHARED ~/.gstack/chromium-profile, and two concurrent shards on one
+  // profile dir kill each other's browser — observed live on CI once
+  // duration packing recomposed shards (handoff's launchPersistentContext
+  // died "Target page, context or browser has been closed" while a sibling
+  // shard's daemon logged "Chromium process crashed"). Hash sharding had
+  // masked the collision by chance placement. Within a shard, files run
+  // serially, so sharing the per-shard profile is safe; config tests that
+  // assert resolution order save/restore this env around their assertions.
+  env.CHROMIUM_PROFILE = path.join(stateDir, 'chromium-profile');
+
+  const startedAt = Date.now();
+  const child = spawn(command, args, {
+    cwd: rootDir,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+    windowsHide: true,
+  });
+  const groupPid = child.pid ?? null;
+  // Group-kill on parent SIGINT/SIGTERM too, not just on timeout.
+  const forwarding = installChildSignalForwarding({
+    kill: (signal?: NodeJS.Signals | number) => {
+      killProcessGroup(child, (signal as NodeJS.Signals) ?? 'SIGTERM');
+      return true;
+    },
+  });
+
+  const classifier = new BunTestOutputClassifier();
+
+  // Console policy: quiet => nothing; verbose => the raw firehose; default =>
+  // only always-visible lines (fail results, crash markers, error/panic
+  // markers, the terminal summary), selected by the reporter. The reporter
+  // consumes the stream in EVERY mode so the epilogue can attribute failures.
+  const emitToConsole = (text: string, origin: StreamOrigin): void => {
+    if (options.quiet) return;
+    if (options.consoleWrite) {
+      options.consoleWrite(text);
+      return;
+    }
+    (origin === 'stdout' ? process.stdout : process.stderr).write(text);
+  };
+  const reporter = new FreeRunReporter(files, options.verbose ? undefined : emitToConsole);
+
+  const consumeStream = (stream: NodeJS.ReadableStream, origin: StreamOrigin): Promise<void> =>
+    new Promise((resolve, reject) => {
+      stream.on('data', (chunk: Buffer | string) => {
+        classifier.write(chunk, origin); // strict verdict ALWAYS sees the full stream
+        if (!logWriteFailed) logStream.write(chunk);
+        reporter.write(chunk, origin);
+        if (options.verbose) emitToConsole(typeof chunk === 'string' ? chunk : chunk.toString('utf8'), origin);
+      });
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
+
+  let timedOut = false;
+  const killTimer = setTimeout(() => {
+    timedOut = true;
+    killProcessGroup(child, 'SIGKILL');
+  }, wallTimeoutMs);
+
+  let exitCode: number | null = null;
+  try {
+    const streams: Array<Promise<void>> = [];
+    if (child.stdout) streams.push(consumeStream(child.stdout, 'stdout'));
+    if (child.stderr) streams.push(consumeStream(child.stderr, 'stderr'));
+    exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', (code) => resolve(code));
+    });
+    await Promise.all(streams);
+  } finally {
+    clearTimeout(killTimer);
+    forwarding.dispose();
+    // Reap survivors of this shard even on the clean path.
+    killProcessGroup(child, 'SIGKILL');
+    reporter.end();
+    await new Promise<void>((resolve) => logStream.end(() => resolve()));
+    try {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup of a throwaway temp dir — a locked file on
+      // Windows must not turn a real verdict into an exception.
+    }
+  }
+
+  const summary = classifier.end();
+  const status: FreeShardStatus = timedOut
+    ? 'timed-out'
+    : strictTestExitCode(exitCode ?? 1, summary, files.length) === 0 ? 'passed' : 'failed';
+
+  if (status === 'timed-out') {
+    console.error(
+      `${label} exceeded the ${Math.round(wallTimeoutMs / 1000)}s wall-clock deadline — `
+      + 'killed the process group. Reporting as TIMED-OUT (distinct from failed).',
+    );
+  } else if (status === 'failed' && (exitCode ?? 1) === 0) {
+    const reason = summary.failedTests > 0 || summary.unhandledBetweenTests > 0
+      ? `printed ${summary.failedTests} failing result(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
+      : summary.terminalFileCounts.length === 0
+        ? "never printed bun's terminal summary — the run was truncated (a process.exit fired mid-suite)"
+        : `bun's summary reported ${summary.terminalFileCounts.join(', ')} file(s), expected ${files.length}`;
+    console.error(`${label} exited 0 but ${reason}. Treating as FAILED.`);
+  } else if (status === 'failed') {
+    console.error(`${label} failed with exit code ${exitCode ?? 'signal'}`);
+  }
+
+  const report = reporter.report();
+  const failingFiles = status === 'passed' ? [] : [...new Set([
+    ...report.failures.map((f) => f.file).filter((f): f is string => !!f),
+    ...report.crashedFiles,
+  ])];
+  const unattributedFailures = status === 'passed' ? 0
+    : report.failures.filter((f) => !f.file).length
+      + report.unhandledErrors.length
+      + (report.sawTerminalSummary ? 0 : 1);
+  const outcome: FreeShardOutcome = {
+    shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,
+  };
+  log(shardEpilogue(outcome, totalShards));
+  for (const line of buildRunEpilogue(status, report, outcome.elapsedMs, logPath)) log(line);
+  return outcome;
+}
+
+let logPathSequence = 0;
+
+/** Timestamped per-run log file under os.tmpdir(); pid+sequence defeat same-ms collisions. */
+function nextDefaultLogPath(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  logPathSequence += 1;
+  return path.join(os.tmpdir(), `gstack-free-test-${stamp}-${process.pid}-${logPathSequence}.log`);
+}
+
+function exitCodeFor(status: FreeShardStatus): number {
+  if (status === 'passed') return 0;
+  return status === 'timed-out' ? 124 : 1;
+}
+
+/**
+ * `--record-durations`: time every file in its own child (exact per-file wall,
+ * immune to bun's stream buffering) and write the committed seed atomically.
+ * Occasional + manual by design — CI never records (a hint refreshed by a
+ * human beats per-run churn), and the runtime (~serial suite / jobs) is fine
+ * for an operation run a few times a quarter.
+ */
+async function recordFreeTestDurations(files: string[], jobs: number): Promise<number> {
+  const durations: Record<string, number> = {};
+  const failed: string[] = [];
+  let cursor = 0;
+  console.log(`[test:free] recording per-file durations: ${files.length} files across ${jobs} workers`);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= files.length) return;
+      const file = files[index];
+      const started = Date.now();
+      const child = spawn('bun', ['test', file, `--timeout=${FREE_TEST_TIMEOUT_MS}`], {
+        cwd: ROOT,
+        stdio: ['ignore', 'ignore', 'ignore'],
+        env: { ...process.env, GSTACK_HEADLESS: '1' },
+      });
+      const code = await new Promise<number>((resolve) => {
+        const timer = setTimeout(() => { child.kill('SIGKILL'); }, wallTimeoutForShard(1));
+        child.on('close', (c) => { clearTimeout(timer); resolve(c ?? 1); });
+        child.on('error', () => { clearTimeout(timer); resolve(1); });
+      });
+      durations[normalizeRelativePath(file)] = Date.now() - started;
+      if (code !== 0) failed.push(file);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, jobs) }, () => worker()));
+
+  const target = process.env.GSTACK_FREE_TEST_DURATIONS ?? path.join(ROOT, FREE_TEST_DURATIONS_FILE);
+  const payload = {
+    version: 1,
+    recordedAt: new Date().toISOString(),
+    durations: Object.fromEntries(Object.entries(durations).sort(([a], [b]) => (a < b ? -1 : 1))),
+  };
+  // Atomic temp+rename (capture-context-budget's pattern): a killed recorder
+  // must never leave a truncated seed for loadFreeTestDurations to warn on.
+  const tmp = `${target}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`);
+  fs.renameSync(tmp, target);
+  console.log(`[test:free] wrote ${Object.keys(durations).length} durations to ${path.relative(ROOT, target)}`);
+  if (failed.length > 0) {
+    // Failures still recorded (a red file's duration is still a real cost),
+    // but surfaced loudly — recording from a broken tree deserves a look.
+    console.error(`[test:free] WARNING: ${failed.length} file(s) failed while recording:`);
+    for (const f of failed) console.error(`  ✗ ${f}`);
+    return 1;
+  }
+  return 0;
+}
+
+async function main(): Promise<number> {
   const options = parseCliOptions(process.argv.slice(2));
   const allFiles = collectFreeTestFiles();
   if (allFiles.length === 0) {
@@ -312,28 +1381,160 @@ function main(): number {
     return 0;
   }
 
-  const shards = assignFilesToShards(files, options.shardCount);
+  if (options.recordDurations) {
+    const jobs = Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+    return recordFreeTestDurations(files, jobs);
+  }
+
   if (options.dryRun) {
-    console.log(`\nWould run ${files.length} files across ${shards.length} shards.`);
+    const shards = assignFilesToShards(files, options.shardCount);
+    const occupied = shards.filter((s) => s.length > 0).length;
+    console.log(
+      `\nWould run ${files.length} files across ${shards.length} shards (${occupied} occupied). `
+      + 'Without --shard, the full suite runs as N concurrent shard processes '
+      + '(plus a serial tree-mutating shard) instead.',
+    );
     for (const line of formatShardSummary(shards)) console.log(line);
     return 0;
   }
 
   if (options.shardIndex !== null) {
-    if (!Number.isInteger(options.shardIndex) || options.shardIndex < 1 || options.shardIndex > shards.length) {
-      throw new Error(`--shard must be between 1 and ${shards.length}. Received: ${options.shardIndex}`);
+    // Bounds-check against the REQUESTED shard count, not post-assignment
+    // occupancy — indices must be stable for a CI matrix, and an empty shard
+    // is a valid fast no-op.
+    if (!Number.isInteger(options.shardIndex) || options.shardIndex < 1 || options.shardIndex > options.shardCount) {
+      throw new Error(`--shard must be between 1 and ${options.shardCount}. Received: ${options.shardIndex}`);
     }
-    return runShard(shards[options.shardIndex - 1], options.shardIndex, shards.length);
+    const shards = assignFilesToShards(files, options.shardCount);
+    const outcome = await runFreeShard(shards[options.shardIndex - 1], options.shardIndex, options.shardCount, {
+      wallTimeoutMs: options.wallTimeoutMs,
+      verbose: options.verbose,
+    });
+    return exitCodeFor(outcome.status);
   }
 
-  for (let index = 0; index < shards.length; index += 1) {
-    const exitCode = runShard(shards[index], index + 1, shards.length);
-    if (exitCode !== 0) return exitCode;
+  // Full-suite mode: N concurrent shard PROCESSES, serial within each — the
+  // paid runner's proven model. One `bun test --parallel` invocation was
+  // tried first (decision V3) and abandoned after three distinct
+  // worker-runtime pathologies in a single day on Bun 1.3.13: a segfault
+  // whose crashed-worker retry wedged the run (security-live-playwright), a
+  // gated file's still-running file-level hooks stalling a worker
+  // (compare-board), and spawn-heavy files hanging workers under load
+  // (session-runner-timeout). Plain child processes have none of these:
+  // proven spawn semantics, per-shard group-kill, per-shard logs, and a
+  // wedge only ever costs its own shard. WORKER_HOSTILE files are moot in
+  // process shards (no workers) and fold back into normal assignment.
+  const jobs = fullSuiteJobs();
+  // Phase split: tree-mutating tests run AFTER the parallel shards, in one
+  // serial shard, so no concurrent shard ever reads a half-regenerated tree.
+  const mutators = files.filter((f) => f in TREE_MUTATING);
+  const readers = files.filter((f) => !(f in TREE_MUTATING));
+  const durations = loadFreeTestDurations();
+  const packed = durations ? packShardsByDuration(readers, jobs, durations) : null;
+  const shards = packed ? packed.shards : assignFilesToShards(readers, jobs);
+  const totalShards = jobs + (mutators.length > 0 ? 1 : 0);
+  console.log(`[test:free] full suite: ${readers.length} files across ${jobs} shard processes`
+    + (packed ? ' (duration-packed)' : '')
+    + (mutators.length > 0 ? `, then ${mutators.length} tree-mutating file(s) serially` : ''));
+  if (packed) {
+    // One line per shard so a packing regression is diagnosable from any log.
+    packed.predictedMs.forEach((ms, i) => {
+      console.log(`[test:free]   shard ${i + 1}: ${shards[i].length} files, predicted ~${Math.round(ms / 1000)}s`);
+    });
+  }
+  const shardTimeout = (fileCount: number): number =>
+    options.wallTimeoutExplicit ? options.wallTimeoutMs : wallTimeoutForShard(fileCount, options.wallTimeoutMs);
+  const outcomes = await Promise.all(
+    shards.map((shardFiles, index) => runFreeShard(shardFiles, index + 1, totalShards, {
+      // Packed shards get duration-aware walls: LPT decouples file count from
+      // cost BY DESIGN, so the 5s/file heuristic would undersize a shard
+      // holding few expensive files.
+      wallTimeoutMs: packed && !options.wallTimeoutExplicit
+        ? wallTimeoutForPackedShard(packed.predictedMs[index], options.wallTimeoutMs, shardFiles.length)
+        : shardTimeout(shardFiles.length),
+      verbose: options.verbose,
+    })),
+  );
+  let worst = Math.max(...outcomes.map((o) => exitCodeFor(o.status)));
+  // Cancellation stops the run: don't launch the serial tree-mutating shard
+  // after a SIGINT/SIGTERM already killed the parallel phase.
+  if (mutators.length > 0 && !isTerminationRequested()) {
+    const mutatorOutcome = await runFreeShard(mutators, totalShards, totalShards, {
+      wallTimeoutMs: shardTimeout(mutators.length),
+      verbose: options.verbose,
+    });
+    worst = Math.max(worst, exitCodeFor(mutatorOutcome.status));
+    if (mutatorOutcome.status !== 'passed') {
+      // Mutator safety rests on each test restoring default state itself; a
+      // SIGKILL at the wall deadline (or a mid-regeneration crash) defeats
+      // that by construction. Say so, loudly, before someone commits
+      // regenerated SKILL.md / .agents artifacts by accident.
+      const dirty = spawnSyncGitStatusGenerated();
+      if (dirty.length > 0) {
+        console.error('[test:free] ⚠ tree-mutating shard did not finish cleanly — generated artifacts may be mid-regeneration:');
+        for (const line of dirty.slice(0, 20)) console.error(`[test:free]   ${line}`);
+        console.error('[test:free]   restore with: bun run gen:skill-docs (or git checkout -- <paths>)');
+      }
+    }
+    outcomes.push(mutatorOutcome);
   }
 
-  return 0;
+  // Opt-in flaky retry (GSTACK_FREE_RETRY_FLAKY=1): when every failure is an
+  // attributed test failure (no timeouts, no unattributed carnage), re-run
+  // just the failing files ONCE in a fresh serial shard. A clean retry
+  // downgrades the run to a loud flaky-pass; a repeat failure stays a
+  // failure. Default OFF: dev boxes should see flakes, not absorb them.
+  // Exists for syscall-supervised sandboxes (see fullSuiteJobs) where a run
+  // lands 0-1 spurious browser-timing failures under an otherwise-green
+  // suite. Capped so a genuinely broken tree never masquerades as flaky.
+  const RETRY_CAP = 5;
+  if (
+    worst !== 0
+    && process.env.GSTACK_FREE_RETRY_FLAKY === '1'
+    && !isTerminationRequested()
+    && outcomes.every((o) => o.status !== 'timed-out')
+  ) {
+    const flakyFiles = [...new Set(outcomes.flatMap((o) => o.failingFiles))]
+      .filter((f): f is string => typeof f === 'string' && f.length > 0);
+    // "Fully attributed" is per-failure, not per-shard: a shard with one
+    // attributed failure PLUS a headerless failure / unhandled error /
+    // truncated run must veto the retry — re-running only failingFiles would
+    // mask the unattributable evidence as a FLAKY-PASS.
+    const allAttributed = outcomes.every((o) => o.status === 'passed'
+      || (o.failingFiles.length > 0 && o.unattributedFailures === 0));
+    if (allAttributed && flakyFiles.length > 0 && flakyFiles.length <= RETRY_CAP) {
+      console.log(`[test:free] flaky-retry: re-running ${flakyFiles.length} failing file(s) once, serially: ${flakyFiles.join(', ')}`);
+      const retryOutcome = await runFreeShard(flakyFiles, totalShards + 1, totalShards + 1, {
+        wallTimeoutMs: shardTimeout(flakyFiles.length),
+        verbose: options.verbose,
+      });
+      if (retryOutcome.status === 'passed') {
+        console.log(`[test:free] FLAKY-PASS — ${flakyFiles.length} file(s) failed once and passed on serial retry: ${flakyFiles.join(', ')}`);
+        console.log('[test:free] treat repeat offenders as real flakes worth fixing, not noise.');
+        worst = 0;
+      } else {
+        console.error('[test:free] flaky-retry FAILED — the failures reproduce serially; not flaky.');
+      }
+    } else {
+      console.log(`[test:free] flaky-retry skipped: ${allAttributed ? `${flakyFiles.length} failing file(s) exceeds cap ${RETRY_CAP}` : 'failures not fully attributed'}.`);
+    }
+  }
+  return worst;
+}
+
+/** Dirty generated artifacts (SKILL.md / host outputs) after a failed mutator shard. */
+function spawnSyncGitStatusGenerated(): string[] {
+  const result = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' });
+  if (result.status !== 0 || !result.stdout) return [];
+  return result.stdout.split('\n').filter((line) =>
+    /SKILL\.md$/.test(line) || line.includes('.agents/') || line.includes('.factory/'));
 }
 
 if (import.meta.main) {
-  process.exitCode = main();
+  try {
+    process.exitCode = await main();
+  } catch (error) {
+    console.error(`[test:free] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }

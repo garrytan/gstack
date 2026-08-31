@@ -111,8 +111,12 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-split-overflow');
     // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
     expect(result.selected).toContain('plan-ceo-section-loading');
-    expect(result.selected.length).toBe(23);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 23);
+    // Token-reduction Phase 1: the preamble script A/B also keys on plan-ceo-review/**.
+    expect(result.selected).toContain('preamble-script-ab');
+    // AUQ repetition-cut NOT-WORSE gate drives plan-ceo-review, so it keys on it too.
+    expect(result.selected).toContain('auq-repetition-cut-ab');
+    expect(result.selected.length).toBe(25);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 25);
   });
 
   test('global touchfile triggers ALL tests', () => {
@@ -326,6 +330,60 @@ describe('TOUCHFILES completeness', () => {
       throw new Error(
         `LLM-judge tests missing TOUCHFILES entries: ${missing.join(', ')}\n` +
         `Add these to LLM_JUDGE_TOUCHFILES in test/helpers/touchfiles.ts`,
+      );
+    }
+  });
+});
+
+// --- dependency paths exist on disk ---
+//
+// The axis nobody guarded: a dep-list entry can point at a file that was
+// deleted long ago (browse/src/sidebar-agent.ts sat in three entries for 48
+// versions), and diff-based selection then silently never triggers those
+// tests. Globs are skipped (they describe patterns, not files); every literal
+// path must exist.
+
+describe('touchfile dependency paths exist', () => {
+  const allEntries: Array<[string, string]> = [];
+  for (const [name, deps] of Object.entries(E2E_TOUCHFILES)) {
+    for (const dep of deps) allEntries.push([name, dep]);
+  }
+  for (const [name, deps] of Object.entries(LLM_JUDGE_TOUCHFILES)) {
+    for (const dep of deps) allEntries.push([name, dep]);
+  }
+  for (const dep of GLOBAL_TOUCHFILES) allEntries.push(['(global)', dep]);
+
+  test('every non-glob dependency path exists', () => {
+    const stale = allEntries
+      .filter(([, dep]) => !dep.includes('*'))
+      .filter(([, dep]) => !fs.existsSync(path.join(ROOT, dep)));
+    if (stale.length > 0) {
+      throw new Error(
+        `Touchfile dep lists reference files that do not exist:\n` +
+        stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n') +
+        `\nDelete or update these entries in test/helpers/touchfiles.ts — ` +
+        `diff-based selection silently skips tests whose deps are gone.`,
+      );
+    }
+  });
+
+  test('every glob dependency anchors to a directory that exists', () => {
+    // Cheap sanity for globs, two shapes: 'dir/**' (prefix ends with '/')
+    // must have the directory itself; 'dir/file-prefix*.ext' must have the
+    // containing directory. Catches 'deleted-dir/**' rot without a full
+    // filesystem walk; deliberately does not chase file-prefix staleness.
+    const stale = allEntries
+      .filter(([, dep]) => dep.includes('*'))
+      .map(([name, dep]) => {
+        const prefix = dep.split('*')[0];
+        const anchor = prefix.endsWith('/') ? prefix.slice(0, -1) : path.dirname(prefix);
+        return [name, dep, anchor] as const;
+      })
+      .filter(([, , anchor]) => anchor.length > 0 && anchor !== '.' && !fs.existsSync(path.join(ROOT, anchor)));
+    if (stale.length > 0) {
+      throw new Error(
+        `Touchfile glob deps whose anchor directory does not exist:\n` +
+        stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n'),
       );
     }
   });

@@ -20,7 +20,8 @@
  * Gated by EVALS=1 AND EVALS_TIER=periodic. Never runs under test:gate.
  */
 
-import { describe, test, expect, afterAll } from 'bun:test';
+import { test, expect, afterAll } from 'bun:test';
+import { describeE2ETier, e2eTierEnabled } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -37,11 +38,9 @@ import {
 } from './fixtures/overlay-nudges';
 import { readOverlay } from '../scripts/resolvers/model-overlay';
 
-const evalsEnabled = !!process.env.EVALS;
-const periodicTier = process.env.EVALS_TIER === 'periodic';
-const shouldRun = evalsEnabled && periodicTier;
+const shouldRun = e2eTierEnabled('periodic');
 
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 // EvalCollector's tier must be 'e2e' | 'llm-judge' per its type signature.
 // The existing paid evals violate this by passing descriptive names like
 // 'e2e-opus-47' — a pre-existing pattern that only works because bun-test

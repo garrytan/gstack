@@ -39,7 +39,15 @@ Review this plan thoroughly before making any code changes. For every issue or r
 
 ## Scope gate (FIRST — overrides everything below). This is a hard STOP.
 
-Before ANYTHING else in this skill — before the Design Doc Check, the office-hours prerequisite offer, Step 0, and any `git` / `Read` / `Grep` / `Glob` / `Bash` call — your VERY FIRST tool call MUST be AskUserQuestion, to confirm the review target. Do not run the Design Doc Check bash or explore the repo before the user answers.
+Before ANYTHING else in this skill — before the Design Doc Check, the office-hours prerequisite offer, Step 0, and any `git` / `Read` / `Grep` / `Glob` / `Bash` call — unless an exception below applies, your VERY FIRST tool call MUST be AskUserQuestion, to confirm the review target. Do not run the Design Doc Check bash or explore the repo before the user answers.
+
+**Exceptions — check in this order, BEFORE asking:**
+1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the Design Doc Check and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
+2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+
+Outside plan mode with no explicitly-named target, nothing changes. Whenever this gate does ask — in any mode — it is a hard STOP.
+
+When no exception above applied:
 
 1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
 2. Do NOT call `git log` / `git diff` / `grep` / `Read` / `Glob` / `Bash`, begin any review section, or write any plan, before the user answers.
@@ -104,9 +112,7 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
-DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
-[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
-[ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
+{{DESIGN_DOC_DISCOVERY}}
 ```
 If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
 
@@ -114,7 +120,7 @@ If a design doc exists, read it. Use it as the source of truth for the problem s
 
 ### Step 0: Scope Challenge
 
-> Reminder: the **Scope gate** at the top of this skill is a hard STOP. Do not run Step 0 until the user has answered it, and run it against the target they chose.
+> Reminder: the **Scope gate** at the top of this skill applies first. Do not run Step 0 until the gate has resolved a target — the user answered, the user named one, or plan mode auto-selected B — and run it against that target.
 
 Before reviewing anything, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?

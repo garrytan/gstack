@@ -1,5 +1,5 @@
 /**
- * /plan-eng-review AskUserQuestion floor regression (gate, paid, real-PTY).
+ * /plan-eng-review AskUserQuestion floor regression (periodic, paid, real-PTY).
  *
  * Catches the May 2026 transcript bug where /plan-eng-review wrote a
  * multi-section review plan to ~/.claude/plans/ and called ExitPlanMode
@@ -11,18 +11,19 @@
  * render. See claude-pty-runner.ts for why this is separate from the
  * runPlanSkillCounting harness used by periodic finding-count tests.
  *
- * Tier: gate. Budget: 10 min (early exit on success ~30-90s typical).
+ * Tier: periodic. Budget: 10 min (early exit on success ~30-90s typical).
  * Cost: ~$0.50-$1.50 per run depending on early-exit timing.
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
 import { FORCING_FLOOR_ENG } from './fixtures/forcing-finding-seeds';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
-describeE2E('/plan-eng-review AskUserQuestion floor (gate)', () => {
+describeE2E('/plan-eng-review AskUserQuestion floor (periodic)', () => {
   test(
     'seeded forcing finding causes the agent to fire at least one AskUserQuestion',
     async () => {
@@ -30,8 +31,10 @@ describeE2E('/plan-eng-review AskUserQuestion floor (gate)', () => {
         skillName: 'plan-eng-review',
         slashCommand: '/plan-eng-review',
         followUpPrompt: FORCING_FLOOR_ENG,
+        // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
+        // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
         cwd: process.cwd(),
-        timeoutMs: 600_000,
+        timeoutMs: CAPTURE_LONG_MS,
         env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
       });
 
@@ -47,6 +50,6 @@ describeE2E('/plan-eng-review AskUserQuestion floor (gate)', () => {
         );
       }
     },
-    660_000,
+    PTY_MS,
   );
 });

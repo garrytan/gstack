@@ -1,41 +1,81 @@
 name: Build CI Image
 on:
-  # Rebuild weekly (Monday 6am UTC) to pick up CLI updates
+  # Rebuild weekly (Monday 4am UTC) to pick up CLI updates — deliberately 2h
+  # BEFORE evals-periodic's 6am cron so the weekly eval run finds a fresh
+  # image instead of racing a half-pushed tag or duplicating the build.
   schedule:
-    - cron: '0 6 * * 1'
-  # Rebuild on Dockerfile or lockfile changes
+    - cron: '0 4 * * 1'
+  # Rebuild on Dockerfile or lockfile changes. package.json is deliberately
+  # NOT a trigger: the tag hash below excludes it (its version field bumps on
+  # every ship), so a package.json-triggered run rebuilt and re-pushed the
+  # IDENTICAL tag on every merge to main (~2m26s each for zero content change).
   push:
     branches: [main]
     paths:
       - '.github/docker/Dockerfile.ci'
-      - 'package.json'
       - 'bun.lock'
+      - 'patches/**'
   # Manual trigger
   workflow_dispatch:
+
+# Two rapid main pushes must not race pushing the same :latest/:buildcache
+# tags; newest wins.
+concurrency:
+  group: ci-image-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubicloud-standard-8
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Copy lockfile + package.json into Docker build context
-      - run: cp package.json bun.lock .github/docker/
+      - run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
 
-      - uses: docker/login-action@v3
+      # Same content-hash tag expression as evals.yml / evals-periodic.yml
+      # (byte-identity pinned by test/ci-image-tag-binding.test.ts). This is
+      # the tag the eval matrix looks up first — without pushing it here, the
+      # weekly/main prebuild never warms the cache that matters.
+      - id: meta
+        run: echo "tag=ghcr.io/${{ github.repository }}/ci:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      # Skip the ~2.5min build when the content-hash tag already exists
+      # (mirrors evals.yml's check). The weekly cron still refreshes :latest
+      # via a full run when the tag is genuinely new.
+      - name: Check if image exists
+        id: check
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Registry cache export needs a docker-container builder — the default
+      # `docker` driver hard-errors on cache-to.
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v4
+
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/build-push-action@v7
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci
           push: true
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/ci:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/ci:buildcache,mode=max
           tags: |
+            ${{ steps.meta.outputs.tag }}
             ghcr.io/${{ github.repository }}/ci:latest
             ghcr.io/${{ github.repository }}/ci:${{ github.sha }}

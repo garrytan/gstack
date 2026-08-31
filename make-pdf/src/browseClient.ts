@@ -10,7 +10,11 @@
  * Binary resolution order (Codex round 2 #4, v1.24-aligned):
  *   1. $GSTACK_BROWSE_BIN env override (preferred, matches v1.24 GSTACK_*_BIN pattern)
  *   2. $BROWSE_BIN env override (back-compat alias)
- *   3. sibling dir: dirname(argv[0])/../browse/dist/browse[.exe]
+ *   3. sibling dir: dirname(execPath)/../browse/dist/browse[.exe]
+ *      (execPath, NOT argv[0]: in a bun-compiled binary argv[0] is the raw
+ *      invocation string — often relative, so dirname() yields "." and the
+ *      sibling candidates resolve against the CWD instead of the install
+ *      dir; #2156. execPath is always the absolute binary path.)
  *   4. ~/.claude/skills/gstack/browse/dist/browse[.exe]
  *   5. PATH lookup via Bun.which('browse') — handles Windows PATHEXT natively
  *   6. error with setup hint
@@ -101,14 +105,21 @@ export function findExecutable(base: string): string | null {
  * Locate the browse binary. Throws a BrowseClientError with a
  * canonical setup message if not found. See header for resolution order.
  */
-export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveBrowseBin(
+  env: NodeJS.ProcessEnv = process.env,
+  // Injectable for tests: under `bun test` the process path is the bun
+  // runtime, so the compiled-binary shapes are unreachable without a seam.
+  selfPath: string = process.execPath || process.argv[0],
+): string {
   // 1 + 2: env overrides (GSTACK_BROWSE_BIN preferred, BROWSE_BIN back-compat).
   const overrideRaw = env.GSTACK_BROWSE_BIN ?? env.BROWSE_BIN;
   const override = resolveOverride(overrideRaw, env);
   if (override) return override;
 
-  // 3: sibling — make-pdf and browse co-located in dist/.
-  const selfDir = path.dirname(process.argv[0]);
+  // 3: sibling — make-pdf and browse co-located in dist/. execPath, not
+  // argv[0] (#2156): see the header — argv[0] in a compiled binary is the
+  // invocation string, and a relative one resolved candidates against CWD.
+  const selfDir = path.dirname(selfPath);
   const siblingCandidates = [
     path.resolve(selfDir, "../browse/dist/browse"),
     path.resolve(selfDir, "../../browse/dist/browse"),
@@ -158,6 +169,11 @@ export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
 
 function isExecutable(p: string): boolean {
   try {
+    // Must be a regular FILE. access(X_OK) alone is true for directories — they carry the
+    // execute/traverse bit on POSIX and pass the Windows check too — so discovery happily
+    // "found" ~/.claude/skills/browse, which is the skill's docs folder containing nothing
+    // but SKILL.md, and returned a directory as the browse binary.
+    if (!fs.statSync(p).isFile()) return false;
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch {
@@ -190,16 +206,18 @@ function runBrowse(args: string[]): string {
 }
 
 /**
- * Write a payload to a tmp file and return the path. Used for any payload
- * >4KB to avoid Windows argv limits (Codex round 2 #3).
+ * Temp dir for any file handed to browse (payloads, rendered HTML, PDF output).
  *
  * Path must be under the browse safe-dirs allowlist (/tmp or cwd on
  * non-Windows; os.tmpdir on Windows).  v1.6.0.0 tightened --from-file
  * validation to close a CLI/API parity gap (PR #1103), so os.tmpdir()
  * on macOS (/var/folders/...) now fails validateReadPath.  Use the same
  * TEMP_DIR convention as browse/src/platform.ts.
+ *
+ * Exported because orchestrator.ts and setup.ts write files that browse must
+ * read back; os.tmpdir() there trips the same validateReadPath rejection.
  */
-const PAYLOAD_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
+export const PAYLOAD_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
 
 function writePayloadFile(payload: Record<string, unknown>): string {
   const hash = crypto.createHash("sha256")

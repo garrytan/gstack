@@ -49,7 +49,6 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
   return {
     authToken: token,
     browsePort: 34568,
-    idleTimeoutMs: 1_800_000,
     config: resolveConfig(),
     browserManager: new BrowserManager(),
     startTime: Date.now(),
@@ -79,10 +78,30 @@ function readIfExists(p: string): string | null {
  * machine. Returns the captured kill calls so tests can assert kill
  * scope.
  */
+// The TRUE process.exit, restored only in afterAll. withStubs used to restore
+// it in its finally — but shutdown() schedules async work (timers,
+// fire-and-forget promises) that can call process.exit AFTER the stub was
+// restored, killing the entire bun test process mid-suite with exit 0 and no
+// summary (the silent-truncation class the free-suite CI job guards against;
+// this file was the killer). Between tests, exit stays a logging no-op so a
+// late async exit is visible instead of fatal.
+const TRUE_EXIT = process.exit;
+const lateExitGuard = ((code: number) => {
+  console.error(`[test-guard] late process.exit(${code}) swallowed (async shutdown work after stub restore)`);
+}) as any;
+afterAll(async () => {
+  // Drain shutdown()'s pending async work before restoring the real exit:
+  // disposeSession escalates SIGINT -> SIGKILL on a 3s timer, and a timer
+  // firing after this file's afterAll would otherwise hit the REAL
+  // process.exit and kill the whole multi-file bun run (observed: the free
+  // suite died at file 47 with exit 0 and no summary — twice).
+  await new Promise((r) => setTimeout(r, 3500));
+  (process as any).exit = TRUE_EXIT;
+});
+
 async function withStubs(
   cb: (killCalls: Array<[number, NodeJS.Signals | number]>) => Promise<void>
 ): Promise<Array<[number, NodeJS.Signals | number]>> {
-  const origExit = process.exit;
   const origKill = process.kill;
   const killCalls: Array<[number, NodeJS.Signals | number]> = [];
   (process as any).exit = ((code: number) => {
@@ -102,7 +121,7 @@ async function withStubs(
   try {
     await cb(killCalls);
   } finally {
-    (process as any).exit = origExit;
+    (process as any).exit = lateExitGuard;
     (process as any).kill = origKill;
   }
   return killCalls;
@@ -217,7 +236,7 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     // Resolves browse/src/server.ts relative to this test file so the test
     // works regardless of cwd. import.meta.url is the test file's URL.
     const serverTsPath = path.resolve(
-      new URL(import.meta.url).pathname,
+      import.meta.path,
       '..',
       '..',
       'src',

@@ -21,7 +21,9 @@
  * Periodic tier (Codex non-determinism, ~$2-3/run).
  */
 import { describe, test, expect } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import * as path from 'node:path';
+import { e2eTierEnabled } from './helpers/e2e-gate';
 import { runCodexSkill } from './helpers/codex-session-runner';
 import { judgeRecommendation } from './helpers/llm-judge';
 
@@ -34,8 +36,7 @@ const CODEX_AVAILABLE = (() => {
     return false;
   }
 })();
-const shouldRun =
-  CODEX_AVAILABLE && !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
+const shouldRun = CODEX_AVAILABLE && e2eTierEnabled('periodic');
 const describeCodex = shouldRun ? describe : describe.skip;
 
 // A small fixture with two real, comparable problems so a good recommendation
@@ -69,7 +70,7 @@ describeCodex('/codex recommendation substance (live, periodic)', () => {
         skillDir: path.join(ROOT, 'codex'),
         skillName: 'codex',
         prompt: FIXTURE_DIFF,
-        timeoutMs: 300_000,
+        timeoutMs: CAPTURE_MS,
       });
 
       if (result.output.startsWith('SKIP:')) {
@@ -98,6 +99,6 @@ describeCodex('/codex recommendation substance (live, periodic)', () => {
         );
       }
     },
-    360_000,
+    CAPTURE_LONG_MS,
   );
 });

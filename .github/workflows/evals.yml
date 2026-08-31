@@ -3,9 +3,14 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      evals_all:
+        description: 'Run ALL gate tests in the sliced lane (bypass diff selection; also arms the hollow-shard guard)'
+        type: boolean
+        default: true
 
 concurrency:
-  group: evals-${{ github.head_ref }}
+  group: evals-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -15,19 +20,31 @@ env:
 jobs:
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
   build-image:
+    # Dependabot-triggered pull_request runs get a read-only GITHUB_TOKEN, so
+    # a lockfile bump = new hash = failed ghcr push = permanently red check
+    # (EV6, fork port wave 2). Skip the build for dependabot; the evals job's
+    # needs-chain tolerates it because no eval test selects on a lockfile-only
+    # diff — a maintainer's next push rebuilds the image with real perms.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubicloud-standard-8
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
     outputs:
       image-tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
+        # Key on Dockerfile + lockfile only. package.json is deliberately NOT
+        # hashed: its version field changes on every ship (60/60 recent commits),
+        # which rebuilt the image each time for a dependency set that only
+        # bun.lock determines. A stale baked package.json is harmless — checkout
+        # overwrites /workspace and node_modules comes from the lockfile.
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -43,21 +60,48 @@ jobs:
           fi
 
       - if: steps.check.outputs.exists == 'false'
-        run: cp package.json bun.lock .github/docker/
+        run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
+
+      # A fork PR's GITHUB_TOKEN only has `packages: read`, so pushing fails.
+      # Still BUILD (validates Dockerfile.ci changes), just don't publish. This
+      # job intentionally keeps no `if:` so fork PRs still get one real, honest
+      # green check here instead of a run where every job is grey.
+      # Registry cache export needs a docker-container builder — the default
+      # `docker` driver hard-errors on cache-to (first live run of the trio).
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v4
 
       - if: steps.check.outputs.exists == 'false'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci
-          push: true
+          push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          # Registry layer cache: reads are safe everywhere; the export is gated
+          # to same-repo runs because a fork PR's token can't write GHCR.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE) || '' }}
           tags: |
             ${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE }}:latest
 
+  # Fork PRs never receive repository secrets (ANTHROPIC_API_KEY et al), so every
+  # API-calling eval fails at SDK auth before a model runs. Skip deterministically
+  # rather than leaving the outcome to Docker-cache luck: a warm cache let these
+  # run and fail, a cold one made build-image fail its push and the shards skip.
+  # Same-repo PRs, pushes, and workflow_dispatch keep full coverage. Fork work
+  # gets real coverage via a trusted base-repo branch.
   evals:
     runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-8' }}
     needs: build-image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Least privilege for the job that executes PR-authored code with three
+    # provider API keys in env: read-only contents, packages:read for the
+    # container-image pull below. Without this block the job ran on the
+    # repo-default token grant.
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ${{ needs.build-image.outputs.image-tag }}
       credentials:
@@ -86,14 +130,53 @@ jobs:
             file: test/skill-e2e-qa-workflow.test.ts
           - name: e2e-review
             file: test/skill-e2e-review.test.ts
+          - name: e2e-retro
+            file: test/skill-e2e-retro.test.ts
+          - name: e2e-review-attribution
+            file: test/skill-e2e-review-attribution.test.ts
           - name: e2e-workflow
             file: test/skill-e2e-workflow.test.ts
+            # Earned its extra attempt with receipts: document-release is a
+            # long multi-step E2E that timed out on attempt 2 under in-shard
+            # concurrency (PR #2593 round 4) while passing other rounds.
+            retries: 2
+          # Rehomed from the deleted pre-split monolith (its filename never
+          # matched the skill-e2e-* glob, so these gate tests silently never
+          # ran). Both files hold gate-tier tests: review/plan-eng coverage
+          # audits and the /ship failure-ownership triage.
+          - name: e2e-coverage-audit
+            file: test/skill-e2e-coverage-audit.test.ts
+          - name: e2e-triage
+            file: test/skill-e2e-triage.test.ts
+          # ship-docsync is whole-file tier-gated (describeE2ETier('gate') keeps
+          # it out of the periodic shard census), so its row MUST set tier: gate
+          # — without it the self-gate skips every test and the job reports a
+          # hollow green (the same silent-skip class as the rehomed monolith
+          # above, one layer deeper). The Run step exports EVALS_TIER from this
+          # property; rows without it keep EVALS_TIER empty (= unset: every
+          # reader is `=== '<tier>'` or truthiness). Enforced by
+          # test/evals-workflow-matrix.test.ts.
+          - name: e2e-ship-docsync
+            file: test/skill-e2e-ship-docsync.test.ts
+            tier: gate
+          # #2733 behavioral proof: the document-release JSON contract survives
+          # a firing AUQ gate inside a spawned-marked subagent. Whole-file
+          # tier-gated like ship-docsync, so the row carries tier: gate.
+          - name: e2e-docsync-spawned
+            file: test/skill-e2e-docsync-spawned.test.ts
+            tier: gate
+          # Consent-gate guardrail for the Third-Party Web Actions contract
+          # (Aside recommended-driver rewrite): hermetic shims, deterministic
+          # grep assertions, gate tier in E2E_TIERS.
+          - name: e2e-third-party-actions
+            file: test/skill-e2e-third-party-actions.test.ts
+            tier: gate
           - name: e2e-routing
             file: test/skill-routing-e2e.test.ts
-          - name: e2e-codex
-            file: test/codex-e2e.test.ts
-          - name: e2e-gemini
-            file: test/gemini-e2e.test.ts
+          # (e2e-codex / e2e-gemini rows deleted: both files are whole-file
+          # periodic-tier, so with no row tier: they ran ZERO tests and
+          # reported green on every PR — ~2 min of runner per PR of pure
+          # false confidence. The periodic lane owns these suites.)
           # Real-PTY plan-mode smokes. Only the deterministically-reliable ones
           # are CI-gated: office-hours (asks its mode question first, caught by
           # the collapsed/bullet prose-AUQ detector) and plan-mode-no-op (no
@@ -103,11 +186,24 @@ jobs:
           # wedge on the fresh-container onboarding/API-key dialog.
           - name: e2e-pty-plan-smoke
             file: test/skill-e2e-office-hours-auto-mode.test.ts test/skill-e2e-plan-mode-no-op.test.ts
+            # Both files are whole-file describeE2ETier('gate') — without this
+            # row tier: the job burned ~7 min of setup then skipped every
+            # describe (hollow-green since the files adopted the self-gate).
+            tier: gate
             timeout: 35
+            # The documented contention-heavy PTY family: ROTATING members
+            # failed attempt 2 in consecutive PR #2593 rounds
+            # (plan-design-review, then plan-eng-review) while the family
+            # passes on branches still running three attempts. Every other
+            # row keeps --retry 1.
+            retries: 2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Don't write the token into .git/config — this job runs
+          # PR-authored code; nothing in it pushes.
+          persist-credentials: false
 
       # Bun creates root-owned temp dirs during Docker build. GH Actions runs as
       # runner user with HOME=/github/home. Redirect bun's cache to a writable dir.
@@ -131,7 +227,7 @@ jobs:
       # vastly cheaper than rerunning `bun install` (network + resolution).
       - name: Restore deps
         run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
             cp -r /opt/node_modules_cache node_modules
           else
             bun install
@@ -169,19 +265,28 @@ jobs:
             console.log("seeded", p);
           '
 
-      # PTY smokes drive the interactive `claude` TUI and send /office-hours and
-      # /plan-ceo-review. Claude Code discovers user-scoped skills from
-      # $HOME/.claude/skills/<name>/SKILL.md, but .claude/skills is gitignored, so
-      # a fresh CI checkout has NO registry — claude prints "Unknown command:
-      # /plan-ceo-review". Mirror setup's --no-prefix registry minimally: a gstack
-      # root symlink (resolves the preamble's absolute ~/.claude/skills/gstack/bin/*
-      # and ~/.claude/skills/gstack/<skill>/sections/* paths) plus a per-skill
-      # top-level dir holding SKILL.md (+ sections) symlinks for the two skills
+      # PTY smokes drive the interactive `claude` TUI and send /office-hours,
+      # /plan-ceo-review, /plan-eng-review, and /plan-design-review. Claude Code
+      # discovers user-scoped skills from $HOME/.claude/skills/<name>/SKILL.md,
+      # but .claude/skills is gitignored, so a fresh CI checkout has NO registry
+      # — claude prints "Unknown command: /plan-ceo-review". Mirror setup's
+      # --no-prefix registry minimally: a gstack root symlink (resolves the
+      # preamble's absolute ~/.claude/skills/gstack/bin/* and
+      # ~/.claude/skills/gstack/<skill>/sections/* paths) plus a per-skill
+      # top-level dir holding SKILL.md (+ sections) symlinks for the four skills
       # these tests invoke. No ./setup (it builds binaries, launches Chromium,
       # installs fonts, reads a /dev/tty prompt) and no binary build (SKILL.md +
       # bin/ + sections/ are committed). $HOME is /github/home here; the spawned
       # claude inherits it (this runner adds no HOME/CLAUDE_CONFIG_DIR override,
       # no hermetic mode) and the Seed step already proved claude reads $HOME.
+      #
+      # KEEP THIS STEP even though seedSkills/hermeticSkillsConfigDir() now
+      # registers skills for hermetic PTY children: that registry is SYMLINKS
+      # into the repo checkout, and this container's cross-mount symlinks
+      # defeat the TUI skill scanner (see the note inside the step below) —
+      # the real-file copies here are what the TUI actually reads. HOME is
+      # also not hermeticized, so the absolute ~/.claude/skills/gstack/...
+      # preamble paths resolve through the gstack root symlink this step makes.
       - name: Register gstack skills for PTY smoke
         if: matrix.suite.name == 'e2e-pty-plan-smoke'
         run: |
@@ -201,7 +306,7 @@ jobs:
           # registry recognized it, isolating the failure to the container's
           # cross-mount symlink). Copy SKILL.md + sections as real files so the TUI
           # reads them directly.
-          for s in office-hours plan-ceo-review; do
+          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
             rm -rf "${SKILLS_DIR:?}/$s"
             mkdir -p "$SKILLS_DIR/$s"
             cp "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
@@ -216,12 +321,33 @@ jobs:
           # ~/.claude/skills/gstack symlink above.
           PROJ_SKILLS="$REPO/.claude/skills"
           mkdir -p "$PROJ_SKILLS"
-          for s in office-hours plan-ceo-review; do
+          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
             rm -rf "${PROJ_SKILLS:?}/$s"
             mkdir -p "$PROJ_SKILLS/$s"
             cp "$REPO/$s/SKILL.md" "$PROJ_SKILLS/$s/SKILL.md"
             cp -R "$REPO/$s/sections" "$PROJ_SKILLS/$s/sections"
           done
+          # Pre-seed every ONE-TIME preamble marker so no PTY child ever takes a
+          # first-run branch mid-test. On a fresh runner these are all missing, so
+          # each smoke's preamble fires feature discovery / telemetry / lake-intro
+          # prompts before the behavior under test — and touching the
+          # feature-discovery marker under ~/.claude/skills/gstack/ trips Claude
+          # Code's sensitive-file permission prompt, stalling the run before the
+          # scope gate renders (the documented intermittent
+          # scope-gate-question-NOT-observed failure: outcome=asked was the
+          # permission dialog, not the gate). Dev machines never hit this because
+          # the operator's markers already exist; CI must seed them explicitly.
+          mkdir -p "$HOME/.gstack"
+          touch "$HOME/.gstack/.activated" \
+                "$HOME/.gstack/.first-loop-tip-shown" \
+                "$HOME/.gstack/.telemetry-prompted" \
+                "$HOME/.gstack/.proactive-prompted" \
+                "$HOME/.gstack/.completeness-intro-seen" \
+                "$HOME/.gstack/.plan-tune-nudge-shown"
+          # These two resolve through the gstack root symlink into $REPO —
+          # untracked scratch in the CI checkout, exactly where the preamble looks.
+          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
+                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
           echo "--- registry under $SKILLS_DIR ---"
           ls -la "$SKILLS_DIR/gstack" "$SKILLS_DIR/office-hours" "$SKILLS_DIR/plan-ceo-review"
           # Fail fast if any committed target moved/renamed — a dangling symlink
@@ -229,18 +355,22 @@ jobs:
           for f in \
             "$SKILLS_DIR/office-hours/SKILL.md" \
             "$SKILLS_DIR/plan-ceo-review/SKILL.md" \
+            "$SKILLS_DIR/plan-eng-review/SKILL.md" \
+            "$SKILLS_DIR/plan-design-review/SKILL.md" \
             "$SKILLS_DIR/gstack/bin/gstack-update-check" \
             "$SKILLS_DIR/gstack/office-hours/sections/design-and-handoff.md" \
-            "$SKILLS_DIR/gstack/plan-ceo-review/sections/review-sections.md"; do
+            "$SKILLS_DIR/gstack/plan-ceo-review/sections/review-sections.md" \
+            "$SKILLS_DIR/gstack/plan-eng-review/sections/review-sections.md" \
+            "$SKILLS_DIR/gstack/plan-design-review/sections/review-sections.md"; do
             if [ ! -e "$f" ]; then
               echo "ERROR: skill-registry target missing (symlink dangles): $f" >&2
               exit 1
             fi
           done
-          grep -m1 '^name: office-hours$'    "$SKILLS_DIR/office-hours/SKILL.md"    >/dev/null \
-            || { echo "ERROR: office-hours SKILL.md missing 'name: office-hours' frontmatter" >&2; exit 1; }
-          grep -m1 '^name: plan-ceo-review$' "$SKILLS_DIR/plan-ceo-review/SKILL.md" >/dev/null \
-            || { echo "ERROR: plan-ceo-review SKILL.md missing 'name: plan-ceo-review' frontmatter" >&2; exit 1; }
+          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
+            grep -m1 "^name: $s\$" "$SKILLS_DIR/$s/SKILL.md" >/dev/null \
+              || { echo "ERROR: $s SKILL.md missing 'name: $s' frontmatter" >&2; exit 1; }
+          done
           echo "skill registry OK"
 
       - name: Run ${{ matrix.suite.name }}
@@ -250,20 +380,26 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EVALS_CONCURRENCY: "40"
           PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
-        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
+          # Per-row tier activation for whole-file-gated suites. Empty when the
+          # row declares no tier — every EVALS_TIER reader treats empty as unset
+          # (`=== '<tier>'` comparisons and the truthiness check in
+          # test/helpers/e2e-helpers.ts:70), so untiered rows are byte-for-byte
+          # unaffected.
+          EVALS_TIER: ${{ matrix.suite.tier || '' }}
+        run: EVALS=1 bun test --retry ${{ matrix.suite.retries || 1 }} --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
 
       - name: Upload eval results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: eval-${{ matrix.suite.name }}
           path: ~/.gstack-dev/evals/*.json
           retention-days: 90
 
   report:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     needs: evals
-    if: always() && github.event_name == 'pull_request'
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 5
     permissions:
       contents: read
@@ -275,12 +411,12 @@ jobs:
       # early and never hit it, which is why this stayed hidden). See #1802 CI fix.
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
       - name: Download all eval artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: eval-*
           path: /tmp/eval-results
@@ -324,14 +460,14 @@ jobs:
 
           BODY="## E2E Evals: ${STATUS}
 
-          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost | **13 parallel runners**
+          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost
 
           | Suite | Result | Status | Cost |
           |-------|--------|--------|------|
           $(echo -e "$SUITE_LINES")
 
           ---
-          *13x ubicloud-standard-8 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
+          *ubicloud-standard-8 runners (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
 
           if [ "$FAILED" -gt 0 ]; then
             FAILURES=""
@@ -358,3 +494,232 @@ jobs:
           else
             gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
           fi
+
+  # ── Sliced lane (paid-CI re-platform, parity phase) ─────────────────────────
+  # One PLANNER computes diff selection + the slice plan ONCE (killing
+  # per-slice selector divergence); K executors consume the manifest; the
+  # report reconciles results against it FAIL-CLOSED (a slice whose artifact
+  # never landed is a failure, a planned shard nobody reported is a failure —
+  # hollow lanes cannot aggregate green). Runs AFTER the matrix (`needs:
+  # evals`) so provider concurrency never doubles while both lanes coexist;
+  # once parity is demonstrated the matrix + its ratchets are deleted and this
+  # lane loses the needs edge. Engine: scripts/test-paid-shards.ts — the same
+  # runner local eval:bg:gate uses, so CI and local share one selection engine.
+  plan-slices:
+    runs-on: ubicloud-standard-8
+    needs: [build-image, evals]
+    if: always() && needs.build-image.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The planner is the ONE place that needs history: diff selection
+          # resolves a merge-base. Executors run from the manifest and stay
+          # shallow. Selection fails OPEN (run-all) if resolution fails — the
+          # documented posture; a planner bug can only run extra work.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore deps
+        run: |
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
+            cp -r /opt/node_modules_cache node_modules
+          else
+            bun install
+          fi
+
+      - name: Emit run manifest
+        env:
+          EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 6
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: paid-plan
+          path: /tmp/paid-plan/manifest.json
+          retention-days: 30
+
+  eval-slices:
+    runs-on: ubicloud-standard-8
+    needs: [build-image, plan-slices]
+    if: always() && needs.plan-slices.result == 'success'
+    # Aggregate spawn-concurrency budget: 6 slices x EVALS_JOBS=2 x
+    # EVALS_CONCURRENCY=2 = 24 concurrent tests lane-wide (the old matrix's
+    # 40-way per row queued claude session STARTUP behind 39 siblings and ate
+    # per-test budgets — the documented timeout-flake family). Tune with
+    # parity data before raising.
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: files with SELF-derived selection (the LLM-judge
+          # map, routing) walk git at module load, and selection is
+          # fail-closed on git errors — a shallow checkout crashed those
+          # shards on the lane's first live run ("ambiguous argument
+          # 'main...HEAD'"). The manifest still governs WHICH shards run.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fix bun temp
+        run: |
+          mkdir -p /home/runner/.cache/bun
+          {
+            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
+            echo "BUN_TMPDIR=/home/runner/.cache/bun"
+            echo "TMPDIR=/home/runner/.cache"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore deps
+        run: |
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
+            cp -r /opt/node_modules_cache node_modules
+          else
+            bun install
+          fi
+
+      - run: bun run build
+
+      # Any slice can host a PTY smoke, so the seed/registration steps run
+      # UNCONDITIONALLY (both are idempotent) — the old matrix keyed them on
+      # matrix.suite.name, which a sliced lane cannot do.
+      - name: Seed claude interactive config
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node -e '
+            const fs = require("fs"), os = require("os"), path = require("path");
+            const p = path.join(os.homedir(), ".claude.json");
+            const seed = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : {};
+            seed.hasCompletedOnboarding = true;
+            const key = process.env.ANTHROPIC_API_KEY || "";
+            if (key) seed.customApiKeyResponses = { approved: [key.slice(-20)], rejected: [] };
+            fs.writeFileSync(p, JSON.stringify(seed, null, 2));
+            console.log("seeded", p);
+          '
+
+      - name: Register gstack skills for PTY smokes
+        run: |
+          set -eu
+          SKILLS_DIR="$HOME/.claude/skills"
+          REPO="$GITHUB_WORKSPACE"
+          mkdir -p "$SKILLS_DIR"
+          ln -snf "$REPO" "$SKILLS_DIR/gstack"
+          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
+            rm -rf "${SKILLS_DIR:?}/$s"
+            mkdir -p "$SKILLS_DIR/$s"
+            cp "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
+            cp -R "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
+          done
+          PROJ_SKILLS="$REPO/.claude/skills"
+          mkdir -p "$PROJ_SKILLS"
+          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
+            rm -rf "${PROJ_SKILLS:?}/$s"
+            mkdir -p "$PROJ_SKILLS/$s"
+            cp "$REPO/$s/SKILL.md" "$PROJ_SKILLS/$s/SKILL.md"
+            cp -R "$REPO/$s/sections" "$PROJ_SKILLS/$s/sections"
+          done
+          mkdir -p "$HOME/.gstack"
+          touch "$HOME/.gstack/.activated" \
+                "$HOME/.gstack/.first-loop-tip-shown" \
+                "$HOME/.gstack/.telemetry-prompted" \
+                "$HOME/.gstack/.proactive-prompted" \
+                "$HOME/.gstack/.completeness-intro-seen" \
+                "$HOME/.gstack/.plan-tune-nudge-shown"
+          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
+                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: paid-plan
+          path: /tmp/paid-plan
+
+      - name: Run slice ${{ matrix.slice }}/6
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+          EVALS_JOBS: "2"
+          EVALS_CONCURRENCY: "2"
+          GSTACK_EVAL_DIR: /tmp/paid-slice-results
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --plan /tmp/paid-plan/manifest.json --slice ${{ matrix.slice }}
+
+      - name: Upload slice results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: paid-slice-${{ matrix.slice }}
+          path: /tmp/paid-slice-results
+          retention-days: 90
+
+      # The spooled per-shard full logs — a red weekly/PR lane three weeks
+      # later needs more than a summary line.
+      - name: Upload shard logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: paid-slice-${{ matrix.slice }}-logs
+          # The Fix-bun-temp step points TMPDIR at /home/runner/.cache, so the
+          # runner's spool lands THERE, not /tmp — the original /tmp glob
+          # uploaded nothing and a red slice's diagnostics were unreachable.
+          path: |
+            /home/runner/.cache/gstack-paid-shard-*.log
+            /tmp/gstack-paid-shard-*.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+  slices-report:
+    runs-on: ubicloud-standard-2
+    needs: [plan-slices, eval-slices]
+    # always(): the report must run (and FAIL) when an executor died — a
+    # missing slice artifact reading as green is the class this lane kills.
+    if: always() && needs.plan-slices.result == 'success'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - run: bun install --frozen-lockfile
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: paid-plan
+          path: /tmp/paid-report
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: paid-slice-[0-9]*
+          path: /tmp/paid-report
+          merge-multiple: true
+
+      - name: Reconcile slices against the manifest (fail-closed)
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/paid-report

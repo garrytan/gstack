@@ -28,6 +28,8 @@ triggers:
 
 {{PREAMBLE}}
 
+{{THIRD_PARTY_ACTIONS}}
+
 {{BASE_BRANCH_DETECT}}
 
 {{GBRAIN_CONTEXT_LOAD}}
@@ -74,6 +76,18 @@ Never skip a verification step because a prior `/ship` run already performed it.
 {{SECTION_INDEX:ship}}
 
 ---
+
+## Step 0.9: Apple target detection
+
+Shipping to the App Store is not landing a PR. If the repository contains an
+`.xcodeproj`, `.xcworkspace`, or a Swift package with an app product AND the
+user's ask is store distribution (App Store, TestFlight, "release my app"),
+**STOP and Read `~/.claude/skills/gstack/ship/sections/apple-release.md` FIRST**
+— before the branch gate and any preflight below. Store distribution proceeds
+from whatever branch the user is on (a clean tree on the base branch is the
+solo developer's normal case, not an error) and follows the adapter end to
+end. The branch gate and repository-landing pipeline below apply ONLY to
+repository-landing asks, including on Apple repos.
 
 ## Step 1: Pre-flight
 
@@ -185,9 +199,9 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
-   bun run ~/.claude/skills/gstack/bin/gstack-version-bump write --version "$NEW_VERSION"
+   bun run ~/.claude/skills/gstack/bin/gstack-version-bump write --version "$NEW_VERSION" --regen-digest
    ```
-   The CLI validates the 4-digit `MAJOR.MINOR.PATCH.MICRO` pattern and writes **both** VERSION and package.json. On a half-write (VERSION written, package.json failed) it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
+   The CLI validates the version pattern (4-digit `MAJOR.MINOR.PATCH.MICRO`; 3-digit for repos whose pinned version source uses plain semver) and writes VERSION, the manifest, and the manifest's npm lockfiles (`package-lock.json` / `npm-shrinkwrap.json`) when they already exist — never created. `--regen-digest` additionally reruns the repo's own `scripts/gen-agents-digest.ts` when BOTH that script and a committed `agents-digest/gstack-AGENTS.md` exist (the gstack repo — its digest embeds VERSION and is freshness-gated). Be clear about the trust envelope: in a repo that carries those two files this EXECUTES repo code; /ship accepts that deliberately because Step 5 already ran the same repo's test suite with the same privileges. Check the write output: `agentsDigest: false` means the regen failed — run `bun scripts/gen-agents-digest.ts` and stage the digest with the bump before continuing, or the freshness check stays red. The manifest is resolved as `--package-json-path` → `.gstack/package-json-path` → `./package.json`, so a repo whose only Node package lives in a subdirectory (`web/`, `app/`) is covered by a one-line pin instead of silently getting a VERSION-only bump. npm rejects 4-component versions, so the manifest and lockfiles carry the npm-valid 3-digit translation (`1.67.0.0` → `1.67.0`); VERSION stays the 4-digit source of truth and classify judges drift against the translated form. On a half-write it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
 
 5. **Record the release decision** (durable cross-session memory). The bump level is a real decision the next session should not re-derive blind:
    ```bash
@@ -361,9 +375,33 @@ EOF
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
+The evidence ledger is the mechanical arm of this law. Check it FIRST:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
+```
+
+Pass each `--expect-cmd` the exact command string the wrapped Step 5 lane ran —
+that binds FRESH to the real suite (a green `echo ok` recorded under the label
+can never satisfy the check). Residual risk, accepted: `package.json` sits on
+the allow-list because Step 12's version bump writes its version field between
+the test run and this gate (and, in the gstack repo, regenerates the
+version-stamped `agents-digest/gstack-AGENTS.md`); a behavior-changing
+package.json edit in that window would not invalidate evidence. The check is
+advisory either way.
+
+- **Every line FRESH (exit 0):** the recorded runs were green and the working-tree
+  content is identical to what was tested, modulo the allow-listed release files
+  (this mechanizes the "CHANGELOG edits don't count" rule — VERSION/CHANGELOG
+  commits between Step 5 and here don't invalidate the run). Cite the evidence
+  lines (label, exit, ts, log path) as the verification evidence and continue.
+- **Any STALE/MISSING (exit non-zero):** run live, wrapped, so the fresh run is
+  recorded: `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
+  The check is an advisory guardrail — a failed CHECK never blocks; a failed RUN does.
+
 Before pushing, re-verify if code changed during Steps 4-6:
 
-1. **Test verification:** If ANY code changed after Step 5's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. Paste fresh output. Stale output from Step 5 is NOT acceptable.
+1. **Test verification:** If ANY code changed after Step 5's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. The evidence check above IS this rule, mechanized — trust FRESH, re-run on STALE. Paste fresh output when you re-run. Stale output from Step 5 with changed content is NOT acceptable.
 
 2. **Build verification:** If the project has a build step, run it. Paste output.
 
@@ -393,9 +431,15 @@ _HOOK_INSTALLED="no"
 # committed hook and write a machine-local wrapper into the working tree.
 _HOOKS_DIR=$(git rev-parse --git-path hooks 2>/dev/null || echo "")
 _GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
+# Linked worktrees: --absolute-git-dir is .git/worktrees/<name> but hooks
+# resolve to the COMMON .git/hooks, so match against the common dir too or
+# every Conductor worktree false-negatives as a "custom hooks path". The
+# /nonexistent fallback keeps the case pattern from collapsing to "/*"
+# (match-everything) when resolution fails.
+_GIT_COMMON=$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo /nonexistent)" 2>/dev/null && pwd || echo /nonexistent)
 _HOOKS_IN_GIT_DIR="no"
 case "$_HOOKS_DIR" in
-  "$_GIT_DIR"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
+  "$_GIT_DIR"/*|"$_GIT_COMMON"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
 esac
 _PREPUSH_PROMPTED=$([ -f "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted" ] && echo "yes" || echo "no")
 echo "REDACT_PREPUSH: $_REDACT_PREPUSH"
@@ -454,26 +498,29 @@ If `ALREADY_PUSHED`, skip the push but continue to Step 18. Otherwise push with 
 git push -u origin <branch-name>
 ```
 
-**You are NOT done.** The code is pushed but documentation sync and PR creation are mandatory final steps. Continue to Step 18.
+**You are NOT done.** The code is pushed but Step 18 (dispatch the /document-release subagent to sync docs) and Step 19 (create the PR/MR) are mandatory final steps. Continue to Step 18.
 
 ---
 
 **PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
 
+**Doc-sync invariant (always applies — do not skip even if you don't open the section below):** Step 18 dispatches the /document-release subagent BEFORE the PR/MR is created or updated in Step 19. Never skip the dispatch itself; only a failed subagent is non-blocking (proceed to Step 19 without a `## Documentation` section).
+
 {{SECTION:pr-body}}
 
 ## Step 20: Persist ship metrics
 
-Log coverage and plan completion data so `/retro` can track trends:
+Log coverage and plan completion data so `/retro` can track trends.
+
+Route the append through `gstack-review-log`. It resolves the project slug and
+the canonical branch form itself, creates the directory, validates the JSON, and
+enqueues the row for gbrain sync. It takes **no path argument** — never build a
+`<branch>-reviews.jsonl` path by hand. A branch with a `/` in it turns a
+hand-built path into a subdirectory write, and the row goes somewhere `/retro`
+will never look.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-```
-
-Append to `~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl`:
-
-```bash
-echo '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"BRANCH"}' >> ~/.gstack/projects/$SLUG/$BRANCH-reviews.jsonl
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
 ```
 
 Substitute from earlier steps:
@@ -482,7 +529,9 @@ Substitute from earlier steps:
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
 - **VERSION**: from the VERSION file
-- **BRANCH**: current branch name
+
+The branch name is filled in by the shell — there is no `BRANCH` placeholder to
+substitute.
 
 This step is automatic — never skip it, never ask for confirmation.
 

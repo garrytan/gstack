@@ -3,8 +3,9 @@
  * host-config-export.ts, and golden-file regression checks.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { validateHostConfig, validateAllConfigs, type HostConfig } from '../scripts/host-config';
 import {
@@ -112,6 +113,7 @@ describe('validateHostConfig', () => {
       name: 'test-host',
       displayName: 'Test Host',
       cliCommand: 'testcli',
+      defaultModel: 'claude',
       globalRoot: '.test/skills/gstack',
       localSkillRoot: '.test/skills/gstack',
       hostSubdir: '.test',
@@ -120,7 +122,7 @@ describe('validateHostConfig', () => {
       generation: { generateMetadata: false },
       pathRewrites: [],
       runtimeRoot: { globalSymlinks: ['bin'] },
-      install: { prefixable: false, linkingStrategy: 'symlink-generated' },
+      install: { linkingStrategy: 'symlink-generated' },
     };
   }
 
@@ -163,6 +165,12 @@ describe('validateHostConfig', () => {
     const c = makeValid();
     c.cliAliases = ['alias-one', 'alias-two'];
     expect(validateHostConfig(c)).toEqual([]);
+  });
+
+  test('invalid defaultModel is caught', () => {
+    const c = makeValid();
+    (c as any).defaultModel = 'llama-local';
+    expect(validateHostConfig(c).some(e => e.includes('defaultModel'))).toBe(true);
   });
 
   test('invalid globalRoot is caught', () => {
@@ -401,7 +409,9 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(1);
   });
 
-  test('detect finds claude (since we are running in claude)', () => {
+  // Gated: the secretless free-tests CI lane deliberately installs no claude
+  // CLI, so "we are running in claude" is false there by design.
+  test.skipIf(!Bun.which('claude'))('detect finds claude (since we are running in claude)', () => {
     const { stdout, exitCode } = run('detect');
     expect(exitCode).toBe(0);
     // claude binary should be on PATH in this environment
@@ -419,7 +429,43 @@ describe('host-config-export.ts CLI', () => {
 describe('golden-file regression', () => {
   const GOLDEN_DIR = path.join(ROOT, 'test', 'fixtures', 'golden');
 
+  // #2532 successor: the codex/factory goldens used to read gitignored
+  // .agents/ and .factory/ artifacts "produced by gen-skill-docs.test.ts" —
+  // an inter-test ordering dependency that failed with ENOENT on a clean
+  // clone or when this file ran in isolation. Severed: this describe
+  // UNCONDITIONALLY renders both hosts into its own --out-dir in beforeAll
+  // and reads its goldens only from that render — no when-missing check, no
+  // live-tree reads for the gitignored artifacts, no dependence on what any
+  // other test left on disk. Comparing a FRESH render to the golden is also
+  // strictly deterministic: a stale on-disk artifact can no longer mask (or
+  // fake) a generator regression.
+  const GOLDEN_OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-golden-out-'));
+
+  beforeAll(() => {
+    for (const host of ['codex', 'factory']) {
+      const result = Bun.spawnSync(
+        ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host, '--out-dir', GOLDEN_OUT],
+        { cwd: ROOT },
+      );
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `golden-file beforeAll: gen-skill-docs --host ${host} --out-dir failed (exit ${result.exitCode}):\n`
+          + result.stderr.toString(),
+        );
+      }
+    }
+  });
+
+  afterAll(() => {
+    fs.rmSync(GOLDEN_OUT, { recursive: true, force: true });
+  });
+
   test('Claude ship skill matches golden baseline', () => {
+    // Deliberately reads the TRACKED ship/SKILL.md (a read, not a write):
+    // the claude golden pins the committed render. Freshness of the tracked
+    // tree vs the templates is enforced by gen-skill-docs.test.ts. (An
+    // out-dir claude render would NOT byte-match this golden — --out-dir
+    // repoints section-base paths into the render by design.)
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'claude-ship-SKILL.md'), 'utf-8');
     const current = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
@@ -427,13 +473,13 @@ describe('golden-file regression', () => {
 
   test('Codex ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'codex-ship-SKILL.md'), 'utf-8');
-    const current = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const current = fs.readFileSync(path.join(GOLDEN_OUT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
 
   test('Factory ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'factory-ship-SKILL.md'), 'utf-8');
-    const current = fs.readFileSync(path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const current = fs.readFileSync(path.join(GOLDEN_OUT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
 });
@@ -441,13 +487,10 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('claude is the only prefixable host', () => {
-    for (const config of ALL_HOST_CONFIGS) {
-      if (config.name === 'claude') {
-        expect(config.install.prefixable).toBe(true);
-      } else {
-        expect(config.install.prefixable).toBe(false);
-      }
+  test('Codex defaults to generic GPT while all existing hosts retain Claude', () => {
+    expect(codex.defaultModel).toBe('gpt');
+    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
+      expect(host.defaultModel).toBe('claude');
     }
   });
 
@@ -476,14 +519,12 @@ describe('host config correctness', () => {
     expect(codex.frontmatter.descriptionLimitBehavior).toBe('error');
   });
 
-  test('codex generates openai.yaml metadata', () => {
+  test('codex generates metadata (openai.yaml, format hardcoded in gen-skill-docs)', () => {
     expect(codex.generation.generateMetadata).toBe(true);
-    expect(codex.generation.metadataFormat).toBe('openai.yaml');
   });
 
-  test('codex has sidecar config', () => {
-    expect(codex.sidecar).toBeDefined();
-    expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
+  test('codex rewrites CLAUDE.md to AGENTS.md', () => {
+    expect(codex.pathRewrites).toContainEqual({ from: 'CLAUDE.md', to: 'AGENTS.md' });
   });
 
   test('factory has tool rewrites', () => {
@@ -521,17 +562,13 @@ describe('host config correctness', () => {
     expect(openclaw.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
   });
 
-  test('openclaw has no adapter (dead code removed)', () => {
-    expect(openclaw.adapter).toBeUndefined();
-  });
-
-  test('openclaw has no staticFiles (SOUL.md removed)', () => {
-    expect(openclaw.staticFiles).toBeUndefined();
-  });
-
-  test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {
-    expect(openclaw.generation.includeSkills).toBeDefined();
-    expect(openclaw.generation.includeSkills!.length).toBe(0);
+  test('no host carries a no-op empty includeSkills allowlist', () => {
+    // includeSkills: [] was a no-op (the generator's `?.length` guard treats an
+    // empty allowlist as absent), so configs omit the field instead of
+    // shipping a lie about "no skills generated".
+    for (const config of ALL_HOST_CONFIGS) {
+      expect(config.generation.includeSkills).toBeUndefined();
+    }
   });
 
   test('every host has coAuthorTrailer or undefined', () => {

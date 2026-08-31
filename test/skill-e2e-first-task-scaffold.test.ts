@@ -14,6 +14,7 @@
  */
 
 import { expect, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -55,7 +56,7 @@ async function detectVia(workDir: string, testName: string): Promise<string> {
     workingDirectory: workDir,
     maxTurns: 3,
     allowedTools: ['Bash'],
-    timeout: 120_000,
+    timeout: JUDGE_MS,
     testName,
     runId,
     model: MODEL,
@@ -91,7 +92,7 @@ describeIfSelected('first-run scaffold detection (E2E)', ['first-task-scaffold']
       fs.rmSync(nodeDir, { recursive: true, force: true });
       fs.rmSync(greenDir, { recursive: true, force: true });
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 afterAll(() => finalizeEvalCollector(evalCollector));

@@ -138,6 +138,9 @@ function spawnSidecar(): boolean {
     const child = spawn(location.node, [location.entry], {
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
+      // Long-lived Node sidecar — without this, Windows gives it a console
+      // window that sits on the taskbar for the daemon's whole lifetime.
+      windowsHide: true,
     });
     child.stdout.on("data", (chunk: Buffer) => {
       s.buffer += chunk.toString("utf-8");

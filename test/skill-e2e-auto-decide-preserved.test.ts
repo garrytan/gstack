@@ -37,15 +37,16 @@
  * practice but not the load-bearing behavior).
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillObservation } from './helpers/claude-pty-runner';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -67,6 +68,8 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
       //    claude would resolve). The preference file path keys on this slug.
       const slugBin = path.join(ROOT, 'bin', 'gstack-slug');
       const slugRes = spawnSync(slugBin, [], {
+        // LIVE-REPO CWD: gstack-slug resolves the slug from this repo's git
+        // remote — must match what the spawned claude (repo cwd) resolves.
         cwd: ROOT,
         env: { ...process.env, GSTACK_HOME: tmpHome },
         encoding: 'utf-8',
@@ -111,7 +114,7 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
         skillName: 'plan-ceo-review',
         inPlanMode: true,
         extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-        timeoutMs: 300_000,
+        timeoutMs: CAPTURE_LONG_MS,
         env: { GSTACK_HOME: tmpHome, CONDUCTOR_WORKSPACE_PATH: tmpHome },
       });
 
@@ -135,5 +138,5 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
     } finally {
       try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
-  }, 360_000);
+  }, PTY_MS);
 });

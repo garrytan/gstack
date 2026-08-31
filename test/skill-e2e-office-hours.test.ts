@@ -10,6 +10,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled,
@@ -71,7 +72,7 @@ Assume the founder has already answered Q1 (strongest evidence = "got on a waitl
 Write Q3 output — the forcing question you would ask this founder — to ${workDir}/q3.md. Write ONLY the question prose. No conversational wrapper, no meta-commentary, no Q1/Q2 recap.`,
       workingDirectory: workDir,
       maxTurns: 8,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'office-hours-forcing-energy',
       runId,
       model: 'claude-sonnet-4-6',
@@ -94,7 +95,7 @@ Write Q3 output — the forcing question you would ask this founder — to ${wor
     console.log('Forcing energy scores:', JSON.stringify(scores, null, 2));
     expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // stacking_preserved
     expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // domain_matched_consequence
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Office Hours builder-mode wildness ---
@@ -143,7 +144,7 @@ The user has confirmed the basic idea is "TypeScript + D3 web tool, start with J
 Write your response — the three adjacent unlocks — to ${workDir}/unlocks.md. Write ONLY the response prose. No meta-commentary, no mode recap. Lead with the fun; let me edit it down later.`,
       workingDirectory: workDir,
       maxTurns: 8,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'office-hours-builder-wildness',
       runId,
       model: 'claude-sonnet-4-6',
@@ -166,7 +167,7 @@ Write your response — the three adjacent unlocks — to ${workDir}/unlocks.md.
     console.log('Builder wildness scores:', JSON.stringify(scores, null, 2));
     expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // unexpected_combinations
     expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // excitement_over_optimization
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // Finalize eval collector for this file

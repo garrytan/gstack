@@ -17,6 +17,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { canRevokeWrites } from "./helpers/fs-caps";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -304,6 +305,7 @@ describe("migrations/v1.40.0.0.sh", () => {
   });
 
   test("case 8: allowlist append fails (read-only file, no USER ADDITIONS marker) — no marker, warn logged", () => {
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     // Allowlist WITHOUT the "# ---- USER ADDITIONS BELOW" marker — the script
     // falls into the plain `printf >>` append path. Make the file read-only
     // so the append fails (sed -i.bak on macOS silently no-ops on read-only

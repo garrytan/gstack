@@ -1,25 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Aggregate summary of all eval runs from ~/.gstack-dev/evals/
+ * Aggregate summary of eval runs from the project eval dir
+ * (~/.gstack/projects/<slug>/evals; legacy fallback ~/.gstack-dev/evals)
  *
  * Usage: bun run eval:summary
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import type { EvalResult } from '../test/helpers/eval-store';
-import { getProjectEvalDir } from '../test/helpers/eval-store';
+import { getProjectEvalDir, listEvalJsonFiles } from '../test/helpers/eval-store';
 
 const EVAL_DIR = getProjectEvalDir();
 
-let files: string[];
-try {
-  files = fs.readdirSync(EVAL_DIR).filter(f => f.endsWith('.json'));
-} catch {
-  console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
-  process.exit(0);
-}
+// Flat dir plus one level of shards/<slug>/
+const files = listEvalJsonFiles(EVAL_DIR);
 
 if (files.length === 0) {
   console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
@@ -30,7 +24,7 @@ if (files.length === 0) {
 const results: EvalResult[] = [];
 for (const file of files) {
   try {
-    results.push(JSON.parse(fs.readFileSync(path.join(EVAL_DIR, file), 'utf-8')));
+    results.push(JSON.parse(fs.readFileSync(file, 'utf-8')));
   } catch { continue; }
 }
 

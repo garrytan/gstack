@@ -51,8 +51,14 @@ function writeEvalRun(evalDir: string, filename: string, timestamp: string, turn
 }
 
 function runEvalList(...args: string[]): { stdout: string; stderr: string; status: number } {
-  const result = spawnSync('bun', ['run', 'scripts/eval-list.ts', ...args], {
-    cwd: ROOT,
+  // cwd is the temp HOME, NOT the repo root: getProjectEvalDir() probes the
+  // cwd-relative .claude/skills/gstack/bin/gstack-slug, and on dev machines
+  // with the self-symlink that probe succeeds, routing reads to an (empty)
+  // project-scoped dir instead of the legacy ~/.gstack-dev/evals this test
+  // seeds. A neutral cwd makes both slug probes fail deterministically, so
+  // the CLI always uses the seeded legacy dir — same behavior as CI.
+  const result = spawnSync('bun', ['run', path.join(ROOT, 'scripts', 'eval-list.ts'), ...args], {
+    cwd: tmpHome,
     env: {
       ...process.env,
       HOME: tmpHome,

@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId, evalsEnabled,
@@ -162,11 +163,12 @@ IMPORTANT:
   Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
 - Do NOT use AskUserQuestion.
 - Just run the preamble bash block and report what you see.
-- Look for "RECENT ARTIFACTS" and "LAST_SESSION" in the output.`,
+- Look for "RECENT ARTIFACTS" and "LAST_SESSION" in the output.
+- In your final message, quote VERBATIM (copy exactly, do not paraphrase) any output lines containing "RECENT ARTIFACTS" or "LAST_SESSION".`,
       workingDirectory: workDir,
       maxTurns: 10,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-recovery-artifacts',
       runId,
     });
@@ -193,7 +195,7 @@ IMPORTANT:
     expect(foundCount).toBeGreaterThanOrEqual(1);
 
     console.log(`Context recovery: artifacts=${foundArtifacts}, lastSession=${foundLastSession}, timeline=${foundTimeline}`);
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // --- Test 3: /context-save writes a file ---
   // Hand-feed the save section of context-save/SKILL.md to claude -p and verify
@@ -231,7 +233,7 @@ IMPORTANT:
       workingDirectory: workDir,
       maxTurns: 10,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-save-writes-file',
       runId,
     });
@@ -264,7 +266,7 @@ IMPORTANT:
     expect(hasYamlFrontmatter).toBe(true);
 
     console.log(`context-save: ${files.length} files created, YAML frontmatter: ${hasYamlFrontmatter}, branch: ${hasBranch}`);
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // --- Test 4: /context-restore loads the newest file across branches ---
   // Seed two saved-context files with different YYYYMMDD-HHMMSS prefixes and
@@ -272,7 +274,17 @@ IMPORTANT:
   // claude -p. Verify the agent identifies the newer file (by filename prefix)
   // and presents its content, regardless of the current branch.
   testConcurrentIfSelected('context-restore-loads-latest', async () => {
-    const projectDir = path.join(gstackHome, 'projects', slug);
+    // PRIVATE home for this test: the suite runs concurrently, and the shared
+    // gstackHome's checkpoints dir also receives the context-save test's
+    // freshly-written checkpoint (a 2026-08-29 filename prefix — always the
+    // "newest"). In CI, save completed before this test's agent listed the
+    // dir, so the agent CORRECTLY restored the sibling's checkpoint and the
+    // assertions failed; locally the ordering happened to run restore first.
+    // An isolated home makes the fixture set closed regardless of ordering
+    // (the agent may derive the dir from GSTACK_HOME/projects/<slug>, so the
+    // whole home moves, not just the checkpoint path we hand it).
+    const restoreHome = path.join(workDir, '.gstack-restore-home');
+    const projectDir = path.join(restoreHome, 'projects', slug);
     const checkpointDir = path.join(projectDir, 'checkpoints');
     fs.mkdirSync(checkpointDir, { recursive: true });
 
@@ -331,16 +343,19 @@ This is the newest saved context. Cross-branch restore should load THIS file.
 ${restoreSection.slice(0, 2500)}
 
 IMPORTANT:
-- Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
+- Use GSTACK_HOME="${restoreHome}" as an environment variable when running bin scripts.
 - The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
 - Look in ${checkpointDir} for saved context files.
 - Current branch is "main" — do NOT filter by current branch. Load across all branches.
 - The newest file by YYYYMMDD-HHMMSS prefix is the canonical "most recent". Filesystem mtime has been scrambled — do not use it.
-- Do NOT use AskUserQuestion. Just present the content of the newest file.`,
+- Do NOT use AskUserQuestion. Just present the content of the newest file.
+- Your final message MUST end with these two lines (they are machine-checked — copy them exactly, do not paraphrase):
+  1. The newest file's "## Working on:" heading line, VERBATIM as it appears in that file.
+  2. A literal marker line: RESTORED: <filename of the newest file>`,
       workingDirectory: workDir,
       maxTurns: 8,
       allowedTools: ['Bash', 'Read', 'Grep', 'Glob'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'context-restore-loads-latest',
       runId,
     });
@@ -348,8 +363,34 @@ IMPORTANT:
     logCost('context-restore', result);
 
     const output = result.output ?? '';
-    const loadedNewer = output.includes('newer wintermute work') || output.includes('wintermute integration');
-    const loadedOlder = output.includes('old work') && !output.includes('newer');
+
+    // Evidence-based checks. CI receipts showed the agent finding + reading the
+    // RIGHT file, then paraphrasing the final message ("the most recent context
+    // is from branch-b...") — exact-substring checks over stochastic prose
+    // flaked. Three signal classes, strongest first:
+    //   1. Machine-checkable output contract (prompt demands the verbatim
+    //      "## Working on:" heading + a "RESTORED: <filename>" marker line).
+    //   2. Lenient content echo (legacy): distinctive newer-file phrases.
+    //   3. Tool-call corroboration: a tool call whose INPUT names the newer
+    //      file. Corroboration only — if the agent also read the OLDER file,
+    //      tool evidence is void and the final output must present the newer.
+    const newerFileName = '20260202-130000-newer-wintermute-work';
+    const olderFileName = '20260101-120000-old-work';
+    const newerMarker = new RegExp(`RESTORED:.*${newerFileName}`, 'i').test(output);
+    const olderMarker = new RegExp(`RESTORED:.*${olderFileName}`, 'i').test(output);
+    const newerContent = output.includes('newer wintermute work') || output.includes('wintermute integration');
+    const outputPresentsNewer = newerMarker || newerContent;
+
+    const toolInputs = result.toolCalls.map(tc => JSON.stringify(tc.input ?? {}));
+    const toolReadNewer = toolInputs.some(input => input.includes(newerFileName));
+    const toolReadOlder = toolInputs.some(input => input.includes(olderFileName));
+
+    // Presenting the OLDER file fails: an explicit RESTORED marker naming it,
+    // or older-file content with no newer-file presentation alongside.
+    const loadedOlder = olderMarker || (output.includes('old work') && !outputPresentsNewer);
+    // Tool evidence counts only when the older file was never read: a run that
+    // reads BOTH files must present the NEWER one in the final output to pass.
+    const loadedNewer = outputPresentsNewer || (toolReadNewer && !toolReadOlder);
     const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
 
     recordE2E(evalCollector, 'context-restore loads latest', 'Session Intelligence E2E', result, {
@@ -360,6 +401,6 @@ IMPORTANT:
     expect(loadedNewer).toBe(true);
     expect(loadedOlder).toBe(false);
 
-    console.log(`context-restore: loadedNewer=${loadedNewer}, loadedOlder=${loadedOlder}`);
-  }, 180_000);
+    console.log(`context-restore: loadedNewer=${loadedNewer} (marker=${newerMarker}, content=${newerContent}, toolNewer=${toolReadNewer}, toolOlder=${toolReadOlder}), loadedOlder=${loadedOlder}`);
+  }, CAPTURE_MS);
 });

@@ -9,13 +9,18 @@ import * as fs from 'fs';
 const ROOT = path.resolve(import.meta.dir, '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-config'), 'utf-8');
 
-// Pull out just the gbrain-refresh `ok)` branch so assertions can't be
-// satisfied by unrelated text elsewhere in the file.
+// Pull out just the gbrain-refresh healthy-status branch so assertions can't
+// be satisfied by unrelated text elsewhere in the file. The case label grew
+// from `ok)` to `ok|timeout|thin-client)` (#1964, #2051) and may grow again,
+// so match any label that STARTS with `ok` followed by alternations.
 function okBranch(): string {
   const start = SRC.indexOf('gbrain-refresh)');
-  const ok = SRC.indexOf('ok)', start);
+  if (start < 0) throw new Error('Could not locate gbrain-refresh case');
+  const labelMatch = /^\s*ok(?:\|[\w-]+)*\)/m.exec(SRC.slice(start));
+  if (!labelMatch) throw new Error('Could not locate gbrain-refresh ok) branch');
+  const ok = start + labelMatch.index;
   const end = SRC.indexOf(';;', ok);
-  if (start < 0 || ok < 0 || end < 0) throw new Error('Could not locate gbrain-refresh ok) branch');
+  if (end < 0) throw new Error('Could not locate gbrain-refresh ok) branch terminator');
   return SRC.slice(ok, end);
 }
 
@@ -39,13 +44,18 @@ describe('gstack-config gbrain-refresh: machine-wide render guards', () => {
     expect(branch).toContain('command -v bun');
   });
 
-  test('renders the :user variant in place into the install', () => {
+  test('renders the :user variant for the claude host', () => {
     expect(branch).toContain('gen:skill-docs:user --host claude');
   });
 
-  test('is self-documenting about the reset --hard / re-run cycle', () => {
-    expect(branch).toContain('reset --hard');
-    expect(branch).toContain('gbrain-refresh');
+  // #2569: the render goes to an UNTRACKED out-dir, never in place — the old
+  // in-place render dirtied the install checkout on every refresh, and this
+  // branch used to self-document a reset --hard / re-run cycle as the
+  // workaround. The out-dir render makes that cycle unnecessary.
+  test('renders to an untracked out-dir, never in place (#2569)', () => {
+    expect(branch).toContain('--out-dir');
+    expect(branch).toContain('render/claude');
+    expect(branch).not.toContain('reset --hard');
   });
 });
 

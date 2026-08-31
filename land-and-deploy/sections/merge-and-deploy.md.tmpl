@@ -1,0 +1,211 @@
+## Step 4: Merge the PR
+
+Record the start timestamp for timing data. Also record which merge path is taken
+(auto-merge vs direct) for the deploy report.
+
+Try auto-merge first (respects repo merge settings and merge queues):
+
+```bash
+gh pr merge --squash --auto --delete-branch
+```
+
+If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
+and may use merge queues.
+
+`--auto` fails for two unrelated reasons. Both fall through to the direct merge below, so
+the flow is unaffected — but do not report the second one as "auto-merge is disabled":
+
+1. **Auto-merge is disabled for the repo** — `Auto-merge is not allowed for this repository`.
+2. **The PR is not waiting on anything.** `--auto` only *queues* a merge behind pending
+   required checks. When every required check has already settled — or the repo declares
+   no required status checks at all — GitHub treats the PR as immediately mergeable and
+   rejects the mutation:
+   `Pull request is in clean status` (everything green) or
+   `Pull request is in unstable status` (something red, but nothing required).
+   A repo with zero required status checks therefore takes the direct path 100% of the
+   time no matter how auto-merge is configured, and so does any repo whose CI finishes
+   before this step runs.
+
+```bash
+gh pr merge --squash --delete-branch
+```
+
+If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
+
+If the merge fails with a permission error: **STOP.** "I don't have permission to merge this PR. You'll need a maintainer to merge it, or check your repo's branch protection rules."
+
+### 4a-postfail: Post-failure PR-state check
+
+**Universal invariant:** after ANY non-zero exit from `gh pr merge`, query authoritative PR state before retrying or stopping. Do NOT retry `gh pr merge`. Related: cli/cli#3442, cli/cli#13380.
+
+```bash
+gh pr view --json state,mergeCommit,mergedAt,mergedBy
+```
+
+**If `state == "MERGED"`:**
+
+The server-side merge succeeded (possibly completed before the local cleanup phase failed, or a concurrent merge landed). Tell the user: "PR is merged on GitHub." (Do NOT say "the merge succeeded" — this handles the concurrent-merge case.)
+
+Capture merge SHA:
+```bash
+gh pr view --json mergeCommit -q .mergeCommit.oid
+```
+
+Squash/rebase merge readback guard:
+- Do **not** prove success by requiring the PR head SHA to be an ancestor of the base branch. GitHub squash and rebase merges deliberately create a new commit, so `git merge-base --is-ancestor <head_sha> origin/<base>` can fail even when the PR is merged.
+- Once GitHub reports `state == "MERGED"` with a non-null `mergeCommit.oid`, treat that as authoritative. Record the merge SHA and continue.
+- If local cleanup or readback is needed, fetch the base branch and compare/sync against the merge commit, not the old PR branch commit:
+```bash
+BASE=$(gh pr view --json baseRefName -q .baseRefName)
+MERGE_SHA=$(gh pr view --json mergeCommit -q .mergeCommit.oid)
+git fetch origin "$BASE"
+git diff --quiet "$MERGE_SHA" origin/"$BASE" || git log --oneline --decorate -1 "$MERGE_SHA" origin/"$BASE"
+```
+- If the worktree is clean and only needs to stop looking diverged after a squash merge, prefer a named local branch at the merge commit, for example `git switch -c "codex/post-merge-pr-$PR_NUMBER" "$MERGE_SHA"`. Avoid detached HEAD in Codex Desktop worktrees because git action workers often expect `git symbolic-ref --short HEAD` to return a branch. Do not force-push or reset a user's branch unless they explicitly ask.
+
+Worktree cleanup — non-destructive, candidate-based:
+```bash
+git worktree list --porcelain
+```
+Identify candidates: a worktree is stale if (a) it is checked out on the base branch, AND (b) it is not the user's current main working tree, AND (c) `git status --porcelain` inside it is empty (no uncommitted work).
+
+- For each clean candidate: OFFER to remove it. Say: "There's a stale worktree at `<path>` checked out on `<branch>` with no uncommitted work. Remove it?" Remove only if user confirms (`git worktree remove <path> && git worktree prune`).
+- If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
+- Do NOT use `--force`. Do NOT remove the user's primary working tree.
+
+Remote-branch reconciliation — the failed `gh pr merge` carried `--delete-branch`, and this recovery path must not silently drop that half. The success path above says "The branch has been cleaned up"; this path states the branch outcome explicitly instead of staying silent:
+
+```bash
+BRANCH=$(gh pr view --json headRefName -q .headRefName)
+git ls-remote --heads origin "$BRANCH"
+```
+
+Three outcomes — never read a failed check as a clean branch:
+
+- **Exit 0, empty output** — the remote branch is already gone (GitHub's post-merge deletion or a concurrent actor got there). Tell the user: "The remote branch has already been cleaned up." This makes re-runs of the recovery idempotent.
+- **Exit 0, one ref line** — the branch survived: the failed merge command never reached its `--delete-branch` half. OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<BRANCH>` still exists — the failed merge never ran its --delete-branch half. Delete it?" Only on confirmation: `git push origin --delete "$BRANCH"`. If a local branch of the same name exists, offer `git branch -d "$BRANCH"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
+- **Non-zero exit** — the check ITSELF failed (network, auth). Tell the user: "Couldn't verify remote branch state — leaving it alone." and skip the deletion offer entirely; a failed check is unknown state, not a clean branch.
+
+Record `MERGE_PATH=direct`, then continue to §4a (CI auto-deploy detection).
+
+**If `state == "OPEN"`:**
+
+Check whether auto-merge is enabled:
+```bash
+gh pr view --json autoMergeRequest -q .autoMergeRequest
+```
+
+- If non-null: auto-merge is enabled or merge queue is in use. The open state is expected — proceed to §4a's merge-queue wait path.
+- If null: genuine failure. Surface both errors — the `gh pr merge` stderr AND the current PR open state — then **STOP**.
+
+**If `state == "CLOSED"`:** PR was closed without merging. **STOP.**
+
+**Hard rule: never call `gh pr merge` a second time** after a non-zero exit. Server state is authoritative.
+
+### 4a: Merge queue detection and messaging
+
+If `MERGE_PATH=auto` and the PR state does not immediately become `MERGED`, the PR is
+in a **merge queue**. Tell the user:
+
+"Your repo uses a merge queue — that means GitHub will run CI one more time on the final merge commit before it actually merges. This is a good thing (it catches last-minute conflicts), but it means we wait. I'll keep checking until it goes through."
+
+Poll for the PR to actually merge:
+
+```bash
+gh pr view --json state -q .state
+```
+
+Poll every 30 seconds, up to 30 minutes. Show a progress message every 2 minutes:
+"Still in the merge queue... ({X}m so far)"
+
+If the PR state changes to `MERGED`: capture the merge commit SHA. Tell the user:
+"Merge queue finished — PR is merged. Took {duration}."
+
+If the PR is removed from the queue (state goes back to `OPEN`): **STOP.** "The PR was removed from the merge queue — this usually means a CI check failed on the merge commit, or another PR in the queue caused a conflict. Check the GitHub merge queue page to see what happened."
+If timeout (30 min): **STOP.** "The merge queue has been processing for 30 minutes. Something might be stuck — check the GitHub Actions tab and the merge queue page."
+
+### 4b: CI auto-deploy detection
+
+After the PR is merged, check if a deploy workflow was triggered by the merge:
+
+```bash
+gh run list --branch <base> --limit 5 --json name,status,workflowName,headSha
+```
+
+Look for runs matching the merge commit SHA. If a deploy workflow is found:
+- Tell the user: "PR merged. I can see a deploy workflow ('{workflow-name}') kicked off automatically. I'll monitor it and let you know when it's done."
+
+If no deploy workflow is found after merge:
+- Tell the user: "PR merged. I don't see a deploy workflow — your project might deploy a different way, or it might be a library/CLI that doesn't have a deploy step. I'll figure out the right verification in the next step."
+
+If `MERGE_PATH=auto` and the repo uses merge queues AND a deploy workflow exists:
+- Tell the user: "PR made it through the merge queue and the deploy workflow is running. Monitoring it now."
+
+Record merge timestamp, duration, and merge path for the deploy report.
+
+---
+
+## Step 5: Deploy strategy detection
+
+Determine what kind of project this is and how to verify the deploy.
+
+First, run the deploy configuration bootstrap to detect or read persisted deploy settings:
+
+{{DEPLOY_BOOTSTRAP}}
+
+Then run `gstack-diff-scope` to classify the changes:
+
+```bash
+eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
+echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$SCOPE_CONFIG"
+```
+
+**Decision tree (evaluate in order):**
+
+1. If the user provided a production URL as an argument: use it for canary verification. Also check for deploy workflows.
+
+2. Check for GitHub Actions deploy workflows:
+```bash
+gh run list --branch <base> --limit 5 --json name,status,conclusion,headSha,workflowName
+```
+Look for workflow names containing "deploy", "release", "production", or "cd". If found: poll the deploy workflow in Step 6, then run canary.
+
+3. If SCOPE_DOCS is the only scope that's true (no frontend, no backend, no config): skip verification entirely. Tell the user: "This was a docs-only change — nothing to deploy or verify. You're all set." Go to Step 9.
+
+4. If no deploy workflows detected and no URL provided: use AskUserQuestion once:
+   - **Re-ground:** "PR is merged, but I don't see a deploy workflow or a production URL for this project. If this is a web app, I can verify the deploy if you give me the URL. If it's a library or CLI tool, there's nothing to verify — we're done."
+   - **RECOMMENDATION:** Choose B if this is a library/CLI tool. Choose A if this is a web app.
+   - A) Here's the production URL: {let them type it}
+   - B) No deploy needed — this isn't a web app
+
+### 5a: Staging-first option
+
+If staging was detected in Step 1.5c (or from CLAUDE.md deploy config), and the changes
+include code (not docs-only), offer the staging-first option:
+
+Use AskUserQuestion:
+- **Re-ground:** "I found a staging environment at {staging URL or workflow}. Since this deploy includes code changes, I can verify everything works on staging first — before it hits production. This is the safest path: if something breaks on staging, production is untouched."
+- **RECOMMENDATION:** Choose A for maximum safety. Choose B if you're confident.
+- A) Deploy to staging first, verify it works, then go to production (Completeness: 10/10)
+- B) Skip staging — go straight to production (Completeness: 7/10)
+- C) Deploy to staging only — I'll check production later (Completeness: 8/10)
+
+**If A (staging first):** Tell the user: "Deploying to staging first. I'll run the same health checks I'd run on production — if staging looks good, I'll move on to production automatically."
+
+Run Steps 6-7 against the staging target first. Use the staging
+URL or staging workflow for deploy verification and canary checks. After staging passes,
+tell the user: "Staging is healthy — your changes are working. Now deploying to production." Then run
+Steps 6-7 again against the production target.
+
+**If B (skip staging):** Tell the user: "Skipping staging — going straight to production." Proceed with production deployment as normal.
+
+**If C (staging only):** Tell the user: "Deploying to staging only. I'll verify it works and stop there."
+
+Run Steps 6-7 against the staging target. After verification,
+print the deploy report (Step 9) with verdict "STAGING VERIFIED — production deploy pending."
+Then tell the user: "Staging looks good. When you're ready for production, run `/land-and-deploy` again."
+**STOP.** The user can re-run `/land-and-deploy` later for production.
+
+**If no staging detected:** Skip this sub-step entirely. No question asked.
+
+---

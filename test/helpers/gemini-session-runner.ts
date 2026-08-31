@@ -8,8 +8,8 @@
  * Key differences from Codex session-runner:
  * - Uses `gemini -p` instead of `codex exec`
  * - Output is NDJSON with event types: init, message, tool_use, tool_result, result
- * - Uses `--output-format stream-json --yolo --skip-trust` instead of `--json -s read-only`
- *   (`--skip-trust` required for headless/untrusted cwds; see gemini trusted-folders docs)
+ * - Uses `--output-format stream-json --yolo` instead of `--json -s read-only`
+ *   (`--skip-trust` was removed in gemini-cli 0.34; folder trust is settings-driven now)
  * - No temp HOME needed — Gemini discovers skills from `.agents/skills/` in cwd
  * - Message events are streamed with `delta: true` — must concatenate
  */
@@ -121,10 +121,11 @@ export async function runGeminiSkill(opts: {
     };
   }
 
-  // Build gemini command
-  // --skip-trust: headless/CI and temp cwds aren't in ~/.gemini/trustedFolders.json;
-  // without it gemini exits FatalUntrustedWorkspaceError before any model call.
-  const args = ['-p', prompt, '--output-format', 'stream-json', '--yolo', '--skip-trust'];
+  // Build gemini command.
+  // --skip-trust was REMOVED in gemini-cli 0.34 ("Unknown arguments:
+  // skip-trust"); folder trust moved to settings and no longer needs a flag
+  // for headless runs. --yolo still auto-approves tool actions.
+  const args = ['-p', prompt, '--output-format', 'stream-json', '--yolo'];
 
   // Spawn gemini — uses real HOME for auth (~/.gemini; HOME is allowlisted),
   // cwd for skill discovery. Hermetic scrub with gemini's auth surface
@@ -196,6 +197,31 @@ export async function runGeminiSkill(opts: {
   // Log stderr if non-empty (may contain auth errors, etc.)
   if (stderr.trim()) {
     process.stderr.write(`  [gemini stderr] ${stderr.trim().slice(0, 200)}\n`);
+  }
+
+  // Environment-unusable classification: these are Google-side conditions no
+  // test assertion can act on — the deprecated individual code-assist auth
+  // path ("migrate to the Antigravity suite") and argv drift on older/newer
+  // CLIs. Return the same SKIP shape as binary-not-found so callers report
+  // SKIPPED instead of a false FAIL.
+  const unusableMarkers = [
+    'no longer supported for Gemini Code Assist',
+    'antigravity',
+    'Unknown arguments: skip-trust',
+  ];
+  if (exitCode !== 0 && parsed.tokens === 0) {
+    const marker = unusableMarkers.find((m) => stderr.toLowerCase().includes(m.toLowerCase()));
+    if (marker) {
+      return {
+        output: `SKIP: gemini CLI unusable (${marker})`,
+        toolCalls: [],
+        tokens: 0,
+        exitCode: -1,
+        durationMs,
+        sessionId: null,
+        rawLines: collectedLines,
+      };
+    }
   }
 
   return {

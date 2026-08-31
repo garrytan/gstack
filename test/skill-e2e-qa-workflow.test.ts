@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled,
@@ -45,6 +46,7 @@ The test server is already running at: ${testServer.url}
 Target page: ${testServer.url}/basic.html
 
 Read the file qa/SKILL.md for the QA workflow instructions.
+qa is a carved skill: when SKILL.md tells you to Read ~/.claude/skills/gstack/qa/sections/<file>, read qa/sections/<file> in this working directory instead (same content, local copy).
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-depth QA test on ${testServer.url}/basic.html
@@ -53,7 +55,7 @@ Do NOT try to start a server or discover ports — the URL above is ready.
 Write your report to ${qaDir}/qa-reports/qa-report.md`,
       workingDirectory: qaDir,
       maxTurns: 35,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'qa-quick',
       runId,
     });
@@ -68,7 +70,7 @@ Write your report to ${qaDir}/qa-reports/qa-report.md`,
     }
     // Accept error_max_turns — the agent doing thorough QA work is not a failure
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // --- QA-Only E2E (report-only, no fixes) ---
@@ -123,7 +125,7 @@ Write your report to ${qaOnlyDir}/qa-reports/qa-only-report.md`,
       workingDirectory: qaOnlyDir,
       maxTurns: 40,
       allowedTools: ['Bash', 'Read', 'Write', 'Glob'],  // NO Edit — the critical guardrail
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'qa-only-no-fix',
       runId,
     });
@@ -155,7 +157,7 @@ Write your report to ${qaOnlyDir}/qa-reports/qa-only-report.md`,
       (l: string) => l.trim() && !l.includes('.prompt-tmp') && !l.includes('.gstack/') && !l.includes('qa-reports/'),
     );
     expect(statusLines.filter((l: string) => l.startsWith(' M') || l.startsWith('M '))).toHaveLength(0);
-  }, 240_000);
+  }, CAPTURE_MS);
 });
 
 // --- QA Fix Loop E2E ---
@@ -234,6 +236,7 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
       prompt: `You have a browse binary at ${browseBin}. Assign it to B variable like: B="${browseBin}"
 
 Read the file qa/SKILL.md for the QA workflow instructions.
+qa is a carved skill: when SKILL.md tells you to Read ~/.claude/skills/gstack/qa/sections/<file>, read qa/sections/<file> in this working directory instead (same content, local copy).
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-tier QA test on ${qaFixUrl}
@@ -245,7 +248,7 @@ This is a test+fix loop: find bugs, fix them in the source code, commit each fix
       workingDirectory: qaFixDir,
       maxTurns: 40,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      timeout: 420_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'qa-fix-loop',
       runId,
     });
@@ -269,7 +272,7 @@ This is a test+fix loop: find bugs, fix them in the source code, commit each fix
     // Verify Edit tool was used (agent actually modified source code)
     const editCalls = result.toolCalls.filter(tc => tc.tool === 'Edit');
     expect(editCalls.length).toBeGreaterThan(0);
-  }, 480_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Test Bootstrap E2E ---
@@ -382,7 +385,7 @@ Do NOT fix any bugs. Do NOT use AskUserQuestion — just pick vitest.`,
       workingDirectory: bsDir,
       maxTurns: 12,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob'],
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'qa-bootstrap',
       runId,
     });
@@ -403,10 +406,12 @@ Do NOT fix any bugs. Do NOT use AskUserQuestion — just pick vitest.`,
     console.log(`Test config: ${hasTestConfig}, Test file: ${hasTestFile}, TESTING.md: ${hasTestingMd}`);
 
     try { fs.rmSync(bsDir, { recursive: true, force: true }); } catch {}
-  }, 120_000);
+  }, JUDGE_MS);
 });
 
-// Module-level afterAll — finalize eval collector after all tests complete
+// Module-level afterAll — finalize eval collector after all tests complete.
+// Explicit 60s timeout: finalize does a JSON save + cross-run comparison and
+// has been observed at 6.26s, past bun's 5s default hook timeout.
 afterAll(async () => {
   await finalizeEvalCollector(evalCollector);
-});
+}, 60_000);

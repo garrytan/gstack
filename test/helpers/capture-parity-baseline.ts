@@ -22,6 +22,14 @@ import { execSync } from 'child_process';
 
 export interface SkillBaselineEntry {
   skill: string;
+  /**
+   * SKILL.md file bytes as captured. NOTE for rebaselines: the parity harness
+   * compares UNION bytes (skeleton + sections/*.md) against this field, so a
+   * committed baseline fixture must have carved skills' entries normalized to
+   * union size (skeleton + sum of sections/*.md) or every carved skill reads
+   * as 1.2-1.4x over on day one. The v1.57.7.0 and v1.64.1.0 fixtures are
+   * union-normalized.
+   */
   skillMdBytes: number;
   skillMdLines: number;
   estTokens: number; // ~4 chars/token heuristic
@@ -46,10 +54,18 @@ export interface ParityBaseline {
 export interface CaptureOptions {
   repoRoot: string;
   tag?: string;
+  /**
+   * Skills whose baseline bytes must be the UNION of skeleton + sections/*.md
+   * (mirroring parity-harness readSkillForParity, which is what the checker
+   * compares against). Omitting a carved skill here records skeleton-only
+   * bytes and the ratio check then reads ~2x on the next parity run — the
+   * exact capture-vs-check drift that broke the v1.64 rebase.
+   */
+  sectionedSkills?: string[];
 }
 
 /** Extract the frontmatter description from a SKILL.md file. Empty string if none. */
-function extractDescription(content: string): string {
+export function extractDescription(content: string): string {
   if (!content.startsWith('---\n')) return '';
   const fmEnd = content.indexOf('\n---', 4);
   if (fmEnd === -1) return '';
@@ -134,7 +150,7 @@ function getGitInfo(repoRoot: string): { commit: string; branch: string } {
 }
 
 export function captureBaseline(opts: CaptureOptions): ParityBaseline {
-  const { repoRoot, tag } = opts;
+  const { repoRoot, tag, sectionedSkills } = opts;
   const skillDirs = discoverSkillDirs(repoRoot);
   const evalCoverage = discoverEvalCoverage(repoRoot, skillDirs);
   const skills: Record<string, SkillBaselineEntry> = {};
@@ -144,7 +160,18 @@ export function captureBaseline(opts: CaptureOptions): ParityBaseline {
     const skillMdPath = path.join(repoRoot, dir, 'SKILL.md');
     const tmplPath = path.join(repoRoot, dir, 'SKILL.md.tmpl');
     const content = fs.readFileSync(skillMdPath, 'utf-8');
-    const bytes = Buffer.byteLength(content, 'utf-8');
+    let bytes = Buffer.byteLength(content, 'utf-8');
+    // Union in the carved sections for sectioned skills — semantic twin of
+    // parity-harness readSkillForParity (which the checker uses). Kept inline
+    // because parity-harness imports this module as a value (cycle).
+    if (sectionedSkills?.includes(dir)) {
+      const sectionsDir = path.join(repoRoot, dir, 'sections');
+      if (fs.existsSync(sectionsDir)) {
+        for (const f of fs.readdirSync(sectionsDir).filter(f => f.endsWith('.md')).sort()) {
+          bytes += Buffer.byteLength(fs.readFileSync(path.join(sectionsDir, f), 'utf-8'), 'utf-8');
+        }
+      }
+    }
     const lines = content.split('\n').length;
     const description = extractDescription(content);
     const descriptionLen = Buffer.byteLength(description, 'utf-8');

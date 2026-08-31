@@ -98,7 +98,7 @@ export function defaultTierPaths(opts: { projectRoot?: string; home?: string; bu
 
 function detectProjectRoot(): string | null {
   try {
-    const proc = cp.spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8', timeout: 2000 });
+    const proc = cp.spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8', timeout: 2000, windowsHide: true });
     if (proc.status === 0) {
       const out = proc.stdout.trim();
       return out || null;

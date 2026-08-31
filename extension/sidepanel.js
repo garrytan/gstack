@@ -2,8 +2,7 @@
  * gstack browse — Side Panel
  *
  * Terminal pane (default): live claude PTY via xterm.js, driven by
- * sidepanel-terminal.js. The chat queue + sidebar-agent.ts were ripped
- * in favor of the interactive REPL — no more one-shot claude -p.
+ * sidepanel-terminal.js.
  *
  * Debug tabs (behind the `debug` toggle): activity feed (SSE) + refs +
  * inspector. Quick-actions toolbar (Cleanup / Screenshot / Cookies)
@@ -994,8 +993,7 @@ inspectorSendBtn.addEventListener('click', async () => {
   }
 
   // Inject into the running claude PTY so the user can ask claude to act
-  // on the inspector data. Replaces the old `sidebar-command` route which
-  // spawned a one-shot claude -p (sidebar-agent.ts is gone).
+  // on the inspector data.
   //
   // Pre-scan via /pty-inject-scan before injection (D6, closes #1370).
   // gstackScanForPTYInject is async; gstackInjectToTerminal stays sync.
@@ -1022,9 +1020,6 @@ inspectorSendBtn.addEventListener('click', async () => {
  * "Cleanup" injects a prompt into the running claude PTY. claude takes the
  * prompt, snapshots the page, hides ads/banners/popups, leaves article
  * content. The user watches it happen in the Terminal pane.
- *
- * Replaced the old chat-queue path (sidebar-agent.ts spawning a one-shot
- * claude -p) — we have a live REPL now, so route through that instead.
  */
 async function runCleanup(...buttons) {
   buttons.forEach(b => b?.classList.add('loading'));
@@ -1304,21 +1299,33 @@ async function tryConnect() {
     });
     if (healthResp.ok) {
       const data = await healthResp.json();
-      if (data.status === 'healthy' && data.token) {
+      if (data.status === 'healthy') {
+        // /health is liveness-only — the token comes from the pinned-origin
+        // POST /extension-token bootstrap (our chrome-extension:// Origin
+        // is validated server-side against the manifest-pinned ID).
+        const tokenResp = await fetch(`http://127.0.0.1:${port}/extension-token`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(2000),
+        });
+        const tokenData = tokenResp.ok ? await tokenResp.json() : null;
+        if (tokenData?.token) {
+          setLoadingStatus(
+            `Server healthy on port ${port}, connecting...`,
+            `token: yes (from /extension-token)\nStarting SSE + activity feed...`
+          );
+          updateConnection(`http://127.0.0.1:${port}`, tokenData.token);
+          return;
+        }
         setLoadingStatus(
-          `Server healthy on port ${port}, connecting...`,
-          `token: yes (from /health)\nStarting SSE + activity feed...`
+          `Server healthy but token bootstrap failed (attempt ${connectAttempts})`,
+          `POST /extension-token → ${tokenResp.status}${tokenResp.status === 403 ? ' (extension identity not trusted)' : ''}`
         );
-        updateConnection(`http://127.0.0.1:${port}`, data.token);
-        // The SEC shield used to drive off /health.security via the chat
-        // path's classifier; with the chat path ripped, the indicator is
-        // not driven yet. Leaving the shield element hidden by default.
-        return;
+      } else {
+        setLoadingStatus(
+          `Server responded but not healthy (attempt ${connectAttempts})`,
+          `status: ${data.status}`
+        );
       }
-      setLoadingStatus(
-        `Server responded but not healthy (attempt ${connectAttempts})`,
-        `status: ${data.status}\ntoken: ${data.token ? 'yes' : 'no'}`
-      );
     } else {
       setLoadingStatus(
         `Server returned ${healthResp.status} (attempt ${connectAttempts})`,
@@ -1353,6 +1360,23 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'refs') {
     if (document.querySelector('.tab[data-tab="refs"].active')) {
       fetchRefs();
+    }
+  }
+  // One-time v1.62 identity-pin notice from background.js. Transient banner —
+  // no dedicated element in sidepanel.html since this fires once per install.
+  if (msg.type === 'gstack-migration-notice' && msg.message) {
+    console.log('[gstack sidebar]', msg.message);
+    try {
+      const banner = document.createElement('div');
+      banner.textContent = msg.message;
+      banner.style.cssText =
+        'position:fixed;left:8px;right:8px;bottom:40px;z-index:9999;' +
+        'background:#1f2937;color:#f5a623;border:1px solid #f5a623;' +
+        'border-radius:6px;padding:8px 10px;font-size:12px;text-align:left;';
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 8000);
+    } catch (err) {
+      console.debug('[gstack sidebar] migration banner failed:', err && err.message);
     }
   }
   if (msg.type === 'inspectResult') {

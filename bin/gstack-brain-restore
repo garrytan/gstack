@@ -25,11 +25,25 @@
 # Env:
 #   GSTACK_HOME — override ~/.gstack
 
+# Heredoc delivery guard. bash 5.2+ writes a heredoc body <=64KiB through a
+# pipe in the forked child before exec, with no reader on the other end. On
+# macOS under pipe-KVA pressure a fresh pipe gets a 512-byte buffer, so any
+# body >=512B blocks write() forever and the script hangs at startup with no
+# output. Compat level 50 restores the tempfile path. These scripts are
+# bash-3.2-clean, so the compat level costs them nothing. Not exported: the
+# guard is per-script, and it survives `bash script.sh` call sites that
+# bypass the shebang.
+BASH_COMPAT=50
+
 set -euo pipefail
 
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+
+# Egress receipt helpers (_receipted_git): fail-open for user-directed
+# git ops against the user's own artifacts remote.
+. "$SCRIPT_DIR/gstack-egress-lib.sh"
 # v1.27.0.0+ canonical name; brain-remote is the legacy fallback during the
 # migration window. The migration script renames the file in place.
 if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
@@ -78,7 +92,9 @@ STAGING=$(mktemp -d "${TMPDIR:-/tmp}/gstack-brain-restore.XXXXXX")
 trap 'rm -rf "$STAGING" 2>/dev/null' EXIT
 
 echo "Cloning $REMOTE_URL to staging..."
-if ! git clone --quiet "$REMOTE_URL" "$STAGING/repo" 2>/dev/null; then
+RESTORE_HOST="${REMOTE_URL#*://}"; RESTORE_HOST="${RESTORE_HOST#*@}"; RESTORE_HOST="${RESTORE_HOST%%[/:]*}"
+if ! _receipted_git open brain-restore "${RESTORE_HOST:-unknown}" brain-restore-clone "user ran gstack-brain-restore" \
+    bash -c 'git clone --quiet "$1" "$2" 2>/dev/null' _ "$REMOTE_URL" "$STAGING/repo"; then
   echo "Clone failed. Check:" >&2
   echo "  - URL is correct: $REMOTE_URL" >&2
   echo "  - Auth: gh auth status (github) / glab auth status (gitlab)" >&2
@@ -160,7 +176,8 @@ done
 # ---- move .git into place ----
 if [ -d "$GSTACK_HOME/.git" ]; then
   # Existing .git with matching remote — just fetch + fast-forward.
-  git -C "$GSTACK_HOME" fetch origin >/dev/null 2>&1 || true
+  _receipted_git open brain-restore "${RESTORE_HOST:-unknown}" brain-restore-fetch "user ran gstack-brain-restore" \
+    bash -c 'git -C "$1" fetch origin >/dev/null 2>&1' _ "$GSTACK_HOME" || true
 else
   mv "$STAGING/repo/.git" "$GSTACK_HOME/.git"
 fi

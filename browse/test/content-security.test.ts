@@ -11,7 +11,8 @@
  *   7. Chain security (domain + tab enforcement)
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
+import * as os from 'os';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { startTestServer } from './test-server';
@@ -24,6 +25,24 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from '../src/content-security';
 import { generateInstructionBlock } from '../src/cli';
+
+// Per-FILE Chromium profile: this file launches an in-process persistent
+// context (BrowserManager.launch()), and sharing a profile dir with the
+// long-lived browse daemon a sibling file may have spawned kills one side's
+// Chromium (ProcessSingleton on user-data-dir). Scoped via hooks, never
+// module scope (see test/gstack-home-module-scope.test.ts's rationale).
+const ORIGINAL_CHROMIUM_PROFILE = process.env.CHROMIUM_PROFILE;
+let CHROMIUM_PROFILE_DIR: string | undefined;
+beforeAll(() => {
+  CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
+  process.env.CHROMIUM_PROFILE = CHROMIUM_PROFILE_DIR;
+});
+afterAll(() => {
+  if (ORIGINAL_CHROMIUM_PROFILE === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = ORIGINAL_CHROMIUM_PROFILE;
+  if (CHROMIUM_PROFILE_DIR) { try { fs.rmSync(CHROMIUM_PROFILE_DIR, { recursive: true, force: true }); } catch {} }
+});
+
 
 // Source-level tests
 const SERVER_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf-8');
@@ -122,6 +141,16 @@ describe('Content envelope', () => {
 describe('Content filter hooks', () => {
   beforeEach(() => {
     clearContentFilters();
+  });
+
+  // clearContentFilters() wipes MODULE state shared across every test file in
+  // the same bun process — without restoring the built-in registration,
+  // security-integration.test.ts (which asserts the auto-registered blocklist
+  // pipeline) fails whenever the two files co-run. Pre-existing co-run bug,
+  // invisible until the free suite got a CI job.
+  afterAll(() => {
+    clearContentFilters();
+    registerContentFilter(urlBlocklistFilter);
   });
 
   test('URL blocklist detects requestbin', () => {
@@ -460,9 +489,14 @@ describe('Hidden element stripping', () => {
     await bm.launch();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     try { testServer.server.stop(); } catch {}
-    setTimeout(() => process.exit(0), 500);
+    // Close only this file's own browser — never process.exit(): bun test
+    // runs all files in one process, so a delayed exit kills the whole suite
+    // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+    // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+    // so race it at 3s and abandon; the child is reaped at process exit.
+    try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
   });
 
   test('detects CSS-hidden elements on injection-hidden page', async () => {

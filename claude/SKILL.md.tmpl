@@ -32,7 +32,7 @@ The generated external invocation name is `gstack-claude`.
 
 ---
 
-## Step 0: Check Claude CLI
+## Step 0: Resolve Claude CLI
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "")
@@ -42,18 +42,15 @@ CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "")
 If `NOT_FOUND`, stop and tell the user:
 "Claude CLI not found. Install Claude Code, then re-run this skill."
 
-Check auth:
+Do not infer authentication state from credential files or environment variables.
+Claude Code may use an OS keychain that is unavailable inside the host agent's
+sandbox. On hosts that sandbox shell execution, run the actual `claude -p`
+invocation outside that sandbox using the host's normal approval mechanism. Only
+report an authentication blocker when that actual invocation returns an auth,
+login, or unauthorized error.
 
-```bash
-if [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "AUTH_FOUND"
-else
-  echo "AUTH_MISSING"
-fi
-```
-
-If `AUTH_MISSING`, stop and tell the user:
-"No Claude authentication found. Run `claude` interactively to log in, or export `ANTHROPIC_API_KEY`, then re-run this skill."
+Resolve the binary and invoke it in the same host execution context. Do not
+resolve it inside a sandbox and then run a different `claude` from another PATH.
 
 ---
 
@@ -95,8 +92,8 @@ Create temp files:
 
 ```bash
 PROMPT_FILE=$(mktemp /tmp/gstack-claude-prompt-XXXXXX)
-RESP_FILE=$(mktemp /tmp/gstack-claude-response-XXXXXX.json)
-ERR_FILE=$(mktemp /tmp/gstack-claude-error-XXXXXX.txt)
+RESP_FILE=$(mktemp /tmp/gstack-claude-response-XXXXXX)
+ERR_FILE=$(mktemp /tmp/gstack-claude-error-XXXXXX)
 ```
 
 Cleanup at the end of every mode:
@@ -151,7 +148,7 @@ Review the current branch diff with nested Claude in tool-less mode.
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-DIFF_FILE=$(mktemp /tmp/gstack-claude-diff-XXXXXX.patch)
+DIFF_FILE=$(mktemp /tmp/gstack-claude-diff-XXXXXX)
 git fetch origin <base> --quiet 2>/dev/null || true
 git diff "origin/<base>" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
 ```
@@ -178,7 +175,8 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -224,7 +222,8 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -276,13 +275,15 @@ EOF
 For a new session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 For a resumed session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Parse and save the session id:
@@ -324,7 +325,7 @@ rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
 ## Error Handling
 
 - **Binary not found:** Stop with install instructions.
-- **Auth missing:** Stop with login/API key instructions.
+- **Auth failure from the actual host invocation:** Stop with login/API key instructions.
 - **Auth failure from stderr:** Surface the stderr line and ask the user to re-authenticate.
 - **JSON parse failure:** Show raw stdout from `$RESP_FILE` and stderr from `$ERR_FILE`.
 - **Empty response:** Tell the user "Claude returned no response. Check stderr for errors."

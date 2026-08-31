@@ -16,11 +16,12 @@
  * distinct silencing mechanism; both share the same fix surface.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillObservation, planFileHasDecisionsSection } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 
 describeE2E('office-hours AskUserQuestion-blocked smoke (gate)', () => {
   // Pass envelope is ['asked', 'plan_ready']; failure signals are
@@ -30,7 +31,7 @@ describeE2E('office-hours AskUserQuestion-blocked smoke (gate)', () => {
       skillName: 'office-hours',
       inPlanMode: true,
       extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (
@@ -55,5 +56,5 @@ describeE2E('office-hours AskUserQuestion-blocked smoke (gate)', () => {
       }
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });

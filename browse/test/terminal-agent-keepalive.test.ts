@@ -11,8 +11,8 @@ import * as path from 'path';
 // regressed by a refactor. These tests fail CI if either side stops sending
 // or stops accepting the protocol frames.
 
-const AGENT_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'terminal-agent.ts');
-const CLIENT_JS = path.resolve(new URL(import.meta.url).pathname, '..', '..', '..', 'extension', 'sidepanel-terminal.js');
+const AGENT_TS = path.resolve(import.meta.path, '..', '..', 'src', 'terminal-agent.ts');
+const CLIENT_JS = path.resolve(import.meta.path, '..', '..', '..', 'extension', 'sidepanel-terminal.js');
 
 describe('terminal-agent WS keepalive (v1.44+)', () => {
   test('1. agent has a KEEPALIVE_INTERVAL_MS env knob, default 25000', () => {

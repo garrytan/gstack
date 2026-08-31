@@ -15,7 +15,7 @@ import * as path from 'path';
 // 3-8s each). These tripwires defend the load-bearing invariants:
 // opt-in by default, signal handlers wired, crash-loop guard, env knobs.
 
-const CLI_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'cli.ts');
+const CLI_TS = path.resolve(import.meta.path, '..', '..', 'src', 'cli.ts');
 
 describe('CLI outer supervisor (v1.44+)', () => {
   test('1. supervisor is opt-in via --supervise flag or BROWSE_SUPERVISE env', () => {

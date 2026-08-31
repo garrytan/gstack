@@ -23,15 +23,16 @@
  * Periodic tier.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   setupSkillDir,
   skillFromWorktree,
   captureSectionReads,
 } from './helpers/auq-sdk-capture';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const runId = `ship-section-loading-${process.env.EVALS_RUN_ID ?? 'local'}`;
 
 // Sections every version-changing ship must consult.
@@ -78,6 +79,6 @@ describeE2E('/ship section-loading E2E (periodic, SDK capture)', () => {
       // Guard against an empty pass: the report must have real content.
       expect(output.trim().length).toBeGreaterThan(200);
     },
-    360_000,
+    CAPTURE_LONG_MS,
   );
 });

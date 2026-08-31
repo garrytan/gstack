@@ -7,18 +7,25 @@
 // regression guard for the "verify failed → STOP" gate.
 //
 // Cost: ~$0.30-$0.50 per run. Gate-tier (EVALS=1 EVALS_TIER=gate).
+//
+// Carve-aware: the Step 4 Path 4 body (collect URL/token, verify, STOP rule)
+// lives in setup-gbrain/sections/brain-init.md, so the fixture inlines that
+// section into the skeleton via buildSetupGbrainFixture. Step 8 is not needed:
+// on a failed verify the skill STOPs before any CLAUDE.md write.
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as http from 'http';
 import { runAgentSdkTest, passThroughNonAskUserQuestion, resolveClaudeBinary } from './helpers/agent-sdk-runner';
+import { buildSetupGbrainFixture } from './helpers/setup-gbrain-fixture';
 
 // Periodic-tier (companion to skill-e2e-setup-gbrain-remote.test.ts).
 // Deterministic gate coverage lives in setup-gbrain-path4-structure.test.ts.
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 function startStub401(): Promise<{ url: string; close: () => Promise<void> }> {
   return new Promise((resolve) => {
@@ -86,7 +93,10 @@ describeE2E('/setup-gbrain Path 4 — bad token STOPs cleanly', () => {
     let modelTextOutput = '';
 
     try {
-      const skillPath = path.resolve(import.meta.dir, '..', 'setup-gbrain', 'SKILL.md');
+      // Carve-aware fixture: skeleton + brain-init inlined (non-empty guard
+      // inside the builder). The test drives Steps 4a-4c to the STOP.
+      const skillPath = path.join(gstackHome, 'setup-gbrain-SKILL.md');
+      fs.writeFileSync(skillPath, buildSetupGbrainFixture(['brain-init.md']));
       const result = await runAgentSdkTest({
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         userPrompt:
@@ -146,5 +156,5 @@ describeE2E('/setup-gbrain Path 4 — bad token STOPs cleanly', () => {
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
     }
-  }, 240_000);
+  }, CAPTURE_MS);
 });

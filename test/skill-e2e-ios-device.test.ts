@@ -21,6 +21,7 @@
 // intentionally machine-specific.
 
 import { describe, test, expect } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { spawnSync } from 'child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
@@ -856,7 +857,7 @@ describe('ios device deployment (explicit opt-in)', () => {
       keepalive?.stop();
       rmSync(workDir, { recursive: true, force: true });
     }
-  }, 600_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // Always-on instructions if not paired. Surfaces actionable steps even when

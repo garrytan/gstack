@@ -14,19 +14,22 @@ concurrency:
 jobs:
   check:
     name: Check VERSION is not stale vs queue
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
 
       - name: Read versions
         id: versions

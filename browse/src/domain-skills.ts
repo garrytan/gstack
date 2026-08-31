@@ -287,7 +287,8 @@ export async function writeSkill(input: WriteSkillInput): Promise<DomainSkillRow
 
 /**
  * Promote a quarantined skill to active in its project after N=3 uses without
- * classifier flagging. Called by sidebar-agent on successful skill use.
+ * classifier flagging. No production caller today — the chat-path agent that
+ * invoked it on successful skill use was ripped with the chat queue.
  *
  * Auto-promote logic:
  *   - increment use_count
@@ -296,11 +297,10 @@ export async function writeSkill(input: WriteSkillInput): Promise<DomainSkillRow
  *   - else stay quarantined with updated counter; user must run
  *     `domain-skill promote-to-global` manually
  *
- * The classifier_score > 0 gate is load-bearing: handleSave currently writes
- * classifier_score=0 with the comment "L4 deferred to load-time / sidebar-agent
- * fills this in on first prompt-injection load," but sidebar-agent was ripped
- * (CLAUDE.md "Sidebar architecture") and nothing else updates the score, so
- * skills authored via the production path never had their body scanned by L4.
+ * The classifier_score > 0 gate is load-bearing: handleSave writes
+ * classifier_score=0 (meaning "never ML-scanned"), and NOTHING updates the
+ * score today — the load-time L4 scan died with the chat path, so skills
+ * authored via the production path never had their body scanned by L4.
  * Without this gate, three benign uses promote any quarantined skill — including
  * one written under the influence of a poisoned page — into the prompt context
  * for every subsequent visit. The gate re-opens automatically the day L4 is

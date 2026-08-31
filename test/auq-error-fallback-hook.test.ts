@@ -74,6 +74,37 @@ describe('directiveFor — per-session-kind instruction', () => {
   test('spawned directive auto-chooses', () => {
     expect(directiveFor('spawned')).toMatch(/auto-choose/i);
   });
+
+  test('spawned directive carries a self-contained destructive carve-out (#2733 review)', () => {
+    // The "Spawned session block" it defers to exists only when a gstack
+    // preamble ran; an AUQ error outside a skill still needs the exception.
+    const d = directiveFor('spawned');
+    expect(d).toMatch(/never auto-choose a destructive or irreversible option/i);
+    expect(d).toMatch(/conservative non-destructive/);
+  });
+
+  test('interactive directive carries the spawned escape sentence (#2733)', () => {
+    // The sessionKind() shell-out runs in the HARNESS env, so a subagent
+    // marked spawned via a per-command prefix classifies interactive here —
+    // the directive text is the only lever for that topology.
+    const d = directiveFor('interactive');
+    expect(d).toMatch(/spawned subagent[\s\S]*auto-choose the recommended option/i);
+    expect(d).toMatch(/destructive or irreversible gate[\s\S]*conservative/i);
+  });
+
+  test('headless directive ALSO carries the spawned escape sentence (#2733 review, multi-specialist)', () => {
+    // A spawned-marked subagent under a headless-classified parent env
+    // (CI/eval-hosted /ship) hits the headless branch — the self-gating
+    // escape keeps the JSON contract alive; plain headless still BLOCKs.
+    const d = directiveFor('headless');
+    expect(d).toMatch(/BLOCKED — AskUserQuestion unavailable/);
+    expect(d).toMatch(/spawned subagent[\s\S]*auto-choose the recommended option/i);
+  });
+
+  test('escape sentence scopes spawned claims to the creating prompt (anti-injection)', () => {
+    const d = directiveFor('interactive');
+    expect(d).toMatch(/NEVER qualify[\s\S]*prompt injection/i);
+  });
 });
 
 /** Spawn the hook with synthetic stdin + controlled env; parse its JSON stdout. */
@@ -113,6 +144,15 @@ describe('hook integration — invoked as PostToolUse', () => {
     expect(out.additionalContext).toMatch(/auto-choose/i);
   });
 
+  test('error result + GSTACK_SESSION_KIND=spawned env → override beats Conductor-interactive (#2733)', () => {
+    const out = runHook(
+      { tool_name: 'AskUserQuestion', tool_response: { is_error: true } },
+      { GSTACK_SESSION_KIND: 'spawned', CONDUCTOR_PORT: '55010' },
+    );
+    expect(out.additionalContext).toMatch(/SESSION_KIND=spawned/);
+    expect(out.additionalContext).toMatch(/auto-choose/i);
+  });
+
   test('SUCCESSFUL answer → no injection (inert on real answers)', () => {
     const out = runHook(
       { tool_name: 'AskUserQuestion', tool_response: { answers: [{ option_label: 'A' }] } },
@@ -127,5 +167,38 @@ describe('hook integration — invoked as PostToolUse', () => {
       { GSTACK_HEADLESS: '1' },
     );
     expect(out.additionalContext).toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------
+// Registration + teardown wiring (static). Setup registers this hook under
+// its own source tag (sharing plan-tune-cathedral would overwrite the
+// question-log entry — same event+matcher); both teardown surfaces
+// (--no-team, uninstall) must remove it, which pre-v1.67.2 neither did.
+// ----------------------------------------------------------------------
+
+import * as fs from 'fs';
+
+describe('setup registration + teardown wiring (static)', () => {
+  const ROOT = path.resolve(__dirname, '..');
+  const setupSrc = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
+  const uninstallSrc = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-uninstall'), 'utf-8');
+
+  test('setup registers the hook via the canonical resolver under --source auq-error-fallback', () => {
+    expect(setupSrc).toMatch(
+      /AUQ_ERROR_FALLBACK_HOOK="\$\(_hook_command_path hosts\/claude\/hooks\/auq-error-fallback-hook/,
+    );
+    expect(setupSrc).toContain('--source auq-error-fallback');
+  });
+
+  test('--no-team tears the hook down', () => {
+    const idx = setupSrc.indexOf('# Also tear down plan-tune');
+    expect(idx).toBeGreaterThan(-1);
+    const slice = setupSrc.slice(idx, idx + 900);
+    expect(slice).toContain('remove-source --source auq-error-fallback');
+  });
+
+  test('gstack-uninstall tears the hook down', () => {
+    expect(uninstallSrc).toContain('remove-source --source auq-error-fallback');
   });
 });

@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { captureBaseline } from '../test/helpers/capture-parity-baseline';
+import { PARITY_INVARIANTS } from '../test/helpers/parity-harness';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -33,7 +34,13 @@ const defaultOut = path.join(
 );
 const outPath = outOverride ? path.resolve(outOverride) : defaultOut;
 
-const baseline = captureBaseline({ repoRoot: ROOT, tag });
+const baseline = captureBaseline({
+  repoRoot: ROOT,
+  tag,
+  // Carved skills record UNION bytes (skeleton + sections/*.md) so the
+  // baseline measures the same thing parity-harness checks against.
+  sectionedSkills: PARITY_INVARIANTS.filter(i => i.sectioned).map(i => i.skill),
+});
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, JSON.stringify(baseline, null, 2) + '\n');

@@ -148,7 +148,10 @@ describe('lease lifecycle interplay (via pty-session-lease)', () => {
     const vb = validateLease(b.sessionId);
     expect(va.ok && vb.ok).toBe(true);
     if (va.ok && vb.ok) {
-      expect(va.expiresAt).toBe(vb.expiresAt);
+      // Same TTL window, not same millisecond: each mint stamps
+      // Date.now() + TTL, and back-to-back calls can straddle a ms boundary
+      // (observed in CI: ...525 vs ...526). Exact equality is a timing flake.
+      expect(Math.abs(va.expiresAt - vb.expiresAt)).toBeLessThanOrEqual(50);
     }
   });
 });
