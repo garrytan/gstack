@@ -547,6 +547,13 @@ B=""
 [ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
+  _GSTACK_ROOT=$(cd "$(dirname "$B")/../.." && pwd -P)
+  _PLAYWRIGHT_EXECUTABLE=$(cd "$_GSTACK_ROOT" && bun -e "import { chromium } from 'playwright'; process.stdout.write(chromium.executablePath())" 2>/dev/null)
+  if [ -x "$_PLAYWRIGHT_EXECUTABLE" ]; then
+    echo "BROWSER_READY: $_PLAYWRIGHT_EXECUTABLE"
+  else
+    echo "BROWSER_RUNTIME_MISSING"
+  fi
 else
   echo "NEEDS_SETUP"
 fi
@@ -573,6 +580,15 @@ If `NEEDS_SETUP`:
      rm "$tmpfile"
    fi
    ```
+
+If `BROWSER_RUNTIME_MISSING`:
+1. Tell the user: "gstack browse needs its Playwright-managed Chromium runtime. Download it now?" Then STOP and wait.
+2. Run: `cd "$_GSTACK_ROOT" && bun ./node_modules/playwright/cli.js install chromium`
+3. Re-run the setup check and proceed only after it prints `BROWSER_READY`.
+
+This mirrors the E2E workflow: provision the browser revision owned by the
+installed Playwright package, rather than assuming a system or unrelated
+Playwright cache entry is compatible.
 
 ## Core QA Patterns
 

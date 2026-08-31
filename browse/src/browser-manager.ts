@@ -60,7 +60,26 @@ export function isCustomChromium(): boolean {
  * when CI/CONTAINER/root is set; that push is now defensively redundant
  * (Playwright will add it anyway when this returns false) and harmless.
  */
-export function shouldEnableChromiumSandbox(): boolean {
+/**
+ * Ubuntu's AppArmor policy can deny unprivileged user namespaces even when
+ * the usual kernel sysctl reports that they are enabled. Chromium discovers
+ * that only after it starts, then exits with "No usable sandbox". Probe the
+ * capability up front so a local automation browser can fall back cleanly.
+ */
+function canCreateUserNamespace(): boolean {
+  try {
+    return Bun.spawnSync(['unshare', '-Ur', 'true'], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    }).exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+export function shouldEnableChromiumSandbox(
+  userNamespaceAvailable: () => boolean = canCreateUserNamespace
+): boolean {
   if (process.platform === 'win32') return false;
   // Explicit user override for Ubuntu/AppArmor and similar environments where
   // unprivileged Chromium sandboxing is blocked even for normal users (the
@@ -70,7 +89,8 @@ export function shouldEnableChromiumSandbox(): boolean {
   // See #1562.
   if (process.env.GSTACK_CHROMIUM_NO_SANDBOX === '1') return false;
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-  return !(process.env.CI || process.env.CONTAINER || isRoot);
+  if (process.env.CI || process.env.CONTAINER || isRoot) return false;
+  return process.platform !== 'linux' || userNamespaceAvailable();
 }
 
 /**

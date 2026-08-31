@@ -106,9 +106,17 @@ export function generateBrowseSetup(ctx: TemplateContext): string {
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+[ -z "$B" ] && [ -n "\${GSTACK_BROWSE:-}" ] && B="$GSTACK_BROWSE/browse"
 [ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
+  _GSTACK_ROOT=$(cd "$(dirname "$B")/../.." && pwd -P)
+  _PLAYWRIGHT_EXECUTABLE=$(cd "$_GSTACK_ROOT" && bun -e "import { chromium } from 'playwright'; process.stdout.write(chromium.executablePath())" 2>/dev/null)
+  if [ -x "$_PLAYWRIGHT_EXECUTABLE" ]; then
+    echo "BROWSER_READY: $_PLAYWRIGHT_EXECUTABLE"
+  else
+    echo "BROWSER_RUNTIME_MISSING"
+  fi
 else
   echo "NEEDS_SETUP"
 fi
@@ -134,5 +142,14 @@ If \`NEEDS_SETUP\`:
      BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
      rm "$tmpfile"
    fi
-   \`\`\``;
+   \`\`\`
+
+If \`BROWSER_RUNTIME_MISSING\`:
+1. Tell the user: "gstack browse needs its Playwright-managed Chromium runtime. Download it now?" Then STOP and wait.
+2. Run: \`cd "$_GSTACK_ROOT" && bun ./node_modules/playwright/cli.js install chromium\`
+3. Re-run the setup check and proceed only after it prints \`BROWSER_READY\`.
+
+This mirrors the E2E workflow: provision the browser revision owned by the
+installed Playwright package, rather than assuming a system or unrelated
+Playwright cache entry is compatible.`;
 }
