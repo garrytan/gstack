@@ -23,27 +23,110 @@ export const SENSITIVE_COOKIE_NAME = /(^|[_.-])(token|secret|key|password|creden
 export const SENSITIVE_COOKIE_VALUE = /^(eyJ|sk-|sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|sk-ant-|ghp_|gho_|github_pat_|xox[bpsa]-|AKIA[A-Z0-9]{16}|AIza|SG\.|Bearer\s|sbp_)/;
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
-function hasAwait(code: string): boolean {
+export function hasAwait(code: string): boolean {
   const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   return /\bawait\b/.test(stripped);
 }
 
+/**
+ * Detect whether code is a single top-level expression (such as an IIFE or parenthesized expression),
+ * even if it contains internal statements, semicolons, or multiple lines (#2727).
+ */
+export function isSingleParenOrIifeExpression(code: string): boolean {
+  const trimmed = code.trim().replace(/;+\s*$/, '');
+  let src = trimmed;
+  if (src.startsWith('await ') || src.startsWith('await\t') || src.startsWith('await\n')) {
+    src = src.slice(5).trim();
+  }
+  if (!src.startsWith('(')) return false;
+
+  let depth = 0;
+  let inString: string | null = null;
+  let escape = false;
+  let mainCloseIndex = -1;
+
+  for (let i = 0; i < src.length; i++) {
+    const char = src[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (inString) {
+      if (char === inString) inString = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      inString = char;
+      continue;
+    }
+    if (char === '(') {
+      depth++;
+    } else if (char === ')') {
+      depth--;
+      if (depth === 0) {
+        mainCloseIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (mainCloseIndex === -1) return false;
+
+  const rest = src.slice(mainCloseIndex + 1).trim();
+  if (rest === '') return true;
+
+  if (rest.startsWith('(')) {
+    let callDepth = 0;
+    let callCloseIndex = -1;
+    let inStr: string | null = null;
+    let esc = false;
+    for (let i = 0; i < rest.length; i++) {
+      const c = rest[i];
+      if (esc) { esc = false; continue; }
+      if (c === '\\' && inStr) { esc = true; continue; }
+      if (inStr) { if (c === inStr) inStr = null; continue; }
+      if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+      if (c === '(') callDepth++;
+      else if (c === ')') {
+        callDepth--;
+        if (callDepth === 0) {
+          callCloseIndex = i;
+          break;
+        }
+      }
+    }
+    if (callCloseIndex !== -1) {
+      const afterCall = rest.slice(callCloseIndex + 1).trim();
+      if (afterCall === '' || afterCall.startsWith('.')) return true;
+    }
+  }
+
+  return false;
+}
+
 /** Detect whether code needs a block wrapper {…} vs expression wrapper (…) inside an async IIFE. */
-function needsBlockWrapper(code: string): boolean {
+export function needsBlockWrapper(code: string): boolean {
   const trimmed = code.trim();
-  if (trimmed.split('\n').length > 1) return true;
-  if (/\b(const|let|var|function|class|return|throw|if|for|while|switch|try)\b/.test(trimmed)) return true;
-  if (trimmed.includes(';')) return true;
+  if (isSingleParenOrIifeExpression(trimmed)) return false;
+  const clean = trimmed.replace(/;+\s*$/, '');
+  if (clean.split('\n').length > 1) return true;
+  if (/\b(const|let|var|function|class|return|throw|if|for|while|switch|try)\b/.test(clean)) return true;
+  if (clean.includes(';')) return true;
   return false;
 }
 
 /** Wrap code for page.evaluate(), using async IIFE with block or expression body as needed. */
-function wrapForEvaluate(code: string): string {
+export function wrapForEvaluate(code: string): string {
   if (!hasAwait(code)) return code;
   const trimmed = code.trim();
+  const cleanExpr = trimmed.replace(/;+\s*$/, '');
   return needsBlockWrapper(trimmed)
     ? `(async()=>{\n${code}\n})()`
-    : `(async()=>(${trimmed}))()`;
+    : `(async()=>(${cleanExpr}))()`;
 }
 
 /** Flags split out of `js`/`eval` args by parseOutArgs. */
