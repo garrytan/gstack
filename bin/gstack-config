@@ -403,6 +403,14 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    # cross_project_learnings: empty get is the first-run prompt sentinel.
+    # Skills enable only on the literal "true". A typo must not persist — that
+    # keeps the feature off and suppresses the prompt. Reject, like
+    # codex_reviews; do not coerce (a stored default still kills the sentinel).
+    if [ "$KEY" = "cross_project_learnings" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+      echo "Error: cross_project_learnings '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
