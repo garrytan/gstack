@@ -44,8 +44,8 @@ INPUT="$1"
 TMPERR=$(mktemp)
 trap 'rm -f "$TMPERR"' EXIT
 set +e
-VALIDATED=$(printf '%s' "$INPUT" | bun -e "
-import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
+VALIDATED=$(cd "$SCRIPT_DIR/.." && printf '%s' "$INPUT" | bun -e "
+import { hasInjection } from './lib/jsonl-store.ts';
 const path = require('path');
 const raw = await Bun.stdin.text();
 let j;
