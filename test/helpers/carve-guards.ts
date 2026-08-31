@@ -295,7 +295,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 72_700, // + v1.76 AUQ proactive SESSION_KIND=spawned rule (#2733); measured 72_294
+    maxSkeletonBytes: 74_000, // + browser-runtime preflight; measured 73_506
     minUnionBytes: 115_800, // Phase 4 wave 4; measured union 118,175
     mustContain: ['design doc', 'problem statement'],
     maxSizeRatio: 1.12,
@@ -347,7 +347,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
     // v1.64.1.0: shared-preamble prose from the two parallel v1.64 waves lands
     // the skeleton at 69,022 B; +~1 KB headroom.
-    maxSkeletonBytes: 53_250, // + v1.76 AUQ proactive SESSION_KIND=spawned rule (#2733); measured 52_834
+    maxSkeletonBytes: 54_500, // + browser-runtime preflight; measured 54_046
     minUnionBytes: 65_000, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 72,252
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
@@ -477,7 +477,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined, // operational skill
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 61_600, // + v1.76 AUQ proactive SESSION_KIND=spawned rule (#2733); measured 61_160
+    maxSkeletonBytes: 63_000, // + browser-runtime preflight; measured 62_372
     minUnionBytes: 91_000, // Phase 4 wave 1; estimated union ~94.9KB
     mustContain: ['readiness', 'merge', 'canary', 'revert', 'staging'],
   },
@@ -605,7 +605,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 51_700, // + v1.76 AUQ proactive SESSION_KIND=spawned rule (#2733); measured 51_289
+    maxSkeletonBytes: 53_000, // + browser-runtime preflight; measured 52_501
     minUnionBytes: 69_500, // measured union 70,385
     mustContain: ['bug', 'browse', 'fix', 'Health Score Rubric', 'regression'],
   },
@@ -622,7 +622,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 27_500, // Phase 4 wave 3; measured 26,875
+    maxSkeletonBytes: 28_500, // + browser-runtime preflight; measured 28_014
     minUnionBytes: 39_500, // measured union 41,115
     // 'BEGIN/END UNTRUSTED EXTERNAL' pins the untrusted-content warning; the full
     // envelope phrase wraps across lines in the rendered blockquote, so the
@@ -674,7 +674,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined, // operational skill, no plan-mode gate
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 52_050, // + v1.76 AUQ proactive SESSION_KIND=spawned rule (#2733); measured 51_631
+    maxSkeletonBytes: 53_500, // + browser-runtime preflight; measured 52_843
     minUnionBytes: 57_500, // Phase 4 wave 4; measured union 58,682
     mustContain: ["Don't make me think", "Users scan, they don't read", 'The Goodwill Reservoir', 'PRETEXT API CHEATSHEET', 'Pattern 3: Text around obstacles'],
   },
