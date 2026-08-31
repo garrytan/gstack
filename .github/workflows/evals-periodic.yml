@@ -206,9 +206,9 @@ jobs:
                 "$HOME/.gstack/.telemetry-prompted" \
                 "$HOME/.gstack/.proactive-prompted" \
                 "$HOME/.gstack/.completeness-intro-seen" \
-                "$HOME/.gstack/.plan-tune-nudge-shown"
-          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
-                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
+                "$HOME/.gstack/.plan-tune-nudge-shown" \
+                "$HOME/.gstack/.feature-prompted-continuous-checkpoint" \
+                "$HOME/.gstack/.feature-prompted-model-overlay"
 
       - uses: actions/download-artifact@v8
         with:

@@ -217,7 +217,15 @@ export function getHermeticDirs(): HermeticDirs {
     // children — without these, the emission layer fires lake-intro/telemetry
     // prompts that burn turns and can stall PTY tests waiting on an answer.
     // Tests that exercise onboarding itself override GSTACK_HOME per-test.
-    for (const f of ['.activated', '.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted', '.first-loop-tip-shown']) {
+    for (const f of [
+      '.activated',
+      '.completeness-intro-seen',
+      '.telemetry-prompted',
+      '.proactive-prompted',
+      '.first-loop-tip-shown',
+      '.feature-prompted-continuous-checkpoint',
+      '.feature-prompted-model-overlay',
+    ]) {
       fs.writeFileSync(path.join(gstackHome, f), '');
     }
     // The privacy stop-gate is config-keyed, not marker-keyed: on machines

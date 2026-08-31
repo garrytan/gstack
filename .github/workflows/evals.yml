@@ -330,24 +330,18 @@ jobs:
           # Pre-seed every ONE-TIME preamble marker so no PTY child ever takes a
           # first-run branch mid-test. On a fresh runner these are all missing, so
           # each smoke's preamble fires feature discovery / telemetry / lake-intro
-          # prompts before the behavior under test — and touching the
-          # feature-discovery marker under ~/.claude/skills/gstack/ trips Claude
-          # Code's sensitive-file permission prompt, stalling the run before the
-          # scope gate renders (the documented intermittent
-          # scope-gate-question-NOT-observed failure: outcome=asked was the
-          # permission dialog, not the gate). Dev machines never hit this because
-          # the operator's markers already exist; CI must seed them explicitly.
+          # prompts before the behavior under test. Dev machines never hit this
+          # because the operator's markers already exist; CI must seed them
+          # explicitly in the same GSTACK_HOME location the preamble reads.
           mkdir -p "$HOME/.gstack"
           touch "$HOME/.gstack/.activated" \
                 "$HOME/.gstack/.first-loop-tip-shown" \
                 "$HOME/.gstack/.telemetry-prompted" \
                 "$HOME/.gstack/.proactive-prompted" \
                 "$HOME/.gstack/.completeness-intro-seen" \
-                "$HOME/.gstack/.plan-tune-nudge-shown"
-          # These two resolve through the gstack root symlink into $REPO —
-          # untracked scratch in the CI checkout, exactly where the preamble looks.
-          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
-                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
+                "$HOME/.gstack/.plan-tune-nudge-shown" \
+                "$HOME/.gstack/.feature-prompted-continuous-checkpoint" \
+                "$HOME/.gstack/.feature-prompted-model-overlay"
           echo "--- registry under $SKILLS_DIR ---"
           ls -la "$SKILLS_DIR/gstack" "$SKILLS_DIR/office-hours" "$SKILLS_DIR/plan-ceo-review"
           # Fail fast if any committed target moved/renamed — a dangling symlink
@@ -646,9 +640,9 @@ jobs:
                 "$HOME/.gstack/.telemetry-prompted" \
                 "$HOME/.gstack/.proactive-prompted" \
                 "$HOME/.gstack/.completeness-intro-seen" \
-                "$HOME/.gstack/.plan-tune-nudge-shown"
-          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
-                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
+                "$HOME/.gstack/.plan-tune-nudge-shown" \
+                "$HOME/.gstack/.feature-prompted-continuous-checkpoint" \
+                "$HOME/.gstack/.feature-prompted-model-overlay"
 
       - uses: actions/download-artifact@v8
         with:
