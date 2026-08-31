@@ -21,7 +21,7 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
   }
 
   function porcelain(): string {
-    const r = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf-8' });
+    const r = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
     return r.status === 0 ? r.stdout : '';
   }
 

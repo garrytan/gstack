@@ -9,12 +9,12 @@ const UNINSTALL = path.join(ROOT, 'bin', 'gstack-uninstall');
 
 describe('gstack-uninstall', () => {
   test('syntax check passes', () => {
-    const result = spawnSync('bash', ['-n', UNINSTALL], { stdio: 'pipe' });
+    const result = spawnSync('bash', ['-n', UNINSTALL], { stdio: 'pipe', timeout: 30_000 });
     expect(result.status).toBe(0);
   });
 
   test('--help prints usage and exits 0', () => {
-    const result = spawnSync('bash', [UNINSTALL, '--help'], { stdio: 'pipe' });
+    const result = spawnSync('bash', [UNINSTALL, '--help'], { stdio: 'pipe', timeout: 30_000 });
     expect(result.status).toBe(0);
     const output = result.stdout.toString();
     expect(output).toContain('gstack-uninstall');
@@ -25,6 +25,7 @@ describe('gstack-uninstall', () => {
   test('unknown flag exits with error', () => {
     const result = spawnSync('bash', [UNINSTALL, '--bogus'], {
       stdio: 'pipe',
+      timeout: 30_000,
       env: { ...process.env, HOME: '/nonexistent' },
     });
     expect(result.status).toBe(1);
@@ -58,7 +59,7 @@ describe('gstack-uninstall', () => {
 
       // Create mock git repo
       fs.mkdirSync(mockGitRoot, { recursive: true });
-      spawnSync('git', ['init', '-b', 'main'], { cwd: mockGitRoot, stdio: 'pipe' });
+      spawnSync('git', ['init', '-b', 'main'], { cwd: mockGitRoot, stdio: 'pipe', timeout: 30_000 });
     });
 
     afterEach(() => {
@@ -68,6 +69,7 @@ describe('gstack-uninstall', () => {
     test('--force removes global Claude skills and state', () => {
       const result = spawnSync('bash', [UNINSTALL, '--force'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,
@@ -98,6 +100,7 @@ describe('gstack-uninstall', () => {
     test('--keep-state preserves state directory', () => {
       const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,
@@ -129,6 +132,7 @@ describe('gstack-uninstall', () => {
           GSTACK_DIR: path.join(cleanHome, 'nonexistent'),
           GSTACK_STATE_DIR: path.join(cleanHome, '.gstack'),
         },
+        timeout: 30_000,
         cwd: mockGitRoot,
       });
 
@@ -143,6 +147,7 @@ describe('gstack-uninstall', () => {
 
       const result = spawnSync('bash', [UNINSTALL, '--force'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,
@@ -180,6 +185,7 @@ describe('gstack-uninstall', () => {
 
       const result = spawnSync('bash', [UNINSTALL, '--force'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,
@@ -212,6 +218,7 @@ describe('gstack-uninstall', () => {
 
       const result = spawnSync('bash', [UNINSTALL, '--force'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,
@@ -275,6 +282,7 @@ describe('hook cleanup runs before the install root is deleted', () => {
 
       const result = spawnSync('bash', [path.join(installBin, 'gstack-uninstall'), '--force', '--keep-state'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,
@@ -331,6 +339,7 @@ describe('hook cleanup under lock contention is loud, never silent (review-army)
 
       const result = spawnSync('bash', [path.join(installBin, 'gstack-uninstall'), '--force', '--keep-state'], {
         stdio: 'pipe',
+        timeout: 30_000,
         env: {
           ...process.env,
           HOME: mockHome,

@@ -85,7 +85,7 @@ describe('config', () => {
       // it (the exact bug the fix removed) would skip the guard here.
       const tmpDir = path.join(os.tmpdir(), `browse-gitignored-repo-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
-      Bun.spawnSync(['git', 'init'], { cwd: tmpDir, stdout: 'ignore', stderr: 'ignore' });
+      Bun.spawnSync(['git', 'init'], { cwd: tmpDir, stdout: 'ignore', stderr: 'ignore', timeout: 30_000 });
       fs.writeFileSync(path.join(tmpDir, '.gitignore'), '.gstack/\n');
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
       ensureStateDir(config);
@@ -166,22 +166,22 @@ describe('config', () => {
       fs.mkdirSync(tmpDir, { recursive: true });
 
       // Set up a real git repo
-      spawnSync('git', ['init', '-q'], { cwd: tmpDir });
-      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
-      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+      spawnSync('git', ['init', '-q'], { cwd: tmpDir, timeout: 30_000 });
+      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir, timeout: 30_000 });
+      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir, timeout: 30_000 });
 
       // Write a global excludes file that ignores .gstack/
       const excludesFile = path.join(tmpDir, 'global-gitignore');
       fs.writeFileSync(excludesFile, '.gstack/\n');
-      spawnSync('git', ['config', 'core.excludesFile', excludesFile], { cwd: tmpDir });
+      spawnSync('git', ['config', 'core.excludesFile', excludesFile], { cwd: tmpDir, timeout: 30_000 });
 
       // .gitignore exists but does NOT contain .gstack/
       fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
-      spawnSync('git', ['add', '.gitignore'], { cwd: tmpDir });
-      spawnSync('git', ['commit', '-qm', 'init'], { cwd: tmpDir });
+      spawnSync('git', ['add', '.gitignore'], { cwd: tmpDir, timeout: 30_000 });
+      spawnSync('git', ['commit', '-qm', 'init'], { cwd: tmpDir, timeout: 30_000 });
 
       // Verify git knows .gstack/ is ignored
-      const check = spawnSync('git', ['check-ignore', '-q', '.gstack/'], { cwd: tmpDir });
+      const check = spawnSync('git', ['check-ignore', '-q', '.gstack/'], { cwd: tmpDir, timeout: 30_000 });
       expect(check.status).toBe(0);
 
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });

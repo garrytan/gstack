@@ -97,6 +97,7 @@ function run(extraEnv: Record<string, string> = {}): {
     },
     encoding: 'utf-8',
     cwd: tmpHome,
+    timeout: 30_000,
   });
   return { code: r.status ?? -1, stdout: r.stdout || '', stderr: r.stderr || '' };
 }

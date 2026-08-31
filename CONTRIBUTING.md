@@ -168,7 +168,9 @@ silent truncation can never report green. Pass `--verbose` to forward the full
 child stream; `--wall-timeout <secs>` overrides the per-shard kill deadline.
 `GSTACK_FREE_JOBS=<n>` overrides the shard count (digits only, loud on garbage),
 and `GSTACK_FREE_RETRY_FLAKY=1` opts into one serial retry pass for
-syscall-supervised sandboxes (off by default — dev boxes should see flakes).
+syscall-supervised sandboxes (off by default locally — dev boxes should see
+flakes; the required CI free lane turns it on and uploads every flaky pass
+in a JSONL ledger artifact that `bun run eval:flake-rank` folds in).
 Working in a cloud sandbox? Run `scripts/sandbox-doctor.sh` once per boot to
 make the suite run green (details in
 [docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md)).
@@ -236,6 +238,7 @@ When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
 bun run eval:list            # list all eval runs (turns, duration, cost per run)
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
+bun run eval:flake-rank      # rank tests by flake signal: retried passes first, then failure rate (--json, --dir, --since-days)
 ```
 
 **Detached runs for agents and long suites.** When an agent (or you, for a run
@@ -264,9 +267,9 @@ distinguishes failed vs timed-out vs never-started shards. The runner also
 selects by diff: shards untouched by your branch are reported as
 skipped-by-diff, with a selection banner naming the reason (`EVALS_ALL=1`
 forces everything). `EVALS_JOBS` sets how many shard processes run at once
-(default 4); `EVALS_CONCURRENCY` is bun's concurrency WITHIN a shard — they
-are deliberately separate knobs. `eval:list`,
-`eval:compare`, and `eval:summary` are shard-aware. Humans running
+(default 8); `EVALS_CONCURRENCY` is bun's concurrency WITHIN a shard
+(default 2) — they are deliberately separate knobs. `eval:list`,
+`eval:compare`, `eval:summary`, and `eval:flake-rank` are shard-aware. Humans running
 `bun run test:evals` foreground in their own terminal don't need this — Ctrl-C
 is intended there.
 

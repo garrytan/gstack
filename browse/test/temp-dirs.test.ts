@@ -107,7 +107,7 @@ describe('untrustable TMPDIR values never widen the allowlist', () => {
     const r = Bun.spawnSync([
       process.execPath, '-e',
       "import { TEMP_DIRS } from './browse/src/platform'; console.log(JSON.stringify(TEMP_DIRS));",
-    ], { env: { ...process.env, TMPDIR: tmpdir }, cwd: path.resolve(import.meta.dir, '..', '..') });
+    ], { env: { ...process.env, TMPDIR: tmpdir }, cwd: path.resolve(import.meta.dir, '..', '..'), timeout: 30_000 });
     return JSON.parse(r.stdout.toString().trim().split('\n').pop()!);
   };
 

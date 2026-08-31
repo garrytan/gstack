@@ -299,7 +299,7 @@ describe('iOS tap harness regressions', () => {
 });
 
 function hasSwift(): boolean {
-  const r = spawnSync('swift', ['--version'], { stdio: 'pipe' });
+  const r = spawnSync('swift', ['--version'], { stdio: 'pipe', timeout: 30_000 });
   return r.status === 0;
 }
 
@@ -370,14 +370,14 @@ describeIfSwift('swift build invariants', () => {
       '-path', '*/release/*',
       '-name', '*.o',
       '-path', '*DebugBridge*',
-    ], { stdio: 'pipe' });
+    ], { stdio: 'pipe', timeout: 30_000 });
     const files = (oFiles.stdout?.toString() ?? '').trim().split('\n').filter(Boolean);
     expect(files.length).toBeGreaterThan(0);
 
     let foundForbidden = 0;
     const forbidden = ['StateServer', 'handleRequest', 'sessionAcquire', 'authRotate', 'snapshotGet'];
     for (const f of files) {
-      const nm = spawnSync('nm', ['-j', f], { stdio: 'pipe' });
+      const nm = spawnSync('nm', ['-j', f], { stdio: 'pipe', timeout: 30_000 });
       const syms = nm.stdout?.toString() ?? '';
       for (const tok of forbidden) {
         if (syms.includes(tok)) {

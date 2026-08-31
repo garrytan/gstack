@@ -78,14 +78,14 @@ describeIfSelected('Session Intelligence E2E', [
 
     spawnSync(logBin, [JSON.stringify({
       skill: 'review', event: 'started', branch: 'main', session: 'test-1',
-    })], opts);
+    })], opts); // timeout via opts
     spawnSync(logBin, [JSON.stringify({
       skill: 'review', event: 'completed', branch: 'main',
       outcome: 'success', duration_s: 120, session: 'test-1',
-    })], opts);
+    })], opts); // timeout via opts
 
     // Read via gstack-timeline-read
-    const readResult = spawnSync(readBin, ['--branch', 'main'], opts);
+    const readResult = spawnSync(readBin, ['--branch', 'main'], opts); // timeout via opts
     const readOutput = readResult.stdout?.toString() || '';
 
     // Verify timeline.jsonl exists and has content

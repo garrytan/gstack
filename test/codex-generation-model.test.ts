@@ -116,6 +116,7 @@ model = "gpt-5.6-terra"
       cwd: ROOT,
       encoding: 'utf8',
       env: { ...process.env, CODEX_HOME: home },
+      timeout: 30_000,
     });
     expect(ok.status).toBe(0);
     expect(ok.stdout).toBe(`gpt-5.6-sol\t${path.join(home, 'config.toml')}\n`);
@@ -123,6 +124,7 @@ model = "gpt-5.6-terra"
     const bad = spawnSync('bun', ['run', 'scripts/resolve-codex-generation-model.ts', '--explicit', 'llama-local'], {
       cwd: ROOT,
       encoding: 'utf8',
+      timeout: 30_000,
     });
     expect(bad.status).not.toBe(0);
     expect(bad.stderr).toContain('Unknown model');

@@ -22,6 +22,7 @@ function kind(env: Record<string, string>): string {
   return execFileSync(BIN, [], {
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
     encoding: 'utf-8',
+    timeout: 30_000,
   }).trim();
 }
 

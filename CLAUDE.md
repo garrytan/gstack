@@ -22,6 +22,7 @@ bun run dev:skill    # watch mode: auto-regen + validate on change
 bun run eval:list    # list all eval runs from ~/.gstack/projects/<slug>/evals/
 bun run eval:compare # compare two eval runs (auto-picks most recent)
 bun run eval:summary # aggregate stats across all eval runs
+bun run eval:flake-rank  # rank tests by flake signal (retried passes first; --json, --dir, --since-days)
 bun run slop          # full slop-scan report (all files)
 bun run slop:diff     # slop findings in files changed on this branch only
 ```
@@ -647,9 +648,9 @@ the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
   floor enforced against the live shard census by
   test/eval-detach-timeout-floor.test.ts)
   are sized against worst-case shard wall clock. `EVALS_JOBS` sets the shard
-  process count (default 4); `EVALS_CONCURRENCY` is bun's --max-concurrency
-  WITHIN a shard (default 4) — they are deliberately separate knobs. `eval:list` / `eval:compare` /
-  `eval:summary` read the shard dirs too. Or call
+  process count (default 8); `EVALS_CONCURRENCY` is bun's --max-concurrency
+  WITHIN a shard (default 2) — they are deliberately separate knobs. `eval:list` / `eval:compare` /
+  `eval:summary` / `eval:flake-rank` read the shard dirs too. Or call
   `gstack-detach [--lock NAME] [--timeout SECS] [--label LBL] --
   <cmd>` directly for any long agent job. Export `ANTHROPIC_API_KEY` first (never
   pass keys in argv).

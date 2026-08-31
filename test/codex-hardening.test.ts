@@ -297,7 +297,7 @@ describe('gstack-codex-probe: timeout wrapper + namespace hygiene', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-watchdog-'));
     try {
       const which = (tool: string) =>
-        spawnSync('bash', ['-c', `command -v ${tool}`]).stdout.toString().trim() || `/bin/${tool}`;
+        spawnSync('bash', ['-c', `command -v ${tool}`], { timeout: 30_000 }).stdout.toString().trim() || `/bin/${tool}`;
       fs.symlinkSync(which('bash'), path.join(dir, 'bash'));
       fs.symlinkSync(which('sleep'), path.join(dir, 'sleep'));
       const r = runProbe({

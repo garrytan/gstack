@@ -184,7 +184,7 @@ describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'],
     run('git', ['commit', '-m', 'feat: update']);
 
     // Get HEAD commit for review entries
-    const headResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dashDir, stdio: 'pipe' });
+    const headResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dashDir, stdio: 'pipe', timeout: 30_000 });
     const commit = headResult.stdout.toString().trim();
 
     // Pre-populate review log with autoplan-sourced entries

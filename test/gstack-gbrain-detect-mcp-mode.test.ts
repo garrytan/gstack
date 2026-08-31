@@ -66,6 +66,7 @@ function runDetect(extraEnv: Record<string, string> = {}): { code: number; json:
       ...extraEnv,
     },
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   let json: any = null;
   try {

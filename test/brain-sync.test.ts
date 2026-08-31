@@ -43,12 +43,13 @@ function run(argv: string[], opts: { env?: Record<string, string>; input?: strin
     encoding: 'utf-8',
     input: opts.input,
     cwd: ROOT,
+    timeout: 30_000,
   });
   return { stdout: res.stdout || '', stderr: res.stderr || '', status: res.status ?? -1 };
 }
 
 function git(args: string[], cwd?: string) {
-  const res = spawnSync('git', args, { cwd: cwd || tmpHome, encoding: 'utf-8' });
+  const res = spawnSync('git', args, { cwd: cwd || tmpHome, encoding: 'utf-8', timeout: 30_000 });
   return { stdout: res.stdout || '', stderr: res.stderr || '', status: res.status ?? -1 };
 }
 
@@ -77,7 +78,7 @@ function seedSpool(record: string): string {
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-home-'));
   bareRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-sync-remote-'));
-  spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote]);
+  spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote], { timeout: 30_000 });
 });
 
 afterEach(() => {
@@ -198,6 +199,7 @@ describe('gstack-brain-enqueue', () => {
         const r = spawnSync(path.join(BIN, 'gstack-brain-enqueue'), [`file-${i}.jsonl`], {
           env: { ...process.env, GSTACK_HOME: tmpHome },
           encoding: 'utf-8',
+          timeout: 30_000,
         });
         resolve();
       }));
@@ -245,7 +247,7 @@ describe('gstack-jsonl-merge', () => {
     const lines = fs.readFileSync(ours, 'utf-8').trim().split('\n');
     expect(lines.length).toBe(3);
     // Order is deterministic (sha256 of each line).
-    const again = spawnSync(path.join(BIN, 'gstack-jsonl-merge'), [base, ours, theirs]);
+    const again = spawnSync(path.join(BIN, 'gstack-jsonl-merge'), [base, ours, theirs], { timeout: 30_000 });
     // (re-running doesn't change the order since same input → same output)
   });
 });
@@ -271,7 +273,7 @@ describe('init + sync + restore round-trip', () => {
   test('refuses init on different remote', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     const otherRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-other-'));
-    spawnSync('git', ['init', '--bare', '-q', '-b', 'main', otherRemote]);
+    spawnSync('git', ['init', '--bare', '-q', '-b', 'main', otherRemote], { timeout: 30_000 });
     const r = run(['gstack-artifacts-init', '--remote', otherRemote]);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('already a git repo pointing at');
@@ -288,7 +290,7 @@ describe('init + sync + restore round-trip', () => {
     const r = run(['gstack-brain-sync', '--once']);
     expect(r.status).toBe(0);
     // Check the remote got the commit.
-    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' });
+    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 });
     expect(log.stdout).toMatch(/sync: 1 file/);
   });
 
@@ -311,7 +313,7 @@ describe('init + sync + restore round-trip', () => {
     const restored = fs.readFileSync(path.join(machineB, 'projects/myproj/learnings.jsonl'), 'utf-8');
     expect(restored).toContain('machine A wisdom');
     // Merge drivers re-registered on B.
-    const cfg = spawnSync('git', ['-C', machineB, 'config', '--get', 'merge.jsonl-append.driver'], { encoding: 'utf-8' });
+    const cfg = spawnSync('git', ['-C', machineB, 'config', '--get', 'merge.jsonl-append.driver'], { encoding: 'utf-8', timeout: 30_000 });
     expect(cfg.stdout).toContain('gstack-jsonl-merge');
     fs.rmSync(machineB, { recursive: true, force: true });
   });
@@ -399,7 +401,7 @@ describe('gstack-brain-sync egress receipt gate', () => {
       // No local commit was created.
       expect(git(['rev-list', '--count', 'HEAD']).stdout.trim()).toBe(commitsBefore);
       // Nothing reached the remote.
-      const remoteLog = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' });
+      const remoteLog = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 });
       expect(remoteLog.stdout).not.toMatch(/sync: 1 file/);
       const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
       expect(status.status).toBe('push_failed');
@@ -411,7 +413,7 @@ describe('gstack-brain-sync egress receipt gate', () => {
     // Next run (ledger writable again) drains the intact queue and pushes.
     const retry = run(['gstack-brain-sync', '--once']);
     expect(retry.status).toBe(0);
-    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' });
+    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 });
     expect(log.stdout).toMatch(/sync: 1 file/);
   });
 
@@ -583,7 +585,7 @@ describe('#2549 queue integrity', () => {
     expect(r.status).toBe(0);
     expect(spoolText()).not.toContain('learnings.jsonl');   // synced, removed
     expect(spoolText()).toContain('timeline.jsonl');        // held, retained
-    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' });
+    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 });
     expect(log.stdout).toMatch(/sync: 1 file/);
   });
 
@@ -619,7 +621,7 @@ describe('#2549 queue integrity', () => {
     fs.rmSync(hook);
     const retry = run(['gstack-brain-sync', '--once']);
     expect(retry.status).toBe(0);
-    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' });
+    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 });
     expect(log.stdout).toMatch(/sync: 1 file/);
     expect(git(['rev-list', '--count', 'origin/main..HEAD']).stdout.trim()).toBe('0');
   });
@@ -751,7 +753,7 @@ describe('C12 spool queue', () => {
     run(['gstack-config', 'set', 'artifacts_sync_mode', mode]);
   }
   const remoteLog = () =>
-    spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' }).stdout;
+    spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8', timeout: 30_000 }).stdout;
 
   test('two rapid enqueues of different paths create two spool files; one drain syncs both', () => {
     initWithMode('full');

@@ -718,7 +718,7 @@ describe("CLI plumbing", () => {
   });
 
   it("bin/gstack-context-bill runs standalone", () => {
-    const result = Bun.spawnSync([path.join(ROOT, "bin", "gstack-context-bill"), TREE_A]);
+    const result = Bun.spawnSync([path.join(ROOT, "bin", "gstack-context-bill"), TREE_A], { timeout: 30_000 });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("ALWAYS-ON");
     expect(result.stdout.toString()).toContain("EAGER");

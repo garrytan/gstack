@@ -50,6 +50,7 @@ describe("combined-features copy-paste gate", () => {
     try {
       execFileSync(PDF_BIN, ["generate", FIXTURE, outputPdf, "--quiet"], {
         encoding: "utf8",
+        timeout: 30_000,
         env: { ...process.env, BROWSE_BIN },
         stdio: ["ignore", "pipe", "pipe"],
       });

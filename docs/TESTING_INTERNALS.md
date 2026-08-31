@@ -68,6 +68,18 @@ failure), never-started/timed-out taxonomy, and parent-computed diff
 selection propagated to children via `EVALS_SELECTION_JSON` (fail-open: a
 child that can't parse it recomputes locally with one warning). Retry parity
 lives in `RETRY_OVERRIDES` (literals; old matrix rows' earned `retries: 2`).
+Flake telemetry rides the store: every recorded test carries its 1-based
+`attempt` (a pass-on-attempt-2 stays visible forever — bun's own stream hides
+it), runs list `flaky_retries`, the report warns on passed-only-on-retry
+tests, and `bun run eval:flake-rank` ranks the series (retried passes first,
+then failure rate; 60-day recency bound on eval files; the free lane's flake
+ledger is folded in from `flakeLedgerPath()` — override with
+`GSTACK_FLAKE_LEDGER`, the same env var the CI free lane sets before
+uploading the ledger as the `flake-ledger` artifact). Census integrity is
+enforced from the free suite: every `E2E_TOUCHFILES` / `LLM_JUDGE_TOUCHFILES`
+key must name a living paid test (`test/touchfiles.test.ts`'s reverse
+invariant), and `git show <sha>:path` fixtures are banned — vendor the bytes
+instead (`test/git-ref-fixture-tripwire.test.ts`).
 
 **CI planner/executor/report.** `--emit-plan <path> --slices K` computes
 selection + the slice plan ONCE (killing per-slice selector divergence);
@@ -76,19 +88,39 @@ slice-result artifacts; `--report <dir>` reconciles them FAIL-CLOSED (a slice
 whose artifact never landed, or a planned shard nobody reported, is a
 failure). Under `EVALS_ALL` the hollow-shard guard marks exit-0 shards with
 ZERO executed tests `passed-empty` (a failure) — census-health, not just
-test runs. evals.yml runs the sliced gate lane per PR (parity phase:
-alongside the legacy matrix, `needs:`-sequenced so provider concurrency
-never doubles; the matrix and its `KNOWN_MATRIX_GAPS`/`KNOWN_TIER_UNSET`
-ratchets are deleted after demonstrated parity). evals-periodic.yml runs ALL
+test runs. evals.yml runs the sliced gate lane per PR — the ONLY paid lane
+since the legacy 17-row matrix (22.6 min/$21 per PR serialized ahead of the
+slices) was deleted after demonstrated parity; its
+`KNOWN_MATRIX_GAPS`/`KNOWN_TIER_UNSET` ratchets retired with it and
+`test/evals-workflow-wiring.test.ts` pins the surviving wiring (slice-count
+agreement, tier consistency, the shared register-skills composite with its
+fail-fast verification loop). evals-periodic.yml runs ALL
 periodic-tier files weekly (the coverage contract) minus the reasoned
 exclusions in `test/helpers/periodic-exclude-data.ts` (reason + tracking
 required per entry; removal re-activates the file), plus a weekly
-`EVALS_ALL` gate census, plus a tracking-issue UPSERT on red weeks.
+`EVALS_ALL` gate census, plus a tracking-issue UPSERT on red weeks. The CI
+image pins the claude CLI to an exact version (`.github/docker/Dockerfile.ci`,
+enforced by `test/ci-image-cli-pin.test.ts` — bumps ride PRs that run the PTY
+gate), and every eval-store run records `claude --version`, resolved once in
+the runner parent and handed to shard children as `GSTACK_CLAUDE_CLI_VERSION`
+(never spawned on a test thread), so a TUI-drift flake hunt is a grep, not
+archaeology.
 
 **Timeout policy.** Paid tests use the tiers in
 `test/helpers/eval-budgets.ts` (JUDGE/CAPTURE/CAPTURE_LONG/PTY/PTY_LONG);
 `test/eval-budgets-policy.test.ts` pins that every tier fits the shard wall
 minus overhead and ratchets raw literals. Budget above the wall is fiction.
+Session timeouts are two-phase: a silent API dies at the startup grace (90s
+local / 300s CI floor, distinct exit reason `timeout_startup`) and the work
+budget arms on the first byte — the total wall never grows
+(`test/session-runner-startup-grace.test.ts` pins the floor). A timed-out
+session kills its whole detached process group (claude, codex, and gemini
+runners alike — `test/session-runner-groupkill.test.ts`), so a stray
+grandchild can't stretch a 600s budget past 1400s. And sync spawns can't
+wedge a shard: every `spawnSync`/`execSync`/`execFileSync`/`Bun.spawnSync`
+in the test trees must carry a `timeout`, enforced by
+`test/spawnsync-timeout-tripwire.test.ts` with a shrink-only exemption
+ratchet.
 
 ## Cloud sandboxes (Vercel / Conductor cloud workspaces)
 
@@ -110,4 +142,7 @@ Two runner knobs exist for these environments (both no-ops unless set):
 serial mega-shard and 6-way sharding both saturate the per-process syscall
 supervisor), and `GSTACK_FREE_RETRY_FLAKY=1` re-runs attributed failures once
 serially, downgrading a clean retry to a loud FLAKY-PASS (capped at 5 files so
-a broken tree can't masquerade as flaky).
+a broken tree can't masquerade as flaky). The required CI free lane sets the
+retry knob too, appending every flaky pass to the JSONL ledger it uploads
+(`GSTACK_FLAKE_LEDGER`) — a flaky pass never reds the lane, but it never
+disappears either.

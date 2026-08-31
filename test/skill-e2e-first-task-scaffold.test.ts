@@ -78,10 +78,10 @@ describeIfSelected('first-run scaffold detection (E2E)', ['first-task-scaffold']
     // greenfield bucket: git repo, zero commits.
     const greenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fts-green-'));
     try {
-      execSync('git init -q -b main', { cwd: nodeDir, env: GIT_ENV });
+      execSync('git init -q -b main', { cwd: nodeDir, env: GIT_ENV, timeout: 30_000 });
       fs.writeFileSync(path.join(nodeDir, 'package.json'), '{"name":"x"}');
-      execSync('git add -A && git commit -qm init', { cwd: nodeDir, env: GIT_ENV });
-      execSync('git init -q -b main', { cwd: greenDir, env: GIT_ENV });
+      execSync('git add -A && git commit -qm init', { cwd: nodeDir, env: GIT_ENV, timeout: 30_000 });
+      execSync('git init -q -b main', { cwd: greenDir, env: GIT_ENV, timeout: 30_000 });
 
       const nodeOut = await detectVia(nodeDir, 'first-task-scaffold');
       expect(nodeOut).toContain('code_node');

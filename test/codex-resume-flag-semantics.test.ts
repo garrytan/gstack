@@ -15,7 +15,7 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 
-const codexPath = spawnSync('which', ['codex'], { encoding: 'utf-8' }).stdout.trim();
+const codexPath = spawnSync('which', ['codex'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
 const codexAvailable = codexPath.length > 0;
 
 describe.skipIf(!codexAvailable)(

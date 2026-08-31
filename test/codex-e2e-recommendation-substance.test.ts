@@ -31,7 +31,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 const CODEX_AVAILABLE = (() => {
   try {
-    return Bun.spawnSync(['which', 'codex']).exitCode === 0;
+    return Bun.spawnSync(['which', 'codex'], { timeout: 30_000 }).exitCode === 0;
   } catch {
     return false;
   }

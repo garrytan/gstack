@@ -193,7 +193,7 @@ describe('link_claude_skill_dirs prefers rendered SKILL.md (behavior)', () => {
 
 describe('migration v1.67.0.0 — legacy in-place render cleanup (F12)', () => {
   function git(cwd: string, ...args: string[]): void {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf-8' });
+    const r = spawnSync('git', args, { cwd, encoding: 'utf-8', timeout: 30_000 });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
   }
 

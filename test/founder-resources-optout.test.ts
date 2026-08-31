@@ -30,6 +30,7 @@ afterEach(() => { fs.rmSync(tmpHome, { recursive: true, force: true }); });
 
 function cfg(args: string[]): string {
   return execFileSync(CONFIG_BIN, args, {
+    timeout: 30_000,
     encoding: "utf-8",
     env: { ...process.env, GSTACK_HOME: tmpHome },
   }).trim();
@@ -47,6 +48,7 @@ describe("founder_resources config key (#538)", () => {
 
   test("invalid values are rejected to the default, never persisted as-is", () => {
     execFileSync(CONFIG_BIN, ["set", "founder_resources", "banana"], {
+      timeout: 30_000,
       encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, GSTACK_HOME: tmpHome },
     });

@@ -919,6 +919,7 @@ describe('prune-stale', () => {
     const live = mkCanon(tmpDir, 'live-worktree');
     execSync(`'${path.join(ROOT, 'bin', 'gstack-config')}' set plan_tune_hooks no`, {
       env: { ...process.env, GSTACK_STATE_ROOT: tmpDir },
+      timeout: 30_000,
     });
     fs.writeFileSync(settingsFile, JSON.stringify({
       hooks: {

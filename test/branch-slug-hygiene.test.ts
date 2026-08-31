@@ -37,7 +37,7 @@ const FILENAME_PREFIX = /\$\{?_BRANCH\}?[A-Za-z0-9._-]*\.(?:jsonl|json|md|txt|lo
 function renderedSkillFiles(): string[] {
   const out = execSync(
     `find "${ROOT}" -name 'SKILL.md' -not -path '*/node_modules/*' -not -path '*/.claude/*' ; find "${ROOT}" -path '*/sections/*.md' -not -path '*/node_modules/*' -not -path '*/.claude/*'`,
-    { encoding: 'utf-8' },
+    { encoding: 'utf-8', timeout: 30_000 },
   );
   return out.split('\n').filter(Boolean);
 }
@@ -91,18 +91,18 @@ describe('branch slug hygiene (#2550, #1851)', () => {
       const env = { ...process.env, GSTACK_HOME: home };
       execSync(
         'git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && git checkout -q -b feat/slug-hygiene',
-        { cwd: repo, encoding: 'utf-8' },
+        { cwd: repo, encoding: 'utf-8', timeout: 30_000 },
       );
 
       // Writer: the real gstack-review-log (canonicalizes via gstack-slug).
       execSync(
         `"${path.join(ROOT, 'bin', 'gstack-review-log')}" '{"skill":"ship","status":"ok"}'`,
-        { cwd: repo, env, encoding: 'utf-8' },
+        { cwd: repo, env, encoding: 'utf-8', timeout: 30_000 },
       );
 
       // The slug-canonical filename must exist; the raw form must not.
       const slugVars = execSync(`"${path.join(ROOT, 'bin', 'gstack-slug')}"`, {
-        cwd: repo, env, encoding: 'utf-8',
+        cwd: repo, env, encoding: 'utf-8', timeout: 30_000,
       });
       const slug = slugVars.match(/^SLUG=(.*)$/m)![1];
       const branch = slugVars.match(/^BRANCH=(.*)$/m)![1];
@@ -120,7 +120,7 @@ describe('branch slug hygiene (#2550, #1851)', () => {
         .find((l) => l.includes('-reviews.jsonl'))!;
       const script = `_PROJ="${proj}"\nBRANCH="${branch}"\n${probeLine.trim()}`;
       const out = execSync(`bash -c '${script.replace(/'/g, `'\\''`)}'`, {
-        cwd: repo, encoding: 'utf-8',
+        cwd: repo, encoding: 'utf-8', timeout: 30_000,
       });
       expect(out).toContain('REVIEWS: 1 entries');
 

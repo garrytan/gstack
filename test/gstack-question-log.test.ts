@@ -26,6 +26,7 @@ function run(payload: string): { stdout: string; stderr: string; status: number 
     env: { ...process.env, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',

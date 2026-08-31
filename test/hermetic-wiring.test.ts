@@ -68,8 +68,7 @@ describe('hermetic wiring tripwire', () => {
     const sources: Array<[string, number]> = [
       ['test/helpers/hermetic-env.ts', 1],
       ['test/helpers/e2e-helpers.ts', 1],
-      ['.github/workflows/evals.yml', 2],
-      ['.github/workflows/evals-periodic.yml', 1],
+      ['.github/actions/register-gstack-skills/action.yml', 1],
     ];
 
     for (const [rel, expectedCount] of sources) {
@@ -79,10 +78,10 @@ describe('hermetic wiring tripwire', () => {
       }
     }
 
-    for (const rel of ['.github/workflows/evals.yml', '.github/workflows/evals-periodic.yml']) {
-      const src = read(rel);
-      expect(src).not.toContain('$SKILLS_DIR/gstack/.feature-prompted-');
-      for (const marker of markers) expect(src).toContain(`$HOME/.gstack/${marker}`);
+    const registrationAction = read('.github/actions/register-gstack-skills/action.yml');
+    expect(registrationAction).not.toContain('$SKILLS_DIR/gstack/.feature-prompted-');
+    for (const marker of markers) {
+      expect(registrationAction).toContain(`$HOME/.gstack/${marker}`);
     }
   });
 

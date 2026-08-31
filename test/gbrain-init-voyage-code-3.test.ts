@@ -121,6 +121,7 @@ gbrain init --pglite --json "$@"
   const result = spawnSync(shell, ["-c", script], {
     encoding: "utf-8",
     env: baseEnv,
+    timeout: 30_000,
   });
   if (result.status !== 0) {
     throw new Error(`init script exited ${result.status}: ${result.stderr}`);
@@ -133,7 +134,7 @@ function lastArgc(env: FakeEnv): number {
   return parseInt(lines[lines.length - 1], 10);
 }
 
-const HAVE_ZSH = spawnSync("zsh", ["-c", "true"]).status === 0;
+const HAVE_ZSH = spawnSync("zsh", ["-c", "true"], { timeout: 30_000 }).status === 0;
 
 describe("voyage-code-3 default for gstack-driven PGLite init", () => {
   it("passes voyage-code-3 flags when VOYAGE_API_KEY is set", () => {
@@ -193,6 +194,7 @@ gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
       const result = spawnSync("zsh", ["-c", brokenShape], {
         encoding: "utf-8",
         env: { ...process.env, HOME: env.home, PATH: `${env.bindir}:/usr/bin:/bin` },
+        timeout: 30_000,
       });
       expect(result.status).toBe(0);
       expect(lastArgc(env)).toBe(4); // init, --pglite, --json, "<entire flag string>"

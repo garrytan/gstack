@@ -6,6 +6,61 @@
 
 - **Feature discovery acknowledgements now follow you across projects**: `/ship` and other skills store their continuous-checkpoint and model-overlay acknowledgements in `GSTACK_HOME`, so project-local gstack symlinks no longer make the same prompts reappear. CI and hermetic eval environments now seed that same state consistently, with regression coverage for prompt ordering and repeat suppression (#2728).
 
+## [1.77.0.0] - 2026-08-31
+
+**Every PR stops paying for evals twice.**
+**Flakes are now measured, killed at the root, and fenced.**
+
+The test infrastructure got its overhaul, wave 1. The legacy 17-row eval matrix that ran serialized AHEAD of the sliced lane on every PR is deleted: one paid lane, its gate census derived from the runner itself, so a new gate test is in the census the moment its file lands. No hand-enumerated rows to drift, and the drift already tried, a new matrix row landed on main mid-branch and the merge resolved to the derived census that covers it by construction.
+
+The flake war moved from anecdotes to instruments. Every retried pass is now recorded where it cannot hide (bun's own output shows a retry as a clean pass, we probed it), the free lane retries a failing file once, loudly, and appends every flaky pass to a per-project ledger uploaded from CI on green runs. `bun run eval:flake-rank` ranks the series. And the wedge class that hit main, a hung child under a blocking spawnSync that no in-process timeout can interrupt, is extinct: 499 timeout-less sync-spawn sites across 146 files (the branch tripwire's own count against main) swept to zero, with a ratcheted tripwire that failed its first real offender the day a timeout-less spawn arrived from a merge.
+
+### The numbers that matter
+
+Source: CI runs 33263204465 / 33262077256 (measured 2026-08-29), the repo census (`test/helpers/touchfiles-data.ts`), and the sweep tripwire (`test/spawnsync-timeout-tripwire.test.ts`).
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Paid lanes per PR | 2 (serialized) | 1 | eval wall 35.5 → ~13 min (target) |
+| Measured duplicate spend per PR | ~$20.94 | $0 | matrix deleted |
+| Gate census keys | 86 (6 phantoms) | 77, all provably alive | reverse invariant enforces |
+| Sync spawns that can wedge a shard | 499 unbounded | 0 (8 reasoned exemptions) | tripwire-ratcheted |
+| Local gate worst case | ~6.5 h (4×4 jobs) | ~3.3 h (8×2) | isolation landed first |
+| Retried-pass visibility | invisible | recorded + ranked | `eval:flake-rank` |
+
+The phantom-census number is the quiet one that matters: six merge-blocking "tests" existed only as map keys. They are deleted, and a key without a living test now fails the free suite.
+
+What this means for anyone shipping here: PRs get one honest paid verdict faster and cheaper, a flaky pass never blocks your merge but never disappears either, and a test that hangs takes down thirty seconds, not a shard. Run `bun run eval:flake-rank` when you want the flake ledger's verdict.
+
+### Itemized changes
+
+#### Added
+- **Flake telemetry, end to end.** Eval-store records every retry attempt (`attempt`, `flaky_retries`), the paid report lists passed-only-on-retry tests as warnings, the free lane's flaky-retry pass is ON in CI with a single-writer JSONL ledger (branch + sha attributed, per-project by default) uploaded as an artifact on every run, and `bun run eval:flake-rank` aggregates the series with final-attempt accounting and a 60-day recency bound.
+- **Two-phase session timeouts.** A silent API dies at a startup grace (90s local, 300s CI floor, a real `Math.max` floor) with the distinct reason `timeout_startup` instead of burning a 600s work budget into an opaque `0 turns / $0.00` failure; the work budget arms on the first byte and the total wall never grows.
+- **Green-by-skip census.** "Ran N tests" counts skips, so a codex/gemini file whose every test self-skipped used to read as coverage. The classifier now parses bun's skip/pass recap and the paid report labels an all-skipped pass "verified nothing."
+- **Sync-spawn timeout tripwire** (spawnSync / execSync / execFileSync / Bun.spawnSync, comment-aware, 30-line window, shrink-only exemption ratchet) plus a raw-SHA fixture ban (`git show <sha>:path` fixtures must be vendored; the one live offender now reads a committed fixture).
+- **Behavioral kill-semantics tests**: a fake-claude shim proves a timed-out session leaves neither the CLI nor its grandchild alive; two gstack-detach watchdog tests cover TERM-immune grandchildren and the leader-dies-first case.
+- **CLI version stamping**: every eval run records `claude --version` (resolved once in the runner parent), so the next TUI-drift flake hunt is a grep, not archaeology.
+
+#### Changed
+- **One paid lane.** The legacy evals.yml matrix is deleted (pure deletion, one revert restores it) after a static parity receipt: the sliced lane's 49-file derived census strictly contained the matrix's 18 files. The PR comment moved into the sliced lane with final-attempt accounting and a fail-closed reconciliation verdict.
+- **Paid runner defaults 4×4 → 8×2**: ~10-13 real in-flight sessions (under the documented-safe 15) instead of ~4-6; per-shard TMPDIR/Chromium-profile isolation and a kill-path cleanup backstop landed first, deliberately.
+- **CI setup deduplicated into four composite actions**; the register-skills composite carries the fail-fast dangling-symlink verification loop that only the deleted matrix copy had, so the surviving lanes inherit it. Rerun-safe, frozen-lockfile fallback, input-validated.
+- **Supply chain pinned**: the claude CLI in the CI image is an exact version (bumps ride PRs that run the PTY gate, ending the weekly-latest drift that broke the harness three times), and every action in the secrets-bearing and image-publishing workflows is SHA-pinned.
+- **Routing journeys lost their answer key**: the fixture no longer ships a prompt→skill lookup table, so a regressed skill description can actually fail the test again, at roughly half the previous per-journey cost (2 turns, [Skill, Read] only).
+- Decided A/B experiments retired (auq-repetition-cut, preamble-script, the opus-47 single-run fanout comparison): one-shot questions answered months ago no longer re-run weekly as coin flips. `plan-ceo-review-expansion-energy` and `ios-qa-e2e` moved to the periodic tier with reasons.
+
+#### Fixed
+- **A fail-open reconcile gate**: GitHub's default run-step shell has no pipefail, so the fail-closed report's exit was read from `tee` (always 0) in both paid lanes. Now `PIPESTATUS[0]`, pinned by a wiring test.
+- **A write-token trust boundary**: the job that executes PR-authored code no longer holds the PR-comment write token; commenting moved to a job that runs zero repo code.
+- **Provider-runner orphans**: timeouts kill the whole process group (claude, codex, gemini, and gstack-detach's watchdog with the group id captured at spawn), and the codex/gemini runners inherited the orphan-drain hardening only the claude copy had. The observed 600s-timeout-stretching-past-1400s class is gone, with a regression net.
+- **Selection integrity**: 17 phantom selection keys deleted (a reverse invariant now requires every key to name a living test), gitignored `.agents/**` dep patterns that could never match a git diff replaced with their generators, and the codex/gemini local touchfile forks now derive from the canonical map.
+- **A cross-shard SKILL.md race**: the opus-47 eval regenerated the live tree's skill files mid-run; it now renders into a scratch dir via `--out-dir`.
+
+#### For contributors
+- `bun run eval:flake-rank` (with `--json`, `--dir`, `--since-days`) is the promotion-clock dial; the WS16 required-check decision reads it.
+- The overhaul plan (16 workstreams, reviewed by CEO + eng passes with two cross-model outside voices) continues: budget-aware shard walls, PTY readiness events, free-suite splits, judge determinism, and required-check promotion are the next waves.
+
 ## [1.76.0.0] - 2026-08-31
 
 **Ship's doc-sync now survives Conductor.**

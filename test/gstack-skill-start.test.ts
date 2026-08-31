@@ -31,6 +31,7 @@ let tmpGstackHome: string;
 
 function runStart(args: string[] = [], env: Record<string, string> = {}): string {
   return execFileSync(START, ['--skill', 'testskill', ...args], {
+    timeout: 30_000,
     encoding: 'utf-8',
     cwd: tmpHome, // no CLAUDE.md/AGENTS.md, not the repo — routing detection stays cold
     env: {
@@ -150,6 +151,7 @@ describe('gstack-skill-start behavior', () => {
       fs.copyFileSync(START, path.join(fakeBin, 'gstack-skill-start'));
       fs.chmodSync(path.join(fakeBin, 'gstack-skill-start'), 0o755);
       const out = execFileSync(path.join(fakeBin, 'gstack-skill-start'), ['--skill', 't'], {
+        timeout: 30_000,
         encoding: 'utf-8',
         cwd: tmpHome,
         env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome },
@@ -315,6 +317,7 @@ describe('gstack-skill-start behavior', () => {
         encoding: 'utf-8',
         cwd: projectRoot,
         env,
+        timeout: 30_000,
       });
       expect(checkpoint).toContain(
         `touch "${path.join(freshGh, '.feature-prompted-continuous-checkpoint')}"`,
@@ -329,6 +332,7 @@ describe('gstack-skill-start behavior', () => {
         encoding: 'utf-8',
         cwd: projectRoot,
         env,
+        timeout: 30_000,
       });
       expect(overlay).toContain(
         `touch "${path.join(freshGh, '.feature-prompted-model-overlay')}"`,
@@ -341,6 +345,7 @@ describe('gstack-skill-start behavior', () => {
         encoding: 'utf-8',
         cwd: projectRoot,
         env,
+        timeout: 30_000,
       });
       expect(acknowledged).not.toContain('GSTACK_INSTRUCTION_BEGIN: feature-checkpoint');
       expect(acknowledged).not.toContain('GSTACK_INSTRUCTION_BEGIN: feature-overlay');
@@ -369,7 +374,7 @@ describe('gstack-skill-end', () => {
     const out = execFileSync(
       END,
       ['--skill', 't', '--outcome', 'success', '--session-id', 'sid-1', '--tel-start', String(start)],
-      { encoding: 'utf-8', cwd: tmpHome, env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome } },
+      { timeout: 30_000, encoding: 'utf-8', cwd: tmpHome, env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome } },
     );
     const m = out.match(/SKILL_END: recorded outcome=success duration_s=(\d+)/);
     expect(m).not.toBeNull();
@@ -390,6 +395,7 @@ describe('gstack-skill-end', () => {
     const pending = path.join(tmpGstackHome, 'analytics', '.pending-sid-2');
     fs.writeFileSync(pending, 'x');
     execFileSync(END, ['--skill', 't', '--outcome', 'abort', '--session-id', 'sid-2', '--tel-start', 'bogus'], {
+      timeout: 30_000,
       encoding: 'utf-8',
       cwd: tmpHome,
       env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome },

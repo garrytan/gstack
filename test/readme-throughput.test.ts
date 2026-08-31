@@ -39,6 +39,7 @@ function runScript(cwd: string): { stdout: string; stderr: string; status: numbe
     encoding: 'utf-8',
     cwd,
     env: { ...process.env },
+    timeout: 30_000,
   });
   return {
     stdout: (res.stdout ?? '').trim(),

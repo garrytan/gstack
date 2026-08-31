@@ -113,6 +113,7 @@ function runHook(stdin: object, env: Record<string, string>): { additionalContex
     input: JSON.stringify(stdin),
     encoding: 'utf-8',
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
+    timeout: 30_000,
   });
   const parsed = JSON.parse(res.stdout || '{}');
   return parsed.hookSpecificOutput ?? {};

@@ -63,6 +63,12 @@ export interface EvalTestEntry {
   passed: boolean;
   duration_ms: number;
   cost_usd: number;
+  /** 1-based record attempt for this name in this run. bun's --retry leaves
+   *  retried passes INVISIBLE in its text output (a fail→pass prints no
+   *  (fail) line and recaps as a clean pass — probed on 1.3.10), so the ONLY
+   *  reliable attempt signal is this in-process record: a retried test runs
+   *  its body again and re-records under the same name. Set by addTest. */
+  attempt?: number;
 
   // E2E
   transcript?: any[];
@@ -118,6 +124,10 @@ export interface EvalResult {
   git_sha: string;
   timestamp: string;
   hostname: string;
+  /** `claude --version` first line at run time (schema-additive, optional).
+   *  TUI drift broke the PTY harness three times before runs recorded which
+   *  CLI they actually exercised. */
+  claude_cli_version?: string;
   tier: 'e2e' | 'llm-judge';
   total_tests: number;
   passed: number;
@@ -128,6 +138,11 @@ export interface EvalResult {
   tests: EvalTestEntry[];
   /** Shard slug when the run was collected under <evalDir>/shards/<slug>/. */
   shard?: string;
+  /** Tests recorded more than once this run — the flake ledger for the paid
+   *  lane. A test passing on attempt 2 every week used to read permanently
+   *  green (the retry's entry was indistinguishable and bun's output hides
+   *  retries entirely). Present only when non-empty. */
+  flaky_retries?: Array<{ name: string; attempts: number }>;
   _partial?: boolean;  // true for incremental saves, absent in final
 }
 
@@ -175,6 +190,21 @@ export interface ComparisonResult {
 export function isPartialEval(data: unknown, filename: string): boolean {
   if (path.basename(filename).startsWith('_partial')) return true;
   return Boolean((data as { _partial?: unknown } | null)?._partial);
+}
+
+/**
+ * Is this path a FINALIZED eval-store result file? Single owner of the
+ * filename taxonomy (manifest.json / slice-N.json are runner artifacts,
+ * _partial* are in-progress accumulators) — the paid runner's report mode
+ * and eval-flake-rank both consume this instead of re-encoding the rule
+ * (review finding: the rule lived in three places).
+ */
+export function isFinalizedEvalResultFile(relPath: string): boolean {
+  const base = path.basename(relPath);
+  if (!base.endsWith('.json')) return false;
+  if (base === 'manifest.json' || /^slice-\d+\.json$/.test(base)) return false;
+  if (base.startsWith('_partial')) return false;
+  return true;
 }
 
 /**
@@ -777,6 +807,35 @@ function getVersion(): string {
   }
 }
 
+// Cached per process: savePartial runs after EVERY test and must not pay a
+// CLI spawn each time. Three separate harness breakages were traced to
+// claude-CLI TUI drift only after long flake hunts — stamping the version
+// into every run record makes that correlation a grep instead of an
+// archaeology dig.
+//
+// GSTACK_CLAUDE_CLI_VERSION short-circuits the spawn entirely: the paid
+// runner's parent resolves the version once and passes it to every shard,
+// so test processes never block on it. The fallback spawn is SYNCHRONOUS on
+// the same thread that polls PTY sessions — the judgePtyState blocking
+// class — so its budget is a tight 3s, not a generous one: a slow/hung CLI
+// costs one bounded stall per process and records 'unknown'.
+let claudeCliVersionCache: string | null = null;
+export function getClaudeCliVersion(): string {
+  if (claudeCliVersionCache !== null) return claudeCliVersionCache;
+  const fromEnv = process.env.GSTACK_CLAUDE_CLI_VERSION;
+  if (fromEnv) {
+    claudeCliVersionCache = fromEnv;
+    return claudeCliVersionCache;
+  }
+  try {
+    const result = spawnSync('claude', ['--version'], { stdio: 'pipe', timeout: 3_000 });
+    claudeCliVersionCache = result.stdout?.toString().split('\n')[0].trim() || 'unknown';
+  } catch {
+    claudeCliVersionCache = 'unknown';
+  }
+  return claudeCliVersionCache;
+}
+
 export class EvalCollector {
   private tier: 'e2e' | 'llm-judge';
   private tests: EvalTestEntry[] = [];
@@ -792,8 +851,21 @@ export class EvalCollector {
   }
 
   addTest(entry: EvalTestEntry): void {
-    this.tests.push(entry);
+    // Same-name re-record = the test body ran again = bun retried it (test
+    // names are unique by convention). Stamp the 1-based attempt so a
+    // pass-on-attempt-2 stays visible forever — the stream hides it.
+    const prior = this.tests.filter((t) => t.name === entry.name).length;
+    this.tests.push({ ...entry, attempt: prior + 1 });
     this.savePartial();
+  }
+
+  /** Names recorded more than once this run, with their attempt counts. */
+  private flakyRetries(): Array<{ name: string; attempts: number }> {
+    const counts = new Map<string, number>();
+    for (const t of this.tests) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+    return [...counts.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([name, attempts]) => ({ name, attempts }));
   }
 
   /** Write incremental results after each test. Atomic write, non-fatal. */
@@ -812,6 +884,7 @@ export class EvalCollector {
         git_sha: git.sha,
         timestamp: new Date().toISOString(),
         hostname: os.hostname(),
+        claude_cli_version: getClaudeCliVersion(),
         tier: this.tier,
         total_tests: this.tests.length,
         passed,
@@ -842,6 +915,7 @@ export class EvalCollector {
     const totalDuration = this.tests.reduce((s, t) => s + t.duration_ms, 0);
     const passed = this.tests.filter(t => t.passed).length;
 
+    const flaky = this.flakyRetries();
     const result: EvalResult = {
       schema_version: SCHEMA_VERSION,
       version,
@@ -849,6 +923,7 @@ export class EvalCollector {
       git_sha: git.sha,
       timestamp,
       hostname: os.hostname(),
+      claude_cli_version: getClaudeCliVersion(),
       tier: this.tier,
       total_tests: this.tests.length,
       passed,
@@ -858,6 +933,7 @@ export class EvalCollector {
       wall_clock_ms: Date.now() - this.createdAt,
       tests: this.tests,
       ...(this.shard ? { shard: this.shard } : {}),
+      ...(flaky.length > 0 ? { flaky_retries: flaky } : {}),
     };
 
     // Write eval file
@@ -920,6 +996,12 @@ export class EvalCollector {
     const totalCost = `$${result.total_cost_usd.toFixed(2)}`;
     const totalDur = `${Math.round(result.total_duration_ms / 1000)}s`;
     lines.push(`  Total: ${result.passed}/${result.total_tests} passed${' '.repeat(20)}${totalCost.padStart(6)}  ${totalDur}`);
+    if (result.flaky_retries && result.flaky_retries.length > 0) {
+      // Loud, never fatal: a flaky pass must not block anyone, but it must
+      // never be silent either — that invisibility is how flakes calcified.
+      lines.push(`  ⚠ FLAKY: ${result.flaky_retries.length} test(s) recorded multiple attempts this run: `
+        + result.flaky_retries.map((f) => `${f.name} (x${f.attempts})`).join(', '));
+    }
     lines.push(`Saved: ${filepath}`);
 
     process.stderr.write(lines.join('\n') + '\n');

@@ -95,6 +95,7 @@ function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>)
     input: JSON.stringify({ ...stdin, cwd: cwd || fixtureCwd }),
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   let parsed: any = null;
   try { parsed = JSON.parse(res.stdout || '{}'); } catch {}
@@ -187,7 +188,7 @@ describe('passes through (no enforcement)', () => {
       if (v !== undefined) env[k] = v;
     }
     env.GSTACK_STATE_ROOT = stateRoot;
-    const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
+    const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8', timeout: 30_000 });
     expect(res.status).toBe(0);
     expect(res.stdout).toBe('');
   });
@@ -729,6 +730,7 @@ describe('Conductor spawned deny (#2733)', () => {
       const scriptKind = spawnSync(BIN, [], {
         env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
         encoding: 'utf-8',
+        timeout: 30_000,
       }).stdout.trim();
       expect(
         spawnedByEnv(env),

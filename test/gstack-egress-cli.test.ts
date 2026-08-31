@@ -36,6 +36,7 @@ function run(args: string[]) {
   const result = spawnSync(BIN, args, {
     encoding: 'utf-8',
     env: { ...process.env, GSTACK_HOME: home },
+    timeout: 30_000,
   });
   return { code: result.status ?? -1, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
@@ -122,11 +123,13 @@ describe('gstack-egress grants', () => {
     const config = spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'telemetry', 'community'], {
       encoding: 'utf-8',
       env: { ...process.env, GSTACK_HOME: home },
+      timeout: 30_000,
     });
     expect(config.status).toBe(0);
     spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'artifacts_sync_mode', 'full'], {
       encoding: 'utf-8',
       env: { ...process.env, GSTACK_HOME: home },
+      timeout: 30_000,
     });
     const r = run(['grants', '--json']);
     expect(r.code).toBe(0);

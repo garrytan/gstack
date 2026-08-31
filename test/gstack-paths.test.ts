@@ -19,6 +19,7 @@ function run(env: Record<string, string | undefined>): Record<string, string> {
   const result = spawnSync('bash', [BIN], {
     env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   if (result.status !== 0) {
     throw new Error(`gstack-paths failed (status ${result.status}): ${result.stderr}`);
@@ -117,6 +118,7 @@ describe('gstack-paths', () => {
       {
         env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
         encoding: 'utf-8',
+        timeout: 30_000,
       },
     );
     if (result.status !== 0) {
@@ -159,6 +161,7 @@ describe('gstack-paths', () => {
     const result = spawnSync('bash', [BIN], {
       env: { PATH: process.env.PATH, USERPROFILE: '', HOME: '/tmp/h' } as Record<string, string>,
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     const lines = result.stdout.split('\n').filter(Boolean);
     for (const line of lines) {

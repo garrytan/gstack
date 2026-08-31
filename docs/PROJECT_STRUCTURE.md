@@ -28,6 +28,7 @@ gstack/
 │   ├── skill-check.ts     # Health dashboard
 │   ├── test-free-shards.ts  # Strict parallel free-suite runner (GSTACK_FREE_JOBS, opt-in flaky retry)
 │   ├── test-paid-shards.ts  # Sharded paid-tier runner (one Bun process per shard)
+│   ├── eval-flake-rank.ts  # Flake-telemetry dial: ranks tests by retried passes across eval runs + the free-lane ledger
 │   ├── sandbox-doctor.sh  # One-command cloud-sandbox fixer: makes the free suite run green
 │   └── dev-skill.ts       # Watch mode
 ├── test/            # Skill validation + eval tests
@@ -71,7 +72,7 @@ gstack/
 ├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide)
 ├── docs/designs/    # Design documents
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
-├── .github/         # CI workflows + Docker image
+├── .github/         # CI workflows + shared composite actions (.github/actions/) + Docker image (claude CLI pinned)
 │   ├── workflows/   # evals.yml (E2E on Ubicloud), quality-gate.yml (secret scan), dependency-review.yml, osv-scanner.yml, skill-docs.yml, actionlint.yml, and 8 more (windows, periodic evals, release gates, ci-image)
 │   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
 ├── contrib/         # Contributor-only tools (never installed for users)

@@ -23,12 +23,13 @@ function run(argv: string[], env: Record<string, string> = {}) {
     env: { ...process.env, HOME: tmpHome, GSTACK_HOME: tmpHome, ...env },
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return { stdout: res.stdout || '', stderr: res.stderr || '', status: res.status ?? -1 };
 }
 
 function git(args: string[], cwd: string) {
-  const res = spawnSync('git', args, { cwd, encoding: 'utf-8' });
+  const res = spawnSync('git', args, { cwd, encoding: 'utf-8', timeout: 30_000 });
   return { stdout: (res.stdout || '').trim(), status: res.status ?? -1 };
 }
 

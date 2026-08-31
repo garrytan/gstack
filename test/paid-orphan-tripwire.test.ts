@@ -7,8 +7,9 @@
  * execute anywhere — forever, silently. Four files were in that state
  * (codex-e2e-plan-format, codex-e2e-recommendation-substance,
  * llm-judge-recommendation, carve-section-loading), and the tripwire built
- * for the adjacent class (test/evals-workflow-matrix.test.ts) couldn't see
- * them because it filters on isPaidTestFile() FIRST.
+ * for the adjacent class (the since-retired evals-workflow-matrix test;
+ * successor: test/evals-workflow-wiring.test.ts) couldn't see them because
+ * it filtered on isPaidTestFile() FIRST.
  *
  * Detection is over source text, so meta-tests and helpers that mention the
  * gate patterns need reasoned exemptions (same convention as
@@ -30,7 +31,7 @@ const SCANNER_EXEMPT = new Map<string, string>([
   // Meta-tests that quote gate-pattern strings to test classification:
   ['test/helpers/e2e-gate.unit.test.ts', 'free unit test OF the gate predicates (env stubbed)'],
   ['test/paid-shards.test.ts', 'quotes tier-guard strings as classification fixtures'],
-  ['test/evals-workflow-matrix.test.ts', 'parses tier guards out of matrix files'],
+  ['test/evals-workflow-wiring.test.ts', 'pins the sliced-lane yml wiring (successor to the matrix test)'],
   ['test/e2e-tier-alignment.test.ts', 'parses tier guards to enforce alignment'],
   ['test/paid-orphan-tripwire.test.ts', 'this scanner'],
 ]);
@@ -46,7 +47,7 @@ const GATE_PATTERNS = [
 ];
 
 function trackedTestFiles(): string[] {
-  const out = spawnSync('git', ['ls-files', '*.test.ts'], { cwd: ROOT, encoding: 'utf-8' });
+  const out = spawnSync('git', ['ls-files', '*.test.ts'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
   if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
   return out.stdout.split('\n').filter(Boolean);
 }
