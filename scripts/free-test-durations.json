@@ -210,7 +210,6 @@
     "test/catalog-trim.test.ts": 94,
     "test/changed-files-union.test.ts": 376,
     "test/ci-image-tag-binding.test.ts": 63,
-    "test/claude-provider-keychain.test.ts": 192,
     "test/code-intelligence-cli.test.ts": 856,
     "test/code-intelligence.test.ts": 4407,
     "test/codex-generation-model.test.ts": 119,

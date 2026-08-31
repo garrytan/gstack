@@ -1956,7 +1956,18 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('run the actual `claude -p`');
     expect(content).not.toContain('AUTH_MISSING');
     expect(content).not.toContain('$HOME/.claude/.credentials.json');
+    expect(content).toContain('--setting-sources project --strict-mcp-config');
     expect(content).toContain('is_error');
+  });
+
+  test('benchmark-models judge probe gates purely on ANTHROPIC_API_KEY', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'benchmark-models', 'SKILL.md'), 'utf-8');
+    const tmpl = fs.readFileSync(path.join(ROOT, 'benchmark-models', 'SKILL.md.tmpl'), 'utf-8');
+    for (const src of [content, tmpl]) {
+      expect(src).toContain('JUDGE_AVAILABLE');
+      expect(src).not.toContain('.credentials.json');
+      expect(src).toMatch(/if \[ -n "\$ANTHROPIC_API_KEY" \]; then echo "JUDGE_AVAILABLE"/);
+    }
   });
 
   test('Claude temp file templates are accepted by host mktemp', () => {
