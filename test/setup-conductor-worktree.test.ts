@@ -43,7 +43,7 @@ describe('setup: Conductor worktree guard', () => {
       fs.mkdirSync(source);
       fs.mkdirSync(dest);
       // The buggy invocation: target dest is an existing real dir.
-      const result = spawnSync('ln', ['-snf', source, dest], { encoding: 'utf-8' });
+      const result = spawnSync('ln', ['-snf', source, dest], { encoding: 'utf-8', timeout: 30_000 });
       expect(result.status).toBe(0);
       // Child symlink leaked inside dest.
       const leaked = path.join(dest, path.basename(source));
@@ -85,7 +85,7 @@ describe('setup: Conductor worktree guard', () => {
           echo "LINKED"
         fi
       `;
-      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
       expect(result.status).toBe(0);
       expect(result.stdout.trim()).toBe('SKIP');
       // No child symlink leaked.
@@ -120,7 +120,7 @@ describe('setup: Conductor worktree guard', () => {
           echo "LINKED"
         fi
       `;
-      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
       expect(result.status).toBe(0);
       expect(result.stdout.trim()).toBe('LINKED');
       expect(fs.lstatSync(dest).isSymbolicLink()).toBe(true);
@@ -159,7 +159,7 @@ describe('setup: Conductor worktree guard', () => {
           echo "LINKED"
         fi
       `;
-      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
       expect(result.status).toBe(0);
       expect(result.stdout.trim()).toBe('LINKED');
       expect(fs.readlinkSync(dest)).toBe(source);
@@ -191,7 +191,7 @@ describe('setup: Conductor worktree guard', () => {
         fi
         echo "skip=$_SKIP_CLAUDE_REGISTER"
       `;
-      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
       expect(result.status).toBe(0);
       expect(result.stdout.trim()).toBe('skip=0');
     } finally {

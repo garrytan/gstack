@@ -81,14 +81,12 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-review-selective');
     expect(result.selected).toContain('plan-ceo-review-benefits');
     expect(result.selected).toContain('plan-ceo-review-expansion-energy');
-    expect(result.selected).toContain('autoplan-core');
     expect(result.selected).toContain('codex-offered-ceo-review');
     expect(result.selected).toContain('plan-ceo-review-format-mode');
     expect(result.selected).toContain('plan-ceo-review-format-approach');
     // v1.10.2.0 plan-mode handshake entries also depend on plan-ceo-review/**
     expect(result.selected).toContain('plan-ceo-review-plan-mode');
     expect(result.selected).toContain('plan-mode-no-op');
-    expect(result.selected).toContain('e2e-harness-audit');
     expect(result.selected).toContain('plan-ceo-review-prosons-cadence');
     expect(result.selected).toContain('plan-review-prosons-format');
     expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
@@ -111,12 +109,8 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-split-overflow');
     // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
     expect(result.selected).toContain('plan-ceo-section-loading');
-    // Token-reduction Phase 1: the preamble script A/B also keys on plan-ceo-review/**.
-    expect(result.selected).toContain('preamble-script-ab');
-    // AUQ repetition-cut NOT-WORSE gate drives plan-ceo-review, so it keys on it too.
-    expect(result.selected).toContain('auq-repetition-cut-ab');
-    expect(result.selected.length).toBe(25);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 25);
+    expect(result.selected.length).toBe(21);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
   });
 
   test('global touchfile triggers ALL tests', () => {
@@ -386,5 +380,67 @@ describe('touchfile dependency paths exist', () => {
         stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n'),
       );
     }
+  });
+});
+
+// --- Reverse invariant: every selection key names a LIVING test ---
+// The forward invariants above catch stale dep PATHS; nothing caught stale
+// KEYS. The 2026-08 audit found 15 phantom E2E keys (6 gate-tier) selecting
+// tests that existed nowhere — the merge-blocking census counted work that
+// could not run. A key earns its place by appearing as a quoted testName in
+// a living paid test file; constructed names get a reasoned exception.
+
+describe('reverse invariant — keys must name living paid tests', () => {
+  const { isPaidTestFile } = require('./helpers/paid-test-set') as typeof import('./helpers/paid-test-set');
+
+  /** Keys whose testNames are CONSTRUCTED at runtime (template literals), so
+   *  a quoted-occurrence scan cannot see them. Each entry needs the file that
+   *  constructs it. Shrink-only: prefer literal names in new tests. */
+  const CONSTRUCTED_NAME_EXCEPTIONS: Record<string, string> = {};
+
+  const paidSources: string[] = [];
+  for (const name of fs.readdirSync(path.join(ROOT, 'test'))) {
+    const rel = `test/${name}`;
+    if (!isPaidTestFile(rel)) continue;
+    paidSources.push(fs.readFileSync(path.join(ROOT, rel), 'utf-8'));
+  }
+
+  const quotedSomewhere = (key: string): boolean =>
+    paidSources.some((src) =>
+      src.includes(`'${key}'`) || src.includes(`"${key}"`) || src.includes('`' + key + '`'));
+
+  /** Clause (b) of liveness: constructed testNames (template literals) bind
+   *  through SELF-REGISTRATION — the 2026-08 dep-list sweep put each test
+   *  FILE into its key's dep list, and the parent mapper keeps a shard on
+   *  that registration union. So a key is alive when its name is quoted in a
+   *  paid file OR its dep list names an existing paid test file. */
+  const registeredToLivingFile = (key: string): boolean =>
+    (E2E_TOUCHFILES[key] ?? []).some((dep) =>
+      /\.test\.ts$/.test(dep) && isPaidTestFile(dep) && fs.existsSync(path.join(ROOT, dep)));
+
+  test('every E2E_TOUCHFILES key is declared in a living paid test file', () => {
+    expect(paidSources.length).toBeGreaterThan(50); // scan-rot guard
+    const phantoms = Object.keys(E2E_TOUCHFILES)
+      .filter((key) => !(key in CONSTRUCTED_NAME_EXCEPTIONS))
+      .filter((key) => !quotedSomewhere(key) && !registeredToLivingFile(key));
+    expect(
+      phantoms,
+      `E2E_TOUCHFILES key(s) with NO declaring paid test — the census counts tests that cannot run. ` +
+      `Delete the key (both maps) or implement the test:\n  ${phantoms.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  test('every LLM_JUDGE_TOUCHFILES key is declared in a living paid test file', () => {
+    const phantoms = Object.keys(LLM_JUDGE_TOUCHFILES).filter((key) => !quotedSomewhere(key));
+    expect(
+      phantoms,
+      `LLM_JUDGE_TOUCHFILES key(s) with NO declaring test:\n  ${phantoms.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  test('constructed-name exceptions stay live (files exist and construct them)', () => {
+    const stale = Object.entries(CONSTRUCTED_NAME_EXCEPTIONS)
+      .filter(([, file]) => !fs.existsSync(path.join(ROOT, file)));
+    expect(stale.map(([k]) => k), 'exception points at a deleted file — remove the entry').toEqual([]);
   });
 });

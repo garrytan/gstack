@@ -39,7 +39,7 @@ describe('gen-skill-docs import purity', () => {
       }
       console.log('IMPORT_PURE');
     `;
-    const out = Bun.spawnSync(['bun', '-e', probe], { cwd: ROOT });
+    const out = Bun.spawnSync(['bun', '-e', probe], { cwd: ROOT, timeout: 120_000 });
     const stdout = out.stdout.toString();
     const stderr = out.stderr.toString();
     expect(stderr, stderr).not.toContain('import mutated');

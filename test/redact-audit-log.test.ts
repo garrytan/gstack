@@ -91,7 +91,7 @@ describe("CLI", () => {
     const r = spawnSync(
       "bun",
       [LIB, JSON.stringify({ repo_visibility: "public", outcome: "flagged", categories_flagged: ["pii"] }), bodyFile],
-      { env: { ...process.env, GSTACK_HOME: home }, encoding: "utf8" },
+      { env: { ...process.env, GSTACK_HOME: home }, encoding: "utf8", timeout: 30_000 },
     );
     expect(r.status).toBe(0);
     const line = JSON.parse(fs.readFileSync(logPath(), "utf8").trim());

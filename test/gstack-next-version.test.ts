@@ -326,7 +326,7 @@ describe("default-base detection (no --base)", () => {
   function runWithoutBase(cwd: string): { exitCode: number; parsed: any } {
     const proc = Bun.spawnSync(
       ["bun", "run", SCRIPT, "--bump", "patch", "--workspace-root", "null"],
-      { cwd },
+      { cwd, timeout: 30_000 },
     );
     const out = new TextDecoder().decode(proc.stdout);
     return { exitCode: proc.exitCode, parsed: JSON.parse(out) };
@@ -403,11 +403,11 @@ describe("offline output contract (what /ship branches on, #2545)", () => {
     // host:"unknown" on CI) while keeping ls-remote/fetch fully local.
     const bare = join(root, "github.com", "origin.git");
     mkdirSync(bare, { recursive: true });
-    Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", bare]);
+    Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", bare], { timeout: 30_000 });
     const work = join(root, "work");
     mkdirSync(work);
     const git = (...args: string[]) =>
-      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: work });
+      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: work, timeout: 30_000 });
     git("init", "-q", "-b", "main");
     writeFileSync(join(work, "VERSION"), "1.0.0.0\n");
     git("add", "-A");
@@ -427,7 +427,7 @@ describe("offline output contract (what /ship branches on, #2545)", () => {
     const proc = Bun.spawnSync(
       ["bun", "run", NEXTVER, "--base", "main",
        "--bump", "patch", "--current-version", "1.0.0.0", "--workspace-root", "null"],
-      { cwd: work, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` } },
+      { cwd: work, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` }, timeout: 30_000 },
     );
     rmSync(stubDir, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
@@ -454,7 +454,7 @@ describe("offline output contract (what /ship branches on, #2545)", () => {
     const proc = Bun.spawnSync(
       ["bun", "run", NEXTVER, "--base", "main",
        "--bump", "patch", "--current-version", "1.0.0.0", "--workspace-root", "null"],
-      { cwd: work, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` } },
+      { cwd: work, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` }, timeout: 30_000 },
     );
     rmSync(stubDir, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
@@ -475,7 +475,7 @@ describe("fetchGitClaimed (offline allocation — the anti-duplicate fallback, #
   // (plus three earlier pairs found in the same audit). Git knows what the API
   // was asked for, so offline now degrades the QUEUE VIEW, not the ALLOCATION.
   function git(cwd: string, ...args: string[]) {
-    return Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+    return Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
   }
 
   function fixture(): string {
@@ -600,7 +600,7 @@ describe("fetchGitClaimed — non-mutating live remote query (ls-remote first)",
   // remote's LIVE branch list with zero local mutation — a path/file remote
   // answers it offline, which is exactly what these fixtures use.
   function git(cwd: string, ...args: string[]) {
-    return Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+    return Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
   }
 
   // Local origin with: main (0.1.66.0), sibling (0.1.67.0, live claim), and
@@ -718,7 +718,7 @@ describe("fetchGitClaimed — unfetched live claims (G2: ls-remote advertises SH
   // VERSION reads fail. The old `continue` silently dropped that LIVE claim —
   // the exact duplicate-allocation this fallback exists to prevent.
   function git(cwd: string, ...args: string[]) {
-    return Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+    return Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
   }
 
   function cloneFixture(): { root: string; origin: string; clone: string } {
@@ -908,14 +908,14 @@ describe("width pinned on failed base read (3-digit repos)", () => {
       // the base read fails too, which is the path under test.
       writeFileSync(join(stubDir, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
       writeFileSync(join(stubDir, "glab"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-      Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+      Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir, timeout: 30_000 });
       writeFileSync(join(dir, "VERSION"), "0.99.2\n");
-      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: dir });
-      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: dir });
+      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: dir, timeout: 30_000 });
+      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: dir, timeout: 30_000 });
 
       const proc = Bun.spawnSync(
         ["bun", "run", SCRIPT, "--base", "main", "--bump", "patch", "--workspace-root", "null"],
-        { cwd: dir, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` } },
+        { cwd: dir, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` }, timeout: 30_000 },
       );
       const out = JSON.parse(new TextDecoder().decode(proc.stdout));
       // Zero base at the repo's OWN width — never "0.0.0.0" in a 3-digit repo.
@@ -946,7 +946,7 @@ describe("integration (smoke)", () => {
       "1.6.3.0",
       "--workspace-root",
       "null", // skip sibling scan in CI
-    ]);
+    ], { timeout: 30_000 });
     const out = new TextDecoder().decode(proc.stdout);
     const parsed = JSON.parse(out);
     expect(parsed).toHaveProperty("version");
@@ -976,7 +976,7 @@ describe("integration (smoke)", () => {
       "null",
       "--version-path",
       "Tinas Second Brain/health-tracker/VERSION",
-    ]);
+    ], { timeout: 30_000 });
     const out = new TextDecoder().decode(proc.stdout);
     const parsed = JSON.parse(out);
     expect(parsed).toHaveProperty("version_path", "Tinas Second Brain/health-tracker/VERSION");
@@ -1003,7 +1003,7 @@ describe("fetchGitClaimed — laundered ls-remote (exit 0, empty output) is neve
     chmodSync(join(stubDir, "git"), 0o755);
 
     const git = (cwd: string, ...args: string[]) =>
-      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
 
     const cwd = process.cwd();
     const oldPath = process.env.PATH;
@@ -1052,7 +1052,7 @@ describe("fetchGitClaimed — laundered ls-remote (exit 0, empty output) is neve
     chmodSync(join(stubDir, "git"), 0o755);
 
     const git = (cwd: string, ...args: string[]) =>
-      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
+      Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, timeout: 30_000 });
 
     const cwd = process.cwd();
     const oldPath = process.env.PATH;

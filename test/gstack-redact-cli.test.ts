@@ -22,6 +22,7 @@ function run(
 ): { code: number; stdout: string; stderr: string } {
   const proc = Bun.spawnSync(["bun", BIN, ...args], {
     stdin: Buffer.from(stdin),
+    timeout: 30_000,
   });
   return {
     code: proc.exitCode,
@@ -88,7 +89,7 @@ describe("gstack-redact --from-file", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "redact-file-"));
     const f = path.join(dir, "spec.md");
     fs.writeFileSync(f, "leaked ghp_" + "a".repeat(36));
-    const proc = Bun.spawnSync(["bun", BIN, "--from-file", f, "--json"]);
+    const proc = Bun.spawnSync(["bun", BIN, "--from-file", f, "--json"], { timeout: 30_000 });
     const parsed = JSON.parse(proc.stdout.toString());
     expect(parsed.findings[0].id).toBe("github.pat");
     fs.rmSync(dir, { recursive: true, force: true });

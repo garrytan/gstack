@@ -50,7 +50,7 @@ function runReadArgs(args: string[] = []): string {
     timeout: 15000,
   };
   try {
-    return execFileSync(path.join(BIN, 'gstack-timeline-read'), args, execOpts).trim();
+    return execFileSync(path.join(BIN, 'gstack-timeline-read'), args, execOpts).trim(); // timeout via execOpts
   } catch {
     return '';
   }

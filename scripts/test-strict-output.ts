@@ -20,6 +20,15 @@ const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const BUN_FAIL_RESULT = /^\(fail\) .+ \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
 const BUN_BETWEEN_TESTS_ERROR = '# Unhandled error between tests';
 const BUN_TERMINAL_SUMMARY = /^Ran (\d+) tests? across (\d+) files?\. \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
+// The counts block bun prints just before the terminal summary (" 1 pass",
+// " 2 skip", " 0 fail"). "Ran N tests" COUNTS skipped tests, so N alone
+// cannot distinguish a shard that verified work from one whose every test
+// self-skipped (external-service binary missing, tier mismatch) — the
+// green-by-skip class. Anchored to whole-line matches; nested bun-test
+// children can still contribute counts (same known limit as the terminal
+// summary — see the last-summary-anchoring TODO in the audit).
+const BUN_SKIP_COUNT = /^\s*(\d+) skip$/;
+const BUN_PASS_COUNT = /^\s*(\d+) pass$/;
 
 export type BunTestOutputFinding = 'failed-test' | 'unhandled-between-tests';
 
@@ -29,6 +38,11 @@ export interface BunTestOutputSummary {
   terminalFileCounts: number[];
   /** Test counts from the same terminal lines — feeds the hollow-shard guard. */
   terminalTestCounts: number[];
+  /** Sum of bun's " N skip" count lines. "Ran N tests" includes skips, so
+   *  this is what separates verified work from green-by-skip. */
+  skippedTests: number;
+  /** Sum of bun's " N pass" count lines. */
+  passedTests: number;
 }
 
 export type ForwardedTerminationSignal = 'SIGINT' | 'SIGTERM';
@@ -229,6 +243,8 @@ export class BunTestOutputClassifier {
   private unhandledBetweenTests = 0;
   private terminalFileCounts: number[] = [];
   private terminalTestCounts: number[] = [];
+  private skippedTests = 0;
+  private passedTests = 0;
 
   write(chunk: Uint8Array | string, origin: ClassifierOrigin = 'stdout'): void {
     this.pending[origin] += typeof chunk === 'string'
@@ -252,6 +268,8 @@ export class BunTestOutputClassifier {
       unhandledBetweenTests: this.unhandledBetweenTests,
       terminalFileCounts: [...this.terminalFileCounts],
       terminalTestCounts: [...this.terminalTestCounts],
+      skippedTests: this.skippedTests,
+      passedTests: this.passedTests,
     };
   }
 
@@ -268,6 +286,11 @@ export class BunTestOutputClassifier {
     const finding = classifyBunTestOutputLine(line);
     if (finding === 'failed-test') this.failedTests += 1;
     if (finding === 'unhandled-between-tests') this.unhandledBetweenTests += 1;
+    const stripped = stripAnsiLine(line);
+    const skip = BUN_SKIP_COUNT.exec(stripped);
+    if (skip !== null) this.skippedTests += Number.parseInt(skip[1], 10);
+    const pass = BUN_PASS_COUNT.exec(stripped);
+    if (pass !== null) this.passedTests += Number.parseInt(pass[1], 10);
     const terminal = parseBunTerminalSummary(line);
     if (terminal !== null) {
       this.terminalFileCounts.push(terminal.files);

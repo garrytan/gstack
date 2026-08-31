@@ -33,6 +33,7 @@ function run(): { stdout: string; stderr: string; status: number } {
   const res = spawnSync('bash', [MIGRATION], {
     encoding: 'utf-8',
     env: { ...process.env, GSTACK_HOME: tmpHome, HOME: tmpHome },
+    timeout: 30_000,
   });
   return {
     stdout: (res.stdout ?? '').trim(),

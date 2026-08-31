@@ -29,6 +29,7 @@ function run(args: string[], opts: { env?: Record<string, string> } = {}) {
   const res = spawnSync(BIN, args, {
     env: { ...process.env, GSTACK_HOME: tmpHome, ...(opts.env || {}) },
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   return {
     stdout: (res.stdout || '').trim(),
@@ -263,6 +264,7 @@ describe('get without arg (auto-detect from current dir)', () => {
         env: { ...process.env, GSTACK_HOME: tmpHome },
         cwd: cwdTmp,
         encoding: 'utf-8',
+        timeout: 30_000,
       });
       expect((res.stdout || '').trim()).toBe('unset');
     } finally {
@@ -288,7 +290,7 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
   function makeRepo(): void {
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-policy-repo-'));
     const git = (...args: string[]) =>
-      spawnSync('git', args, { cwd: repoDir, encoding: 'utf-8' });
+      spawnSync('git', args, { cwd: repoDir, encoding: 'utf-8', timeout: 30_000 });
     git('init', '-q', '.');
     git('remote', 'add', 'origin', REPO_URL);
     fs.writeFileSync(path.join(repoDir, 'README.md'), 'fixture\n');

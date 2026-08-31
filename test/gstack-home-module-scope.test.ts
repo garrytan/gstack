@@ -26,7 +26,7 @@ const ROOT = path.resolve(__dirname, '..');
 
 function trackedTestFiles(): string[] {
   const out = spawnSync('git', ['ls-files', '*.test.ts'], {
-    cwd: ROOT, encoding: 'utf-8',
+    cwd: ROOT, encoding: 'utf-8', timeout: 30_000,
   });
   if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
   return out.stdout.split('\n').filter(Boolean);

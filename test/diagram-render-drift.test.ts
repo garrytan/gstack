@@ -86,7 +86,7 @@ describe("diagram-render bundle drift", () => {
     "deep: fresh build reproduces committed dist",
     async () => {
       const before = await Bun.file(BUILD_INFO).json();
-      const proc = Bun.spawnSync(["bun", "run", "scripts/build.ts"], { cwd: ROOT });
+      const proc = Bun.spawnSync(["bun", "run", "scripts/build.ts"], { cwd: ROOT, timeout: 120_000 });
       expect(proc.exitCode).toBe(0);
       const after = await Bun.file(BUILD_INFO).json();
       expect(after.sha256).toBe(before.sha256);

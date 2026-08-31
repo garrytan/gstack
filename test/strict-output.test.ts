@@ -89,6 +89,38 @@ describe('BunTestOutputClassifier', () => {
     expect(summary.terminalFileCounts).toEqual([2]);
     expect(strictTestExitCode(0, summary, 2)).toBe(0);
   });
+
+  // "Ran N tests" COUNTS skipped tests, so the skip/pass count lines are the
+  // only stream evidence separating verified work from green-by-skip (a
+  // codex/gemini file whose every test self-skips on a binary-less runner).
+  it('parses the skip and pass count lines from bun’s recap block', () => {
+    const c = new BunTestOutputClassifier();
+    c.write(' 1 pass\n 2 skip\n 0 fail\nRan 3 tests across 1 file. [7.00ms]\n');
+    const summary = c.end();
+    expect(summary.passedTests).toBe(1);
+    expect(summary.skippedTests).toBe(2);
+    expect(summary.terminalTestCounts).toEqual([3]);
+    // all-skipped is still exit-0 at the classifier layer — the census
+    // labeling happens in the paid runner, not here
+    expect(strictTestExitCode(0, summary, 1)).toBe(0);
+  });
+
+  it('skip/pass counts survive ANSI color and chunk shears', () => {
+    const c = new BunTestOutputClassifier();
+    c.write('[32m 4 pa');
+    c.write('ss[0m\n[33m 9 skip[0m\n');
+    const summary = c.end();
+    expect(summary.passedTests).toBe(4);
+    expect(summary.skippedTests).toBe(9);
+  });
+
+  it('prose mentioning skip counts does not pollute the tally', () => {
+    const c = new BunTestOutputClassifier();
+    c.write('console.log said: 7 skip is what we expect later\n');
+    c.write('(fail) 3 skip handling [1.00ms]\n');
+    const summary = c.end();
+    expect(summary.skippedTests).toBe(0);
+  });
 });
 
 describe('installChildSignalForwarding — cancellation terminates the RUN', () => {

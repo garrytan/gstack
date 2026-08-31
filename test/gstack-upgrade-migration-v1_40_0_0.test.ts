@@ -136,6 +136,7 @@ function run(opts: { path?: string } = {}) {
     env,
     encoding: "utf-8",
     cwd: tmpHome,
+    timeout: 30_000,
   });
 }
 

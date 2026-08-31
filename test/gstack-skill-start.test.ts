@@ -31,6 +31,7 @@ let tmpGstackHome: string;
 
 function runStart(args: string[] = [], env: Record<string, string> = {}): string {
   return execFileSync(START, ['--skill', 'testskill', ...args], {
+    timeout: 30_000,
     encoding: 'utf-8',
     cwd: tmpHome, // no CLAUDE.md/AGENTS.md, not the repo — routing detection stays cold
     env: {
@@ -150,6 +151,7 @@ describe('gstack-skill-start behavior', () => {
       fs.copyFileSync(START, path.join(fakeBin, 'gstack-skill-start'));
       fs.chmodSync(path.join(fakeBin, 'gstack-skill-start'), 0o755);
       const out = execFileSync(path.join(fakeBin, 'gstack-skill-start'), ['--skill', 't'], {
+        timeout: 30_000,
         encoding: 'utf-8',
         cwd: tmpHome,
         env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome },
@@ -192,6 +194,76 @@ describe('gstack-skill-start behavior', () => {
       } else {
         expect(out).toContain('CONDUCTOR_SESSION: true');
       }
+    } finally {
+      fs.rmSync(freshGh, { recursive: true, force: true });
+    }
+  });
+
+  test('spawned override suppresses CONDUCTOR_SESSION, emits SPAWNED_SESSION + block, gates onboarding (#2733)', () => {
+    const freshGh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-spawned-'));
+    fs.writeFileSync(path.join(freshGh, 'config.yaml'), 'update_check: false\n');
+    try {
+      const out = runStart([], {
+        GSTACK_SESSION_KIND: 'spawned',
+        CONDUCTOR_WORKSPACE_PATH: '/x',
+        GSTACK_HOME: freshGh,
+      });
+      expect(out).toMatch(/^SESSION_KIND: spawned$/m);
+      // spawned outranks Conductor: prose-to-nobody is always wrong.
+      expect(out).not.toContain('CONDUCTOR_SESSION: true');
+      expect(out).toMatch(/^SPAWNED_SESSION: true$/m);
+      // The ONLY instruction block a spawned session gets is spawned-session —
+      // none of the 11 interactive-onboarding blocks may emit (no human is
+      // watching; auto-answered prompts would write config nobody approved).
+      const ids = (out.match(/^GSTACK_INSTRUCTION_BEGIN: (\S+)/gm) ?? []).map(
+        (h) => h.replace(/^GSTACK_INSTRUCTION_BEGIN: /, ''),
+      );
+      expect(ids).toEqual(['spawned-session']);
+      // Script-side ack-at-emit markers stay UNWRITTEN, so the one-time
+      // prompts fire intact on the next human session. (.activated and
+      // .first-loop-tip-shown are the two the SCRIPT writes; the model-run
+      // touch targets are covered via output absence below — asserting their
+      // file non-existence would be vacuous in a script-only run.)
+      expect(fs.existsSync(path.join(freshGh, '.activated'))).toBe(false);
+      expect(fs.existsSync(path.join(freshGh, '.first-loop-tip-shown'))).toBe(false);
+      expect(out).not.toContain('.completeness-intro-seen');
+      expect(out).not.toContain('.telemetry-prompted');
+      // Spawned skips the first-task probe entirely (dead work: its only
+      // consumers are inside the onboarding guard) and the update-check
+      // (network-bound; would consume the one-shot just-upgraded marker).
+      expect(out).toMatch(/^FIRST_TASK: $/m);
+      // Env-driven override is surfaced loudly, naming the driver (tamper
+      // visibility — a settings env block flipping a human session must be
+      // legible in the transcript).
+      expect(out).toMatch(/^SPAWNED_OVERRIDE: env \(GSTACK_SESSION_KIND\)$/m);
+    } finally {
+      fs.rmSync(freshGh, { recursive: true, force: true });
+    }
+  });
+
+  test('legacy OPENCLAW_SESSION still gets full spawned behavior through the kind-keyed gates', () => {
+    // Regression pin for the raw-marker → $_SESSION_KIND migration (#2733):
+    // OpenClaw sessions must behave exactly as before the re-keying.
+    const freshGh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-openclaw-'));
+    fs.writeFileSync(path.join(freshGh, 'config.yaml'), 'update_check: false\n');
+    try {
+      const out = runStart([], {
+        OPENCLAW_SESSION: '1',
+        CONDUCTOR_WORKSPACE_PATH: '/x',
+        GSTACK_HOME: freshGh,
+      });
+      expect(out).toMatch(/^SESSION_KIND: spawned$/m);
+      expect(out).not.toContain('CONDUCTOR_SESSION: true');
+      expect(out).toMatch(/^SPAWNED_SESSION: true$/m);
+      const ids = (out.match(/^GSTACK_INSTRUCTION_BEGIN: (\S+)/gm) ?? []).map(
+        (h) => h.replace(/^GSTACK_INSTRUCTION_BEGIN: /, ''),
+      );
+      expect(ids).toEqual(['spawned-session']);
+      expect(fs.existsSync(path.join(freshGh, '.activated'))).toBe(false);
+      // OPENCLAW-driven spawned gets the same tamper-visibility line — this
+      // PR amplifies OPENCLAW_SESSION's power (deterministic hook deny,
+      // Conductor suppression), so it needs the same transcript marker.
+      expect(out).toMatch(/^SPAWNED_OVERRIDE: env \(OPENCLAW_SESSION\)$/m);
     } finally {
       fs.rmSync(freshGh, { recursive: true, force: true });
     }
@@ -247,7 +319,7 @@ describe('gstack-skill-end', () => {
     const out = execFileSync(
       END,
       ['--skill', 't', '--outcome', 'success', '--session-id', 'sid-1', '--tel-start', String(start)],
-      { encoding: 'utf-8', cwd: tmpHome, env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome } },
+      { timeout: 30_000, encoding: 'utf-8', cwd: tmpHome, env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome } },
     );
     const m = out.match(/SKILL_END: recorded outcome=success duration_s=(\d+)/);
     expect(m).not.toBeNull();
@@ -268,6 +340,7 @@ describe('gstack-skill-end', () => {
     const pending = path.join(tmpGstackHome, 'analytics', '.pending-sid-2');
     fs.writeFileSync(pending, 'x');
     execFileSync(END, ['--skill', 't', '--outcome', 'abort', '--session-id', 'sid-2', '--tel-start', 'bogus'], {
+      timeout: 30_000,
       encoding: 'utf-8',
       cwd: tmpHome,
       env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: tmpGstackHome },

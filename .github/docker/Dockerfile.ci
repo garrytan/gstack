@@ -74,8 +74,15 @@ ENV BUN_INSTALL="/usr/local"
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://bun.sh/install \
     | bash -s "bun-v1.3.13"
 
-# Claude CLI
-RUN npm i -g @anthropic-ai/claude-code
+# Claude CLI — pinned to an EXACT version, same discipline as the bun pin
+# above. The PTY harness (test/helpers/claude-pty-runner.ts) screen-scrapes
+# this CLI's TUI (trust dialog, input prompt, spinner glyphs); an unpinned
+# install rebuilt weekly rode the TUI wherever it drifted, and that drift
+# broke the harness three separate times (welcome-screen wedge on 2.1.233,
+# skillify HOME discovery on 2.1.237, guard/freeze hooks on 2.1.162).
+# Bump deliberately, via a PR that runs the PTY gate against the new TUI.
+# test/ci-image-cli-pin.test.ts fails the free suite if this pin is removed.
+RUN npm i -g @anthropic-ai/claude-code@2.1.251
 
 # Playwright system deps (Chromium) — needed for browse E2E tests
 RUN npx playwright install-deps chromium

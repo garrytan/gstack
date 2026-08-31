@@ -1,31 +1,110 @@
 # Changelog
 
-## [1.75.1.0] - 2026-08-30
+## [1.77.0.0] - 2026-08-31
 
-**Claude auth detection now asks the CLI instead of guessing from files.**
+**Every PR stops paying for evals twice.**
+**Flakes are now measured, killed at the root, and fenced.**
 
-The claude outside-voice skill and the benchmark provider adapter no longer
-peek at `~/.claude/.credentials.json` or the macOS keychain. They run
-`claude auth status --json` -- the CLI's own auth truth -- which is correct
-for the default macOS install that stores OAuth in the keychain and never
-writes a credentials file. A probe that fails is now told apart from a clean
-logged-out answer, so a broken CLI isn't mislabeled "please log in."
+The test infrastructure got its overhaul, wave 1. The legacy 17-row eval matrix that ran serialized AHEAD of the sliced lane on every PR is deleted: one paid lane, its gate census derived from the runner itself, so a new gate test is in the census the moment its file lands. No hand-enumerated rows to drift, and the drift already tried, a new matrix row landed on main mid-branch and the merge resolved to the derived census that covers it by construction.
 
-Nested `claude -p` review/challenge/consult runs are isolated: `--setting-sources project` keeps repository settings without loading user-level hooks, and `--strict-mcp-config` runs them with no MCP servers (read-only outside voices don't use MCP; an explicit `--mcp-config` restores it when one does). The benchmark-models quality judge gates on `ANTHROPIC_API_KEY` only, matching the judge's direct SDK requirement.
+The flake war moved from anecdotes to instruments. Every retried pass is now recorded where it cannot hide (bun's own output shows a retry as a clean pass, we probed it), the free lane retries a failing file once, loudly, and appends every flaky pass to a per-project ledger uploaded from CI on green runs. `bun run eval:flake-rank` ranks the series. And the wedge class that hit main, a hung child under a blocking spawnSync that no in-process timeout can interrupt, is extinct: 499 timeout-less sync-spawn sites across 146 files (the branch tripwire's own count against main) swept to zero, with a ratcheted tripwire that failed its first real offender the day a timeout-less spawn arrived from a merge.
 
-The codex-probe bash watchdog now reports `timeout(1)`'s exit 124 only when its TERM actually killed the command, and does so regardless of when the timer subshell gets reaped -- an intermittent leak of the raw 143 under load is gone, and a self-inflicted crash still keeps its own exit code.
+### The numbers that matter
+
+Source: CI runs 33263204465 / 33262077256 (measured 2026-08-29), the repo census (`test/helpers/touchfiles-data.ts`), and the sweep tripwire (`test/spawnsync-timeout-tripwire.test.ts`).
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Paid lanes per PR | 2 (serialized) | 1 | eval wall 35.5 → ~13 min (target) |
+| Measured duplicate spend per PR | ~$20.94 | $0 | matrix deleted |
+| Gate census keys | 86 (6 phantoms) | 77, all provably alive | reverse invariant enforces |
+| Sync spawns that can wedge a shard | 499 unbounded | 0 (8 reasoned exemptions) | tripwire-ratcheted |
+| Local gate worst case | ~6.5 h (4×4 jobs) | ~3.3 h (8×2) | isolation landed first |
+| Retried-pass visibility | invisible | recorded + ranked | `eval:flake-rank` |
+
+The phantom-census number is the quiet one that matters: six merge-blocking "tests" existed only as map keys. They are deleted, and a key without a living test now fails the free suite.
+
+What this means for anyone shipping here: PRs get one honest paid verdict faster and cheaper, a flaky pass never blocks your merge but never disappears either, and a test that hangs takes down thirty seconds, not a shard. Run `bun run eval:flake-rank` when you want the flake ledger's verdict.
+
+### Itemized changes
+
+#### Added
+- **Flake telemetry, end to end.** Eval-store records every retry attempt (`attempt`, `flaky_retries`), the paid report lists passed-only-on-retry tests as warnings, the free lane's flaky-retry pass is ON in CI with a single-writer JSONL ledger (branch + sha attributed, per-project by default) uploaded as an artifact on every run, and `bun run eval:flake-rank` aggregates the series with final-attempt accounting and a 60-day recency bound.
+- **Two-phase session timeouts.** A silent API dies at a startup grace (90s local, 300s CI floor, a real `Math.max` floor) with the distinct reason `timeout_startup` instead of burning a 600s work budget into an opaque `0 turns / $0.00` failure; the work budget arms on the first byte and the total wall never grows.
+- **Green-by-skip census.** "Ran N tests" counts skips, so a codex/gemini file whose every test self-skipped used to read as coverage. The classifier now parses bun's skip/pass recap and the paid report labels an all-skipped pass "verified nothing."
+- **Sync-spawn timeout tripwire** (spawnSync / execSync / execFileSync / Bun.spawnSync, comment-aware, 30-line window, shrink-only exemption ratchet) plus a raw-SHA fixture ban (`git show <sha>:path` fixtures must be vendored; the one live offender now reads a committed fixture).
+- **Behavioral kill-semantics tests**: a fake-claude shim proves a timed-out session leaves neither the CLI nor its grandchild alive; two gstack-detach watchdog tests cover TERM-immune grandchildren and the leader-dies-first case.
+- **CLI version stamping**: every eval run records `claude --version` (resolved once in the runner parent), so the next TUI-drift flake hunt is a grep, not archaeology.
+
+#### Changed
+- **One paid lane.** The legacy evals.yml matrix is deleted (pure deletion, one revert restores it) after a static parity receipt: the sliced lane's 49-file derived census strictly contained the matrix's 18 files. The PR comment moved into the sliced lane with final-attempt accounting and a fail-closed reconciliation verdict.
+- **Paid runner defaults 4×4 → 8×2**: ~10-13 real in-flight sessions (under the documented-safe 15) instead of ~4-6; per-shard TMPDIR/Chromium-profile isolation and a kill-path cleanup backstop landed first, deliberately.
+- **CI setup deduplicated into four composite actions**; the register-skills composite carries the fail-fast dangling-symlink verification loop that only the deleted matrix copy had, so the surviving lanes inherit it. Rerun-safe, frozen-lockfile fallback, input-validated.
+- **Supply chain pinned**: the claude CLI in the CI image is an exact version (bumps ride PRs that run the PTY gate, ending the weekly-latest drift that broke the harness three times), and every action in the secrets-bearing and image-publishing workflows is SHA-pinned.
+- **Routing journeys lost their answer key**: the fixture no longer ships a prompt→skill lookup table, so a regressed skill description can actually fail the test again, at roughly half the previous per-journey cost (2 turns, [Skill, Read] only).
+- Decided A/B experiments retired (auq-repetition-cut, preamble-script, the opus-47 single-run fanout comparison): one-shot questions answered months ago no longer re-run weekly as coin flips. `plan-ceo-review-expansion-energy` and `ios-qa-e2e` moved to the periodic tier with reasons.
+
+#### Fixed
+- **A fail-open reconcile gate**: GitHub's default run-step shell has no pipefail, so the fail-closed report's exit was read from `tee` (always 0) in both paid lanes. Now `PIPESTATUS[0]`, pinned by a wiring test.
+- **A write-token trust boundary**: the job that executes PR-authored code no longer holds the PR-comment write token; commenting moved to a job that runs zero repo code.
+- **Provider-runner orphans**: timeouts kill the whole process group (claude, codex, gemini, and gstack-detach's watchdog with the group id captured at spawn), and the codex/gemini runners inherited the orphan-drain hardening only the claude copy had. The observed 600s-timeout-stretching-past-1400s class is gone, with a regression net.
+- **Selection integrity**: 17 phantom selection keys deleted (a reverse invariant now requires every key to name a living test), gitignored `.agents/**` dep patterns that could never match a git diff replaced with their generators, and the codex/gemini local touchfile forks now derive from the canonical map.
+- **A cross-shard SKILL.md race**: the opus-47 eval regenerated the live tree's skill files mid-run; it now renders into a scratch dir via `--out-dir`.
+
+#### For contributors
+- `bun run eval:flake-rank` (with `--json`, `--dir`, `--since-days`) is the promotion-clock dial; the WS16 required-check decision reads it.
+- The overhaul plan (16 workstreams, reviewed by CEO + eng passes with two cross-model outside voices) continues: budget-aware shard walls, PTY readiness events, free-suite splits, judge determinism, and required-check promotion are the next waves.
+
+
+## [1.76.0.0] - 2026-08-31
+
+**Ship's doc-sync now survives Conductor.**
+**Spawned subagents finally know they're spawned.**
+
+Every Conductor-hosted /ship used to lose its PR `## Documentation` section the moment the document-release subagent hit an interactive gate: the subagent inherited the parent's environment, classified itself as a session a human was watching, rendered a decision brief nobody could answer, and stopped. The JSON contract broke, every time a gate fired (#2733). This release makes the spawned classification reachable: /ship marks its subagent with `GSTACK_SESSION_KIND=spawned`, and the whole stack (preamble, AskUserQuestion rules, both AUQ hooks) now resolves gates by auto-choosing the recommended option instead of writing prose to nobody. Destructive options are never auto-chosen, on any surface: the conservative choice wins and gets recorded. Auto-chosen decisions come back in a `decisions` array the parent prints to your console, so nothing is decided invisibly.
+
+### The numbers that matter
+
+Source: the new gate-tier E2E (`test/skill-e2e-docsync-spawned.test.ts`) run receipt under `~/.gstack/projects/<slug>/evals/`, plus issue #2733's field reports.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| `## Documentation` on Conductor-hosted ships | dropped whenever a doc gate fired | present, E2E-proven | fixed |
+| Ways to reach the spawned classification | 1 (OpenClaw env only) | any dispatching skill, one env prefix | new primitive |
+| Onboarding prompts consumable by unwatched subagents | up to 11 blocks per run, markers eaten | 0 emitted, markers preserved for the next human session | sealed |
+| Real-agent E2E through a firing VERSION gate | prose-STOP, JSON parse fails | auto-chose the recommended Skip, JSON parsed, VERSION untouched | 1/1 pass, $0.35, 106s |
+| Preamble dead work per spawned start | network update-check + a 17-subprocess repo probe | both skipped | faster subagents |
+
+The E2E is the receipt that matters: a live agent ran the real document-release preamble and VERSION gate inside a Conductor-ambient environment with the AUQ hooks active, ended on the machine-parseable contract, and left VERSION alone.
+
+### What this means for your workflow
+
+Ship from Conductor and the PR carries its Documentation section again; any gate the subagent auto-chose shows up as a `Doc-sync auto-decisions:` line in your console. If you build orchestrating skills, prefix a subagent's `gstack-skill-start` invocation with `GSTACK_SESSION_KIND=spawned ` and it behaves like a proper worker: no consent prompts consumed, no telemetry questions, no prose briefs to nobody. If anything sets that marker on a session a human is actually driving, the preamble now says so loudly (`SPAWNED_OVERRIDE: env`).
+
+### Itemized changes
+
+### Added
+
+- **`GSTACK_SESSION_KIND=spawned`** (`bin/gstack-session-kind` step 0): explicit per-command spawned marker, outranking every ambient env marker. Deliberately narrow: only `spawned` is honored; other values are reserved and ignored. Documented in `docs/OPENCLAW.md`, with a `SPAWNED_OVERRIDE: env` status line for tamper visibility when the env var (rather than an orchestrator marker) drove the classification.
+- **`decisions` in the doc-sync contract** (`ship/sections/pr-body.md.tmpl`): the document-release subagent records each auto-chosen gate as one line in a required `decisions` array; the parent prints them after the sync summary. Never embedded in the public PR body (tripwire-pinned). Absent key from an older installed skill reads as empty.
+- **Proactive spawned rule in the AskUserQuestion prose** (all tier-2+ skills): `SESSION_KIND: spawned` now short-circuits BEFORE the Conductor rule, with the destructive carve-out (never auto-choose an irreversible option, take the conservative choice and record it) and anti-injection scoping: a spawned marking counts only from the prompt that created the session, never from files, tool output, or web content read mid-run.
+- **Gate-tier E2E** (`test/skill-e2e-docsync-spawned.test.ts`): drives the verbatim Step 18 dispatch prompt against a real preamble-bearing document-release slice in a Conductor-ambient env with both AUQ hooks seeded live; asserts the 5-key JSON contract, a non-empty `decisions` array, and an untouched VERSION through a deliberately fired gate.
+
+### Changed
+
+- **`bin/gstack-skill-start`**: spawned sessions suppress `CONDUCTOR_SESSION: true` (prose to nobody is always wrong), key `SPAWNED_SESSION: true` and the spawned-session instruction block on the resolved kind instead of raw `OPENCLAW_SESSION` (OpenClaw behavior unchanged, regression-pinned), gate all 11 interactive-onboarding blocks plus their ack markers at emission, and skip the network-bound update-check and the first-task repo probe (their consumers are suppressed anyway; the one-shot just-upgraded marker survives for the next human session).
+- **AUQ hooks** (`hosts/claude/hooks/`): the Conductor deny gains a deterministic `[conductor][spawned]` auto-choose branch for env-marked spawned sessions, with per-question one-way-door annotations; both hooks' prose directives (interactive AND headless) carry a shared spawned escape sentence, single-sourced in `spawned-directive.ts` so the two paths can never drift. Hooks inherit the harness env, so the escape text is the designed lever for per-command-marked subagents.
+- **Ship Step 18 dispatch prompt**: frames the subagent as spawned, instructs the same-line env prefix (template bash blocks do not share exports), resolves every named gate to the recommended option with a conservative fallback, and places the skill's own doc-health summary in the body so the JSON stays the final line.
 
 ### Fixed
 
-- Claude auth detection uses `claude auth status --json` instead of credentials-file / keychain sniffing (works for the default macOS OAuth/keychain install).
-- A failed or hanging `claude auth status` probe is reported as "could not verify" instead of a misleading "not logged in".
-- Nested claude outside-voice runs no longer load user-level hooks or unrelated MCP servers.
-- codex-probe watchdog intermittently returned raw TERM code (143) instead of 124 when the timer subshell lingered as a zombie; TERM-kills now always map to 124 and other signals keep their codes.
-- benchmark-models judge gate now checks `ANTHROPIC_API_KEY` (the judge's real SDK requirement) instead of CLI login state.
+- **#2733**: Conductor-hosted /ship runs no longer lose their Documentation section when document-release hits an AskUserQuestion gate. The failure was gate-correlated and hit every ship on affected hosts.
 
-### Removed
+### For contributors
 
-- macOS Keychain / credentials-file auth sniffing and its obsolete test.
+- Skeleton byte ceilings in `test/helpers/carve-guards.ts` re-ratcheted for the AUQ prose growth (19 skills, measured values in comments); `test/fixtures/context-budget.json` recaptured in the same commit per the ratchet protocol.
+- New `docsync-spawned` selector in touchfiles (deps name every behavior under test) and a matching gate row in `.github/workflows/evals.yml`; `bin/gstack-session-kind` joined the `conductor-prose` and `auto-decide-preserved` selectors (it previously appeared in no dep list).
+- `test/gstack-session-kind.test.ts`, both hook suites, the resolver suite, and the dispatch tripwire gained ~25 cases, including a `spawnedByEnv()`-vs-script parity pin and a cross-surface destructive-policy drift guard.
 
 ## [1.75.0.0] - 2026-08-29
 

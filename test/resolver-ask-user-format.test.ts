@@ -231,6 +231,34 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
     expect(out).toMatch(/not writing prose — unless `CONDUCTOR_SESSION: true`[\s\S]*OR the documented failure fallback applies/);
   });
 
+  // #2733: proactive spawned rule — spawned outranks Conductor. Without it a
+  // spawned session's AUQ handling exists only as a failure-reaction path, and
+  // a spawned subagent inside a Conductor workspace prose-STOPs with no reader.
+  test('Spawned: proactive do-not-call rule present and ordered ABOVE the Conductor rule', () => {
+    const spawnedRule = out.indexOf('`SESSION_KIND: spawned` echoed');
+    const conductorRule = out.indexOf('`CONDUCTOR_SESSION: true` echoed');
+    expect(spawnedRule).toBeGreaterThan(0);
+    expect(conductorRule).toBeGreaterThan(0);
+    expect(spawnedRule, 'spawned rule must outrank (precede) the Conductor rule').toBeLessThan(conductorRule);
+    expect(out).toMatch(/never prose, never BLOCKED/);
+    expect(out).toMatch(/outranks the Conductor rule/);
+  });
+
+  test('Spawned: destructive-gate carve-out present (conservative-continue, never prose-STOP)', () => {
+    expect(out).toMatch(/never auto-choose a destructive or irreversible option[\s\S]{0,80}conservative/);
+  });
+
+  test('Spawned: self-check carries the never-reach-this-checklist clause', () => {
+    expect(out).toMatch(/in `SESSION_KIND: spawned` you should never reach this checklist/);
+  });
+
+  test('Spawned: rule scopes markings to the creating dispatch prompt (anti-injection)', () => {
+    // "(or your dispatch prompt marks this session as spawned)" is a
+    // text-claimable trigger — the rule must explicitly refuse spawned
+    // claims sourced from files/tool output/web content read mid-run.
+    expect(out).toMatch(/NEVER count[\s\S]*prompt injection/);
+  });
+
   // Conductor-default-prose contract (the proactive path, distinct from the
   // failure fallback). Guards the Tool-resolution rule + self-check wording.
   test('Conductor: do-not-call rule present in Tool resolution', () => {

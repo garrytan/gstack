@@ -15,8 +15,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn } from 'child_process';
+import { Readable } from 'node:stream';
 import { hermeticChildEnv } from './hermetic-env';
 import { extractSkillSections } from './skill-fixture';
+import { killProcessGroup } from '../../scripts/test-strict-output';
 
 // --- Interfaces ---
 
@@ -180,7 +183,7 @@ export async function runCodexSkill(opts: {
   const name = skillName || path.basename(skillDir) || 'gstack';
 
   // Check if codex binary exists
-  const whichResult = Bun.spawnSync(['which', 'codex']);
+  const whichResult = Bun.spawnSync(['which', 'codex'], { timeout: 30_000 });
   if (whichResult.exitCode !== 0) {
     return {
       output: 'SKIP: codex binary not found',
@@ -232,28 +235,42 @@ export async function runCodexSkill(opts: {
     // Hermetic scrub (test/helpers/hermetic-env.ts) with codex's auth surface
     // re-admitted: codex auths from $HOME/.codex (copied into tempHome above)
     // plus OPENAI_API_KEY/CODEX_* when present. HOME override merges last.
-    const proc = Bun.spawn(['codex', ...args], {
+    // node:child_process spawn with `detached` (own process group) — mirrors
+    // session-runner.ts. Bun.spawn's bare proc.kill() signalled only codex
+    // itself; command subprocesses codex spawned survived as orphans holding
+    // our pipes open (the same blocked-drain hang the claude runner fixed —
+    // this copy never inherited that fix until now).
+    const proc = spawn('codex', args, {
       cwd: cwd || skillDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
       env: hermeticChildEnv(
         { HOME: tempHome, CODEX_HOME: tempCodexDir },
         { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] },
       ),
+    });
+    const stdoutWeb = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+    const stderrWeb = Readable.toWeb(proc.stderr!) as ReadableStream<Uint8Array>;
+    const procExited: Promise<number> = new Promise((resolve) => {
+      proc.on('close', (code) => resolve(code ?? 1));
+      proc.on('error', () => resolve(1));
     });
 
     // Race against timeout
     let timedOut = false;
     const timeoutId = setTimeout(() => {
       timedOut = true;
-      proc.kill();
+      // Group SIGKILL + reader cancel: kill the whole tree AND unblock the
+      // read loop even if a stray grandchild survives the group kill.
+      killProcessGroup(proc, 'SIGKILL');
+      reader.cancel().catch(() => { /* stream already closed */ });
     }, timeoutMs);
 
     // Stream and collect JSONL from stdout
     const collectedLines: string[] = [];
-    const stderrPromise = new Response(proc.stderr).text();
+    const stderrPromise = new Response(stderrWeb).text();
 
-    const reader = proc.stdout.getReader();
+    const reader = stdoutWeb.getReader();
     const decoder = new TextDecoder();
     let buf = '';
 
@@ -291,8 +308,18 @@ export async function runCodexSkill(opts: {
       collectedLines.push(buf);
     }
 
-    const stderr = await stderrPromise;
-    const exitCode = await proc.exited;
+    // Same orphan hazard as stdout: a grandchild holding stderr open would
+    // block this drain forever. Race it against child exit + a short grace
+    // window (ported from session-runner.ts — the codex copy lacked it).
+    const stderr = await Promise.race([
+      stderrPromise,
+      (async () => {
+        await procExited;
+        await new Promise((r) => setTimeout(r, 5_000));
+        return '';
+      })(),
+    ]);
+    const exitCode = await procExited;
     clearTimeout(timeoutId);
 
     const durationMs = Date.now() - startTime;

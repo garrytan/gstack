@@ -87,7 +87,7 @@ describe('restrictDirectoryPermissions', () => {
     fs.mkdirSync(d);
     // System chmod, not fs.chmodSync: Bun masks the sticky bit off chmod/
     // mkdir modes, so 0o1777 through the fs API lands as 0o777.
-    Bun.spawnSync(['chmod', '1777', d]);
+    Bun.spawnSync(['chmod', '1777', d], { timeout: 30_000 });
     expect(fs.statSync(d).mode & 0o7777).toBe(0o1777); // fixture took
     restrictDirectoryPermissions(d);
     expect(fs.statSync(d).mode & 0o7777).toBe(0o1777);
@@ -244,7 +244,7 @@ describe('mkdirSecure', () => {
     fs.mkdirSync(d);
     // System chmod: Bun's fs API masks the sticky bit off modes (see the
     // restrictDirectoryPermissions sticky-dir test).
-    Bun.spawnSync(['chmod', '1777', d]);
+    Bun.spawnSync(['chmod', '1777', d], { timeout: 30_000 });
     expect(fs.statSync(d).mode & 0o7777).toBe(0o1777); // fixture took
     mkdirSecure(d);
     expect(fs.statSync(d).mode & 0o7777).toBe(0o1777);

@@ -17,7 +17,7 @@ const SCRIPT = path.join(import.meta.dir, '..', 'scripts', 'sandbox-doctor.sh');
 describe('sandbox-doctor.sh', () => {
   test('parses as POSIX sh, fails fast, and guards every mutation for idempotency', () => {
     // Syntax: `sh -n` parses without executing.
-    const parse = spawnSync('sh', ['-n', SCRIPT], { encoding: 'utf8' });
+    const parse = spawnSync('sh', ['-n', SCRIPT], { encoding: 'utf8', timeout: 30_000 });
     expect(parse.status, parse.stderr).toBe(0);
 
     const src = fs.readFileSync(SCRIPT, 'utf-8');

@@ -19,7 +19,7 @@ function run(input: string, opts: { expectFail?: boolean } = {}): { stdout: stri
     timeout: 10000,
   };
   try {
-    const stdout = execSync(`${BIN}/gstack-review-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim();
+    const stdout = execSync(`${BIN}/gstack-review-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim(); // timeout via execOpts
     return { stdout, exitCode: 0 };
   } catch (e: any) {
     if (opts.expectFail) {
@@ -119,7 +119,7 @@ describe('gstack-review-log', () => {
         encoding: 'utf-8',
         timeout: 10000,
       };
-      execSync(`${BIN}/gstack-review-log '{"skill":"review","status":"clean"}'`, execOpts);
+      execSync(`${BIN}/gstack-review-log '{"skill":"review","status":"clean"}'`, execOpts); // timeout via execOpts
       // A record landed somewhere under projects/ without a wtree stamp.
       const found: string[] = [];
       const walk = (d: string) => {

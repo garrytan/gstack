@@ -567,14 +567,15 @@ duration-packed free shards, the sharded paid runner as the CI engine
 coverage contract + gate census, eval-budget timeout tiers, and the
 coverage fill. Remaining, in rough priority order:
 
-- **P1 — Delete the legacy evals.yml matrix after parity.** The sliced lane
-  runs alongside the 18-row matrix (`needs: evals`, so provider concurrency
-  never doubles). After 1-2 PR cycles of parity (compare executed-test sets:
-  intersection strict + the 8 KNOWN_MATRIX_GAPS files as expected additions;
-  stochastic outcomes informational), delete the matrix as a PURE-DELETION
-  commit (one revert restores it), drop the `needs: evals` edge, rewrite
-  test/evals-workflow-matrix.test.ts into a runner-wiring pin, and retire
-  KNOWN_MATRIX_GAPS/KNOWN_TIER_UNSET wholesale. Effort S.
+- **DONE (v1.77.0.0 test-infra wave 1) — Delete the legacy evals.yml matrix after
+  parity.** Deleted as a pure-deletion commit (one revert restores it) after
+  a static parity receipt: sliced gate census (49 files) ⊇ matrix files (18),
+  31 files of extra coverage. `needs: evals` edge dropped, PR comment moved
+  into slices-report, KNOWN_MATRIX_GAPS/KNOWN_TIER_UNSET retired,
+  test/evals-workflow-matrix.test.ts rewritten as
+  test/evals-workflow-wiring.test.ts. The register-skills fail-fast
+  verification loop was ported to the surviving lanes FIRST via the shared
+  .github/actions/register-gstack-skills composite.
 - **P1 — Maintainer decision: make `slices-report` a required check** once
   post-migration flake data exists (the Codex outside-voice's "green means
   green is not delivered while paid stays advisory" point — correct, and
@@ -812,7 +813,18 @@ SKILL.md untouched). `bun test` is green again.
 
 ## Scope-gate follow-ups (filed via /plan-eng-review on the plan-mode auto-select-B change)
 
-### P2: SDK eval budgets charge API-queue latency to the work budget — pick a structural fix
+### DONE (v1.77.0.0) — SDK eval budgets charge API-queue latency to the work budget
+
+**Shipped shape:** the two-phase timer landed WITHOUT the codemod this entry
+feared: the total wall stays <= timeout (work phase = remainder after first
+byte), so every outer/inner bun-timeout relationship is untouched; a silent
+API now dies EARLY at the startup grace (90s local / 300s CI floor, enforced
+Math.max) with the distinct reason 'timeout_startup'. Option (b)'s 300s CI
+floor is in (test/session-runner-startup-grace.test.ts pins it). The
+budget-EXTENSION variant (work budget = full timeout from first byte, which
+DOES need the tier/wall reshape) remains wave-2 scope in the overhaul plan.
+
+Original entry follows for context:
 
 **What:** `runSkillTest`'s single `setTimeout(timeout)` arms at spawn, so session
 startup AND the model's first-completion queue time are charged against the
@@ -2668,18 +2680,35 @@ Shipped as v0.5.0 on main. Includes `/plan-design-review` (report-only design au
 
 ## Document-Release
 
+### Spawned-session auto-choices are invisible to /plan-tune
+
+**What:** Capture auto-chosen decisions from spawned sessions (OPENCLAW_SESSION or GSTACK_SESSION_KIND=spawned) into `gstack-question-log` so `/plan-tune` learning sees them.
+
+**Why:** In spawned sessions the model never calls AskUserQuestion (it auto-chooses the recommended option per the spawned-session block), so the PostToolUse capture hook never fires and no prose brief is ever logged — every gate decision made inside a /ship Step 18 document-release subagent is missing from the question-tuning corpus.
+
+**Context:** #2733 made spawned sessions reachable from Claude Code subagents (every Conductor-hosted /ship now produces one). The subagent reports auto-chosen decisions in the JSON contract's `decisions` array (user-visible in the ship console), but nothing writes them to `~/.gstack/` question analytics. Start from the spawned-session instruction block in `bin/gstack-skill-start` — add a "log each auto-chosen decision with bin/gstack-question-log" sentence and a `source` value distinguishing auto-chosen from human-answered so tuning never trains on machine picks as if a human made them.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** #2733 fix (GSTACK_SESSION_KIND=spawned marker) landing.
+
 ### Auto-invoke /document-release from /ship — SHIPPED
 
 Shipped in v0.8.4; redesigned twice since. Current design (v0.18.2.0+, carved in
 v1.54.0.0): `/ship` Step 18 (`ship/sections/pr-body.md`) dispatches
 `/document-release` as a general-purpose subagent AFTER Step 17 (push) and
 BEFORE Step 19 (PR creation); the subagent's JSON contract (`files_updated`,
-`commit_sha`, `pushed`, `documentation_section`) is baked into the initial PR
-body. Subagent failure is non-blocking. The skeleton names "the
-/document-release subagent" at three touchpoints (section-index trigger + STOP
-pointer, Step 17 handoff, hoisted doc-sync invariant). Pinned by
-`test/ship-document-release-dispatch.test.ts` + carve-guards anchors; behavior
-proven by the `ship-docsync` gate E2E (`test/skill-e2e-ship-docsync.test.ts`).
+`commit_sha`, `pushed`, `documentation_section`, `decisions` since v1.76.0.0)
+is baked into the initial PR body — except `decisions`, which prints to the
+ship console and never enters PR markdown. Since v1.76.0.0 (#2733) the dispatch
+marks the subagent `GSTACK_SESSION_KIND=spawned` so its interactive gates
+auto-choose the recommended option. Subagent failure is non-blocking. The
+skeleton names "the /document-release subagent" at three touchpoints
+(section-index trigger + STOP pointer, Step 17 handoff, hoisted doc-sync
+invariant). Pinned by `test/ship-document-release-dispatch.test.ts` +
+carve-guards anchors; behavior proven by the `ship-docsync` gate E2E
+(`test/skill-e2e-ship-docsync.test.ts`) and the spawned-dispatch gate E2E
+(`test/skill-e2e-docsync-spawned.test.ts`).
 
 ### Machine-checkable Step 18 dispatch receipt in /ship's Section self-check
 

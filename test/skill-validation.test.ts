@@ -19,7 +19,7 @@ const CODEX_OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skillval-codex-'
 {
   const render = Bun.spawnSync(
     ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--out-dir', CODEX_OUT],
-    { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' },
+    { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 120_000 },
   );
   if (render.exitCode !== 0) {
     throw new Error(
@@ -383,7 +383,7 @@ describe('Update check preamble', () => {
     const result = Bun.spawnSync(['bash', '-c',
       '_sanitize() { sed "s/GSTACK_INSTRUCTION/GSTACK-INSTRUCTION-(stripped)/g"; }; ' +
       '_UPD=$(echo "" || true); [ -n "$_UPD" ] && printf "%s\\n" "$_UPD" | _sanitize || true'
-    ], { stdout: 'pipe', stderr: 'pipe' });
+    ], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.exitCode).toBe(0);
   });
 
@@ -391,7 +391,7 @@ describe('Update check preamble', () => {
     const result = Bun.spawnSync(['bash', '-c',
       '_sanitize() { sed "s/GSTACK_INSTRUCTION/GSTACK-INSTRUCTION-(stripped)/g"; }; ' +
       '_UPD=$(echo "UPGRADE_AVAILABLE 0.3.3 0.4.0" || true); [ -n "$_UPD" ] && printf "%s\\n" "$_UPD" | _sanitize || true'
-    ], { stdout: 'pipe', stderr: 'pipe' });
+    ], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString().trim()).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
   });
@@ -1074,7 +1074,7 @@ describe('gstack-slug', () => {
   });
 
   test('outputs SLUG and BRANCH lines in a git repo', () => {
-    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     expect(output).toContain('SLUG=');
@@ -1082,21 +1082,21 @@ describe('gstack-slug', () => {
   });
 
   test('SLUG does not contain forward slashes', () => {
-    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const slug = result.stdout.toString().match(/SLUG=(.*)/)?.[1] ?? '';
     expect(slug).not.toContain('/');
     expect(slug.length).toBeGreaterThan(0);
   });
 
   test('BRANCH does not contain forward slashes', () => {
-    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const branch = result.stdout.toString().match(/BRANCH=(.*)/)?.[1] ?? '';
     expect(branch).not.toContain('/');
     expect(branch.length).toBeGreaterThan(0);
   });
 
   test('output is eval-compatible (KEY=VALUE format)', () => {
-    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const lines = result.stdout.toString().trim().split('\n');
     expect(lines.length).toBe(2);
     expect(lines[0]).toMatch(/^SLUG=.+/);
@@ -1104,7 +1104,7 @@ describe('gstack-slug', () => {
   });
 
   test('output values contain only safe characters (no shell metacharacters)', () => {
-    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const slug = result.stdout.toString().match(/SLUG=(.*)/)?.[1] ?? '';
     const branch = result.stdout.toString().match(/BRANCH=(.*)/)?.[1] ?? '';
     // Only alphanumeric, dot, dash, underscore are allowed (#133)
@@ -1114,7 +1114,7 @@ describe('gstack-slug', () => {
   test('eval sets variables under bash with set -euo pipefail', () => {
     const result = Bun.spawnSync(
       ['bash', '-c', 'set -euo pipefail; eval "$(./bin/gstack-slug 2>/dev/null)"; echo "SLUG=$SLUG"; echo "BRANCH=$BRANCH"'],
-      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 }
     );
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
@@ -1125,7 +1125,7 @@ describe('gstack-slug', () => {
   test('no templates or bin scripts use source process substitution for gstack-slug', () => {
     const result = Bun.spawnSync(
       ['grep', '-r', 'source <(.*gstack-slug', '--include=*.tmpl', '--include=gstack-review-*', '.'],
-      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 }
     );
     // grep returns exit code 1 when no matches found — that's what we want
     expect(result.stdout.toString().trim()).toBe('');
@@ -1994,7 +1994,7 @@ describe('no compiled binaries in git', () => {
   // Tracked files enumerated once and reused by both assertions. git ls-files -z
   // + split is ~ms; the previous xargs-per-file shell loops blew past 5s on CI.
   const trackedFiles: string[] = require('child_process')
-    .execSync('git ls-files -z', { cwd: ROOT, encoding: 'utf-8' })
+    .execSync('git ls-files -z', { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 })
     .split('\0')
     .filter(Boolean);
 
@@ -2004,6 +2004,7 @@ describe('no compiled binaries in git', () => {
     const lsOut: string = require('child_process').execSync('git ls-files -s', {
       cwd: ROOT,
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     const executableFiles = lsOut
       .split('\n')
@@ -2022,6 +2023,7 @@ describe('no compiled binaries in git', () => {
       .execSync(`file --mime-type -- ${executableFiles.map((f: string) => `'${f.replace(/'/g, "'\\''")}'`).join(' ')}`, {
         cwd: ROOT,
         encoding: 'utf-8',
+        timeout: 30_000,
       })
       .trim();
 

@@ -41,7 +41,7 @@ describe('eval budget tiers', () => {
   });
 
   test('no paid-test timeout literal exceeds the ceiling tier', () => {
-    const out = spawnSync('git', ['ls-files', 'test/*.test.ts'], { cwd: ROOT, encoding: 'utf-8' });
+    const out = spawnSync('git', ['ls-files', 'test/*.test.ts'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
     const files = out.stdout.split('\n').filter((f) => f && isPaidTestFile(f));
     expect(files.length).toBeGreaterThan(50); // scan-rot guard
 

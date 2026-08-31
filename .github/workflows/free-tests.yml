@@ -48,7 +48,7 @@ jobs:
     runs-on: ubicloud-standard-8
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -129,6 +129,27 @@ jobs:
         run: xvfb-run -a bun run test:free
         env:
           GSTACK_EXPECT_BINARIES: "1"
+          # WS1 flake telemetry: a single timing flake must not red the only
+          # required lane — the runner's attribution-gated retry pass (cap 5,
+          # truncation veto) re-runs failing files once, serially, and a
+          # clean retry downgrades to a LOUD flaky-pass. Every flaky-pass is
+          # appended to the ledger (single writer: the parent runner) and
+          # uploaded below, so repeat offenders are an enumerable series —
+          # recorded and ranked, never masked. Pinned by
+          # test/free-tests-workflow-wiring.test.ts.
+          GSTACK_FREE_RETRY_FLAKY: "1"
+          GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
+
+      # Uploaded unconditionally (not just on failure): a flaky-pass run is
+      # GREEN — that's the point — so its evidence must survive green runs.
+      - name: Upload flake ledger
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: flake-ledger
+          path: ${{ runner.temp }}/flake-ledger.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
 
       # The runner streams the full child output to per-run logs under the OS
       # tmpdir and prints only the quiet contract to the console. Without this
@@ -137,7 +158,7 @@ jobs:
       # need a local re-run, which fork contributors can't do on this image.
       - name: Upload shard logs on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: free-test-shard-logs
           path: /tmp/gstack-free-test-*.log

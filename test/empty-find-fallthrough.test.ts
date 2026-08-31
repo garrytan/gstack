@@ -35,7 +35,7 @@ describe('empty find must not fall through to cwd (#2483)', () => {
   test('no resolver emits a bare `xargs ls -t` (must be `xargs -r ls -t`)', () => {
     const out = execSync(
       `grep -rn "xargs ls -t" "${path.join(ROOT, 'scripts')}" "${path.join(ROOT, 'bin')}" || true`,
-      { encoding: 'utf-8' },
+      { encoding: 'utf-8', timeout: 30_000 },
     );
     expect(out.trim()).toBe('');
   });
@@ -67,6 +67,7 @@ describe('empty find must not fall through to cwd (#2483)', () => {
       const out = execSync(`bash -c '${script.replace(/'/g, `'\\''`)}'`, {
         cwd,
         encoding: 'utf-8',
+        timeout: 30_000,
       });
       expect(out).toContain('LATEST_CP=[]');
       expect(out).not.toContain('DECOY.md');
@@ -79,7 +80,7 @@ describe('empty find must not fall through to cwd (#2483)', () => {
   test('no generated SKILL.md carries the unguarded form', () => {
     const out = execSync(
       `grep -rln "xargs ls -t" --include=SKILL.md "${ROOT}" || true`,
-      { encoding: 'utf-8' },
+      { encoding: 'utf-8', timeout: 30_000 },
     );
     // node_modules and vendored trees are not generated output; nothing in
     // the repo's generated skills may carry the unguarded form.

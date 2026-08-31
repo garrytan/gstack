@@ -330,7 +330,7 @@ describe('host-config-export.ts CLI', () => {
 
   function run(...args: string[]): { stdout: string; stderr: string; exitCode: number } {
     const result = Bun.spawnSync(['bun', 'run', EXPORT_SCRIPT, ...args], {
-      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000,
     });
     return {
       stdout: result.stdout.toString().trim(),
@@ -445,7 +445,7 @@ describe('golden-file regression', () => {
     for (const host of ['codex', 'factory']) {
       const result = Bun.spawnSync(
         ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host, '--out-dir', GOLDEN_OUT],
-        { cwd: ROOT },
+        { cwd: ROOT, timeout: 120_000 },
       );
       if (result.exitCode !== 0) {
         throw new Error(

@@ -42,8 +42,8 @@ const SELF_GATE_RE = /EVALS_TIER\s*===\s*['"](gate|periodic)['"]/g;
 const HELPER_GATE_RE = /\b(?:describeE2ETier|e2eTierEnabled)\(\s*['"](gate|periodic)['"]/g;
 
 /**
- * Ratchet, not amnesty (same contract as KNOWN_MATRIX_GAPS in
- * test/evals-workflow-matrix.test.ts): skill-e2e files that are named in NO
+ * Ratchet, not amnesty (the contract KNOWN_MATRIX_GAPS pioneered before the
+ * legacy eval matrix and its test retired): skill-e2e files that are named in NO
  * touchfiles dep list because no E2E map key exists for them. Every entry
  * carries a one-line reason. Do NOT add new files here — give the test an
  * E2E map key (touchfiles + tier) and register the file in its dep list.
@@ -141,8 +141,8 @@ describe('E2E tier alignment (touchfiles declaration vs test self-gate)', () => 
     expect(misaligned).toEqual([]);
   });
 
-  // Ratchet cleanup enforcement (same contract as evals-workflow-matrix's
-  // burn-down test): a KNOWN_UNREGISTERED entry whose file was deleted, or
+  // Ratchet cleanup enforcement (same shrink-only contract as the retired
+  // matrix test's burn-down): a KNOWN_UNREGISTERED entry whose file was deleted, or
   // whose file is now named in a dep list, is stale — delete the entry so
   // the set can only shrink.
   test('KNOWN_UNREGISTERED holds only live, still-unregistered files', () => {

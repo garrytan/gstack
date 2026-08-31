@@ -83,6 +83,7 @@ describe("diagram render gate", () => {
         env: { ...process.env, BROWSE_BIN },
         stdout: "pipe",
         stderr: "pipe",
+        timeout: 120_000,
       });
       const stderr = new TextDecoder().decode(run.stderr);
       if (run.exitCode !== 0) {

@@ -13,7 +13,7 @@ describe('build: server-node.mjs', () => {
       // Skip rather than fail so plain `bun test` without a prior build passes.
       return;
     }
-    expect(() => execSync(`node --check ${SERVER_NODE}`, { stdio: 'pipe' })).not.toThrow();
+    expect(() => execSync(`node --check ${SERVER_NODE}`, { stdio: 'pipe', timeout: 30_000 })).not.toThrow();
   });
 
   test('does not inline @ngrok/ngrok (must be external)', () => {

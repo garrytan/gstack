@@ -5,7 +5,7 @@ import * as path from 'path';
 const HELPER = path.join(import.meta.dir, '..', 'bin', 'gstack-pr-title-rewrite.sh');
 
 function rewrite(version: string, title: string): { stdout: string; status: number; stderr: string } {
-  const r = spawnSync(HELPER, [version, title], { encoding: 'utf-8' });
+  const r = spawnSync(HELPER, [version, title], { encoding: 'utf-8', timeout: 30_000 });
   return { stdout: (r.stdout ?? '').trimEnd(), status: r.status ?? -1, stderr: r.stderr ?? '' };
 }
 
@@ -54,7 +54,7 @@ describe('gstack-pr-title-rewrite', () => {
   });
 
   test('errors on missing args', () => {
-    const r = spawnSync(HELPER, ['1.2.3.4'], { encoding: 'utf-8' });
+    const r = spawnSync(HELPER, ['1.2.3.4'], { encoding: 'utf-8', timeout: 30_000 });
     expect(r.status).not.toBe(0);
   });
 

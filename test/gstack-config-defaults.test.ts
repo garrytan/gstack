@@ -45,6 +45,7 @@ const STATE = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-config-test-'));
 function get(key: string): { out: string; code: number } {
   const r = spawnSync('bash', [CONFIG_BIN, 'get', key], {
     encoding: 'utf-8',
+    timeout: 30_000,
     env: { ...process.env, GSTACK_STATE_ROOT: STATE },
   });
   return { out: r.stdout ?? '', code: r.status ?? -1 };

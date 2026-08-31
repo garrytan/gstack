@@ -16,6 +16,7 @@ const otherProjDir = path.join(tmpHome, 'projects', 'other-project');
 
 function run(args: string[]): string {
   return execFileSync(BIN, args, {
+    timeout: 30_000,
     env: { ...process.env, GSTACK_HOME: tmpHome },
     cwd: tmpCwd,
     encoding: 'utf-8',

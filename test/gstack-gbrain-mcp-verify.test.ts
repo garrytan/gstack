@@ -94,6 +94,7 @@ function runVerify(token: string, url: string): { code: number; stdout: string; 
       GSTACK_HOME: tmpDir,
     },
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   return {
     code: result.status ?? -1,
@@ -249,6 +250,7 @@ describe('gstack-gbrain-mcp-verify', () => {
     const r = spawnSync(VERIFY_BIN, ['https://example.com/mcp'], {
       env: { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH}`, GBRAIN_MCP_TOKEN: '' },
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('GBRAIN_MCP_TOKEN');
@@ -259,6 +261,7 @@ describe('gstack-gbrain-mcp-verify', () => {
     const r = spawnSync(VERIFY_BIN, [], {
       env: { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH}`, GBRAIN_MCP_TOKEN: 'x' },
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(r.status).toBe(2);
   });

@@ -64,7 +64,7 @@ import {
 } from './test-strict-output';
 import { PAID_TEST_GLOBS, isPaidTestFile } from '../test/helpers/paid-test-set';
 import { PERIODIC_CI_EXCLUDE } from '../test/helpers/periodic-exclude-data';
-import { getProjectEvalDir } from '../test/helpers/eval-store';
+import { getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile } from '../test/helpers/eval-store';
 import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
 import {
   detectBaseBranch,
@@ -85,11 +85,16 @@ export type PaidTier = 'gate' | 'periodic';
 export const DEFAULT_TIER: PaidTier = 'gate';
 export const DEFAULT_SHARD_TIMEOUT_MS = 30 * 60_000;
 export const DEFAULT_MAX_FILES_PER_SHARD = 1;
-export const DEFAULT_JOBS = 4;
-// Within one shard's bun process. 4 jobs × 4 ≈ the legacy single-process
-// default of 15, keeping total in-flight `claude` sessions inside known-safe
-// API rate headroom.
-export const DEFAULT_WITHIN_SHARD_CONCURRENCY = 4;
+// 8 jobs × 2 within-shard ≈ 10-13 real in-flight sessions (39 of 75
+// skill-e2e files hold exactly ONE test, so within-shard concurrency is
+// dead weight for most shards) — under the documented-safe ~15 the legacy
+// 40-way runner established. The old 4×4 yielded only ~4-6 in-flight and a
+// 13-wave local gate worst case (~6.5h); 8×2 halves it. Watch the WS1
+// flake telemetry for sustained 429 storms across 2 PR cycles — that is
+// the rollback trigger. Prerequisite (landed): per-shard TMPDIR/
+// CHROMIUM_PROFILE isolation in runPaidShard.
+export const DEFAULT_JOBS = 8;
+export const DEFAULT_WITHIN_SHARD_CONCURRENCY = 2;
 
 export function collectPaidTestFiles(rootDir = ROOT): string[] {
   const testDir = path.join(rootDir, 'test');
@@ -393,6 +398,24 @@ export interface ShardOutcome {
   groupPid: number | null;
   /** Tests bun reported executing ("Ran N tests ..."), null when unknown. */
   executedTests: number | null;
+  /** Tests bun reported skipping (" N skip" count line), null when unknown.
+   *  "Ran N tests" COUNTS skips, so executedTests alone cannot distinguish a
+   *  shard that verified work from one whose every test self-skipped —
+   *  codex/gemini files green-by-skip on every CI runner (no binary) and the
+   *  weekly census read them as covered. */
+  skippedTests: number | null;
+}
+
+/**
+ * True when a shard "passed" without verifying anything: every test bun ran
+ * was a skip. Legitimate for external-service files on hosts without the
+ * binary, but it must surface as a census warning, never read as coverage.
+ */
+export function isAllSkippedPass(outcome: Pick<ShardOutcome, 'status' | 'executedTests' | 'skippedTests'>): boolean {
+  return outcome.status === 'passed'
+    && outcome.executedTests !== null
+    && outcome.executedTests > 0
+    && outcome.skippedTests === outcome.executedTests;
 }
 
 export interface ShardCommand {
@@ -475,6 +498,28 @@ export async function runPaidShard(
   if (options.evalDirBase) {
     env.GSTACK_EVAL_DIR = path.join(options.evalDirBase, 'shards', shardSlug(files));
   }
+  // Resolve `claude --version` ONCE in the parent (cached across shards) and
+  // hand it to every child: eval-store's fallback is a synchronous spawn on
+  // the same thread that polls PTY sessions, so children must never pay it.
+  if (!env.GSTACK_CLAUDE_CLI_VERSION) {
+    env.GSTACK_CLAUDE_CLI_VERSION = getClaudeCliVersion();
+  }
+  // Per-shard temp + Chromium-profile isolation — the free runner treats
+  // this as mandatory (test-free-shards.ts: two concurrent shards on one
+  // profile dir kill each other's browser; shared tmp cross-contaminates),
+  // and the paid lane had NONE of it. Doubly load-bearing here: when a
+  // shard hits its 30-min wall the group-SIGKILL means per-test afterAll
+  // cleanup never runs — the rmSync backstop below is the only thing
+  // stopping wedged runs from accumulating full git-repo workspaces in the
+  // shared tmpdir forever. Prerequisite for raising EVALS_JOBS (more
+  // concurrency on shared state amplifies exactly the opus-47 race class).
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-paid-shard-'));
+  const childTmp = path.join(stateDir, 'tmp');
+  fs.mkdirSync(childTmp);
+  env.TMPDIR = childTmp;
+  env.TEMP = childTmp;
+  env.TMP = childTmp;
+  env.CHROMIUM_PROFILE = path.join(stateDir, 'chromium-profile');
 
   const startedAt = Date.now();
   log(`${label} START ${files.join(' ')} (timeout ${Math.round(timeoutMs / 1000)}s)`);
@@ -529,6 +574,16 @@ export async function runPaidShard(
   } finally {
     // Close the spool even when the spawn itself failed.
     await new Promise<void>((resolve) => logStream.end(() => resolve()));
+    try {
+      // async rm: a SIGKILLed shard can leave a full git workspace + Chromium
+      // profile here; a synchronous recursive delete on the parent's event
+      // loop would stall every sibling shard's stream classification and
+      // wall timers for seconds (review finding).
+      await fs.promises.rm(stateDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort: a locked file must not turn a real verdict into an
+      // exception (same posture as the free runner's cleanup).
+    }
   }
 
   const summary = classifier.end();
@@ -562,7 +617,8 @@ export async function runPaidShard(
   const executedTests = summary.terminalTestCounts.length > 0
     ? summary.terminalTestCounts.reduce((a, b) => a + b, 0)
     : null;
-  return { shard: shardNumber, files, status, exitCode, elapsedMs, groupPid, executedTests };
+  const skippedTests = summary.terminalTestCounts.length > 0 ? summary.skippedTests : null;
+  return { shard: shardNumber, files, status, exitCode, elapsedMs, groupPid, executedTests, skippedTests };
 }
 
 export interface RunSummary {
@@ -636,6 +692,7 @@ export async function runPaidShards(
     elapsedMs: 0,
     groupPid: null,
     executedTests: null,
+    skippedTests: null,
   }));
 
   let next = 0;
@@ -659,6 +716,7 @@ export async function runPaidShards(
           elapsedMs: 0,
           groupPid: null,
           executedTests: null,
+          skippedTests: null,
         };
         console.error(`[test:paid] shard ${index + 1} could not run: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -678,9 +736,14 @@ export function formatSummary(summary: RunSummary): string[] {
     + `${summary.skippedByDiff} skipped by diff`,
   ];
   for (const outcome of summary.outcomes) {
+    // A pass whose every test skipped is labeled distinctly: it exited 0 but
+    // verified NOTHING (codex/gemini files on hosts without the binary).
+    // Status stays 'passed' — availability of an external service is not a
+    // repo regression — but the census must never read it as coverage.
+    const allSkipped = isAllSkippedPass(outcome) ? ` ⚠ all ${outcome.executedTests} tests SKIPPED — verified nothing` : '';
     lines.push(
       `  ${outcome.status.padEnd(15)} ${String(Math.round(outcome.elapsedMs / 1000)).padStart(5)}s  `
-      + outcome.files.join(' '),
+      + outcome.files.join(' ') + allSkipped,
     );
   }
   return lines;
@@ -786,7 +849,7 @@ export interface SliceResult {
   tier: PaidTier;
   sliceIndex: number;
   sliceCount: number;
-  outcomes: Array<Pick<ShardOutcome, 'files' | 'status' | 'exitCode' | 'elapsedMs' | 'executedTests'>>;
+  outcomes: Array<Pick<ShardOutcome, 'files' | 'status' | 'exitCode' | 'elapsedMs' | 'executedTests' | 'skippedTests'>>;
 }
 
 /**
@@ -970,6 +1033,35 @@ async function main(): Promise<number> {
       for (const problem of verdict.problems) console.error(`  ✗ ${problem}`);
       return 1;
     }
+    // Flake honesty (WS1): surface every test that needed a retry to pass.
+    // WARNS, never fails — a flaky pass must not block merges; it must also
+    // never be invisible (bun's own output hides retried passes entirely).
+    // Source: the finalized eval-store JSONs inside the slice artifacts.
+    const flaky: Array<{ name: string; attempts: number; file: string }> = [];
+    for (const name of fs.readdirSync(options.reportDir, { recursive: true }) as string[]) {
+      if (!isFinalizedEvalResultFile(name)) continue;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.join(options.reportDir, name), 'utf-8')) as { flaky_retries?: Array<{ name: string; attempts: number }> };
+        for (const f of parsed.flaky_retries ?? []) flaky.push({ ...f, file: name });
+      } catch { /* non-eval JSON — not this report's business */ }
+    }
+    if (flaky.length > 0) {
+      console.log(`[test:paid] report: ⚠ ${flaky.length} test(s) passed only on retry this run (recorded, not blocking):`);
+      for (const f of flaky) console.log(`  ⚠ ${f.name} (x${f.attempts}) — ${f.file}`);
+    }
+
+    // Census honesty: a 'passed' shard whose every test skipped verified
+    // nothing (external-service binary absent on the runner). Not a failure —
+    // service availability is host state, not a repo regression — but the
+    // report must say so, or the weekly lane reads codex/gemini as covered
+    // on runners that never install them.
+    const allSkipped = results.flatMap((r) => r.outcomes.filter(isAllSkippedPass));
+    if (allSkipped.length > 0) {
+      console.log(`[test:paid] report: ⚠ ${allSkipped.length} shard(s) passed with EVERY test skipped — they verified nothing:`);
+      for (const outcome of allSkipped) {
+        console.log(`  ⚠ ${outcome.files.join(' ')} (${outcome.executedTests} skipped — external service missing or tier mismatch)`);
+      }
+    }
     console.log('[test:paid] report: every planned shard accounted and passed');
     return 0;
   }
@@ -1023,8 +1115,8 @@ async function main(): Promise<number> {
       tier: manifest.tier,
       sliceIndex: options.sliceIndex,
       sliceCount: manifest.sliceCount,
-      outcomes: guarded.map(({ files, status, exitCode, elapsedMs, executedTests }) =>
-        ({ files, status, exitCode, elapsedMs, executedTests })),
+      outcomes: guarded.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests }) =>
+        ({ files, status, exitCode, elapsedMs, executedTests, skippedTests })),
     };
     fs.mkdirSync(evalDirBase, { recursive: true });
     const sliceResultPath = path.join(evalDirBase, `slice-${options.sliceIndex}.json`);
@@ -1102,6 +1194,7 @@ async function main(): Promise<number> {
     elapsedMs: 0,
     groupPid: null,
     executedTests: null,
+    skippedTests: null,
   }));
   const guardedOutcomes = applyHollowShardGuard(runSummary.outcomes, {
     evalsAll: process.env.EVALS_ALL === '1',

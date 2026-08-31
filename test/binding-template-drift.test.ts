@@ -102,7 +102,7 @@ describe('content-binding template drift', () => {
       const abort = spawnSync('bash', ['-c', scriptFor(
         'clean body\n',
         'body with UNTRUSTED TRACKER CONTENT banner leak\n',
-      )], { encoding: 'utf-8' });
+      )], { encoding: 'utf-8', timeout: 30_000 });
       expect(abort.stderr).toContain('ABORT: envelope banner leaked');
       expect(abort.stdout).not.toContain('banner tripwire clean');
 
@@ -110,7 +110,7 @@ describe('content-binding template drift', () => {
       const clean = spawnSync('bash', ['-c', scriptFor(
         'clean body\n',
         'also clean body\n',
-      )], { encoding: 'utf-8' });
+      )], { encoding: 'utf-8', timeout: 30_000 });
       expect(clean.stdout).toContain('banner tripwire clean');
       expect(clean.stderr).not.toContain('ABORT');
     } finally {

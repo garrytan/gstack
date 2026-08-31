@@ -166,6 +166,7 @@ describe('telemetry no-repo-identity-egress invariant', () => {
     }
     const out = spawnSync(['sed', ...sedArgs], {
       stdin: Buffer.from(sample),
+      timeout: 30_000,
     });
     const cleaned = out.stdout.toString();
 
@@ -198,7 +199,7 @@ describe('telemetry no-repo-identity-egress invariant', () => {
     expect(anonymous).toBeTruthy();
 
     const runJq = (filter: string, input: string) => {
-      const out = spawnSync(['jq', '-c', filter], { stdin: Buffer.from(input) });
+      const out = spawnSync(['jq', '-c', filter], { stdin: Buffer.from(input), timeout: 30_000 });
       return { exitCode: out.exitCode, stdout: out.stdout.toString().trim() };
     };
 

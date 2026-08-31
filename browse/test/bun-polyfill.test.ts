@@ -27,7 +27,7 @@ describe('bun-polyfill', () => {
         const elapsed = Date.now() - start;
         console.log(elapsed >= 40 ? 'OK' : 'TOO_FAST');
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('OK');
     expect(result.exitCode).toBe(0);
   });
@@ -38,7 +38,7 @@ describe('bun-polyfill', () => {
       const r = Bun.spawnSync(['echo', 'hello'], { stdout: 'pipe' });
       console.log(r.stdout.toString().trim());
       console.log('exit:' + r.exitCode);
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const lines = result.stdout.toString().trim().split('\n');
     expect(lines[0]).toBe('hello');
     expect(lines[1]).toBe('exit:0');
@@ -51,7 +51,7 @@ describe('bun-polyfill', () => {
       console.log(typeof p.pid === 'number' ? 'HAS_PID' : 'NO_PID');
       console.log(typeof p.kill === 'function' ? 'HAS_KILL' : 'NO_KILL');
       console.log(typeof p.unref === 'function' ? 'HAS_UNREF' : 'NO_UNREF');
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const lines = result.stdout.toString().trim().split('\n');
     expect(lines[0]).toBe('HAS_PID');
     expect(lines[1]).toBe('HAS_KILL');
@@ -70,7 +70,7 @@ describe('bun-polyfill', () => {
         console.log(typeof p.exited === 'object' && typeof p.exited.then === 'function' ? 'IS_PROMISE' : 'NOT_PROMISE');
         console.log('exit:' + await p.exited);
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const lines = result.stdout.toString().trim().split('\n');
     expect(lines[0]).toBe('IS_PROMISE');
     expect(lines[1]).toBe('exit:0');
@@ -83,7 +83,7 @@ describe('bun-polyfill', () => {
         const p = Bun.spawn(['node', '-e', 'process.exit(3)'], { stdio: ['ignore', 'ignore', 'ignore'] });
         console.log('exit:' + await p.exited);
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('exit:3');
   });
 
@@ -100,7 +100,7 @@ describe('bun-polyfill', () => {
         const out = await new Response(p.stdout).text();
         console.log(out + ':' + code);
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('ready:0');
   });
 
@@ -120,7 +120,7 @@ describe('bun-polyfill', () => {
         ]).catch(() => 'TIMEOUT');
         console.log('exit:' + code);
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     // Anything other than 'TIMEOUT' (and ideally a non-zero number) means the
     // lifecycle promise resolved on the spawn error.
     const out = result.stdout.toString().trim();
@@ -139,7 +139,7 @@ describe('bun-polyfill', () => {
         setTimeout(() => p.kill('SIGTERM'), 150);
         console.log('exit:' + await p.exited);
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     // SIGTERM = 15 → 128 + 15 = 143.
     expect(result.stdout.toString().trim()).toBe('exit:143');
   });
@@ -166,7 +166,7 @@ describe('bun-polyfill', () => {
         const out = await new Response(p.stdout).text();
         console.log(out.length + ':' + code);
       })();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('1024:0');
   });
 
@@ -197,7 +197,7 @@ describe('bun-polyfill', () => {
         const out = await new Response(p.stdout).text();
         console.log(out.length + ':' + code);
       })().catch((e) => { console.log('THREW:' + e.message); });
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('1048576:0');
   }, 15000);
 
@@ -217,7 +217,7 @@ describe('bun-polyfill', () => {
       console.log(typeof server.stop === 'function' ? 'HAS_STOP' : 'NO_STOP');
       console.log(typeof server.port === 'number' ? 'HAS_PORT' : 'NO_PORT');
       server.stop();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     const lines = result.stdout.toString().trim().split('\n');
     expect(lines[0]).toBe('HAS_STOP');
     expect(lines[1]).toBe('HAS_PORT');
@@ -237,7 +237,7 @@ describe('bun-polyfill', () => {
       require(${JSON.stringify(polyfillPath)});
       Bun.spawn(['node', '-e', ''], { stdio: ['ignore', 'ignore', 'ignore'] });
       console.log('windowsHide:' + seen.windowsHide);
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('windowsHide:true');
   });
 
@@ -250,7 +250,7 @@ describe('bun-polyfill', () => {
       require(${JSON.stringify(polyfillPath)});
       Bun.spawnSync(['node', '-e', '']);
       console.log('windowsHide:' + seen.windowsHide);
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('windowsHide:true');
   });
 
@@ -263,7 +263,7 @@ describe('bun-polyfill', () => {
       require(${JSON.stringify(polyfillPath)});
       Bun.spawn(['node', '-e', ''], { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: false });
       console.log('windowsHide:' + seen.windowsHide);
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(result.stdout.toString().trim()).toBe('windowsHide:false');
   });
 });

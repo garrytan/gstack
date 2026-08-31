@@ -119,7 +119,7 @@ exit 0
  * test focused on artifacts-init's branching logic, not git plumbing.
  */
 function makeFakeGit() {
-  const realGit = spawnSync('which', ['git'], { encoding: 'utf-8' }).stdout.trim();
+  const realGit = spawnSync('which', ['git'], { encoding: 'utf-8', timeout: 30_000 }).stdout.trim();
   const script = `#!/bin/bash
 # Walk argv past leading -C <dir> and similar flags to find the real subcommand.
 args=("$@")
@@ -157,6 +157,7 @@ function run(argv: string[], opts: { env?: Record<string, string>; input?: strin
     encoding: 'utf-8',
     input: opts.input,
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout || '',
@@ -176,7 +177,7 @@ beforeEach(() => {
   fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'artifacts-fake-bin-'));
   ghCallLog = path.join(fakeBinDir, 'gh-calls.log');
   glabCallLog = path.join(fakeBinDir, 'glab-calls.log');
-  spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote]);
+  spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bareRemote], { timeout: 30_000 });
   makeFakeGit();
 });
 
@@ -277,7 +278,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGh({ webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
     expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
@@ -288,7 +289,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
     expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
   });
 
@@ -296,7 +297,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGh({ gitProtocol: 'unset' });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
     expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
@@ -304,7 +305,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGlab({ gitProtocol: 'ssh' });
     const r = run(['--host', 'gitlab']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
     expect(remote.stdout.trim()).toBe('git@gitlab.com:testuser/gstack-artifacts-testuser.git');
   });
 });
@@ -359,7 +360,7 @@ describe('gstack-artifacts-init idempotency', () => {
     makeFakeGh({ gitProtocol: 'ssh' });
     const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
     expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
@@ -372,7 +373,7 @@ describe('gstack-artifacts-init idempotency', () => {
       'ssh',
     ]);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
     expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
   });
 

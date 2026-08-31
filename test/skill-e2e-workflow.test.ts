@@ -183,7 +183,7 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
     logCost('/ship local workflow', result);
 
     // Check push succeeded — verify the feature branch exists on the bare remote
-    const branchCheck = spawnSync('git', ['branch', '--list', 'feature/ship-test'], { cwd: shipRemoteDir, stdio: 'pipe' });
+    const branchCheck = spawnSync('git', ['branch', '--list', 'feature/ship-test'], { cwd: shipRemoteDir, stdio: 'pipe', timeout: 30_000 });
     const branchExists = branchCheck.stdout.toString().trim().length > 0;
 
     // Check VERSION was bumped locally (even if push failed, this shows the LLM did the work)

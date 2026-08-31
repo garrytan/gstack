@@ -137,12 +137,12 @@ function snapshotFixture(workTree: string): FixtureSnapshot {
   const changelog = fs.readFileSync(path.join(workTree, 'CHANGELOG.md'), 'utf-8');
   // Count `## [0.0.2]` headings — should stay at 1 across re-runs.
   const changelogEntryCount = (changelog.match(/^##\s*\[0\.0\.2\]/gm) ?? []).length;
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: workTree, stdio: 'pipe' });
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: workTree, stdio: 'pipe', timeout: 30_000 });
   const branchHead = head.stdout?.toString().trim() ?? '';
   // Count "chore: bump version" commits on this branch since main.
   const log = spawnSync(
     'git', ['log', '--format=%s', 'main..HEAD'],
-    { cwd: workTree, stdio: 'pipe' },
+    { cwd: workTree, stdio: 'pipe', timeout: 30_000 },
   );
   const subjects = log.stdout?.toString() ?? '';
   const bumpCommitCount = subjects.split('\n').filter(s => /chore:\s*bump\s+version/i.test(s)).length;

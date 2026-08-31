@@ -61,8 +61,19 @@ _sanitize() { sed -e 's/GSTACK_INSTRUCTION/GSTACK-INSTRUCTION-(stripped)/g' -e '
 
 echo "SKILL_START_PROTO: 1"
 
-_UPD=$("$_BIN/gstack-update-check" 2>/dev/null || true)
-[ -n "$_UPD" ] && printf '%s\n' "$_UPD" | _sanitize || true
+# Session kind resolves FIRST (env-only checks, cheap). Spawned sessions skip
+# the network-bound update-check: its only consumer (the upgrade-flow block)
+# is emission-gated on kind != spawned below, so the work would be discarded —
+# and running it would consume the one-shot just-upgraded marker meant for the
+# next human session (#2733 review).
+_SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+
+_UPD=""
+if [ "$_SESSION_KIND" != "spawned" ]; then
+  _UPD=$("$_BIN/gstack-update-check" 2>/dev/null || true)
+  [ -n "$_UPD" ] && printf '%s\n' "$_UPD" | _sanitize || true
+fi
 
 mkdir -p "$_GH/sessions" 2>/dev/null || true
 touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
@@ -83,22 +94,39 @@ REPO_MODE=""
 eval "$("$_BIN/gstack-repo-mode" 2>/dev/null)" 2>/dev/null || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
-case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
+# Tamper visibility (#2733 review): a repo-provided settings env block or a CI
+# wrapper could set GSTACK_SESSION_KIND or OPENCLAW_SESSION for a real human's
+# session, silently flipping every gate to auto-choose. Surface the env-driven
+# override loudly, naming the driver, so the transcript shows WHY this session
+# is spawned. Gated on the RESOLVED kind so a broken session-kind fallback
+# never prints a contradictory override line next to SESSION_KIND: interactive.
+if [ "$_SESSION_KIND" = "spawned" ]; then
+  if [ "${GSTACK_SESSION_KIND:-}" = "spawned" ]; then
+    echo "SPAWNED_OVERRIDE: env (GSTACK_SESSION_KIND)"
+  elif [ -n "${OPENCLAW_SESSION:-}" ]; then
+    echo "SPAWNED_OVERRIDE: env (OPENCLAW_SESSION)"
+  fi
+fi
 # Conductor host: AskUserQuestion is unreliable there (native disabled, MCP
 # variant flaky); skills render decisions as prose. Gated on !headless so an
-# eval/CI run INSIDE Conductor still BLOCKs rather than rendering prose to nobody.
-if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+# eval/CI run INSIDE Conductor still BLOCKs rather than rendering prose to
+# nobody, and on !spawned so an orchestrator- or parent-skill-spawned session
+# inside a Conductor workspace auto-chooses per its spawned-session block
+# instead of rendering prose to nobody (#2733).
+if [ "$_SESSION_KIND" != "headless" ] && [ "$_SESSION_KIND" != "spawned" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
   echo "CONDUCTOR_SESSION: true"
 fi
 _ACTIVATED=$([ -f "$_GH/.activated" ] && echo "yes" || echo "no")
 _FIRST_LOOP_SHOWN=$([ -f "$_GH/.first-loop-tip-shown" ] && echo "yes" || echo "no")
 echo "ACTIVATED: $_ACTIVATED"
 echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
-# First-run project detection: only on the first-ever skill run (off the hot path after).
+# First-run project detection: only on the first-ever skill run (off the hot
+# path after). Spawned excluded like headless (#2733 review): spawned sessions
+# never write .activated, so without the exclusion the ~17-subprocess probe
+# would re-run on EVERY spawned start while its only consumers stay suppressed.
 _FIRST_TASK=""
-if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
+if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ] && [ "$_SESSION_KIND" != "spawned" ]; then
   _FIRST_TASK=$("$_BIN/gstack-first-task-detect" 2>/dev/null || true)
 fi
 printf 'FIRST_TASK: %s\n' "$_FIRST_TASK" | _sanitize
@@ -182,7 +210,9 @@ else
   GSTACK_PLAN_MODE="inactive"
 fi
 echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
-[ -n "${OPENCLAW_SESSION:-}" ] && echo "SPAWNED_SESSION: true" || true
+# Keyed on the resolved kind, not raw OPENCLAW_SESSION (#2733): the explicit
+# GSTACK_SESSION_KIND=spawned override must light this up too.
+[ "$_SESSION_KIND" = "spawned" ] && echo "SPAWNED_SESSION: true" || true
 
 # ---------------------------------------------------------------------------
 # Artifacts sync (the former "Artifacts Sync (skill start)" fence, verbatim
@@ -314,6 +344,17 @@ fi
 # ---------------------------------------------------------------------------
 _ROOT_DIR=$(dirname "$_BIN")
 _emit_block() { echo "GSTACK_INSTRUCTION_BEGIN: $1 $_SESSION_ID"; cat; echo "GSTACK_INSTRUCTION_END"; }
+
+# Spawned sessions get NO interactive-onboarding blocks (#2733): no human is
+# watching, so an emitted prompt gets auto-answered (config writes nobody
+# approved) and ack-at-emit markers get consumed invisibly — the next HUMAN
+# session would never see the one-time prompt. Gating EMISSION here (not just
+# the prose-skip inside the spawned-session block) also gates the script-side
+# marker/state writes: .activated, .first-loop-tip-shown, and scaffold
+# telemetry stay untouched, so onboarding fires intact on the next human run.
+# The spawned-session block and the privacy-stop-gate below sit OUTSIDE this
+# guard: the former is the gate's inverse, the latter is interactive-only.
+if [ "$_SESSION_KIND" != "spawned" ]; then
 
 # Upgrade flow (gated: update-check emitted something above).
 if [ -n "$_UPD" ]; then
@@ -465,11 +506,16 @@ Always run (regardless of choice): \`touch "$_GH/.vendoring-warned-${SLUG:-unkno
 EOI
 fi
 
+fi # end interactive-onboarding guard (kind != spawned)
+
 # Spawned-session rules (NOT one-time — every spawned session gets the full
-# behavioral instruction, per plan OV6 move-with-care).
-if [ -n "${OPENCLAW_SESSION:-}" ]; then
+# behavioral instruction, per plan OV6 move-with-care). Keyed on the resolved
+# kind, not raw OPENCLAW_SESSION (#2733): the GSTACK_SESSION_KIND=spawned
+# override must emit this block too — it is the only runtime text that
+# actually says "auto-choose".
+if [ "$_SESSION_KIND" = "spawned" ]; then
   _emit_block spawned-session <<EOI
-You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option; do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
+You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw, or a parent skill such as /ship that dispatched you as a subagent). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option (exception: never auto-choose a destructive or irreversible option such as delete, force-push, or overwrite — take the conservative non-destructive choice and record it in the completion report); do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
 EOI
 fi
 

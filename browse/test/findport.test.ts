@@ -160,7 +160,7 @@ describe('findPort / isPortAvailable', () => {
       }
 
       test();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
 
     const output = result.stdout.toString().trim();
     // Confirms the polyfill's stop() is fire-and-forget — callers
@@ -171,7 +171,7 @@ describe('findPort / isPortAvailable', () => {
   test('net.createServer approach does not have the race condition', async () => {
     // Prove the fix: net.createServer with proper async bind/close
     // releases the port cleanly
-    const result = Bun.spawnSync(['node', '-e', `
+    const result = Bun.spawnSync(['node', '-e', ` // timeout in trailing options
       const net = require('net');
 
       async function testFix() {
@@ -205,7 +205,7 @@ describe('findPort / isPortAvailable', () => {
       }
 
       testFix();
-    `], { stdout: 'pipe', stderr: 'pipe' });
+    `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
 
     const output = result.stdout.toString().trim();
     expect(output).toBe('FIX_WORKS');

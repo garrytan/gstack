@@ -28,6 +28,7 @@ function run(args: string[]) {
     // live tree (observed in the free-tests CI job). Relink behavior itself is
     // covered in isolation by test/relink.test.ts's mock install.
     env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_SETUP_RUNNING: "1" },
+    timeout: 30_000,
   });
 
   return {

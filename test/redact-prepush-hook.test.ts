@@ -20,7 +20,7 @@ const REDACT = path.resolve(import.meta.dir, "..", "bin", "gstack-redact");
 let repo: string;
 
 function git(args: string[], cwd = repo): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 30_000 });
   return r.stdout?.trim() ?? "";
 }
 
@@ -40,6 +40,7 @@ function runHook(
     input: Buffer.from(stdinLines),
     encoding: "utf8",
     env: { ...process.env, ...env },
+    timeout: 30_000,
   });
   return { code: r.status ?? 0, stderr: r.stderr ?? "" };
 }
@@ -322,7 +323,7 @@ describe("install / chaining", () => {
     const existing = path.join(hookDir, "pre-push");
     fs.writeFileSync(existing, "#!/usr/bin/env bash\necho mine\n", { mode: 0o755 });
 
-    const r = spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo, encoding: "utf8" });
+    const r = spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo, encoding: "utf8", timeout: 30_000 });
     expect(r.status).toBe(0);
     const installed = fs.readFileSync(existing, "utf8");
     expect(installed).toContain("gstack-redact pre-push (managed)");
@@ -336,7 +337,7 @@ describe("install / chaining", () => {
   test("chained pre-push.local receives the final ref line (trailing newline preserved)", () => {
     const hookDir = path.join(repo, ".git", "hooks");
     fs.mkdirSync(hookDir, { recursive: true });
-    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo });
+    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo, timeout: 30_000 });
 
     const seen = path.join(repo, "seen.txt");
     fs.writeFileSync(
@@ -352,6 +353,7 @@ describe("install / chaining", () => {
       input: Buffer.from(line),
       encoding: "utf8",
       env: { ...process.env, GSTACK_REDACT_PREPUSH: "skip" },
+      timeout: 30_000,
     });
     expect(r.status).toBe(0);
     expect(fs.existsSync(seen)).toBe(true);
@@ -363,7 +365,7 @@ describe("install / chaining", () => {
   test("a blocking pre-push.local still short-circuits the push", () => {
     const hookDir = path.join(repo, ".git", "hooks");
     fs.mkdirSync(hookDir, { recursive: true });
-    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo });
+    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo, timeout: 30_000 });
     fs.writeFileSync(
       path.join(hookDir, "pre-push.local"),
       "#!/usr/bin/env bash\nwhile read -r _a _b _c _d || [ -n \"${_a:-}\" ]; do exit 1; done\nexit 0\n",
@@ -374,6 +376,7 @@ describe("install / chaining", () => {
       input: Buffer.from(`refs/heads/main ${"b".repeat(40)} refs/heads/main ${ZERO}\n`),
       encoding: "utf8",
       env: { ...process.env, GSTACK_REDACT_PREPUSH: "skip" },
+      timeout: 30_000,
     });
     expect(r.status).toBe(1);
   });
@@ -384,8 +387,8 @@ describe("install / chaining", () => {
     fs.writeFileSync(path.join(hookDir, "pre-push"), "#!/usr/bin/env bash\necho mine\n", {
       mode: 0o755,
     });
-    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo });
-    spawnSync("bun", [REDACT, "uninstall-prepush-hook"], { cwd: repo });
+    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo, timeout: 30_000 });
+    spawnSync("bun", [REDACT, "uninstall-prepush-hook"], { cwd: repo, timeout: 30_000 });
     const restored = fs.readFileSync(path.join(hookDir, "pre-push"), "utf8");
     expect(restored).toContain("echo mine");
     expect(restored).not.toContain("managed");
@@ -404,7 +407,7 @@ describe("base resolution when the default branch is neither main nor master", (
     // blocks the push having scanned NOTHING — the "scans more, never less"
     // fallback inverting into "scans nothing".
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), "prepush-remote-"));
-    spawnSync("git", ["init", "-q", "--bare", "-b", "trunk", bare]);
+    spawnSync("git", ["init", "-q", "--bare", "-b", "trunk", bare], { timeout: 30_000 });
 
     git(["branch", "-M", "trunk"]);
     const old = commit("legacy.txt", FAKE_AWS_KEY + "\n", "secret already on the remote");
