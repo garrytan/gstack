@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.77.1.0] - 2026-08-31
+
+### Fixed
+
+- **Feature discovery acknowledgements now follow you across projects**: `/ship` and other skills store their continuous-checkpoint and model-overlay acknowledgements in `GSTACK_HOME`, so project-local gstack symlinks no longer make the same prompts reappear. CI and hermetic eval environments now seed that same state consistently, with regression coverage for prompt ordering and repeat suppression (#2728).
+
 ## [1.77.0.0] - 2026-08-31
 
 **Every PR stops paying for evals twice.**
@@ -54,7 +60,6 @@ What this means for anyone shipping here: PRs get one honest paid verdict faster
 #### For contributors
 - `bun run eval:flake-rank` (with `--json`, `--dir`, `--since-days`) is the promotion-clock dial; the WS16 required-check decision reads it.
 - The overhaul plan (16 workstreams, reviewed by CEO + eng passes with two cross-model outside voices) continues: budget-aware shard walls, PTY readiness events, free-suite splits, judge determinism, and required-check promotion are the next waves.
-
 
 ## [1.76.0.0] - 2026-08-31
 

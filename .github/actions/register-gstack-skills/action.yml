@@ -71,10 +71,11 @@ runs:
               "$HOME/.gstack/.proactive-prompted" \
               "$HOME/.gstack/.completeness-intro-seen" \
               "$HOME/.gstack/.plan-tune-nudge-shown"
-        # These two resolve through the gstack root symlink into $REPO —
-        # untracked scratch in the CI checkout, exactly where the preamble looks.
-        touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
-              "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
+        # Feature discovery acknowledgements are user state, not repo state.
+        # Seed them beside the other one-time markers so hermetic runs match
+        # the runtime's GSTACK_HOME-based lookup.
+        touch "$HOME/.gstack/.feature-prompted-continuous-checkpoint" \
+              "$HOME/.gstack/.feature-prompted-model-overlay"
         echo "--- registry under $SKILLS_DIR ---"
         ls -la "$SKILLS_DIR/gstack"
         # ── Fail-fast verification ──────────────────────────────────────────

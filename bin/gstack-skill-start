@@ -362,14 +362,16 @@ if [ -n "$_UPD" ]; then
 The update-check output above applies. If it shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`$_ROOT_DIR/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If it shows \`JUST_UPGRADED <from> <to>\`: print "Running gstack v{to} (just updated!)". If \`SPAWNED_SESSION\` is true, skip feature discovery. After upgrade prompts, continue the workflow.
 EOI
 fi
-# Feature discovery (one prompt per session, marker-gated).
-if [ ! -f "$_ROOT_DIR/.feature-prompted-continuous-checkpoint" ]; then
+# Feature discovery (one prompt per session, marker-gated). These are
+# machine-local UX acknowledgements, so keep them in GSTACK_HOME rather than
+# beside an install path that may resolve through a project-local symlink.
+if [ ! -f "$_GH/.feature-prompted-continuous-checkpoint" ]; then
   _emit_block feature-checkpoint <<EOI
-Feature discovery: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run \`$_BIN/gstack-config set checkpoint_mode continuous\`. Always run: \`touch "$_ROOT_DIR/.feature-prompted-continuous-checkpoint"\`.
+Feature discovery: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run \`$_BIN/gstack-config set checkpoint_mode continuous\`. Always run: \`touch "$_GH/.feature-prompted-continuous-checkpoint"\`.
 EOI
-elif [ ! -f "$_ROOT_DIR/.feature-prompted-model-overlay" ]; then
+elif [ ! -f "$_GH/.feature-prompted-model-overlay" ]; then
   _emit_block feature-overlay <<EOI
-Feature discovery: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always run: \`touch "$_ROOT_DIR/.feature-prompted-model-overlay"\`.
+Feature discovery: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always run: \`touch "$_GH/.feature-prompted-model-overlay"\`.
 EOI
 fi
 

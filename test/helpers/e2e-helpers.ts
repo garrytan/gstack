@@ -324,7 +324,15 @@ if (evalsEnabled) {
   fs.mkdirSync(gstackDir, { recursive: true });
   // Marker list kept at parity with hermetic-env.ts's child-GSTACK_HOME seed
   // (the canonical set for the emission layer's gates).
-  for (const f of ['.activated', '.completeness-intro-seen', '.telemetry-prompted', '.proactive-prompted', '.first-loop-tip-shown']) {
+  for (const f of [
+    '.activated',
+    '.completeness-intro-seen',
+    '.telemetry-prompted',
+    '.proactive-prompted',
+    '.first-loop-tip-shown',
+    '.feature-prompted-continuous-checkpoint',
+    '.feature-prompted-model-overlay',
+  ]) {
     const p = path.join(gstackDir, f);
     if (!fs.existsSync(p)) fs.writeFileSync(p, '');
   }

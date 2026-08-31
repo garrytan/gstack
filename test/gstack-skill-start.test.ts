@@ -302,6 +302,61 @@ describe('gstack-skill-start behavior', () => {
     }
   });
 
+  test('feature acknowledgement markers stay in GSTACK_HOME through a project-local bin symlink', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-project-'));
+    const projectSkillRoot = path.join(projectRoot, '.agents', 'skills', 'gstack');
+    const freshGh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-feature-state-'));
+    fs.mkdirSync(projectSkillRoot, { recursive: true });
+    fs.symlinkSync(path.join(ROOT, 'bin'), path.join(projectSkillRoot, 'bin'), 'dir');
+    fs.writeFileSync(path.join(freshGh, 'config.yaml'), 'update_check: false\n');
+
+    const localStart = path.join(projectSkillRoot, 'bin', 'gstack-skill-start');
+    const env = { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: freshGh };
+    try {
+      const checkpoint = execFileSync(localStart, ['--skill', 'testskill'], {
+        encoding: 'utf-8',
+        cwd: projectRoot,
+        env,
+        timeout: 30_000,
+      });
+      expect(checkpoint).toContain(
+        `touch "${path.join(freshGh, '.feature-prompted-continuous-checkpoint')}"`,
+      );
+      expect(checkpoint).not.toContain('GSTACK_INSTRUCTION_BEGIN: feature-overlay');
+      expect(checkpoint).not.toContain(
+        path.join(projectSkillRoot, '.feature-prompted-continuous-checkpoint'),
+      );
+
+      fs.writeFileSync(path.join(freshGh, '.feature-prompted-continuous-checkpoint'), '');
+      const overlay = execFileSync(localStart, ['--skill', 'testskill'], {
+        encoding: 'utf-8',
+        cwd: projectRoot,
+        env,
+        timeout: 30_000,
+      });
+      expect(overlay).toContain(
+        `touch "${path.join(freshGh, '.feature-prompted-model-overlay')}"`,
+      );
+      expect(overlay).not.toContain('GSTACK_INSTRUCTION_BEGIN: feature-checkpoint');
+      expect(overlay).not.toContain(path.join(projectSkillRoot, '.feature-prompted-model-overlay'));
+
+      fs.writeFileSync(path.join(freshGh, '.feature-prompted-model-overlay'), '');
+      const acknowledged = execFileSync(localStart, ['--skill', 'testskill'], {
+        encoding: 'utf-8',
+        cwd: projectRoot,
+        env,
+        timeout: 30_000,
+      });
+      expect(acknowledged).not.toContain('GSTACK_INSTRUCTION_BEGIN: feature-checkpoint');
+      expect(acknowledged).not.toContain('GSTACK_INSTRUCTION_BEGIN: feature-overlay');
+      expect(acknowledged).not.toContain('.feature-prompted-continuous-checkpoint');
+      expect(acknowledged).not.toContain('.feature-prompted-model-overlay');
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(freshGh, { recursive: true, force: true });
+    }
+  });
+
   test('MODEL_OVERLAY echoes the --model argument', () => {
     const out = runStart(['--model', 'opus']);
     expect(out).toMatch(/^MODEL_OVERLAY: opus$/m);

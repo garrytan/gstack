@@ -1,4 +1,4 @@
-# gstack digest v1.77.0.0 — regenerate/re-copy after upgrading gstack
+# gstack digest v1.77.1.0 — regenerate/re-copy after upgrading gstack
 
 Behavioral rules from gstack (https://github.com/garrytan/gstack), compressed
 for agent hosts without a full skill install. The full skills add workflows,
