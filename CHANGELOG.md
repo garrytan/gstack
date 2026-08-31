@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.77.1.0] - 2026-08-31
+
+**Claude auth detection stops guessing and asks the CLI.**
+**Nested outside-voice runs are isolated to the project.**
+**The codex-probe watchdog stops leaking TERM codes under load.**
+
+The claude outside-voice skill and the benchmark provider adapter no longer sniff `~/.claude/.credentials.json` or the macOS keychain for auth. The default macOS install stores OAuth in the keychain and never writes a credentials file, so the old sniff falsely reported "not logged in" while `claude -p` worked fine (#1890 class). Availability now asks `claude auth status --json` for its own truth; a failed or hanging probe reports "could not verify" instead of a misleading "no auth found."
+
+Nested `claude -p` review / challenge / consult runs now isolate: `--setting-sources project` keeps repository settings without loading user-level hooks that can block a non-interactive process, and `--strict-mcp-config` starts with zero MCP servers (read-only outside voices don't use MCP). A host that keeps its key in user settings, or a repo whose MCP genuinely matters, passes them back explicitly. benchmark-models' judge gate now keys on `ANTHROPIC_API_KEY` alone, matching the judge's direct Anthropic SDK requirement.
+
+And the gstack-codex-probe watchdog no longer leaks a raw TERM (143) when its timer subshell lingers as a zombie: a TERM-killed command now reports timeout(1)'s 124 regardless of reap timing, while self-inflicted signal deaths (Ctrl-C 130, SEGV 139, OOM 137) stay distinct.
+
+### Itemized changes
+
+#### Changed
+- `claude` outside-voice skill + benchmark provider adapter probe `claude auth status --json` for auth instead of sniffing the credentials file / macOS keychain (which the default macOS install never writes, #1890 class).
+- Nested `claude -p` runs isolated with `--setting-sources project --strict-mcp-config`; user-level settings sources and MCP servers are restored explicitly when needed.
+- benchmark-models quality judge gates purely on `ANTHROPIC_API_KEY` (matches the judge's direct Anthropic SDK requirement).
+
+#### Fixed
+- gstack-codex-probe watchdog reported raw TERM (143) when the timer subshell lingered as a zombie under load; a TERM-killed command now always reports timeout's 124, other signals keep their own codes.
+
 ## [1.77.0.0] - 2026-08-31
 
 **Every PR stops paying for evals twice.**
