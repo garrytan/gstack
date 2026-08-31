@@ -1,12 +1,30 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
+import {
+  formatLocalDate,
+  parseCodexJsonlPrefix,
+  windowToDate,
+} from "../bin/gstack-global-discover.ts";
 
 // Import normalizeRemoteUrl for unit testing
 // We test the script end-to-end via CLI and normalizeRemoteUrl via import
 const scriptPath = join(import.meta.dir, "..", "bin", "gstack-global-discover.ts");
+const fixtureDir = join(import.meta.dir, "fixtures", "global-discover");
+const bunExecutable = process.execPath;
+
+function fixture(name: string): string {
+  return readFileSync(join(fixtureDir, name), "utf-8");
+}
 
 describe("gstack-global-discover", () => {
   describe("normalizeRemoteUrl", () => {
@@ -65,7 +83,7 @@ describe("gstack-global-discover", () => {
 
   describe("CLI", () => {
     test("--help exits 0 and prints usage", () => {
-      const result = spawnSync("bun", ["run", scriptPath, "--help"], {
+      const result = spawnSync(bunExecutable, ["run", scriptPath, "--help"], {
         encoding: "utf-8",
         timeout: 10000,
       });
@@ -74,7 +92,7 @@ describe("gstack-global-discover", () => {
     });
 
     test("no args exits 1 with error", () => {
-      const result = spawnSync("bun", ["run", scriptPath], {
+      const result = spawnSync(bunExecutable, ["run", scriptPath], {
         encoding: "utf-8",
         timeout: 10000,
       });
@@ -83,7 +101,7 @@ describe("gstack-global-discover", () => {
     });
 
     test("invalid window format exits 1", () => {
-      const result = spawnSync("bun", ["run", scriptPath, "--since", "abc"], {
+      const result = spawnSync(bunExecutable, ["run", scriptPath, "--since", "abc"], {
         encoding: "utf-8",
         timeout: 10000,
       });
@@ -93,7 +111,7 @@ describe("gstack-global-discover", () => {
 
     test("--since 7d produces valid JSON", () => {
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "7d", "--format", "json"],
         { encoding: "utf-8", timeout: 30000 }
       );
@@ -109,7 +127,7 @@ describe("gstack-global-discover", () => {
 
     test("--since 7d --format summary produces readable output", () => {
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "7d", "--format", "summary"],
         { encoding: "utf-8", timeout: 30000 }
       );
@@ -121,7 +139,7 @@ describe("gstack-global-discover", () => {
 
     test("--since 1h returns results (may be empty)", () => {
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "1h", "--format", "json"],
         { encoding: "utf-8", timeout: 30000 }
       );
@@ -191,7 +209,7 @@ describe("gstack-global-discover", () => {
 
       // Run discovery with CODEX_SESSIONS_DIR override
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "1h", "--format", "json"],
         {
           encoding: "utf-8",
@@ -251,10 +269,7 @@ describe("gstack-global-discover", () => {
       expect(meta.payload.cwd).toBe("/tmp/test-repo");
     });
 
-    test("regression: session_meta beyond 128KB still needs streaming parse", () => {
-      // This test documents the current limitation: 128KB buffer is a heuristic.
-      // If Codex ever embeds >128KB in session_meta, this test will fail,
-      // signaling that the buffer needs to increase or be replaced with streaming.
+    test("parses session_meta beyond the former 128KB cap", () => {
       const padding = "x".repeat(140000); // ~140KB payload
       const sessionMeta = JSON.stringify({
         timestamp: new Date().toISOString(),
@@ -273,27 +288,15 @@ describe("gstack-global-discover", () => {
 
       expect(sessionMeta.length).toBeGreaterThan(131072);
 
-      const filePath = join(codexDir, "large-test.jsonl");
-      writeFileSync(filePath, sessionMeta + "\n");
-
-      // 128KB buffer: JSON.parse FAILS for >128KB lines (current limitation)
-      const { openSync, readSync, closeSync } = require("fs");
-      const fd = openSync(filePath, "r");
-      const buf = Buffer.alloc(131072);
-      readSync(fd, buf, 0, 131072, 0);
-      closeSync(fd);
-      expect(() =>
-        JSON.parse(buf.toString("utf-8").split("\n")[0])
-      ).toThrow();
-      // When this test starts passing (e.g., after implementing streaming parse),
-      // update it to verify correct parsing instead of documenting the limitation.
+      const result = parseCodexJsonlPrefix(`${sessionMeta}\n`);
+      expect(result.session).toEqual({ cwd: "/tmp/large-test", kind: "root" });
     });
   });
 
   describe("discovery output structure", () => {
     test("repos have required fields", () => {
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "30d", "--format", "json"],
         { encoding: "utf-8", timeout: 30000 }
       );
@@ -315,7 +318,7 @@ describe("gstack-global-discover", () => {
 
     test("tools summary matches repo data", () => {
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "30d", "--format", "json"],
         { encoding: "utf-8", timeout: 30000 }
       );
@@ -331,7 +334,7 @@ describe("gstack-global-discover", () => {
 
     test("deduplicates Conductor workspaces by remote", () => {
       const result = spawnSync(
-        "bun",
+        bunExecutable,
         ["run", scriptPath, "--since", "30d", "--format", "json"],
         { encoding: "utf-8", timeout: 30000 }
       );
@@ -429,6 +432,65 @@ describe("gstack-global-discover", () => {
       const good = JSON.stringify({ cwd: "/tmp/repo-skip-bad" });
       writeFileSync(filePath, "{ not valid json\n" + good + "\n");
       expect(extractCwdFromJsonl(filePath)).toBe("/tmp/repo-skip-bad");
+    });
+  });
+
+  describe("Codex JSONL schema", () => {
+    test("parses session_meta records larger than the old 4KB limit", () => {
+      const records = fixture("codex-current.jsonl")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const metadata = records.find((record) => record.type === "session_meta");
+      metadata.payload.base_instructions = "x".repeat(20_000);
+      const text = records.map((record) => JSON.stringify(record)).join("\n");
+      const result = parseCodexJsonlPrefix(`${text}\n`);
+      expect(result.session).toEqual({ cwd: "/synthetic/current", kind: "root" });
+      expect(result.malformed_records).toBe(0);
+    });
+
+    test("ignores known envelopes and compaction without creating extra sessions", () => {
+      const text = `${fixture("codex-current.jsonl")}${fixture("codex-legacy.jsonl")}`;
+      const result = parseCodexJsonlPrefix(text);
+      expect(result.session).toEqual({ cwd: "/synthetic/current", kind: "root" });
+      expect(result.unknown_record_types).toEqual([]);
+    });
+
+    test("preserves explicit subagent classification", () => {
+      const result = parseCodexJsonlPrefix(fixture("codex-subagent.jsonl"));
+      expect(result.session).toEqual({
+        cwd: "/synthetic/subagent",
+        kind: "subagent",
+      });
+    });
+
+    test("surfaces malformed and unknown records before valid metadata", () => {
+      const result = parseCodexJsonlPrefix(
+        `{not-json}\n${fixture("codex-unknown.jsonl")}`
+      );
+      expect(result.session).toEqual({ cwd: "/synthetic/unknown", kind: "root" });
+      expect(result.malformed_records).toBe(1);
+      expect(result.unknown_record_types).toEqual(["future_event"]);
+    });
+
+    test("drops an incomplete record when the bounded prefix is exhausted", () => {
+      const result = parseCodexJsonlPrefix('{"type":"session_meta"', true);
+      expect(result.session).toBeNull();
+      expect(result.prefix_truncated).toBe(true);
+    });
+
+    test("uses deterministic hour and local-midnight window boundaries", () => {
+      const now = new Date(2026, 7, 31, 14, 30, 0, 0);
+      expect(windowToDate("24h", now).getTime()).toBe(
+        now.getTime() - 24 * 60 * 60 * 1000
+      );
+      const dayStart = windowToDate("1d", now);
+      expect(dayStart.getFullYear()).toBe(2026);
+      expect(dayStart.getMonth()).toBe(7);
+      expect(dayStart.getDate()).toBe(30);
+      expect(dayStart.getHours()).toBe(0);
+      expect(dayStart.getMinutes()).toBe(0);
+      expect(formatLocalDate(dayStart)).toBe("2026-08-30");
     });
   });
 });
