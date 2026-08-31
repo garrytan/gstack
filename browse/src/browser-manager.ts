@@ -72,6 +72,7 @@ function canCreateUserNamespace(): boolean {
     return Bun.spawnSync(['unshare', '-Ur', 'true'], {
       stdout: 'ignore',
       stderr: 'ignore',
+      windowsHide: true,
     }).exitCode === 0;
   } catch {
     return false;

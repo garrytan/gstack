@@ -157,6 +157,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'gstack-upgrade': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'context-save': { gate: ['test/skill-e2e-context-skills.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'context-restore': { gate: ['test/skill-e2e-context-skills.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
+  handoff: {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'The minimum structural gate covers the canonical handoff contract until a dedicated behavioral suite lands.',
+  },
   'setup-deploy': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'setup-browser-cookies': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'setup-gbrain': {
