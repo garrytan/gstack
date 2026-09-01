@@ -885,7 +885,13 @@ mkdir -p "$HOME/.gstack/projects"
 _link_skill_runtime_assets() {
   local src_dir="$1"
   local dst_dir="$2"
-  local asset asset_name
+  # #2706: optional gbrain render dir for this skill. link_claude_skill_dirs
+  # already prefers the rendered SKILL.md (#2569); without the same preference
+  # here, SKILL.md is served from the render dir while sections/ is served from
+  # the checkout, so the rendered "Save Results to Brain" blocks are generated
+  # and never read. Empty for hosts/skills with no render.
+  local render_dir="${3:-}"
+  local asset asset_name rsub child child_name
   for asset in "$src_dir"/*; do
     [ -e "$asset" ] || continue  # empty-glob guard
     asset_name="$(basename "$asset")"
@@ -897,7 +903,27 @@ _link_skill_runtime_assets() {
     if [ -e "$dst_dir/$asset_name" ] || [ -L "$dst_dir/$asset_name" ]; then
       rm -rf "$dst_dir/$asset_name"
     fi
-    _link_or_copy "$asset" "$dst_dir/$asset_name"
+    # Serve the rendered counterpart when the gbrain render produced one.
+    # Overlay per FILE rather than repointing the whole directory: render dirs
+    # carry only the generated *.md, so a directory-level repoint would drop
+    # manifest.json and any other checkout-only asset.
+    rsub="$render_dir/$asset_name"
+    if [ -n "$render_dir" ] && [ -d "$asset" ] && [ -d "$rsub" ]; then
+      mkdir -p "$dst_dir/$asset_name"
+      for child in "$asset"/*; do
+        [ -e "$child" ] || continue
+        child_name="$(basename "$child")"
+        if [ -e "$rsub/$child_name" ]; then
+          _link_or_copy "$rsub/$child_name" "$dst_dir/$asset_name/$child_name"
+        else
+          _link_or_copy "$child" "$dst_dir/$asset_name/$child_name"
+        fi
+      done
+    elif [ -n "$render_dir" ] && [ -f "$asset" ] && [ -f "$rsub" ]; then
+      _link_or_copy "$rsub" "$dst_dir/$asset_name"
+    else
+      _link_or_copy "$asset" "$dst_dir/$asset_name"
+    fi
     # P5: the exclusion list above filters DIRECT children only, but the
     # Windows cp -R copy sweeps NESTED gitignored build output too (concrete:
     # ios-qa/scripts/gen-accessors-tool/.build is 252MB). Prune post-copy —
@@ -951,9 +977,15 @@ link_claude_skill_dirs() {
       # #2569: prefer a rendered :user variant when present. gbrain installs
       # render brain-aware SKILL.md into ${GSTACK_HOME}/render/claude via
       # gen:skill-docs --out-dir instead of dirtying the tracked source
-      # checkout; when a render exists for this skill, serve it. The rendered
-      # file's section-base paths point into the render dir, so section reads
-      # resolve there too.
+      # checkout; when a render exists for this skill, serve it.
+      #
+      # #2706: serving the rendered SKILL.md is NOT sufficient on its own. It
+      # embeds absolute Read paths into the render dir, but the Section index
+      # and the carved-skill footer also route via RELATIVE "sections/<name>.md"
+      # refs, which resolve through this installed dir. So the runtime assets
+      # have to prefer the render too — hence the third arg below. Without it
+      # SKILL.md came from the render while sections/ came from the checkout,
+      # and the rendered Save Results to Brain blocks were never reachable.
       _skill_md_src="$gstack_dir/$dir_name/SKILL.md"
       _render_dir="${GSTACK_USER_RENDER_DIR:-${GSTACK_HOME:-$HOME/.gstack}/render/claude}"
       if [ -f "$_render_dir/$dir_name/SKILL.md" ]; then
@@ -967,7 +999,7 @@ link_claude_skill_dirs() {
       # landed and /review 404'd at "Read .claude/skills/review/checklist.md"
       # on every fresh Claude install. Routes through _link_or_copy so Windows
       # gets real copies refreshed on every ./setup.
-      _link_skill_runtime_assets "$gstack_dir/$dir_name" "$target"
+      _link_skill_runtime_assets "$gstack_dir/$dir_name" "$target" "$_render_dir/$dir_name"
       linked+=("$link_name")
     fi
   done

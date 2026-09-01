@@ -52,6 +52,51 @@ _cleanup_skill_entry() {
   fi
 }
 
+# #2706: setup links runtime assets (sections/, checklist.md, specialists/...)
+# from the CHECKOUT, while SKILL.md is served from the render dir. Where the
+# gbrain render produced a counterpart, serve that one instead — otherwise
+# `gstack-config gbrain-refresh`, which calls this script to "repoint installed
+# skills at the render", leaves every rendered section file unreachable and the
+# Save Results to Brain blocks never load.
+#
+# Overlay per FILE, not per directory: render dirs carry only the generated
+# *.md, so repointing the whole directory would drop manifest.json and other
+# checkout-only assets.
+_overlay_rendered_assets() {
+  local skill="$1"
+  local target="$2"
+  local rskill="$RENDER_DIR/$skill"
+  [ -d "$rskill" ] || return 0
+  local rasset asset_name src_asset child rchild child_name
+  for rasset in "$rskill"/*; do
+    [ -e "$rasset" ] || continue
+    asset_name="$(basename "$rasset")"
+    [ "$asset_name" = "SKILL.md" ] && continue
+    src_asset="$INSTALL_DIR/$skill/$asset_name"
+    if [ -d "$rasset" ]; then
+      # If the installed entry is still a SYMLINK it points at the checkout;
+      # linking a child through it would write into the tracked install. Drop
+      # it and rebuild as a real directory of per-file links.
+      [ -L "$target/$asset_name" ] && rm -f "$target/$asset_name"
+      mkdir -p "$target/$asset_name"
+      if [ -d "$src_asset" ]; then
+        for child in "$src_asset"/*; do
+          [ -e "$child" ] || continue
+          child_name="$(basename "$child")"
+          ln -snf "$child" "$target/$asset_name/$child_name"
+        done
+      fi
+      for rchild in "$rasset"/*; do
+        [ -e "$rchild" ] || continue
+        child_name="$(basename "$rchild")"
+        ln -snf "$rchild" "$target/$asset_name/$child_name"
+      done
+    else
+      ln -snf "$rasset" "$target/$asset_name"
+    fi
+  done
+}
+
 _link_root_skill_alias() {
   local target="$SKILLS_DIR/_gstack-command"
 
@@ -107,6 +152,7 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
   [ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"
   ln -snf "$skill_md_src" "$target/SKILL.md"
+  _overlay_rendered_assets "$skill" "$target"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 

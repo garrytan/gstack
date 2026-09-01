@@ -31,7 +31,13 @@ describe('setup links sections/ for cherry-pick install targets', () => {
     // routes through _link_or_copy internally (windows-safe), so the old
     // per-directory _link_or_copy assertion moved there.
     const body = fnBody(SETUP, 'link_claude_skill_dirs');
-    expect(body).toMatch(/_link_skill_runtime_assets\s+"\$gstack_dir\/\$dir_name"\s+"\$target"/);
+    // #2706: the render dir is a REQUIRED third argument. Serving SKILL.md
+    // from the render while sections/ came from the checkout is exactly the
+    // split that made rendered brain blocks unreachable, so pin the arg here
+    // rather than leaving the old two-arg shape matchable.
+    expect(body).toMatch(
+      /_link_skill_runtime_assets\s+"\$gstack_dir\/\$dir_name"\s+"\$target"\s+"\$_render_dir\/\$dir_name"/,
+    );
     const helper = fnBody(SETUP, '_link_skill_runtime_assets');
     expect(helper).toContain('_link_or_copy');
     expect(helper).not.toMatch(/\bln -s/);
