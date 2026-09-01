@@ -1,0 +1,307 @@
+---
+name: make-pdf
+description: Use when turn any markdown file into a publication-quality pdf. (Ported from gstack to Hermes)
+version: 1.0.0
+author: gstack (port: Hermes Agent)
+license: MIT
+metadata:
+  hermes:
+    tags: [gstack, ported, workflow]
+    related_skills: [hermes-agent, hermes-agent-skill-authoring]
+    upstream: https://github.com/garrytan/gstack/blob/main/make-pdf/SKILL.md
+---
+## When to Use
+
+Proper 1in margins,
+intelligent page breaks, page numbers, cover pages, running headers, curly
+quotes and em dashes, clickable TOC, diagonal DRAFT watermark. Not a draft
+artifact — a finished artifact. Use when asked to "make a PDF", "export to
+PDF", "turn this markdown into a PDF", or "generate a document".
+
+Voice triggers (speech-to-text aliases): "make this a pdf", "make it a pdf", "export to pdf", "turn this into a pdf", "turn this markdown into a pdf", "generate a pdf", "make a pdf from", "pdf this markdown".
+
+## Preamble
+
+_Replaces the gstack `gstack-skill-start` preamble. In Hermes, use `session_search` to recover prior context, then proceed._
+
+## MAKE-PDF SETUP (run this check BEFORE any make-pdf command)
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+P=""
+[ -n "$MAKE_PDF_BIN" ] && [ -x "$MAKE_PDF_BIN" ] && P="$MAKE_PDF_BIN"
+[ -z "$P" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/.hermes/skills/gstack/make-pdf/dist/pdf" ] && P="$_ROOT/.hermes/skills/gstack/make-pdf/dist/pdf"
+[ -z "$P" ] && P="$HOME/.hermes/skills/gstack/make-pdf/dist/pdf"
+if [ -x "$P" ]; then
+  echo "MAKE_PDF_READY: $P"
+  alias _p_="$P"   # shellcheck alias helper (not exported)
+  export P   # available as $P in subsequent blocks within the same skill invocation
+else
+  echo "MAKE_PDF_NOT_AVAILABLE (run './setup' in the gstack repo to build it)"
+fi
+```
+
+If `MAKE_PDF_NOT_AVAILABLE` is printed: tell the user the binary is not
+built. Have them run `./setup` from the gstack repo, then retry.
+
+If `MAKE_PDF_READY` is printed: `$P` is the binary path for the rest of
+the skill. Use `$P` (not an explicit path) so the skill body stays portable.
+
+Core commands:
+- `$P generate <input.md> [output.pdf]` — render markdown to PDF (80% use case)
+- `$P generate --cover --toc essay.md out.pdf` — full publication layout
+- `$P generate --watermark DRAFT memo.md draft.pdf` — diagonal DRAFT watermark
+- `$P preview <input.md>` — render HTML and open in browser (fast iteration)
+- `$P setup` — verify browse + Chromium + pdftotext and run a smoke test
+- `$P --help` — full flag reference
+
+Output contract:
+- `stdout`: ONLY the output path on success. One line.
+- `stderr`: progress (`Rendering HTML... Generating PDF...`) unless `--quiet`.
+- Exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 browse unavailable.
+
+## Artifacts Sync
+
+_Replaces gstack artifacts sync. In Hermes, `session_search` handles cross-session context recovery automatically._
+
+## Model-Specific Behavioral Patch (claude)
+
+The following nudges are tuned for the claude model family. They are
+**subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
+safety, and /ship review gates. If a nudge below conflicts with skill instructions,
+the skill wins. Treat these as preferences, not rules.
+
+**Todo-list discipline.** When working through a multi-step plan, mark each task
+complete individually as you finish it. Do not batch-complete at the end. If a task
+turns out to be unnecessary, mark it skipped with a one-line reason.
+
+**Think before heavy actions.** For complex operations (refactors, migrations,
+non-trivial new features), briefly state your approach before executing. This lets
+the user course-correct cheaply instead of mid-flight.
+
+**Dedicated tools over Bash.** Prefer Read, Edit, Write, Glob, Grep over shell
+equivalents (cat, sed, find, grep). The dedicated tools are cheaper and clearer.
+
+## Voice
+
+Direct, concrete, builder-to-builder. Name the file, function, command, and user-visible impact. No filler.
+
+No em dashes. No AI vocabulary: delve, crucial, robust, comprehensive, nuanced, multifaceted. Never corporate or academic. Short paragraphs. End with what to do.
+
+The user has context you do not. Cross-model agreement is a recommendation, not a decision. The user decides.
+
+## Completion Status Protocol
+
+When completing a skill workflow, report status using one of:
+- **DONE** — completed with evidence.
+- **DONE_WITH_CONCERNS** — completed, but list concerns.
+- **BLOCKED** — cannot proceed; state blocker and what was tried.
+- **NEEDS_CONTEXT** — missing info; state exactly what is needed.
+
+Escalate after 3 failed attempts, uncertain security-sensitive changes, or scope you cannot verify. Format: `STATUS`, `REASON`, `ATTEMPTED`, `RECOMMENDATION`.
+
+## Operational Self-Improvement
+
+_Replaces gstack `gstack-learnings-log`. In Hermes, durable learnings are saved via the `memory` tool, and reusable workflows become `skill_manage` entries._
+
+## Telemetry
+
+_Replaces `gstack-skill-end`. In Hermes, log durable facts to `memory` and continue. The Hermes gateway handles cross-session metrics._
+
+## Core patterns
+
+### 80% case — memo/letter
+
+One command, no flags. Gets a clean PDF with running header + page numbers
++ CONFIDENTIAL footer by default.
+
+```bash
+$P generate letter.md                 # writes /tmp/letter.pdf
+$P generate letter.md letter.pdf      # explicit output path
+```
+
+### Publication mode — cover + TOC + chapter breaks
+
+```bash
+$P generate --cover --toc --author "Garry Tan" --title "On Horizons" \
+  essay.md essay.pdf
+```
+
+Each top-level H1 in the markdown starts a new page. Disable with
+`--no-chapter-breaks` for memos that happen to have multiple H1s.
+
+### Draft-stage watermark
+
+```bash
+$P generate --watermark DRAFT memo.md draft.pdf
+```
+
+Diagonal 10% opacity DRAFT across every page. When the draft is final, drop
+the flag and regenerate.
+
+### Fast iteration via preview
+
+```bash
+$P preview essay.md
+```
+
+Renders HTML with the same print CSS and opens it in your browser. Refresh
+as you edit the markdown. Skip the PDF round trip until you're ready.
+
+### Brand-free (no CONFIDENTIAL footer)
+
+```bash
+$P generate --no-confidential memo.md memo.pdf
+```
+
+### Diagrams — mermaid and excalidraw fences render as pictures
+
+A column-0 ` ```mermaid ` or ` ```excalidraw ` fence in the markdown renders
+as a crisp vector diagram, fully offline (vendored bundle, no CDN). Indented
+fences (inside lists) stay plain code blocks by design. A broken fence
+produces a visible red diagnostic block with the parse error — never silent
+raw code.
+
+Fence info-string options:
+
+```
+```mermaid title="Auth flow"        ← caption + aria-label
+```mermaid render=false             ← keep it as a code block (today's behavior)
+```mermaid page=landscape           ← force this diagram onto a landscape page
+```mermaid page=portrait            ← veto auto-landscape for this diagram
+```
+
+A ` ```excalidraw ` fence contains a full .excalidraw scene file (what
+excalidraw.com saves). Authoring NEW diagrams from English is `/diagram`'s
+job — it emits an editable triplet (source, .excalidraw, SVG/PNG) and pairs
+with this skill: embed the `.mmd` source in your markdown, not the PNG.
+
+### Images — scaled right, never truncated
+
+Local images inline automatically (relative paths resolve against the
+markdown file). Every image caps at the content box — zero truncation, ever.
+Oversized photos downscale to print resolution (300dpi) so payloads stay
+small with no visible quality loss.
+
+Remote (http/https) images are **blocked with a visible placeholder** by
+default — offline posture; pass `--allow-network` to fetch them. An image
+that resolves outside the markdown's directory (even via symlink) still
+inlines, but warns loudly; `--strict` makes it fatal. Files over 64MB or
+non-regular files (fifos, devices) degrade to a placeholder instead of
+hanging the run.
+
+Per-image directives, written immediately after the image:
+
+```
+![chart](data.png){width=full}      ← stretch to content-box width
+![chart](data.png){width=50%}       ← percentage or 3in/8cm/200px
+![wide](arch.png){page=landscape}   ← give it its own landscape page
+![wide](shot.png){page=portrait}    ← veto auto-landscape
+```
+
+Wide, small-text diagram images auto-promote to their own landscape page
+(conservative: aspect ≥ 1.8, width over ~2.5x the content box, AND a
+diagram-ish alt word — diagram/architecture/flowchart/chart/graph). The
+promoted page is vertically centered. When the heuristic guesses wrong,
+`{page=portrait}` vetoes it; false negatives just need `{page=landscape}`.
+
+### Other formats — single-file HTML and Word
+
+```bash
+$P generate readme.md out.html --to html    # ONE self-contained file: inline
+                                            # SVG diagrams, data-URI images,
+                                            # zero network refs, screen-readable
+$P generate readme.md out.docx --to docx    # Word: content fidelity (headings,
+                                            # tables, code, diagrams as PNG) —
+                                            # layout is Word's, not ours
+```
+
+`--to` is the output format. `--format` is something else entirely (a
+`--page-size` alias) — don't confuse them.
+
+### CI mode — fail loud on missing assets
+
+```bash
+$P generate docs.md --strict     # missing, remote, out-of-tree, oversized,
+                                 # and non-regular-file images exit non-zero
+                                 # instead of warn + placeholder
+```
+
+## Common flags
+
+```
+Page layout:
+  --margins <dim>            1in (default) | 72pt | 2.54cm | 25mm
+  --page-size letter|a4|legal
+
+Structure:
+  --cover                    Cover page (title, author, date, hairline rule)
+  --toc                      Clickable TOC with page numbers
+  --no-chapter-breaks        Don't start a new page at every H1
+
+Branding:
+  --watermark <text>         Diagonal watermark ("DRAFT", "CONFIDENTIAL")
+  --header-template <html>   Custom running header
+  --footer-template <html>   Custom footer (mutex with --page-numbers)
+  --no-confidential          Suppress the CONFIDENTIAL right-footer
+
+Output:
+  --to pdf|html|docx         Output format (default: pdf). html = single
+                             self-contained file; docx = content fidelity.
+  --strict                   Missing, remote, out-of-tree, oversized, or
+                             non-regular-file images fail the run (CI mode).
+  --page-numbers             "N of M" footer (default on)
+  --tagged                   Accessible PDF (default on)
+  --outline                  PDF bookmarks from headings (default on)
+  --quiet                    Suppress progress on stderr
+  --verbose                  Per-stage timings
+
+Network:
+  --allow-network            Fetch external images. Off by default: remote
+                             images render as a visible blocked placeholder
+                             (no tracking pixels fetch at print time).
+
+Metadata:
+  --title "..."              Document title (defaults to first H1)
+  --author "..."             Author for cover + PDF metadata
+  --date "..."               Date for cover (defaults to today)
+```
+
+## When Claude should run it
+
+Watch for markdown-to-PDF intent. Any of these patterns → run `$P generate`:
+
+- "Can you make this markdown a PDF"
+- "Export it as a PDF"
+- "Turn this letter into a PDF"
+- "I need a PDF of the essay"
+- "Print this as a PDF for me"
+
+If the user has a `.md` file open and says "make it look nice", propose
+`$P generate --cover --toc` and ask before running.
+
+## Debugging
+
+- Output looks empty / blank → check browse daemon is running: `terminal status`.
+- Fragmented text on copy-paste → highlight.js output (Phase 4). Retry with
+  `--no-syntax` once that flag exists. For now, remove fenced code blocks
+  and regenerate.
+- Paged.js timeout → probably no headings in the markdown. Drop `--toc`.
+- "[remote image blocked]" placeholder in the output → add `--allow-network`
+  (understand you're giving the markdown file permission to fetch from its
+  image URLs).
+- Generated PDF too tall/wide → `--page-size a4` or `--margins 0.75in`.
+
+## Output contract
+
+```
+stdout: /tmp/letter.pdf          ← just the path, one line
+stderr: Rendering HTML...        ← progress spinner (unless --quiet)
+        Generating PDF...
+        Done in 1.5s. 43 words · 22KB · /tmp/letter.pdf
+
+exit code: 0 success / 1 bad args / 2 render error / 3 Paged.js timeout
+           / 4 browse unavailable
+```
+
+Capture the path: `PDF=$($P generate letter.md)` — then use `$PDF`.
