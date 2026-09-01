@@ -14,6 +14,14 @@ const opencode = defineHost({
       'review': ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
     },
   },
+
+  // Generated skill prose is shared with Claude, but OpenCode exposes
+  // different native interaction tools. Keep the host-specific vocabulary
+  // in the host config so generated docs remain correct for each runtime.
+  toolRewrites: {
+    AskUserQuestion: 'question',
+    ExitPlanMode: 'end plan mode',
+  },
 });
 
 export default opencode;
