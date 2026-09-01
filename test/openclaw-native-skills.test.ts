@@ -32,4 +32,12 @@ describe('OpenClaw native skills', () => {
       expect((parsed.description as string).length).toBeGreaterThan(0);
     }
   });
+
+  test('integration docs do not advertise unsupported per-spawn env', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'docs/OPENCLAW.md'), 'utf-8');
+
+    expect(content).not.toContain('env: { OPENCLAW_SESSION: "1" }');
+    expect(content).toContain('does not currently accept a per-spawn `env`');
+    expect(content).toContain('environment of the Claude ACP harness');
+  });
 });

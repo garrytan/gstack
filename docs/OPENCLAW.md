@@ -127,7 +127,14 @@ environment variable should be set. gstack detects this and adjusts:
   rendering prose to nobody
 - Focuses on task completion and prose reporting
 
-Set the env var in sessions_spawn: `env: { OPENCLAW_SESSION: "1" }`
+OpenClaw's `sessions_spawn` does not currently accept a per-spawn `env`
+argument ([openclaw/openclaw#51654](https://github.com/openclaw/openclaw/issues/51654)).
+Do not add an unsupported `env` field to the tool call. Set
+`OPENCLAW_SESSION=1` in the environment of the Claude ACP harness instead,
+typically through the executable wrapper selected by the ACP backend or the
+Gateway service environment. Keep credentials out of that wrapper and verify
+the variable from the spawned process rather than relying on the model's final
+message.
 
 ### Explicit override: GSTACK_SESSION_KIND
 
