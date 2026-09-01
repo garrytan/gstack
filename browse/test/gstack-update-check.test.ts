@@ -6,7 +6,7 @@
  * for full isolation.
  */
 
-import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync } from 'fs';
 import { join } from 'path';
@@ -583,25 +583,24 @@ describe('gstack-update-check', () => {
 // — the VERSION verdict is untouched.
 describe('gstack-update-check commit-clock cross-check (#2378)', () => {
   let gitEnv: Record<string, string>;
-
-  // A local bare "upstream" plus a seed clone for the VERSION file, built
-  // once per describe. The fixture install's origin points at the garrytan
-  // slug WITHOUT fetching from it: the SHA comes from GSTACK_REMOTE_SHA and
-  // the VERSION from a file:// URL, so the whole block is hermetic.
-  const upstreamBare = join(tmpRoot, 'uc-clock-upstream.git');
-  const seedClone = join(tmpRoot, 'uc-clock-seed');
-  const plainDir = join(tmpRoot, 'uc-clock-plain');
+  let fixtureRoot: string;
+  let upstreamBare: string;
+  let seedClone: string;
+  let plainDir: string;
 
   function git(cwd: string, ...args: string[]) {
-    const r = Bun.spawnSync(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe' });
+    const r = Bun.spawnSync(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     if (r.exitCode !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr.toString()}`);
     return r.stdout.toString().trim();
   }
 
-  beforeAll(() => {
-    fs.mkdirSync(tmpRoot, { recursive: true });
-    git(tmpRoot, 'init', '--bare', '-q', upstreamBare);
-    git(tmpRoot, 'clone', '-q', upstreamBare, seedClone);
+  beforeEach(() => {
+    fixtureRoot = mkdtempSync(join(tmpRoot, 'uc-clock-fixture-'));
+    upstreamBare = join(fixtureRoot, 'upstream.git');
+    seedClone = join(fixtureRoot, 'seed');
+    plainDir = join(fixtureRoot, 'plain');
+    git(fixtureRoot, 'init', '--bare', '-q', upstreamBare);
+    git(fixtureRoot, 'clone', '-q', upstreamBare, seedClone);
     git(seedClone, 'config', 'user.email', 'test@example.com');
     git(seedClone, 'config', 'user.name', 'test');
     writeFileSync(join(seedClone, 'VERSION'), '1.60.1.0\n');
@@ -613,29 +612,7 @@ describe('gstack-update-check commit-clock cross-check (#2378)', () => {
     writeFileSync(join(plainDir, 'VERSION'), '1.60.1.0\n');
     symlinkSync(join(ROOT, 'bin', 'gstack-config'), join(plainDir, 'bin', 'gstack-config'));
     symlinkSync(join(ROOT, 'bin', 'gstack-egress-lib.sh'), join(plainDir, 'bin', 'gstack-egress-lib.sh'));
-  });
 
-  // A pristine install of the CURRENT remote main: origin slug matches
-  // REMOTE_REPO, refs/remotes/origin/main exists, HEAD == origin/main.
-  function makeInstall(): string {
-    const dir = mkdtempSync(join(tmpRoot, 'uc-clock-install-'));
-    git(tmpRoot, 'clone', '-q', upstreamBare, dir);
-    git(dir, 'remote', 'set-url', 'origin', 'https://github.com/garrytan/gstack.git');
-    mkdirSync(join(dir, 'bin'), { recursive: true });
-    symlinkSync(join(ROOT, 'bin', 'gstack-config'), join(dir, 'bin', 'gstack-config'));
-    symlinkSync(join(ROOT, 'bin', 'gstack-egress-lib.sh'), join(dir, 'bin', 'gstack-egress-lib.sh'));
-    return dir;
-  }
-
-  // One local commit on the fixture upstream that does NOT bump VERSION —
-  // the #2378 scenario. Returns the new remote main SHA.
-  function advanceRemoteMain(): string {
-    git(seedClone, 'commit', '-q', '--allow-empty', '-m', 'security fix (no VERSION bump)');
-    git(seedClone, 'push', '-q', 'origin', 'HEAD:main');
-    return git(upstreamBare, 'rev-parse', 'main');
-  }
-
-  beforeEach(() => {
     gstackDir = mkdtempSync(join(tmpdir(), 'gstack-upd-test-'));
     stateDir = mkdtempSync(join(tmpdir(), 'gstack-state-test-'));
     const binDir = join(gstackDir, 'bin');
@@ -657,7 +634,27 @@ describe('gstack-update-check commit-clock cross-check (#2378)', () => {
   afterEach(() => {
     rmSync(gstackDir, { recursive: true, force: true });
     rmSync(stateDir, { recursive: true, force: true });
+    rmSync(fixtureRoot, { recursive: true, force: true });
   });
+  // A pristine install of the CURRENT remote main: origin slug matches
+  // REMOTE_REPO, refs/remotes/origin/main exists, HEAD == origin/main.
+  function makeInstall(origin = 'https://github.com/garrytan/gstack.git'): string {
+    const dir = mkdtempSync(join(tmpRoot, 'uc-clock-install-'));
+    git(fixtureRoot, 'clone', '-q', upstreamBare, dir);
+    git(dir, 'remote', 'set-url', 'origin', origin);
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    symlinkSync(join(ROOT, 'bin', 'gstack-config'), join(dir, 'bin', 'gstack-config'));
+    symlinkSync(join(ROOT, 'bin', 'gstack-egress-lib.sh'), join(dir, 'bin', 'gstack-egress-lib.sh'));
+    return dir;
+  }
+
+  // One local commit on the fixture upstream that does NOT bump VERSION —
+  // the #2378 scenario. Returns the new remote main SHA.
+  function advanceRemoteMain(): string {
+    git(seedClone, 'commit', '-q', '--allow-empty', '-m', 'security fix (no VERSION bump)');
+    git(seedClone, 'push', '-q', 'origin', 'HEAD:main');
+    return git(upstreamBare, 'rev-parse', 'main');
+  }
 
   test('THE BUG: pristine sync, main moved without a VERSION bump → flags even though versions are equal', () => {
     const install = makeInstall();
@@ -759,6 +756,63 @@ describe('gstack-update-check commit-clock cross-check (#2378)', () => {
     expect(stdout).toContain('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
   });
 
+  test('SSH origins receive the commit-clock check', () => {
+    const install = makeInstall('git@github.com:garrytan/gstack.git');
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+  });
+
+  test('ssh:// origins receive the commit-clock check', () => {
+    const install = makeInstall('ssh://git@github.com/garrytan/gstack.git');
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+  });
+
+  test('missing HEAD cache forces a fresh check for git installs', () => {
+    const install = makeInstall();
+    writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 1.60.1.0\n');
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+  });
+
+  test('URL and SHA overrides stay independent', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    const alternateVersion = join(fixtureRoot, 'alternate-VERSION');
+    writeFileSync(alternateVersion, '1.60.2.0\n');
+    const result = run({
+      GSTACK_DIR: install,
+      GSTACK_REMOTE_URL: `file://${alternateVersion}`,
+      GSTACK_REMOTE_SHA: gitEnv.GSTACK_REMOTE_SHA,
+    });
+    expect(result.stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.2.0');
+  });
+
+  test('missing origin/main ref falls back to VERSION behavior', () => {
+    const install = makeInstall();
+    git(install, 'update-ref', '-d', 'refs/remotes/origin/main');
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe('');
+    expect(readFileSync(join(stateDir, 'last-update-check'), 'utf-8')).toContain('UP_TO_DATE');
+  });
+
+  test('malformed remote SHA keeps the legacy VERSION verdict', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    expect(run({ ...gitEnv, GSTACK_DIR: install, GSTACK_REMOTE_SHA: 'not-a-sha' }).stdout).toBe('');
+  });
+
+  test('uppercase remote SHA does not trigger the commit-clock check', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    const sha = git(upstreamBare, 'rev-parse', 'main').toUpperCase();
+    expect(run({ ...gitEnv, GSTACK_DIR: install, GSTACK_REMOTE_SHA: sha }).stdout).toBe('');
+  });
   test('GSTACK_REMOTE_URL override alone (no SHA) keeps legacy behavior — cross-check inert', () => {
     const install = makeInstall();
     advanceRemoteMain();

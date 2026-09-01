@@ -184,9 +184,16 @@ if [ -f "$CACHE_FILE" ]; then
     if [ -e "$GSTACK_DIR/.git" ] && command -v git >/dev/null 2>&1; then
       _CURRENT_HEAD="$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null | tr -d '[:space:]')"
     fi
-    if [ -n "$_CACHED_HEAD" ] && [ -n "$_CURRENT_HEAD" ] && [ "$_CACHED_HEAD" != "$_CURRENT_HEAD" ]; then
-      : # HEAD moved since the cache was written — fall through to the slow path
-    else
+    _CACHE_REPLAY=1
+    if [ -e "$GSTACK_DIR/.git" ]; then
+      if ! command -v git >/dev/null 2>&1 \
+        || ! echo "$_CACHED_HEAD" | grep -qE '^[0-9a-f]{40}$' \
+        || ! echo "$_CURRENT_HEAD" | grep -qE '^[0-9a-f]{40}$' \
+        || [ "$_CACHED_HEAD" != "$_CURRENT_HEAD" ]; then
+        _CACHE_REPLAY=0
+      fi
+    fi
+    if [ "$_CACHE_REPLAY" -eq 1 ]; then
     case "$CACHED" in
       UP_TO_DATE*)
         CACHED_VER="$(echo "$CACHED" | awk '{print $2}')"
@@ -247,27 +254,29 @@ fi
 # landed. git ls-remote always returns the live HEAD; SHA-pinned raw URLs
 # are immediately consistent.
 #
-# An explicit GSTACK_REMOTE_URL override (tests, mirrors) skips this path
-# so the override is honored verbatim. An explicit GSTACK_REMOTE_SHA
-# override (tests, mirrors) supplies the remote tip without ls-remote and
-# is honored independently of the URL override — the #2378 cross-check
-# needs a remote SHA even when the VERSION source is overridden.
+# An explicit GSTACK_REMOTE_URL override (tests, mirrors) is authoritative
+# for VERSION content. An explicit GSTACK_REMOTE_SHA override (tests,
+# mirrors) supplies the remote tip without ls-remote and is independent of
+# the URL override — the #2378 cross-check needs a remote SHA even when the
+# VERSION source is overridden.
 REMOTE=""
-_REMOTE_SHA=""
-if [ -n "${GSTACK_REMOTE_SHA:-}" ]; then
-  _REMOTE_SHA="$GSTACK_REMOTE_SHA"
-elif [ -z "${GSTACK_REMOTE_URL:-}" ]; then
-  # Disable credential prompts and apply a 5-second low-speed timeout so a
-  # flaky network or captive portal can't hang every skill preamble.
-  _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
-  _LSR_LINE="$(GSTACK_HOME="$STATE_DIR" _receipted_git open update-check "${_REPO_HOST:-unknown}" version-ls-remote "update_check!=false" \
-    bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
-      git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
-  _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
-fi
-if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
-  _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
-  REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
+_REMOTE_SHA="${GSTACK_REMOTE_SHA:-}"
+if [ -n "${GSTACK_REMOTE_URL:-}" ]; then
+  REMOTE="$(_receipted_version_fetch "$REMOTE_URL")"
+else
+  if [ -z "$_REMOTE_SHA" ]; then
+    # Disable credential prompts and apply a 5-second low-speed timeout so a
+    # flaky network or captive portal can't hang every skill preamble.
+    _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
+    _LSR_LINE="$(GSTACK_HOME="$STATE_DIR" _receipted_git open update-check "${_REPO_HOST:-unknown}" version-ls-remote "update_check!=false" \
+      bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
+        git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
+    _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
+  fi
+  if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+    _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
+    REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
+  fi
 fi
 
 # Fallback: branch-pinned URL when ls-remote is unavailable (no git, no
@@ -317,7 +326,20 @@ _update_check_sha_clock_behind() {
   # Only vouch for installs whose origin IS the repo we compare against: a
   # fork/mirror origin that merely shares VERSION strings is not this main.
   _origin_url="$(git -C "$GSTACK_DIR" remote get-url origin 2>/dev/null)" || return 1
-  _origin_slug="$(echo "$_origin_url" | sed -E 's#^[^:]+://[^/]+/##; s#^[^@]+@##; s#\.git$##; s#:#/#' | tr -d '[:space:]')"
+  _origin_url="$(printf '%s' "$_origin_url" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  case "$_origin_url" in
+    https://github.com/*|http://github.com/*|ssh://git@github.com/*)
+      _origin_slug="${_origin_url#*github.com/}"
+      ;;
+    git@github.com:*)
+      _origin_slug="${_origin_url#git@github.com:}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  _origin_slug="${_origin_slug%/}"
+  _origin_slug="${_origin_slug%.git}"
   [ "$_origin_slug" = "garrytan/gstack" ] || return 1
   if [ "$_sha_local" = "$_sha_remote" ]; then
     return 1  # already on remote main — genuinely current
