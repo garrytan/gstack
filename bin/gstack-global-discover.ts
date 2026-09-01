@@ -19,13 +19,34 @@ import { homedir } from "os";
 interface Session {
   tool: "claude_code" | "codex" | "gemini";
   cwd: string;
+  codex_kind?: "root" | "subagent";
 }
 
 interface Repo {
   name: string;
   remote: string;
   paths: string[];
-  sessions: { claude_code: number; codex: number; gemini: number };
+  sessions: {
+    claude_code: number;
+    codex: number;
+    codex_root: number;
+    codex_subagent: number;
+    gemini: number;
+  };
+}
+
+interface CodexDiagnostics {
+  files_considered: number;
+  files_without_session_meta: number;
+  malformed_records: number;
+  truncated_prefixes: number;
+  read_errors: number;
+  unknown_record_types: Record<string, number>;
+}
+
+interface CodexScanResult {
+  sessions: Session[];
+  diagnostics: CodexDiagnostics;
 }
 
 interface DiscoveryResult {
@@ -34,9 +55,15 @@ interface DiscoveryResult {
   repos: Repo[];
   tools: {
     claude_code: { total_sessions: number; repos: number };
-    codex: { total_sessions: number; repos: number };
+    codex: {
+      total_sessions: number;
+      root_sessions: number;
+      subagent_sessions: number;
+      repos: number;
+    };
     gemini: { total_sessions: number; repos: number };
   };
+  diagnostics: { codex: CodexDiagnostics };
   total_sessions: number;
   total_repos: number;
 }
@@ -95,12 +122,11 @@ function parseArgs(): { since: string; format: "json" | "summary" } {
   return { since, format };
 }
 
-function windowToDate(window: string): Date {
+export function windowToDate(window: string, now = new Date()): Date {
   const match = window.match(/^(\d+)(d|h|w)$/);
   if (!match) throw new Error(`Invalid window: ${window}`);
   const [, numStr, unit] = match;
   const num = parseInt(numStr, 10);
-  const now = new Date();
 
   if (unit === "h") {
     return new Date(now.getTime() - num * 60 * 60 * 1000);
@@ -117,6 +143,13 @@ function windowToDate(window: string): Date {
     d.setHours(0, 0, 0, 0);
     return d;
   }
+}
+
+export function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 // ── URL normalization ──────────────────────────────────────────────────────
@@ -304,9 +337,110 @@ export function extractCwdFromJsonl(filePath: string): string | null {
   return null;
 }
 
-function scanCodex(since: Date): Session[] {
-  const sessionsDir = process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions");
-  if (!existsSync(sessionsDir)) return [];
+const CODEX_JSONL_PREFIX_BYTES = 1024 * 1024;
+const KNOWN_CODEX_RECORD_TYPES = new Set([
+  "event_msg",
+  "response_item",
+  "compacted",
+  "turn_context",
+  "world_state",
+  "inter_agent_communication_metadata",
+]);
+
+interface CodexSessionParseResult {
+  session: { cwd: string; kind: "root" | "subagent" } | null;
+  malformed_records: number;
+  prefix_truncated: boolean;
+  unknown_record_types: string[];
+}
+
+function codexSessionKind(payload: Record<string, unknown>): "root" | "subagent" {
+  const source = payload.source;
+  return source && typeof source === "object" && "subagent" in source
+    ? "subagent"
+    : "root";
+}
+
+export function parseCodexJsonlPrefix(
+  text: string,
+  prefixTruncated = false
+): CodexSessionParseResult {
+  const lines = text.split("\n");
+  if (prefixTruncated && !text.endsWith("\n")) lines.pop();
+
+  let malformedRecords = 0;
+  let session: CodexSessionParseResult["session"] = null;
+  const unknownRecordTypes = new Set<string>();
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    let record: Record<string, unknown>;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      malformedRecords++;
+      continue;
+    }
+
+    const type = typeof record.type === "string" ? record.type : "<missing>";
+    if (type === "session_meta") {
+      const payload = record.payload;
+      if (!payload || typeof payload !== "object") {
+        malformedRecords++;
+        continue;
+      }
+      const cwd = (payload as Record<string, unknown>).cwd;
+      if (typeof cwd !== "string" || !cwd) {
+        malformedRecords++;
+        continue;
+      }
+      if (!session) {
+        session = {
+          cwd,
+          kind: codexSessionKind(payload as Record<string, unknown>),
+        };
+      }
+      continue;
+    }
+
+    if (!KNOWN_CODEX_RECORD_TYPES.has(type)) unknownRecordTypes.add(type);
+  }
+
+  return {
+    session,
+    malformed_records: malformedRecords,
+    prefix_truncated: prefixTruncated,
+    unknown_record_types: [...unknownRecordTypes].sort(),
+  };
+}
+
+function parseCodexSessionFile(filePath: string): CodexSessionParseResult {
+  const fd = openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(CODEX_JSONL_PREFIX_BYTES);
+    const bytesRead = readSync(fd, buf, 0, CODEX_JSONL_PREFIX_BYTES, 0);
+    return parseCodexJsonlPrefix(
+      buf.toString("utf-8", 0, bytesRead),
+      statSync(filePath).size > bytesRead
+    );
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function scanCodex(since: Date): CodexScanResult {
+  const sessionsDir =
+    process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions");
+  const diagnostics: CodexDiagnostics = {
+    files_considered: 0,
+    files_without_session_meta: 0,
+    malformed_records: 0,
+    truncated_prefixes: 0,
+    read_errors: 0,
+    unknown_record_types: {},
+  };
+  if (!existsSync(sessionsDir)) return { sessions: [], diagnostics };
 
   const sessions: Session[] = [];
 
@@ -340,23 +474,30 @@ function scanCodex(since: Date): Session[] {
               continue;
             }
 
-            // Codex session_meta lines embed the full system prompt in
-            // base_instructions (~15KB as of CLI v0.117+). A 4KB buffer
-            // truncates the line and JSON.parse fails. 128KB covers current
-            // sizes with room for growth.
+            diagnostics.files_considered++;
             try {
-              const fd = openSync(filePath, "r");
-              const buf = Buffer.alloc(131072);
-              const bytesRead = readSync(fd, buf, 0, 131072, 0);
-              closeSync(fd);
-              const firstLine = buf.toString("utf-8", 0, bytesRead).split("\n")[0];
-              if (!firstLine) continue;
-              const meta = JSON.parse(firstLine);
-              if (meta.type === "session_meta" && meta.payload?.cwd) {
-                sessions.push({ tool: "codex", cwd: meta.payload.cwd });
+              const parsed = parseCodexSessionFile(filePath);
+              diagnostics.malformed_records += parsed.malformed_records;
+              if (parsed.prefix_truncated && !parsed.session) diagnostics.truncated_prefixes++;
+              for (const type of parsed.unknown_record_types) {
+                diagnostics.unknown_record_types[type] =
+                  (diagnostics.unknown_record_types[type] || 0) + 1;
+              }
+              if (parsed.session) {
+                sessions.push({
+                  tool: "codex",
+                  cwd: parsed.session.cwd,
+                  codex_kind: parsed.session.kind,
+                });
+              } else {
+                diagnostics.files_without_session_meta++;
+                console.error(
+                  `Warning: no usable session_meta in Codex session ${filePath}`
+                );
               }
             } catch {
-              console.error(`Warning: could not parse Codex session ${filePath}`);
+              diagnostics.read_errors++;
+              console.error(`Warning: could not read Codex session ${filePath}`);
             }
           }
         }
@@ -366,7 +507,7 @@ function scanCodex(since: Date): Session[] {
     // Directory read error
   }
 
-  return sessions;
+  return { sessions, diagnostics };
 }
 
 function scanGemini(since: Date): Session[] {
@@ -514,9 +655,19 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
       }
     }
 
-    const sessionCounts = { claude_code: 0, codex: 0, gemini: 0 };
+    const sessionCounts = {
+      claude_code: 0,
+      codex: 0,
+      codex_root: 0,
+      codex_subagent: 0,
+      gemini: 0,
+    };
     for (const s of data.sessions) {
       sessionCounts[s.tool]++;
+      if (s.tool === "codex") {
+        if (s.codex_kind === "subagent") sessionCounts.codex_subagent++;
+        else sessionCounts.codex_root++;
+      }
     }
 
     repos.push({
@@ -542,11 +693,12 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
 async function main() {
   const { since, format } = parseArgs();
   const sinceDate = windowToDate(since);
-  const startDate = sinceDate.toISOString().split("T")[0];
+  const startDate = formatLocalDate(sinceDate);
 
   // Run all scanners
   const ccSessions = scanClaudeCode(sinceDate);
-  const codexSessions = scanCodex(sinceDate);
+  const codexScan = scanCodex(sinceDate);
+  const codexSessions = codexScan.sessions;
   const geminiSessions = scanGemini(sinceDate);
 
   const allSessions = [...ccSessions, ...codexSessions, ...geminiSessions];
@@ -555,6 +707,15 @@ async function main() {
   console.error(
     `Discovered: ${ccSessions.length} CC sessions, ${codexSessions.length} Codex sessions, ${geminiSessions.length} Gemini sessions`
   );
+  const rootCodexSessions = codexSessions.filter((s) => s.codex_kind !== "subagent").length;
+  const subagentCodexSessions = codexSessions.length - rootCodexSessions;
+  if (
+    codexScan.diagnostics.malformed_records > 0 ||
+    codexScan.diagnostics.files_without_session_meta > 0 ||
+    Object.keys(codexScan.diagnostics.unknown_record_types).length > 0
+  ) {
+    console.error(`Codex diagnostics: ${JSON.stringify(codexScan.diagnostics)}`);
+  }
 
   // Deduplicate
   const repos = await resolveAndDeduplicate(allSessions);
@@ -572,9 +733,15 @@ async function main() {
     repos,
     tools: {
       claude_code: { total_sessions: ccSessions.length, repos: ccRepos },
-      codex: { total_sessions: codexSessions.length, repos: codexRepos },
+      codex: {
+        total_sessions: codexSessions.length,
+        root_sessions: rootCodexSessions,
+        subagent_sessions: subagentCodexSessions,
+        repos: codexRepos,
+      },
       gemini: { total_sessions: geminiSessions.length, repos: geminiRepos },
     },
+    diagnostics: { codex: codexScan.diagnostics },
     total_sessions: allSessions.length,
     total_repos: repos.length,
   };
@@ -584,7 +751,7 @@ async function main() {
   } else {
     // Summary format
     console.log(`Window: ${since} (since ${startDate})`);
-    console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length}, Gemini: ${geminiSessions.length})`);
+    console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length} [root: ${rootCodexSessions}, subagent: ${subagentCodexSessions}], Gemini: ${geminiSessions.length})`);
     console.log(`Repos: ${repos.length} unique`);
     console.log("");
     for (const repo of repos) {
