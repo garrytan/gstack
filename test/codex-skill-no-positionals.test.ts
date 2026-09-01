@@ -104,6 +104,14 @@ describe('codex skill carries no harness-substitutable positionals (VAS-2403)', 
     ['GSTACK_OV_ERR',      'GSTACK_OV_ERR="$TMPERR"',            '2>"$GSTACK_OV_ERR"'],
     ['GSTACK_OV_DONE',     'GSTACK_OV_DONE="$_OV_DONE"',         'echo $? > "$GSTACK_OV_DONE"'],
     ['GSTACK_OV_EFFORT',   'GSTACK_OV_EFFORT="$_OV_EFFORT"',     '--effort "$GSTACK_OV_EFFORT"'],
+    // VAS-2402. The phase and its timeout budget travel the SAME way as the paths above, and for
+    // the same reason: under `--phase auto` the value is decided by the outer shell and consumed by
+    // the inner one, which is exactly the boundary a positional would be rewritten across.
+    // Order matters — the CONNECTEDNESS check below rebuilds the contiguous block from this table,
+    // so a row in the wrong position fails as a structure defect rather than silently.
+    ['GSTACK_OV_PHASE',    'GSTACK_OV_PHASE="$_OV_PHASE"',       '--phase "$GSTACK_OV_PHASE"'],
+    ['GSTACK_OV_TIMEOUT',  'GSTACK_OV_TIMEOUT="$_OV_TIMEOUT"',   '--timeout "$GSTACK_OV_TIMEOUT"'],
+    ['GSTACK_OV_MODE',     'GSTACK_OV_MODE="$_OV_MODE"',         '--codex-mode "$GSTACK_OV_MODE"'],
   ];
 
   // Both files, because the template is what a human edits and the generated copy is what ships.

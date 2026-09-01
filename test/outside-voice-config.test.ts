@@ -674,7 +674,14 @@ describe('every adapter invocation carries a resolved effort, not a literal', ()
     expect((text.match(/case "\$_XHIGH" in yes\|no\)/g) ?? []).length).toBe(3);
     // Both branches present at every site: the override is code, not prose.
     expect((text.match(/if \[ "\$_XHIGH" = yes \]; then _REVIEW_EFFORT=xhigh; else _REVIEW_EFFORT=high; fi/g) ?? []).length).toBe(2);
-    expect((text.match(/if \[ "\$_XHIGH" = yes \]; then _OV_EFFORT=xhigh; else _OV_EFFORT=medium; fi/g) ?? []).length).toBe(1);
+    // VAS-2402: the loop launcher's effort gained a third branch, so this two-branch form no
+    // longer exists. `auto` runs one --effort across BOTH halves of a possible promotion — the
+    // adapter reassigns phase and label on promotion but not effort — and `medium` is right for
+    // a loop round and wrong for the gate round that may follow it. Under-powering the thing
+    // that declares convergence is the failure the tiering rests on, so `auto` takes the gate's
+    // `high`. The property this assertion protects is unchanged: the override is CODE, with both
+    // outcomes visible, not a literal with the override living in a comment.
+    expect((text.match(/if \[ "\$_XHIGH" = yes \]; then _OV_EFFORT=xhigh\nelif \[ "\$_OV_PHASE" = "auto" \]; then _OV_EFFORT=high\nelse _OV_EFFORT=medium; fi/g) ?? []).length).toBe(1);
   });
 
   test.each(files)('%s: no invocation hard-codes its effort', (_l, f) => {

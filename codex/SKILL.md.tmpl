@@ -61,13 +61,59 @@ After this, every subsequent bash block in this skill uses `"$PLAN_ROOT"` and
 Parse the user's input to determine which mode to run. **Settle this before the codex checks
 below** — Step 0.4 needs the resolved mode to pick the phase whose backend it should test, and
 case 3 resolves the mode by asking the user, so nothing earlier can know it. Carry the result
-forward: review → `loop` if `--loop` else `final_gate`; challenge/consult/plan → `none`.
+forward using the table in the next section — it is the authority, and it is not
+`loop`-or-`final_gate` any more: a plain review in a `claude-fleet-config` worktree resolves to
+`auto`. Challenge/consult/plan remain `none`.
 
 1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
-1a. `/codex review --loop` — **Review mode, loop phase** (Step 2A, loop path): runs the
+1a. `/codex review --loop` — **Review mode, loop phase** (Step 2A, loop path): runs ONE
     round on the backend configured for the iterative loop (`outside_voice_loop`) rather
-    than the final gate. Same stop condition; cheaper rounds. Without the flag, review
-    runs the final gate exactly as before.
+    than the final gate. Cheaper, and it does **not** drive the lane to convergence — an
+    explicit `--loop` is a caller asking for a single cheap round, so the adapter never
+    promotes it to the gate.
+
+### THE PHASE IS RESOLVED HERE, ONCE, AND EVERYTHING ELSE DERIVES FROM IT
+
+**`_REVIEW_PHASE` is the single producer named by VAS-2402's acceptance criteria.** Five things
+follow the phase — the phase argument itself, the reporting label, the severity bar, the timeout
+budget and the reasoning effort — and rounds 18–20 of gstack#1 are the measured cost of letting any
+one of them be re-decided at its own call site. Resolve it once, here, and derive the rest.
+
+```
+--loop typed                        -> loop        (one cheap round; never promoted)
+plain `/codex review`, cfc worktree -> auto         (VAS-2402: loop first, gate when clean)
+plain `/codex review`, anywhere else -> final_gate  (unchanged)
+challenge / consult / plan          -> none
+```
+
+⚠ **`auto` IS SCOPED BY REPOSITORY, CHECKED AT THE CALL SITE — never by a config key.** A key in
+`~/.gstack/config.yaml` could be set globally by accident and would silently route every repo's
+reviews through a mode only one repo has agreed to. The check is a property of the tree you are
+standing in:
+
+```bash
+# The REMOTE, not the directory name: fleet lanes live in worktrees called wt-2402, cfc-wt-1885,
+# scratchpad/wt-renew and so on, so a basename test answers "no" for most real cfc lanes.
+#
+# OWNER AND NAME, not the last path segment. Matching only the segment opts in ANY fork or
+# unrelated remote that happens to be called claude-fleet-config — a stranger's clone would
+# silently start running loop-then-gate rounds on a rollout scoped to one repository. The
+# scoping is the whole safety property here, so it fails CLOSED: anything that does not match
+# exactly keeps the explicit phase.
+_REVIEW_REPO=$(git remote get-url origin 2>/dev/null \
+  | sed -e 's/\.git$//' -e 's#^git@\([^:]*\):#https://\1/#' \
+  | awk -F/ '{ if (NF>=2) printf "%s/%s", $(NF-1), $NF }')
+echo "REVIEW_REPO: ${_REVIEW_REPO:-unknown}"
+# The one repository the VAS-2402 rollout covers. Widening this is a separate, explicit decision.
+_REVIEW_AUTO_REPO="vaskockorovski/claude-fleet-config"
+```
+
+**`auto` replaces the typed flag that VAS-2371's rollout ran on.** Under that scaffold a cfc session
+had to type `--loop` for the iterative rounds and a plain `/codex review` for the converging one;
+compliance was measured at ~20–24%, because the mechanism was a person remembering. Under `auto` a
+plain `/codex review` runs the cheap round, reads its own result, and promotes to the gate in the
+same invocation when it is clean — so the routing no longer depends on anyone typing anything, and
+the dated scaffold in `claude/CLAUDE.md` is deleted alongside this change.
 2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
 3. `/codex` with no arguments — **Auto-detect:**
    - Check for a diff (with fallback if origin isn't available):
@@ -118,9 +164,30 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # in the other direction too: the default gate path was blocked by a hosted LOOP setting.
 #
 # SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED — do not re-derive it from what the
-# user typed: `loop` for review --loop (focused or not), `final_gate` for a review without
-# the flag, `none`
-# for challenge/consult/plan, which call codex directly and must keep their gating.
+# user typed:
+#   loop        any `review --loop`, focused or not.
+#   auto        an UNFOCUSED review in a claude-fleet-config worktree — `/codex review`, or
+#               bare `/codex` once the user picks Review at Step 0.3.
+#   final_gate  every other review: any FOCUSED review (`/codex review <instructions>`)
+#               wherever it runs, and any review outside a claude-fleet-config worktree.
+#   none        challenge/consult/plan, which call codex directly and must keep their gating.
+#
+# ⚠ FOCUS IS AN AXIS HERE, AND ONLY HERE — this is the one thing about the rule that is easy to
+# get backwards, and a round got it backwards in both directions before it settled. `auto` is a
+# property of the PLAIN-review launcher: `_REVIEW_ROUTE` keys on the repo alone, so on that path
+# instructions genuinely are not an axis. But a FOCUSED review does not run through that launcher
+# at all — it runs the inline focused branch, which has no auto machinery and says so in its own
+# comment. So THIS line, which decides which backend to probe for readiness, has to name the
+# focused case separately or it probes a backend the invocation will never use. The rule is: no
+# `--loop`; then the repo decides for an unfocused review, and a focused one takes the gate.
+#
+# Bare `/codex` that resolves to Review at Step 0.3 counts as UNFOCUSED — it carries no
+# instructions — and takes `auto` in the rollout repo like any other plain review.
+# ⚠ STEP 0.3's ROUTING TABLE IS THE AUTHORITY, not this line. It said `final_gate` for every
+# review without the flag, which is the pre-VAS-2402 rule — and a caller obeying it here would
+# skip the inline gate (because the route resolves to auto) and then hand the loop launcher
+# `--phase final_gate`, so the auto lane never runs and the feature is silently bypassed. Two
+# places stating one rule is how that happens; this one defers.
 #
 # Step 0.3 runs BEFORE this step, and that ordering is load-bearing rather than cosmetic.
 # Mode detection used to sit after these checks, which left bare `/codex` — whose mode is
@@ -144,7 +211,7 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # (four noted below, plus codex r16 P1). The self-validating check on the next lines is what
 # makes an unsubstituted placeholder fail LOUDLY instead of silently, which is the whole point;
 # it firing is the mechanism working, not proof that nobody fills the value in.
-_OV_PHASE="<<SET-ME: loop | final_gate | none>>"   # ← SUBSTITUTE THIS WHOLE STRING
+_OV_PHASE="<<SET-ME: loop | final_gate | auto | none>>"   # ← SUBSTITUTE THIS WHOLE STRING
 # A placeholder that VALIDATES ITSELF, checked BEFORE anything reads it.
 #
 # This was `_OV_PHASE=` — blank, with the obligation to fill it stated only in a comment. That
@@ -160,17 +227,56 @@ _OV_PHASE="<<SET-ME: loop | final_gate | none>>"   # ← SUBSTITUTE THIS WHOLE S
 # otherwise reach `backend --phase "<<SET-ME…>>"` and fail there, naming the adapter instead of
 # the line the reader actually has to edit.
 case "$_OV_PHASE" in
-  loop|final_gate|none) ;;
-  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for review --loop whether or not it carries instructions, 'final_gate' for a review without the flag, 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
+  loop|final_gate|auto|none) ;;
+  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for any review --loop; 'auto' for an UNFOCUSED review in a claude-fleet-config worktree (including bare /codex once Review is picked); 'final_gate' for every other review — any FOCUSED review wherever it runs, and any review outside such a worktree; 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
      return 2 2>/dev/null || exit 2 ;;
 esac
+
+# `auto` IS NOT A PHASE THE BACKEND QUERY ACCEPTS, and asking anyway is a hard refusal:
+# `backend --phase auto` exits non-zero with "unknown phase 'auto' (want: loop|final_gate)".
+# The check below would then read that failure as "not codex" and set NEEDS_CODEX=no — which is
+# right by accident when auto resolves to the hosted loop and WRONG when it resolves to the
+# frontier gate, silently skipping the binary and auth checks for a phase that needs both.
+# So resolve it to a real phase FIRST, and keep the resolved value: every follower below reads it.
+_OV_RESOLVED_PHASE="$_OV_PHASE"
+if [ "$_OV_PHASE" = "auto" ]; then
+  # THE SAME QUESTION THE EXEC WILL ASK. resolve-phase applies the adapter's OWN default base —
+  # a fixed literal in the adapter, not this repository's default branch and not your branch's
+  # base — and non-explicit mode; the review below runs
+  # `exec --phase auto --explicit --base origin/<base>`.
+  # (An earlier wording said "the repository's own default branch". That was written to satisfy a
+  # guard against hardcoded branch names and it made the sentence FALSE, which is worse than the
+  # literal it removed: the adapter hardcodes one ref, so on any repo whose base differs, the
+  # default is wrong in a way the old wording described accurately and the new one did not.)
+  # Omitting either flag lets this resolution disagree with the phase the adapter actually picks —
+  # on any branch whose base differs from that literal, or when codex_reviews=disabled and the user asked for a
+  # review explicitly. The two would then diverge silently, and Step 0.4 would probe the wrong
+  # backend: skipping the binary and auth checks a real gate round needs, or refusing a hosted
+  # loop that was allowed. Two producers that answer differently is the defect this whole change
+  # exists to remove, so they are given identical inputs.
+  _OV_RESOLVED_PHASE=$(~/.claude/skills/gstack/bin/gstack-outside-voice resolve-phase \
+    --explicit --base "origin/<base>" --repo-root "$(git rev-parse --show-toplevel 2>/dev/null)" \
+    2>/dev/null) || _OV_RESOLVED_PHASE=""
+  case "$_OV_RESOLVED_PHASE" in
+    loop|final_gate) ;;
+    *) echo "STOP: --phase auto could not be resolved (resolve-phase returned '${_OV_RESOLVED_PHASE:-<nothing>}'). This is NOT a clean round and NOT a reason to guess a phase: resolve-phase reads the round ledger, so a failure here means the ledger is unreadable and the mode cannot decide anything. Fix that, or name the phase explicitly." >&2
+       return 2 2>/dev/null || exit 2 ;;
+  esac
+  echo "PHASE_RESOLVED: $_OV_RESOLVED_PHASE (from --phase auto)"
+fi
 # `none` means this invocation calls codex directly (challenge/consult/plan) and must keep its
 # gating. An earlier version defaulted to `final_gate`, wrong in both directions at once:
 # `review --loop` checked the GATE's backend, and challenge/consult skipped their checks
 # whenever the gate happened to be hosted, though they call codex exec further down this file.
 _NEEDS_CODEX=yes
 if [ "$_OV_PHASE" != "none" ]; then
-  [ "$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_OV_PHASE" 2>/dev/null)" = "codex" ] \
+  # THE RESOLVED PHASE, not the requested one — see the auto note above.
+  # ⚠ Under `auto` this answers for the phase the lane STARTS on. A lane that starts on the loop
+  # can be promoted to the gate inside the same invocation, so a hosted-loop/codex-gate install
+  # legitimately reports NEEDS_CODEX: no here and may still shell out to codex later. That is why
+  # the auto path below re-checks the gate's readiness before it spends anything, rather than
+  # trusting this line to have covered it.
+  [ "$(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase "$_OV_RESOLVED_PHASE" 2>/dev/null)" = "codex" ] \
     && _NEEDS_CODEX=yes || _NEEDS_CODEX=no
 fi
 echo "NEEDS_CODEX: $_NEEDS_CODEX"
@@ -178,8 +284,19 @@ CODEX_BIN=$(command -v codex || echo "")
 [ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
 ```
 
-If `NEEDS_CODEX: no`, skip this step AND Step 0.5 entirely — no phase of this review routes
-to Codex, so neither its absence nor its auth is a blocker. Note it and continue.
+If `NEEDS_CODEX: no`, skip this step AND Step 0.5 entirely — the phase this review is starting
+does not route to Codex, so neither its absence nor its auth is a blocker there. Note it and
+continue.
+
+⚠ **ON `--phase auto` THAT IS A STATEMENT ABOUT THE FIRST HALF ONLY, AND IT USED TO SAY MORE.**
+The probe reads the backend for `$_OV_RESOLVED_PHASE`, which under `auto` is the phase the round
+STARTS on. A clean loop promotes to the gate in the same invocation, and that gate may be
+Codex-backed — so `NEEDS_CODEX: no` cannot mean "no phase of this review routes to Codex", which
+is what this said before the auto lane existed. Skipping the install and auth guidance is still
+correct: the round begins on the hosted loop and reaches Codex only after a clean loop half, at
+which point the adapter's own error names what is missing. What is NOT correct is reading this
+line as a guarantee — if a promoted gate fails on a missing or unauthenticated Codex, that is the
+expected shape of this path, not a contradiction of the line above.
 
 Otherwise, if `NOT_FOUND`: stop and tell the user:
 "Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
@@ -253,7 +370,64 @@ custom prompt and `--base <branch>` together** (the two arguments are mutually
 exclusive at argv level), so put the base diff scope in the prompt instead of
 passing `--base`. Two paths:
 
-**Default path (no custom user instructions):** the **final-gate** phase. It runs
+**Default path (no custom user instructions).** ⚠ **FIRST, DECIDE WHETHER THIS REPO TAKES `auto`
+— and if it does, THIS BLOCK DOES NOT RUN.** A plain `/codex review` in the rollout repository is
+the whole point of VAS-2402: it must enter the loop-then-gate lane, not the inline gate below.
+Running this block there would skip the auto lane entirely, along with its fused budget and its
+phase-derived reporting, and the change would be unreachable in the one repo it exists for.
+
+```bash
+_REVIEW_ROUTE=gate
+# TWO conditions, not one. The repo must opt in AND the resolved phase must actually be `loop`.
+#
+# ⚠ WITHOUT THE SECOND, AN `auto` THAT RESOLVES STRAIGHT TO `final_gate` IS RUN BY THE LOOP
+# LAUNCHER — which sends the loop's prompt and leaves --codex-mode at its `exec` default, so the
+# round is DIFF-SCOPED, while the reporting below correctly labels it GATE_*. That presents a
+# weaker review as the repo-scoped `codex review` gate having run clean, which is the exact
+# false-clean this change exists to prevent. It is not an edge case either: `outside_voice_loop`
+# defaults to codex on an unconfigured install, and size-cap and runaway-cap fallbacks land there
+# too.
+#
+# The fix is subtraction rather than a second launcher. If the phase is already `final_gate` there
+# is nothing to promote — the lane has converged and the gate is owed — so the existing inline
+# gate path is exactly the right thing to run, and it is already repo-scoped, already
+# --codex-mode review, already 330s. `auto` is only interesting when a loop round is going to run.
+# TWO CONDITIONS: the repo opts in, AND the user did not type --loop.
+#
+# ⚠ THE SECOND IS NOT THE ONE A ROUND ALREADY REMOVED — check which before deleting it. The
+# condition that was removed keyed on the RESOLVED PHASE (ledger state), and it made whether a
+# review demanded a sweep depend on a value nobody could predict. This one keys on what the USER
+# TYPED, which is neither ambiguous nor mutable, and it exists because the explicit --loop path
+# and the auto path share this launcher. Without it, `/codex review --loop` in the rollout repo
+# resolves `auto` and the instruction below sends it through with `_OV_PHASE=auto` — so a lane
+# the user asked to keep cheap can promote, spend a gate round, and present convergence that was
+# never requested. An explicit --loop is a single cheap round that must never promote; that is
+# the contract stated above, and the route must not quietly override it.
+#
+# _USER_TYPED_LOOP is resolved by Step 0.3 alongside the mode. Substitute it there, as with
+# every other value this file takes from the mode: yes when the invocation carried --loop.
+_USER_TYPED_LOOP="<<SET-ME: yes | no>>"   # ← SUBSTITUTE THIS WHOLE STRING
+case "$_USER_TYPED_LOOP" in
+  yes|no) ;;
+  *) echo "STOP: _USER_TYPED_LOOP was not substituted (still '$_USER_TYPED_LOOP'). Step 0.3 has already resolved the mode; carry it here — 'yes' if the invocation carried --loop, otherwise 'no'. Guessing is not available: guess 'no' and an explicit --loop can promote to a gate the user did not ask for." >&2; return 2 2>/dev/null || exit 2 ;;
+esac
+# An earlier revision also required the resolved phase to be
+# `loop`, because the loop launcher then ran a gate round DIFF-scoped. Passing --codex-mode review
+# removed that reason, and the extra condition had a cost of its own: a straight-to-gate review
+# fell through to `exec --phase final_gate`, which skips the adapter's auto_resolved branch in
+# preflight_gate() — so round 1 could bypass the structural-sweep refusal and be presented as an
+# ordinary gate verdict instead of ROUND NOT RUN. Whether a plain review in this repo demanded a
+# sweep then depended on ledger state, which is not a rule anyone could follow.
+if [ "${_REVIEW_REPO:-}" = "${_REVIEW_AUTO_REPO:-}" ] && [ -n "${_REVIEW_REPO:-}" ] \
+   && [ "$_USER_TYPED_LOOP" = "no" ]; then
+  _REVIEW_ROUTE=auto
+fi
+echo "REVIEW_ROUTE: $_REVIEW_ROUTE   (repo=${_REVIEW_REPO:-unknown} resolved=${_OV_RESOLVED_PHASE:-unknown} user_typed_loop=$_USER_TYPED_LOOP)"
+```
+
+**If `REVIEW_ROUTE: auto`, skip to the loop path below and run it with `_OV_PHASE=auto`.** It
+already carries the backgrounded poller the fused budget needs. **If `REVIEW_ROUTE: gate`, continue
+here** — the **final-gate** phase, unchanged. It runs
 through the outside-voice adapter so the backend is resolved from
 `outside_voice_gate` — which defaults to `codex`, so an unconfigured install
 behaves exactly as it always has. The adapter invokes `codex review` (not
@@ -289,8 +463,13 @@ loop round or quietly weakens the gate.
 # regardless, the call fails, and the failure is reported as a codex error rather than as the
 # configuration problem the probe already identified. The loop path guards at runtime; this one
 # relied on the reader doing it, and two review rounds reported it as a defect for that reason.
+# THE GUARD IS CODE, NOT PROSE. The paragraph above tells a reader to skip this block on the auto
+# route; this line is what makes skipping it actually happen, because "a step written beside a code
+# block instead of inside it does not get run" is a lesson this file already carries.
 _GATE_RAN=no
-if [ "$_GATE_MODE" != "ready" ]; then
+if [ "${_REVIEW_ROUTE:-gate}" = "auto" ]; then
+  echo "GATE SKIPPED — this repo routes a plain review through --phase auto. The loop-then-gate lane below runs it, and the gate round happens THERE, in the same invocation, when the loop reports clean. Nothing has been reviewed by this block and it must not be read as a verdict."
+elif [ "$_GATE_MODE" != "ready" ]; then
   # NOT `exit 0`. Exiting zero is the shell's word for "this succeeded", and a caller that
   # reads it cannot distinguish "the gate found nothing" from "the gate never ran" — the same
   # absence-read-as-a-verdict this skill has closed in four other places. Set a flag the
@@ -494,8 +673,53 @@ _OV_OUT="$TMP_ROOT/gstack-ov-out-$_OV_LANE.txt"
 # stops rather than silently selecting the default.
 _XHIGH=no
 case "$_XHIGH" in yes|no) ;; *) echo "STOP: _XHIGH must be yes or no (got '$_XHIGH'). Step 0.3 resolves it: yes when the user typed --xhigh." >&2; return 2 2>/dev/null || exit 2 ;; esac
-if [ "$_XHIGH" = yes ]; then _OV_EFFORT=xhigh; else _OV_EFFORT=medium; fi
+# EFFORT FOLLOWS THE PHASE, and under `auto` it must cover the WORST CASE the call may run.
+# One --effort applies to the whole invocation, and an `auto` call that promotes runs the gate
+# with whatever was passed. `medium` is right for a loop round and wrong for a gate round: the
+# gate's verdict is the lane's, and under-powering the thing that declares convergence is the
+# exact failure the tiering rests on. So `auto` takes the gate's `high`.
+# ⚠ THE COST OF THAT IS REAL AND IS STATED RATHER THAN HIDDEN: a cheap round under `auto` runs at
+# `high` reasoning, so it is dearer than the same round under an explicit `--loop`. It is still
+# the cheap MODEL — measured at ~3.4% of a frontier round — so the saving survives; it is simply
+# smaller than a `--loop` round, and that is the price of not needing anyone to type a flag.
+if [ "$_XHIGH" = yes ]; then _OV_EFFORT=xhigh
+elif [ "$_OV_PHASE" = "auto" ]; then _OV_EFFORT=high
+else _OV_EFFORT=medium; fi
 echo "LOOP_EFFORT: $_OV_EFFORT"   # printed so an unapplied --xhigh is visible, not inferred
+
+# FOLLOWER: the TIMEOUT BUDGET.
+#
+# ⚠ `--timeout` IS PER ROUND, NOT PER INVOCATION — verified in the adapter, where `with_timeout`
+# is applied inside each backend call and `_round` is invoked a SECOND time on promotion. An
+# earlier revision of this line set 1230 "for the fused case" and described it as a total; that
+# was simply wrong about the adapter, and it would have told an operator a round was over budget
+# when it was legitimately still running.
+#
+# So the value stays the loop's own 900. A promoted gate round inherits it, which is generous
+# against the gate's usual 330 and harmless — the gate is the cheaper half in wall-clock.
+# What the fused case actually costs is WALL CLOCK across the invocation, up to roughly twice
+# this, and that is handled by the poll block below being RE-RUNNABLE rather than by a bigger
+# number: re-running it polls the same child instead of starting a second paid review. That is
+# also why `auto` reuses this backgrounded path rather than the gate's inline one, and why it
+# does not need a second copy of the launch, liveness and re-entry machinery.
+_OV_TIMEOUT=900
+echo "LOOP_TIMEOUT: ${_OV_TIMEOUT}s per round (an auto invocation may run two: expect to re-run the poll block)"
+
+# FOLLOWER: THE CODEX MODE, and this one is only visible by reading the adapter. `_round` passes
+# the caller's --codex-mode straight to exec_codex, and the auto promotion calls `_round` a SECOND
+# time — so a promoted gate inherits whatever the loop launcher passed. At the loop's `exec`
+# default that runs the gate through `codex exec`, which is DIFF-scoped, while the reporting below
+# correctly labels it GATE_*: a weaker round presented as the repo-scoped gate for the lane.
+#
+# The same inheritance also closes the RACE. Step 0.4 resolves the phase before the child launches,
+# and another round on the lane can advance the ledger in between, so the adapter may re-resolve to
+# `final_gate` at dispatch. With `review` passed, that raced gate still runs in the right shape.
+#
+# `review` is harmless on the loop half: exec_codex is the only consumer, so a hosted loop ignores
+# it entirely, and a codex-backed loop simply gets Codex's own review tuning — which is the better
+# of the two anyway.
+if [ "$_OV_PHASE" = "auto" ]; then _OV_MODE=review; else _OV_MODE=exec; fi
+echo "LOOP_CODEX_MODE: $_OV_MODE"
 # Recover a DEAD round before deciding whether to relaunch. The launch marker is deliberately
 # kept on exit 125 (a round still running must be polled, not duplicated), but 125's own message
 # tells the operator to find and kill an orphaned uncapped call — and after they do, the marker
@@ -605,9 +829,13 @@ GSTACK_OV_FINDINGS="$_OV_FINDINGS" \
 GSTACK_OV_ERR="$TMPERR" \
 GSTACK_OV_DONE="$_OV_DONE" \
 GSTACK_OV_EFFORT="$_OV_EFFORT" \
+GSTACK_OV_PHASE="$_OV_PHASE" \
+GSTACK_OV_TIMEOUT="$_OV_TIMEOUT" \
+GSTACK_OV_MODE="$_OV_MODE" \
 nohup bash -c '~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
-  --phase loop --prompt-file "$GSTACK_OV_PROMPT" --repo-root "$GSTACK_OV_REPO" \
-  --base "origin/<base>" --effort "$GSTACK_OV_EFFORT" --timeout 900 \
+  --phase "$GSTACK_OV_PHASE" --codex-mode "$GSTACK_OV_MODE" \
+  --prompt-file "$GSTACK_OV_PROMPT" --repo-root "$GSTACK_OV_REPO" \
+  --base "origin/<base>" --effort "$GSTACK_OV_EFFORT" --timeout "$GSTACK_OV_TIMEOUT" \
   --findings-out "$GSTACK_OV_FINDINGS" < /dev/null 2>"$GSTACK_OV_ERR"
 echo $? > "$GSTACK_OV_DONE"' > "$_OV_OUT" 2>&1 &
 # Record the child so a later re-entry can tell "still running" from "died silently".
@@ -627,6 +855,10 @@ fi
 # BLOCK AGAIN — it re-polls the existing child rather than starting a new one, because the
 # launch above is skipped when $_OV_DONE already exists. Two or three repeats cover a
 # fifteen-minute round.
+# 55 x 10s = 550s, sized for the host's 600000ms call cap — NOT for the round, which is allowed
+# 900s PER ROUND. The block is re-runnable by design: if the marker has not appeared, run it again
+# and it polls the SAME child rather than starting a second paid review. An `auto` invocation that
+# runs loop-then-gate spends up to 900s on each, so expect two or three passes.
 for _i in $(seq 1 55); do [ -s "$_OV_DONE" ] && break; sleep 10; done
 if [ -s "$_OV_DONE" ]; then
   _OV_EXIT=$(cat "$_OV_DONE")
@@ -689,18 +921,156 @@ fi
 # /dev/null) surviving in the sibling branch of the fix for it, which is why this is structural
 # rather than another per-branch cat: a round's output is worth printing whatever its exit code,
 # and a failed round's partial output is often the only diagnostic there is.
-if [ -s "$_OV_OUT" ]; then
+# ⚠ NOT ON 125. Under `auto`, exit 125 can mean the LOOP half finished and the promoted gate is
+# still running — so this file already holds a complete, clean-looking review from an invocation
+# the skill simultaneously calls unfinished. Showing it is the "looks clean before the gate ran"
+# signal this change exists to remove. On a FAILED round the partial output is still printed,
+# because there it is often the only diagnostic.
+if [ "$_OV_EXIT" = "125" ]; then
+  echo "--- review output withheld: the round has NOT finished. Any output on disk is a partial invocation (under auto, possibly a clean loop half with the gate still running) and must not be read as a result. Re-run the poll block."
+elif [ -s "$_OV_OUT" ]; then
   echo "--- review output ---"; cat "$_OV_OUT"; echo "--- end review output ---"
 fi
-if [ "$_OV_EXIT" = "0" ] && [ -s "$_OV_FINDINGS" ]; then
-  echo "OV_FINDINGS_JSON: $(cat "$_OV_FINDINGS")"
-  echo "Severity counts come from this block; the file:line detail is in the review output above."
-elif [ "$_OV_EXIT" = "0" ]; then
-  echo "OV_FINDINGS_JSON: <none — backend was codex; read its severities from the review output above>"
-elif [ "$_OV_EXIT" = "125" ]; then
-  echo "OV_FINDINGS_JSON: <none yet — the round is still running; the file belongs to that call>"
+# THE LABEL FOLLOWS THE PHASE THAT ACTUALLY RAN, WHICH UNDER `auto` IS NOT KNOWN UNTIL NOW.
+#
+# Step 4 grades the two labels by DIFFERENT rules — `GATE_*` is the gate's verdict (p1 only) while
+# `OV_FINDINGS_JSON` is the loop's stop condition (p1 OR p2) — so labelling a gate round as a loop
+# round grades a converged artefact on the wrong bar, and the reverse ends a lane on a cheap
+# round's say-so. That was a real P1 on gstack#1 r19, when the focus path gained a phase and kept
+# the gate's label.
+#
+# Under `auto` the invocation may run the loop, find it clean, and promote to the gate WITHOUT
+# returning first, so neither the requested phase nor the pre-call resolution can say what produced
+# this findings file. The ADAPTER announces the promotion on stderr, and that announcement is the
+# only thing that observes it — so it is the producer here, exactly as resolve-phase is the
+# producer for the pre-call followers.
+# THE ADAPTER'S OWN ANNOUNCEMENT, NOT THE EARLIER PROBE. Step 0.4 resolved a phase to choose the
+# effort and the budget, and that read happened BEFORE the round launched — so if another round on
+# this lane advanced the ledger in between, the invocation can legitimately start on a different
+# phase than the probe predicted. Labelling from the probe would then misstate the bar and suppress
+# GATE_BACKEND for the round that actually ran. The adapter prints `phase resolved to '<phase>'` on
+# every auto call, which is the only reading taken at the moment the round began.
+# ⚠ NONE OF THIS IS INTERPRETED UNTIL THE ROUND HAS FINISHED. The adapter prints its resolution
+# and its promotion notice as it goes, so on a 125 (poll expired, child still running) both lines
+# can already be on stderr while the gate half is still executing. Reading them then would announce
+# AUTO PROMOTED and emit GATE_BACKEND for a gate that has not produced anything, and step 4 would
+# grade the loop half's output as the gate's — a round that did not finish, reported as one that
+# did, which is the whole class this file exists to close.
+if [ "$_OV_EXIT" = "125" ]; then
+  # ASSIGNED, not only printed. Step 7 requires a value on every path, and this branch printed
+  # `unknown` without ever setting the variable — so the one case where the round is still
+  # running was also the one case the log rule could not be followed, forcing an empty field or
+  # an invented value on exactly the unfinished round the field exists to mark.
+  # ⚠ `unknown` ONLY WHERE THE PHASE COULD STILL CHANGE. Under `auto` an unfinished round may be
+  # a loop half about to promote, so the phase genuinely is not yet decided. Under an explicit
+  # `loop` or `final_gate` it is LITERAL and cannot change — that lane never promotes — so
+  # collapsing it to `unknown` throws away a fact the invocation already knows, and makes a
+  # still-running cheap loop indistinguishable from an undecided auto round. Neither is a
+  # verdict either way; that is the sentence below, and it holds for both.
+  if [ "$_OV_PHASE" = "auto" ]; then _OV_ANNOUNCED_PHASE=unknown; else _OV_ANNOUNCED_PHASE="$_OV_PHASE"; fi
+  # The promotion clause is conditional for the same reason the phase is: an explicit lane never
+  # promotes, so telling its user a gate half may be executing suggests it is already spending a
+  # gate round in the background — the exact thing the explicit contract promises it will not do.
+  if [ "$_OV_PHASE" = "auto" ]; then
+    echo "ANNOUNCED_PHASE: $_OV_ANNOUNCED_PHASE — the round has NOT finished. Any promotion notice above belongs to a gate half that is still executing; re-run the poll block. Nothing here is a verdict."
+  else
+    echo "ANNOUNCED_PHASE: $_OV_ANNOUNCED_PHASE — the round has NOT finished. This lane does not promote, so no gate half is running; re-run the poll block. Nothing here is a verdict."
+  fi
 else
-  echo "OV_FINDINGS_JSON: <none — the round FAILED (exit $_OV_EXIT). NOT a clean round; nothing was established>"
+_OV_ANNOUNCED_PHASE="$_OV_RESOLVED_PHASE"
+_OV_PROMOTED=no   # initialised, never assumed: a stale yes from an earlier round in the same
+                  # shell would mark an unpromoted round as mixed, which is a false FAIL
+_OV_ANNOUNCE_LINE=$(sed -n "s/.*phase resolved to '\([a-z_]*\)'.*/\1/p" "$TMPERR" 2>/dev/null | tail -1)
+if [ -n "$_OV_ANNOUNCE_LINE" ]; then
+  [ "$_OV_ANNOUNCE_LINE" != "$_OV_RESOLVED_PHASE" ] && echo "NOTE: the ledger moved between the pre-call probe ($_OV_RESOLVED_PHASE) and the phase the adapter announced ($_OV_ANNOUNCE_LINE). The announcement wins; effort and budget were chosen from the probe and are stated above."
+  _OV_ANNOUNCED_PHASE="$_OV_ANNOUNCE_LINE"
+fi
+if grep -q 'running the final_gate round now' "$TMPERR" 2>/dev/null; then
+  _OV_ANNOUNCED_PHASE=final_gate
+  _OV_PROMOTED=yes
+  # ⚠ THE OUTPUT BELOW IS BOTH HALVES, CONCATENATED, AND THERE IS NO MARKER TO SPLIT THEM ON.
+  # This line used to say "the findings below are the GATE's". They are not: a promotion runs
+  # two rounds in ONE invocation writing to ONE stdout, and the promotion notice goes to stderr,
+  # so nothing in the captured output marks where the loop half ends.
+  #
+  # It is worse in the DEFAULT configuration rather than in an exotic one. The adapter deletes
+  # the findings file when the backend is codex (it owns its own output format and cannot honour
+  # the block contract), so on the common openrouter-loop → codex-gate promotion the structured
+  # block is GUARANTEED absent and the grader is GUARANTEED to be reading a mixed stream. Loop
+  # findings would then be attributed to the gate.
+  echo "AUTO PROMOTED: the loop reported no P1 and no P2, so the gate ran in the same invocation."
+  echo "⚠ MIXED OUTPUT: what follows is the loop half AND the gate half concatenated, with nothing marking the boundary. Markers below cannot be attributed to one half."
+fi
+fi
+# ⚠ ANNOUNCED, NOT RAN — and the variable is named for that now, because its old name
+# (`_OV_RAN_PHASE`) is what made this easy to miss for fourteen rounds. The adapter prints
+# `phase resolved to '<x>'` from its PREFLIGHT, before any round starts, so an invocation that
+# returns from the preflight — a blocked gate, a refused lane — has announced a phase it never
+# ran. Printing that as PHASE_THAT_RAN reports a round that did not happen, on exactly the
+# refused paths this step exists to keep honest. Print the announcement AS an announcement and
+# let the exit code say whether it finished; do not enumerate which exits mean "never started",
+# because that is the adapter's vocabulary and it drifts.
+[ "$_OV_EXIT" = "125" ] || echo "ANNOUNCED_PHASE: $_OV_ANNOUNCED_PHASE (what the adapter said it was starting; on a non-zero exit it may never have run)"
+# One producer, two labels. `_OV_LABEL` is derived here and nowhere else.
+if [ "$_OV_ANNOUNCED_PHASE" = "final_gate" ]; then _OV_LABEL=GATE_FINDINGS_JSON; else _OV_LABEL=OV_FINDINGS_JSON; fi
+# THE COMPANION MARKER TRAVELS WITH THE LABEL. Step 4 keys DEGRADED-GATE reporting off
+# `GATE_BACKEND:` — a gate that ran on a hosted backend is diff-scoped, so defects in files this
+# branch did not touch were never discoverable, and it must be reported as PASS (degraded gate)
+# rather than as a plain PASS. Emitting the gate LABEL without the gate BACKEND makes a weaker
+# review look like a full one, which is the same false-clean shape as the `<none>` payload fixed
+# one round earlier: half a contract is not a contract.
+#
+# ⚠ THE CONDITION IS `= 0`, NOT `!= 125`. Found by sweeping this fact across its sites rather
+# than by a round: every other consumer of a verdict here requires exit 0, and this one alone
+# admitted every failing exit. `_OV_ANNOUNCED_PHASE` comes from an announcement emitted BEFORE the
+# round runs, so a gate that announced itself and then died at 3/4/5/6 printed `GATE_BACKEND:`
+# — a gate marker for a round that produced no verdict, which is the same half-a-contract shape
+# the comment above describes, with the halves swapped. The failure line below still says the
+# round failed, so this was never a silent false clean; it was one marker disagreeing with every
+# other signal in the same output, which is how a reader ends up trusting the wrong one.
+if [ "$_OV_EXIT" = "0" ] && [ "$_OV_ANNOUNCED_PHASE" = "final_gate" ]; then
+  echo "GATE_BACKEND: $(~/.claude/skills/gstack/bin/gstack-outside-voice backend --phase final_gate 2>/dev/null || echo unknown)"
+fi
+if [ "$_OV_EXIT" = "0" ] && [ -s "$_OV_FINDINGS" ]; then
+  echo "$_OV_LABEL: $(cat "$_OV_FINDINGS")"
+  echo "Severity counts come from this block; the file:line detail is in the review output above."
+  # THE SEVERITY BAR FOLLOWS THE SAME PRODUCER. Stated here rather than left for step 4 to infer,
+  # because under `auto` a reader cannot tell from the invocation which bar applies.
+  if [ "$_OV_ANNOUNCED_PHASE" = "final_gate" ]; then
+    echo "BAR: gate — p1 > 0 is FAIL, p1 == 0 is PASS. This round can END the lane."
+  else
+    echo "BAR: loop — p1 > 0 OR p2 > 0 means the loop CONTINUES. A clean loop round is NOT convergence; only the gate declares that."
+  fi
+# ⚠ THE LABEL IS NOT PRINTED WHEN THERE IS NO BLOCK, and that is a correctness rule rather than
+# tidiness. Step 4 says that if a `*_FINDINGS_JSON:` line was printed the verdict comes from that
+# block AND FROM NOTHING ELSE — so emitting the label with a `<none …>` payload tells the grader to
+# read a block that does not exist, and simultaneously removes its fallback to the [P1] markers in
+# the prose. A round with no structured findings would then grade as a structured clean round.
+# The previous shape got away with this because the label was a constant; now that it can say
+# GATE_FINDINGS_JSON, a `<none>` payload under that label is a false clean gate.
+elif [ "$_OV_EXIT" = "0" ]; then
+  # THE BAR STILL HAS TO BE STATED HERE. Dropping the label was right — step 4 reads a printed
+  # label as authoritative — but the label was also the ONLY thing telling a reader which bar
+  # applied on the no-block path. Step 4's marker fallback describes GATE semantics, so a codex
+  # loop round carrying [P2]s would read as a clean pass instead of "the loop continues". So the
+  # phase and its bar are named explicitly, without printing a label that claims a block exists.
+  echo "NO_FINDINGS_BLOCK — backend was codex, which owns its own output format; there is no JSON block to grade. Read severities from the [P1]/[P2] markers in the review output above."
+  # ⚠ ON A PROMOTED ROUND THE MARKERS COME FROM A MIXED STREAM, so grade in the direction whose
+  # error is recoverable. A loop [P1] counted as the gate's causes a spurious FAIL and costs one
+  # more round; a gate [P1] missed because it was assumed to be the loop's ships the defect. The
+  # asymmetry decides it: count every marker, attribute none, and say so.
+  if [ "${_OV_PROMOTED:-no}" = "yes" ]; then
+    echo "ATTRIBUTION: unavailable — this round promoted, so the markers above span both halves. Count them ALL: any [P1] is a FAIL for this round. A loop finding counted here costs one extra round; a gate finding discounted here ships a defect, so this errs toward FAIL deliberately. To attribute a marker to a half, re-run the gate on its own."
+  fi
+  if [ "$_OV_ANNOUNCED_PHASE" = "final_gate" ]; then
+    echo "BAR: gate — any [P1] is FAIL, none is PASS. This round can END the lane."
+  else
+    echo "BAR: loop — any [P1] OR [P2] means the loop CONTINUES. A clean loop round is NOT convergence; only the gate declares that."
+  fi
+elif [ "$_OV_EXIT" = "125" ]; then
+  echo "NO_FINDINGS_BLOCK — the round is STILL RUNNING; the file belongs to that call. Not a verdict either way."
+else
+  echo "NO_FINDINGS_BLOCK — the round FAILED (exit $_OV_EXIT). NOT a clean round; nothing was established."
 fi
 # Not on 125: a still-running call is about to write this file, and deleting it would race
 # the writer and destroy the round's only machine-readable result.
@@ -840,10 +1210,26 @@ echo "REVIEW_EFFORT: $_REVIEW_EFFORT"   # printed so an unapplied --xhigh is vis
 # unreachable for four rounds. One convention, not two.
 # SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED: `loop` if the user typed --loop,
 # otherwise `final_gate`. Do not re-derive it from the instructions.
+#
+# ⚠ `auto` IS DELIBERATELY NOT AVAILABLE HERE, AND THAT IS A STATED LIMIT RATHER THAN AN
+# OVERSIGHT. A round briefly admitted it, reasoning that focus is not an axis of the phase rule.
+# That is true of `_REVIEW_ROUTE`, which keys on the repo alone — but `_REVIEW_ROUTE` governs the
+# PLAIN path, and this branch is not it. Four things here follow the phase LITERALLY (the
+# `--codex-mode exec`, the timeout, the effort, and the findings labels below), and under `auto`
+# the adapter may promote mid-invocation, so every one of them would then describe a phase that is
+# no longer running — reporting a loop or a diff-scoped promoted gate as a clean final gate, the
+# exact false-clean this rollout exists to prevent. Making them follow the announcement instead
+# means a second copy of that machinery on this branch, which is the trade the 540s note above
+# already refuses for the poller, for the same reason.
+#
+# So: a focused review runs the gate directly, wherever you are. **To use the auto lane, run a
+# plain `/codex review`** — same repo, same diff, and the loop-then-gate routing applies. Step
+# 0.4's rule names this case explicitly so its readiness probe and this launcher agree; if you
+# change one, change both.
 _FOCUS_PHASE="<<SET-ME: loop | final_gate>>"   # ← SUBSTITUTE THIS WHOLE STRING
 case "$_FOCUS_PHASE" in
   loop|final_gate) ;;
-  *) echo "STOP: _FOCUS_PHASE was not substituted (still '$_FOCUS_PHASE'). Step 0.3 resolved the mode already — carry it here: 'loop' when the user typed --loop, otherwise 'final_gate'." >&2; return 2 2>/dev/null || exit 2 ;;
+  *) echo "STOP: _FOCUS_PHASE was not substituted (still '$_FOCUS_PHASE'). Step 0.3 resolved the mode already — carry it here: 'loop' when the user typed --loop, otherwise 'final_gate'. 'auto' is not available on the focused path; run a plain /codex review to use the auto lane." >&2; return 2 2>/dev/null || exit 2 ;;
 esac
 echo "FOCUS_PHASE: $_FOCUS_PHASE"   # printed so an unapplied --loop is visible, not inferred
 # THE BUDGET FOLLOWS THE PHASE (codex r20 P2, self-inflicted by r18). r18 routed this branch to
@@ -988,7 +1374,24 @@ grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
    ran". If the adapter exited 4, the gate is NOT RUN — report it as such and grade nothing.
 
    Only when NO block was printed AND the exit was 0 — the codex backend ran, and owns its
-   own output format — fall back to the markers:
+   own output format — fall back to the markers.
+
+   ⚠ **AND WHEN A `BAR:` LINE WAS PRINTED, IT DECIDES WHICH BAR THE MARKERS ARE READ ON.** The
+   fallback below is stated in GATE terms — `[P1]` only — because until VAS-2402 a no-block round
+   was always a gate round. Under `--phase auto` it may be a **loop** round on the codex backend,
+   whose stop condition is `[P1]` **or** `[P2]`, so grading it on the gate's bar reports a round
+   carrying P2s as a clean PASS and ends a lane that has not converged. The round prints
+   `BAR: loop` or `BAR: gate` beside `NO_FINDINGS_BLOCK` precisely so this is not inferred from
+   the invocation. **Read the BAR line; only fall back to assuming the gate's bar when none was
+   printed.**
+   **If `BAR: loop` was printed, use the LOOP rule instead of the two below:** any `[P1]` **or**
+   `[P2]` in the output means the loop **CONTINUES** — it is not a pass, and it is not convergence.
+   Only `[P3]` or nothing at all clears a loop round, and clearing it means *run the gate next*,
+   never *the lane is done*. This case exists because a codex-backed `auto` round emits no findings
+   block, so the markers are all there is, and reading them on the gate's rule would pass a lane
+   carrying P2s.
+
+   Otherwise — `BAR: gate`, or no BAR line at all, which is every pre-VAS-2402 round:
    If the output contains `[P1]` — the gate is **FAIL**.
    If no `[P1]` markers are found (only `[P2]` or no findings) — the gate is **PASS**.
 
@@ -1008,9 +1411,62 @@ or
 GATE: FAIL (N critical findings)
 ```
 
+⚠ **A `--phase auto` ROUND HAS THREE HONEST OUTCOMES, NOT TWO, AND ONLY ONE OF THEM IS A GATE
+VERDICT.** The shapes above are the gate's, and they were the only shapes because before VAS-2402
+every plain review ended at the gate. Under `auto` a plain review can also stop after the loop, or
+not run at all — and flattening either into `GATE: PASS` reports a lane as converged when the gate
+has not spoken. Use the shape that matches the `BAR:` line the round printed:
+
+⚠ **ONLY A ROUND WHOSE ANNOUNCED PHASE WAS `final_gate` CAN END A LANE. Report what the adapter
+SAID IT DID — never what you inferred from an exit code.**
+
+Two earlier drafts of this step enumerated the adapter's outcomes by exit code, and a review round
+found the enumeration wrong both times: it claimed a finished state `--phase auto` does not have
+(auto promotes IN-PROCESS, so a clean loop launches the gate in the same invocation and never
+returns "loop clean"), and it flattened a terminal state into a transient one. The enumeration was
+the defect. It is a claim about someone else's exit-code table, restated in a file that cannot
+notice when that table changes — so it is gone, and one invariant stands in its place:
+
+```
+A GATE VERDICT EXISTS only when ALL THREE hold:
+  1. _OV_ANNOUNCED_PHASE = final_gate  (the adapter announced it was starting the gate)
+  2. _OV_EXIT = 0                    (and it finished)
+  3. the round produced review output  (and it had something to say)
+
+  → GATE: PASS | GATE: FAIL (N critical). This is the ONLY outcome that ends a lane.
+
+ANY OTHER COMBINATION, INCLUDING AN ANNOUNCED final_gate THAT DID NOT FINISH:
+  → NO GATE VERDICT EXISTS, whatever the findings say and whatever phase was announced.
+    Report the phase that ran, the adapter's exit code, and its own message VERBATIM. Do
+    not translate that exit code into a state name of your own — you do not own the
+    vocabulary and it drifts under you. The lane has NOT converged.
+```
+
+⚠ **BOTH CONDITIONS, AND THE SECOND IS THE ONE THAT WAS MISSING.** An earlier draft keyed on the
+announced phase alone. The announcement says the adapter STARTED the gate — it is emitted before
+the round runs — so an auto invocation can announce `final_gate` and then exit 2/3/4/5 with no
+verdict at all: the ledger says the gate is owed, the gate backend turns out to be disabled or
+unauthenticated, and the round dies. Keying on the announcement alone turns that into a clean
+`GATE: PASS`, which is a round that never ran reported as a converged lane — the exact failure this
+whole step exists to prevent, reintroduced by the fix for it. **Announcing a round is not finishing
+one**, the same way asking for a phase is not getting it. Require the announcement, a zero exit,
+and output to report on.
+
+**Read `_OV_ANNOUNCED_PHASE` from the adapter's stderr announcement, never from what you asked for** —
+the request is `auto`, the announcement is what auto RESOLVED to, and a promotion changes it
+mid-invocation. Asking-is-not-getting is the whole reason this variable exists.
+
+**The persistence line below records the same three observed facts and invents nothing.** `gate` is
+`"pass"`/`"fail"` **only** when `_OV_ANNOUNCED_PHASE` was `final_gate`; otherwise it is `"none"`, and the
+announced phase and the adapter's exit code are recorded beside it as their own fields. A session
+reading the log later can then see exactly what ran and what it returned, without this file having
+promised in advance what any particular code means. Writing `"pass"` for a round no gate finished
+puts a convergence claim into the review log that no gate ever made.
+
 5a. **Synthesis recommendation (REQUIRED).** After presenting Codex's verbatim
-output and the GATE verdict, emit ONE recommendation line summarizing what the
-user should do, in the canonical format the AskUserQuestion judge grades:
+output and whatever step 5 established — a gate verdict, or the fact that no gate
+verdict exists — emit ONE recommendation line summarizing what the user should do,
+in the canonical format the AskUserQuestion judge grades:
 
 ```
 Recommendation: <action> because <one-line reason that names the most actionable finding>
@@ -1022,6 +1478,23 @@ Examples (the strongest reasons compare against an alternative — another findi
 - `Recommendation: Investigate the race condition Codex flagged at billing.ts:117 before merging because the silent-corruption failure mode is harder to detect post-ship than the harness gap Codex also raised, which is fixable in a follow-up.`
 
 The reason must engage with a specific finding (or compare against alternatives — other findings, fix-vs-ship, fix order). Boilerplate reasons ("because it's better", "because adversarial review found things") fail the format. The recommendation is the ONE line a user reads when they don't have time for the verbatim output. **Never silently auto-decide; always emit the line.**
+
+⚠ **WHEN NO GATE VERDICT EXISTS, THE LINE IS STILL REQUIRED — AND IT MUST NOT IMPLY THE LANE IS
+CONVERGED.** The examples above all weigh findings against each other to reach a ship-or-hold call,
+which a loop-only, unfinished or blocked round has no basis for. Following them literally there
+manufactures a completed-review recommendation to satisfy the format: the format passes and the
+sentence is false.
+
+The constraint is about what the action CLAIMS, not which verb it uses — an earlier wording banned
+"Fix" outright and then opened with `Recommendation: Fix the two P2s…`, which is both a
+contradiction and wrong, because fixing loop findings and re-running is exactly right on a
+loop-continue round. **`Ship` is never available without a verdict; a `Fix` is available only when
+it is paired with running another round, never with shipping.** Recommend what the round's actual
+state calls for, and name that state as the reason:
+
+- `Recommendation: Fix the two P2s and run /codex review again because the cheap round found work, so no gate has run on this lane yet and nothing about convergence has been established.`
+- `Recommendation: Re-run the poll block because the adapter has not returned yet — no verdict exists, and reporting the loop's findings as the round's outcome would present an unfinished invocation as a completed one.`
+- `Recommendation: Fix gate readiness before spending another round because the adapter reported the gate backend cannot run, so this lane cannot converge no matter how many rounds it buys.`
 
 6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
    earlier in this conversation, compare the two sets of findings:
@@ -1036,13 +1509,67 @@ CROSS-MODEL ANALYSIS:
 
 7. Persist the review result:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","announced_phase":"ANNOUNCED_PHASE","exit":EXIT,"findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
-Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
-GATE ("pass" or "fail"), findings (from GATE_FINDINGS_JSON's p1+p2 when a block was
-printed, else the count of [P1] + [P2] markers),
-findings_fixed (count of findings that were addressed/fixed before shipping).
+Substitute: TIMESTAMP (ISO 8601), EXIT (the adapter's exit code, unquoted), ANNOUNCED_PHASE — which
+takes a value on EVERY path, because a row that cannot say whether it came from a cheap loop round
+or a real gate is the one thing this field was added to prevent:
+
+**EVERY path that reaches this step has a row.** Enumerated as a set rather than added one at a
+time — two consecutive rounds found a missing one, each time on a not-run case, because a rule
+written for the paths that work is a rule with no answer for the paths that do not:
+
+| the path that reached step 7 | `announced_phase` | `exit` |
+|---|---|---|
+| auto, round finished | `$_OV_ANNOUNCED_PHASE` | `$_OV_EXIT` |
+| auto, round failed | `$_OV_ANNOUNCED_PHASE` | `$_OV_EXIT` |
+| auto, still running (125) | `unknown` — the phase is genuinely undecided until it promotes or does not | `125` |
+| **explicit `review --loop`, finished** | **`loop`** — literal; this lane never promotes | `$_OV_EXIT` |
+| **explicit `review --loop`, still running (125)** | **`loop`** — still literal | `125` |
+| inline gate, gate ran | `final_gate` — literal, and the adapter emits no announcement for an explicit phase | `$_CODEX_EXIT` |
+| **inline gate, gate NEVER INVOKED** (`_GATE_MODE != ready`) | **`none`** | **`null`** |
+| the focused path | `$_FOCUS_PHASE` — likewise literal | `$_CODEX_EXIT` |
+
+⚠ **THE `gate NEVER INVOKED` ROW IS THE ONE THAT LOOKS LIKE IT DOES NOT NEED TO EXIST.** (It said
+"the fifth row" until rows were inserted above it and the pointer went stale — reference by
+CONTENT, never by position, which is this file's own rule and was broken in the paragraph
+enforcing it.) When the gate probe
+comes back anything but `ready` — disabled, misconfigured, unauthenticated — the branch stops
+BEFORE `gstack-outside-voice exec` runs, so there is no announcement and no exit code. Writing
+`final_gate` there fabricates a gate round that never started, and writing "the adapter's exit
+code" leaves the field blank; both make a not-run row indistinguishable from a real one, which is
+the distinction this whole step exists to preserve. `announced_phase: "none"` with a null exit says
+what actually happened. `gate` and `status` follow the table above — `none` and `no_verdict`.
+
+⚠ **`""` IS NOT A LEGAL VALUE IN THE PHASE COLUMN.** Only the auto path has an announcement to
+read, so a rule written as "empty if the adapter announced nothing" records an empty phase for
+every SUCCESSFUL non-auto review — the common case — and the field silently means nothing on most
+rows. On those paths the phase is not unknown, it is *literal*: take it from the branch. Then findings (from WHICHEVER structured block the round
+printed — `GATE_FINDINGS_JSON` on a gate round, `OV_FINDINGS_JSON` on a loop round, since an
+`auto` review that stops on the loop half emits the latter and naming only the former writes a
+loop round to the log with no count or the wrong one — else the count of [P1] + [P2] markers), findings_fixed (count of findings that were
+addressed/fixed before shipping).
+
+**STATUS and GATE follow the step-5 invariant and must not be filled in from findings alone.**
+A gate verdict is the only thing that licenses `"pass"`/`"fail"`, and a round with no findings is
+not thereby a passing round:
+
+| what step 5 established | `status` | `gate` |
+|---|---|---|
+| the gate ran and passed | `clean` | `pass` |
+| the gate ran and failed | `issues_found` | `fail` |
+| **no gate verdict exists** — a loop-only round, an unfinished one, or a lane the gate cannot serve | `issues_found` if the round printed findings, else **`no_verdict`** | **`none`** |
+
+⚠ **`gate: "none"` is NOT a synonym for `"pass"`, and the third row is the one that decides whether
+this log can be trusted.** Without it a caller has no truthful value to write, and the reflex is to
+reach for `clean`/`pass` because the round produced no failures — recording a lane the gate never
+spoke on as converged, which is the exact claim a later session reads back. Add
+`announced_phase` and `exit` — already in the payload above — carry what actually ran, so it is
+recoverable from the log rather than inferred from a verdict that was never issued. Fill them in on
+EVERY row, not only no-verdict ones: a field present only when something went wrong is a field
+nobody can tell apart from a field nobody filled in. (`gstack-review-log` validates only that the payload parses as JSON — verified by reading
+it — so these extra keys are safe to add.)
 
 8. Clean up temp files:
 ```bash
