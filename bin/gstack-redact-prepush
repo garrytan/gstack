@@ -190,6 +190,36 @@ function unknownRemoteTipBase(localSha: string): string | null {
  * resolving a merge is still caught, while an ordinary merge contributes
  * nothing. Returns null when the notion does not apply, so callers fall back.
  */
+/**
+ * Repo-committed scan exclusions: `.gstack/redact-ignore` at the repo root,
+ * one git pathspec per line, `#` comments. Listed paths are appended as
+ * `:(exclude)` pathspecs to the added-line diffs, so they never enter the
+ * scan — meant for test fixtures that deliberately contain fake credentials
+ * (a redaction test suite trips both MEDIUM and HIGH by design, and a HIGH
+ * block on a fixture trains the --no-verify reflex this hook warns against).
+ * The file is committed and reviewed like any code change, which is the
+ * consent model: excluding a path is a visible diff, not a local bypass.
+ * Unreadable file = no exclusions (fail closed).
+ */
+let _excludePathspecs: string[] | null = null;
+function excludePathspecs(): string[] {
+  if (_excludePathspecs !== null) return _excludePathspecs;
+  try {
+    const top = git(["rev-parse", "--show-toplevel"]).trim();
+    const file = top ? path.join(top, ".gstack", "redact-ignore") : "";
+    _excludePathspecs = file && fs.existsSync(file)
+      ? fs.readFileSync(file, "utf8")
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0 && !l.startsWith("#"))
+          .map((l) => `:(exclude)${l}`)
+      : [];
+  } catch {
+    _excludePathspecs = [];
+  }
+  return _excludePathspecs;
+}
+
 function addedLinesFromNewCommits(localSha: string, remoteSha: string): string | null {
   // remoteSha is what git TELLS us the remote has, and it is authoritative in a
   // way `--remotes` is not: remote-tracking refs can be absent (a fresh clone
@@ -221,7 +251,7 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): string |
     // gitStrict: a failed diff must never read as "nothing added" (#1946).
     out.push(gitStrict([
       "show", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
-      "--cc", "--format=", sha,
+      "--cc", "--format=", sha, "--", ".", ...excludePathspecs(),
     ]));
   }
   return out.join("\n");
@@ -259,7 +289,7 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
   // content before we ever see it. (#2498)
   const diff = gitStrict([
     "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
-    range,
+    range, "--", ".", ...excludePathspecs(),
   ]);
   return collectAddedLines(diff);
 }
