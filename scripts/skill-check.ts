@@ -10,12 +10,14 @@
 
 import { validateSkill } from '../test/helpers/skill-parser';
 import { discoverTemplates, discoverSkillFiles } from './discover-skills';
+import { ALL_HOST_CONFIGS, getExternalHosts, getHostConfig } from '../hosts/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
+const PRIMARY_HOST_CONFIG = getHostConfig('claude');
 
 function isRepoRootSymlink(candidateDir: string): boolean {
   try {
@@ -23,6 +25,19 @@ function isRepoRootSymlink(candidateDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+function skillDirForTemplateOutput(output: string): string | null {
+  const normalized = output.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  if (parts.length !== 2 || parts[1] !== 'SKILL.md') return null;
+  return parts[0];
+}
+
+function isSkippedForPrimaryHost(output: string): boolean {
+  const skillDir = skillDirForTemplateOutput(output);
+  if (!skillDir) return false;
+  return PRIMARY_HOST_CONFIG.generation.skipSkills?.includes(skillDir) ?? false;
 }
 
 // Find all SKILL.md files (dynamic discovery — no hardcoded list)
@@ -73,6 +88,10 @@ for (const { tmpl, output } of TEMPLATES) {
     continue;
   }
   if (!fs.existsSync(outPath)) {
+    if (isSkippedForPrimaryHost(output)) {
+      console.log(`  ⏭️  ${output.padEnd(30)} — intentionally skipped for ${PRIMARY_HOST_CONFIG.displayName}`);
+      continue;
+    }
     hasErrors = true;
     console.log(`  \u274c ${output.padEnd(30)} — generated file missing! Run: bun run gen:skill-docs`);
     continue;
@@ -89,8 +108,6 @@ for (const file of SKILL_FILES) {
 }
 
 // ─── External Host Skills (config-driven) ───────────────────
-
-import { getExternalHosts } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -129,8 +146,6 @@ for (const hostConfig of getExternalHosts()) {
 }
 
 // ─── Freshness (config-driven) ──────────────────────────────
-
-import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 for (const hostConfig of ALL_HOST_CONFIGS) {
   const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;
