@@ -10,6 +10,8 @@
 #   GSTACK_DIR          — override auto-detected gstack root
 #   GSTACK_REMOTE_URL   — override remote VERSION URL (branch-pinned fallback)
 #   GSTACK_REMOTE_REPO  — override remote git URL for ls-remote SHA resolution
+#   GSTACK_REMOTE_SHA   — override the remote main tip SHA (tests, mirrors);
+#                         skips ls-remote when set
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
 set -euo pipefail
 
@@ -47,6 +49,7 @@ _receipted_version_fetch() {
   esac
 }
 CACHE_FILE="$STATE_DIR/last-update-check"
+HEAD_CACHE_FILE="$STATE_DIR/last-update-check-head"
 MARKER_FILE="$STATE_DIR/just-upgraded-from"
 SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
@@ -166,6 +169,24 @@ if [ -f "$CACHE_FILE" ]; then
 
   STALE=$(find "$CACHE_FILE" -mmin +$CACHE_TTL 2>/dev/null || true)
   if [ -z "$STALE" ] && [ "$CACHE_TTL" -gt 0 ]; then
+    # #2378: the cached verdict is only replayable if the install's HEAD is
+    # still the HEAD the verdict was computed for. The commit clock can move
+    # (upgrade, git pull) while the VERSION string stays identical, and a
+    # replayed verdict would then be stale for up to the full TTL — e.g. an
+    # UPGRADE_AVAILABLE nag that survives the user actually upgrading. A
+    # missing head cache (older install, non-git setup, pre-fix state file)
+    # falls through to the slow path, which re-evaluates and writes it.
+    _CACHED_HEAD=""
+    if [ -f "$HEAD_CACHE_FILE" ]; then
+      _CACHED_HEAD="$(cat "$HEAD_CACHE_FILE" 2>/dev/null | tr -d '[:space:]')"
+    fi
+    _CURRENT_HEAD=""
+    if [ -e "$GSTACK_DIR/.git" ] && command -v git >/dev/null 2>&1; then
+      _CURRENT_HEAD="$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null | tr -d '[:space:]')"
+    fi
+    if [ -n "$_CACHED_HEAD" ] && [ -n "$_CURRENT_HEAD" ] && [ "$_CACHED_HEAD" != "$_CURRENT_HEAD" ]; then
+      : # HEAD moved since the cache was written — fall through to the slow path
+    else
     case "$CACHED" in
       UP_TO_DATE*)
         CACHED_VER="$(echo "$CACHED" | awk '{print $2}')"
@@ -185,6 +206,7 @@ if [ -f "$CACHE_FILE" ]; then
         fi
         ;;
     esac
+    fi
   fi
 fi
 
@@ -226,9 +248,15 @@ fi
 # are immediately consistent.
 #
 # An explicit GSTACK_REMOTE_URL override (tests, mirrors) skips this path
-# so the override is honored verbatim.
+# so the override is honored verbatim. An explicit GSTACK_REMOTE_SHA
+# override (tests, mirrors) supplies the remote tip without ls-remote and
+# is honored independently of the URL override — the #2378 cross-check
+# needs a remote SHA even when the VERSION source is overridden.
 REMOTE=""
-if [ -z "${GSTACK_REMOTE_URL:-}" ]; then
+_REMOTE_SHA=""
+if [ -n "${GSTACK_REMOTE_SHA:-}" ]; then
+  _REMOTE_SHA="$GSTACK_REMOTE_SHA"
+elif [ -z "${GSTACK_REMOTE_URL:-}" ]; then
   # Disable credential prompts and apply a 5-second low-speed timeout so a
   # flaky network or captive portal can't hang every skill preamble.
   _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
@@ -236,10 +264,10 @@ if [ -z "${GSTACK_REMOTE_URL:-}" ]; then
     bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
       git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
   _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
-  if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
-    _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
-    REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
-  fi
+fi
+if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+  _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
+  REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
 fi
 
 # Fallback: branch-pinned URL when ls-remote is unavailable (no git, no
@@ -257,8 +285,68 @@ if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
   exit 0
 fi
 
+# ─── Commit-clock cross-check (#2378) ─────────────────────────
+#
+# The VERSION comparison below is one clock; /gstack-upgrade installs on
+# another (origin/main HEAD). Between releases the two legitimately agree
+# while main moves, and a merge that bypasses the VERSION bump (version-gate
+# only fires on PRs touching VERSION/CHANGELOG/package.json) makes that
+# window permanent: installs are silently behind, including security fixes.
+# Garry 2026-08-22 on #2378: "The structural mismatch identified here is
+# still real."
+#
+# _update_check_sha_clock_behind <remote_sha>
+#   0 = the install is a pristine git sync of an OLDER main (upgrade flow's
+#       git pull --ff-only is provably safe) and remote main moved past it
+#       → caller emits UPGRADE_AVAILABLE.
+#   1 = not behind, or the comparison is inconclusive (non-git install, no
+#       git binary, missing refs, fork/mirror origin, dirty HEAD state) —
+#       the caller falls back to the VERSION-string verdict unchanged.
+_update_check_sha_clock_behind() {
+  local _sha_remote="$1" _sha_local _sha_synced _origin_url _origin_slug
+  # No remote tip resolved (ls-remote failed, override unset) → inconclusive.
+  echo "$_sha_remote" | grep -qE '^[0-9a-f]{40}$' || return 1
+  [ -e "$GSTACK_DIR/.git" ] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  # Git escapes $GSTACK_DIR into commands with -C; any failure (corrupt repo,
+  # unborn HEAD) degrades to inconclusive, never to a false positive.
+  _sha_local="$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null | tr -d '[:space:]')" || return 1
+  _sha_synced="$(git -C "$GSTACK_DIR" rev-parse refs/remotes/origin/main 2>/dev/null | tr -d '[:space:]')" || return 1
+  echo "$_sha_local"   | grep -qE '^[0-9a-f]{40}$' || return 1
+  echo "$_sha_synced"  | grep -qE '^[0-9a-f]{40}$' || return 1
+  # Only vouch for installs whose origin IS the repo we compare against: a
+  # fork/mirror origin that merely shares VERSION strings is not this main.
+  _origin_url="$(git -C "$GSTACK_DIR" remote get-url origin 2>/dev/null)" || return 1
+  _origin_slug="$(echo "$_origin_url" | sed -E 's#^[^:]+://[^/]+/##; s#^[^@]+@##; s#\.git$##; s#:#/#' | tr -d '[:space:]')"
+  [ "$_origin_slug" = "garrytan/gstack" ] || return 1
+  if [ "$_sha_local" = "$_sha_remote" ]; then
+    return 1  # already on remote main — genuinely current
+  fi
+  # Pristine-sync gate: HEAD must equal the install's own origin/main ref
+  # (the sync point the upgrade path moves). Anything else — an old release
+  # checkout, local commits, a dev branch — is a state this check cannot
+  # classify, and --ff-only safety is not provable. Stay silent.
+  [ "$_sha_local" = "$_sha_synced" ] || return 1
+  return 0
+}
+
 if [ "$LOCAL" = "$REMOTE" ]; then
-  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  if _update_check_sha_clock_behind "$_REMOTE_SHA"; then
+    echo "UPGRADE_AVAILABLE $LOCAL $LOCAL" > "$CACHE_FILE"
+    # Same-version flag: snooze still applies (the user may have deferred this
+    # exact state already), keyed on the version string like any other nag.
+    if check_snooze "$LOCAL"; then
+      exit 0  # snoozed — stay quiet
+    fi
+    echo "UPGRADE_AVAILABLE $LOCAL $LOCAL"
+  else
+    echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  fi
+  # Record the HEAD this verdict was computed for, so the fresh-cache path
+  # can tell "replayable" from "the commit clock moved since" (#2378).
+  # Non-git installs: rev-parse fails, the file stays absent, and the cache
+  # path behaves exactly as before this change.
+  git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null | tr -d '[:space:]' > "$HEAD_CACHE_FILE" 2>/dev/null || true
   exit 0
 fi
 
@@ -269,11 +357,13 @@ fi
 _HIGHER="$(printf '%s\n%s\n' "$LOCAL" "$REMOTE" | sort -V | tail -1)"
 if [ "$_HIGHER" != "$REMOTE" ]; then
   echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null | tr -d '[:space:]' > "$HEAD_CACHE_FILE" 2>/dev/null || true
   exit 0
 fi
 
 # REMOTE is strictly newer — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
+git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null | tr -d '[:space:]' > "$HEAD_CACHE_FILE" 2>/dev/null || true
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet
 fi

@@ -6,12 +6,19 @@
  * for full isolation.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'bun:test';
+import * as fs from 'fs';
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-update-check');
+const ROOT = join(import.meta.dir, '..', '..');
+
+// Shared per-file scratch root. Windows free-tests exclude bash-spawn tests,
+// but mkdtemp cleanup uses force anyway; the tmpdir location keeps POSIX CI
+// and macOS dev boxes on the same hermetic path (os.tmpdir(), never /tmp).
+const tmpRoot = mkdtempSync(join(tmpdir(), 'gstack-upd-clock-'));
 
 let gstackDir: string;
 let stateDir: string;
@@ -560,5 +567,210 @@ describe('gstack-update-check', () => {
     const { exitCode, stdout } = run();
     expect(exitCode).toBe(0);
     expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+});
+
+// ─── Commit-clock cross-check (#2378) ─────────────────────────
+//
+// update-check decides "current?" on VERSION strings, but /gstack-upgrade
+// installs origin/main HEAD. Between releases the two agree while main moves,
+// and a merge that bypasses the VERSION bump makes that window permanent —
+// installs sit silently behind, including security fixes. The fix compares
+// the remote main SHA (ls-remote / GSTACK_REMOTE_SHA) against the install's
+// HEAD and its own origin/main sync ref, and flags only the provably-safe
+// state: a pristine git sync of an older main. Every inconclusive state
+// (non-git install, no git binary, fork origin, local commits) stays silent
+// — the VERSION verdict is untouched.
+describe('gstack-update-check commit-clock cross-check (#2378)', () => {
+  let gitEnv: Record<string, string>;
+
+  // A local bare "upstream" plus a seed clone for the VERSION file, built
+  // once per describe. The fixture install's origin points at the garrytan
+  // slug WITHOUT fetching from it: the SHA comes from GSTACK_REMOTE_SHA and
+  // the VERSION from a file:// URL, so the whole block is hermetic.
+  const upstreamBare = join(tmpRoot, 'uc-clock-upstream.git');
+  const seedClone = join(tmpRoot, 'uc-clock-seed');
+  const plainDir = join(tmpRoot, 'uc-clock-plain');
+
+  function git(cwd: string, ...args: string[]) {
+    const r = Bun.spawnSync(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe' });
+    if (r.exitCode !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr.toString()}`);
+    return r.stdout.toString().trim();
+  }
+
+  beforeAll(() => {
+    fs.mkdirSync(tmpRoot, { recursive: true });
+    git(tmpRoot, 'init', '--bare', '-q', upstreamBare);
+    git(tmpRoot, 'clone', '-q', upstreamBare, seedClone);
+    git(seedClone, 'config', 'user.email', 'test@example.com');
+    git(seedClone, 'config', 'user.name', 'test');
+    writeFileSync(join(seedClone, 'VERSION'), '1.60.1.0\n');
+    git(seedClone, 'add', 'VERSION');
+    git(seedClone, 'commit', '-q', '-m', 'release 1.60.1.0');
+    git(seedClone, 'push', '-q', 'origin', 'HEAD:main');
+    // plain (non-git) install with the same VERSION and the same bin/ links
+    fs.mkdirSync(join(plainDir, 'bin'), { recursive: true });
+    writeFileSync(join(plainDir, 'VERSION'), '1.60.1.0\n');
+    symlinkSync(join(ROOT, 'bin', 'gstack-config'), join(plainDir, 'bin', 'gstack-config'));
+    symlinkSync(join(ROOT, 'bin', 'gstack-egress-lib.sh'), join(plainDir, 'bin', 'gstack-egress-lib.sh'));
+  });
+
+  // A pristine install of the CURRENT remote main: origin slug matches
+  // REMOTE_REPO, refs/remotes/origin/main exists, HEAD == origin/main.
+  function makeInstall(): string {
+    const dir = mkdtempSync(join(tmpRoot, 'uc-clock-install-'));
+    git(tmpRoot, 'clone', '-q', upstreamBare, dir);
+    git(dir, 'remote', 'set-url', 'origin', 'https://github.com/garrytan/gstack.git');
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    symlinkSync(join(ROOT, 'bin', 'gstack-config'), join(dir, 'bin', 'gstack-config'));
+    symlinkSync(join(ROOT, 'bin', 'gstack-egress-lib.sh'), join(dir, 'bin', 'gstack-egress-lib.sh'));
+    return dir;
+  }
+
+  // One local commit on the fixture upstream that does NOT bump VERSION —
+  // the #2378 scenario. Returns the new remote main SHA.
+  function advanceRemoteMain(): string {
+    git(seedClone, 'commit', '-q', '--allow-empty', '-m', 'security fix (no VERSION bump)');
+    git(seedClone, 'push', '-q', 'origin', 'HEAD:main');
+    return git(upstreamBare, 'rev-parse', 'main');
+  }
+
+  beforeEach(() => {
+    gstackDir = mkdtempSync(join(tmpdir(), 'gstack-upd-test-'));
+    stateDir = mkdtempSync(join(tmpdir(), 'gstack-state-test-'));
+    const binDir = join(gstackDir, 'bin');
+    mkdirSync(binDir);
+    symlinkSync(join(import.meta.dir, '..', '..', 'bin', 'gstack-config'), join(binDir, 'gstack-config'));
+    symlinkSync(
+      join(import.meta.dir, '..', '..', 'bin', 'gstack-egress-lib.sh'),
+      join(binDir, 'gstack-egress-lib.sh'),
+    );
+    // The cross-check needs both the remote SHA and a VERSION source; the
+    // fixture seed's VERSION (identical string, never bumped) stands in for
+    // the remote raw file so no network is touched.
+    gitEnv = {
+      GSTACK_REMOTE_URL: `file://${join(seedClone, 'VERSION')}`,
+      GSTACK_REMOTE_SHA: git(upstreamBare, 'rev-parse', 'main'),
+    };
+  });
+
+  afterEach(() => {
+    rmSync(gstackDir, { recursive: true, force: true });
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  test('THE BUG: pristine sync, main moved without a VERSION bump → flags even though versions are equal', () => {
+    const install = makeInstall();
+    advanceRemoteMain(); // upstream is now 1 ahead of the install, VERSION unchanged
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main'); // refresh: the check compares against the CURRENT tip
+    const { exitCode, stdout } = run(
+      { ...gitEnv, GSTACK_DIR: install },
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+    // The flag is cached, so the TTL replay keeps nagging.
+    const replay = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(replay.stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+  });
+
+  test('install on remote main HEAD, versions equal → silent', () => {
+    const install = makeInstall(); // HEAD == origin/main == GSTACK_REMOTE_SHA
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  test('install left its sync point (local commits) → silent, VERSION verdict stands', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    git(install, 'commit', '-q', '--allow-empty', '-m', 'local experiment');
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    // Silent means UP_TO_DATE — the VERSION path is untouched, not the flag.
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE');
+  });
+
+  test('non-git install (plain dir) → silent, unchanged behavior', () => {
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: plainDir });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  test('fork origin (slug mismatch with REMOTE_REPO) while behind → silent', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    git(install, 'remote', 'set-url', 'origin', 'https://github.com/someone/else.git');
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  test('after the user upgrades (HEAD moves, VERSION unchanged) the cached flag goes silent', () => {
+    const install = makeInstall();
+    const sha1 = advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+    // Upgrade = ff the install to the new main. VERSION string is identical.
+    git(install, 'fetch', '-q', upstreamBare, 'main');
+    git(install, 'reset', '-q', '--hard', sha1);
+    // Fresh cache TTL (60 min) has NOT expired — only the HEAD moved.
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE');
+  });
+
+  test('snooze applies to the same-version flag (level 1, within 24h)', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    writeSnooze('1.60.1.0', 1, nowEpoch() - 3600);
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    // The flag is still cached — the snooze only silences this replay.
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UPGRADE_AVAILABLE');
+  });
+
+  test('expired snooze → the same-version flag prints again', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    writeSnooze('1.60.1.0', 1, nowEpoch() - 90000);
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+  });
+
+  test('JUST_UPGRADED marker + stale install emits both lines', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    gitEnv.GSTACK_REMOTE_SHA = git(upstreamBare, 'rev-parse', 'main');
+    writeFileSync(join(stateDir, 'just-upgraded-from'), '1.59.0.0\n');
+    const { exitCode, stdout } = run({ ...gitEnv, GSTACK_DIR: install });
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('JUST_UPGRADED 1.59.0.0 1.60.1.0');
+    expect(stdout).toContain('UPGRADE_AVAILABLE 1.60.1.0 1.60.1.0');
+  });
+
+  test('GSTACK_REMOTE_URL override alone (no SHA) keeps legacy behavior — cross-check inert', () => {
+    const install = makeInstall();
+    advanceRemoteMain();
+    // Deliberately NO GSTACK_REMOTE_SHA here (delete the beforeEach default):
+    // without a remote tip and without ls-remote (URL override active), the
+    // cross-check cannot fire. The seed VERSION matches the install, so the
+    // legacy verdict is silence.
+    const { exitCode, stdout } = run({
+      GSTACK_REMOTE_URL: `file://${join(seedClone, 'VERSION')}`,
+      GSTACK_DIR: install,
+    });
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
   });
 });
