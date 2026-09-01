@@ -409,6 +409,36 @@ is improving or slipping.
 **HARD GATE:** Do NOT fix any issues. Produce the dashboard and recommendations only.
 The user decides what to act on.
 
+## Execution honesty
+
+1. **Never fabricate execution results.** If a tool was not actually executed
+   in this session, do not emit any concrete number for it — no error counts,
+   per-file findings, test tallies, per-category scores, or a composite score
+   for this repo.
+2. **Example numbers must be labeled.** Any illustrative arithmetic uses
+   numbers explicitly marked **EXAMPLE**, never presented as this repo's result.
+3. **Skipped categories mark the composite partial.** Weight redistribution for
+   skipped categories is defined in Step 3; when any category was skipped, the
+   composite line must additionally say `partial`.
+
+## No-execution fallback
+
+If shell execution is unavailable (subagent, sandbox, MCP-only host) — or the
+tools were not actually invoked this turn — do not ask the user to paste
+output, do not summarize hypothetical results, and do not invent scores.
+Instead emit:
+
+1. One line: "Checks cannot be executed in this environment."
+2. The Step 4 dashboard structure with `not executed` in every Score and
+   Status cell, keeping the Tool column populated with the exact commands
+   detected for this stack (Step 1).
+3. The composite line: `Composite: not executed (requires per-category scores)`
+   — the formula and weights are the ones defined in Step 3; do not restate
+   them with different values.
+4. A note that trend analysis needs the prior runs recorded in
+   `~/.gstack/projects/$SLUG/health-history.jsonl` (Step 5) and that no history
+   entry was written this run.
+
 ## User-invocable
 When the user types `/health`, run this skill.
 
