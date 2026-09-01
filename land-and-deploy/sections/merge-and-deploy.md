@@ -5,10 +5,32 @@
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
 
-Try auto-merge first (respects repo merge settings and merge queues):
+Resolve one merge method before constructing the command:
+
+1. Identify any explicit method chosen by the user in the current conversation, plus any
+   hard constraint or preferred method in the project's documented policy.
+2. Check the repository's structured capabilities with
+   `gh repo view --json mergeCommitAllowed,rebaseMergeAllowed,squashMergeAllowed`.
+   The response must contain a boolean for each method. Intersect the enabled methods with
+   any project hard constraint. If the query fails, its shape is invalid, or the intersection
+   is empty, stop and report the unresolved constraint.
+3. If an explicit choice is in that allowed set, use it. If it is outside the set, stop and
+   report the conflict; do not silently replace it.
+4. Otherwise, use the project's preferred method when it is in the allowed set. If that
+   preference is unavailable, report it and continue resolving from the allowed set.
+5. Otherwise, recommend and default to squash when squash is in the allowed set. If exactly
+   one other method remains, use it and report the constraint. If multiple alternatives
+   remain, ask the user to choose.
+
+Interpret user and project prose in full context; do not classify merge intent with
+keyword, regex, or string-containment rules. The selected method must resolve to exactly
+one of the closed CLI flags `--merge`, `--rebase`, or `--squash`.
+
+Try auto-merge first (respects repo merge settings and merge queues). The default command
+is below; replace `--squash` with the resolved `--merge` or `--rebase` flag when applicable:
 
 ```bash
-gh pr merge --squash --auto --delete-branch
+gh pr merge <resolved-pr> --squash --auto --delete-branch
 ```
 
 If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
@@ -29,8 +51,11 @@ the flow is unaffected — but do not report the second one as "auto-merge is di
    before this step runs.
 
 ```bash
-gh pr merge --squash --delete-branch
+gh pr merge <resolved-pr> --squash --delete-branch
 ```
+
+Merge-method flags belong only to `gh pr merge`. Keep branch upload as an ordinary
+`git push`; PR merge policy does not make squash an option or requirement for push.
 
 If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
 
