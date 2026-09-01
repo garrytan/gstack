@@ -4,12 +4,21 @@
 # Output (one line, or nothing):
 #   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
 #   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
+#   UPGRADE_COMMITS <ver> <local_sha7> <remote_sha7>
+#                                   — VERSION strings AGREE but main moved past
+#                                     this install (#2378 commit clock). A
+#                                     separate token on purpose: consumers that
+#                                     render "<old> → <new>" have nothing to
+#                                     render here, and the CHANGELOG range
+#                                     between two equal versions is empty.
 #   (nothing)                       — up to date, snoozed, disabled, or check skipped
 #
 # Env overrides (for testing):
 #   GSTACK_DIR          — override auto-detected gstack root
 #   GSTACK_REMOTE_URL   — override remote VERSION URL (branch-pinned fallback)
 #   GSTACK_REMOTE_REPO  — override remote git URL for ls-remote SHA resolution
+#   GSTACK_REMOTE_SHA   — override the remote main tip SHA (tests, mirrors);
+#                         skips ls-remote when set
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
 set -euo pipefail
 
@@ -47,15 +56,122 @@ _receipted_version_fetch() {
   esac
 }
 CACHE_FILE="$STATE_DIR/last-update-check"
+# Install state a cached verdict is only valid for (#2378): HEAD, the install's
+# own origin/main, and which install it is. See the replay guard in Step 3.
+STAMP_FILE="$STATE_DIR/last-update-check-stamp"
 MARKER_FILE="$STATE_DIR/just-upgraded-from"
 SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
 REMOTE_REPO="${GSTACK_REMOTE_REPO:-https://github.com/garrytan/gstack.git}"
 
+# _uc_is_sha40 <string> — 40 lowercase hex chars. Pure builtin: this runs on
+# the cached fast path, which every skill preamble pays.
+_uc_is_sha40() {
+  case "${1:-}" in
+    ""|*[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#1}" -eq 40 ]
+}
+
+# _uc_github_slug <git-url> — echo "owner/repo" for a github.com remote, else
+# fail. Accepts https/http/ssh/git schemes with or without userinfo (an access
+# token, or git@) and with an explicit port, plus the scp-like
+# git@github.com:owner/repo form. The host must be EXACTLY github.com after
+# normalization, so https://evil.com/github.com/garrytan/gstack and
+# https://github.com.evil.com/garrytan/gstack are both rejected.
+_uc_github_slug() {
+  local _u _rest _host _path
+  _u="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  case "$_u" in
+    *://*) _rest="${_u#*://}"; _rest="${_rest#*@}" ;;
+    *@*:*) _rest="${_u#*@}"; _rest="${_rest/://}" ;;
+    *)     return 1 ;;
+  esac
+  case "$_rest" in
+    */*) _host="${_rest%%/*}"; _path="${_rest#*/}" ;;
+    *)   return 1 ;;
+  esac
+  [ "${_host%%:*}" = "github.com" ] || return 1
+  _path="${_path%/}"; _path="${_path%.git}"; _path="${_path%/}"
+  # Exactly owner/repo — nothing deeper, neither half empty.
+  case "$_path" in
+    */*/*|/*|*/) return 1 ;;
+    */*) printf '%s\n' "$_path" ;;
+    *)   return 1 ;;
+  esac
+}
+
+# _uc_state_stamp — echo "<HEAD> <origin/main|-> <install-path>" for a git
+# install, or nothing at all when there is no resolvable git state.
+#
+# The third field identifies WHICH install the verdict belongs to. STATE_DIR is
+# machine-global, so a path is what separates a global install from a dev clone
+# or a sibling Conductor workspace. It is a shell variable, not a git call: the
+# origin URL would be more precise about a remote being re-pointed in place,
+# but that costs a fork on the cached fast path every skill preamble pays, and
+# re-pointing an existing install's origin is bounded by the cache TTL anyway.
+#
+# Never fails and never emits a partial line. Every git call is captured with
+# `|| true` ON PURPOSE: set -E propagates the ERR trap into command
+# substitutions, so an unguarded failure here would put the CHECK_FAILED
+# sentinel into the CALLER'S VARIABLE instead of on the script's stdout — the
+# #1974 guarantee, silently swallowed. `|| true` keeps the trap out of the
+# subshell; _uc_is_sha40 then decides what is usable.
+_uc_state_stamp() {
+  local _rp _h _o _nl
+  [ -e "$GSTACK_DIR/.git" ] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+  # One rev-parse for both refs. A missing origin/main makes rev-parse exit
+  # 128 after echoing the unresolvable ref name, which _uc_is_sha40 rejects.
+  _rp="$(git -C "$GSTACK_DIR" rev-parse HEAD refs/remotes/origin/main 2>/dev/null || true)"
+  _nl=$'\n'
+  case "$_rp" in
+    *"$_nl"*) _h="${_rp%%"$_nl"*}"; _o="${_rp#*"$_nl"}" ;;
+    *)        _h="$_rp"; _o="" ;;
+  esac
+  _uc_is_sha40 "$_h" || return 0
+  _uc_is_sha40 "$_o" || _o="-"
+  printf '%s %s %s\n' "$_h" "$_o" "$GSTACK_DIR"
+}
+
+# _uc_write_verdict <line> — write the cache and the stamp it was computed
+# for, together. They are one fact; splitting them is how a verdict ends up
+# replayable against install state it never saw.
+_uc_write_verdict() {
+  local _stamp
+  printf '%s\n' "$1" > "$CACHE_FILE"
+  _stamp="$(_uc_state_stamp)"
+  if [ -n "$_stamp" ]; then
+    # Temp+rename so a failed write can't destroy a good stamp, and so the
+    # reader never sees a half-written line. A 0-byte or "HEAD" stamp would
+    # fail every later comparison and pin the install to the slow path.
+    if ( printf '%s\n' "$_stamp" > "$STAMP_FILE.tmp.$$" ) 2>/dev/null; then
+      mv -f "$STAMP_FILE.tmp.$$" "$STAMP_FILE" 2>/dev/null || rm -f "$STAMP_FILE.tmp.$$"
+    fi
+  else
+    # No git state: leave no stamp. The replay guard treats "no stamp" as
+    # "this verdict never depended on git", which is exactly right here.
+    rm -f "$STAMP_FILE"
+  fi
+  return 0
+}
+
+# _uc_log_prompted — upgrade_prompted telemetry, fired on any slow-path nag
+# (both UPGRADE_AVAILABLE and UPGRADE_COMMITS), never on a cached replay.
+_uc_log_prompted() {
+  local _tel="$GSTACK_DIR/bin/gstack-telemetry-log"
+  if [ -x "$_tel" ]; then
+    "$_tel" --event-type upgrade_prompted --skill "" --duration 0 \
+      --outcome success --session-id "update-$$-$(date +%s)" 2>/dev/null &
+  fi
+  return 0
+}
+
 # ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
 if [ "${1:-}" = "--force" ]; then
   rm -f "$CACHE_FILE"
+  rm -f "$STAMP_FILE"
   rm -f "$SNOOZE_FILE"
 fi
 
@@ -156,35 +272,83 @@ fi
 # ─── Step 3: Check cache freshness ──────────────────────────
 # UP_TO_DATE: 60 min TTL (detect new releases quickly)
 # UPGRADE_AVAILABLE: 720 min TTL (keep nagging)
+# UPGRADE_COMMITS: 60 min TTL. Deliberately NOT the 720-min nag bucket: the
+#   VERSION strings agree in this state, so a real release can land while the
+#   verdict is cached. At 720 min that release stays invisible for up to 12
+#   hours — strictly worse than before this check existed. 60 min matches the
+#   UP_TO_DATE bucket it replaces, so the release-detection latency is
+#   unchanged and only the extra nag is new.
 if [ -f "$CACHE_FILE" ]; then
   CACHED="$(cat "$CACHE_FILE" 2>/dev/null || true)"
   case "$CACHED" in
     UP_TO_DATE*)        CACHE_TTL=60 ;;
+    UPGRADE_COMMITS*)   CACHE_TTL=60 ;;
     UPGRADE_AVAILABLE*) CACHE_TTL=720 ;;
     *)                  CACHE_TTL=0 ;;  # corrupt → force re-fetch
   esac
 
   STALE=$(find "$CACHE_FILE" -mmin +$CACHE_TTL 2>/dev/null || true)
   if [ -z "$STALE" ] && [ "$CACHE_TTL" -gt 0 ]; then
-    case "$CACHED" in
-      UP_TO_DATE*)
-        CACHED_VER="$(echo "$CACHED" | awk '{print $2}')"
-        if [ "$CACHED_VER" = "$LOCAL" ]; then
-          exit 0
-        fi
-        ;;
-      UPGRADE_AVAILABLE*)
-        CACHED_OLD="$(echo "$CACHED" | awk '{print $2}')"
-        if [ "$CACHED_OLD" = "$LOCAL" ]; then
-          CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
-          if check_snooze "$CACHED_NEW"; then
-            exit 0  # snoozed — stay quiet
+    # #2378: a cached verdict is replayable only while the install state it
+    # was computed FROM is unchanged. The commit clock moves (an upgrade, a
+    # git pull, a bare fetch) while the VERSION string stays identical, so a
+    # replayed verdict can be wrong for the whole TTL — e.g. a nag that
+    # survives the user actually upgrading.
+    #
+    # The stamp carries HEAD and origin/main because the commit-clock verdict
+    # reads both, plus the install path. STATE_DIR is machine-global
+    # ($HOME/.gstack), so two checkouts — a global install plus a dev clone,
+    # or sibling Conductor workspaces — would otherwise replay each other's
+    # verdict even when they legitimately disagree. A stamp mismatch means
+    # "unknown for THIS install", and one slow path is the correct price.
+    #
+    # A git install with no stamp (a cache written before this change) also
+    # takes one slow path, which writes the stamp.
+    #
+    # Non-git installs produce no stamp and replay exactly as before: their
+    # verdict never depended on git state in the first place.
+    _CACHE_REPLAY=1
+    _CURRENT_STAMP="$(_uc_state_stamp)"
+    if [ -n "$_CURRENT_STAMP" ]; then
+      _CACHED_STAMP=""
+      if [ -f "$STAMP_FILE" ]; then
+        IFS= read -r _CACHED_STAMP < "$STAMP_FILE" 2>/dev/null || _CACHED_STAMP=""
+      fi
+      if [ "$_CACHED_STAMP" != "$_CURRENT_STAMP" ]; then
+        _CACHE_REPLAY=0
+      fi
+    fi
+    if [ "$_CACHE_REPLAY" -eq 1 ]; then
+      case "$CACHED" in
+        UP_TO_DATE*)
+          CACHED_VER="$(echo "$CACHED" | awk '{print $2}')"
+          if [ "$CACHED_VER" = "$LOCAL" ]; then
+            exit 0
           fi
-          echo "$CACHED"
-          exit 0
-        fi
-        ;;
-    esac
+          ;;
+        UPGRADE_COMMITS*)
+          CACHED_VER="$(echo "$CACHED" | awk '{print $2}')"
+          if [ "$CACHED_VER" = "$LOCAL" ]; then
+            if check_snooze "$CACHED_VER"; then
+              exit 0  # snoozed — stay quiet
+            fi
+            echo "$CACHED"
+            exit 0
+          fi
+          ;;
+        UPGRADE_AVAILABLE*)
+          CACHED_OLD="$(echo "$CACHED" | awk '{print $2}')"
+          if [ "$CACHED_OLD" = "$LOCAL" ]; then
+            CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
+            if check_snooze "$CACHED_NEW"; then
+              exit 0  # snoozed — stay quiet
+            fi
+            echo "$CACHED"
+            exit 0
+          fi
+          ;;
+      esac
+    fi
   fi
 fi
 
@@ -225,17 +389,25 @@ fi
 # landed. git ls-remote always returns the live HEAD; SHA-pinned raw URLs
 # are immediately consistent.
 #
-# An explicit GSTACK_REMOTE_URL override (tests, mirrors) skips this path
-# so the override is honored verbatim.
+# An explicit GSTACK_REMOTE_URL override (tests, mirrors) is authoritative
+# for VERSION content. An explicit GSTACK_REMOTE_SHA override (tests,
+# mirrors) supplies the remote tip without ls-remote and is independent of
+# the URL override — the #2378 cross-check needs a remote SHA even when the
+# VERSION source is overridden.
 REMOTE=""
-if [ -z "${GSTACK_REMOTE_URL:-}" ]; then
-  # Disable credential prompts and apply a 5-second low-speed timeout so a
-  # flaky network or captive portal can't hang every skill preamble.
-  _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
-  _LSR_LINE="$(GSTACK_HOME="$STATE_DIR" _receipted_git open update-check "${_REPO_HOST:-unknown}" version-ls-remote "update_check!=false" \
-    bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
-      git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
-  _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
+_REMOTE_SHA="${GSTACK_REMOTE_SHA:-}"
+if [ -n "${GSTACK_REMOTE_URL:-}" ]; then
+  REMOTE="$(_receipted_version_fetch "$REMOTE_URL")"
+else
+  if [ -z "$_REMOTE_SHA" ]; then
+    # Disable credential prompts and apply a 5-second low-speed timeout so a
+    # flaky network or captive portal can't hang every skill preamble.
+    _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
+    _LSR_LINE="$(GSTACK_HOME="$STATE_DIR" _receipted_git open update-check "${_REPO_HOST:-unknown}" version-ls-remote "update_check!=false" \
+      bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
+        git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
+    _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
+  fi
   if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
     _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
     REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
@@ -252,13 +424,98 @@ REMOTE="$(echo "$REMOTE" | tr -d '[:space:]')"
 
 # Validate: must look like a version number (reject HTML error pages)
 if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
-  # Invalid or empty response — assume up to date
-  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  # Invalid or empty response — assume up to date. This is the offline /
+  # captive-portal / HTML-error-page path, and it must stamp like any other
+  # verdict: an unstamped cache is unreplayable, so every later run would pay
+  # the full ls-remote + curl slow path while still offline.
+  _uc_write_verdict "UP_TO_DATE $LOCAL"
   exit 0
 fi
 
+# ─── Commit-clock cross-check (#2378) ─────────────────────────
+#
+# The VERSION comparison below is one clock; /gstack-upgrade installs on
+# another (origin/main HEAD). Between releases the two legitimately agree
+# while main moves, and a merge that bypasses the VERSION bump (version-gate
+# only fires on PRs touching VERSION/CHANGELOG/package.json) makes that
+# window permanent: installs are silently behind, including security fixes.
+# Garry 2026-08-22 on #2378: "The structural mismatch identified here is
+# still real."
+#
+# _update_check_sha_clock_behind <remote_sha>
+#   0 = the install is a pristine git sync of an OLDER main (the upgrade
+#       flow's git pull --ff-only applies cleanly) and remote main moved past
+#       it → caller emits UPGRADE_COMMITS. Sets _UC_CLOCK_LOCAL_SHA.
+#   1 = not behind, or the comparison is inconclusive (non-git install, no
+#       git binary, unresolvable HEAD, missing origin/main, fork/mirror
+#       origin, local commits, a dev branch) — the caller falls back to the
+#       VERSION-string verdict unchanged.
+_UC_CLOCK_LOCAL_SHA=""
+_update_check_sha_clock_behind() {
+  local _sha_remote="$1" _stamp _rest _sha_local _sha_synced _origin_url _origin_slug _want_slug
+  # No remote tip resolved (ls-remote failed, override unset) → inconclusive.
+  _uc_is_sha40 "$_sha_remote" || return 1
+  # One stamp, one read: non-git install, missing git, or an unresolvable HEAD
+  # all produce an empty stamp, which is inconclusive by construction.
+  _stamp="$(_uc_state_stamp)"
+  [ -n "$_stamp" ] || return 1
+  _sha_local="${_stamp%% *}"
+  _rest="${_stamp#* }"
+  _sha_synced="${_rest%% *}"
+  # No origin/main ref to compare the sync point against → inconclusive.
+  _uc_is_sha40 "$_sha_synced" || return 1
+  # Only vouch for installs whose origin IS the repo the remote SHA came
+  # from. Derived from REMOTE_REPO rather than hardcoded, so a
+  # GSTACK_REMOTE_REPO mirror is compared against ITS OWN slug instead of
+  # silently losing the check. Read here, not in the stamp: this is the slow
+  # path, where one more git call is free.
+  _origin_url="$(git -C "$GSTACK_DIR" config --get remote.origin.url 2>/dev/null || true)"
+  [ -n "$_origin_url" ] || return 1
+  _want_slug="$(_uc_github_slug "$REMOTE_REPO" || true)"
+  [ -n "$_want_slug" ] || return 1
+  _origin_slug="$(_uc_github_slug "$_origin_url" || true)"
+  [ -n "$_origin_slug" ] || return 1
+  [ "$_origin_slug" = "$_want_slug" ] || return 1
+  if [ "$_sha_local" = "$_sha_remote" ]; then
+    return 1  # already on remote main — genuinely current
+  fi
+  # Pristine-sync gate: HEAD must be an ancestor of (or equal to) the
+  # install's own origin/main. Requiring EQUALITY was too strict — a bare
+  # `git fetch` moves origin/main ahead of HEAD without making the install
+  # any less pristine, and /gstack-upgrade runs `git fetch origin` before it
+  # pulls, so an upgrade that failed after the fetch would have silenced this
+  # check permanently: the exact silent-staleness class #2378 documents.
+  # Local commits and dev branches still fail ancestry and stay silent.
+  git -C "$GSTACK_DIR" merge-base --is-ancestor "$_sha_local" "$_sha_synced" 2>/dev/null || return 1
+  # When the remote tip is already in the local object store we can prove the
+  # direction outright: an install AHEAD of that tip, or on unrelated
+  # history, is not behind it. (In the normal "main moved" case the tip is
+  # NOT local and ancestry against it is unprovable without a fetch, which
+  # this check must not do — the origin/main ancestry above is the guarantee
+  # we rely on there.)
+  if git -C "$GSTACK_DIR" cat-file -e "${_sha_remote}^{commit}" 2>/dev/null; then
+    git -C "$GSTACK_DIR" merge-base --is-ancestor "$_sha_local" "$_sha_remote" 2>/dev/null || return 1
+  fi
+  _UC_CLOCK_LOCAL_SHA="$_sha_local"
+  return 0
+}
+
 if [ "$LOCAL" = "$REMOTE" ]; then
-  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  if _update_check_sha_clock_behind "$_REMOTE_SHA"; then
+    _UC_L7="${_UC_CLOCK_LOCAL_SHA:0:7}"
+    _UC_R7="${_REMOTE_SHA:0:7}"
+    _uc_write_verdict "UPGRADE_COMMITS $LOCAL $_UC_L7 $_UC_R7"
+    # Snooze still applies (the user may have deferred this exact state),
+    # keyed on the version string like any other nag. The 60-minute TTL above
+    # is what stops that key from also covering a later real release.
+    if check_snooze "$LOCAL"; then
+      exit 0  # snoozed — stay quiet
+    fi
+    echo "UPGRADE_COMMITS $LOCAL $_UC_L7 $_UC_R7"
+    _uc_log_prompted
+  else
+    _uc_write_verdict "UP_TO_DATE $LOCAL"
+  fi
   exit 0
 fi
 
@@ -268,21 +525,16 @@ fi
 # emit a backwards UPGRADE_AVAILABLE line.
 _HIGHER="$(printf '%s\n%s\n' "$LOCAL" "$REMOTE" | sort -V | tail -1)"
 if [ "$_HIGHER" != "$REMOTE" ]; then
-  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  _uc_write_verdict "UP_TO_DATE $LOCAL"
   exit 0
 fi
 
 # REMOTE is strictly newer — upgrade available
-echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
+_uc_write_verdict "UPGRADE_AVAILABLE $LOCAL $REMOTE"
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet
 fi
 
-# Log upgrade_prompted event (only on slow-path fetch, not cached replays)
-TEL_CMD="$GSTACK_DIR/bin/gstack-telemetry-log"
-if [ -x "$TEL_CMD" ]; then
-  "$TEL_CMD" --event-type upgrade_prompted --skill "" --duration 0 \
-    --outcome success --session-id "update-$$-$(date +%s)" 2>/dev/null &
-fi
+_uc_log_prompted
 
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE"

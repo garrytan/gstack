@@ -30,7 +30,9 @@ Upgrade gstack to the latest version and show what's new.
 
 ## Inline upgrade flow
 
-This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
+This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE` or `UPGRADE_COMMITS`.
+
+**If the verdict is `UPGRADE_COMMITS <version> <local_sha7> <remote_sha7>`** — main moved past this install with no VERSION bump, so the version does not change — read `COMMIT-CLOCK.md` beside this file first: it replaces the `{old}`/`{new}` wording in Steps 1 and 6. Everything else below applies unchanged.
 
 ### Step 1: Ask the user (or auto-upgrade)
 
@@ -352,7 +354,7 @@ When invoked directly as `/gstack-upgrade` (not from a preamble):
 ```
 Use the output to determine if an upgrade is available.
 
-2. If `UPGRADE_AVAILABLE <old> <new>`: follow Steps 2-6 above.
+2. If `UPGRADE_AVAILABLE` or `UPGRADE_COMMITS`: follow Steps 2-6 above.
 
 3. If no output (primary is up to date): check for a stale local vendored copy.
 
