@@ -922,6 +922,28 @@ describe('gstack-update-check commit-clock cross-check (#2378)', () => {
     expect(stdout).toBe('UPGRADE_AVAILABLE 1.60.1.0 1.61.0.0');
   });
 
+  test('git install whose HEAD will not resolve replays a fresh cache (no slow path per preamble)', () => {
+    // Deliberate, and it matches upstream/main: this install's verdict never
+    // depended on git state (the clock check cannot run for it), so a fresh
+    // VERSION verdict is still valid. The interim version of this branch
+    // forced a slow path here instead, which meant an ls-remote + curl on
+    // EVERY skill preamble for a repo that is already broken.
+    const broken = join(fixtureRoot, 'broken-cached');
+    mkdirSync(join(broken, 'bin'), { recursive: true });
+    writeFileSync(join(broken, 'VERSION'), '1.60.1.0\n');
+    symlinkSync(join(ROOT, 'bin', 'gstack-config'), join(broken, 'bin', 'gstack-config'));
+    symlinkSync(join(ROOT, 'bin', 'gstack-egress-lib.sh'), join(broken, 'bin', 'gstack-egress-lib.sh'));
+    git(fixtureRoot, 'init', '-q', broken);
+    writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 1.60.1.0\n');
+    const newer = join(fixtureRoot, 'VERSION-newer-cached');
+    writeFileSync(newer, '1.61.0.0\n');
+    const result = run({ GSTACK_DIR: broken, GSTACK_REMOTE_URL: `file://${newer}` });
+    expect(result.exitCode).toBe(0);
+    expectSilent(result, 'a fresh UP_TO_DATE cache is replayable for an install with no usable git state');
+    // The cache is untouched — nothing re-fetched and nothing overwrote it.
+    expect(readFileSync(join(stateDir, 'last-update-check'), 'utf-8').trim()).toBe('UP_TO_DATE 1.60.1.0');
+  });
+
   test('a cached commit-clock verdict does NOT hide a real release (60-min TTL, not the 720-min nag bucket)', () => {
     const install = makeInstall();
     expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe(expectedCommitsLine(install));
