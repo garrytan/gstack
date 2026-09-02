@@ -335,7 +335,8 @@ do_derive() {
       const sigmod = await import('./scripts/psychographic-signals.ts');
       const fs = require('fs');
       const { QUESTIONS } = regmod;
-      const { SIGNAL_MAP, applySignal, newDimensionTotals, normalizeToDimensionValue } = sigmod;
+      const { SIGNAL_MAP, applySignal, newDimensionTotals, normalizeToDimensionValue,
+              recommendationSignal, recommendationEligibleCount, SIGNAL_MAP_VERSION } = sigmod;
 
       const profilePath = process.env.PROFILE_FILE_PATH;
       const eventsPath = process.env.EVENTS_PATH;
@@ -350,25 +351,45 @@ do_derive() {
       const skills = new Set();
       const qids = new Set();
       const days = new Set();
+      // Provenance: UNIQUE ROWS contributing to each dimension, not signal
+      // applications — one row can apply several deltas, and conflating them
+      // would overstate the evidence, which is the opposite of the point.
+      const contributors = {};
+      for (const d of Object.keys(totals)) contributors[d] = new Set();
+      const events = [];
       let count = 0;
+      let rowIndex = -1;
       for (const line of lines) {
         let e;
         try { e = JSON.parse(line); } catch { continue; }
         if (!e.question_id || !e.user_choice) continue;
+        rowIndex++;
         count++;
+        events.push(e);
         skills.add(e.skill);
         qids.add(e.question_id);
         if (e.ts) days.add(String(e.ts).slice(0,10));
         const def = QUESTIONS[e.question_id];
         if (def && def.signal_key) {
-          applySignal(totals, def.signal_key, e.user_choice);
+          const applied = applySignal(totals, def.signal_key, e.user_choice) || [];
+          for (const d of applied) contributors[d.dim]?.add(rowIndex);
         }
       }
+
+      // Registry-independent autonomy signal. ONE bounded delta from the whole
+      // history — never a per-event delta, which would saturate the sigmoid.
+      const recDelta = recommendationSignal(events);
+      const recN = recommendationEligibleCount(events);
+      totals[recDelta.dim] = (totals[recDelta.dim] ?? 0) + recDelta.delta;
 
       const values = {};
       for (const [dim, total] of Object.entries(totals)) {
         values[dim] = +normalizeToDimensionValue(total).toFixed(3);
       }
+
+      const contributingEvents = {};
+      for (const d of Object.keys(totals)) contributingEvents[d] = contributors[d].size;
+      contributingEvents[recDelta.dim] += recN;
 
       profile.inferred = {
         values,
@@ -378,6 +399,11 @@ do_derive() {
           question_ids_covered: qids.size,
           days_span: days.size,
         },
+        // Distinguishes 'no evidence' from 'balanced evidence'. Without it a
+        // dead pipeline and a perfectly-balanced one both print 0.5, which is
+        // how five 0.5s sat next to sample_size 1286 looking healthy.
+        contributing_events: contributingEvents,
+        derivation_version: SIGNAL_MAP_VERSION,
       };
 
       // Recompute gap.
@@ -393,7 +419,7 @@ do_derive() {
       const tmp = profilePath + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
       fs.renameSync(tmp, profilePath);
-      console.log('DERIVE: ok — ' + count + ' events, ' + skills.size + ' skills, ' + qids.size + ' questions');
+      console.log('DERIVE: ok — ' + count + ' events, ' + skills.size + ' skills, ' + qids.size + ' questions, ' + recN + ' recommendation-eligible');
     }).catch(err => { console.error('DERIVE:', err.message); process.exit(1); });
   "
 }
@@ -418,13 +444,16 @@ do_trace() {
       const sigmod = await import('./scripts/psychographic-signals.ts');
       const fs = require('fs');
       const { QUESTIONS } = regmod;
-      const { SIGNAL_MAP } = sigmod;
+      const { SIGNAL_MAP, recommendationSignal, recommendationEligibleCount,
+              isRecommendationEligible } = sigmod;
       const target = process.env.TRACE_DIM;
       const lines = fs.readFileSync(process.env.EVENTS_PATH, 'utf-8').trim().split('\n').filter(Boolean);
       const rows = [];
+      const events = [];
       for (const line of lines) {
         let e;
         try { e = JSON.parse(line); } catch { continue; }
+        events.push(e);
         const def = QUESTIONS[e.question_id];
         if (!def || !def.signal_key) continue;
         const deltas = SIGNAL_MAP[def.signal_key]?.[e.user_choice] || [];
@@ -434,12 +463,30 @@ do_trace() {
           }
         }
       }
-      if (rows.length === 0) {
+      // The registry-independent autonomy signal contributes one AGGREGATE
+      // delta, so it has no per-event rows to list. Report it explicitly or
+      // --trace autonomy would still say 'no events contribute' while the
+      // derived value had visibly moved.
+      const recDelta = recommendationSignal(events);
+      const recN = target === 'autonomy' ? recommendationEligibleCount(events) : 0;
+      const recFollowed = target === 'autonomy'
+        ? events.filter(e => isRecommendationEligible(e) && e.followed_recommendation === true).length
+        : 0;
+
+      if (rows.length === 0 && recN === 0) {
         console.log('TRACE: no events contribute to ' + target);
       } else {
-        console.log('TRACE: ' + rows.length + ' events for ' + target);
+        // Count the aggregate's eligible rows in the header too: reporting
+        // '0 events' directly above a line describing 1,240 of them is worse
+        // than the 'no events' message this replaced.
+        console.log('TRACE: ' + (rows.length + recN) + ' events for ' + target);
         for (const r of rows) {
           console.log('  ' + (r.ts || '').slice(0,19) + '  ' + r.question_id + '  → ' + r.choice + '  (' + (r.delta > 0 ? '+' : '') + r.delta + ')');
+        }
+        if (recN > 0) {
+          const rate = (recFollowed / recN * 100).toFixed(1);
+          console.log('  aggregate  followed_recommendation  ' + recFollowed + '/' + recN +
+            ' (' + rate + '%)  (' + (recDelta.delta > 0 ? '+' : '') + recDelta.delta.toFixed(4) + ')');
         }
       }
     });
