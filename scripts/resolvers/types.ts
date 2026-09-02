@@ -50,6 +50,15 @@ function buildHostPaths(): Record<string, HostPaths> {
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
+/**
+ * Shell expression for a global-install binary directory. Literal hosts store
+ * `~/...` paths, which become `$HOME/...`; env-var hosts store `$GSTACK_*`
+ * variables, which already expand to an absolute path and are used as-is.
+ */
+export function globalBinDir(dir: string): string {
+  return dir.startsWith('~') ? `$HOME${dir.slice(1)}` : dir;
+}
+
 import type { Model } from '../models';
 export type { Model } from '../models';
 
