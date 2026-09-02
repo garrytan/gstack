@@ -47,8 +47,8 @@ When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
 - `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
-- `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id>` cycle; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
+- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream --phase resolve_symbol_edges`, phase-scoped) **only when it was never built**.
+- `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id> --phase resolve_symbol_edges` cycle (no-source fallback: `gbrain dream --phase resolve_symbol_edges`); ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Pinned to the `resolve_symbol_edges` phase only — never gbrain's full multi-phase maintenance cycle. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
 - `/sync-gbrain --no-dream` — skip the dream cycle that `--full` would otherwise auto-run.
 - `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
@@ -280,8 +280,10 @@ If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
 >
 > ELI10: `gbrain code-callers`/`code-callees` (who calls this function / what it
 > calls) return nothing until the `resolve_symbol_edges` phase runs for this
-> source. `gbrain dream --source <this source>` runs it (scoped to this
-> worktree's code, takes a few minutes). It only produces a graph if this
+> source. `gbrain dream --source <this source> --phase resolve_symbol_edges`
+> runs it (scoped to this worktree's code and to that phase only — never
+> gbrain's full multi-phase maintenance cycle — takes a few minutes). It only
+> produces a graph if this
 > source's schema pack extracts code symbols; if it doesn't, the run completes
 > but the graph stays empty and the dream row will say so.
 >
