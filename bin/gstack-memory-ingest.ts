@@ -709,6 +709,16 @@ function resolveGitRemote(cwd: string): string {
 }
 
 function resolveGitRemoteUncached(cwd: string): string {
+  // Climb to the nearest EXISTING ancestor first: a deleted worktree's parent
+  // is still inside its repo, and git discovers the repo upward from there.
+  // Without this every session whose worktree was cleaned up before ingest is
+  // skipped as unattributed forever.
+  let dir = cwd;
+  while (dir && !existsSync(dir)) {
+    const parent = dirname(dir);
+    if (parent === dir) return "";
+    dir = parent;
+  }
   try {
     // execFileSync (no shell) so `cwd` cannot trigger command substitution.
     // Transcript JSONL records are an untrusted surface (a poisoned `.cwd`
@@ -716,7 +726,7 @@ function resolveGitRemoteUncached(cwd: string): string {
     // into a `/bin/sh -c` context, since JSON quoting does not escape `$`
     // or backticks). Mirrors the execFileSync pattern this module already
     // uses for `gbrainAvailable()` (line 762) and `gbrainPutPage()` (line 816).
-    const out = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], {
+    const out = execFileSync("git", ["-C", dir, "remote", "get-url", "origin"], {
       encoding: "utf-8",
       timeout: 2000,
       stdio: ["ignore", "pipe", "ignore"],
@@ -744,12 +754,23 @@ function dateOnly(ts: string | undefined): string {
   }
 }
 
-export function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
+export function normalizeSlugForGbrain(slug: string): string {
+  // Mirror gbrain's slugifyPath()/slugifySegment() (core/sync.ts) for the
+  // characters this ingester can emit, so the slug recorded in state is the
+  // slug that exists in the brain.
+  return slug
+    .split("/")
+    .map((seg) => seg.toLowerCase().replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, ""))
+    .filter(Boolean)
+    .join("/");
+}
+
+function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
   const remote = resolveGitRemote(session.cwd);
   const slug_repo = repoSlug(remote);
   const date = dateOnly(session.start_time);
   const sessionPrefix = session.session_id.slice(0, 12);
-  const slug = `transcripts/${session.agent}/${slug_repo}/${date}-${sessionPrefix}`;
+  const slug = normalizeSlugForGbrain(`transcripts/${session.agent}/${slug_repo}/${date}-${sessionPrefix}`);
   const title = `${session.agent} session — ${slug_repo} — ${date}`;
   const tags = [
     "transcript",
@@ -825,7 +846,7 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   const date = new Date(stats.mtimeMs).toISOString().slice(0, 10);
   const baseName = basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md");
 
-  const slug = `${type}s/${slug_repo}/${date}-${baseName}`;
+  const slug = normalizeSlugForGbrain(`${type}s/${slug_repo}/${date}-${baseName}`);
   const title = `${type} — ${slug_repo} — ${date} — ${baseName}`;
 
   const tags = [type, `repo:${slug_repo}`, `date:${date}`];
@@ -1043,14 +1064,55 @@ function parseImportJson(stdout: string): ImportJsonResult | null {
 }
 
 /**
+ * Per-file failures gbrain reports on stderr. commands/import.ts prints `  Skipped <rel>: <err>` for a failure
+ * importFile RETURNS (counted in `skipped`, exit 0) and `  Warning: skipped
+ * <rel>: <err>` for one it THROWS (counted in `errors` too) — but only the
+ * first 5 per error class; the rest are suppressed and only visible in the
+ * `errors` count, which the caller treats as unmappable.
+ */
+export function parseImportStderrFailures(
+  stderr: string,
+): Array<{ path: string; error: string; thrown: boolean }> {
+  const out: Array<{ path: string; error: string; thrown: boolean }> = [];
+  for (const raw of stderr.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    let m = line.match(/^\s+Warning: skipped (\S+): (.*)$/);
+    if (m) { out.push({ path: m[1], error: m[2], thrown: true }); continue; }
+    m = line.match(/^\s+Skipped \(malformed filename[^)]*\): (.*)$/);
+    if (m) { out.push({ path: m[1].trim(), error: "malformed filename", thrown: false }); continue; }
+    m = line.match(/^\s+Skipped (\S+): (.*)$/);
+    if (m) out.push({ path: m[1], error: m[2], thrown: false });
+  }
+  return out;
+}
+
+/** `failures: [{path, error}]` when the installed gbrain emits it in --json. */
+function parseImportJsonFailures(
+  importJson: ImportJsonResult | null,
+): Array<{ path: string; error: string; thrown: boolean }> {
+  const arr = (importJson as { failures?: unknown } | null)?.failures;
+  if (!Array.isArray(arr)) return [];
+  const out: Array<{ path: string; error: string; thrown: boolean }> = [];
+  for (const f of arr) {
+    const path = (f as { path?: unknown } | null)?.path;
+    if (typeof path !== "string") continue;
+    out.push({ path, error: String((f as { error?: unknown }).error ?? "unknown"), thrown: false });
+  }
+  return out;
+}
+
+/**
  * Read failures appended to ~/.gbrain/sync-failures.jsonl since the
  * snapshotted byte offset, and map them back to source paths.
  *
- * D7: gbrain import writes per-file failures to sync-failures.jsonl
- * (commands/import.ts:308-310) explicitly so "callers can gate state
- * advances" (comment at :28). We snapshot the file size before import
- * and read only the appended bytes after, so we never confuse new
- * entries with prior-run leftovers.
+ * D7: gbrain import writes per-file failures to sync-failures.jsonl so
+ * "callers can gate state advances" — but ONLY when the import dir is a git
+ * repo (commands/import.ts gates recordFailures on `gitHead`), and the
+ * staging dir never is. For staged imports this returns an empty set; the
+ * caller also recovers failures from gbrain's stderr / --json (see
+ * parseImportStderrFailures). We snapshot the file size before import and
+ * read only the appended bytes after, so we never confuse new entries with
+ * prior-run leftovers.
  *
  * Each line is `{ path, error, code, commit, ts }`. The `path` is the
  * staging-dir-relative filename gbrain saw (e.g. "transcripts/foo.md").
@@ -2208,7 +2270,11 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     const stderr = importResult.stderr || "";
     const importJson = parseImportJson(stdout);
 
-    if (importResult.status !== 0) {
+    // A non-zero exit WITH a
+    // parseable --json summary is a partial failure, not a crash. Fall through
+    // to the per-file accounting below, which maps each reported failure back
+    // to its source and leaves it un-stamped for retry ("not freezing state").
+    if (importResult.status !== 0 && (importJson === null || importResult.timedOut)) {
       // #1611/#1802 C3: on timeout, gbrain may have written
       // import-checkpoint.json so the next /sync-gbrain can resume. But an
       // INTERNAL timeout (runGbrainImport kills the child and returns here)
@@ -2298,6 +2364,44 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       preImportOffset,
       staging.stagedPathToSource,
     );
+    // The ledger above is EMPTY for
+    // staged imports (gbrain writes it only for git-repo dirs), and gbrain
+    // folds returned per-file failures into `skipped` with exit 0. Recover them
+    // from stderr / --json and treat them as what they are: not landed.
+    const stderrFailures = parseImportStderrFailures(stderr);
+    const reportedByPath = new Map<string, { error: string; thrown: boolean }>();
+    for (const f of stderrFailures.concat(parseImportJsonFailures(importJson))) {
+      if (!reportedByPath.has(f.path)) reportedByPath.set(f.path, { error: f.error, thrown: f.thrown });
+    }
+    const unmappedFailures: string[] = [];
+    for (const [relPath, info] of reportedByPath) {
+      const source = staging.stagedPathToSource.get(relPath);
+      if (source) {
+        failedSources.add(source);
+        console.error(
+          `[memory-ingest] FAILED ${relPath}: ${info.error.slice(0, 300)} ` +
+            `(source left un-stamped; retried next run)`,
+        );
+      } else {
+        unmappedFailures.push(relPath);
+      }
+    }
+    // gbrain prints at most 5 thrown failures per error class, then suppresses
+    // the rest; `errors` in the JSON still counts every one of them. Any
+    // failure we cannot name (ledger, stderr or --json) cannot be excluded from
+    // state, so it must refuse the batch instead of being stamped on to
+    // whichever page happens to be left.
+    const knownFailures = failedSources.size + unmappedFailures.length;
+    const hiddenThrown = Math.max(0, (importJson.errors ?? 0) - knownFailures);
+    const unaccountedFailures = unmappedFailures.length + hiddenThrown;
+    if (unaccountedFailures > 0) {
+      console.error(
+        `[memory-ingest] ERR: gbrain reported ${unaccountedFailures} failure(s) that ` +
+          `cannot be mapped to a staged page` +
+          (unmappedFailures.length > 0 ? ` (${unmappedFailures.slice(0, 5).join(", ")})` : "") +
+          `; refusing this batch rather than stamp unverified pages.`,
+      );
+    }
     failed += failedSources.size;
 
     // Reconcile gbrain's own accounting against what we staged. Without this,
@@ -2315,10 +2419,10 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // run artifacts-init, collect_files returns 0 for every batch.
     //
     // `skipped` counts content_hash no-ops, which ARE successful landings.
-    const expectedLandings = prep.prepared.length - failedSources.size;
+    const expectedLandings = staging.stagedPathToSource.size - failedSources.size;
     const accountedLandings =
       (importJson.imported ?? 0) + (importJson.skipped ?? 0);
-    if (accountedLandings < expectedLandings) {
+    if (accountedLandings < expectedLandings || unaccountedFailures > 0) {
       const collected =
         importJson.total_files !== undefined
           ? ` gbrain collected ${importJson.total_files} file(s) from the staging dir.`
