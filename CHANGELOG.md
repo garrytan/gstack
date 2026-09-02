@@ -1674,6 +1674,10 @@ generation works again. Update gstack and the wave is yours.
   actionable guidance.
 
 #### Fixed — everything else
+- /browse no longer reports a false "Server failed to start" when the
+  daemon becomes healthy in the last moment before the timeout — it
+  rechecks health once more before giving up. Contributed by
+  @harjothkhara (#1846).
 - Artifacts Sync and telemetry-finalize un-deadened in 49 skills (quoted
   tilde never expands — @jawadakram20). update_check:false now silences
   the preamble prose too (@jc0d35). Codex hosts read AGENTS.md, not
