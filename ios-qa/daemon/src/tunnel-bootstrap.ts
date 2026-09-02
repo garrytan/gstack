@@ -62,7 +62,7 @@ export type BootstrapErrorReason =
   | 'rotate_failed'
   | 'resolve_failed';
 
-function isIPhoneDevice(device: DeviceEntry): boolean {
+function isSupportedIOSDevice(device: DeviceEntry): boolean {
   const platform = device.platform.trim().toLowerCase();
   const deviceType = device.deviceType.trim().toLowerCase();
   const model = device.model.trim().toLowerCase();
@@ -70,8 +70,13 @@ function isIPhoneDevice(device: DeviceEntry): boolean {
   // productType is present even on older CoreDevice versions. Prefer the
   // explicit platform/type fields when available, but retain productType as
   // a compatibility fallback. An explicit non-iOS platform always loses.
-  if (platform && platform !== 'ios') return false;
-  return deviceType === 'iphone' || model.startsWith('iphone');
+  if (platform && platform !== 'ios' && platform !== 'ipados') return false;
+  return (
+    deviceType === 'iphone'
+    || deviceType === 'ipad'
+    || model.startsWith('iphone')
+    || model.startsWith('ipad')
+  );
 }
 
 function isAvailableDevice(device: Pick<DeviceEntry, 'state' | 'transport'>): boolean {
@@ -87,7 +92,7 @@ function isAvailableDevice(device: Pick<DeviceEntry, 'state' | 'transport'>): bo
 }
 
 function defaultDeviceRank(device: DeviceEntry): number {
-  if (!device.paired || !isIPhoneDevice(device) || !isAvailableDevice(device)) return -1;
+  if (!device.paired || !isSupportedIOSDevice(device) || !isAvailableDevice(device)) return -1;
 
   const state = device.state.trim().toLowerCase();
   const transport = device.transport.trim().toLowerCase();
@@ -161,40 +166,40 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
     if (opts.udid) {
       return { ok: false, error: 'device_not_found', detail: opts.udid };
     }
-    const pairedIPhone = devices.find((d) => d.paired && isIPhoneDevice(d));
-    if (pairedIPhone) {
+    const pairedIOS = devices.find((d) => d.paired && isSupportedIOSDevice(d));
+    if (pairedIOS) {
       return {
         ok: false,
         error: 'device_not_found',
-        detail: `paired iPhone ${pairedIPhone.name} (${pairedIPhone.identifier}) is ${pairedIPhone.state}; connect it over USB and unlock it`,
+        detail: `paired device ${pairedIOS.name} (${pairedIOS.identifier}) is ${pairedIOS.state}; connect it over USB and unlock it`,
       };
     }
-    const firstIPhone = devices.find(isIPhoneDevice);
-    if (!firstIPhone) {
+    const firstIOS = devices.find(isSupportedIOSDevice);
+    if (!firstIOS) {
       return {
         ok: false,
         error: 'device_not_found',
-        detail: 'no iPhone is connected; non-iOS devices are not eligible for iOS QA',
+        detail: 'no iPhone or iPad is connected; non-iOS devices are not eligible for iOS QA',
       };
     }
     return {
       ok: false,
       error: 'no_paired_device',
-      detail: `device ${firstIPhone.name} (${firstIPhone.identifier}) is ${firstIPhone.state}; run \`xcrun devicectl manage pair --device ${firstIPhone.identifier}\` and tap Trust on the iPhone`,
+      detail: `device ${firstIOS.name} (${firstIOS.identifier}) is ${firstIOS.state}; run \`xcrun devicectl manage pair --device ${firstIOS.identifier}\` and tap Trust on the device`,
     };
   }
-  if (!isIPhoneDevice(target)) {
+  if (!isSupportedIOSDevice(target)) {
     return {
       ok: false,
       error: 'device_not_found',
-      detail: `device ${target.name} (${target.identifier}) is ${target.platform || target.model}, not an iPhone`,
+      detail: `device ${target.name} (${target.identifier}) is ${target.platform || target.model}, not an iPhone or iPad`,
     };
   }
   if (!target.paired) {
     return {
       ok: false,
       error: 'no_paired_device',
-      detail: `device ${target.name} (${target.identifier}) is ${target.state}; run \`xcrun devicectl manage pair --device ${target.identifier}\` and tap Trust on the iPhone`,
+      detail: `device ${target.name} (${target.identifier}) is ${target.state}; run \`xcrun devicectl manage pair --device ${target.identifier}\` and tap Trust on the device`,
     };
   }
   if (!isAvailableDevice(target)) {
