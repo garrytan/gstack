@@ -532,7 +532,14 @@ export async function handleWriteCommand(
       // Resolve width/height: either from sizeArg or from current viewport if --scale-only.
       let w: number, h: number;
       if (sizeArg) {
-        if (!sizeArg.includes('x')) throw new Error('Usage: browse viewport [<WxH>] [--scale <n>] (e.g., 375x812)');
+        const lower = sizeArg.trim().toLowerCase();
+        if (lower === 'auto' || lower === 'reset' || lower === 'unpin') {
+          w = 1280;
+          h = 720;
+          await bm.setViewport(w, h);
+          return `Viewport reset to default ${w}x${h}`;
+        }
+        if (!sizeArg.includes('x')) throw new Error('Usage: browse viewport [<WxH>] [--scale <n>] (e.g., 375x812, or auto/reset)');
         const [rawW, rawH] = sizeArg.split('x').map(Number);
         w = Math.min(Math.max(Math.round(rawW) || 1280, 1), 16384);
         h = Math.min(Math.max(Math.round(rawH) || 720, 1), 16384);
