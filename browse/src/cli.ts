@@ -1662,6 +1662,12 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         const newPid = spawnTerminalAgent({
           stateFile: config.stateFile,
           serverPort: newState.port,
+          // The daemon, not this CLI process: the CLI exits within seconds,
+          // and the agent's owner watchdog is what reaps it when the server
+          // it serves goes away. Omitting this sent the literal string
+          // "undefined" through BROWSE_OWNER_PID, which parses to NaN and
+          // leaves the watchdog inert for every CLI-spawned agent (#2637).
+          ownerPid: newState.pid,
           cwd: config.projectDir,
         });
         if (newPid) {
@@ -1754,6 +1760,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           spawnTerminalAgent({
             stateFile: config.stateFile,
             serverPort: respawned.port,
+            ownerPid: respawned.pid,
             cwd: config.projectDir,
           });
         } catch (err: any) {
