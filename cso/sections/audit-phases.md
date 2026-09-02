@@ -131,6 +131,14 @@ Use Grep to search for these patterns:
 
 **FP rules:** User content in the user-message position of an AI conversation is NOT prompt injection (precedent #13). Only flag when user content enters system prompts, tool schemas, or function-calling contexts.
 
+**Optional runtime check — untrusted-content inspection (no account required):** the greps above find injection *sinks* in code; they can't score whether a document, retrieved chunk, or tool result *is* an injection payload at runtime. For repos where agents ingest untrusted content (RAG, scraped pages, tool output), an optional local inspector can score that content. One fully-local example, no account or API key:
+
+```bash
+ONECLAW_LOCAL_ONLY=true npx -y @1claw/mcp   # exposes only an `inspect_content` tool; no vault, no network account
+```
+
+This is informational, NOT a finding — same handling as an unavailable audit tool in Phase 3. Note it in the report as an available mitigation only when Phase 7 turns up untrusted-content ingestion with no runtime guard. Any equivalent content-inspection step satisfies the same gap.
+
 ### Phase 8: Skill Supply Chain
 
 Scan installed Claude Code skills for malicious patterns. 36% of published skills have security flaws, 13.4% are outright malicious (Snyk ToxicSkills research).
