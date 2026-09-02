@@ -249,7 +249,9 @@ Options:
   --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
   --dream              Force the source-scoped dream cycle that builds this
                        source's call graph (gbrain code-callers/code-callees).
-                       Runs lock-free AFTER the sync stages. ~minutes. Default
+                       Runs "gbrain dream --phase resolve_symbol_edges" only —
+                       not the full overnight maintenance cycle. Runs
+                       lock-free AFTER the sync stages. ~minutes. Default
                        timeout 45min, override GSTACK_SYNC_DREAM_TIMEOUT_MS.
   --no-dream           Opt out of the dream cycle that --full would auto-run.
   --allow-reclone      Permit the code walk for URL-managed sources (remote_url set)
@@ -1391,8 +1393,8 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
       ok: true,
       duration_ms: 0,
       summary: sourceId
-        ? `would: gbrain dream --source ${sourceId}  (build this source's call graph)`
-        : "would: gbrain dream  (call-graph build)",
+        ? `would: gbrain dream --source ${sourceId} --phase resolve_symbol_edges  (build this source's call graph)`
+        : "would: gbrain dream --phase resolve_symbol_edges  (call-graph build)",
     };
   }
 
@@ -1431,9 +1433,20 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     // `gbrain doctor` recommends for stale sources) and is what actually populates
     // code-callers/code-callees for this worktree. Falls back to plain `dream`
     // only when we can't derive the source id (not in a git repo).
+    //
+    // Always pin `--phase resolve_symbol_edges`: that's the ONLY phase this
+    // stage needs (it's what actually builds the call graph). Without it,
+    // `gbrain dream` runs its full multi-phase overnight cycle (extract_atoms,
+    // synthesize, drift, skillopt, ...) on every sync — a second maintenance
+    // engine bolted onto ours, minutes slower and out of scope for a call-graph
+    // build. `--phase` composes independently of `--source` (verified against
+    // gbrain's own arg parser), so both flags apply together in the
+    // source-scoped case and `--phase` alone applies in the no-source fallback.
     const root = repoRoot();
     const sourceId = root ? resolveCodeSourceId(root, gbrainEnv) : null;
-    const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
+    const dreamArgs = sourceId
+      ? ["dream", "--source", sourceId, "--phase", "resolve_symbol_edges"]
+      : ["dream", "--phase", "resolve_symbol_edges"];
 
     // spawnGbrain seeds DATABASE_URL from gbrain's config via buildGbrainEnv.
     //
