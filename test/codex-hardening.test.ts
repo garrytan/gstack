@@ -91,6 +91,70 @@ describe('gstack-codex-probe: auth probe', () => {
     }
   });
 
+  test('configured env_key set → AUTH_OK', () => {
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, '.codex', 'config.toml'),
+        'model_provider = "azure"\n[model_providers.azure]\nenv_key = "AZURE_OPENAI_API_KEY_RECRUIT_MAGIC_RESOURCE"\n',
+      );
+      const r = runProbe({
+        snippet: '_gstack_codex_auth_probe',
+        env: { AZURE_OPENAI_API_KEY_RECRUIT_MAGIC_RESOURCE: 'azure-test' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('AUTH_OK');
+      expect(r.status).toBe(0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('OPENAI_API_KEY in cwd .env is loaded for worktree automation', () => {
+    const home = tempHome();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-env-cwd-'));
+    try {
+      fs.writeFileSync(path.join(cwd, '.env'), 'OPENAI_API_KEY=sk-from-env-file\n');
+      const escapedCwd = cwd.replaceAll('"', '\\"');
+      const r = runProbe({
+        snippet: `cd "${escapedCwd}"\n_gstack_codex_auth_probe\nprintf "loaded:%s\\n" "\${OPENAI_API_KEY:-}"`,
+        home,
+      });
+      expect(r.stdout).toContain('AUTH_OK');
+      expect(r.stdout).toContain('loaded:sk-from-env-file');
+      expect(r.status).toBe(0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('configured env_key can be loaded from machine-local cli.env', () => {
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, '.codex', 'config.toml'),
+        '[model_providers.azure]\nenv_key = "AZURE_OPENAI_API_KEY_RECRUIT_MAGIC_RESOURCE"\n',
+      );
+      fs.mkdirSync(path.join(home, '.config/recruitmagic'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, '.config/recruitmagic/cli.env'),
+        'AZURE_OPENAI_API_KEY_RECRUIT_MAGIC_RESOURCE=azure-from-cli-env\n',
+      );
+      const r = runProbe({
+        snippet: '_gstack_codex_auth_probe\nprintf "loaded:%s\\n" "${AZURE_OPENAI_API_KEY_RECRUIT_MAGIC_RESOURCE:-}"',
+        home,
+      });
+      expect(r.stdout).toContain('AUTH_OK');
+      expect(r.stdout).toContain('loaded:azure-from-cli-env');
+      expect(r.status).toBe(0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test('no env + no file → AUTH_FAILED with exit 1', () => {
     const home = tempHome();
     try {
