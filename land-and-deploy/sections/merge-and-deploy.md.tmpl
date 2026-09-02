@@ -3,7 +3,14 @@
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
 
-Try auto-merge first (respects repo merge settings and merge queues):
+Before either merge command, read the PR base branch and run `git worktree list --porcelain`.
+If another worktree has `branch refs/heads/<base>`, set `BASE_WORKTREE_IN_USE=true`, omit
+`--delete-branch` from both merge commands, and do not switch, remove, or modify that
+worktree. Report that local and remote branch cleanup was skipped because the base branch
+is in use.
+
+If required checks are still pending, use auto-merge (respects repo merge settings and
+merge queues):
 
 ```bash
 gh pr merge --squash --auto --delete-branch
@@ -12,25 +19,15 @@ gh pr merge --squash --auto --delete-branch
 If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
 and may use merge queues.
 
-`--auto` fails for two unrelated reasons. Both fall through to the direct merge below, so
-the flow is unaffected — but do not report the second one as "auto-merge is disabled":
-
-1. **Auto-merge is disabled for the repo** — `Auto-merge is not allowed for this repository`.
-2. **The PR is not waiting on anything.** `--auto` only *queues* a merge behind pending
-   required checks. When every required check has already settled — or the repo declares
-   no required status checks at all — GitHub treats the PR as immediately mergeable and
-   rejects the mutation:
-   `Pull request is in clean status` (everything green) or
-   `Pull request is in unstable status` (something red, but nothing required).
-   A repo with zero required status checks therefore takes the direct path 100% of the
-   time no matter how auto-merge is configured, and so does any repo whose CI finishes
-   before this step runs.
+If no required check is pending, use the direct merge instead. Choose one path; do not
+run auto-merge and direct merge in sequence.
 
 ```bash
 gh pr merge --squash --delete-branch
 ```
 
-If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
+If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully."
+Only say the branch was cleaned up when `--delete-branch` was used and branch state confirms it.
 
 If the merge fails with a permission error: **STOP.** "I don't have permission to merge this PR. You'll need a maintainer to merge it, or check your repo's branch protection rules."
 
@@ -69,11 +66,17 @@ git worktree list --porcelain
 ```
 Identify candidates: a worktree is stale if (a) it is checked out on the base branch, AND (b) it is not the user's current main working tree, AND (c) `git status --porcelain` inside it is empty (no uncommitted work).
 
+If `BASE_WORKTREE_IN_USE=true`, the worktree found before merge is expected, not stale;
+do not offer to remove it.
+
 - For each clean candidate: OFFER to remove it. Say: "There's a stale worktree at `<path>` checked out on `<branch>` with no uncommitted work. Remove it?" Remove only if user confirms (`git worktree remove <path> && git worktree prune`).
 - If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
 - Do NOT use `--force`. Do NOT remove the user's primary working tree.
 
-Remote-branch reconciliation — the failed `gh pr merge` carried `--delete-branch`, and this recovery path must not silently drop that half. The success path above says "The branch has been cleaned up"; this path states the branch outcome explicitly instead of staying silent:
+Remote-branch reconciliation — run this only when the merge command carried
+`--delete-branch`; this recovery path must not silently drop that half. If
+`BASE_WORKTREE_IN_USE=true`, branch cleanup was deliberately omitted, so report that and
+skip this reconciliation.
 
 ```bash
 # NB: gh leaves .headRepository.nameWithOwner EMPTY (verified against gh

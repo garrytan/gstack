@@ -983,7 +983,7 @@ the source of truth — STOP, Read it now, and redo that step.
 - **Poll with backoff.** Don't hammer GitHub API. 30-second intervals for CI/deploy, with reasonable timeouts.
 - **Revert is always an option.** At every failure point, offer revert as an escape hatch. Explain what reverting does in plain English.
 - **Single-pass verification, not continuous monitoring.** `/land-and-deploy` checks once. `/canary` does the extended monitoring loop.
-- **Clean up.** Delete the feature branch after merge (via `--delete-branch`).
+- **Clean up safely.** Use `--delete-branch` only when the base branch is not checked out in another worktree.
 - **First run = teacher mode.** Walk the user through everything. Explain what each check does and why it matters. Show them their infrastructure. Let them confirm before proceeding. Build trust through transparency.
 - **Subsequent runs = efficient mode.** Brief status updates, no re-explanations. The user already trusts the tool — just do the job and report results.
 - **The goal is: first-timers think "wow, this is thorough — I trust it." Repeat users think "that was fast — it just works."**

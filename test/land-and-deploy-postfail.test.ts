@@ -39,6 +39,22 @@ function readMd(): string {
 }
 
 describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
+  test("shared base worktree disables local branch cleanup before merge", () => {
+    const body = readTmpl();
+    expect(body).toMatch(/Before either merge command.*git worktree list --porcelain/s);
+    expect(body).toMatch(/branch refs\/heads\/<base>/);
+    expect(body).toMatch(/omit\s+`--delete-branch` from both merge commands/);
+    expect(body).toMatch(/do not switch, remove, or modify that\s+worktree/);
+    expect(body).toMatch(/local and remote branch cleanup was skipped/);
+    expect(body).toMatch(/expected, not stale/);
+    expect(body).toMatch(/skip this reconciliation/);
+  });
+
+  test("auto and direct merge are mutually exclusive", () => {
+    const body = readTmpl();
+    expect(body).toMatch(/Choose one path; do not\s+run auto-merge and direct merge in sequence/);
+  });
+
   test("§4a-postfail header present in template", () => {
     expect(readTmpl()).toMatch(/### 4a-postfail: Post-failure PR-state check/);
   });
