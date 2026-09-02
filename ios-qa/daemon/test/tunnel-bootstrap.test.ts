@@ -158,7 +158,7 @@ describe('bootstrapTunnel', () => {
     if (r.ok) expect(r.tunnel.udid).toBe('IPHONE');
   });
 
-  test('fails clearly when only non-iPhone platforms are connected', async () => {
+  test('fails clearly when only non-iOS platforms are connected', async () => {
     const spawn = makeSpawn([
       {
         argsMatch: /devicectl list devices/,
@@ -175,13 +175,13 @@ describe('bootstrapTunnel', () => {
               },
             },
             {
-              identifier: 'IPAD',
+              identifier: 'WATCH',
               connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
-              deviceProperties: { name: 'iPad' },
+              deviceProperties: { name: 'Apple Watch' },
               hardwareProperties: {
-                productType: 'iPad16,6',
-                platform: 'iOS',
-                deviceType: 'iPad',
+                productType: 'Watch7,5',
+                platform: 'watchOS',
+                deviceType: 'watch',
               },
             },
           ] },
@@ -193,11 +193,11 @@ describe('bootstrapTunnel', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toBe('device_not_found');
-      expect(r.detail).toContain('no iPhone');
+      expect(r.detail).toContain('no iPhone or iPad');
     }
   });
 
-  test('rejects an explicitly targeted non-iPhone device', async () => {
+  test('rejects an explicitly targeted non-iPhone/iPad device', async () => {
     const spawn = makeSpawn([
       {
         argsMatch: /devicectl list devices/,
@@ -220,7 +220,42 @@ describe('bootstrapTunnel', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toBe('device_not_found');
-      expect(r.detail).toContain('not an iPhone');
+      expect(r.detail).toContain('not an iPhone or iPad');
+    }
+  });
+
+  test('accepts a physical iPad alongside iPhones', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'IPAD-14-5',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired', transportType: 'wired' },
+            deviceProperties: { name: 'Test iPad' },
+            hardwareProperties: {
+              productType: 'iPad14,5',
+              platform: 'iOS',
+              deviceType: 'iPad',
+            },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device process launch --device IPAD-14-5/,
+        exitCode: 0,
+      },
+    ]);
+
+    // Fast-fail at resolution stage so we verify device acceptance
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      resolveImpl: () => Promise.resolve(null),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('resolve_failed');
     }
   });
 
