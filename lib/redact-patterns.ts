@@ -159,6 +159,56 @@ export function isPublicIPv4(ip: string): boolean {
   return true;
 }
 
+/**
+ * True when a dotted quad is a four-part VERSION rather than an IP address.
+ *
+ * Four-segment version schemes (`MAJOR.MINOR.PATCH.BUILD` — .NET/NuGet
+ * assembly versions, Electron builds, and hand-rolled schemes) are
+ * syntactically indistinguishable from IPv4: `1.128.1.0` is a valid public
+ * address. A repo on such a scheme therefore trips `pii.ip_public` on EVERY
+ * release, once per file the version is written to — the changelog heading,
+ * a VERSION file, package.json, and both package-lock.json fields. A scanner
+ * that reports the same findings on every push is one nobody reads.
+ *
+ * The bias here is deliberate: a leaked IP costs more than a nuisance
+ * finding, so an exemption requires PROOF of version context, never mere
+ * proximity to the word "version". Two ways to earn it:
+ *
+ *   1. This occurrence sits in a version declaration — a `*version` key, a
+ *      `v` prefix, or a `[…]` changelog heading.
+ *   2. The IDENTICAL string is declared as a version elsewhere in the same
+ *      scanned text. That covers the bare `1.128.1.0` line of a VERSION file
+ *      without teaching this validator anything about diff or file formats:
+ *      if the same characters are proven a version in one place, a bare
+ *      repetition of them is the same version.
+ *
+ * So `8.8.8.8` on a line by itself stays flagged — nothing proves it a
+ * version — while a real address never becomes exempt by sharing a diff with
+ * an unrelated version string, because rule 2 matches on the exact value.
+ */
+export function isVersionNotIPv4(span: string, input: string, index: number): boolean {
+  // Immediate context: the ~48 chars before this occurrence, current line only.
+  const lineStart = input.lastIndexOf("\n", index - 1) + 1;
+  const before = input.slice(Math.max(lineStart, index - 48), index);
+  const after = input.slice(index + span.length, index + span.length + 2);
+
+  // `"version": "1.2.3.4"`, `app_version = 1.2.3.4`, `schema-version: 1.2.3.4`
+  if (/[\w.\-]*version["'\]]?\s*[:=]\s*["'(]?$/i.test(before)) return true;
+  // `v1.2.3.4` — a `v`-prefixed quad is a version, not an address.
+  if (/(?:^|[^\w.])[vV]$/.test(before)) return true;
+  // Keep a Changelog heading: `## [1.2.3.4] - 2026-09-02`
+  if (/^#{1,6}\s.*\[$/.test(before) && after.startsWith("]")) return true;
+
+  // Proven elsewhere in the same text. Escape the span: it is all digits and
+  // dots, but the dots must not act as wildcards.
+  const literal = span.replace(/[.]/g, "\\.");
+  const declaredElsewhere = new RegExp(
+    `(?:[\\w.\\-]*version["'\\]]?\\s*[:=]\\s*["'(]?${literal}|(?:^|[^\\w.])[vV]${literal}|^#{1,6}\\s.*\\[${literal}\\])`,
+    "im",
+  );
+  return declaredElsewhere.test(input);
+}
+
 // EIP-55 checksum is out of scope (heavy); we require a length+charset match and
 // reject all-same-char vanity strings to cut the worst FPs.
 function looksLikeWallet(span: string): boolean {
@@ -760,7 +810,7 @@ export const PATTERNS: RedactPattern[] = [
     category: "pii",
     description: "Public IPv4 address",
     regex: /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/,
-    validate: (span) => isPublicIPv4(span),
+    validate: (span, match) => isPublicIPv4(span) && !isVersionNotIPv4(span, match.input, match.index),
   },
   {
     id: "pii.wallet",
