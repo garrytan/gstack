@@ -9,6 +9,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  parseArgs,
   parseVersion,
   fmtVersion,
   bumpVersion,
@@ -20,6 +21,15 @@ import {
   resolveVersionPath,
   fetchGitClaimed,
 } from "../bin/gstack-next-version";
+
+describe("parseArgs case normalization (#2770)", () => {
+  test("accepts uppercase and mixed-case bump levels", () => {
+    expect(parseArgs(["--base", "main", "--bump", "MICRO"]).bump).toBe("micro");
+    expect(parseArgs(["--base", "main", "--bump", "PATCH"]).bump).toBe("patch");
+    expect(parseArgs(["--base", "main", "--bump", "Minor"]).bump).toBe("minor");
+    expect(parseArgs(["--base", "main", "--bump", "MAJOR"]).bump).toBe("major");
+  });
+});
 
 describe("parseVersion", () => {
   test("accepts 4-digit semver", () => {
