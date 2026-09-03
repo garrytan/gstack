@@ -446,11 +446,12 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     console.error("Error: --bump is required (major|minor|patch|micro)");
     process.exit(2);
   }
-  if (!["major", "minor", "patch", "micro"].includes(bump)) {
+  const normalizedBump = bump.toLowerCase();
+  if (!["major", "minor", "patch", "micro"].includes(normalizedBump)) {
     console.error(`Error: --bump must be major|minor|patch|micro (got ${bump})`);
     process.exit(2);
   }
-  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, versionPath, help: false };
+  return { base, bump: normalizedBump as Bump, current, workspaceRoot, excludePR, versionPath, help: false };
 }
 
 // Auto-detect: if --exclude-pr wasn't passed, check whether the current branch
@@ -785,7 +786,7 @@ async function main() {
 // Pure-function exports for testing. The version primitives are re-exported
 // from lib/version-source so existing importers of this module keep working
 // unchanged.
-export { parseVersion, fmtVersion, bumpVersion, cmpVersion, versionWidth, extractVersion };
+export { parseArgs, parseVersion, fmtVersion, bumpVersion, cmpVersion, versionWidth, extractVersion };
 export { pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed };
 
 // Only run main() when invoked as a script, not when imported by tests.
