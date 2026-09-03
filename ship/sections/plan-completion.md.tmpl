@@ -1,6 +1,6 @@
 ## Step 8: Plan Completion Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
+**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "sonnet"` (mechanical summarization/checking). The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
 
 {{FOREGROUND_DISPATCH_NOTE}} The Gate Logic below consumes this audit's LAST-line JSON before /ship can proceed.
 

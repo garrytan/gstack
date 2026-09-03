@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 8: Plan Completion Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
+**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "sonnet"` (mechanical summarization/checking). The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
 
 **Foreground required:** pass `run_in_background: false` on the Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.) The dispatch happens ONLY via the Agent tool: invoking the target as a Skill, or executing its workflow inline in your own context, is WRONG even though the skill may appear in your available-skills list — inline execution forfeits the fresh-context isolation this dispatch exists for, and the explicit flag already makes the Agent call block. (Where a step defines an inline FALLBACK, it applies only after a dispatched subagent has failed.) The Gate Logic below consumes this audit's LAST-line JSON before /ship can proceed.
 

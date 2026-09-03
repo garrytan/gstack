@@ -114,6 +114,7 @@ CHECKLIST:
 
 **Subagent configuration:**
 - Use `subagent_type: "general-purpose"`
+- Use `model: "sonnet"` (mechanical specialist checklist pass)
 - Pass `run_in_background: false` on every specialist Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198, and all specialists must complete before merge. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.)
 - If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.
 
@@ -205,7 +206,7 @@ Remember these stats — you will need them for the review-log entry in Step 5.8
 
 **Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
-If activated, dispatch one more subagent via the Agent tool (pass `run_in_background: false` — foreground; subagents default to background since Claude Code v2.1.198).
+If activated, dispatch one more subagent via the Agent tool with `model: "opus"` (adversarial judgment) (pass `run_in_background: false` — foreground; subagents default to background since Claude Code v2.1.198).
 
 The Red Team subagent receives:
 1. The red-team checklist from `~/.claude/skills/gstack/review/specialists/red-team.md`

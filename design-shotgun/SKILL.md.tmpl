@@ -239,7 +239,8 @@ $B screenshot "$_DESIGN_DIR/current.png"
 ```
 
 **Launch N Agent subagents in a single message** (parallel execution). Use the Agent
-tool with `subagent_type: "general-purpose"` and `run_in_background: false` for each
+tool with `subagent_type: "general-purpose"`, `model: "sonnet"` (mechanical variant
+generation), and `run_in_background: false` for each
 variant (parallel foreground calls in one message still run concurrently; subagents
 default to background since Claude Code v2.1.198, and the comparison board needs every
 variant's result). Each agent is independent

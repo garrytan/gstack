@@ -40,7 +40,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   ```
   Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
 
-  **Claude CEO subagent** (via Agent tool):
+  **Claude CEO subagent** (via Agent tool with `model: "opus"` — strategic judgment):
   "Read the plan file at <plan_path>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Is this the right problem to solve? Could a reframing yield 10x impact?

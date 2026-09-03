@@ -1,6 +1,6 @@
 ## Step 10: Address Greptile review comments (if PR exists)
 
-**Dispatch the fetch + classification as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent pulls every Greptile comment, runs the escalation detection algorithm, and classifies each comment. Parent receives a structured list and handles user interaction + file edits.
+**Dispatch the fetch + classification as a subagent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "sonnet"` (mechanical classification). The subagent pulls every Greptile comment, runs the escalation detection algorithm, and classifies each comment. Parent receives a structured list and handles user interaction + file edits.
 
 {{FOREGROUND_DISPATCH_NOTE}}
 
