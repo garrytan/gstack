@@ -528,6 +528,15 @@ describe('QA skill structure validation', () => {
     expect(weights.size).toBe(8);
   });
 
+  test('health skill captures tool failure across pipes with pipefail (#2788)', () => {
+    const healthTmpl = fs.readFileSync(path.join(ROOT, 'health', 'SKILL.md.tmpl'), 'utf-8');
+    const healthMd = fs.readFileSync(path.join(ROOT, 'health', 'SKILL.md'), 'utf-8');
+    for (const content of [healthTmpl, healthMd]) {
+      expect(content).toContain('set -o pipefail');
+      expect(content).toContain('EXIT_CODE="${PIPESTATUS[0]:-$?}"');
+    }
+  });
+
   test('has four mode definitions (Diff-aware/Full/Quick/Regression)', () => {
     expect(qaContent).toContain('### Diff-aware');
     expect(qaContent).toContain('### Full');
