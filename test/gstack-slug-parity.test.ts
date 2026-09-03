@@ -269,4 +269,28 @@ describe('gstack-slug ↔ remote-slug parity', () => {
     expect(slugOf(gstack)).toBe('stickyproj');
     expect(fs.readFileSync(cacheFile, 'utf8').trim()).toBe('stickyproj');
   });
+
+  test('sticky identity preserved in linked worktrees (#2767): worktree inherits cached slug and shares cache', () => {
+    const mainRepo = path.join(fixtures, 'worktree-sticky-main');
+    fs.mkdirSync(mainRepo, { recursive: true });
+    spawnSync('git', ['init', '-q', mainRepo]);
+    spawnSync('git', ['-C', mainRepo, 'commit', '-qm', 'init', '--allow-empty']);
+
+    // Run gstack-slug before a remote exists -> establishes sticky slug 'worktree-sticky-main'
+    const r1 = runSlug(mainRepo, tmpHome);
+    expect(r1.status).toBe(0);
+    expect(slugOf(r1)).toBe('worktree-sticky-main');
+
+    // Add remote later
+    spawnSync('git', ['-C', mainRepo, 'remote', 'add', 'origin', 'git@github.com:someowner/worktree-sticky-main.git']);
+
+    // Create a linked worktree
+    const wtDir = path.join(fixtures, 'worktree-sticky-wt');
+    spawnSync('git', ['-C', mainRepo, 'worktree', 'add', '-q', wtDir, '-b', 'feature']);
+
+    // Run gstack-slug from the linked worktree -> must keep sticky slug instead of recomputing from remote
+    const r2 = runSlug(wtDir, tmpHome);
+    expect(r2.status).toBe(0);
+    expect(slugOf(r2)).toBe('worktree-sticky-main');
+  });
 });

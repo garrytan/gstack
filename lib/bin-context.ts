@@ -147,10 +147,29 @@ export function outermostRemoteRepo(startDir: string): { root: string; url: stri
  *      like `url = ..` must never escape ~/.gstack/projects/<slug>.
  *   4. Project root's basename; else basename(cwd) for plain non-project folders.
  */
+function getGitCommonDir(cwd: string): string | null {
+  try {
+    const res = spawnSync("git", ["-C", cwd, "rev-parse", "--git-common-dir"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (res.status === 0 && res.stdout) {
+      const trimmed = res.stdout.trim();
+      if (trimmed) {
+        return resolve(cwd, trimmed, "..");
+      }
+    }
+  } catch {}
+  return null;
+}
+
 export function slugFromEnvironment(gstackHome?: string, cwd: string = process.cwd()): string {
   const home = gstackHome || process.env.GSTACK_HOME || join(homedir(), ".gstack");
   const cacheDir = join(home, "slug-cache");
-  const cacheFile = join(cacheDir, toMsysPath(cwd).replace(/\//g, "_"));
+  const commonGit = getGitCommonDir(cwd);
+  const cacheIdentity = commonGit || cwd;
+  const cacheFile = join(cacheDir, toMsysPath(cacheIdentity).replace(/\//g, "_"));
+  const legacyCacheFile = join(cacheDir, toMsysPath(cwd).replace(/\//g, "_"));
 
   // 0. explicit env override — per-invocation escape hatch, never persisted
   //    (caching it would rebind THIS cwd's slug for every later env-less run).
@@ -169,9 +188,10 @@ export function slugFromEnvironment(gstackHome?: string, cwd: string = process.c
   let slug = "";
   // 2. cached slug is sticky (#2212), except the two provable bug shapes
   //    (old-bug #1125 and degraded-ancestor 2026-08-17 — see the doc above).
-  if (existsSync(cacheFile)) {
+  const activeCacheFile = existsSync(cacheFile) ? cacheFile : existsSync(legacyCacheFile) ? legacyCacheFile : null;
+  if (activeCacheFile) {
     try {
-      const cached = sanitizeSlug(readFileSync(cacheFile, "utf-8").trim());
+      const cached = sanitizeSlug(readFileSync(activeCacheFile, "utf-8").trim());
       if (cached) {
         const pwdBase = sanitizeSlug(basename(cwd));
         const rootBase = projectRoot ? sanitizeSlug(basename(projectRoot)) : "";

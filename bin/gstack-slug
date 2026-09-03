@@ -52,9 +52,19 @@ set -euo pipefail
 # home (observed: 2,528 stale temp-cwd entries accumulated in ~/.gstack).
 CACHE_DIR="${GSTACK_HOME:-$HOME/.gstack}/slug-cache"
 PROJECT_DIR="$(pwd)"
-# Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
-CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
+# Key the cache on the repository identity rather than the directory (#2767).
+# In a git repository, the common git dir is stable across the main checkout,
+# subdirectories, and all linked worktrees. For non-git directories, fall back to pwd.
+CACHE_IDENTITY=""
+if _git_common=$(git rev-parse --git-common-dir 2>/dev/null); then
+  CACHE_IDENTITY=$(cd "$_git_common/.." 2>/dev/null && pwd -P) || CACHE_IDENTITY=""
+fi
+if [[ -z "$CACHE_IDENTITY" ]]; then
+  CACHE_IDENTITY="$PROJECT_DIR"
+fi
+CACHE_KEY=$(printf '%s' "$CACHE_IDENTITY" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
+LEGACY_CACHE_FILE="${CACHE_DIR}/$(printf '%s' "$PROJECT_DIR" | tr '/' '_')"
 
 SLUG=""
 
@@ -198,22 +208,30 @@ _resolve_remote() {
 #       Legit remote-adopting stickiness is safe too: there the repo that
 #       adopted the remote IS the marker root (REMOTE_ROOT == PROJECT_ROOT),
 #       so the heal never fires.
-if [[ -z "$SLUG" && -f "$CACHE_FILE" ]]; then
-  _CACHED=$(cat "$CACHE_FILE" 2>/dev/null | tr -cd 'a-zA-Z0-9._-')
-  if [[ -n "$_CACHED" ]]; then
-    _PWD_BASE=$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')
-    _ROOT_BASE=""
-    if [[ -n "$PROJECT_ROOT" ]]; then
-      _ROOT_BASE=$(basename "$PROJECT_ROOT" | tr -cd 'a-zA-Z0-9._-')
-    fi
-    if [[ "$_CACHED" == "$_PWD_BASE" && -n "$PROJECT_ROOT" && "$PROJECT_ROOT" != "$PROJECT_DIR" ]]; then
-      : # old-bug shape — recompute below and self-heal the cache
-    elif [[ -n "$PROJECT_ROOT" && "$_CACHED" == "$_ROOT_BASE" && -e "$PROJECT_ROOT/.git" ]] \
-      && ! git -C "$PROJECT_ROOT" remote get-url origin >/dev/null 2>&1 \
-      && { _resolve_remote; [[ -n "$REMOTE_URL" && "$REMOTE_ROOT" != "$PROJECT_ROOT" ]]; }; then
-      : # degraded-ancestor (stray-repo) shape — recompute below and self-heal the cache
-    else
-      SLUG="$_CACHED"
+if [[ -z "$SLUG" ]]; then
+  _ENTRY_FILE=""
+  if [[ -f "$CACHE_FILE" ]]; then
+    _ENTRY_FILE="$CACHE_FILE"
+  elif [[ -f "$LEGACY_CACHE_FILE" ]]; then
+    _ENTRY_FILE="$LEGACY_CACHE_FILE"
+  fi
+  if [[ -n "$_ENTRY_FILE" ]]; then
+    _CACHED=$(cat "$_ENTRY_FILE" 2>/dev/null | tr -cd 'a-zA-Z0-9._-')
+    if [[ -n "$_CACHED" ]]; then
+      _PWD_BASE=$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')
+      _ROOT_BASE=""
+      if [[ -n "$PROJECT_ROOT" ]]; then
+        _ROOT_BASE=$(basename "$PROJECT_ROOT" | tr -cd 'a-zA-Z0-9._-')
+      fi
+      if [[ "$_CACHED" == "$_PWD_BASE" && -n "$PROJECT_ROOT" && "$PROJECT_ROOT" != "$PROJECT_DIR" ]]; then
+        : # old-bug shape — recompute below and self-heal the cache
+      elif [[ -n "$PROJECT_ROOT" && "$_CACHED" == "$_ROOT_BASE" && -e "$PROJECT_ROOT/.git" ]] \
+        && ! git -C "$PROJECT_ROOT" remote get-url origin >/dev/null 2>&1 \
+        && { _resolve_remote; [[ -n "$REMOTE_URL" && "$REMOTE_ROOT" != "$PROJECT_ROOT" ]]; }; then
+        : # degraded-ancestor (stray-repo) shape — recompute below and self-heal the cache
+      else
+        SLUG="$_CACHED"
+      fi
     fi
   fi
 fi
