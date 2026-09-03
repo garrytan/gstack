@@ -122,8 +122,9 @@ Run each detected tool. For each tool:
 ```bash
 # Example for each tool — run each independently
 START=$(date +%s)
+set -o pipefail
 tsc --noEmit 2>&1 | tail -50
-EXIT_CODE=$?
+EXIT_CODE="${PIPESTATUS[0]:-$?}"
 END=$(date +%s)
 echo "TOOL:typecheck EXIT:$EXIT_CODE DURATION:$((END-START))s"
 ```
