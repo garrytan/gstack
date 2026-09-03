@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.79.1.0] - 2026-09-03
+
+Adds a design document (`docs/designs/job-watch.md`, produced by `/office-hours`) to the repo. No changes to gstack's own behavior.
+
 ## [1.79.0.0] - 2026-09-01
 
 **/ship can no longer be stranded by a backgrounded subagent.**
