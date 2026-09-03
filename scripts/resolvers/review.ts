@@ -388,7 +388,7 @@ On any Codex error, fall back to the Claude subagent below.
 
 **If CODEX_NOT_AVAILABLE (or Codex errored):**
 
-Dispatch via the Agent tool with \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
+Dispatch via the Agent tool with \`model: "opus"\` (P1 gate judgment) and \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
 
 Subagent prompt: same mode-appropriate prompt as above (Startup or Builder variant).
 
@@ -692,7 +692,7 @@ CODEX SAYS (plan review — outside voice):
 
 **If \`CODEX_MODE: not_installed\` or \`not_authed\` (or Codex errored at runtime):**
 
-Dispatch via the Agent tool with \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
+Dispatch via the Agent tool with \`model: "opus"\` (P1 gate judgment) and \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
 Bound it the same way as Codex: cap the dispatch at a 5-minute timeout so "never blocking"
 is also "never hanging."
 
@@ -822,7 +822,7 @@ ${codexErrorHandling('documentation review')}
 
 **If \`CODEX_MODE: not_installed\` or \`not_authed\` (or Codex errored at runtime):**
 
-Dispatch via the Agent tool with the same prompt, passing \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
+Dispatch via the Agent tool with \`model: "opus"\` (P1 gate judgment) and the same prompt, passing \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under \`DOCUMENTATION REVIEW (Claude subagent):\`. If it fails: "Doc review unavailable. Continuing."
 
 **Apply decision (T3B — informational, never auto-edit, but findings don't evaporate).**

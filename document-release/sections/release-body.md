@@ -534,7 +534,7 @@ On any error: continue — documentation review is informational, not a gate.
 
 **If `CODEX_MODE: not_installed` or `not_authed` (or Codex errored at runtime):**
 
-Dispatch via the Agent tool with the same prompt, passing `run_in_background: false` (subagents default to background since Claude Code v2.1.198). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
+Dispatch via the Agent tool with `model: "opus"` (P1 gate judgment) and the same prompt, passing `run_in_background: false` (subagents default to background since Claude Code v2.1.198). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under `DOCUMENTATION REVIEW (Claude subagent):`. If it fails: "Doc review unavailable. Continuing."
 
 **Apply decision (T3B — informational, never auto-edit, but findings don't evaporate).**

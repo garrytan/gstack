@@ -440,7 +440,7 @@ CODEX SAYS (plan review — outside voice):
 
 **If `CODEX_MODE: not_installed` or `not_authed` (or Codex errored at runtime):**
 
-Dispatch via the Agent tool with `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
+Dispatch via the Agent tool with `model: "opus"` (P1 gate judgment) and `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
 Bound it the same way as Codex: cap the dispatch at a 5-minute timeout so "never blocking"
 is also "never hanging."
 
