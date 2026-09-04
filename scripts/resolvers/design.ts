@@ -94,8 +94,20 @@ Run full audit, then load previous \`design-baseline.json\`. Compare: per-catego
 
 The most uniquely designer-like output. Form a gut reaction before analyzing anything.
 
-1. Navigate to the target URL
-2. Take a full-page desktop screenshot: \`$B screenshot "$REPORT_DIR/screenshots/first-impression.png"\`
+1. Open the target URL in Aside and take a full-page desktop screenshot, in one script:
+
+\`\`\`bash
+aside repl '
+const pg = await openTab("<url>");
+await pg.screenshot({ path: "first-impression.jpg", type: "jpeg", quality: 60, fullPage: true });
+console.log("URL=" + pg.url());
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
+\`\`\`
+
+2. \`cp "<ASIDE_DIR>/first-impression.jpg" "$REPORT_DIR/screenshots/"\` and Read it. Check the \`URL=\` line against Auth Detection (Phase 3) before you critique a login wall by mistake.
 3. Write the **First Impression** using this structured critique format:
    - "The site communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
    - "I notice **[observation]**." (what stands out, positive or negative — be specific)
@@ -114,21 +126,19 @@ This is the section users read first. Be opinionated. A designer doesn't hedge �
 
 Extract the actual design system the site uses (not what a DESIGN.md says, but what's rendered):
 
+One Aside script; every probe runs inside the page and returns a JSON string (element scans capped at 500 to stay inside the script budget):
+
 \`\`\`bash
-# Fonts in use (capped at 500 elements to avoid timeout)
-$B js "JSON.stringify([...new Set([...document.querySelectorAll('*')].slice(0,500).map(e => getComputedStyle(e).fontFamily))])"
-
-# Color palette in use
-$B js "JSON.stringify([...new Set([...document.querySelectorAll('*')].slice(0,500).flatMap(e => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]).filter(c => c !== 'rgba(0, 0, 0, 0)'))])"
-
-# Heading hierarchy
-$B js "JSON.stringify([...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].map(h => ({tag:h.tagName, text:h.textContent.trim().slice(0,50), size:getComputedStyle(h).fontSize, weight:getComputedStyle(h).fontWeight})))"
-
-# Touch target audit (find undersized interactive elements)
-$B js "JSON.stringify([...document.querySelectorAll('a,button,input,[role=button]')].filter(e => {const r=e.getBoundingClientRect(); return r.width>0 && (r.width<44||r.height<44)}).map(e => ({tag:e.tagName, text:(e.textContent||'').trim().slice(0,30), w:Math.round(e.getBoundingClientRect().width), h:Math.round(e.getBoundingClientRect().height)})).slice(0,20))"
-
-# Performance baseline
-$B perf
+aside repl '
+const pg = await openTab("<url>");
+console.log("FONTS=" + await pg.evaluate(() => JSON.stringify([...new Set([...document.querySelectorAll("*")].slice(0, 500).map(e => getComputedStyle(e).fontFamily))])));
+console.log("COLORS=" + await pg.evaluate(() => JSON.stringify([...new Set([...document.querySelectorAll("*")].slice(0, 500).flatMap(e => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]).filter(c => c !== "rgba(0, 0, 0, 0)"))])));
+console.log("HEADINGS=" + await pg.evaluate(() => JSON.stringify([...document.querySelectorAll("h1,h2,h3,h4,h5,h6")].map(h => ({ tag: h.tagName, text: h.textContent.trim().slice(0, 50), size: getComputedStyle(h).fontSize, weight: getComputedStyle(h).fontWeight })))));
+console.log("TOUCH_TARGETS=" + await pg.evaluate(() => JSON.stringify([...document.querySelectorAll("a,button,input,[role=button]")].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.width < 44 || r.height < 44); }).map(e => ({ tag: e.tagName, text: (e.textContent || "").trim().slice(0, 30), w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height) })).slice(0, 20))));
+console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));   // stringify IN the page: PerformanceEntry fields are getters and serialize to {} across the bridge
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 \`\`\`
 
 Structure findings as an **Inferred Design System**:
@@ -143,23 +153,47 @@ After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in
 
 ## Phase 3: Page-by-Page Visual Audit
 
-For each page in scope:
+For each page in scope, two Aside scripts. First the read: console hook, interactive snapshot, annotated screenshot, load-time errors, navigation timing:
 
 \`\`\`bash
-$B goto <url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/{page}-annotated.png"
-$B responsive "$REPORT_DIR/screenshots/{page}"
-$B console --errors
-$B perf
+aside repl '
+const HOOK = \`(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()\`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<url>");
+const s = await snapshot(pg, { interactive: true });
+console.log(s.tree);
+const a = await annotatedScreenshot(pg);
+await fs.writeFile(path.join(pwd, "{page}-annotated.png"), Buffer.from(a.base64Image, "base64"));
+console.log("URL=" + pg.url());
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 \`\`\`
+
+Then the responsive captures (mobile 375, tablet 768, desktop 1440):
+
+\`\`\`bash
+aside repl '
+const pg = await openTab("<url>");
+for (const [name, width, height] of [["mobile", 375, 812], ["tablet", 768, 1024], ["desktop", 1440, 900]]) {
+  await pg._sendToTarget("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: width < 1024 });
+  await sleep(300);
+  await pg.screenshot({ path: \`{page}-\${name}.jpg\`, type: "jpeg", quality: 60, fullPage: true });
+}
+await pg._sendToTarget("Emulation.clearDeviceMetricsOverride", {});
+console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK");
+'
+\`\`\`
+
+After each script, \`cp\` its files out of the \`ASIDE_DIR\` it printed into \`$REPORT_DIR/screenshots/\` (each script gets its own directory) and Read them.
 
 ### Auth Detection
 
-After the first navigation, check if the URL changed to a login-like path:
-\`\`\`bash
-$B url
-\`\`\`
-If URL contains \`/login\`, \`/signin\`, \`/auth\`, or \`/sso\`: the site requires authentication. AskUserQuestion: "This site requires authentication. Want to import cookies from your browser? Run \`/setup-browser-cookies\` first if needed."
+Check the \`URL=\` line every script prints. If it contains \`/login\`, \`/signin\`, \`/auth\`, or \`/sso\`, the page bounced you to a sign-in wall: follow the credential rule in BROWSER SETUP — tell the user to sign in to that origin in Aside themselves, wait for them to say they're done, then re-run the script. The session now carries their cookies. No cookie import, no typed passwords, ever.
 
 ### Trunk Test (run on every page)
 
@@ -197,7 +231,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - Weight contrast: >=2 weights used for hierarchy
 - No blacklisted fonts (Papyrus, Comic Sans, Lobster, Impact, Jokerman)
 - If primary font is Inter/Roboto/Open Sans/Poppins → flag as potentially generic
-- \`text-wrap: balance\` or \`text-pretty\` on headings (check via \`$B css <heading> text-wrap\`)
+- \`text-wrap: balance\` or \`text-pretty\` on headings (check via \`await pg.evaluate(() => getComputedStyle(document.querySelector("h1")).textWrap)\`)
 - Curly quotes used, not straight quotes
 - Ellipsis character (\`…\`) not three dots (\`...\`)
 - \`font-variant-numeric: tabular-nums\` on number columns
@@ -258,7 +292,7 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - Easing: ease-out for entering, ease-in for exiting, ease-in-out for moving
 - Duration: 50-700ms range (nothing slower unless page transition)
 - Purpose: every animation communicates something (state change, attention, spatial relationship)
-- \`prefers-reduced-motion\` respected (check: \`$B js "matchMedia('(prefers-reduced-motion: reduce)').matches"\`)
+- \`prefers-reduced-motion\` respected (check: \`await pg.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)\`)
 - No \`transition: all\` — properties listed explicitly
 - Only \`transform\` and \`opacity\` animated (not layout properties like width, height, top, left)
 
@@ -293,13 +327,30 @@ ${AI_SLOP_BLACKLIST.map(item => `- ${item}`).join('\n')}
 
 ## Phase 4: Interaction Flow Review
 
-Walk 2-3 key user flows and evaluate the *feel*, not just the function:
+Walk 2-3 key user flows and evaluate the *feel*, not just the function. One flow per Aside script — open, act, diff, evidence:
 
 \`\`\`bash
-$B snapshot -i
-$B click @e3           # perform action
-$B snapshot -D          # diff to see what changed
+aside repl '
+const HOOK = \`(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); })()\`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<url>");
+await snapshot(pg, { interactive: true });                            // baseline for .diff; refs like [ref=e3] name every control
+await pg.screenshot({ path: "flow-<name>-step-1.jpg", type: "jpeg", quality: 60 });
+await pg.locator("e3").click();                                        // perform the action — or pg.getByRole("button", { name: "Sign Up" })
+await sleep(500);                                                      // or: await pg.waitForSelector("<selector>"); await pg.waitForURL(/dashboard/)
+const s = await snapshot(pg);
+console.log("DIFF_START"); console.log(s.diff); console.log("DIFF_END");   // what changed since the baseline
+console.log("URL=" + pg.url());
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+await pg.screenshot({ path: "flow-<name>-result.jpg", type: "jpeg", quality: 60 });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 \`\`\`
+
+Chain more steps inside the same script for a longer flow (re-snapshot before clicking by ref again). Forms may be filled but not submitted on a non-local target without the one-time consent in BROWSER SETUP.
 
 Evaluate:
 - **Response feel:** Does clicking feel responsive? Any delays or missing loading states?
@@ -436,16 +487,16 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 ## Important Rules
 
 1. **Think like a designer, not a QA engineer.** You care whether things feel right, look intentional, and respect the user. You do NOT just care whether things "work."
-2. **Screenshots are evidence.** Every finding needs at least one screenshot. Use annotated screenshots (\`snapshot -a\`) to highlight elements.
+2. **Screenshots are evidence.** Every finding needs at least one screenshot. Use annotated screenshots (\`annotatedScreenshot(pg)\`) to highlight elements.
 3. **Be specific and actionable.** "Change X to Y because Z" — not "the spacing feels off."
 4. **Never read source code.** Evaluate the rendered site, not the implementation. (Exception: offer to write DESIGN.md from extracted observations.)
 5. **AI Slop detection is your superpower.** Most developers can't evaluate whether their site looks AI-generated. You can. Be direct about it.
 6. **Quick wins matter.** Always include a "Quick Wins" section — the 3-5 highest-impact fixes that take <30 minutes each.
-7. **Use \`snapshot -C\` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
+7. **Fall back to \`annotatedScreenshot(pg)\` for tricky UIs.** When the snapshot tree does not surface a control you can plainly see (clickable divs, canvas buttons), take the annotated screenshot, Read it, and drive by CSS selector or \`pg.getByText(...)\` instead of by ref.
 8. **Responsive is design, not just "not broken."** A stacked desktop layout on mobile is not responsive design — it's lazy. Evaluate whether the mobile layout makes *design* sense.
 9. **Document incrementally.** Write each finding to the report as you find it. Don't batch.
 10. **Depth over breadth.** 5-10 well-documented findings with screenshots and specific suggestions > 20 vague observations.
-11. **Show screenshots to the user.** After every \`$B screenshot\`, \`$B snapshot -a -o\`, or \`$B responsive\` command, use the Read tool on the output file(s) so the user can see them inline. For \`responsive\` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
+11. **Show screenshots to the user.** After every script that saves a screenshot, annotated screenshot, or responsive set, \`cp\` the files out of the printed \`ASIDE_DIR\` into \`$REPORT_DIR/screenshots/\` and use the Read tool on each copied file so the user can see them inline. For the responsive set (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
 }
 
 export function generateDesignSketch(_ctx: TemplateContext): string {
@@ -798,22 +849,14 @@ if [ -x "$D" ]; then
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="${toShellPath(ctx.paths.browseDir)}/browse"
-if [ -x "$B" ]; then
-  echo "BROWSE_READY: $B"
-else
-  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
-fi
 \`\`\`
 
 If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (\`DESIGN_SKETCH\`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
-If \`BROWSE_NOT_AVAILABLE\`: use \`open file://...\` instead of \`$B goto\` to open
-comparison boards. The user just needs to see the HTML file in any browser.
+Comparison boards are local HTML files: open them with \`open file://...\` (macOS).
+The user just needs to see the file in their default browser.
 
 If \`DESIGN_READY\`: the design binary is available for visual mockup generation.
 Commands:

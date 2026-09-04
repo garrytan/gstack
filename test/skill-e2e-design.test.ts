@@ -1,13 +1,14 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
-import { runSkillTest } from './helpers/session-runner';
+import { runSkillTest, type SkillTestResult } from './helpers/session-runner';
 import { callJudge } from './helpers/llm-judge';
 import {
-  ROOT, browseBin, runId, evalsEnabled,
+  ROOT, runId, evalsEnabled, selectedTests,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { asideAvailable } from './helpers/aside-available';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -502,13 +503,36 @@ IMPORTANT: Do NOT try to browse any URLs or use a browse binary. This is a plan 
 
 // --- Design Review E2E (live-site audit + fix) ---
 
+/**
+ * Concatenated tool_result text from the stream-json transcript. runSkillTest
+ * leaves toolCalls[].output empty, and the agent's Bash INPUT also contains
+ * the sentinel string — only the tool_result proves the script printed it.
+ */
+function toolOutput(result: SkillTestResult): string {
+  const parts: string[] = [];
+  for (const e of result.transcript) {
+    if (e?.type !== 'user') continue;
+    for (const item of e.message?.content ?? []) {
+      if (item?.type !== 'tool_result') continue;
+      parts.push(typeof item.content === 'string' ? item.content : JSON.stringify(item.content ?? ''));
+    }
+  }
+  return parts.join('\n');
+}
+
+// /design-review drives the Aside browser; without it the skill's BROWSER SETUP stops at
+// NEEDS_ASIDE, so the block self-skips (CI runners have no Aside).
 describeIfSelected('Design Review E2E', ['design-review-fix'], () => {
+  // bun runs describe.skip callbacks too — probe only when this block is actually selected,
+  // so an unrelated eval run never pays the up-to-30s `aside repl` probe.
+  const selected = evalsEnabled && (selectedTests === null || selectedTests.includes('design-review-fix'));
+  if (selected && !asideAvailable()) { test.skip('needs Aside', () => {}); return; }
+
   let qaDesignDir: string;
   let qaDesignServer: ReturnType<typeof Bun.serve> | null = null;
 
   beforeAll(() => {
     qaDesignDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-design-'));
-    setupBrowseShims(qaDesignDir);
 
     const run = (cmd: string, args: string[]) =>
       spawnSync(cmd, args, { cwd: qaDesignDir, stdio: 'pipe', timeout: 5000 });
@@ -594,11 +618,7 @@ describeIfSelected('Design Review E2E', ['design-review-fix'], () => {
     const serverUrl = `http://localhost:${(qaDesignServer as any)?.port}`;
 
     const result = await runSkillTest({
-      prompt: `IMPORTANT: The browse binary is already assigned below as B. Do NOT search for it or run the SKILL.md setup block — just use $B directly.
-
-B="${browseBin}"
-
-Read design-review/SKILL.md for the design review + fix workflow.
+      prompt: `The Aside browser is installed and running. Read design-review/SKILL.md for the design review + fix workflow and follow its BROWSER SETUP section: drive the browser with \`aside repl\` scripts shaped exactly like its cookbook. Do not look for any other browser binary.
 
 Review the site at ${serverUrl}. Use --quick mode. Skip any AskUserQuestion calls — this is non-interactive. Fix up to 3 issues max. Write your report to ./design-audit.md.`,
       workingDirectory: qaDesignDir,
@@ -620,12 +640,24 @@ Review the site at ${serverUrl}. Use --quick mode. Skip any AskUserQuestion call
     const commits = gitLog.stdout.toString().trim().split('\n');
     const designFixCommits = commits.filter((c: string) => c.includes('style(design)'));
 
+    // The agent must actually drive Aside: an `aside repl` Bash call, a printed sentinel
+    // (from a tool_result, never the input), and no reach for the retired browse binary.
+    const bashCommands = result.toolCalls
+      .filter(t => t.tool === 'Bash')
+      .map(t => String(t.input?.command ?? ''));
+    const droveAside = bashCommands.some(c => /aside repl/.test(c));
+    const sentinelPrinted = /GSTACK_STEP_OK/.test(toolOutput(result));
+    const usedBrowseBin = bashCommands.some(c => /browse\/dist\/browse|\$B /.test(c));
+
     recordE2E(evalCollector, '/design-review fix', 'Design Review E2E', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      passed: ['success', 'error_max_turns'].includes(result.exitReason) && droveAside && sentinelPrinted && !usedBrowseBin,
     });
 
     // Accept error_max_turns — the fix loop is complex
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    expect(droveAside).toBe(true);
+    expect(sentinelPrinted).toBe(true);
+    expect(usedBrowseBin).toBe(false);
 
     // Report and commits are best-effort — log what happened
     if (reportExists) {

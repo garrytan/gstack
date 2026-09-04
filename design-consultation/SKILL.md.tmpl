@@ -90,11 +90,11 @@ If office-hours output exists, read it — the product context is pre-filled.
 
 If the codebase is empty and purpose is unclear, say: *"I don't have a clear picture of what you're building yet. Want to explore first with `/office-hours`? Once we know the product direction, we can set up the design system."*
 
-**Find the browse binary (optional — enables visual competitive research):**
+**Check the Aside browser (optional — enables visual competitive research):**
 
-{{BROWSE_SETUP}}
+{{ASIDE_SETUP}}
 
-If browse is not available, that's fine — visual research is optional. The skill works without it using WebSearch and your built-in design knowledge.
+If the check prints `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: the STOP in BROWSER SETUP does not apply to this skill — the browser is optional here. Tell the user once, skip Phase 2 Step 2, and continue from WebSearch and your built-in design knowledge. Never substitute another browser.
 
 **Find the gstack designer (optional — enables AI mockup generation):**
 
@@ -158,21 +158,30 @@ Use WebSearch to find 5-10 products in their space. Search for:
 - "[product category] best websites 2025"
 - "best [industry] web apps"
 
-**Step 2: Visual research via browse (if available)**
+**Step 2: Visual research via Aside (if READY)**
 
-If the browse binary is available (`$B` is set), visit the top 3-5 sites in the space and capture visual evidence:
+If the Aside check printed `READY`, pick the top 3-5 sites from Step 1 and **AskUserQuestion with the exact URLs** before opening anything: "I'd like to open these in your Aside browser (read-only, your real sessions): 1. <url> 2. <url> 3. <url> — open all, drop some, or swap in others?" Search results never choose which origins get the user's cookies; the user does. Open only the sites they confirmed — one script per site, read-only:
 
 ```bash
-$B goto "https://example-site.com"
-$B screenshot "/tmp/design-research-site-name.png"
-$B snapshot
+aside repl '
+const pg = await openTab("https://example-site.com");
+const s = await snapshot(pg, { interactive: true });
+console.log(s.tree);
+console.log("URL=" + pg.url());
+await pg.screenshot({ path: "design-research-<site>.jpg", type: "jpeg", quality: 60, fullPage: true });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
 
-For each site, analyze: fonts actually used, color palette, layout approach, spacing density, aesthetic direction. The screenshot gives you the feel; the snapshot gives you structural data.
+Then `cp "<ASIDE_DIR>/design-research-<site>.jpg" /tmp/` and Read it.
 
-If a site blocks the headless browser or requires login, skip it and note why.
+For each site, analyze: fonts actually used, color palette, layout approach, spacing density, aesthetic direction. The screenshot gives you the feel; the snapshot tree gives you structural data.
 
-If browse is not available, rely on WebSearch results and your built-in design knowledge — this is fine.
+If a site shows a sign-in wall or a bot check, skip it and note why — never ask the user to sign in to a competitor's site for research.
+
+If Aside is not available, rely on WebSearch results and your built-in design knowledge — this is fine.
 
 **Step 3: Synthesize findings**
 
@@ -187,8 +196,8 @@ Summarize conversationally:
 > "I looked at what's out there. Here's the landscape: they converge on [patterns]. Most of them feel [observation — e.g., interchangeable, polished but generic, etc.]. The opportunity to stand out is [gap]. Here's where I'd play it safe and where I'd take a risk..."
 
 **Graceful degradation:**
-- Browse available → screenshots + snapshots + WebSearch (richest research)
-- Browse unavailable → WebSearch only (still good)
+- Aside available → screenshots + snapshots + WebSearch (richest research)
+- Aside unavailable → WebSearch only (still good)
 - WebSearch also unavailable → agent's built-in design knowledge (always works)
 
 If the user said no research, skip entirely and proceed to Phase 3 using your built-in design knowledge.
