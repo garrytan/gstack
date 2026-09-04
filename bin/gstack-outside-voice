@@ -305,6 +305,36 @@ probe() {
   echo "ready"
 }
 
+# --- what the round consumed ------------------------------------------------
+#
+# VAS-2668. THE CHANNEL FROM exec_openrouter TO _log_round, and it is a pair of globals for a
+# structural reason rather than a lazy one: exec_openrouter is a TOP-LEVEL function, _log_round
+# is nested inside cmd_exec, and the token counts are locals of the former that no longer exist
+# by the time the latter runs. Threading them back through a return value is not available —
+# that channel already carries the round's exit status, and fusing a measurement into a status
+# is how "the round failed" becomes indistinguishable from "the round cost nothing".
+#
+# `unknown`, NEVER 0, is the resting value. It is the same sentinel log_usage already maps to
+# JSON null a few lines below, for the same reason spelled out there: on a cost comparison a 0
+# does not mean cheap, it means unmeasured, and it makes the frontier tier look free.
+#
+# ⚠ AND THEY ARE RESET PER ROUND, NOT PER PROCESS — see _round. One invocation can run TWO
+# rounds (an `auto` lane promotes a converged openrouter loop to the codex gate), so a
+# process-lifetime global would carry the LOOP's token counts onto the GATE's row. That is not a
+# missing measurement, it is a wrong one attributed to the wrong tier and the wrong voice, in
+# the exact comparison this field exists to make. A wrong row is indistinguishable from a right
+# one at read time; an absent one is not.
+_OV_ROUND_INPUT_TOKENS=unknown
+_OV_ROUND_OUTPUT_TOKENS=unknown
+# PROMPT BYTES AS SENT, WHICH IS NOT THE PROMPT FILE ON THE OPENROUTER PATH (gate round 7).
+# `_psz` is the size of --prompt-file, and that IS the whole request for codex, which reads the
+# repository itself. exec_openrouter additionally inlines a DIFF, so on that path the prompt file
+# is a fraction of what was sent — measured on this lane's own round 1: prompt_bytes 1197 against
+# input_tokens 3309, i.e. roughly 13k characters actually transmitted. Recording the smaller
+# number collapses large and small diffs into one bucket, which defeats the field's purpose, and
+# it is wrong in the reassuring direction: every round looks cheap.
+_OV_ROUND_PROMPT_BYTES=unknown
+
 # --- usage log --------------------------------------------------------------
 
 log_usage() {
@@ -354,6 +384,13 @@ log_usage() {
   local _rt
   if [ "${9:-unknown}" = "unknown" ]; then _rt=null
   else _rt=$(printf '%s' "${9}" | tr -cd '0-9'); [ -n "$_rt" ] || _rt=null; fi
+  # ⚠ prompt_bytes is DELIBERATELY NOT written here, and this row is NOT the reason it exists.
+  # It was plumbed into this log at gate round 9's suggestion, and rounds 9 and 10 then produced
+  # three findings about that plumbing alone — one backend wired and not its sibling, a timeout
+  # path that could not report. The measurement's home is the ROUND LEDGER, which is what this
+  # change was opened to fill and what VAS-2659's histogram reads. Analytics-log parity is real
+  # work and is filed as its own ticket rather than kept here, where its rounds were costing a
+  # lane that had already met its own acceptance.
   printf '{"backend":"%s","model":"%s","phase":"%s","label":"%s","prompt_tokens":%s,"completion_tokens":%s,"reasoning_tokens":%s,"tokens_partial":%s,"status":"%s","ts":"%s"}\n' \
     "$_b" "$_m" "$_p" "$_l" "$_pt" "$_ct" "$_rt" "$_pa" "$_st" "$_ts" \
     >> "$_STATE_DIR/analytics/outside-voice.jsonl" 2>/dev/null || true
@@ -1016,13 +1053,45 @@ cmd_exec() {
   # recording looks exactly like a lane where nothing ran, which is the defect this whole change
   # exists to remove.
   _log_round() {
-    local _rc_in="${1:-0}" _rl _voice _caller _p1 _p2 _p3 _sev_args=()
+    local _rc_in="${1:-0}" _rl _voice _caller _p1 _p2 _p3 _sev_args=() _tok_args=() _evt_tok=""
 
     _rl=$(find_round_ledger) || {
       echo "gstack-outside-voice: note — no round ledger found, so this round was NOT recorded. The cheap/frontier split cannot be measured from this lane." >&2
       return 0
     }
     _caller="$(detect_caller)"
+
+    # VAS-2668 — WHAT THE ROUND CONSUMED, and the version probe is the load-bearing half.
+    #
+    # These flags live in codex-round-log.sh, which is a DIFFERENT REPOSITORY on a different
+    # release path (claude-fleet-config -> cfc-live -> ~/.claude). So there is a window in which
+    # this adapter is live and the ledger that receives its rows is not yet — and an older
+    # ledger answers an unrecognised flag with `die "unknown argument"`, which would make EVERY
+    # round row in the fleet fail to write. The adapter's write is non-fatal, so the loss would
+    # be a warning on stderr and nothing else: silent under-counting, which is the exact defect
+    # VAS-2660 shipped this writer to remove. Two PRs whose correctness depends on their landing
+    # order is a race nobody is watching, so the dependency is carried here instead.
+    #
+    # Probing is also the HONEST answer rather than merely the safe one. A ledger without the
+    # field cannot record it, and the row's own contract already has a state for that: the key
+    # is ABSENT, meaning "nobody said" — as distinct from null, which means "the writer asked
+    # and this backend does not report". Omitting the flags lands in the correct state; passing
+    # them and losing the row does not.
+    # WHAT THE ROUND CONSUMED. Built unconditionally; whether the ledger ACCEPTS it is settled
+    # by attempting the write, not by asking first — see the write site below.
+    _tok_args=(--input-tokens "$_OV_ROUND_INPUT_TOKENS" --output-tokens "$_OV_ROUND_OUTPUT_TOKENS")
+    # prompt_bytes is BACKEND-INDEPENDENT: it is the size of the prompt file this invocation
+    # validated on the way in, known before any request was made, so it is the one figure that
+    # stays measurable on the codex path where no token count is ever reported. Guarded on
+    # non-emptiness rather than assumed: `_psz` is a local of cmd_exec and this reads it from a
+    # nested scope, which is exactly the coupling that breaks quietly if either is ever moved.
+    # The as-sent figure when a backend published one, else the prompt file. codex publishes none
+    # and needs none: it reads the repository rather than an inlined diff, so the prompt file IS
+    # its whole request.
+    case "${_OV_ROUND_PROMPT_BYTES:-unknown}" in
+      ''|*[!0-9]*) [ -n "${_psz:-}" ] && _tok_args+=(--prompt-bytes "$_psz") ;;
+      *)           _tok_args+=(--prompt-bytes "$_OV_ROUND_PROMPT_BYTES") ;;
+    esac
 
     # THE VOICE IS THE MODEL, NOT THE BACKEND. `openrouter` is a gateway that can serve anything,
     # so filing every openrouter round under "openrouter" would collapse the per-voice hit rate
@@ -1040,7 +1109,26 @@ cmd_exec() {
     fi
 
     if [ "$_rc_in" -ne 0 ]; then
+      # VAS-2668. A ROUND THAT DIED WAS STILL BILLED, and the prompt it sent is knowable
+      # regardless. Recorded through --field, which every ledger version already accepts, rather
+      # than through the round-only flags above — the event door and the round door are
+      # deliberately different, because one field reachable two ways is two things that have to
+      # agree for ever. Only NUMERIC values are forwarded: `unknown` through --field would store
+      # the literal STRING "unknown", where the round row's contract stores JSON null, and two
+      # spellings of one absence is how a reader ends up filtering for the wrong one.
+      _evt_tok=()
+      # THE SAME RESOLUTION AS THE ROUND PATH (gate round 8). r7 taught the round row to record
+      # what was sent and left this sibling on `_psz`, so a failed openrouter round logged the
+      # prompt file alone while the successful rounds it is compared against logged prompt +
+      # everything the request layer added. Timeouts and errors are precisely the expensive cases
+      # this metric exists to explain, so under-reporting them is the worst place for it.
+      _evt_pb="${_OV_ROUND_PROMPT_BYTES:-unknown}"
+      case "$_evt_pb" in ''|*[!0-9]*) _evt_pb="${_psz:-}" ;; esac
+      case "$_evt_pb" in ''|*[!0-9]*) ;; *) _evt_tok+=(--field prompt_bytes="$_evt_pb") ;; esac
+      case "$_OV_ROUND_INPUT_TOKENS" in ''|*[!0-9]*) ;; *) _evt_tok+=(--field input_tokens="$_OV_ROUND_INPUT_TOKENS") ;; esac
+      case "$_OV_ROUND_OUTPUT_TOKENS" in ''|*[!0-9]*) ;; *) _evt_tok+=(--field output_tokens="$_OV_ROUND_OUTPUT_TOKENS") ;; esac
       "$_rl" -C "$repo_root" --event round_failed \
+        ${_evt_tok[@]+"${_evt_tok[@]}"} \
         --field cause="exit_$_rc_in" \
         --field phase_requested="$_phase_requested" \
         --field phase_resolved="$phase" \
@@ -1089,7 +1177,72 @@ PY
       _sev_args=(--severity-unknown)
     fi
 
+    # ATTEMPT WITH THE CONSUMPTION FLAGS, FALL BACK WITHOUT THEM — never a separate probe.
+    #
+    # codex-round-log.sh lives in another repository on another release path
+    # (claude-fleet-config -> cfc-live -> ~/.claude), so there is a window where this adapter is
+    # live and the ledger is not. An older ledger answers an unrecognised flag with
+    # `die "unknown argument"`, which without a fallback would make EVERY round row in the fleet
+    # fail to write, leaving a warning on stderr and nothing else: silent under-counting, which
+    # is the defect this writer shipped to remove. Two PRs whose correctness depends on their
+    # landing order is a race nobody is watching, so the dependency is carried in-branch.
+    #
+    # ⚠ IT IS A RETRY, NOT A `--help` PROBE, AND THAT IS THE WHOLE FIX (gate round [P1]). A probe
+    # is an EXTRA LEDGER INVOCATION on every round, and the ledger is a binary a caller is
+    # entitled to substitute — `GSTACK_ROUND_LEDGER` exists for exactly that. A wrapper that
+    # records argv sees the probe as a second call, so this adapter's own ledger-write suite went
+    # from 8 pass / 13 fail the moment a probe was added: assertions that read "the row this
+    # round wrote" got `--help` instead. Measured, not reasoned — the suite was run.
+    #
+    # The retry is safe because the refusal happens in the ARGUMENT PARSER, before anything is
+    # appended: an unknown flag cannot half-write a row. And it costs nothing on the happy path,
+    # which a probe cannot say.
+    #
+    # Falling back also lands the row in the CORRECT state rather than merely a safe one: a
+    # ledger without the field cannot record it, and the row's contract already has a state for
+    # that — the key is ABSENT, meaning "nobody said", as distinct from null, which means "the
+    # writer asked and this backend does not report".
+    # ONE INVOCATION PER ROUND, AND NEVER A LOST ROUND — the two properties five rounds spent
+    # trading against each other, satisfied together by asking a question that is not a call.
+    #
+    # r3/r4/r5 all found the same defect: the compatibility mechanism cost an EXTRA invocation of
+    # a substitutable binary, so a `GSTACK_ROUND_LEDGER` wrapper that audits each call recorded one
+    # round as two, skewing rounds_logged. Deleting the mechanism fixed that and opened the
+    # opposite hole, which r6 found: `find_round_ledger` still resolves to a separately-installed
+    # ledger, and on this machine that third target measurably does NOT take these flags — so an
+    # unconditional write would fail on EVERY round there, freezing rounds_logged and leaving
+    # resolve_phase and the runaway cap deciding from stale lane state. That is worse than a
+    # missing metric.
+    #
+    # Both findings are right, and neither survives the other's fix, because both were arguing
+    # about HOW MANY TIMES TO CALL THE LEDGER. So do not call it to find out: READ it. The
+    # capability is a property of the file, the answer is cached for the process, and the round is
+    # written exactly once either way.
+    #
+    # ⚠ THE KNOWN FALSE NEGATIVE, STATED RATHER THAN PAPERED OVER. A wrapper that delegates to a
+    # capable ledger does not itself contain the flag, so it reads as incapable and the round is
+    # written WITHOUT the token fields. That is a real cost and it is the safe direction: the row
+    # still lands, rounds_logged still moves, and the keys are ABSENT — which the schema defines
+    # as "nobody said", distinct from a null meaning "the backend does not report" and from a
+    # measured zero. A missing optional metric, recorded honestly, against a frozen round counter.
+    _ledger_takes_tokens() {
+      case "${_OV_LEDGER_TOKENS:-}" in
+        yes) return 0 ;; no) return 1 ;;
+      esac
+      # Every flag, not one: inferring three capabilities from a single sighting is the r1 finding.
+      if grep -q -- '--input-tokens)'  "$_rl" 2>/dev/null \
+      && grep -q -- '--output-tokens)' "$_rl" 2>/dev/null \
+      && grep -q -- '--prompt-bytes)'  "$_rl" 2>/dev/null; then
+        _OV_LEDGER_TOKENS=yes; return 0
+      fi
+      _OV_LEDGER_TOKENS=no
+      echo "gstack-outside-voice: note — this round ledger does not accept the consumption flags, so the round is recorded WITHOUT them and their keys are absent (which reads as 'nobody said', not as a measured zero). The round itself is still counted. The flags landed in claude-fleet-config #217; a wrapper that delegates to a newer ledger also reads as incapable here, by design." >&2
+      return 1
+    }
+    _ledger_takes_tokens || _tok_args=()
+
     "$_rl" -C "$repo_root" --voice "$_voice" "${_sev_args[@]}" \
+      ${_tok_args[@]+"${_tok_args[@]}"} \
       --phase-requested "$_phase_requested" \
       --phase-resolved "$phase" \
       --caller "$_caller" \
@@ -1182,6 +1335,16 @@ PY
     # exactly the rounds where a reader most needs to be told what did and did not happen. Putting
     # the call in a tested context suspends set -e for it and preserves the status verbatim.
     _rc=0
+
+    # RESET BEFORE EVERY ROUND, not once per process. The convergence branch below calls _round
+    # a second time to run the promoted gate, and codex reports no token counts at all — so
+    # without this line a gate round would inherit the loop round's numbers and file them under
+    # voice=codex, phase=final_gate. Recording the cheap tier's consumption as the frontier
+    # tier's is worse than recording nothing: it is the one direction that makes the expensive
+    # round look measured when it is not.
+    _OV_ROUND_INPUT_TOKENS=unknown
+    _OV_ROUND_OUTPUT_TOKENS=unknown
+    _OV_ROUND_PROMPT_BYTES=unknown
 
     case "$backend" in
       codex)
@@ -1394,6 +1557,11 @@ exec_codex() {
   local phase="$1" prompt_file="$2" repo_root="$3" effort="$4" timeout_s="$5" label="$6"
   local codex_mode="${7:-exec}"
   local rc=0
+  # The prompt file IS codex's whole request — it explores the repository rather than receiving
+  # an inlined diff — so this is the exact figure, not a floor (gate round 10).
+  local _cx_pb
+  _cx_pb=$(wc -c < "$prompt_file" 2>/dev/null | tr -cd '0-9'); [ -n "$_cx_pb" ] || _cx_pb=unknown
+  _OV_ROUND_PROMPT_BYTES="$_cx_pb"
 
   # `codex review` and `codex exec` are NOT interchangeable, in two ways that both fail loudly
   # if you assume otherwise — checked against `--help` on 0.124.0 rather than assumed:
@@ -1433,6 +1601,11 @@ exec_codex() {
     # travels in the prompt text (same shape the skill has always used).
     ( cd "$repo_root" && with_timeout "$timeout_s" codex review - \
         -c "model_reasoning_effort=\"$effort\"" $_ov_search_flag < "$prompt_file" ) || rc=$?
+    # prompt_bytes IS known on the codex path and always has been: codex reads the repository
+    # rather than an inlined diff, so the prompt file is its entire request (gate round 10).
+    # Passing `unknown unknown` for the TOKENS is right — codex reports none — but leaving the
+    # byte count off dropped the whole FRONTIER tier out of the analytics log, which is the
+    # default gate backend and so the more expensive half of the comparison this file feeds.
     if [ "$rc" -eq 124 ]; then log_usage codex "" "$phase" "$label" unknown unknown timeout
     elif [ "$rc" -ne 0 ]; then log_usage codex "" "$phase" "$label" unknown unknown "error_$rc"
     else log_usage codex "" "$phase" "$label" unknown unknown ok
@@ -1619,7 +1792,7 @@ exec_openrouter() {
   # file, and the round was still billed upstream. Two timed-out rounds on this branch logged
   # `in=0 out=0` for requests OpenRouter had already charged for. 0 there does not mean cheap,
   # it means unmeasured, and this log feeds a cheap-vs-frontier cost comparison.
-  local ptok=unknown ctok=unknown rmodel="$model" rpartial=false rreason=unknown
+  local ptok=unknown ctok=unknown rmodel="$model" rpartial=false rreason=unknown _or_pb="" _or_db="" _or_rpb=""
   if [ -s "$resp_file" ]; then
     # JSON null (usage absent from the API response) prints as None; map it back to the
     # `unknown` sentinel rather than letting `tr -cd '0-9'` silently flatten it to 0.
@@ -1637,6 +1810,71 @@ print("unknown" if v is None else v)' "$resp_file" 2>/dev/null || echo unknown)
     rreason=$("$_PY" -c 'import json,sys
 v=json.load(open(sys.argv[1])).get("reasoning_tokens")
 print("unknown" if v is None else v)' "$resp_file" 2>/dev/null || echo unknown)
+  fi
+
+  # VAS-2668. Published to the round row as well as to the usage log, and deliberately BEFORE
+  # the status branch: a timed-out round was still billed, so its counts are worth carrying even
+  # though the row it lands on will be an EVENT rather than a round. `ptok`/`ctok` already hold
+  # the `unknown` sentinel when the response carried no usage block, so this assignment cannot
+  # manufacture a zero — it forwards whatever was actually established, including "nothing was".
+  #
+  # ⚠ A PARTIAL TOTAL IS NOT A MEASUREMENT, AND THE ROUND ROW HAS NO WAY TO SAY "PARTIAL" (gate
+  # round [P2]). On a retry where one billed call reported usage and the other did not, the
+  # request layer sets tokens_partial and the total is a known UNDERCOUNT. The usage log carries
+  # that marker in its own column; this row has three states and none of them is "incomplete", so
+  # forwarding the number here would record an undercount as exact — the same defect this whole
+  # field exists to prevent, one step along from writing 0 for unknown.
+  #
+  # It degrades to `unknown` rather than to the partial number, and that is the CORRECT direction
+  # for the analysis rather than merely the cautious one: the question these counts are being
+  # accumulated to answer is which requests cross a long-context band, and an undercounted input
+  # sits in a LOWER band than the request really occupied. A missing sample weakens the histogram;
+  # a silently undercounted one biases it, in the exact direction that hides the effect.
+  #
+  # The usage log still has the partial number and its marker, so nothing is lost — it is declined
+  # in the one place that cannot qualify it. Carrying `tokens_partial` into the row as a fourth
+  # state is the richer fix and is filed separately rather than widening this log-only change.
+  if [ "$rpartial" = "true" ]; then
+    _OV_ROUND_INPUT_TOKENS=unknown
+    _OV_ROUND_OUTPUT_TOKENS=unknown
+    echo "gstack-outside-voice: note — this round's token totals are PARTIAL (a retried request reported usage on only one leg), so they are recorded as unknown rather than as an exact count that would undercount spend. The partial figures remain in the analytics usage log with their tokens_partial marker." >&2
+  else
+    _OV_ROUND_INPUT_TOKENS="$ptok"
+    _OV_ROUND_OUTPUT_TOKENS="$ctok"
+  fi
+
+  # WHAT THIS ROUND ACTUALLY SENT: the prompt plus the inlined diff (gate round 7). The diff file
+  # is read AFTER truncation, so this is the material that went out rather than what was offered —
+  # a capped diff must not be reported at its original size. Set OUTSIDE the partial-usage branch
+  # above on purpose: a partial USAGE report from the API says nothing about how many bytes this
+  # process sent, which it measured locally and knows exactly.
+  #
+  # JSON framing is excluded, deliberately: this number exists for the prompt-packet work, which
+  # optimises content, and a framing-inclusive figure would move with an encoding change nobody made.
+  # READ FROM THE COMPONENT THAT ASSEMBLED THE PAYLOAD, not reconstructed here (gate round 8).
+  # prompt-file + diff is NOT what goes out: the request layer also appends a no-tool-access note
+  # and, when --findings-out is set, the fenced findings contract — several KB the wrapper cannot
+  # see — and a retried round sends a follow-up prompt that is billed too. Summing the parts we
+  # happen to know about here would duplicate that file's assembly logic and drift from it in
+  # silence, biasing every openrouter row LOW. It reports its own total instead.
+  # A FLOOR FIRST, so a killed helper still yields a usable number (gate round 10). When the
+  # OUTER `with_timeout` ends the round, python dies before any write_usage callback runs and
+  # OR_RESP is never written — so the exact figure is unavailable on exactly the rounds that
+  # cost the most. prompt-file + diff is a genuine lower bound the shell assembled itself and
+  # can always state; it is short by the note and contract the request layer appends, which is
+  # why it is only the fallback. Measured on a real timeout: 1197 recorded against ~20550 sent.
+  _or_pb=$(wc -c < "$prompt_file" 2>/dev/null | tr -cd '0-9')
+  if [ -n "${diff_file:-}" ] && [ -f "$diff_file" ]; then
+    _or_db=$(wc -c < "$diff_file" 2>/dev/null | tr -cd '0-9')
+    [ -n "$_or_db" ] && _or_pb=$(( ${_or_pb:-0} + _or_db ))
+  fi
+  case "${_or_pb:-}" in ''|*[!0-9]*) ;; *) _OV_ROUND_PROMPT_BYTES="$_or_pb" ;; esac
+  # …then the exact figure, when the request layer lived long enough to report it.
+  if [ -s "$resp_file" ]; then
+    _or_rpb=$("$_PY" -c 'import json,sys
+v=json.load(open(sys.argv[1])).get("prompt_bytes")
+print("unknown" if not isinstance(v, int) or isinstance(v, bool) else v)' "$resp_file" 2>/dev/null || echo unknown)
+    case "$_or_rpb" in ''|*[!0-9]*) ;; *) _OV_ROUND_PROMPT_BYTES="$_or_rpb" ;; esac
   fi
 
   if [ "$rc" -eq 124 ]; then

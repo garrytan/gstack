@@ -443,7 +443,22 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
+# WHAT WE ACTUALLY SENT, MEASURED WHERE IT IS ASSEMBLED (gate round 8).
+# The shell cannot compute this: by the time a message reaches `ask` it carries the prompt file,
+# the inlined diff, the no-tool-access note and — when --findings-out is set — the fenced findings
+# contract. Reconstructing that sum in the wrapper would duplicate this file's assembly logic and
+# drift from it silently, which is the reconstruct-the-artefact trap; so the component that builds
+# the payload reports its own size.
+#
+# ACCUMULATED, not assigned: a retried or followed-up round calls `ask` more than once and every
+# call is billed, so the round's honest prompt cost is the sum. The count is of the MESSAGE, not
+# of the JSON envelope — the figure exists for the prompt-packet work, which optimises content.
+_SENT_PROMPT_BYTES = 0
+
+
 def ask(message, on_fail=None):
+    global _SENT_PROMPT_BYTES
+    _SENT_PROMPT_BYTES += len(message.encode("utf-8"))
     body = json.dumps({"model": model,
                        "messages": [{"role": "user", "content": message}],
                        "reasoning": {"effort": REASONING_EFFORT}}).encode("utf-8")
@@ -744,15 +759,25 @@ def write_usage(prompt_tokens, completion_tokens, served_model, partial=False, r
                    "completion_tokens": completion_tokens,
                    "reasoning_tokens": reasoning,
                    "model": served_model,
-                   "tokens_partial": bool(partial)}, fh)
+                   "tokens_partial": bool(partial),
+                   # Reported even when the token counts are null: this one is measured locally
+                   # and is known whatever the API chose to tell us about usage.
+                   "prompt_bytes": _SENT_PROMPT_BYTES}, fh)
 
 
-# No on_fail on THIS call, deliberately — reported as a defect twice, so state why. Nothing
-# has been billed yet that we know a figure for: if this request fails there is no usage block
-# to record, and the shell wrapper already writes an `error_N` row with null tokens for the
-# round as a whole. The retry call below is different, and does pass one, because by then the
-# FIRST call has succeeded and its counts are in hand.
-payload = ask(prompt)
+# THE TOKENS ARE UNKNOWN HERE; THE BYTES ARE NOT (gate round 9).
+#
+# This call carried no on_fail, and the reasoning was right about TOKENS: if the first request
+# fails there is no usage block, so any count written here would be manufactured, and the shell
+# wrapper already writes an `error_N` row with null tokens for the round as a whole.
+#
+# But `_SENT_PROMPT_BYTES` was incremented before the request went out, so the prompt size IS in
+# hand even on this path — and without writing it, a failed round falls back to the prompt FILE
+# alone and drops the inlined diff and contract. Failed rounds then look far cheaper than the
+# successful ones they are compared against, which is the worst direction for a metric whose job
+# is explaining expensive rounds. So: null tokens, real bytes. The distinction the whole change
+# rests on — absent is not zero, and unknown is not free.
+payload = ask(prompt, lambda: write_usage(None, None, model, False, None))
 # Read the cost BEFORE validating the content: every path below that can exit describes a
 # request that already reached the API and was already billed.
 usage = payload.get("usage") or {}
@@ -813,7 +838,11 @@ if findings_path:
         # incurred — the same defect fixed for content_of two rounds ago, still open on the
         # sibling path, which is what "a fix is not done until every dependent site agrees"
         # means in practice.
-        payload2 = ask(retry, lambda: write_usage(p_tok, c_tok, served, False, r_tok))
+        # partial=True, NOT False (gate round 9). If this retry fails, a SECOND prompt has
+        # already been sent and billed and its usage is missing — so the first call's counts are
+        # a floor, not a total. Writing them as exact undercounts spend on precisely the rounds
+        # that cost the most, and `tokens_partial` exists to say so.
+        payload2 = ask(retry, lambda: write_usage(p_tok, c_tok, served, True, r_tok))
         usage2 = payload2.get("usage") or {}
         # The retry's reasoning counts too. Added in the same round that introduced reasoning
         # capture and missed here — the fifth time this run that a change landed on the first
