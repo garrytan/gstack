@@ -66,6 +66,37 @@ const now = Date.now();
 const type = process.env.GSTACK_SEARCH_TYPE || '';
 const queryRaw = (process.env.GSTACK_SEARCH_QUERY || '').toLowerCase();
 const queryTokens = queryRaw.split(/\s+/).filter(Boolean);
+// #2762: score over DISTINCT tokens. Repeating a word must not let an entry
+// matching one concept outrank an entry matching several. Deduping cannot change
+// the filter's result, so this is a ranking-only concern.
+const scoreTokens = Array.from(new Set(queryTokens));
+
+// #2762: word-boundary containment, used for RELEVANCE only (never for recall).
+// Hand-rolled rather than a RegExp because building one from caller input needs
+// the standard escape idiom, and that idiom requires a literal dollar sign --
+// which cannot appear in this block, since the whole thing is a double-quoted
+// bash string. (Backslash escapes are fine here and this file already uses
+// them; the dollar sign is the constraint.) Hyphens, dots and slashes are all
+// separators, so hyphenated keys and file paths yield their individual words.
+function isWordChar(c) {
+  // Case-folding identifies letters without a character-class escape: a letter
+  // has distinct cases, so accented Latin and Cyrillic count as word characters
+  // and 'caf' stops matching inside 'cafe' with an accent. Scripts without case
+  // (CJK) stay separators, which is what keeps an embedded Latin term findable
+  // in text that has no spaces around it.
+  return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '_'
+    || c.toLowerCase() !== c.toUpperCase();
+}
+function hasWholeWord(hay, tok) {
+  let i = hay.indexOf(tok);
+  while (i !== -1) {
+    const before = i === 0 ? '' : hay.charAt(i - 1);
+    const after = i + tok.length >= hay.length ? '' : hay.charAt(i + tok.length);
+    if (!isWordChar(before) && !isWordChar(after)) return true;
+    i = hay.indexOf(tok, i + 1);
+  }
+  return false;
+}
 const limit = parseInt(process.env.GSTACK_SEARCH_LIMIT || '10', 10);
 
 const entries = [];
@@ -77,6 +108,14 @@ for (const taggedLine of lines) {
     const e = JSON.parse(line);
     if (!e.key || !e.type) continue;
 
+    // #2762: strip every underscore-prefixed key the moment a row is parsed.
+    // Internal ranking fields live in this namespace, and gstack-learnings-log
+    // re-serializes whatever it is handed, so a stored _field would otherwise
+    // arrive as a live sort key. Doing it here, once, immunizes every internal
+    // field including ones added later, instead of relying on each new one
+    // remembering to initialize itself.
+    for (const k of Object.keys(e)) { if (k.charAt(0) === '_') delete e[k]; }
+
     // Apply confidence decay: observed/inferred lose 1pt per 30 days
     let conf = e.confidence || 5;
     if (e.source === 'observed' || e.source === 'inferred') {
@@ -84,6 +123,14 @@ for (const taggedLine of lines) {
       conf = Math.max(0, conf - Math.floor(days / 30));
     }
     e._effectiveConfidence = conf;
+
+    // #2762: initialize the relevance score here, beside the other internal
+    // fields, NOT in the query filter. The filter runs only when a query was
+    // given, so a value assigned there would leave the no-query path reading
+    // whatever JSON.parse produced -- and gstack-learnings-log re-serializes
+    // unknown keys, so a stored _tokenHits would become a live sort key on the
+    // preamble call that runs in every session.
+    e._tokenHits = 0;
 
     // Determine if this is from the current project or cross-project
     // Cross-project entries are tagged for display
@@ -120,13 +167,53 @@ let results = Array.from(seen.values());
 if (type) results = results.filter(e => e.type === type);
 
 // Filter by query (token-OR: match if ANY whitespace-split token appears in ANY haystack)
+// #2762: recall and relevance are now two different questions, answered separately.
+//
+// RECALL (this predicate) is unchanged from before: substring containment across
+// key, insight and files. Every entry that used to come back still comes back.
+//
+// RELEVANCE (_tokenHits) is a stricter, narrower measure, because reusing the
+// recall net as a ranking signal ranks badly in two ways that were measured on
+// gstack's own shipped queries:
+//   - Substring hits are not concept hits. Under /investigate's shipped query,
+//     'bug' hits inside 'debug', 'cause' inside 'because', 'fix' inside
+//     'fixture', so prose that merely says 'debug output interleaves because the
+//     fixture is parallel' outscores a real insight about root causes. Whole-word
+//     matching is what makes a hit mean the concept is present.
+//   - Naming is weaker evidence than substance, but it is not worthless. Keys and
+//     file paths are long and descriptive by convention, so scoring them equally
+//     with the insight lets verbosity beat quality: a thin entry whose key or file
+//     list happens to carry the query words would outrank a strong insight that
+//     answers it. Scoring them at zero overcorrects in the other direction, and an
+//     entry named exactly after the query then loses to incidental prose.
+//
+// So relevance is two tiers. What the entry SAYS (insight) decides first; what it
+// is ABOUT (key and file paths) only orders entries that already tie on substance.
+// Both are recall-neutral: the predicate below is unchanged.
 if (queryTokens.length > 0) results = results.filter(e => {
-  const haystacks = [(e.key || '').toLowerCase(), (e.insight || '').toLowerCase(), ...(e.files || []).map(f => f.toLowerCase())];
-  return queryTokens.some(tok => haystacks.some(h => h.includes(tok)));
+  const key = (e.key || '').toLowerCase();
+  const insight = (e.insight || '').toLowerCase();
+  const files = (e.files || []).map(f => f.toLowerCase());
+  e._insightHits = scoreTokens.filter(tok => hasWholeWord(insight, tok)).length;
+  e._contextHits = scoreTokens.filter(tok => hasWholeWord(key, tok) || files.some(f => hasWholeWord(f, tok))).length;
+  return queryTokens.some(tok => key.includes(tok) || insight.includes(tok) || files.some(f => f.includes(tok)));
 });
 
-// Sort by effective confidence desc, then recency
+// How many entries survived the filters, before the limit truncates. Feeds the
+// truncation notice on the summary line below.
+const totalMatched = results.length;
+
+// Sort by insight relevance, then naming relevance, then effective confidence,
+// then recency (#2762). No-query calls are unaffected: both hit counts are 0 for
+// every entry, the first two comparisons always tie, and the order is exactly the
+// previous confidence-then-recency one. Queried calls DO re-rank, single-token
+// included -- that is the point of the change, and it is why relevance is measured
+// on whole words rather than on the substrings the recall filter accepts.
 results.sort((a, b) => {
+  const aIns = a._insightHits || 0, bIns = b._insightHits || 0;
+  if (bIns !== aIns) return bIns - aIns;
+  const aCtx = a._contextHits || 0, bCtx = b._contextHits || 0;
+  if (bCtx !== aCtx) return bCtx - aCtx;
   if (b._effectiveConfidence !== a._effectiveConfidence) return b._effectiveConfidence - a._effectiveConfidence;
   return new Date(b.ts).getTime() - new Date(a.ts).getTime();
 });
@@ -145,8 +232,20 @@ for (const e of results) {
 }
 
 // Summary line
+// #2762: when a query matched more than the limit shows, say so. A caller that
+// searched for something specific and got back a full page of confident but
+// unrelated entries would otherwise read the list as a complete answer. Gated on a
+// non-empty query because the no-query preamble call (gstack-skill-start, --limit 3)
+// runs every session and must not grow a line. Emitted on stdout because this block
+// ends with its own stderr redirected to /dev/null, so stdout is the only channel
+// that reaches a caller. Phrased as a whole-and-part after gstack-retro-metrics
+// ('showing 300 of %d'), so the reader never has to add two numbers together, and
+// stated once rather than beside a second count of the same number.
 const counts = Object.entries(byType).map(([t, arr]) => arr.length + ' ' + t + (arr.length > 1 ? 's' : ''));
-console.log('LEARNINGS: ' + results.length + ' loaded (' + counts.join(', ') + ')');
+const truncated = queryTokens.length > 0 && totalMatched > results.length;
+const loaded = truncated ? results.length + ' of ' + totalMatched + ' matched' : results.length + ' loaded';
+const hint = truncated ? '; raise --limit for the rest' : '';
+console.log('LEARNINGS: ' + loaded + ' (' + counts.join(', ') + ')' + hint);
 console.log('');
 
 for (const [t, arr] of Object.entries(byType)) {
