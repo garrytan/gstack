@@ -332,6 +332,20 @@ describe('gstack-telemetry-log', () => {
 });
 
 describe('.pending marker', () => {
+  test('--no-sweep (one-shot setup events) leaves other sessions\' in-flight markers untouched', () => {
+    setConfig('telemetry', 'anonymous');
+    const analyticsDir = path.join(tmpDir, 'analytics');
+    fs.mkdirSync(analyticsDir, { recursive: true });
+    const marker = path.join(analyticsDir, '.pending-live-456');
+    fs.writeFileSync(marker, '{"skill":"ship","ts":"2026-09-04T00:00:00Z","session_id":"live-456","gstack_version":"1.79.0.0"}');
+    run(`${BIN}/gstack-telemetry-log --event-type onboarding --skill _setup_playwright --outcome chromium-install --no-sweep`);
+    expect(fs.existsSync(marker)).toBe(true);
+    const events = parseJsonl();
+    expect(events).toHaveLength(1);
+    expect(events[0].event_type).toBe('onboarding');
+    expect(events[0].outcome).toBe('chromium-install');
+  });
+
   test('finalizes stale .pending from another session as outcome:unknown', () => {
     setConfig('telemetry', 'anonymous');
 

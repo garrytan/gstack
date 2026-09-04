@@ -262,8 +262,8 @@ const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   {
     file: 'test/setup-windows-rerun-refresh.test.ts',
     // Trips the "spawns bin/ shebang script" pattern via path.join(..., 'bin',
-    // 'tool.sh') fixture paths, but every spawn goes through spawnSync('bash',
-    // ['-c', ...]) — Git Bash executes it fine on windows-latest. This file IS
+    // 'tool.sh') fixture paths, but every spawn goes through test/helpers/bash-script.ts
+    // (bash <tempfile>) — Git Bash executes it fine on windows-latest, with no argv-length ceiling. This file IS
     // the #2444 Windows regression coverage (IS_WINDOWS=1 copy-refresh path);
     // excluding it here would keep the bug class unexercised on the one
     // platform it bites.

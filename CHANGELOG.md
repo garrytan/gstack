@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.80.0.0] - 2026-09-04
+
+**Setup finishes even when Chromium cannot be installed.**
+**gstack never deletes or overwrites a skill it did not create.**
+
+Three defects that a downstream fork kept tripping over are fixed at the source. `./setup` used to abort at the Playwright step on any box where the Chromium download failed or hung (offline, proxied, AppArmor-restricted), and because that step ran before skills were registered, those users ended with zero skills. The `/freeze` deny hook read a different state directory than `/freeze` wrote whenever `GSTACK_HOME` was set, so the boundary silently allowed everything. And both `./setup` and `gstack-relink` would replace or delete any skill entry that happened to share a name with a gstack skill, including a skill you wrote yourself.
+
+Now the Chromium install is best-effort and bounded. It runs under a 600 second deadline you can change with `GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT`, skip outright with `GSTACK_SKIP_PLAYWRIGHT=1`, and every failure becomes a reason code in the final summary that names the skills that need a browser. Skills always register. Both PreToolUse hooks resolve the same state root the writers use, and freeze fails closed on any unexpected death instead of exiting with no decision. Ownership is proven, never assumed from a name: an entry is only touched when it is a symlink into gstack, carries the `.gstack-owned` marker gstack writes for directories it creates, or is a real file gstack generated. Even then a generated file you have since customized is moved to `~/.gstack/backups/skills/<timestamp>/` before gstack links over it, and a directory is only removed whole when nothing of yours is inside.
+
+### The numbers that matter
+
+Source: the free suite (`bun run test`), specifically `test/setup-playwright-best-effort.test.ts`, `test/setup-link-ownership.test.ts`, `test/relink.test.ts` and `test/hook-scripts.test.ts`, run against this tree.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Skills registered when the Chromium download fails or hangs | 0 | all | setup never aborts at the bootstrap |
+| Longest a wedged Chromium install can block `./setup` | unbounded | 600s default | `GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT`, `GSTACK_SKIP_PLAYWRIGHT=1` |
+| `/freeze` boundary with `GSTACK_HOME` set | allowed every edit | denies | one state-root resolver for hooks and writers |
+| Sites that could delete or replace a same-name skill without proof of ownership | 5 | 0 | setup linker, alias installer, both flip cleanups, relink |
+| Data lost when gstack replaces a generated SKILL.md you customized | the file | none | moved to `~/.gstack/backups/skills/<ts>/` |
+| Free tests pinning these behaviors | 0 | 103 | across 10 files |
+
+The first row is the one you feel: a laptop on hotel wifi, a CI runner behind a proxy, or a fresh Ubuntu 24.04 box now ends `./setup` with every skill installed and one clear line saying which ones will not work until Chromium is present.
+
+What this means for anyone installing or upgrading: run `./setup` anywhere and get skills. Keep your own `qa` or `ship` skill next to gstack's and it survives every upgrade and prefix flip, reported by name instead of silently replaced. Set `GSTACK_HOME` and `/freeze` means what it says.
+
+### Itemized changes
+
+#### Fixed
+- **`./setup` no longer aborts when Chromium cannot be installed** (#1900, #1901, #1902, #913). The Playwright step is best-effort and bounded. Reason codes: `skipped`, `chromium-install`, `chromium-install-timeout`, `chromium-install-locked`, `windows-no-node`, `windows-node-modules`, `post-install-launch`. A wedged installer is killed with its whole child tree (pgrep, or a /proc walk where pgrep is missing); Ctrl-C mid-install kills it too. A stale install lock is reclaimed atomically, a garbage pid file counts as stale, and a lock with no recorded holder expires after the install bound. Contributed by @DavidMiserak (#2233).
+- **`/freeze` enforces its boundary under `GSTACK_HOME`** (#1459). The hook resolves the state root exactly as `bin/gstack-paths` does (GSTACK_HOME, then CLAUDE_PLUGIN_DATA only when CLAUDE_PLUGIN_ROOT names gstack, then `~/.gstack`), a trailing newline in the path round-trips, a helper from an older install denies instead of exiting 127, and an EXIT backstop denies on any unexpected failure. `/careful` reads its project patterns from the same root and falls back safely on a stale helper. Contributed by @NikhileshNanduri (#1509).
+- **gstack never deletes or links over a skill it does not own** (#2119). `./setup`'s linker and alias installer, both prefix-flip cleanups, and `gstack-relink` all prove ownership first and report a foreign entry by name in the final summary. Runtime assets (sections, templates, checklists) inside a directory gstack did not create are kept, not replaced. A checkout named without a `gstack` path segment (a `git worktree add ../gstack-feature`) still counts as gstack's. Contributed by @smblight.
+- **Windows copy installs carry a `.gstack-owned` marker** so provenance no longer rests on the directory name. The marker is written on every platform, only for directories gstack creates.
+- **Setup's one-shot telemetry events no longer finalize other sessions' in-flight markers** as `outcome: unknown`.
+
+#### Added
+- `GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=<seconds>` and `GSTACK_SKIP_PLAYWRIGHT=1` for `./setup`; documented in the README troubleshooting list together with `GSTACK_CHROMIUM_NO_SANDBOX=1`.
+- A final setup summary that names the browser-dependent skills when Chromium is unavailable, lists any same-name skills left untouched, and reports any customized SKILL.md moved to `~/.gstack/backups/skills/<timestamp>/`.
+- `gstack-telemetry-log --no-sweep` for events that own no session.
+
+#### For contributors
+- The time-attack fork evaluation that surfaced these defects is preserved under `docs/designs/fork-port-residual-2026-09/` (report, residual index, refutation verdicts, hashes). Waves B through E2 of that plan are scheduled work.
+- New free tests: `test/setup-link-ownership.test.ts`, plus large additions to `test/setup-playwright-best-effort.test.ts`, `test/relink.test.ts`, `test/hook-scripts.test.ts`, `test/telemetry.test.ts`. Anchor-sliced harnesses now fail loudly on `command not found` instead of degrading into "foreign, skipped".
+- `bin/gstack-relink` and `setup` carry the same ownership rule in two copies; the shared helper is filed in TODOS.md.
+
 ## [1.79.0.0] - 2026-09-01
 
 **/ship can no longer be stranded by a backgrounded subagent.**

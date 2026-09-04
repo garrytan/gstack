@@ -16,7 +16,7 @@
  * corrupted the generated SKILL.md — the source files must stay byte-intact.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -52,7 +52,18 @@ beforeAll(() => {
     'SKILL_PREFIX=0',
     'QUIET=1',
     '_WINDOWS_COPY_NOTE_PRINTED=1',
+    '_FOREIGN_SKIPPED_ENTRIES=()',
+    `SOURCE_GSTACK_DIR="${ROOT}"`,
     extractFn('_link_or_copy'),
+    extractFn('_gstack_link_target_abs'),
+    extractFn('_gstack_target_is_ours'),
+    extractFn('_gstack_generated_header'),
+    extractFn('_claude_entry_is_ours'),
+    extractFn('_claude_entry_owned_strongly'),
+    extractFn('_backup_skill_md'),
+    '_BACKED_UP_SKILL_MDS=()',
+    `_SKILL_BACKUP_ROOT="${os.tmpdir()}/gstack-alias-test-backups"`,
+    extractFn('_write_owned_marker'),
     extractFn('_print_windows_copy_note_once'),
     extractFn('_link_skill_runtime_assets'),
     extractFn('link_claude_skill_dirs'),
@@ -63,7 +74,7 @@ beforeAll(() => {
     installOnce,
     installOnce,
   ].join('\n');
-  const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 60_000 });
+  const result = runBashScript(script, { timeout: 60_000 });
   if (result.status !== 0) {
     throw new Error(`alias install failed: ${result.stderr}\n${result.stdout}`);
   }
@@ -144,12 +155,20 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
       const script = [
         'set -e',
         'IS_WINDOWS=0',
+        '_FOREIGN_SKIPPED_ENTRIES=()',
+        `SOURCE_GSTACK_DIR="${ROOT}"`,
         extractFn('_link_or_copy'),
+        extractFn('_gstack_link_target_abs'),
+        extractFn('_gstack_target_is_ours'),
+        extractFn('_gstack_generated_header'),
+        extractFn('_claude_entry_is_ours'),
+        extractFn('_claude_entry_owned_strongly'),
+        extractFn('_write_owned_marker'),
         extractFn('_install_alias_skill_md'),
         extractFn('link_claude_root_skill_alias'),
         `link_claude_root_skill_alias "${ROOT}" "${legacyDir}"`,
       ].join('\n');
-      const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 30_000 });
+      const result = runBashScript(script, { timeout: 30_000 });
       expect(result.status).toBe(0);
 
       const aliasSkill = path.join(aliasDir, 'SKILL.md');

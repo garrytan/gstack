@@ -8,7 +8,7 @@
  * skills must stay.
  */
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -24,7 +24,7 @@ function extractFn(name: string): string {
 }
 
 function cleanupBody(): string {
-  return extractFn('cleanup_old_claude_symlinks');
+  return [extractFn('_gstack_link_target_abs'), extractFn('_gstack_target_is_ours'), extractFn('_gstack_dir_only_links'), extractFn('_cleanup_linked_dir'), extractFn('_gstack_generated_header'), extractFn('_cleanup_weak_dir'), extractFn('_backup_skill_md'), '_BACKED_UP_SKILL_MDS=()', `_SKILL_BACKUP_ROOT="${os.tmpdir()}/cleanup-orphans-backups-${process.pid}"`, extractFn('cleanup_old_claude_symlinks')].join('\n');
 }
 
 describe('setup: cleanup_old_claude_symlinks — static (#2204)', () => {
@@ -68,13 +68,11 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
     const script = [
       'set -e',
       `IS_WINDOWS=${opts.isWindows ?? '0'}`,
+      extractFn('_gstack_link_target_abs'), extractFn('_gstack_target_is_ours'), extractFn('_gstack_dir_only_links'), extractFn('_cleanup_linked_dir'), extractFn('_gstack_generated_header'), extractFn('_cleanup_weak_dir'), extractFn('_backup_skill_md'), '_BACKED_UP_SKILL_MDS=()', `_SKILL_BACKUP_ROOT="${tmp}/backups"`,
       extractFn('cleanup_old_claude_symlinks'),
       `cleanup_old_claude_symlinks "${gstackArg}" "${skills}"`,
     ].join('\n');
-    const result = spawnSync('bash', ['-c', script], {
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
+    const result = runBashScript(script, { timeout: 5000 });
     const names = fs.existsSync(skills)
       ? fs.readdirSync(skills).sort()
       : [];
@@ -259,21 +257,65 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
     }
   });
 
-  test('Windows real-file leftover is removed when the payload still names it', () => {
+  // #2119: a bare name match used to delete a USER's own skill that happened to
+  // share a gstack skill name. Provenance must be proven: the .gstack-owned
+  // marker, a byte-identical copy of the payload source, or gen-skill-docs'
+  // AUTO-GENERATED header (legacy copies made before the marker existed).
+  test('Windows real-file leftover is removed only when provably gstack-owned', () => {
+    const generated = '---\nname: ship\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n# ship\n';
     const r = runCleanup({
       isWindows: '1',
       payload: true,
       plant(skills, payload) {
-        const src = path.join(payload, 'qa');
-        fs.mkdirSync(src);
-        fs.writeFileSync(path.join(src, 'SKILL.md'), '---\nname: qa\n---\n');
-        plantUserSkill(skills, 'qa');
+        for (const name of ['qa', 'ship', 'review', 'browse']) {
+          fs.mkdirSync(path.join(payload, name));
+          fs.writeFileSync(path.join(payload, name, 'SKILL.md'), name === 'ship' ? generated : `---\nname: ${name}\n---\n`);
+        }
+        // Byte-identical copy of the payload source → ours.
+        fs.mkdirSync(path.join(skills, 'qa'));
+        fs.copyFileSync(path.join(payload, 'qa', 'SKILL.md'), path.join(skills, 'qa', 'SKILL.md'));
+        // Legacy copy carrying the generated header but drifted from source → ours.
+        fs.mkdirSync(path.join(skills, 'ship'));
+        fs.writeFileSync(path.join(skills, 'ship', 'SKILL.md'), generated.replace('# ship', '# ship (older render)'));
+        // Marker-carrying copy with arbitrary content → ours.
+        fs.mkdirSync(path.join(skills, 'browse'));
+        fs.writeFileSync(path.join(skills, 'browse', 'SKILL.md'), '---\nname: browse\n---\n# stale copy\n');
+        fs.writeFileSync(path.join(skills, 'browse', '.gstack-owned'), '');
+        // The user's OWN skill that shares a gstack name → foreign, must survive.
+        plantUserSkill(skills, 'review');
         plantUserSkill(skills, 'my-own');
       },
     });
     try {
       expect(r.status).toBe(0);
-      expect(r.names).toEqual(['gstack', 'my-own']);
+      expect(r.names).toEqual(['gstack', 'my-own', 'review']);
+      expect(fs.readFileSync(path.join(r.tmp, 'skills', 'review', 'SKILL.md'), 'utf-8')).toContain('user-owned');
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
+  // The Windows arm is the ONLY path that touches a real-file SKILL.md. On
+  // Unix a same-name real-file skill must survive even when the payload names
+  // it and even when its bytes are identical to the payload source.
+  test('Unix (IS_WINDOWS=0): a same-name real-file skill is never reaped, even if byte-identical to the payload', () => {
+    const r = runCleanup({
+      isWindows: '0',
+      payload: true,
+      plant(skills, payload) {
+        fs.mkdirSync(path.join(payload, 'qa'));
+        fs.writeFileSync(path.join(payload, 'qa', 'SKILL.md'), '---\nname: qa\n---\n');
+        fs.mkdirSync(path.join(skills, 'qa'));
+        fs.copyFileSync(path.join(payload, 'qa', 'SKILL.md'), path.join(skills, 'qa', 'SKILL.md'));
+        fs.mkdirSync(path.join(skills, 'ship'));
+        fs.writeFileSync(path.join(skills, 'ship', 'SKILL.md'), '---\nname: ship\n---\n');
+        fs.writeFileSync(path.join(skills, 'ship', '.gstack-owned'), '');
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('');
+      expect(r.names).toEqual(['gstack', 'qa', 'ship']);
     } finally {
       fs.rmSync(r.tmp, { recursive: true, force: true });
     }

@@ -122,6 +122,26 @@ in the test trees must carry a `timeout`, enforced by
 `test/spawnsync-timeout-tripwire.test.ts` with a shrink-only exemption
 ratchet.
 
+**Anchor-sliced `setup` harnesses.** `setup` is one large bash script, so the
+free tests that pin its linker, cleanup, and Chromium-bootstrap behavior never
+run the whole thing. They slice the source by anchor (`extractFn(name)` takes
+`name() {` through the next `\n}\n`; `test/setup-playwright-best-effort.test.ts`
+slices the `# 2. Ensure Playwright's Chromium is available` block up to
+`# 2b.`), join the extracted functions with stubbed collaborators, and execute
+the REAL bash under a temp `HOME` with stubbed probes and installers. Two rules
+keep the harness honest: renaming a function or anchor comment in `setup` fails
+the test with `function not found` / `anchor not found` instead of silently
+testing nothing, and `test/setup-link-ownership.test.ts` and
+`test/setup-playwright-best-effort.test.ts` throw on any `command not found` on
+stderr as harness drift (a helper the test forgot to extract) rather than
+letting it degrade into a pass. Files: `test/setup-link-ownership.test.ts`,
+`test/setup-cleanup-orphans.test.ts`, `test/setup-playwright-best-effort.test.ts`.
+`test/relink.test.ts` shells out to a copy of the real `bin/gstack-relink`
+against a temp `GSTACK_INSTALL_DIR` / `GSTACK_SKILLS_DIR`, and
+`test/hook-scripts.test.ts` runs the real `careful/bin/check-careful.sh` and
+`freeze/bin/check-freeze.sh` with JSON payloads on stdin (including the
+`GSTACK_HOME` state-root parity against `bin/gstack-paths`).
+
 ## Cloud sandboxes (Vercel / Conductor cloud workspaces)
 
 Syscall-supervised sandboxes need environment setup before `bun run test` can

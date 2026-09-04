@@ -2,6 +2,55 @@
 
 ## NEXT PRIORITY
 
+### P2: fork-port residual wave deferrals (filed at Wave A, 2026-09-03)
+
+Filed from the time-attack/gstack residual evaluation
+(docs/designs/fork-port-residual-2026-09/REPORT.md) and its CEO + eng reviews.
+Waves B–E2 of that plan are scheduled work, not TODOs; these are the items the
+reviews deliberately deferred, each with rationale:
+
+- **Shared `_gstack_owned_link` helper** — the ownership gate now exists in
+  six places (setup's `_claude_entry_is_ours` / `_claude_entry_owned_strongly`
+  used by link_claude_skill_dirs and _install_alias_skill_md, while
+  cleanup_old_claude_symlinks and cleanup_prefixed_claude_symlinks inline their
+  own marker/cmp/banner chain and readlink `case`; bin/gstack-relink
+  `_entry_is_ours`; bin/gstack-uninstall's per-entry loop). Extract one sourced
+  helper so the destructive-path guard cannot drift, and while there: make the
+  `.gstack-owned` marker's recorded install path load-bearing (today any marker
+  counts, so a Windows fork copy carrying gstack's generated header is still
+  treated as ours on a mode flip). Effort S. Priority P2. Depends on: none.
+- **Config-key reader tripwire** — `transcript_ingest_mode=off` sat unread for
+  months while setup-gbrain advertised it. A free test that asserts every key
+  in bin/gstack-config's default table is read by at least one binary (or is
+  explicitly listed as prose-only) makes a dead consent switch a red test.
+  Effort S. Priority P2. Depends on: Wave E1 landing the reader.
+- **"Pre-existing" failure vocabulary** — scripts/resolvers/preamble/
+  generate-test-failure-triage.ts classifies from `git diff --name-only` and
+  never asks for a base-branch run. Rewrite T1 to verified/unverified with the
+  base branch's CI status (`gh run list --branch <base>`) as default evidence
+  and a failing-files-only worktree run as an opt-in. Effort M → S with CC.
+  Priority P2. Depends on: none.
+- **Opt-in `reply_language` config key** (#679) — render into the Writing
+  Style section only when set; keep identifiers and commands in English; add
+  the mixed-language tests the issue asked for. Not an always-on voice line
+  (community-PR guardrail). Effort S. Priority P3.
+- **Remove the `~/.gstack/.auth.json` writer** — browser-manager.ts:638-640
+  says the component-baked GBrowser extension reads it. Confirm GBrowser
+  bootstraps via `POST /extension-token`; if so, delete the writer plus a
+  migration that removes the orphaned credential file. Effort S. Priority P3.
+  Depends on: GBrowser source check.
+- **CONTRIBUTING rule for fork-derived changes** — a change lifted from a fork
+  enters upstream only behind a test verified red on upstream HEAD first, with
+  credit to the original author; cherry-picks allowed when the fork commit
+  carries that test. 34 of 48 top fork candidates died under refutation; the
+  rule is what made the survivors safe. Effort S. Priority P2.
+- **Hook slug-derivation parity audit** — question-preference-hook keyed
+  project prefs by cwd basename while the writer keyed by owner-repo (Wave E1
+  fixes it via `slugFromCacheOnly`). Audit question-log-hook and every other
+  Claude hook that buckets by project for the same mismatch. Effort S.
+  Priority P3. Depends on: Wave E1.
+
+
 ### P1: ZeroEntropy sunset — gbrain's default embedding provider dies Sept 4, 2026 (#2365)
 
 **What:** ZeroEntropy (acquired by Notion) shuts down September 4, 2026. gbrain's
@@ -196,10 +245,11 @@ The wave's Step-7 coverage audit (5 subsystem agents, ~700 changed paths,
 shipped verified by hand or adjacent tests); each is a cheap pin against
 silent regression:
 
-- **setup Playwright bootstrap block** — `_clear_playwright_quarantine`,
-  `_PW_LOCK` stale-holder reclaim, `_kill_tree`/`_wait_with_deadline`, Ubuntu
-  26.04 platform override: zero test references. The P0 #2554 heal's shell
-  half. Effort S each.
+- **setup Playwright bootstrap block** — `_PW_LOCK` stale-holder reclaim,
+  `_kill_tree`/`_wait_with_deadline`, and the platform override are now pinned
+  by test/setup-playwright-best-effort.test.ts (fork-port Wave A). Still
+  unpinned: `_clear_playwright_quarantine` (the P0 #2554 heal's shell half).
+  Effort S.
 - **redact-prepush `scanAddedLines` slicing** — the >1MiB catch-up-diff chunk
   path (the reason the function exists) is unexercised; a regression
   reintroduces blocking-while-unscanned. Effort S.
@@ -3944,10 +3994,15 @@ globs (D). What remains, re-filed individually:
   darwin-skipped handoff tests in browse/test/handoff.test.ts — verify
   whether the v1.67 XProtect + rebrand work un-blocks them, then un-skip or
   fix. Effort S.
-- Transcript trust/scope/source isolation (PR 2232, issue 2140) — needs the
-  never-double-store review. Effort M.
+- Transcript trust/scope/source isolation (PR 2232, issue 2140) — split:
+  the `transcript_ingest_mode` reader (off skips, B → --all-history, unset
+  unchanged) ships in fork-port Wave E1; repo-scoping and `--source-id`
+  isolation still need the never-double-store review plus a gbrain flag
+  probe. Close the PR after E1 with a pointer here. Effort M.
 - Versionless-repo onboarding (#1474, issues 2343/2334) — the #2501 JSON
   version-path half landed; the no-version-file-at-all flow did not.
 - Playwright bootstrap abort/timeout absorbs (PRs 2233/2359, issues
-  1902/2136) — partially superseded by v1.67's bounded bootstrap; verify
-  and close or extract the remainder.
+  1902/2136) — DONE in fork-port Wave A: the install is best-effort and
+  bounded (GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT, default 600s), lock contention
+  is a reason code, skills always register. Close #2233, #1900, #1901, #1902,
+  #913 with the receipt (test/setup-playwright-best-effort.test.ts).

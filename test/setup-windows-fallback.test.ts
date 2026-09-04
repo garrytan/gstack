@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -95,10 +95,7 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
       const helper = extractHelper();
       // IS_WINDOWS must exist as a shell-readable var before sourcing.
       const script = `IS_WINDOWS=${isWindows}\n${helper}\n_link_or_copy "${src}" "${dst}"\n`;
-      const result = spawnSync('bash', ['-c', script], {
-        encoding: 'utf-8',
-        timeout: 5000,
-      });
+      const result = runBashScript(script, { timeout: 5000 });
       const lst = fs.lstatSync(dst, { throwIfNoEntry: false });
       return {
         ok: result.status === 0,
