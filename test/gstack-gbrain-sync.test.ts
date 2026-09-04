@@ -81,6 +81,7 @@ describe("gstack-gbrain-sync CLI", () => {
     // (NOT gbrain import — that's the markdown-only path that was rejected post-codex).
     expect(r.stdout).toContain("would: gbrain sources add");
     expect(r.stdout).toContain("gbrain sync --strategy code");
+    expect(r.stdout).toContain("gbrain sources set-strategy");
     expect(r.stdout).not.toContain("gbrain import");
     // memory + brain-sync stages should not appear
     expect(r.stdout).not.toContain("gstack-memory-ingest --probe");

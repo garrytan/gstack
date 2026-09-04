@@ -39,12 +39,13 @@ run_code_sync() {
   _sync_bin="$BIN_DIR/gstack-gbrain-sync.ts"
   [ -f "$_sync_bin" ] || return 1
   command -v bun >/dev/null 2>&1 || return 1
+  _repair='cd "$1" && bun run "$2" --code-only --quiet >/dev/null 2>&1 && _source=$(tr -d "[:space:]" < "$1/.gbrain-source" 2>/dev/null) && [ -n "$_source" ] && gbrain edges-backfill --source "$_source" --max-chunks 1000 --json >/dev/null 2>&1'
   if command -v gtimeout >/dev/null 2>&1; then
-    (cd "$REPO_ROOT" && gtimeout 300s bun run "$_sync_bin" --code-only --dream --quiet >/dev/null 2>&1)
+    gtimeout 300s sh -c "$_repair" sh "$REPO_ROOT" "$_sync_bin"
   elif command -v timeout >/dev/null 2>&1; then
-    (cd "$REPO_ROOT" && timeout 300s bun run "$_sync_bin" --code-only --dream --quiet >/dev/null 2>&1)
+    timeout 300s sh -c "$_repair" sh "$REPO_ROOT" "$_sync_bin"
   else
-    (cd "$REPO_ROOT" && perl -e 'alarm shift; exec @ARGV' 300 bun run "$_sync_bin" --code-only --dream --quiet >/dev/null 2>&1)
+    perl -e 'alarm shift; exec @ARGV' 300 sh -c "$_repair" sh "$REPO_ROOT" "$_sync_bin"
   fi
 }
 

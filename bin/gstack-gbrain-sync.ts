@@ -904,8 +904,8 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ok: true,
       duration_ms: 0,
       summary: pinnedSourceId
-        ? `would: gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`
-        : `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
+        ? `would: gbrain sources set-strategy ${sourceId} code; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`
+        : `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sources set-strategy ${sourceId} code; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
       detail: { source_id: sourceId, source_path: root, status: "skipped" },
     };
   }
@@ -982,6 +982,24 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
         detail: { source_id: sourceId, source_path: root, status: "failed" },
       };
     }
+  }
+
+  // Persist the source's purpose, not just this invocation's override.
+  // Autopilot and `sync --all` read sources.config.strategy and otherwise
+  // fall back to markdown, which can silently replace a valid code index on
+  // their next full walk. Older gbrain builds lack set-strategy; keep the
+  // explicit --strategy code invocation below as a backwards-compatible
+  // fallback, but make the degraded durability visible outside quiet mode.
+  const strategyResult = spawnGbrain(["sources", "set-strategy", sourceId, "code"], {
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: 10_000,
+    baseEnv: gbrainEnv,
+  });
+  if (strategyResult.status !== 0 && !args.quiet) {
+    console.error(
+      `[sync:code] source strategy could not be persisted; continuing with the explicit code override ` +
+      `(upgrade gbrain if autopilot or sync --all manages this source).`,
+    );
   }
 
   // Step 2: Always run the page-creating file walk first, then (for --full)

@@ -39,7 +39,9 @@ describe("GBrain readiness bootstrap contract", () => {
   });
 
   test("code readiness never pulls memory ingestion into repair", () => {
-    expect(readiness).toContain("--code-only --dream --quiet");
+    expect(readiness).toContain("--code-only --quiet");
+    expect(readiness).toContain("edges-backfill --source");
+    expect(readiness).toContain("--max-chunks 1000");
     expect(readiness).not.toContain("gstack-memory-ingest");
   });
 
