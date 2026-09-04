@@ -871,8 +871,8 @@ Parse the user's input to determine which mode to run. **Settle this before the 
 below** — Step 0.4 needs the resolved mode to pick the phase whose backend it should test, and
 case 3 resolves the mode by asking the user, so nothing earlier can know it. Carry the result
 forward using the table in the next section — it is the authority, and it is not
-`loop`-or-`final_gate` any more: a plain review in a `claude-fleet-config` worktree resolves to
-`auto`. Challenge/consult/plan remain `none`.
+`loop`-or-`final_gate` any more: a plain UNFOCUSED review resolves to `auto`, in EVERY repo.
+Challenge/consult/plan remain `none`.
 
 1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
 1a. `/codex review --loop` — **Review mode, loop phase** (Step 2A, loop path): runs ONE
@@ -912,9 +912,23 @@ standing in:
 _REVIEW_REPO=$(git remote get-url origin 2>/dev/null \
   | sed -e 's/\.git$//' -e 's#^git@\([^:]*\):#https://\1/#' \
   | awk -F/ '{ if (NF>=2) printf "%s/%s", $(NF-1), $NF }')
-echo "REVIEW_REPO: ${_REVIEW_REPO:-unknown}"
-# The one repository the VAS-2402 rollout covers. Widening this is a separate, explicit decision.
-_REVIEW_AUTO_REPO="vaskockorovski/claude-fleet-config"
+_REVIEW_OWNER=${_REVIEW_REPO%%/*}
+echo "REVIEW_REPO: ${_REVIEW_REPO:-unknown}   (owner=${_REVIEW_OWNER:-unknown})"
+# WIDENED 2026-09-04 (VAS-2660), from the single repo `vaskockorovski/claude-fleet-config` to
+# every repository this OWNER holds. Taken as the explicit decision the previous comment asked
+# for, on measurement: under the one-repo scope only 3 of 127 rounds since 1 Sep were eligible,
+# and the other 124 took the frontier gate BY THIS RULE rather than by any failure.
+#
+# WHY OWNER AND NOT NAME, because the safety property is unchanged. The risk the original
+# scoping guarded against is a STRANGER'S clone or fork silently opting itself into
+# loop-then-gate rounds. A fork carries a DIFFERENT OWNER, so an owner match excludes it exactly
+# as the full-name match did. Matching the trailing path SEGMENT alone would not — that is the
+# case the comment above rejects, and it stays rejected.
+#
+# Still fails CLOSED: an unreadable remote, a missing origin or any other owner keeps the
+# explicit phase, because `_REVIEW_OWNER` is then empty or non-matching and the `-n` guard below
+# refuses it.
+_REVIEW_AUTO_OWNER="vaskockorovski"
 ```
 
 **`auto` replaces the typed flag that VAS-2371's rollout ran on.** Under that scaffold a cfc session
@@ -975,10 +989,18 @@ per-mode default below. Otherwise, use the per-mode defaults:
 # SET THIS LINE from the mode Step 0.3 ALREADY RESOLVED — do not re-derive it from what the
 # user typed:
 #   loop        any `review --loop`, focused or not.
-#   auto        an UNFOCUSED review in a claude-fleet-config worktree — `/codex review`, or
-#               bare `/codex` once the user picks Review at Step 0.3.
-#   final_gate  every other review: any FOCUSED review (`/codex review <instructions>`)
-#               wherever it runs, and any review outside a claude-fleet-config worktree.
+#   auto        ANY UNFOCUSED review, in ANY repo — `/codex review`, or bare `/codex` once the
+#               user picks Review at Step 0.3.
+#               ROLLOUT SCOPE, so a reader of the measurement meets it here: widened from
+#               claude-fleet-config-only on 2026-09-04 (VAS-2660). Under the old scope only
+#               3 of 127 rounds since 1 Sep were eligible, and the other 124 took the frontier
+#               gate BY THIS RULE rather than by any failure — which is what made a correctly
+#               working feature read as broken for three weeks.
+#   final_gate  every other review: any FOCUSED review (`/codex review <instructions>`),
+#               wherever it runs. FOCUS IS NOW THE ONLY THING that sends a review straight to
+#               the gate; the repo no longer does. VAS-2664 carries why the focused path
+#               cannot take `auto` yet (three coupled sites, and `auto` forces review mode
+#               where the focused launcher needs exec mode to carry its prompt).
 #   none        challenge/consult/plan, which call codex directly and must keep their gating.
 #
 # ⚠ FOCUS IS AN AXIS HERE, AND ONLY HERE — this is the one thing about the rule that is easy to
@@ -1037,7 +1059,7 @@ _OV_PHASE="<<SET-ME: loop | final_gate | auto | none>>"   # ← SUBSTITUTE THIS 
 # the line the reader actually has to edit.
 case "$_OV_PHASE" in
   loop|final_gate|auto|none) ;;
-  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for any review --loop; 'auto' for an UNFOCUSED review in a claude-fleet-config worktree (including bare /codex once Review is picked); 'final_gate' for every other review — any FOCUSED review wherever it runs, and any review outside such a worktree; 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
+  *) echo "STOP: _OV_PHASE was not substituted (still '$_OV_PHASE'). Step 0.3 has already resolved the mode; carry it here — 'loop' for any review --loop; 'auto' for ANY UNFOCUSED review in ANY repo (including bare /codex once Review is picked); 'final_gate' for every other review — any FOCUSED review, wherever it runs; 'none' for challenge/consult/plan. Re-run this block after substituting." >&2
      return 2 2>/dev/null || exit 2 ;;
 esac
 
@@ -1227,11 +1249,11 @@ esac
 # preflight_gate() — so round 1 could bypass the structural-sweep refusal and be presented as an
 # ordinary gate verdict instead of ROUND NOT RUN. Whether a plain review in this repo demanded a
 # sweep then depended on ledger state, which is not a rule anyone could follow.
-if [ "${_REVIEW_REPO:-}" = "${_REVIEW_AUTO_REPO:-}" ] && [ -n "${_REVIEW_REPO:-}" ] \
+if [ "${_REVIEW_OWNER:-}" = "${_REVIEW_AUTO_OWNER:-}" ] && [ -n "${_REVIEW_OWNER:-}" ] \
    && [ "$_USER_TYPED_LOOP" = "no" ]; then
   _REVIEW_ROUTE=auto
 fi
-echo "REVIEW_ROUTE: $_REVIEW_ROUTE   (repo=${_REVIEW_REPO:-unknown} resolved=${_OV_RESOLVED_PHASE:-unknown} user_typed_loop=$_USER_TYPED_LOOP)"
+echo "REVIEW_ROUTE: $_REVIEW_ROUTE   (repo=${_REVIEW_REPO:-unknown} owner=${_REVIEW_OWNER:-unknown} resolved=${_OV_RESOLVED_PHASE:-unknown} user_typed_loop=$_USER_TYPED_LOOP)"
 ```
 
 **If `REVIEW_ROUTE: auto`, skip to the loop path below and run it with `_OV_PHASE=auto`.** It
@@ -1336,7 +1358,13 @@ _XHIGH=no
 case "$_XHIGH" in yes|no) ;; *) echo "STOP: _XHIGH must be yes or no (got '$_XHIGH'). Step 0.3 resolves it: yes when the user typed --xhigh." >&2; return 2 2>/dev/null || exit 2 ;; esac
 if [ "$_XHIGH" = yes ]; then _REVIEW_EFFORT=xhigh; else _REVIEW_EFFORT=high; fi
 echo "REVIEW_EFFORT: $_REVIEW_EFFORT"   # printed so an unapplied --xhigh is visible, not inferred
-~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
+# --gate-direct is a DECLARATION, and this block is entitled to make it: REVIEW_ROUTE said
+# `gate`, so either the repo is outside the auto rollout or the user typed --loop. Both are
+# straight-gate rounds by decision rather than by omission. The adapter refuses an undeclared
+# --phase final_gate precisely so that a caller which never made that decision — a second
+# harness composing this command from its own prompt — cannot bypass --phase auto in silence
+# (VAS-2660). It is counted on the round row as phase_requested=final_gate, not suppressed.
+~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit --gate-direct \
   --phase final_gate --codex-mode review \
   --prompt-file "$_GATE_PROMPT" --repo-root "$_REPO_ROOT" \
   --base "origin/<base>" \
@@ -1632,6 +1660,18 @@ printf '%s' "$_OV_SUBJECT" > "$_OV_LAUNCHED"
 # first splices VALUES into text the inner shell re-parses and was measured EXECUTING a path
 # (`/home/$(id -u)/p` arrived as `/home/1000/p`); the second is the in-flight corruption above.
 # Both failures are silent. There is a contract test — `test/codex-skill-no-positionals.test.ts`.
+# ⚠ THIS LAUNCHER DELIBERATELY DOES **NOT** PASS --gate-direct, and that is the one decision on
+# this page worth reading twice (VAS-2660). The other two exec sites declare it because they are
+# entitled to: REVIEW_ROUTE said `gate`, or focus cannot take `auto` yet. This launcher is the
+# AUTO lane. The only phases that legitimately reach it are `auto` and an explicitly-typed
+# `loop` — and the adapter ignores the flag on both, so passing it would buy nothing.
+#
+# What it WOULD buy is silence on the one case this file already names as a bug: a session
+# obeying a stale routing line skips the inline gate and hands this launcher
+# `--phase final_gate`, "so the auto lane never runs and the feature is silently bypassed".
+# Undeclared, that now stops with a message naming the bypass instead of quietly buying a
+# frontier round. A blanket --gate-direct here would re-silence exactly the failure the refusal
+# was built to expose — the flag is a declaration, and this launcher has nothing to declare.
 GSTACK_OV_PROMPT="$_LOOP_PROMPT" \
 GSTACK_OV_REPO="$_REPO_ROOT" \
 GSTACK_OV_FINDINGS="$_OV_FINDINGS" \
@@ -2065,7 +2105,14 @@ if [ "$_XHIGH" = yes ]; then _REVIEW_EFFORT=xhigh
 elif [ "$_FOCUS_PHASE" = "loop" ]; then _REVIEW_EFFORT=medium
 else _REVIEW_EFFORT=high; fi
 echo "FOCUS_EFFORT: $_REVIEW_EFFORT"
-~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit \
+# --gate-direct, unconditionally, and it is honest here rather than a rubber stamp: the focused
+# path CANNOT take `auto` — _FOCUS_PHASE offers loop | final_gate and nothing else — so when it
+# names final_gate that is a decision this template already made, not a bypass it drifted into.
+# Widening focus to `auto` is VAS-2664 (three coupled sites and an exec-vs-review semantics
+# change), blocked on the measurement week; when it lands, this flag comes off with it.
+# The flag is inert on a `loop` phase, so it needs no branch: the adapter only refuses an
+# undeclared final_gate.
+~/.claude/skills/gstack/bin/gstack-outside-voice exec --explicit --gate-direct \
   --phase "$_FOCUS_PHASE" --codex-mode exec \
   --prompt-file "$_PROMPT_FILE" --repo-root "$_REPO_ROOT" \
   --base "origin/<base>" \

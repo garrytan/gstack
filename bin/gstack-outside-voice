@@ -452,6 +452,70 @@ find_round_ledger() {
   return 1
 }
 
+# --- caller detection (VAS-2660) --------------------------------------------
+#
+# WHICH HARNESS FIRED THIS ROUND was unanswerable IN PRINCIPLE, not merely unanswered: 74 of 84
+# opencode rounds on digital-starter-kit never reached the ledger at all, and the ten that did
+# carried nothing saying they were opencode's. A cheap/frontier split is a property of the CALLER
+# POPULATION -- that is this ticket's whole root cause -- so a ledger that cannot name the caller
+# cannot answer the question the measurement week exists to ask.
+#
+# THREE SOURCES, IN DESCENDING ORDER OF AUTHORITY, AND THE LAST ONE IS "unknown" ON PURPOSE.
+# A guessed caller is worse than an absent one: it is indistinguishable from a measured one at
+# read time, and it shifts exactly the population count it was added to establish. Same argument
+# the ledger makes for refusing to default --voice.
+detect_caller() {
+  local _decl
+  # 1. An explicit declaration wins. A harness that knows its own name says so, and that is a
+  #    fact rather than an inference -- opencode's route onto this path, without needing its
+  #    prompt kept in sync with ours.
+  if [ -n "${GSTACK_OV_CALLER:-}" ]; then
+    # Constrain it to the ledger-safe charset rather than trusting a caller-supplied string:
+    # this value lands in JSON and is grouped on later, so a stray quote or a 4KB blob would
+    # corrupt the very rows it is meant to label.
+    #
+    # ⚠ AND A SANITISED-TO-EMPTY VALUE FALLS THROUGH, IT DOES NOT RETURN. Returning the empty
+    # string here emits `--caller` with no value, and the ledger parses that with `${2:?}` and
+    # DIES -- so a caller exporting punctuation (or a stray quoting accident in a wrapper) would
+    # silently lose every round row on that lane, which is precisely the invisibility this whole
+    # change exists to remove. Measured against the real ledger: exit 1, "parameter null or not
+    # set". An unusable declaration is not a declaration, so detection continues below.
+    _decl=$(printf '%s' "$GSTACK_OV_CALLER" | tr -cd 'A-Za-z0-9._-' | cut -c1-32)
+    if [ -n "$_decl" ]; then printf '%s' "$_decl"; return 0; fi
+    echo "gstack-outside-voice: note — GSTACK_OV_CALLER held no usable characters and was ignored; falling back to detection." >&2
+  fi
+
+  # 2. CLAUDECODE is set by the Claude Code harness in every Bash tool call, and -- the property
+  #    that matters here -- it is an ENVIRONMENT variable, so it survives into the `nohup bash -c`
+  #    child the loop launcher detaches. A process-tree walk does NOT: that child is reparented to
+  #    init the moment the launcher returns, which is precisely the shape the loop path uses.
+  [ -n "${CLAUDECODE:-}" ] && { printf 'cc'; return 0; }
+
+  # 3. Ancestor walk, bounded. Read /proc/PID/status rather than /proc/PID/stat: stat's second
+  #    field is the comm wrapped in parentheses and the comm itself may contain spaces AND a
+  #    closing paren, so every naive field-split of stat is wrong for a process someone can name.
+  #    status is line-oriented and has no such hazard.
+  local _pid="${PPID:-}" _hops=0 _name _ppid
+  while [ -n "$_pid" ] && [ "$_pid" != "0" ] && [ "$_hops" -lt 12 ]; do
+    [ -r "/proc/$_pid/status" ] || break
+    _name=$(awk '/^Name:/ { print $2; exit }' "/proc/$_pid/status" 2>/dev/null) || break
+    case "$_name" in
+      opencode|opencode-*) printf 'opencode'; return 0 ;;
+      claude)              printf 'cc';       return 0 ;;
+      cron|crond)          printf 'cron';     return 0 ;;
+      codex)               printf 'codex';    return 0 ;;
+    esac
+    _ppid=$(awk '/^PPid:/ { print $2; exit }' "/proc/$_pid/status" 2>/dev/null) || break
+    [ -n "$_ppid" ] || break
+    _pid="$_ppid"
+    _hops=$((_hops + 1))
+  done
+
+  # 4. HONEST UNKNOWN. Never "cc" as a default -- Claude Code is the caller that already announces
+  #    itself, so defaulting to it would silently absorb every harness that does not.
+  printf 'unknown'
+}
+
 # --- phase derivation (VAS-2371) --------------------------------------------
 #
 # WHY THIS EXISTS. `/codex review --loop` was opt-in per invocation, and nothing any session
@@ -717,6 +781,13 @@ cmd_exec() {
   local phase="" prompt_file="" repo_root="" effort="high" repo_context="diff"
   local base="origin/main" timeout_s="330" label="" findings_out="" codex_mode="exec"
   local pathspecs=() explicit=no
+  # VAS-2660. The caller's REQUESTED phase, kept because `auto` overwrites `$phase` in place a
+  # few lines below and the overwritten value is the only one anyone can see afterwards. "How
+  # many rounds ASKED for auto" and "how many RESOLVED to loop" are different questions, and the
+  # ledger could answer neither: without both halves, an `auto` lane that resolved to the gate is
+  # indistinguishable from a caller that hardcoded the gate -- which is this ticket's entire
+  # root cause, unreadable from its own record.
+  local _phase_requested="" _gate_direct=no
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -732,6 +803,9 @@ cmd_exec() {
       --pathspec)     pathspecs+=("${2:?--pathspec needs a value}"); shift 2 ;;
       --explicit)     explicit=yes; shift ;;
       --codex-mode)   codex_mode="${2:?}"; shift 2 ;;
+      # VAS-2660. "I mean a straight gate round, and I know I am bypassing --phase auto."
+      # See the refusal below for why an explicit final_gate now has to say so out loud.
+      --gate-direct)  _gate_direct=yes; shift ;;
       *) die "unknown option '$1'" ;;
     esac
   done
@@ -770,10 +844,75 @@ cmd_exec() {
   esac
   [ "$timeout_s" -gt 0 ] || die "--timeout must be greater than 0 — 'timeout 0' means NO limit, which is the opposite of what a cap is for."
   case "$codex_mode" in review|exec) ;; *) die "--codex-mode must be review|exec" ;; esac
+
+  # VAS-2660. THE REQUESTED PHASE IS RECORDED BEFORE `auto` OVERWRITES IT. Captured here rather
+  # than at the top of the parse loop so it reflects the fully-validated value; `none` is not a
+  # state this command has, so an empty phase has already died above.
+  _phase_requested="$phase"
+
   if [ -z "$repo_root" ]; then
     repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
       || die "not in a git repo and --repo-root not given"
   fi
+
+  # --- AN EXPLICIT final_gate MUST SAY IT MEANT IT (VAS-2660) -----------------
+  #
+  # THE MEASURED PROBLEM. `--phase auto` landed, was verified end-to-end, and was widened to
+  # every repo this owner has -- and the cheap tier still took 0 of 127 rounds over the four days
+  # that followed. Not because the routing was broken: because 124 of those rounds came from
+  # callers that never asked for it. opencode composes this command itself, at runtime, and fired
+  # `--phase final_gate` hardcoded 84 times in a single session; the focused review path names
+  # the phase from a template that does not offer `auto` at all.
+  #
+  # WHY A REFUSAL RATHER THAN A DOCTRINE LINE. The alternative -- get every harness's prompt to
+  # pass `auto` -- was already tried and is what produced this ticket: the instruction lives in a
+  # file a second harness does not read, so it stays correct and unread indefinitely. A gate at
+  # the adapter does not depend on anyone else's prompt being kept in sync, which is exactly the
+  # argument this ticket's own root-cause comment records for preferring it.
+  #
+  # WHY IT IS AN OPT-OUT AND NOT A BAN. A straight gate round is legitimate and common: a repo
+  # outside the auto-eligible owner, a user who typed --loop and must not be promoted, a lane
+  # already converged. All of those keep working -- they just have to declare it, which turns a
+  # silent bypass into a recorded decision. That is the whole difference between the 124 rounds
+  # above and 124 rounds anyone could have found.
+  #
+  # ⚠ THIS FIRES ONLY ON THE CALLER'S OWN PHASE, NEVER ON THE PROMOTION. The convergence branch
+  # in cmd_exec sets `phase=final_gate` and re-enters `_round`, not this function, so a promoted
+  # gate round is untouched. Placing the check in `_round` instead would refuse the very gate
+  # round `auto` exists to reach -- a guard that breaks the path it was written to protect.
+  # `backend` and `probe` are read-only inspection surfaces and do not route through here either.
+  if [ "$phase" = "final_gate" ] && [ "$_gate_direct" != "yes" ]; then
+    # LOUD, NOT SILENT — AND RECORDED. A refusal that only exits non-zero is the credits-wall
+    # failure mode wearing a different hat: the caller gets no findings and no row, and "refused
+    # before it started" becomes indistinguishable from "ran and found nothing" the moment
+    # anybody reads the lane afterwards. So the refusal writes its own event, in the same shape
+    # as the billing-wall rows already on these lanes, before it dies. It is an EVENT and never
+    # a round: a review that never ran must not be representable as a round reporting zeroes,
+    # which is the one thing the ledger exists to make impossible.
+    _rl_blk=$(find_round_ledger) && "$_rl_blk" -C "$repo_root" \
+      --event round_blocked \
+      --field cause=gate_direct_not_declared \
+      --field phase_requested=final_gate \
+      --field caller="$(detect_caller)" \
+      --note "REFUSED before spending: --phase final_gate without --gate-direct, so this invocation bypassed --phase auto without declaring it. NOT a clean round and NOT a zero-finding round — nothing was reviewed. The caller either routes through auto or declares --gate-direct (VAS-2660)." \
+      >/dev/null 2>&1 || true
+    die "--phase final_gate was passed without --gate-direct.
+
+  A hardcoded final_gate bypasses --phase auto, so this round takes the frontier gate whether or
+  not a cheap loop round could have done the work. That bypass was silent, and it is why the loop
+  tier ran 0 of 127 rounds while being reachable, configured and live (VAS-2660).
+
+  Pick one, deliberately:
+    --phase auto          route this lane: a cheap loop round first, promoted to the gate in this
+                          same invocation once it reports no P1 and no P2. Requires --findings-out.
+    --gate-direct         you meant a straight gate round -- a repo outside the auto rollout, an
+                          already-converged artefact, or a user-typed --loop that must not promote.
+                          Recorded on the round row as phase_requested=final_gate.
+
+  Neither is a workaround for the other: --gate-direct is a declaration, not a suppression, and it
+  is counted."
+  fi
+
 
   # `--phase auto` (VAS-2371) resolves AFTER repo_root, because derivation reads the ledger for
   # that repo, and BEFORE `label` defaults, because a label of "auto" would put every derived
@@ -833,6 +972,119 @@ cmd_exec() {
     echo "OUTSIDE_VOICE_DISABLED codex_reviews=disabled" >&2
     return 3
   fi
+
+  # --- WHAT A ROUND KNOWS ABOUT ITSELF, AND WHAT IT DOES NOT (VAS-2660) ------
+  #
+  # Nested alongside _round for the same reason _round is nested: everything it reads -- phase,
+  # backend, findings_out, the requested phase -- is a local of cmd_exec, and an eight-parameter
+  # signature at this width is the positional-argument class waiting to happen.
+  #
+  # THE THREE HONEST SHAPES, and choosing between them is the whole job:
+  #
+  #   round did not complete   -> an EVENT, never a round row. rounds_logged counts COMPLETED
+  #                               rounds and feeds both the runaway cap and resolve_phase, so a
+  #                               timed-out or errored invocation recorded as a round would
+  #                               inflate the count that decides the NEXT round's tier. It also
+  #                               must not vanish: it spent money. Hence an event.
+  #   severities unreadable    -> --severity-unknown. The codex backend emits no structured
+  #                               findings block and this file DELETES the findings file on that
+  #                               path, so there is nothing to read. Zeroes here would be a
+  #                               manufactured clean: byte-identical to a genuinely clean round,
+  #                               and the convergence check reads exactly those numbers.
+  #   severities readable      -> the real counts, plus --classes-unknown when anything was
+  #                               found. The adapter can read {p1,p2,p3}; it can NEVER read
+  #                               new-work / self-inflicted / cosmetic / false-positive, which
+  #                               are a judgement about the codebase that only the driving
+  #                               session can make. A round that found nothing is the one case
+  #                               where the classes ARE known -- all zero -- so it writes them.
+  #
+  # EVERY FAILURE HERE IS NON-FATAL. The review already happened and was already billed; losing
+  # the round to a ledger problem would be strictly worse than losing the row. But it is never
+  # SILENT either: a write that fails says so on stderr, because a lane that quietly stopped
+  # recording looks exactly like a lane where nothing ran, which is the defect this whole change
+  # exists to remove.
+  _log_round() {
+    local _rc_in="${1:-0}" _rl _voice _caller _p1 _p2 _p3 _sev_args=()
+
+    _rl=$(find_round_ledger) || {
+      echo "gstack-outside-voice: note — no round ledger found, so this round was NOT recorded. The cheap/frontier split cannot be measured from this lane." >&2
+      return 0
+    }
+    _caller="$(detect_caller)"
+
+    # THE VOICE IS THE MODEL, NOT THE BACKEND. `openrouter` is a gateway that can serve anything,
+    # so filing every openrouter round under "openrouter" would collapse the per-voice hit rate
+    # the ledger exists to build. The vendor prefix is stripped so `minimax/minimax-m3` files as
+    # `minimax-m3`, matching the rows already on these lanes.
+    if [ "$backend" = "codex" ]; then
+      _voice=codex
+    else
+      _voice="$(_cfg outside_voice_loop_model)"
+      _voice="${_voice##*/}"
+      # Never default to a plausible name. An unreadable model id is a provenance hole, and the
+      # ledger refuses a defaulted --voice for exactly this reason: a wrong row is worse than no
+      # row, because at read time it is indistinguishable from a right one.
+      [ -n "$_voice" ] || _voice="openrouter-unknown-model"
+    fi
+
+    if [ "$_rc_in" -ne 0 ]; then
+      "$_rl" -C "$repo_root" --event round_failed \
+        --field cause="exit_$_rc_in" \
+        --field phase_requested="$_phase_requested" \
+        --field phase_resolved="$phase" \
+        --field caller="$_caller" \
+        --field voice="$_voice" \
+        --note "The $backend backend exited $_rc_in on a '$phase' round. Recorded as an EVENT, not a round: nothing was established, so it must not inflate rounds_logged, which feeds the runaway cap and the next round's tier. It DID spend, which is why it is not simply dropped." \
+        >/dev/null 2>&1 \
+        || echo "gstack-outside-voice: WARNING — could not record the failed round in the ledger." >&2
+      return 0
+    fi
+
+    # Read the severities out of the findings file, or establish that they cannot be read. The
+    # python exits non-zero on anything unreadable rather than printing a plausible zero, so an
+    # absent file, malformed JSON and a non-integer count all land in the SAME branch as the
+    # codex backend -- unknown -- instead of three different ways of looking clean.
+    if [ -n "$findings_out" ] && [ -f "$findings_out" ] \
+       && _counts=$("$_PY" - "$findings_out" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit(1)
+vals = []
+for k in ("p1", "p2", "p3"):
+    v = d.get(k)
+    # A TYPE TEST, NOT AN ABSENCE TEST. `d.get(k) or 0` would read a legitimate 0 as missing and
+    # a string "2" as a count; bool is excluded because it is an int subclass in Python and True
+    # would silently arrive as 1.
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise SystemExit(1)
+    vals.append(v)
+print(" ".join(str(v) for v in vals))
+PY
+       ); then
+      read -r _p1 _p2 _p3 <<<"$_counts"
+      if [ $(( _p1 + _p2 + _p3 )) -eq 0 ]; then
+        # Nothing found: the classes are genuinely known and they are all zero. Recording them
+        # keeps the lane classes_complete, which is a stop-condition input -- marking a clean
+        # round unclassified would degrade the signal for no information.
+        _sev_args=(--p1 "$_p1" --p2 "$_p2" --p3 "$_p3"
+                   --new-work 0 --self-inflicted 0 --cosmetic 0 --false-positive 0)
+      else
+        _sev_args=(--p1 "$_p1" --p2 "$_p2" --p3 "$_p3" --classes-unknown)
+      fi
+    else
+      _sev_args=(--severity-unknown)
+    fi
+
+    "$_rl" -C "$repo_root" --voice "$_voice" "${_sev_args[@]}" \
+      --phase-requested "$_phase_requested" \
+      --phase-resolved "$phase" \
+      --caller "$_caller" \
+      --note "Logged by gstack-outside-voice (backend=$backend, label=$label). Classes are the driving session's to judge." \
+      >/dev/null 2>&1 \
+      || echo "gstack-outside-voice: WARNING — the round RAN but could not be recorded in the ledger. This lane now under-counts; do not read its cheap/frontier split as complete." >&2
+  }
 
   # ONE ROUND, RUN HERE. Extracted so this invocation can run a SECOND one -- the gate -- when
   # the loop converges, which is what VAS-2373's (c2) resolution requires and what removed the
@@ -953,6 +1205,24 @@ cmd_exec() {
         fi
         exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} || _rc=$? ;;
     esac
+
+    # --- THE LEDGER WRITE. ONE SITE, AND THAT IS THE POINT (VAS-2660) ---------
+    #
+    # `gstack-outside-voice exec` did not write round rows AT ALL. Every caller had to remember
+    # separately and most did not: 74 of 84 opencode rounds never reached the ledger, and a
+    # controlled, doctrine-aware invocation on 4 Sep ran two rounds, spent tokens on both, and
+    # left the lane holding one row — the preflight, written by hand. So the cheap/frontier split
+    # this ticket was opened to explain was being computed from a population that under-counted
+    # itself, and nobody could see which harness or which phase produced any of it.
+    #
+    # IT LIVES INSIDE _round BECAUSE _round IS WHAT RUNS A ROUND. The convergence branch calls
+    # this function a SECOND time to run the promoted gate, so a write placed at either call site
+    # would record one of the two rounds and silently miss the other — and it would miss the GATE
+    # round, the expensive one, on exactly the lanes `--phase auto` exists to create. This is the
+    # same argument the repo-context guard above makes for living at the chokepoint rather than
+    # at the call site somebody noticed: the reachable set is not the set of sites a reviewer
+    # happens to name.
+    _log_round "$_rc"
   }
 
   local _rc=0

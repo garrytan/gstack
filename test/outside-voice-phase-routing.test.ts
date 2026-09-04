@@ -306,10 +306,17 @@ describe('exec — --repo-context none is refused for every openrouter-backed ph
   let orRoot: string;
   beforeAll(() => { orRoot = freshStateRoot('openrouter', ''); });
 
+  // VAS-2660: `final_gate` now carries --gate-direct here. That is NOT a weakening of this
+  // assertion, and the distinction matters. An undeclared explicit final_gate is refused EARLIER,
+  // in argument validation, so without the flag this case would stop on the routing refusal and
+  // never reach the repo-context guard it exists to test — a test that passes for the wrong
+  // reason and quietly stops covering the guard it names. Declaring the phase is what keeps the
+  // case reaching the chokepoint. The flag is inert on `auto` and `loop`, which is why it can be
+  // passed uniformly rather than branched on.
   for (const phase of ['auto', 'loop', 'final_gate']) {
     test(`--phase ${phase} with --repo-context none is refused`, () => {
       const r = spawnSync(ADAPTER, ['exec', '--phase', phase, '--prompt-file', __filename,
-        '--repo-root', repo, '--repo-context', 'none', '--findings-out', path.join(tmp, 'f.json'), '--explicit'], {
+        '--repo-root', repo, '--repo-context', 'none', '--findings-out', path.join(tmp, 'f.json'), '--explicit', '--gate-direct'], {
         encoding: 'utf8',
         env: { ...process.env, ...LOOP_FIXTURE_ENV, GSTACK_STATE_ROOT: orRoot },
       });

@@ -207,8 +207,20 @@ describe('VAS-2402: --phase auto and the five followers', () => {
   // second one unnecessary, so removing either fails here.
   test.each(FILES)('%s: the auto route is taken on repo opt-in, with the gate shape preserved', (_l, file) => {
     const t = fs.readFileSync(file as string, 'utf8');
-    expect(t).toMatch(/_REVIEW_REPO:-\}" = "\$\{_REVIEW_AUTO_REPO:-\}"[\s\S]{0,120}?_REVIEW_ROUTE=auto/);
-    expect(t).not.toMatch(/_REVIEW_AUTO_REPO:-\}"[\s\S]{0,200}?_OV_RESOLVED_PHASE:-\}" = "loop"/);
+    // RE-DERIVED AGAIN (VAS-2660). The rollout widened from one repo NAME to one OWNER, and the
+    // comparison moved with it: `_REVIEW_AUTO_REPO`/`_REVIEW_REPO` became
+    // `_REVIEW_AUTO_OWNER`/`_REVIEW_OWNER`. This assertion still named the retired variables, so
+    // it had been RED since that commit — the widening landed without its own contract test. Two
+    // things worth carrying: a guard keyed on a name a refactor moved is only as useful as
+    // someone reading its failure, and a suite left red is a suite that cannot tell the next
+    // session's breakage from the last one's.
+    expect(t).toMatch(/_REVIEW_OWNER:-\}" = "\$\{_REVIEW_AUTO_OWNER:-\}"[\s\S]{0,200}?_REVIEW_ROUTE=auto/);
+    expect(t).not.toMatch(/_REVIEW_AUTO_OWNER:-\}"[\s\S]{0,200}?_OV_RESOLVED_PHASE:-\}" = "loop"/);
+    // The owner match is what makes the widening safe: a stranger's FORK carries a different
+    // owner and is still excluded, exactly as the full-name match excluded it. Asserting the
+    // variable is present is not the same as asserting the scoping property survived, so the
+    // trailing-segment match the original comment rejects is asserted to stay rejected.
+    expect(t).not.toMatch(/_REVIEW_REPO##\*\//);
     expect(t).toMatch(/_OV_PHASE" = "auto" \]; then _OV_MODE=review/);
   });
 
@@ -261,13 +273,24 @@ describe('VAS-2402: --phase auto and the five followers', () => {
   // Asserted on the rule LINES, which is what a session reads, not on the prose around them.
   test.each(FILES)('%s: the phase rule names the focused case, at both sites', (_l, file) => {
     const t = fs.readFileSync(file as string, 'utf8');
-    expect(t).toMatch(/^#\s+auto\s+an UNFOCUSED review in a claude-fleet-config worktree/m);
+    // RE-DERIVED (VAS-2660), same cause as the route assertion above: the rollout widened from
+    // one repo to one owner and this line went with it — "in a claude-fleet-config worktree"
+    // became "in ANY repo". The assertion still named the old scope and had been RED since.
+    // It is re-keyed on the WIDENED scope rather than merely on the words, so a silent narrowing
+    // back to one repo fails here instead of passing on a substring that survived the edit.
+    expect(t).toMatch(/^#\s+auto\s+ANY UNFOCUSED review, in ANY repo/m);
     expect(t).toMatch(/^#\s+final_gate\s+every other review: any FOCUSED review/m);
     expect(t).toMatch(/FOCUS IS AN AXIS HERE, AND ONLY HERE/);
     // bare /codex counts as unfocused — the entry point that has no instructions to be focused by
     expect(t).toMatch(/Bare `\/codex` that resolves to Review at Step 0\.3 counts as UNFOCUSED/);
     // the STOP message is the second authority and must carry the same rule
-    expect(t).toMatch(/STOP: _OV_PHASE was not substituted[\s\S]{0,500}?any FOCUSED review wherever it runs/);
+    // The comma is real: the STOP message reads "any FOCUSED review, wherever it runs". Matching
+    // punctuation-tightly is deliberate here — this assertion exists to prove the two authorities
+    // carry the SAME rule, and a pattern loose enough to survive a reword is loose enough to
+    // survive them drifting apart, which is the whole failure it guards.
+    expect(t).toMatch(/STOP: _OV_PHASE was not substituted[\s\S]{0,500}?any FOCUSED review, wherever it runs/);
+    // ...and the STOP message must carry the WIDENED scope too, not just the focused half.
+    expect(t).toMatch(/STOP: _OV_PHASE was not substituted[\s\S]{0,500}?ANY UNFOCUSED review in ANY repo/);
     // every superseded wording is gone from both sites
     expect(t).not.toMatch(/`auto` for a PLAIN review/);
     expect(t).not.toMatch(/WHETHER INSTRUCTIONS WERE GIVEN IS NOT AN AXIS HERE/);
