@@ -26,6 +26,7 @@ function run(payload: string): { stdout: string; stderr: string; status: number 
     env: { ...process.env, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',
@@ -283,7 +284,13 @@ describe('gstack-question-log — injection defense', () => {
 describe('gstack-question-log — shared injection patterns (#1934 dedup)', () => {
   test('imports hasInjection from lib/jsonl-store.ts instead of a local duplicate', () => {
     const source = fs.readFileSync(BIN, 'utf-8');
-    expect(source).toContain("import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts'");
+    // #2720 absorption: the lib path travels via env var (apostrophe-safe —
+    // shell interpolation into a JS string literal broke on paths containing
+    // '), so the import is dynamic. The invariant is unchanged: the shared
+    // audited hasInjection from lib/jsonl-store.ts, never a local duplicate.
+    expect(source).toContain(
+      "const { hasInjection } = await import(process.env.GSTACK_LIB_DIR + '/jsonl-store.ts');",
+    );
     expect(source).not.toContain('const INJECTION_PATTERNS');
   });
 });

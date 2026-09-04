@@ -15,7 +15,6 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}/ci
-  EVALS_TIER: gate
 
 jobs:
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
@@ -34,7 +33,7 @@ jobs:
     outputs:
       image-tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - id: meta
         # Key on Dockerfile + lockfile only. package.json is deliberately NOT
@@ -44,7 +43,7 @@ jobs:
         # overwrites /workspace and node_modules comes from the lockfile.
         run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -69,10 +68,10 @@ jobs:
       # Registry cache export needs a docker-container builder — the default
       # `docker` driver hard-errors on cache-to (first live run of the trio).
       - if: steps.check.outputs.exists == 'false'
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - if: steps.check.outputs.exists == 'false'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci
@@ -85,424 +84,27 @@ jobs:
             ${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE }}:latest
 
-  # Fork PRs never receive repository secrets (ANTHROPIC_API_KEY et al), so every
-  # API-calling eval fails at SDK auth before a model runs. Skip deterministically
-  # rather than leaving the outcome to Docker-cache luck: a warm cache let these
-  # run and fail, a cold one made build-image fail its push and the shards skip.
-  # Same-repo PRs, pushes, and workflow_dispatch keep full coverage. Fork work
-  # gets real coverage via a trusted base-repo branch.
-  evals:
-    runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-8' }}
-    needs: build-image
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    # Least privilege for the job that executes PR-authored code with three
-    # provider API keys in env: read-only contents, packages:read for the
-    # container-image pull below. Without this block the job ran on the
-    # repo-default token grant.
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ${{ needs.build-image.outputs.image-tag }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --user runner
-    timeout-minutes: ${{ matrix.suite.timeout || 25 }}
-    strategy:
-      fail-fast: false
-      matrix:
-        suite:
-          - name: llm-judge
-            file: test/skill-llm-eval.test.ts
-          - name: e2e-browse
-            file: test/skill-e2e-bws.test.ts
-            runner: ubicloud-standard-8
-          - name: e2e-plan
-            file: test/skill-e2e-plan.test.ts
-          - name: e2e-deploy
-            file: test/skill-e2e-deploy.test.ts
-          - name: e2e-design
-            file: test/skill-e2e-design.test.ts
-          - name: e2e-qa-bugs
-            file: test/skill-e2e-qa-bugs.test.ts
-          - name: e2e-qa-workflow
-            file: test/skill-e2e-qa-workflow.test.ts
-          - name: e2e-review
-            file: test/skill-e2e-review.test.ts
-          - name: e2e-retro
-            file: test/skill-e2e-retro.test.ts
-          - name: e2e-review-attribution
-            file: test/skill-e2e-review-attribution.test.ts
-          - name: e2e-workflow
-            file: test/skill-e2e-workflow.test.ts
-            # Earned its extra attempt with receipts: document-release is a
-            # long multi-step E2E that timed out on attempt 2 under in-shard
-            # concurrency (PR #2593 round 4) while passing other rounds.
-            retries: 2
-          # Rehomed from the deleted pre-split monolith (its filename never
-          # matched the skill-e2e-* glob, so these gate tests silently never
-          # ran). Both files hold gate-tier tests: review/plan-eng coverage
-          # audits and the /ship failure-ownership triage.
-          - name: e2e-coverage-audit
-            file: test/skill-e2e-coverage-audit.test.ts
-          - name: e2e-triage
-            file: test/skill-e2e-triage.test.ts
-          # ship-docsync is whole-file tier-gated (describeE2ETier('gate') keeps
-          # it out of the periodic shard census), so its row MUST set tier: gate
-          # — without it the self-gate skips every test and the job reports a
-          # hollow green (the same silent-skip class as the rehomed monolith
-          # above, one layer deeper). The Run step exports EVALS_TIER from this
-          # property; rows without it keep EVALS_TIER empty (= unset: every
-          # reader is `=== '<tier>'` or truthiness). Enforced by
-          # test/evals-workflow-matrix.test.ts.
-          - name: e2e-ship-docsync
-            file: test/skill-e2e-ship-docsync.test.ts
-            tier: gate
-          # Consent-gate guardrail for the Third-Party Web Actions contract
-          # (Aside recommended-driver rewrite): hermetic shims, deterministic
-          # grep assertions, gate tier in E2E_TIERS.
-          - name: e2e-third-party-actions
-            file: test/skill-e2e-third-party-actions.test.ts
-            tier: gate
-          - name: e2e-routing
-            file: test/skill-routing-e2e.test.ts
-          # (e2e-codex / e2e-gemini rows deleted: both files are whole-file
-          # periodic-tier, so with no row tier: they ran ZERO tests and
-          # reported green on every PR — ~2 min of runner per PR of pure
-          # false confidence. The periodic lane owns these suites.)
-          # Real-PTY plan-mode smokes. Only the deterministically-reliable ones
-          # are CI-gated: office-hours (asks its mode question first, caught by
-          # the collapsed/bullet prose-AUQ detector) and plan-mode-no-op (no
-          # ask-first dependency). The plan-eng/plan-design plan-mode + floor
-          # smokes are periodic (stochastic ask-first — see touchfiles E2E_TIERS).
-          # Needs the interactive-config seed step below; PTY sessions otherwise
-          # wedge on the fresh-container onboarding/API-key dialog.
-          - name: e2e-pty-plan-smoke
-            file: test/skill-e2e-office-hours-auto-mode.test.ts test/skill-e2e-plan-mode-no-op.test.ts
-            # Both files are whole-file describeE2ETier('gate') — without this
-            # row tier: the job burned ~7 min of setup then skipped every
-            # describe (hollow-green since the files adopted the self-gate).
-            tier: gate
-            timeout: 35
-            # The documented contention-heavy PTY family: ROTATING members
-            # failed attempt 2 in consecutive PR #2593 rounds
-            # (plan-design-review, then plan-eng-review) while the family
-            # passes on branches still running three attempts. Every other
-            # row keeps --retry 1.
-            retries: 2
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          # Don't write the token into .git/config — this job runs
-          # PR-authored code; nothing in it pushes.
-          persist-credentials: false
-
-      # Bun creates root-owned temp dirs during Docker build. GH Actions runs as
-      # runner user with HOME=/github/home. Redirect bun's cache to a writable dir.
-      - name: Fix bun temp
-        run: |
-          mkdir -p /home/runner/.cache/bun
-          {
-            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
-            echo "BUN_TMPDIR=/home/runner/.cache/bun"
-            echo "TMPDIR=/home/runner/.cache"
-          } >> "$GITHUB_ENV"
-
-      # Restore pre-installed node_modules from Docker image via recursive
-      # copy. Symlink (`ln -s`) breaks bun's module resolution because bun
-      # resolves a file's realpath when walking up to find node_modules/<dep>;
-      # from a symlinked path, realpath escapes the workspace and sibling
-      # deps no longer resolve. Hardlink copy (`cp -al`) fails because /opt
-      # and /workspace are on different overlay-fs layers ("Invalid
-      # cross-device link"). Recursive copy works on every layout. Cost:
-      # ~5s for ~200 packages of small JS files vs ~0s for symlink — still
-      # vastly cheaper than rerunning `bun install` (network + resolution).
-      - name: Restore deps
-        run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
-            cp -r /opt/node_modules_cache node_modules
-          else
-            bun install
-          fi
-
-      - run: bun run build
-
-      # Verify Playwright can launch Chromium (fails fast if sandbox/deps are broken)
-      - name: Verify Chromium
-        if: matrix.suite.name == 'e2e-browse'
-        run: |
-          echo "whoami=$(whoami) HOME=$HOME TMPDIR=${TMPDIR:-unset}"
-          touch /tmp/.bun-test && rm /tmp/.bun-test && echo "/tmp writable"
-          bun -e "import {chromium} from 'playwright';const b=await chromium.launch({args:['--no-sandbox']});console.log('Chromium OK');await b.close()"
-
-      # PTY smokes spawn the interactive `claude` TUI. A fresh container has no
-      # ~/.claude.json, so claude wedges on the onboarding + "use detected
-      # ANTHROPIC_API_KEY?" dialog and the spawned session never reaches the
-      # skill. Seed onboarding-complete + the key approval (mirrors what the
-      # hermetic E2E child env seeds). Scoped to this suite; needs its OWN key
-      # env (the secrets block below is on the Run step only).
-      - name: Seed claude interactive config
-        if: matrix.suite.name == 'e2e-pty-plan-smoke'
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          node -e '
-            const fs = require("fs"), os = require("os"), path = require("path");
-            const p = path.join(os.homedir(), ".claude.json");
-            const seed = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : {};
-            seed.hasCompletedOnboarding = true;
-            const key = process.env.ANTHROPIC_API_KEY || "";
-            if (key) seed.customApiKeyResponses = { approved: [key.slice(-20)], rejected: [] };
-            fs.writeFileSync(p, JSON.stringify(seed, null, 2));
-            console.log("seeded", p);
-          '
-
-      # PTY smokes drive the interactive `claude` TUI and send /office-hours,
-      # /plan-ceo-review, /plan-eng-review, and /plan-design-review. Claude Code
-      # discovers user-scoped skills from $HOME/.claude/skills/<name>/SKILL.md,
-      # but .claude/skills is gitignored, so a fresh CI checkout has NO registry
-      # — claude prints "Unknown command: /plan-ceo-review". Mirror setup's
-      # --no-prefix registry minimally: a gstack root symlink (resolves the
-      # preamble's absolute ~/.claude/skills/gstack/bin/* and
-      # ~/.claude/skills/gstack/<skill>/sections/* paths) plus a per-skill
-      # top-level dir holding SKILL.md (+ sections) symlinks for the four skills
-      # these tests invoke. No ./setup (it builds binaries, launches Chromium,
-      # installs fonts, reads a /dev/tty prompt) and no binary build (SKILL.md +
-      # bin/ + sections/ are committed). $HOME is /github/home here; the spawned
-      # claude inherits it (this runner adds no HOME/CLAUDE_CONFIG_DIR override,
-      # no hermetic mode) and the Seed step already proved claude reads $HOME.
-      #
-      # KEEP THIS STEP even though seedSkills/hermeticSkillsConfigDir() now
-      # registers skills for hermetic PTY children: that registry is SYMLINKS
-      # into the repo checkout, and this container's cross-mount symlinks
-      # defeat the TUI skill scanner (see the note inside the step below) —
-      # the real-file copies here are what the TUI actually reads. HOME is
-      # also not hermeticized, so the absolute ~/.claude/skills/gstack/...
-      # preamble paths resolve through the gstack root symlink this step makes.
-      - name: Register gstack skills for PTY smoke
-        if: matrix.suite.name == 'e2e-pty-plan-smoke'
-        run: |
-          set -eu
-          SKILLS_DIR="$HOME/.claude/skills"
-          REPO="$GITHUB_WORKSPACE"   # /__w/gstack/gstack
-          mkdir -p "$SKILLS_DIR"
-          # The gstack root stays a symlink — the preamble's runtime bash resolves
-          # ~/.claude/skills/gstack/bin/* and ~/.claude/skills/gstack/<skill>/sections/*
-          # through it, and bash follows cross-mount symlinks fine.
-          ln -snf "$REPO" "$SKILLS_DIR/gstack"
-          # But the per-skill SKILL.md the TUI DISCOVERS must be a REAL file on the
-          # same mount as $HOME. claude 2.1.187's interactive-TUI skill scanner does
-          # not follow the /github/home -> /__w cross-mount symlink (proven: `claude
-          # -p` discovered the skill — READY — while the TUI rejected /office-hours
-          # as "Unknown command"; a local macOS repro with the identical symlinked
-          # registry recognized it, isolating the failure to the container's
-          # cross-mount symlink). Copy SKILL.md + sections as real files so the TUI
-          # reads them directly.
-          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
-            rm -rf "${SKILLS_DIR:?}/$s"
-            mkdir -p "$SKILLS_DIR/$s"
-            cp "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
-            cp -R "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
-          done
-          # Also register PROJECT-scoped (cwd) skills. claude's interactive TUI
-          # surfaces /slash commands from <cwd>/.claude/skills, and the smokes run
-          # with cwd=$REPO whose .claude/skills is gitignored (absent on a fresh CI
-          # checkout) — the user-dir registration above feeds `claude -p` but the
-          # TUI looks here. No gstack symlink in the project dir: it would point at
-          # its own parent ($REPO). Runtime preamble paths use the user-dir
-          # ~/.claude/skills/gstack symlink above.
-          PROJ_SKILLS="$REPO/.claude/skills"
-          mkdir -p "$PROJ_SKILLS"
-          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
-            rm -rf "${PROJ_SKILLS:?}/$s"
-            mkdir -p "$PROJ_SKILLS/$s"
-            cp "$REPO/$s/SKILL.md" "$PROJ_SKILLS/$s/SKILL.md"
-            cp -R "$REPO/$s/sections" "$PROJ_SKILLS/$s/sections"
-          done
-          # Pre-seed every ONE-TIME preamble marker so no PTY child ever takes a
-          # first-run branch mid-test. On a fresh runner these are all missing, so
-          # each smoke's preamble fires feature discovery / telemetry / lake-intro
-          # prompts before the behavior under test — and touching the
-          # feature-discovery marker under ~/.claude/skills/gstack/ trips Claude
-          # Code's sensitive-file permission prompt, stalling the run before the
-          # scope gate renders (the documented intermittent
-          # scope-gate-question-NOT-observed failure: outcome=asked was the
-          # permission dialog, not the gate). Dev machines never hit this because
-          # the operator's markers already exist; CI must seed them explicitly.
-          mkdir -p "$HOME/.gstack"
-          touch "$HOME/.gstack/.activated" \
-                "$HOME/.gstack/.first-loop-tip-shown" \
-                "$HOME/.gstack/.telemetry-prompted" \
-                "$HOME/.gstack/.proactive-prompted" \
-                "$HOME/.gstack/.completeness-intro-seen" \
-                "$HOME/.gstack/.plan-tune-nudge-shown"
-          # These two resolve through the gstack root symlink into $REPO —
-          # untracked scratch in the CI checkout, exactly where the preamble looks.
-          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
-                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
-          echo "--- registry under $SKILLS_DIR ---"
-          ls -la "$SKILLS_DIR/gstack" "$SKILLS_DIR/office-hours" "$SKILLS_DIR/plan-ceo-review"
-          # Fail fast if any committed target moved/renamed — a dangling symlink
-          # would otherwise resurface as a silent "Unknown command" + 35-min timeout.
-          for f in \
-            "$SKILLS_DIR/office-hours/SKILL.md" \
-            "$SKILLS_DIR/plan-ceo-review/SKILL.md" \
-            "$SKILLS_DIR/plan-eng-review/SKILL.md" \
-            "$SKILLS_DIR/plan-design-review/SKILL.md" \
-            "$SKILLS_DIR/gstack/bin/gstack-update-check" \
-            "$SKILLS_DIR/gstack/office-hours/sections/design-and-handoff.md" \
-            "$SKILLS_DIR/gstack/plan-ceo-review/sections/review-sections.md" \
-            "$SKILLS_DIR/gstack/plan-eng-review/sections/review-sections.md" \
-            "$SKILLS_DIR/gstack/plan-design-review/sections/review-sections.md"; do
-            if [ ! -e "$f" ]; then
-              echo "ERROR: skill-registry target missing (symlink dangles): $f" >&2
-              exit 1
-            fi
-          done
-          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
-            grep -m1 "^name: $s\$" "$SKILLS_DIR/$s/SKILL.md" >/dev/null \
-              || { echo "ERROR: $s SKILL.md missing 'name: $s' frontmatter" >&2; exit 1; }
-          done
-          echo "skill registry OK"
-
-      - name: Run ${{ matrix.suite.name }}
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          EVALS_CONCURRENCY: "40"
-          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
-          # Per-row tier activation for whole-file-gated suites. Empty when the
-          # row declares no tier — every EVALS_TIER reader treats empty as unset
-          # (`=== '<tier>'` comparisons and the truthiness check in
-          # test/helpers/e2e-helpers.ts:70), so untiered rows are byte-for-byte
-          # unaffected.
-          EVALS_TIER: ${{ matrix.suite.tier || '' }}
-        run: EVALS=1 bun test --retry ${{ matrix.suite.retries || 1 }} --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
-
-      - name: Upload eval results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: eval-${{ matrix.suite.name }}
-          path: ~/.gstack-dev/evals/*.json
-          retention-days: 90
-
-  report:
-    runs-on: ubicloud-standard-2
-    needs: evals
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
-      # The comment upsert below calls the REST `/issues/{n}/comments` endpoints
-      # (gh api ... issues/comments). With GITHUB_TOKEN those are gated by the
-      # `issues` permission, not `pull-requests` — without it the GET returns 401
-      # on every PR that produces eval artifacts (PRs with no artifacts exit
-      # early and never hit it, which is why this stayed hidden). See #1802 CI fix.
-      issues: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-
-      - name: Download all eval artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: eval-*
-          path: /tmp/eval-results
-          merge-multiple: true
-
-      - name: Post PR comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # shellcheck disable=SC2086,SC2059
-          RESULTS=$(find /tmp/eval-results -name '*.json' 2>/dev/null | sort)
-          if [ -z "$RESULTS" ]; then
-            echo "No eval results found"
-            exit 0
-          fi
-
-          TOTAL=0; PASSED=0; FAILED=0; COST="0"
-          SUITE_LINES=""
-          for f in $RESULTS; do
-            if ! jq -e '.total_tests' "$f" >/dev/null 2>&1; then
-              echo "Skipping malformed JSON: $f"
-              continue
-            fi
-            T=$(jq -r '.total_tests // 0' "$f")
-            P=$(jq -r '.passed // 0' "$f")
-            F=$(jq -r '.failed // 0' "$f")
-            C=$(jq -r '.total_cost_usd // 0' "$f")
-            TIER=$(jq -r '.tier // "unknown"' "$f")
-            [ "$T" -eq 0 ] && continue
-            TOTAL=$((TOTAL + T))
-            PASSED=$((PASSED + P))
-            FAILED=$((FAILED + F))
-            COST=$(echo "$COST + $C" | bc)
-            STATUS_ICON="✅"
-            [ "$F" -gt 0 ] && STATUS_ICON="❌"
-            SUITE_LINES="${SUITE_LINES}| ${TIER} | ${P}/${T} | ${STATUS_ICON} | \$${C} |\n"
-          done
-
-          STATUS="✅ PASS"
-          [ "$FAILED" -gt 0 ] && STATUS="❌ FAIL"
-
-          BODY="## E2E Evals: ${STATUS}
-
-          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost
-
-          | Suite | Result | Status | Cost |
-          |-------|--------|--------|------|
-          $(echo -e "$SUITE_LINES")
-
-          ---
-          *ubicloud-standard-8 runners (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
-
-          if [ "$FAILED" -gt 0 ]; then
-            FAILURES=""
-            for f in $RESULTS; do
-              if ! jq -e '.failed' "$f" >/dev/null 2>&1; then continue; fi
-              F=$(jq -r '.failed // 0' "$f")
-              [ "$F" -eq 0 ] && continue
-              FAILS=$(jq -r '.tests[] | select(.passed == false) | "- ❌ \(.name): \(.exit_reason // "unknown")"' "$f" 2>/dev/null || echo "- ⚠️ $(basename "$f"): parse error")
-              FAILURES="${FAILURES}${FAILS}\n"
-            done
-            BODY="${BODY}
-
-          ### Failures
-          $(echo -e "$FAILURES")"
-          fi
-
-          # Update existing comment or create new one
-          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-            --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1)
-
-          if [ -n "$COMMENT_ID" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
-              -X PATCH -f body="$BODY"
-          else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
-          fi
-
-  # ── Sliced lane (paid-CI re-platform, parity phase) ─────────────────────────
+  # ── Sliced lane (the ONLY paid lane; legacy 17-row matrix deleted) ──────────
   # One PLANNER computes diff selection + the slice plan ONCE (killing
   # per-slice selector divergence); K executors consume the manifest; the
   # report reconciles results against it FAIL-CLOSED (a slice whose artifact
   # never landed is a failure, a planned shard nobody reported is a failure —
-  # hollow lanes cannot aggregate green). Runs AFTER the matrix (`needs:
-  # evals`) so provider concurrency never doubles while both lanes coexist;
-  # once parity is demonstrated the matrix + its ratchets are deleted and this
-  # lane loses the needs edge. Engine: scripts/test-paid-shards.ts — the same
-  # runner local eval:bg:gate uses, so CI and local share one selection engine.
+  # hollow lanes cannot aggregate green). Engine: scripts/test-paid-shards.ts —
+  # the same runner local eval:bg:gate uses, so CI and local share one
+  # selection engine, and every gate-tier file is in the census by
+  # construction (no hand-enumerated rows to drift). The legacy matrix ran
+  # 18 enumerated files for 22.6 min/$21 per PR serialized AHEAD of this
+  # lane's 49-file diff-selected census; parity was demonstrated (sliced
+  # census ⊇ matrix files) and the matrix deleted — one revert restores it.
+  #
+  # Fork PRs never receive repository secrets (ANTHROPIC_API_KEY et al), so
+  # every API-calling eval fails at SDK auth before a model runs. Skip
+  # deterministically; fork work gets real coverage via a trusted base-repo
+  # branch (see CLAUDE.md's garrytan-agents workflow).
   plan-slices:
     runs-on: ubicloud-standard-8
-    needs: [build-image, evals]
-    if: always() && needs.build-image.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: build-image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 10
     permissions:
       contents: read
@@ -514,7 +116,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user runner
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The planner is the ONE place that needs history: diff selection
           # resolves a merge-base. Executors run from the manifest and stay
@@ -524,19 +126,14 @@ jobs:
           persist-credentials: false
 
       - name: Restore deps
-        run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
-            cp -r /opt/node_modules_cache node_modules
-          else
-            bun install
-          fi
+        uses: ./.github/actions/restore-deps
 
       - name: Emit run manifest
         env:
           EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
         run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 6
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: paid-plan
           path: /tmp/paid-plan/manifest.json
@@ -566,7 +163,7 @@ jobs:
       matrix:
         slice: [1, 2, 3, 4, 5, 6]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge
           # map, routing) walk git at module load, and selection is
@@ -577,74 +174,28 @@ jobs:
           persist-credentials: false
 
       - name: Fix bun temp
-        run: |
-          mkdir -p /home/runner/.cache/bun
-          {
-            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
-            echo "BUN_TMPDIR=/home/runner/.cache/bun"
-            echo "TMPDIR=/home/runner/.cache"
-          } >> "$GITHUB_ENV"
+        uses: ./.github/actions/fix-bun-temp
 
       - name: Restore deps
-        run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
-            cp -r /opt/node_modules_cache node_modules
-          else
-            bun install
-          fi
+        uses: ./.github/actions/restore-deps
 
       - run: bun run build
 
       # Any slice can host a PTY smoke, so the seed/registration steps run
       # UNCONDITIONALLY (both are idempotent) — the old matrix keyed them on
-      # matrix.suite.name, which a sliced lane cannot do.
+      # matrix.suite.name, which a sliced lane cannot do. The register
+      # composite carries the fail-fast dangling-symlink/frontmatter
+      # verification loop, so a moved skill target fails HERE in seconds,
+      # not as a wedged PTY session at the shard wall.
       - name: Seed claude interactive config
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          node -e '
-            const fs = require("fs"), os = require("os"), path = require("path");
-            const p = path.join(os.homedir(), ".claude.json");
-            const seed = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : {};
-            seed.hasCompletedOnboarding = true;
-            const key = process.env.ANTHROPIC_API_KEY || "";
-            if (key) seed.customApiKeyResponses = { approved: [key.slice(-20)], rejected: [] };
-            fs.writeFileSync(p, JSON.stringify(seed, null, 2));
-            console.log("seeded", p);
-          '
+        uses: ./.github/actions/seed-claude-config
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Register gstack skills for PTY smokes
-        run: |
-          set -eu
-          SKILLS_DIR="$HOME/.claude/skills"
-          REPO="$GITHUB_WORKSPACE"
-          mkdir -p "$SKILLS_DIR"
-          ln -snf "$REPO" "$SKILLS_DIR/gstack"
-          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
-            rm -rf "${SKILLS_DIR:?}/$s"
-            mkdir -p "$SKILLS_DIR/$s"
-            cp "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
-            cp -R "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
-          done
-          PROJ_SKILLS="$REPO/.claude/skills"
-          mkdir -p "$PROJ_SKILLS"
-          for s in office-hours plan-ceo-review plan-eng-review plan-design-review; do
-            rm -rf "${PROJ_SKILLS:?}/$s"
-            mkdir -p "$PROJ_SKILLS/$s"
-            cp "$REPO/$s/SKILL.md" "$PROJ_SKILLS/$s/SKILL.md"
-            cp -R "$REPO/$s/sections" "$PROJ_SKILLS/$s/sections"
-          done
-          mkdir -p "$HOME/.gstack"
-          touch "$HOME/.gstack/.activated" \
-                "$HOME/.gstack/.first-loop-tip-shown" \
-                "$HOME/.gstack/.telemetry-prompted" \
-                "$HOME/.gstack/.proactive-prompted" \
-                "$HOME/.gstack/.completeness-intro-seen" \
-                "$HOME/.gstack/.plan-tune-nudge-shown"
-          touch "$SKILLS_DIR/gstack/.feature-prompted-continuous-checkpoint" \
-                "$SKILLS_DIR/gstack/.feature-prompted-model-overlay"
+        uses: ./.github/actions/register-gstack-skills
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: paid-plan
           path: /tmp/paid-plan
@@ -662,7 +213,7 @@ jobs:
 
       - name: Upload slice results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: paid-slice-${{ matrix.slice }}
           path: /tmp/paid-slice-results
@@ -672,7 +223,7 @@ jobs:
       # later needs more than a summary line.
       - name: Upload shard logs on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: paid-slice-${{ matrix.slice }}-logs
           # The Fix-bun-temp step points TMPDIR at /home/runner/.cache, so the
@@ -691,29 +242,180 @@ jobs:
     # missing slice artifact reading as green is the class this lane kills.
     if: always() && needs.plan-slices.result == 'success'
     timeout-minutes: 5
+    # contents:read ONLY — this job executes PR-authored code (bun install
+    # lifecycle scripts + the reconcile runner from the PR checkout), so it
+    # must never hold a write-scoped token. The PR comment lives in the
+    # separate slices-comment job below, which runs NO repo code: a
+    # $GITHUB_ENV/BASH_ENV persistence trick is job-scoped, so the split is
+    # the trust boundary (codex adversarial finding, 2026-08-31 — the old
+    # matrix-era report job had this separation and the consolidation had
+    # regressed it).
     permissions:
       contents: read
+    outputs:
+      reconcile-exit: ${{ steps.reconcile.outputs.exit }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.13
 
       - run: bun install --frozen-lockfile
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: paid-plan
           path: /tmp/paid-report
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: paid-slice-[0-9]*
           path: /tmp/paid-report
           merge-multiple: true
 
       - name: Reconcile slices against the manifest (fail-closed)
-        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/paid-report
+        id: reconcile
+        run: |
+          set +e
+          EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/paid-report | tee /tmp/report.txt
+          # PIPESTATUS[0], NOT $?: GitHub's default run-step shell is
+          # `bash -e {0}` with NO pipefail, so $? after the pipe is tee's
+          # exit (always 0) — the fail-closed gate was silently fail-open
+          # (caught by the ship review army; the wiring test now pins this).
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload reconciliation output for the comment job
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: report-verdict
+          path: /tmp/report.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Fail the workflow when reconciliation failed
+        if: steps.reconcile.outputs.exit != '0'
+        run: exit 1
+
+  # PR comment in its OWN job with the write token and ZERO repo code: no
+  # checkout, no bun install — only downloaded artifacts, jq, and gh. See the
+  # trust-boundary note on slices-report.
+  slices-comment:
+    runs-on: ubicloud-standard-2
+    needs: slices-report
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.slices-report.result != 'skipped'
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      # The comment upsert calls the REST `/issues/{n}/comments` endpoints
+      # (gh api ... issues/comments). With GITHUB_TOKEN those are gated by the
+      # `issues` permission, not `pull-requests` (#1802 CI fix).
+      issues: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: paid-slice-[0-9]*
+          path: /tmp/paid-report
+          merge-multiple: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: report-verdict
+          path: /tmp/verdict
+        continue-on-error: true
+
+      # Sourced from the slice artifacts' eval-store JSONs. Keeps the
+      # "## E2E Evals" marker so the upsert keeps updating the same comment.
+      # Runs even when reconciliation failed — a red lane on the PR is the point.
+      - name: Post PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECONCILE_EXIT: ${{ needs.slices-report.outputs.reconcile-exit }}
+        run: |
+          # shellcheck disable=SC2086,SC2059
+          RESULTS=$(find /tmp/paid-report -name '*.json' ! -name 'manifest.json' ! -name 'slice-*.json' ! -name '_partial*' 2>/dev/null | sort)
+          TOTAL=0; PASSED=0; FAILED=0; FLAKY=0; COST="0"
+          SUITE_LINES=""
+          for f in $RESULTS; do
+            if ! jq -e '.total_tests' "$f" >/dev/null 2>&1; then
+              echo "Skipping malformed JSON: $f"
+              continue
+            fi
+            # FINAL-attempt accounting: eval-store keeps EVERY retry attempt
+            # as its own record (that's the flake telemetry), so counting raw
+            # records marks a pass-on-retry as a failure and inflates totals.
+            # Group by test name, judge the LAST record — flaky passes render
+            # as the ⚠ line, never as ❌ (WS1 policy: recorded, not blocking).
+            # Guarded: a file with total_tests but a null/non-array `tests`
+            # passes the -e probe, the group_by then fails, and an empty $T
+            # would abort the whole step under bash -e ([ "" -eq 0 ] is an
+            # error) — killing the comment on exactly the corrupted-artifact
+            # runs where the red evidence matters (claude adversarial).
+            STATS=$(jq -r '[.tests | group_by(.name)[] | last] as $final | "\($final | length) \([$final[] | select(.passed)] | length) \([$final[] | select(.passed | not)] | length) \(.flaky_retries // [] | length)"' "$f" 2>/dev/null) || { echo "Skipping malformed tests[] in: $f"; continue; }
+            read -r T P F FL <<< "$STATS"
+            [ -z "$T" ] && { echo "Skipping malformed tests[] in: $f"; continue; }
+            C=$(jq -r '.total_cost_usd // 0' "$f")
+            TIER=$(jq -r '.tier // "unknown"' "$f")
+            SHARD=$(jq -r '.shard // "-"' "$f")
+            [ "$T" -eq 0 ] && continue
+            TOTAL=$((TOTAL + T))
+            PASSED=$((PASSED + P))
+            FAILED=$((FAILED + F))
+            FLAKY=$((FLAKY + FL))
+            COST=$(echo "$COST + $C" | bc)
+            STATUS_ICON="✅"
+            [ "$F" -gt 0 ] && STATUS_ICON="❌"
+            [ "$F" -eq 0 ] && [ "$FL" -gt 0 ] && STATUS_ICON="✅⚠"
+            SUITE_LINES="${SUITE_LINES}| ${TIER}/${SHARD} | ${P}/${T} | ${STATUS_ICON} | \$${C} |\n"
+          done
+
+          STATUS="✅ PASS"
+          if [ "${RECONCILE_EXIT:-1}" != "0" ] || [ "$FAILED" -gt 0 ]; then STATUS="❌ FAIL"; fi
+
+          BODY="## E2E Evals: ${STATUS}
+
+          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost | reconcile exit: ${RECONCILE_EXIT:-missing}$([ "$FLAKY" -gt 0 ] && printf ' | ⚠ %s flaky pass(es) — recorded, not blocking' "$FLAKY")
+
+          | Shard | Result | Status | Cost |
+          |-------|--------|--------|------|
+          $(echo -e "$SUITE_LINES")
+
+          <details><summary>Fail-closed reconciliation</summary>
+
+          \`\`\`
+          $(tail -c 4000 /tmp/verdict/report.txt 2>/dev/null || echo '(no reconciliation output)')
+          \`\`\`
+          </details>
+
+          ---
+          *Sliced lane: diff-selected gate census via scripts/test-paid-shards.ts (planner → 6 executors → fail-closed report)*"
+
+          if [ "$FAILED" -gt 0 ]; then
+            FAILURES=""
+            for f in $RESULTS; do
+              if ! jq -e '.failed' "$f" >/dev/null 2>&1; then continue; fi
+              FAILS=$(jq -r '[.tests | group_by(.name)[] | last | select(.passed == false)][] | "- ❌ \(.name): \(.exit_reason // "unknown")"' "$f" 2>/dev/null || echo "- ⚠️ parse error")
+              FAILURES="${FAILURES}${FAILS}\n"
+            done
+            BODY="${BODY}
+
+          ### Failures
+          $(echo -e "$FAILURES")"
+          fi
+
+          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+            --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -X PATCH -f body="$BODY"
+          else
+            # REST, not gh's pr-comment subcommand: this job runs with NO
+            # checkout (the token/exec split), and that subcommand resolves
+            # the repo FROM git — it dies with "not a git repository" here.
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -X POST -f body="$BODY"
+          fi

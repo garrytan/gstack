@@ -93,6 +93,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# ─── Timeline Stop hook ──────────────────────────────────────────────
+# timeline_stop_hook: yes   # Controls whether ./setup registers the timeline
+#                           #   Stop hook (closes dangling session entries).
+#                           #   yes — register on every setup (default)
+#                           #   no  — never register; setup also removes a
+#                           #         live registration (persistent opt-out;
+#                           #         --no-team stays a one-shot teardown, #2677)
+#
 # ─── Plan-tune hooks ─────────────────────────────────────────────────
 # plan_tune_hooks: prompt   # Controls whether ./setup installs the plan-tune
 #                           #   Claude Code hooks (PostToolUse capture +
@@ -148,6 +156,7 @@ lookup_default() {
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
+    timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
@@ -396,11 +405,23 @@ case "${1:-}" in
       echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
       VALUE="prompt"
     fi
+    if [ "$KEY" = "timeline_stop_hook" ] && [ "$VALUE" != "yes" ] && [ "$VALUE" != "no" ]; then
+      echo "Warning: timeline_stop_hook '$VALUE' not recognized. Valid values: yes, no. Using yes." >&2
+      VALUE="yes"
+    fi
     # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
     # an invalid value is REJECTED and the existing setting is left unchanged — a typo
     # must never silently flip the switch and turn paid Codex calls on or off.
     if [ "$KEY" = "codex_reviews" ] && [ "$VALUE" != "enabled" ] && [ "$VALUE" != "disabled" ]; then
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # cross_project_learnings: empty get is the first-run prompt sentinel.
+    # Skills enable only on the literal "true". A typo must not persist — that
+    # keeps the feature off and suppresses the prompt. Reject, like
+    # codex_reviews; do not coerce (a stored default still kills the sentinel).
+    if [ "$KEY" = "cross_project_learnings" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+      echo "Error: cross_project_learnings '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
       exit 1
     fi
     mkdir -p "$STATE_DIR"
@@ -433,7 +454,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               timeline_stop_hook; do
       VALUE=$(read_config_value "$KEY" || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -449,7 +471,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               timeline_stop_hook; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
@@ -534,7 +557,7 @@ case "${1:-}" in
           # leaves the previous render fully intact.
           RENDER_TMP="$RENDER_DIR.tmp.$$"
           rm -rf "$RENDER_TMP"
-          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" >/dev/null 2>&1 ); then
+          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" >/dev/null 2>&1 ); then
             _swap_in_render "$RENDER_DIR" "$RENDER_TMP"
             # Repoint installed skills at the render — gstack-relink prefers
             # the render dir when present.

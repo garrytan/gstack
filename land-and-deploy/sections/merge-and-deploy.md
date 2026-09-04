@@ -78,14 +78,24 @@ Identify candidates: a worktree is stale if (a) it is checked out on the base br
 Remote-branch reconciliation — the failed `gh pr merge` carried `--delete-branch`, and this recovery path must not silently drop that half. The success path above says "The branch has been cleaned up"; this path states the branch outcome explicitly instead of staying silent:
 
 ```bash
-BRANCH=$(gh pr view --json headRefName -q .headRefName)
-git ls-remote --heads origin "$BRANCH"
+# NB: gh leaves .headRepository.nameWithOwner EMPTY (verified against gh
+# 2.83); compose owner/name from headRepositoryOwner.login + headRepository.name.
+gh pr view --json headRepositoryOwner,headRepository,headRefName \
+  --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)\t\(.headRefName)"'
+git ls-remote --heads "https://github.com/<head-repository>.git" "<head-branch>"
 ```
+
+Record the first field as `<head-repository>` (`owner/name`) and the second as
+`<head-branch>`, then substitute both into `git ls-remote`. The PR head repository is
+the authoritative branch location: for same-repository PRs it is the base repository;
+for fork PRs it is the fork. Do not substitute the checkout's `origin`. If the metadata
+lookup fails or either field is empty or contains a bare `/`, treat the branch state as
+unknown and do not run the deletion path.
 
 Three outcomes — never read a failed check as a clean branch:
 
 - **Exit 0, empty output** — the remote branch is already gone (GitHub's post-merge deletion or a concurrent actor got there). Tell the user: "The remote branch has already been cleaned up." This makes re-runs of the recovery idempotent.
-- **Exit 0, one ref line** — the branch survived: the failed merge command never reached its `--delete-branch` half. OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<BRANCH>` still exists — the failed merge never ran its --delete-branch half. Delete it?" Only on confirmation: `git push origin --delete "$BRANCH"`. If a local branch of the same name exists, offer `git branch -d "$BRANCH"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
+- **Exit 0, one ref line** — the branch survived: the failed merge command never reached its `--delete-branch` half. If `<head-repository>` is the BASE repository, OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<head-branch>` still exists in `<head-repository>` — the failed merge never ran its --delete-branch half. Delete it?" Only on confirmation: `git push "https://github.com/<head-repository>.git" --delete "<head-branch>"`. If `<head-repository>` is a FORK, do not offer deletion — the branch belongs to the contributor and the maintainer typically has no push rights there; report instead: "The branch lives on the contributor's fork `<head-repository>` — leaving it to them." If a local branch of the same name exists, offer `git branch -d "<head-branch>"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
 - **Non-zero exit** — the check ITSELF failed (network, auth). Tell the user: "Couldn't verify remote branch state — leaving it alone." and skip the deletion offer entirely; a failed check is unknown state, not a clean branch.
 
 Record `MERGE_PATH=direct`, then continue to §4a (CI auto-deploy detection).

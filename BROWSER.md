@@ -193,7 +193,10 @@ for the full design + decision trail.
    Only an explicit `--force-restart` replaces a live-but-unresponsive
    daemon (tabs, cookies, and logins are lost). `browse stop` against a
    daemon that already died is success: the desired end state holds, so it
-   cleans the stale state file instead of booting a daemon just to stop it.
+   cleans the stale state file instead of booting a daemon just to stop it —
+   and reaps the headless Chromium child recorded in that state file if one
+   survived. The reap verifies the recorded start time AND a Chromium-looking
+   cmdline before sending any signal, so a recycled PID is never killed.
 
 ### Multi-workspace isolation
 
@@ -328,7 +331,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | Command | Description |
 |---------|-------------|
 | `status` | Daemon health + mode (headless / headed / cdp) |
-| `stop` | Shut down daemon (succeeds even if the daemon already died — never boots one just to stop it) |
+| `stop` | Shut down daemon (succeeds even if the daemon already died — never boots one just to stop it; reaps a surviving recorded headless Chromium after identity checks) |
 | `restart` | Restart daemon |
 | `connect` | Launch headed GStack Browser with Side Panel extension |
 | `disconnect` | Close headed Chrome, return to headless |
@@ -1276,6 +1279,8 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `BROWSE_HEADLESS_SKIP` | 0 | Skip Chromium launch entirely (test harness only) |
 | `BROWSE_TUNNEL` | 0 | Activate the dual-listener tunnel architecture (requires `NGROK_AUTHTOKEN`) |
 | `BROWSE_TUNNEL_LOCAL_ONLY` | 0 | Test-only — bind both listeners locally without ngrok |
+| `CHROMIUM_PROFILE` | unset | Explicit Chromium profile directory (used by gbrowser's gbd per-workspace); honored by both launch and profile-lock cleanup |
+| `GSTACK_DISABLE_GPU` | unset | Set to `off` to skip the macOS headless GPU-taming flag set (applied by default on Darwin to stop runaway GPU-process spin) |
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
 | `GSTACK_SECURITY_OFF` | unset | Emergency kill switch — disable ML classifier |
 | `GSTACK_STEALTH` | unset | Set to `extended` (also accepts `1`/`true`) to layer six aggressive patches (WebGL spoof, faked plugins, mediaDevices) on top of Layer C. Actively lies; can break sites. |

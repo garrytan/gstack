@@ -60,6 +60,34 @@ describe('hermetic wiring tripwire', () => {
     }
   });
 
+  test('feature prompt acknowledgements are seeded in GSTACK_HOME everywhere', () => {
+    const markers = [
+      '.feature-prompted-continuous-checkpoint',
+      '.feature-prompted-model-overlay',
+    ];
+    // CI seeding lives in the composite action (v1.77 moved it out of the
+    // inline workflow steps) — the workflows call the action, so one seeding
+    // site covers every lane.
+    const sources: Array<[string, number]> = [
+      ['test/helpers/hermetic-env.ts', 1],
+      ['test/helpers/e2e-helpers.ts', 1],
+      ['.github/actions/register-gstack-skills/action.yml', 1],
+    ];
+
+    for (const [rel, expectedCount] of sources) {
+      const src = read(rel);
+      for (const marker of markers) {
+        expect(src.split(marker).length - 1, `${rel}: ${marker}`).toBe(expectedCount);
+      }
+    }
+
+    for (const rel of ['.github/actions/register-gstack-skills/action.yml']) {
+      const src = read(rel);
+      expect(src).not.toContain('$SKILLS_DIR/gstack/.feature-prompted-');
+      for (const marker of markers) expect(src).toContain(`$HOME/.gstack/${marker}`);
+    }
+  });
+
   test('claude runners gate --strict-mcp-config on isHermeticEnabled()', () => {
     // Zero MCP servers for hermetic children; EVALS_HERMETIC=0 must restore
     // operator MCP along with the operator env (the flag may not be

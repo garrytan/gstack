@@ -48,7 +48,13 @@ if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>
   # non-racy and lets a same-size rewrite in the same second as the original
   # `git add` keep its stale stat-cache entry — the content change vanishes
   # from the fingerprint. touch -r restores the original racy window.
-  touch -r "$REAL_INDEX" "$TMPIDX" 2>/dev/null || true
+  # #2687 hardening: a FAILED touch silently reopened that exact hole (the
+  # copy keeps its "now" stamp). Fall through to the HEAD seed instead —
+  # slower, but every entry gets re-hashed, so the fingerprint stays honest.
+  if ! touch -r "$REAL_INDEX" "$TMPIDX" 2>/dev/null; then
+    rm -f "$TMPIDX" 2>/dev/null || true
+    git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
+  fi
 else
   git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
 fi

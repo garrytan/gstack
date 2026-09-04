@@ -744,7 +744,7 @@ function dateOnly(ts: string | undefined): string {
   }
 }
 
-function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
+export function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
   const remote = resolveGitRemote(session.cwd);
   const slug_repo = repoSlug(remote);
   const date = dateOnly(session.start_time);
@@ -762,7 +762,7 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
   const stats = statSync(path);
   const sha = fileSha256(path);
 
-  const frontmatter = [
+  const fmLines = [
     "---",
     `agent: ${session.agent}`,
     `session_id: ${session.session_id}`,
@@ -773,10 +773,21 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     `message_count: ${session.message_count}`,
     `tool_calls: ${session.tool_calls}`,
     `source_path: ${path}`,
-    session.partial ? "partial: true" : "",
-    "---",
-    "",
-  ].filter((l) => l !== "").join("\n");
+  ];
+  if (session.partial) fmLines.push("partial: true");
+  fmLines.push("---");
+  // The closing `---` fence MUST terminate its own line. session.body always
+  // starts with "## " (never a newline), so without the trailing "\n" the fence
+  // renders as `---## User`, which gray-matter/gbrain reject as a closer (the
+  // fence regex in gbrain markdown.ts requires `\n---(\r?\n|$)`). gbrain then
+  // scans to the next standalone `---` in the transcript, parses the prose
+  // between as YAML, and drops the whole page with "Invalid YAML frontmatter".
+  // A prior `.filter((l) => l !== "")` — added to drop the empty non-partial
+  // line — also stripped the blank that used to terminate the fence line, so
+  // every transcript whose body carries a later `---` horizontal rule silently
+  // failed to ingest. The explicit `+ "\n\n"` restores the fence newline plus a
+  // blank separator, matching the artifact-page branch in renderPageBody().
+  const frontmatter = fmLines.join("\n") + "\n\n";
 
   return {
     slug,
@@ -890,7 +901,7 @@ function gbrainAvailable(): boolean {
  * We do NOT set `slug:` in frontmatter — the staging-dir filename is the
  * source of truth and gbrain rejects mismatches.
  */
-function renderPageBody(page: PageRecord): string {
+export function renderPageBody(page: PageRecord): string {
   let body = page.body;
   if (body.startsWith("---\n")) {
     const end = body.indexOf("\n---", 4);
@@ -1293,6 +1304,74 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
 }
 
 /**
+ * Disambiguate colliding page slugs before staging (#2724), consulting the
+ * ingest state so an assignment is stable across RUNS, not just within one.
+ *
+ * Two distinct source files can map to one transcript slug
+ * (transcripts/<agent>/<repo>/<date>-<session_id[:12]>): a session resumed
+ * under the same session_id on one day, or two session_ids sharing a 12-char
+ * prefix. writeStaged() names each file `${slug}.md`, so the second OVERWRITES
+ * the first — `written` counts both but only one lands on disk, gbrain collects
+ * N-1 of N, and the staged-vs-collected reconciliation guard (correctly) fails
+ * the whole batch. It repeats every run until the inputs age out of the window.
+ *
+ * Within a run: keep the first occurrence's slug; give each later collider a
+ * stable `-<sha8(source_path)>` suffix, mutating slug + page_slug together so
+ * every downstream consumer (writeStaged, readNewFailures mapping, state
+ * recording) computes the same key.
+ *
+ * Across runs (the state consult): "first occurrence" is walk-order-dependent,
+ * so without memory a source that got the suffixed slug in one run could take
+ * the bare slug in the next (its old collider aged out or was skipped as
+ * unchanged) — gbrain then holds the SAME transcript under two slugs. Worse,
+ * a NEW collider could claim a bare slug that state shows belongs to an
+ * unchanged (not-restaged) source, silently overwriting that page in gbrain.
+ * So: a slug recorded in state stays owned by its source_path — a re-ingested
+ * source keeps its recorded slug verbatim, and a fresh assignment never takes
+ * a slug owned by a DIFFERENT source. Legacy states that recorded the same
+ * slug for two sources (pre-#2724 overwrites) resolve first-owner-wins and
+ * self-heal on the next state write.
+ */
+export function disambiguateSlugs(
+  pages: PreparedPage[],
+  state?: { sessions: Record<string, { page_slug: string }> },
+): void {
+  // slug → owning source_path, from prior runs. First writer wins on legacy
+  // duplicate records; state key order is stable (re-read from the same file).
+  const ownedBy = new Map<string, string>();
+  for (const [src, rec] of Object.entries(state?.sessions ?? {})) {
+    if (rec?.page_slug && !ownedBy.has(rec.page_slug)) ownedBy.set(rec.page_slug, src);
+  }
+  const claimed = new Set<string>();
+  const available = (slug: string, src: string) =>
+    !claimed.has(slug) && (!ownedBy.has(slug) || ownedBy.get(slug) === src);
+
+  for (const p of pages) {
+    const recorded = state?.sessions[p.source_path]?.page_slug;
+    if (recorded && !claimed.has(recorded) && ownedBy.get(recorded) === p.source_path) {
+      claimed.add(recorded);
+      p.slug = recorded;
+      p.page_slug = recorded;
+      continue;
+    }
+    let candidate = p.slug;
+    if (!available(candidate, p.source_path)) {
+      const suffix = createHash("sha256").update(p.source_path).digest("hex").slice(0, 8);
+      candidate = `${p.slug}-${suffix}`;
+      // Guarantee uniqueness even if a prior page already took the suffixed
+      // slug (two colliders sharing a source_path-hash prefix is
+      // astronomically unlikely, but a stuck source is not the place to
+      // trust luck).
+      let n = 1;
+      while (!available(candidate, p.source_path)) candidate = `${p.slug}-${suffix}-${n++}`;
+    }
+    claimed.add(candidate);
+    p.slug = candidate;
+    p.page_slug = candidate;
+  }
+}
+
+/**
  * Prepare phase: walk sources, apply incremental + optional-secret-scan filters,
  * parse transcripts/artifacts into PageRecord, render bodies with
  * frontmatter. Returns the PreparedPage[] to stage + counts of files
@@ -1476,6 +1555,12 @@ function preparePages(
   if (args.limit !== null && finalPrepared.length > args.limit) {
     finalPrepared = finalPrepared.slice(0, args.limit);
   }
+
+  // Colliding path-derived slugs would overwrite in the staging dir, so two
+  // source files land as one page and the staged-vs-collected guard fails the
+  // whole batch every run (#2724: 887 staged → 0 ingested). Disambiguate
+  // before staging, consulting state so assignments hold across runs.
+  disambiguateSlugs(finalPrepared, state);
 
   // Derived from the FINAL set: partial counts must describe pages that are
   // actually eligible and within the limit, not the whole scanned corpus.

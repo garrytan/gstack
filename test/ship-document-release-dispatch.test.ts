@@ -69,6 +69,25 @@ describe('/ship Step 18 dispatches /document-release (carve visibility)', () => 
       expect(content).toContain('.claude/skills/gstack/document-release/SKILL.md');
       expect(content).toContain('## Step 19: Create PR/MR');
       expect(content).toContain('Parent processing:');
+      // #2733: the dispatch marks the subagent spawned so document-release's
+      // AUQ gates auto-choose instead of prose-stopping (which breaks the
+      // parent's LAST-line JSON parse). Three layers pinned: the env marker
+      // prefix, the behavioral instruction, and the framing sentence.
+      expect(content).toContain('GSTACK_SESSION_KIND=spawned');
+      expect(content).toContain('auto-choose the RECOMMENDED option');
+      expect(content).toContain('as a SPAWNED subagent');
+      // Auto-chosen gate decisions ride the JSON contract (console-printed by
+      // the parent), never the public PR body.
+      expect(content).toContain('"decisions"');
+      const docHeading = content.indexOf('\n## Documentation\n');
+      expect(docHeading, 'PR-body template must carry the ## Documentation heading').toBeGreaterThan(0);
+      // End bound searched FROM docHeading and asserted found — otherwise a
+      // removed/reordered '## Test plan' heading degrades this guard to a
+      // vacuous empty-slice check instead of failing loudly (#2733 review).
+      const docEnd = content.indexOf('\n## Test plan\n', docHeading);
+      expect(docEnd, '## Test plan heading must follow ## Documentation').toBeGreaterThan(docHeading);
+      const docSection = content.slice(docHeading, docEnd);
+      expect(docSection, 'decisions must never leak into the PR-body Documentation embed').not.toContain('decisions');
     }
   });
 

@@ -65,6 +65,7 @@ function runEvalList(...args: string[]): { stdout: string; stderr: string; statu
       GSTACK_HOME: path.join(tmpHome, '.gstack'),
     },
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   return {
     stdout: result.stdout ?? '',

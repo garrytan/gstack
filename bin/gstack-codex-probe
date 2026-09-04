@@ -53,6 +53,10 @@ _gstack_codex_model_probe() {
   #     section, forever. Editing config.toml (the fix) changes the cache
   #     signature and re-probes immediately; the short TTL covers server-side
   #     entitlement recovery the signature can't see.
+  #   MODEL_UNUSABLE_INSTALL (exit 2) — the CLI cannot execute at all (spawn
+  #     ENOENT, non-executable binary, missing vendor payload). Deterministic,
+  #     so fail-open is wrong: retrying never helps. Never cached — a reinstall
+  #     fixes it and must be picked up on the very next probe (#2742).
   #   MODEL_PROBE_INCONCLUSIVE (exit 0) — timeout/transient; FAIL-OPEN so a
   #     slow network never wedges codex mode (the per-invocation Error
   #     Handling entry still covers a later 400). Never cached.
@@ -114,6 +118,23 @@ _gstack_codex_model_probe() {
     _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
     return 1
   fi
+  # A CLI that cannot execute is deterministic, not transient: the fail-open
+  # below exists for network luck, and swallowing this here is what let a
+  # missing vendor binary report CODEX_MODE: ready while every Codex pass was
+  # silently skipped (#2742). 126 = found but not executable, 127 = not found.
+  # String signatures only count on a FAILED, NON-TIMEOUT spawn: a successful
+  # response that mentions "permission denied" must not classify as broken,
+  # and neither may a timed-out (124) probe whose partial output quotes such
+  # strings — 124 keeps its fail-open contract below.
+  _BROKEN_SIG='ENOENT|ENOEXEC|EACCES|no such file or directory|cannot execute binary file|not executable|permission denied'
+  if [ "$_code" -eq 126 ] || [ "$_code" -eq 127 ] || { [ "$_code" -ne 0 ] && [ "$_code" -ne 124 ] && printf '%s' "$_out" | grep -qiE "$_BROKEN_SIG"; }; then
+    echo "MODEL_UNUSABLE_INSTALL"
+    printf '%s\n' "$_out" | grep -iE "$_BROKEN_SIG" | head -3
+    echo "HINT: the Codex CLI is on PATH but cannot run — its binary or vendor payload is missing."
+    echo "HINT: reinstall with: npm install -g @openai/codex"
+    _gstack_codex_log_event "codex_broken_install" 2>/dev/null || true
+    return 2
+  fi
   # Timeout (124) or transient failure: fail-open with a warning. The probe
   # exists to catch the deterministic model 400, not to gate on network luck.
   echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — proceeding; if invocations fail with a model 400, see the codex skill's Error Handling entry."
@@ -127,8 +148,23 @@ _gstack_codex_version_check() {
   # positives like 0.120.10 or 0.120.20 from matching. 0.120.2-beta still
   # matches the bad release and gets warned (it IS buggy).
   # Update this list when a new Codex CLI version regresses.
-  local _ver
-  _ver=$(codex --version 2>/dev/null | head -1)
+  local _ver _vcode
+  # Capture the code from codex, not from `head` — a pipeline reports the LAST
+  # command's status, which is why a CLI that only ever printed a spawn error
+  # still read as healthy here (#2742). Keep stderr: it carries the diagnosis.
+  _ver=$(codex --version 2>&1)
+  _vcode=$?
+  _ver=$(printf '%s' "$_ver" | head -1)
+  # Only a NON-ZERO exit is evidence of a broken CLI. Empty-but-successful
+  # output stays silent by design (a CLI may legitimately print nothing), which
+  # the "empty output → OK" case in this file's suite pins.
+  if [ "$_vcode" -ne 0 ]; then
+    echo "WARN: \`codex --version\` failed (exit $_vcode) — the CLI is on PATH but may not be runnable."
+    [ -n "$_ver" ] && echo "WARN: it said: $_ver"
+    echo "WARN: if Codex passes are being skipped, reinstall with: npm install -g @openai/codex"
+    _gstack_codex_log_event "codex_version_unreadable" 2>/dev/null || true
+    return 0
+  fi
   [ -z "$_ver" ] && return 0
   if echo "$_ver" | grep -Eq '(^|[^0-9.])0\.120\.(0|1|2)([^0-9.]|$)'; then
     echo "WARN: Codex CLI $_ver has known stdin deadlock bugs. Run: npm install -g @openai/codex@latest"

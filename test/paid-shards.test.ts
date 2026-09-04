@@ -22,6 +22,7 @@ import {
   computePaidDiffSelection,
   diffSkipDecisionForFile,
   formatSummary,
+  isAllSkippedPass,
   isPaidTestFile,
   knownTestNamesInSource,
   partitionShardsByDiffSelection,
@@ -159,7 +160,13 @@ describe('shard execution', () => {
     expect(lines.filter((l) => l.includes(' START ')).length).toBe(3);
     expect(lines.some((l) => /TIMED-OUT in \d+s/.test(l))).toBe(true);
     expect(lines.some((l) => /PASSED in \d+s/.test(l))).toBe(true);
-  }, 30_000);
+    // 90s, not the default 30s: this test spawns/kills three real children
+    // (one a busy-loop burning a full core) while 5 sibling shard processes
+    // compete for 8 vCPUs — observed blowing exactly the 30s ceiling at
+    // 30009ms under full-suite load while passing in isolation in 1.4s.
+    // Every assertion above is event-based; the only latency claim is the
+    // <30s kill-deadline sanity bound, which stays.
+  }, 90_000);
 
   test('exit 0 WITHOUT the terminal summary is FAILED — enforced for injected commands too', async () => {
     // The invisible-non-execution backstop: previously the paid runner
@@ -346,5 +353,62 @@ describe('parent-side diff shard skipping', () => {
       { shard: 2, files: ['b'], status: 'skipped-by-diff', exitCode: null, elapsedMs: 0, groupPid: null },
     ]);
     expect(summaryExitCode(withNeverStarted)).toBe(1);
+  });
+});
+
+// Green-by-skip census: "Ran N tests" counts skips, so a codex/gemini file
+// whose every test self-skipped (binary absent on the runner) exits 0 and
+// used to read as coverage in the weekly report. The census label keeps the
+// pass (service availability is host state, not a repo regression) but must
+// say the shard verified nothing.
+describe('all-skipped pass census', () => {
+  const base = { shard: 1, files: ['test/codex-e2e.test.ts'], exitCode: 0, elapsedMs: 1200, groupPid: 1 };
+
+  test('isAllSkippedPass: pass with every test skipped → true', () => {
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: 8, skippedTests: 8 } as ShardOutcome)).toBe(true);
+  });
+
+  test('isAllSkippedPass: real work, a failure, or no data → false', () => {
+    // one test actually ran
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: 8, skippedTests: 7 } as ShardOutcome)).toBe(false);
+    // zero tests: that's the hollow-shard guard's territory, not this label's
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: 0, skippedTests: 0 } as ShardOutcome)).toBe(false);
+    // non-pass statuses never get the label
+    expect(isAllSkippedPass({ ...base, status: 'failed', executedTests: 8, skippedTests: 8 } as ShardOutcome)).toBe(false);
+    // stream gave no counts (crash/timeout) — unknown, not all-skipped
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: null, skippedTests: null } as ShardOutcome)).toBe(false);
+  });
+
+  test('wiring: a real child’s skip recap flows through runPaidShard into skippedTests', async () => {
+    // End-to-end through the actual spawn/classify path (not hand-built
+    // outcomes): a fake shard child prints bun’s recap shape with every test
+    // skipped; the outcome must carry the parsed counts and formatSummary
+    // must label it. This is the seam the unit tests above skip.
+    const ALL_SKIP = 'console.log(" 0 pass"); console.log(" 3 skip"); console.log(" 0 fail"); console.log("Ran 3 tests across 1 files. [5ms]")';
+    const summary = await runPaidShards([['all-skip']], {
+      timeoutMs: 30_000,
+      jobs: 1,
+      commandFor: () => ({ command: process.execPath, args: ['-e', ALL_SKIP] }),
+      log: () => {},
+    });
+    const outcome = summary.outcomes[0];
+    expect(outcome.status).toBe('passed');
+    expect(outcome.executedTests).toBe(3);
+    expect(outcome.skippedTests).toBe(3);
+    expect(isAllSkippedPass(outcome)).toBe(true);
+    const lines = formatSummary(summary);
+    expect(lines.find((l) => l.includes('all-skip'))).toContain('all 3 tests SKIPPED');
+  }, 30_000);
+
+  test('formatSummary labels an all-skipped pass and leaves real passes alone', () => {
+    const lines = formatSummary(summarize([
+      { ...base, status: 'passed', executedTests: 8, skippedTests: 8 } as ShardOutcome,
+      { shard: 2, files: ['test/skill-e2e-review.test.ts'], status: 'passed', exitCode: 0, elapsedMs: 900, groupPid: 2, executedTests: 3, skippedTests: 0 } as ShardOutcome,
+    ]));
+    const codexLine = lines.find((l) => l.includes('codex-e2e'));
+    const reviewLine = lines.find((l) => l.includes('skill-e2e-review'));
+    expect(codexLine).toContain('all 8 tests SKIPPED');
+    expect(codexLine).toContain('verified nothing');
+    expect(reviewLine).not.toContain('SKIPPED');
   });
 });

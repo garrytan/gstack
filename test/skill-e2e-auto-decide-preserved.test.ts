@@ -59,6 +59,7 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
       const setRes = spawnSync(configBin, ['set', 'question_tuning', 'true'], {
         env: { ...process.env, GSTACK_HOME: tmpHome },
         encoding: 'utf-8',
+        timeout: 30_000,
       });
       if (setRes.status !== 0) {
         throw new Error(`gstack-config set failed: ${setRes.stderr || setRes.stdout}`);
@@ -73,6 +74,7 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
         cwd: ROOT,
         env: { ...process.env, GSTACK_HOME: tmpHome },
         encoding: 'utf-8',
+        timeout: 30_000,
       });
       // gstack-slug emits `eval`-able shell exports like `SLUG=garrytan-gstack`.
       const slug = (slugRes.stdout.match(/SLUG=([^\s;]+)/)?.[1] ?? 'unknown').replace(/['"]/g, '');
@@ -90,6 +92,7 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
         {
           env: { ...process.env, GSTACK_HOME: tmpHome },
           encoding: 'utf-8',
+          timeout: 30_000,
         },
       );
       if (writeRes.status !== 0) {

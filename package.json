@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.75.0",
+  "version": "1.79.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -44,6 +44,7 @@
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
+    "eval:flake-rank": "bun run scripts/eval-flake-rank.ts",
     "eval:watch": "bun run scripts/eval-watch.ts",
     "eval:select": "bun run scripts/eval-select.ts",
     "analytics": "bun run scripts/analytics.ts",
@@ -57,7 +58,7 @@
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
-    "marked": "^18.0.9",
+    "marked": "^18.0.11",
     "playwright": "^1.62.1",
     "socks": "^2.8.9"
   },
@@ -77,11 +78,13 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
     "@anthropic-ai/sdk": "^0.78.0",
-    "xterm": "5",
+    "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0"
   },
   "overrides": {
-    "adm-zip": "^0.6.0"
+    "adm-zip": "^0.6.0",
+    "ip-address": "10.3.1",
+    "sharp": "0.35.0"
   },
   "patchedDependencies": {
     "playwright-core@1.62.1": "patches/playwright-core@1.62.1.patch"

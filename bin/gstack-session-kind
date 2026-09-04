@@ -17,10 +17,23 @@
 # a positive headless signal, since a stray prose message in an unmarked one-shot
 # `-p` run just ends the turn (harmless), whereas wrongly BLOCKING a real human is not.
 #
+# GSTACK_SESSION_KIND=spawned is the explicit per-command override (step 0 below),
+# outranking every ambient marker. Deliberately narrow — only "spawned" is honored:
+# Claude Code subagents inherit the parent env byte-for-byte (#2733), so a
+# dispatching skill marks its subagent by prefixing the gstack-skill-start
+# invocation. "headless" already has GSTACK_HEADLESS; other values are reserved
+# and ignored (fall through to detection).
+#
 # Why env vars and not TTY/entrypoint: an interactive Conductor session reports
 # CLAUDE_CODE_ENTRYPOINT=sdk-ts with no TTY — identical to a headless SDK eval. The
 # signals that actually discriminate are the host/orchestrator/CI env markers below.
 set -euo pipefail
+
+# 0. Explicit spawned marker — full rationale and contract in the header above.
+if [ "${GSTACK_SESSION_KIND:-}" = "spawned" ]; then
+  echo "spawned"
+  exit 0
+fi
 
 # 1. Orchestrator-spawned session (OpenClaw). Authoritative block lives in the skill;
 #    we only surface the classification.

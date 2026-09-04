@@ -92,11 +92,19 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
 
   // #2656: the failed merge carried --delete-branch; the recovery path must
   // reconcile the remote branch instead of silently dropping that half.
-  test("MERGED branch reconciles the remote branch (ls-remote, confirm-first delete)", () => {
+  // #2696: that reconciliation must target the PR head repository, not the
+  // base checkout's origin, because fork branches do not exist in origin.
+  test("MERGED branch reconciles the PR head repository (ls-remote, confirm-first delete)", () => {
     const body = readTmpl();
-    expect(body).toMatch(/git ls-remote --heads origin "\$BRANCH"/);
-    expect(body).toMatch(/gh pr view --json headRefName -q \.headRefName/);
-    expect(body).toMatch(/git push origin --delete "\$BRANCH"/);
+    expect(body).toMatch(/gh pr view --json headRepositoryOwner,headRepository,headRefName/);
+    // gh leaves .headRepository.nameWithOwner empty (verified live, gh 2.83) —
+    // owner/name is composed from headRepositoryOwner.login + headRepository.name.
+    expect(body).toMatch(/headRepositoryOwner\.login/);
+    expect(body).not.toMatch(/\[\.headRepository\.nameWithOwner/);
+    expect(body).toMatch(/git ls-remote --heads "https:\/\/github\.com\/<head-repository>\.git" "<head-branch>"/);
+    expect(body).toMatch(/git push "https:\/\/github\.com\/<head-repository>\.git" --delete "<head-branch>"/);
+    expect(body).not.toMatch(/git ls-remote --heads origin/);
+    expect(body).not.toMatch(/git push origin --delete/);
     // Confirm-first: deletion is offered, never unilateral.
     expect(body).toMatch(/Delete it\?/);
   });
@@ -130,5 +138,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     const md = readMd();
     expect(md).toMatch(/### 4a-postfail: Post-failure PR-state check/);
     expect(md).toMatch(/state == "MERGED"/);
+    expect(md).toMatch(/headRepositoryOwner\.login/);
+    expect(md).not.toMatch(/git ls-remote --heads origin/);
   });
 });

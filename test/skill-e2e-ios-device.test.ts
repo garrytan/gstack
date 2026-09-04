@@ -280,7 +280,7 @@ describeIfDevice('ios device path', () => {
   test('fixture iOS SDK and UIKit compile guards are available', () => {
     // This is an environment + source-guard preflight. The explicit deployment
     // test below performs the real signed iOS xcodebuild before installation.
-    const sdkPath = spawnSync('xcrun', ['--sdk', 'iphoneos', '--show-sdk-path'], { stdio: 'pipe' });
+    const sdkPath = spawnSync('xcrun', ['--sdk', 'iphoneos', '--show-sdk-path'], { stdio: 'pipe', timeout: 30_000 });
     if (sdkPath.status !== 0) {
       console.error('iOS SDK not found. Install via Xcode.');
     }

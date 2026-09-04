@@ -83,6 +83,9 @@ describe('Conductor signal (skill-start script)', () => {
     const script = fs.readFileSync(path.join(import.meta.dir, '..', 'bin', 'gstack-skill-start'), 'utf-8');
     expect(script).toContain('echo "CONDUCTOR_SESSION: true"');
     expect(script).toMatch(/"\$_SESSION_KIND" != "headless"[\s\S]*CONDUCTOR_WORKSPACE_PATH[\s\S]*CONDUCTOR_PORT[\s\S]*CONDUCTOR_SESSION: true/);
+    // #2733: spawned outranks Conductor — a spawned session inside a Conductor
+    // workspace auto-chooses instead of rendering prose to nobody.
+    expect(script).toMatch(/"\$_SESSION_KIND" != "headless"[\s\S]{0,80}"\$_SESSION_KIND" != "spawned"[\s\S]{0,200}CONDUCTOR_SESSION: true/);
   });
 
   test('claude preamble render invokes the script and interprets CONDUCTOR_SESSION', () => {

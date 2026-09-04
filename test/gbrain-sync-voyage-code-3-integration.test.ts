@@ -44,7 +44,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
 
-const gbrainPath = spawnSync("which", ["gbrain"], { encoding: "utf-8" }).stdout.trim();
+const gbrainPath = spawnSync("which", ["gbrain"], { encoding: "utf-8", timeout: 30_000 }).stdout.trim();
 const gbrainAvailable = gbrainPath.length > 0;
 const voyageKey = process.env.VOYAGE_API_KEY?.trim() ?? "";
 const voyageKeyPresent = voyageKey.length > 0;
@@ -114,14 +114,14 @@ The queue module is a simple FIFO job queue.
   );
 
   // Make it a git repo because gbrain's code-sync strategy expects one.
-  const gitInit = spawnSync("git", ["init", "-q"], { cwd: fixtureDir, encoding: "utf-8" });
+  const gitInit = spawnSync("git", ["init", "-q"], { cwd: fixtureDir, encoding: "utf-8", timeout: 30_000 });
   if (gitInit.status !== 0) {
     throw new Error(`git init failed: ${gitInit.stderr}`);
   }
-  spawnSync("git", ["config", "user.email", "test@example.invalid"], { cwd: fixtureDir });
-  spawnSync("git", ["config", "user.name", "test"], { cwd: fixtureDir });
-  spawnSync("git", ["add", "."], { cwd: fixtureDir });
-  spawnSync("git", ["commit", "-q", "-m", "fixture"], { cwd: fixtureDir });
+  spawnSync("git", ["config", "user.email", "test@example.invalid"], { cwd: fixtureDir, timeout: 30_000 });
+  spawnSync("git", ["config", "user.name", "test"], { cwd: fixtureDir, timeout: 30_000 });
+  spawnSync("git", ["add", "."], { cwd: fixtureDir, timeout: 30_000 });
+  spawnSync("git", ["commit", "-q", "-m", "fixture"], { cwd: fixtureDir, timeout: 30_000 });
 
   return {
     root,

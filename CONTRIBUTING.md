@@ -98,8 +98,9 @@ prefer namespaced names (`/gstack-review`, `/gstack-ship`).
 # 1. Enter dev mode
 bin/dev-setup
 
-# 2. Edit a skill
-vim review/SKILL.md
+# 2. Edit a skill template (SKILL.md files are generated — edit the .tmpl)
+vim review/SKILL.md.tmpl
+bun run gen:skill-docs   # or: bun run dev:skill (watch mode, auto-regen on change)
 
 # 3. Test it in Claude Code — changes are live
 #    > /review
@@ -154,7 +155,7 @@ Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` f
 | 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
 
 ```bash
-bun run test                 # Tier 1 only (run before every commit, ~90-100s for the full ~7,000-test suite)
+bun run test                 # Tier 1 only (run before every commit, ~90-100s for the full ~8,700-test suite)
 bun run test:e2e             # Tier 2: E2E only (needs EVALS=1, can't run inside Claude Code)
 bun run test:evals           # Tier 2 + 3 combined (~$4.35/run)
 ```
@@ -168,7 +169,9 @@ silent truncation can never report green. Pass `--verbose` to forward the full
 child stream; `--wall-timeout <secs>` overrides the per-shard kill deadline.
 `GSTACK_FREE_JOBS=<n>` overrides the shard count (digits only, loud on garbage),
 and `GSTACK_FREE_RETRY_FLAKY=1` opts into one serial retry pass for
-syscall-supervised sandboxes (off by default — dev boxes should see flakes).
+syscall-supervised sandboxes (off by default locally — dev boxes should see
+flakes; the required CI free lane turns it on and uploads every flaky pass
+in a JSONL ledger artifact that `bun run eval:flake-rank` folds in).
 Working in a cloud sandbox? Run `scripts/sandbox-doctor.sh` once per boot to
 make the suite run green (details in
 [docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md)).
@@ -236,6 +239,7 @@ When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
 bun run eval:list            # list all eval runs (turns, duration, cost per run)
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
+bun run eval:flake-rank      # rank tests by flake signal: retried passes first, then failure rate (--json, --dir, --since-days)
 ```
 
 **Detached runs for agents and long suites.** When an agent (or you, for a run
@@ -264,9 +268,9 @@ distinguishes failed vs timed-out vs never-started shards. The runner also
 selects by diff: shards untouched by your branch are reported as
 skipped-by-diff, with a selection banner naming the reason (`EVALS_ALL=1`
 forces everything). `EVALS_JOBS` sets how many shard processes run at once
-(default 4); `EVALS_CONCURRENCY` is bun's concurrency WITHIN a shard — they
-are deliberately separate knobs. `eval:list`,
-`eval:compare`, and `eval:summary` are shard-aware. Humans running
+(default 8); `EVALS_CONCURRENCY` is bun's concurrency WITHIN a shard
+(default 2) — they are deliberately separate knobs. `eval:list`,
+`eval:compare`, `eval:summary`, and `eval:flake-rank` are shard-aware. Humans running
 `bun run test:evals` foreground in their own terminal don't need this — Ctrl-C
 is intended there.
 
@@ -301,7 +305,7 @@ Supply-chain gates run alongside it:
 
 - **Quality gate** (`.github/workflows/quality-gate.yml`, every PR and push) — scans the diff's added lines for credentials using gstack's own redact engine (`.github/scripts/gate-secret-scan.mjs`). HIGH findings fail the job; MEDIUM findings surface as an advisory count. Fails closed if the scan can't produce a report. Also gates critical dependency advisories and runs ShellCheck on the setup/build boundaries.
 - **Dependency review** (`.github/workflows/dependency-review.yml`) — reviews dependency changes on PRs that touch lockfiles or workflow files.
-- **OSV scanner** (`.github/workflows/osv-scanner.yml`) — weekly vulnerability scan against the OSV database (config in `.osv-scanner.toml`).
+- **OSV scanner** (`.github/workflows/osv-scanner.yml`) — weekly vulnerability scan against the OSV database. Config lives in `.osv-scanner.toml` and is loaded via an explicit `--config` flag (OSV does not auto-discover that filename); every ignore entry needs a reason and an `ignoreUntil` expiry, enforced by `test/osv-config-wiring.test.ts`.
 - **Dependabot** (`.github/dependabot.yml`) — grouped dependency update PRs.
 
 The supply-chain workflows pin their third-party actions to commit SHAs. The PR template (`.github/PULL_REQUEST_TEMPLATE.md`) asks for evidence — tests run, eval output — not promises.
@@ -455,6 +459,7 @@ When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It d
 - **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.
 - **`.claude/skills/` is gitignored.** The symlinks never get committed.
 - **Never write raw `ln -snf` in `setup`.** Every link site in `setup` MUST route through the `_link_or_copy SRC DST` helper near the `IS_WINDOWS` detection. The helper preserves `ln -snf` on Unix and switches to `cp -R` / `cp -f` on Windows without Developer Mode, where plain `ln -snf` produces frozen file copies that don't refresh on `git pull`. `test/setup-windows-fallback.test.ts` enforces this with a static invariant — a single raw `ln` call outside the helper body fails CI.
+- **Synchronous subagent dispatches must state the flag.** Claude Code runs Agent-tool subagents in the background by default (since v2.1.198), so any template step that dispatches a subagent and consumes its output must carry `run_in_background: false`. Use the `{{FOREGROUND_DISPATCH_NOTE}}` placeholder (`scripts/resolvers/constants.ts`) instead of hand-writing the guidance, and add the generated carrier file to `GENERATED_WITH_GUIDANCE` in `test/run-in-background-guidance.test.ts` in the same commit — its structural scanner fails CI on any generated dispatch imperative that lacks the flag.
 
 ## Testing your changes in a real project
 

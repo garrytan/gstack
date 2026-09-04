@@ -31,7 +31,7 @@ const MAX_BODY = 64 * 1024;
 const GUARD_RE = /^\s*(?::\s*"\$\{)?BASH_COMPAT(?:[:=]|\}")/m;
 
 function trackedShellScripts(): string[] {
-  const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
+  const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024, timeout: 30_000 });
   return out
     .split('\n')
     .map((s) => s.trim())
@@ -88,6 +88,7 @@ describe('heredoc pipe-deadlock guard', () => {
   test('the guard actually moves the body off the pipe', () => {
     const bash = spawnSync('bash', ['-c', 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"'], {
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     const version = (bash.stdout ?? '').trim();
     const [maj, min] = version.split('.').map((n) => parseInt(n, 10));
@@ -102,6 +103,7 @@ describe('heredoc pipe-deadlock guard', () => {
     // probe would answer OTHER for an unobservable fd. Skip rather than fail.
     const devStdin = spawnSync('bash', ['-c', '[ -e /dev/stdin ] && echo yes || echo no'], {
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     if ((devStdin.stdout ?? '').trim() !== 'yes') return;
 
@@ -114,7 +116,7 @@ $body
 EOF
 `;
     const run = (guard: string) =>
-      (spawnSync('bash', ['-c', probe(guard)], { encoding: 'utf-8' }).stdout ?? '').trim();
+      (spawnSync('bash', ['-c', probe(guard)], { encoding: 'utf-8', timeout: 30_000 }).stdout ?? '').trim();
 
     expect(run('')).toBe('PIPE');
     expect(run('BASH_COMPAT=50')).toBe('TEMPFILE');

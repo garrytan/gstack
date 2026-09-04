@@ -23,8 +23,32 @@ import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { launchWithXProtectHeal } from './xprotect-heal';
+import { readPidStartTime } from './xvfb';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
+
+/**
+ * Headless GPU flags (#2709): on macOS 26 / Apple Silicon the headless-shell
+ * GPU process can peg ~800% CPU indefinitely after real page work, and
+ * --disable-gpu alone is not enough — the software-compositing GPU process
+ * still spawns and still spins. The reporter validated this exact flag set
+ * drops it to 0.0% with screenshots still working. darwin-gated: on Linux CI
+ * and Windows the GPU process behaves, and the flags are a mild automation
+ * tell. GSTACK_DISABLE_GPU=off opts out. Pure function (platform + env
+ * injected) so the darwin behavior is unit-testable on any host. Deliberately
+ * NOT in buildGStackLaunchArgs: that feeds the headed/GBrowser paths too,
+ * where GPU-off is user-visibly wrong.
+ */
+export function headlessGpuArgs(platform: string, env: NodeJS.ProcessEnv): string[] {
+  if (platform !== 'darwin') return [];
+  if ((env.GSTACK_DISABLE_GPU || '').toLowerCase() === 'off') return [];
+  return [
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--disable-gpu-compositing',
+    '--disable-gpu-watchdog',
+  ];
+}
 
 /**
  * Detect whether GSTACK_CHROMIUM_PATH points at a custom Chromium build that
@@ -261,6 +285,17 @@ export class BrowserManager {
   private nextTabId: number = 1;
   private extraHeaders: Record<string, string> = {};
   private customUserAgent: string | null = null;
+  // #2709: identity of the Chromium child WE launched (headless path). The
+  // headless launch has no userDataDir, so killOrphanChromium's SingletonLock
+  // walk is a structural no-op for it — `browse stop` reported success while
+  // the orphaned GPU process kept spinning. PID alone is not identity (reuse);
+  // start time makes the later reap safe (same contract as xvfbPid/xvfbStartTime).
+  private chromiumProcInfo: { pid: number; startTime: string } | null = null;
+
+  /** PID + start-time of the launched Chromium child, when we own one. */
+  getChromiumProcInfo(): { pid: number; startTime: string } | null {
+    return this.chromiumProcInfo;
+  }
 
   // ─── Viewport + deviceScaleFactor (context options) ──────────
   // Tracked at the manager level so recreateContext() preserves them.
@@ -479,6 +514,12 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
+    // #2709: headless-only — the extensions path above forces headed mode,
+    // and headed/GBrowser sessions must keep the GPU.
+    if (useHeadless) {
+      launchArgs.push(...headlessGpuArgs(process.platform, process.env));
+    }
+
     // XProtect self-heal wrapper (P0 #2554): a macOS definition update can
     // start SIGKILLing the pinned Chromium at spawn. On the classified
     // signature, clear quarantine on the Playwright cache + force-reinstall
@@ -518,6 +559,15 @@ export class BrowserManager {
     this.browser.on('disconnected', () => {
       void handleChromiumDisconnect(this.browser);
     });
+
+    // #2709: record the child's identity so the CLI can reap a survivor after
+    // daemon shutdown. `.process()` exists here — we launched this browser.
+    {
+      const proc = typeof this.browser.process === 'function' ? this.browser.process() : null;
+      this.chromiumProcInfo = proc?.pid
+        ? { pid: proc.pid, startTime: readPidStartTime(proc.pid) }
+        : null;
+    }
 
     const contextOptions: BrowserContextOptions = {
       viewport: { width: this.currentViewport.width, height: this.currentViewport.height },

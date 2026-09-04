@@ -68,7 +68,7 @@ function runImport(sessionPath: string): { stdout: string; stderr: string; statu
   env.GSTACK_STATE_ROOT = stateRoot;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   delete env.GSTACK_HOME;
-  const res = spawnSync(BIN, [sessionPath], { env, encoding: 'utf-8', cwd: ROOT });
+  const res = spawnSync(BIN, [sessionPath], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
   return {
     stdout: res.stdout ?? '',
     stderr: res.stderr ?? '',
@@ -196,7 +196,7 @@ describe('default mode (no args → latest)', () => {
       }
       env.GSTACK_STATE_ROOT = stateRoot;
       env.CODEX_SESSIONS_ROOT = emptyDir;
-      const res = spawnSync(BIN, [], { env, encoding: 'utf-8', cwd: ROOT });
+      const res = spawnSync(BIN, [], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
       expect(res.status).toBe(0);
       expect(res.stdout).toMatch(/NO_SESSIONS/);
     } finally {

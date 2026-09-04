@@ -43,7 +43,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 const CODEX_AVAILABLE = (() => {
   try {
-    const result = Bun.spawnSync(['which', 'codex']);
+    const result = Bun.spawnSync(['which', 'codex'], { timeout: 30_000 });
     return result.exitCode === 0;
   } catch { return false; }
 })();

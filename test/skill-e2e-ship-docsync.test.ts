@@ -197,7 +197,7 @@ describeE2E('Ship doc-sync dispatch E2E (gate)', () => {
 
     testConcurrentIfSelected('ship-docsync', async () => {
       const result = await runSkillTest({
-        prompt: `You are executing the /ship workflow; your working directory is the git repo. Steps 0-16 are complete: tests passed, review done, VERSION bumped to 0.1.0.1, CHANGELOG updated, changes committed on branch feature/docsync-test. The remaining workflow is in ${path.join(workDir, 'ship', 'SKILL-tail.md')} — Read it and continue the workflow from Step 17 to completion. Base branch: main. There is no GitHub/GitLab service in this environment: if gh or glab commands fail, print the would-be PR title and body and stop. gstack helper binaries (gstack-*) are unavailable in this environment — treat their failures as no-ops and continue. Do NOT ask questions.`,
+        prompt: `You are executing the /ship workflow; your working directory is the git repo. Steps 0-16 are complete: tests passed, review done, VERSION bumped to 0.1.0.1, CHANGELOG updated, changes committed on branch feature/docsync-test. The remaining workflow is in ${path.join(workDir, 'ship', 'SKILL-tail.md')} — Read it and continue the workflow from Step 17 to completion. Skill section files referenced by STOP pointers live under ${path.join(workDir, 'ship', 'sections')} (also planted at ship/sections/ relative to the repo) — resolve section reads there, not via \`~\`. Base branch: main. There is no GitHub/GitLab service in this environment: if gh or glab commands fail, print the would-be PR title and body and stop. gstack helper binaries (gstack-*) are unavailable in this environment — treat their failures as no-ops and continue. Do NOT ask questions.`,
         workingDirectory: repoDir,
         maxTurns: 30,
         allowedTools: ['Bash', 'Read', 'Grep', 'Glob', 'Write', 'Agent', 'Task'],
@@ -263,6 +263,10 @@ describeE2E('Ship doc-sync dispatch E2E (gate)', () => {
 
       // THE regression assert: the /document-release subagent was dispatched.
       expect(dispatchIdx).toBeGreaterThanOrEqual(0);
+      // v1.79: the dispatch must carry the explicit foreground flag — the
+      // whole #497/#2440 class is "prose said foreground, the call didn't".
+      // Phrase pins prove the text exists; this proves the model obeys it.
+      expect((calls[dispatchIdx].input as any)?.run_in_background).toBe(false);
       // Sequencing: dispatch happens BEFORE PR creation (when a create was attempted).
       if (prCreateIdx >= 0) expect(dispatchIdx).toBeLessThan(prCreateIdx);
       // 'timeout' is acceptable ONLY because the dispatch assert above is

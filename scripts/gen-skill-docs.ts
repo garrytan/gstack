@@ -158,28 +158,42 @@ const EXPLAIN_LEVEL: 'default' | 'terse' = (() => {
 // Conductor workspace — byte-compat pinned by gen-skill-docs-out-dir tests)
 // and the former TREE_MUTATING tests, which render into a mkdtemp instead
 // of mutating the live tree. Default (unset) = in-place, unchanged.
-const OUT_DIR_ARG = process.argv.find(a => a.startsWith('--out-dir'));
-const OUT_DIR: string | null = (() => {
-  if (!OUT_DIR_ARG) return null;
-  const val = OUT_DIR_ARG.includes('=')
-    ? OUT_DIR_ARG.split('=')[1]
-    : process.argv[process.argv.indexOf(OUT_DIR_ARG) + 1];
-  if (!val) throw new Error('--out-dir requires a directory path');
+/** Parse `--flag <path>` / `--flag=<path>` into an absolute path, or null when absent. */
+function parsePathFlag(flag: string): string | null {
+  const arg = process.argv.find(a => a.startsWith(flag));
+  if (!arg) return null;
+  const val = arg.includes('=')
+    ? arg.split('=')[1]
+    : process.argv[process.argv.indexOf(arg) + 1];
+  if (!val) throw new Error(`${flag} requires a directory path`);
   return path.resolve(val);
-})();
+}
+const OUT_DIR: string | null = parsePathFlag('--out-dir');
+
+// #2692: callers that render into a TMP dir and atomically swap it into place
+// (bin/gstack-config gbrain-refresh, setup — the #2569 pattern) must pass the
+// FINAL directory here, or rewriteSectionBase bakes the tmp path
+// (…/render/claude.tmp.<pid>/…) into the rendered CONTENT and every section
+// Read dies after the swap. Defaults to OUT_DIR for direct-render callers
+// (bin/dev-setup, scripts/dev-skill.ts, mkdtemp tests), where out-dir IS the
+// serving path.
+const LINK_ROOT: string | null = parsePathFlag('--link-root') ?? OUT_DIR;
 
 /**
  * When rendering to an out-dir, repoint the literal section-base path at the
- * out-dir so section Reads resolve to the rendered copy, not the global install.
+ * link root (--link-root, defaulting to --out-dir) so section Reads resolve
+ * to the SERVED copy, not the global install.
  * Surgical: ONLY paths containing `/sections/` are rewritten — bin/, browse/,
  * docs/ references keep pointing at `~/.claude/skills/gstack` (the global
- * install, which still works). No-op when --out-dir is unset.
+ * install, which still works). No-op when neither flag is set.
  */
 function rewriteSectionBase(content: string): string {
-  if (!OUT_DIR) return content;
+  if (!LINK_ROOT) return content;
+  // Replacement CALLBACK, not a template string: `$` sequences in a
+  // configured path are special in JS replacement strings ($&, $', $1…).
   return content.replace(
     /~\/\.claude\/skills\/gstack\/([^\s)`"'*]+\/sections\/)/g,
-    `${OUT_DIR}/$1`,
+    (_m, p1: string) => `${LINK_ROOT}/${p1}`,
   );
 }
 
@@ -1146,7 +1160,7 @@ if (!DRY_RUN) {
     if (fs.existsSync(configPath)) {
       const config = fs.readFileSync(configPath, 'utf-8');
       if (/^skill_prefix:\s*true/m.test(config)) {
-        console.log('\nNote: skill_prefix is true. Run gstack-relink to re-apply name: patches.');
+        console.log('\nNote: skill_prefix is true. Run gstack-relink to re-apply name: patches (it patches both the install and any active gbrain render).');
       }
     }
   } catch { /* non-fatal */ }

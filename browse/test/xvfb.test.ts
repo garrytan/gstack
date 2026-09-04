@@ -11,7 +11,7 @@ import {
 
 const HAS_XVFB = (() => {
   if (process.platform !== 'linux') return false;
-  const result = Bun.spawnSync(['which', 'Xvfb'], { stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync(['which', 'Xvfb'], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
   return result.exitCode === 0;
 })();
 

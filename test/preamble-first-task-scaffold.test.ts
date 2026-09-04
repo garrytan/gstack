@@ -28,7 +28,7 @@ function detect(cwd: string): string {
   return execFileSync(DETECT, [], { cwd, encoding: 'utf-8', env: GIT_ENV }).trim();
 }
 function git(cwd: string, args: string) {
-  execSync(`git ${args}`, { cwd, env: GIT_ENV, stdio: 'ignore' });
+  execSync(`git ${args}`, { cwd, env: GIT_ENV, stdio: 'ignore', timeout: 30_000 });
 }
 
 let tmp: string;

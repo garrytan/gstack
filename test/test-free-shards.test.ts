@@ -83,6 +83,7 @@ describe('test-free-shards: Windows curation', () => {
   });
 
   test('detects spawn("sh", ...)', () => {
+    // tripwire-exempt: string fixture fed to detectWindowsFragility, not a call
     withTempFile(`spawnSync('sh', ['-c', 'command -v claude']);`, (f) => {
       expect(detectWindowsFragility(f)?.reason).toBe('spawn("sh", ...)');
     });
@@ -95,6 +96,7 @@ describe('test-free-shards: Windows curation', () => {
   });
 
   test('detects which claude shell command', () => {
+    // tripwire-exempt: string fixture fed to detectWindowsFragility, not a call
     withTempFile(`execSync('which claude').trim();`, (f) => {
       expect(detectWindowsFragility(f)?.reason).toBe('which claude (use Bun.which)');
     });

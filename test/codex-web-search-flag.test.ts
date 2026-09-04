@@ -23,7 +23,7 @@ function grepRepo(pattern: string, includes: string[]): string[] {
   const includeArgs = includes.map((i) => `--include='${i}'`).join(' ');
   const out = execSync(
     `grep -rln ${includeArgs} -e '${pattern}' "${ROOT}" || true`,
-    { encoding: 'utf-8' },
+    { encoding: 'utf-8', timeout: 30_000 },
   );
   return out
     .split('\n')

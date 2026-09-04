@@ -153,9 +153,9 @@ describe("session-start indexing offer (suggest)", () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), "ci-home-"));
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "ci-repo-"));
     env = { ...process.env, GSTACK_HOME: home };
-    Bun.spawnSync(["git", "init", "-q", repo]);
+    Bun.spawnSync(["git", "init", "-q", repo], { timeout: 30_000 });
     for (const name of ["a.ts", "b.ts", "c.ts"]) fs.writeFileSync(path.join(repo, name), "x\n");
-    Bun.spawnSync(["git", "-C", repo, "add", "-A"]);
+    Bun.spawnSync(["git", "-C", repo, "add", "-A"], { timeout: 30_000 });
   });
   afterEach(() => {
     fs.rmSync(home, { recursive: true, force: true });
@@ -399,7 +399,7 @@ describe("consent unification — deny tier wins (R1)", () => {
   function makeRepo(dir: string, url: string): string {
     const repo = path.join(dir, "repo");
     fs.mkdirSync(repo, { recursive: true });
-    const git = (...a: string[]) => execFileSync("git", a, { cwd: repo });
+    const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, timeout: 30_000 });
     git("init", "-q", ".");
     git("remote", "add", "origin", url);
     return repo;
@@ -423,11 +423,11 @@ describe("consent unification — deny tier wins (R1)", () => {
       const env = { ...process.env, GSTACK_HOME: home };
       const repo = makeRepo(home, URL);
       setConsent(repo, true, env);
-      execFileSync(POLICY_BIN, ["set", URL, "deny"], { env, encoding: "utf-8" });
+      execFileSync(POLICY_BIN, ["set", URL, "deny"], { env, encoding: "utf-8", timeout: 30_000 });
       expect(hasConsent(repo, env)).toBe(false);
       // Flipping the tier back restores the recorded consent — the veto is
       // live policy, not a destructive rewrite of the consent store.
-      execFileSync(POLICY_BIN, ["set", URL, "read-write"], { env, encoding: "utf-8" });
+      execFileSync(POLICY_BIN, ["set", URL, "read-write"], { env, encoding: "utf-8", timeout: 30_000 });
       expect(hasConsent(repo, env)).toBe(true);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
@@ -439,7 +439,7 @@ describe("consent unification — deny tier wins (R1)", () => {
       const env = { ...process.env, GSTACK_HOME: home };
       const repo = makeRepo(home, URL);
       setConsent(repo, true, env);
-      execFileSync(POLICY_BIN, ["set", URL, "read-write"], { env, encoding: "utf-8" });
+      execFileSync(POLICY_BIN, ["set", URL, "read-write"], { env, encoding: "utf-8", timeout: 30_000 });
       fs.chmodSync(path.join(home, "gbrain-repo-policy.json"), 0o000);
       try {
         expect(hasConsent(repo, env)).toBe(false);
@@ -460,7 +460,7 @@ describe("consent unification — deny tier wins (R1)", () => {
       const env = { ...process.env, GSTACK_HOME: home };
       const repo = makeRepo(home, URL);
       setConsent(repo, true, env);
-      execFileSync(POLICY_BIN, ["set", URL, "read-only"], { env, encoding: "utf-8" });
+      execFileSync(POLICY_BIN, ["set", URL, "read-only"], { env, encoding: "utf-8", timeout: 30_000 });
       // Default op class is write — a caller that doesn't say gets fail-closed.
       expect(hasConsent(repo, env)).toBe(false);
       expect(hasConsent(repo, env, "write")).toBe(false);
@@ -475,7 +475,7 @@ describe("consent unification — deny tier wins (R1)", () => {
       const env = { ...process.env, GSTACK_HOME: home };
       const repo = makeRepo(home, URL);
       setConsent(repo, true, env);
-      execFileSync(POLICY_BIN, ["set", URL, "deny"], { env, encoding: "utf-8" });
+      execFileSync(POLICY_BIN, ["set", URL, "deny"], { env, encoding: "utf-8", timeout: 30_000 });
       expect(hasConsent(repo, env, "write")).toBe(false);
       expect(hasConsent(repo, env, "read")).toBe(false);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -971,9 +971,9 @@ exit 1
 
   function makeRepoWithFiles(count: number): string {
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ci-cli-suggest-"));
-    Bun.spawnSync(["git", "init", "-q", repo]);
+    Bun.spawnSync(["git", "init", "-q", repo], { timeout: 30_000 });
     for (let i = 0; i < count; i++) fs.writeFileSync(path.join(repo, `f${i}.ts`), "x\n");
-    Bun.spawnSync(["git", "-C", repo, "add", "-A"]);
+    Bun.spawnSync(["git", "-C", repo, "add", "-A"], { timeout: 30_000 });
     return repo;
   }
 

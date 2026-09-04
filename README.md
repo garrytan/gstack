@@ -275,9 +275,13 @@ Beyond the slash-command skills, gstack ships standalone CLIs for workflows that
 `./setup` also registers one default-on Stop hook in `~/.claude/settings.json`:
 `gstack-timeline-stop` (closes dangling session-timeline entries when a session
 is interrupted; fail-open — 2s internal budget, always exits 0, can never block
-a session). Skip it with `./setup --no-team`, remove it with
-`gstack-settings-hook remove-source --source gstack-timeline-stop`;
-`gstack-uninstall` removes it too.
+a session). Opt out persistently with `./setup --no-timeline-stop-hook` — the
+choice lands in the `timeline_stop_hook` config key, survives upgrades, and an
+explicit "no" removes a live registration. `GSTACK_TIMELINE_STOP_HOOK=no` and
+`gstack-config set timeline_stop_hook no` work too (flag > env > config).
+`./setup --no-team` skips it for that run, `gstack-settings-hook remove-source
+--source gstack-timeline-stop` removes it by hand, and `gstack-uninstall`
+removes it too.
 
 Hook registration is canonical-only: every hook command points at the stable
 `~/.claude/skills/gstack` install, never the tree setup ran from, so deleting

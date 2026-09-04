@@ -466,7 +466,12 @@ describe('daemon — loopback listener', () => {
     await daemon.close();
     pidPath = join(workDir, 'daemon-2.pid');
     const d2 = await startDaemon({
-      loopbackPort: daemon.loopbackPort + 1,
+      // OS-assigned like every other start in this file — the old
+      // `daemon.loopbackPort + 1` bound a fixed neighbor port and flaked
+      // whenever another shard/TIME_WAIT socket held it (windows-free-tests:
+      // "Is port 55738 in use?"). The fetch below reads d2.loopbackPort, so
+      // nothing needs a predictable number.
+      loopbackPort: 0,
       tailnetEnabled: false,
       pidfilePath: pidPath,
       tunnelProvider: async () => null,

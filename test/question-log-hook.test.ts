@@ -48,6 +48,7 @@ function runHook(stdin: object): { stdout: string; stderr: string; status: numbe
     input: JSON.stringify(stdin),
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',
@@ -345,7 +346,7 @@ describe('PostToolUse hook (crash safety)', () => {
     }
     env.GSTACK_STATE_ROOT = stateRoot;
     env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
-    const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
+    const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8', timeout: 30_000 });
     expect(res.status).toBe(0);
   });
 
@@ -360,6 +361,7 @@ describe('PostToolUse hook (crash safety)', () => {
       env,
       input: 'not json',
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(res.status).toBe(0);
     // Error logged to hook-errors.log

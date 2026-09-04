@@ -32,7 +32,7 @@ function env(): NodeJS.ProcessEnv {
 }
 
 function run(args: string[], input?: string) {
-  const res = spawnSync(BIN, args, { env: env(), encoding: "utf-8", input });
+  const res = spawnSync(BIN, args, { env: env(), encoding: "utf-8", input, timeout: 30_000 });
   return {
     stdout: res.stdout || "",
     stderr: res.stderr || "",

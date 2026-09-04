@@ -278,12 +278,21 @@ elif ! _gstack_codex_auth_probe >/dev/null; then
 # Round-trip model probe (#2477): auth can pass while the account's configured
 # model is rejected with an HTTP 400 (stale `model =` pin in ~/.codex/config.toml).
 # ~10s on first run, cached 1h; timeouts fail open (probe returns 0).
-elif ! _gstack_codex_model_probe; then
-  echo "[codex-unavailable: configured model rejected] — proceeding with Claude subagent only. Fix the \`model =\` pin in ~/.codex/config.toml (see [notice.model_migrations] there for the replacement)."
-  _CODEX_AVAILABLE=false
+# Exit 2 = broken install (#2742: spawn ENOENT / non-executable binary /
+# missing vendor payload) — a different problem with a different fix, so
+# capture the code instead of testing truthiness.
 else
-  _gstack_codex_version_check   # non-blocking warn if known-bad
-  _CODEX_AVAILABLE=true
+  _gstack_codex_model_probe; _CODEX_MP=$?
+  if [ "$_CODEX_MP" -eq 2 ]; then
+    echo "[codex-unavailable: binary cannot run] — proceeding with Claude subagent only. Reinstall: \`npm install -g @openai/codex\` (#2742)."
+    _CODEX_AVAILABLE=false
+  elif [ "$_CODEX_MP" -ne 0 ]; then
+    echo "[codex-unavailable: configured model rejected] — proceeding with Claude subagent only. Fix the \`model =\` pin in ~/.codex/config.toml (see [notice.model_migrations] there for the replacement)."
+    _CODEX_AVAILABLE=false
+  else
+    _gstack_codex_version_check   # non-blocking warn if known-bad
+    _CODEX_AVAILABLE=true
+  fi
 fi
 ```
 

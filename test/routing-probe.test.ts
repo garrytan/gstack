@@ -78,7 +78,7 @@ describe('routing probe checks AGENTS.md too (#2500)', () => {
       );
       const out = execSync(
         `bash -c '${probe.replace(/'/g, `'\\''`)}\necho "HAS_ROUTING: $_HAS_ROUTING"'`,
-        { cwd: dir, encoding: 'utf-8' },
+        { cwd: dir, encoding: 'utf-8', timeout: 30_000 },
       );
       expect(out).toContain('HAS_ROUTING: yes');
     } finally {
@@ -92,7 +92,7 @@ describe('routing probe checks AGENTS.md too (#2500)', () => {
     try {
       const out = execSync(
         `bash -c '${probe.replace(/'/g, `'\\''`)}\necho "HAS_ROUTING: $_HAS_ROUTING"'`,
-        { cwd: dir, encoding: 'utf-8' },
+        { cwd: dir, encoding: 'utf-8', timeout: 30_000 },
       );
       expect(out).toContain('HAS_ROUTING: no');
     } finally {

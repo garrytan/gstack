@@ -145,6 +145,7 @@ function run(
     env,
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
 }
 
@@ -163,13 +164,13 @@ function gbrainCalls(): string[] {
 function setupGstackRepo(remoteUrl: string) {
   // Real git repo at gstackHome with at least one commit + an origin remote.
   fs.mkdirSync(gstackHome, { recursive: true });
-  spawnSync('git', ['-C', gstackHome, 'init', '-q', '-b', 'main'], { stdio: 'pipe' });
-  spawnSync('git', ['-C', gstackHome, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' });
-  spawnSync('git', ['-C', gstackHome, 'config', 'user.name', 'test'], { stdio: 'pipe' });
+  spawnSync('git', ['-C', gstackHome, 'init', '-q', '-b', 'main'], { stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['-C', gstackHome, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['-C', gstackHome, 'config', 'user.name', 'test'], { stdio: 'pipe', timeout: 30_000 });
   fs.writeFileSync(path.join(gstackHome, '.brain-allowlist'), '# allowlist\n');
-  spawnSync('git', ['-C', gstackHome, 'add', '.'], { stdio: 'pipe' });
-  spawnSync('git', ['-C', gstackHome, 'commit', '-q', '-m', 'init'], { stdio: 'pipe' });
-  spawnSync('git', ['-C', gstackHome, 'remote', 'add', 'origin', remoteUrl], { stdio: 'pipe' });
+  spawnSync('git', ['-C', gstackHome, 'add', '.'], { stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['-C', gstackHome, 'commit', '-q', '-m', 'init'], { stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['-C', gstackHome, 'remote', 'add', 'origin', remoteUrl], { stdio: 'pipe', timeout: 30_000 });
 }
 
 beforeEach(() => {
@@ -316,6 +317,7 @@ describe('gstack-gbrain-source-wireup — wireup mode', () => {
     const check = spawnSync('bash', ['-c', `command -v gbrain && gbrain --version`], {
       env: { PATH: `${hostLikeDir}:${process.env.PATH || '/usr/bin:/bin'}` },
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(check.status).toBe(0);
     expect(check.stdout).toContain('gbrain 0.18.2');
@@ -526,13 +528,15 @@ describe('gstack-gbrain-source-wireup — defensive paths', () => {
     run([], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
     // Make a new commit on parent so worktree HEAD is "behind"
     fs.writeFileSync(path.join(gstackHome, 'newfile.md'), 'new');
-    spawnSync('git', ['-C', gstackHome, 'add', '.'], { stdio: 'pipe' });
-    spawnSync('git', ['-C', gstackHome, 'commit', '-q', '-m', 'second commit'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', gstackHome, 'add', '.'], { stdio: 'pipe', timeout: 30_000 });
+    spawnSync('git', ['-C', gstackHome, 'commit', '-q', '-m', 'second commit'], { stdio: 'pipe', timeout: 30_000 });
     const parentHeadAfter = spawnSync('git', ['-C', gstackHome, 'rev-parse', 'HEAD'], {
       encoding: 'utf-8',
+      timeout: 30_000,
     }).stdout.trim();
     const worktreeHeadBefore = spawnSync('git', ['-C', worktreeDir, 'rev-parse', 'HEAD'], {
       encoding: 'utf-8',
+      timeout: 30_000,
     }).stdout.trim();
     expect(parentHeadAfter).not.toBe(worktreeHeadBefore); // sanity: parent advanced
     // --no-pull should leave worktree HEAD where it was
@@ -540,6 +544,7 @@ describe('gstack-gbrain-source-wireup — defensive paths', () => {
     expect(r.status).toBe(0);
     const worktreeHeadAfter = spawnSync('git', ['-C', worktreeDir, 'rev-parse', 'HEAD'], {
       encoding: 'utf-8',
+      timeout: 30_000,
     }).stdout.trim();
     expect(worktreeHeadAfter).toBe(worktreeHeadBefore);
     expect(worktreeHeadAfter).not.toBe(parentHeadAfter);

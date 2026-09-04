@@ -23,6 +23,7 @@ function trackedTmplFiles(): string[] {
   const out = execFileSync("git", ["ls-files", "*.tmpl", "**/*.tmpl"], {
     cwd: ROOT,
     encoding: "utf-8",
+    timeout: 30_000,
   });
   return out.split("\n").filter(Boolean);
 }
@@ -50,8 +51,9 @@ describe("mktemp portability (#2091)", () => {
     const tmp = process.env.TMPDIR || "/tmp";
     const created = execFileSync("mktemp", [`${tmp.replace(/\/$/, "")}/gstack-portability-XXXXXX`], {
       encoding: "utf-8",
+      timeout: 30_000,
     }).trim();
     expect(created.length).toBeGreaterThan(0);
-    execFileSync("rm", ["-f", created]);
+    execFileSync("rm", ["-f", created], { timeout: 30_000 });
   });
 });

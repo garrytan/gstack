@@ -45,12 +45,12 @@ function scaffoldFixture(prefix: string): { workDir: string; stateRoot: string; 
   fs.mkdirSync(stateRoot, { recursive: true });
 
   // git init so gstack-slug resolves a deterministic slug.
-  spawnSync('git', ['init', '-b', 'main'], { cwd: workDir, stdio: 'pipe' });
-  spawnSync('git', ['config', 'user.email', 't@t.com'], { cwd: workDir, stdio: 'pipe' });
-  spawnSync('git', ['config', 'user.name', 'T'], { cwd: workDir, stdio: 'pipe' });
+  spawnSync('git', ['init', '-b', 'main'], { cwd: workDir, stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['config', 'user.email', 't@t.com'], { cwd: workDir, stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['config', 'user.name', 'T'], { cwd: workDir, stdio: 'pipe', timeout: 30_000 });
   fs.writeFileSync(path.join(workDir, 'README.md'), '# cathedral fixture\n');
-  spawnSync('git', ['add', '.'], { cwd: workDir, stdio: 'pipe' });
-  spawnSync('git', ['commit', '-m', 'init'], { cwd: workDir, stdio: 'pipe' });
+  spawnSync('git', ['add', '.'], { cwd: workDir, stdio: 'pipe', timeout: 30_000 });
+  spawnSync('git', ['commit', '-m', 'init'], { cwd: workDir, stdio: 'pipe', timeout: 30_000 });
 
   // Copy bins.
   const binDir = path.join(workDir, 'bin');
@@ -146,6 +146,7 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
       },
       input: JSON.stringify(payload),
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(res.status).toBe(0);
     const logPath = path.join(fixture.stateRoot, 'projects', fixture.slug, 'question-log.jsonl');
@@ -209,6 +210,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
       },
       input: JSON.stringify(payload),
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
@@ -293,6 +295,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
       },
       input: JSON.stringify(payload),
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
@@ -352,6 +355,7 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
       },
       encoding: 'utf-8',
       cwd: fixture.workDir,
+      timeout: 30_000,
     });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('IMPORTED: 1');
@@ -412,6 +416,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
       env: { ...process.env, GSTACK_STATE_ROOT: fixture.stateRoot },
       encoding: 'utf-8',
       cwd: fixture.workDir,
+      timeout: 30_000,
     });
     expect(applyRes.status).toBe(0);
 
@@ -453,6 +458,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
       },
       input: JSON.stringify(payload),
       encoding: 'utf-8',
+      timeout: 30_000,
     });
     expect(hookRes.status).toBe(0);
     const parsed = JSON.parse(hookRes.stdout || '{}');

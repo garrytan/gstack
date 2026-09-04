@@ -298,6 +298,44 @@ describe('gstack-relink (#578)', () => {
     );
   });
 
+  // #2738: with skill_prefix=true AND an active gbrain render, the symlink
+  // target is the RENDER copy — so the render's `name:` must get the gstack-
+  // prefix too, or the served frontmatter stays unprefixed and skill_prefix
+  // silently no-ops for every brain-aware skill.
+  test('skill_prefix=true patches the rendered SKILL.md name too (#2738)', () => {
+    setupMockInstall(['qa']);
+    const renderDir = path.join(tmpDir, 'render', 'claude', 'qa');
+    fs.mkdirSync(renderDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(renderDir, 'SKILL.md'),
+      '---\nname: qa\ndescription: test\n---\nrendered brain-aware qa',
+    );
+
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_HOME: tmpDir,
+    });
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_HOME: tmpDir,
+    });
+
+    const served = path.join(skillsDir, 'gstack-qa', 'SKILL.md');
+    expect(fs.readlinkSync(served)).toBe(path.join(renderDir, 'SKILL.md'));
+    // The SERVED file (the render) carries the prefixed name.
+    expect(fs.readFileSync(served, 'utf-8')).toContain('name: gstack-qa');
+    // Idempotent: a second relink must not double-prefix.
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_HOME: tmpDir,
+    });
+    expect(fs.readFileSync(served, 'utf-8')).toContain('name: gstack-qa');
+    expect(fs.readFileSync(served, 'utf-8')).not.toContain('gstack-gstack-');
+  });
+
   // FIRST INSTALL: --no-prefix must create ONLY flat names, zero gstack-* pollution
   test('first install --no-prefix: only flat names exist, zero gstack-* entries', () => {
     setupMockInstall(['qa', 'ship', 'review', 'plan-ceo-review', 'gstack-upgrade']);

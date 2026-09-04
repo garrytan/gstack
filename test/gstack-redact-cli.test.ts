@@ -22,6 +22,7 @@ function run(
 ): { code: number; stdout: string; stderr: string } {
   const proc = Bun.spawnSync(["bun", BIN, ...args], {
     stdin: Buffer.from(stdin),
+    timeout: 30_000,
   });
   return {
     code: proc.exitCode,
@@ -88,7 +89,7 @@ describe("gstack-redact --from-file", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "redact-file-"));
     const f = path.join(dir, "spec.md");
     fs.writeFileSync(f, "leaked ghp_" + "a".repeat(36));
-    const proc = Bun.spawnSync(["bun", BIN, "--from-file", f, "--json"]);
+    const proc = Bun.spawnSync(["bun", BIN, "--from-file", f, "--json"], { timeout: 30_000 });
     const parsed = JSON.parse(proc.stdout.toString());
     expect(parsed.findings[0].id).toBe("github.pat");
     fs.rmSync(dir, { recursive: true, force: true });
@@ -145,4 +146,118 @@ describe("gstack-redact argv dispatch", () => {
   test("flags are still parsed, not mistaken for subcommands", () => {
     expect(run(["--json"], "just prose").code).toBe(0);
   });
+});
+
+describe("large report survives a piped consumer (bd621cc0 regression)", () => {
+  // The bin used to call `process.exit(code)` right after writing the report.
+  // For output bigger than the 64 KiB kernel pipe buffer with a consumer that
+  // hadn't started reading yet, exit discarded everything still queued in
+  // userland: the consumer received EXACTLY 65,536 bytes, JSON.parse blew up,
+  // and the CI quality gate failed CLOSED on a clean scan. Fixed by setting
+  // process.exitCode and letting the runtime drain stdout.
+  //
+  // Reproducing the pressure needs a consumer that provably is NOT reading at
+  // the moment the child writes and exits. A plain spawn/spawnSync parent
+  // cannot arrange that: Bun eagerly drains child pipes into parent memory,
+  // which relieves the pipe and masks the bug. A shell pipeline whose consumer
+  // sleeps before its first read (`| { sleep 1.5; cat …; }`) guarantees the
+  // child faces a full pipe at its exit point — the sleep comfortably outlasts
+  // the ~0.5 s scan. Verified to catch the regression: with process.exit
+  // restored, both tests below receive a 65,536-byte truncated stream.
+  // (If a loaded machine ever stretches the scan past the sleep, the fixed bin
+  // still passes — only regression detection would weaken, never green runs.)
+  //
+  // The pipeline's own exit status belongs to `cat`, so the subshell writes
+  // the bin's real exit code to a file. This harness is POSIX-only, which is
+  // fine: this file is already excluded from the Windows curated subset
+  // (it spawns a bin/ shebang script).
+  function runSlowPipe(dir: string, inFile: string, flags: string): { code: string; out: string } {
+    const outFile = path.join(dir, "pipe-out.bin");
+    const codeFile = path.join(dir, "pipe-code.txt");
+    const script =
+      `( bun "$REDACT_BIN" --from-file "$IN_FILE" ${flags} --repo-visibility private; ` +
+      `echo $? > "$CODE_FILE" ) | { sleep 1.5; cat > "$OUT_FILE"; }`;
+    const proc = Bun.spawnSync(["sh", "-c", script], {
+      env: {
+        ...process.env,
+        REDACT_BIN: BIN,
+        IN_FILE: inFile,
+        CODE_FILE: codeFile,
+        OUT_FILE: outFile,
+      },
+      timeout: 30_000,
+    });
+    expect(proc.exitCode).toBe(0); // the plumbing itself (sh, cat) must succeed
+    return {
+      code: fs.readFileSync(codeFile, "utf8").trim(),
+      out: fs.readFileSync(outFile, "utf8"),
+    };
+  }
+
+  test(
+    "--json: a 900-finding report (>200 KB) arrives complete with exit 2",
+    () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "redact-pipe-json-"));
+      try {
+        // 900 DISTINCT emails → 900 MEDIUM pii.email findings (~259 KB of
+        // pretty-printed JSON from ~31 KB of input). @example.* and noreply@
+        // are engine-allowlisted; corp<i>.io is not. Visibility never mutates
+        // the tier, so MEDIUM → exit 2 holds under --repo-visibility private.
+        const N = 900;
+        const lines: string[] = [];
+        for (let i = 0; i < N; i++) lines.push(`contact user${i}@corp${i}.io for details`);
+        const inFile = path.join(dir, "input.txt");
+        fs.writeFileSync(inFile, lines.join("\n") + "\n");
+
+        const { code, out } = runSlowPipe(dir, inFile, "--json");
+        expect(code).toBe("2"); // MEDIUM present, no HIGH
+        expect(Buffer.byteLength(out)).toBeGreaterThan(200_000); // real pipe pressure
+        const parsed = JSON.parse(out); // truncation → SyntaxError right here
+        expect(parsed.findings.length).toBe(N);
+        expect(parsed.counts.MEDIUM).toBe(N);
+        expect(parsed.repoVisibility).toBe("private");
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    20_000,
+  );
+
+  test(
+    "--auto-redact: a >200 KB redacted body arrives complete with exit 0",
+    () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "redact-pipe-ar-"));
+      try {
+        // Same truncation class, other output path: --auto-redact streams the
+        // redacted BODY to stdout (and a ~400 KB diff to stderr, which the
+        // spawnSync parent drains eagerly — only stdout has the slow consumer).
+        // Pad each line with plain prose (nothing pattern-shaped) so the body
+        // itself exceeds 200 KB. Pre-fix, the consumer got a 65,536-byte
+        // prefix: 216 of 700 redactions and no sentinel.
+        const N = 700;
+        const pad =
+          "the quarterly report covers infrastructure spend growth and the migration " +
+          "plan across three regions with notes on rollout sequencing and support " +
+          "rotation for the on call schedule during the transition window plus follow " +
+          "up items from the retrospective circulated last week";
+        const lines: string[] = [];
+        for (let i = 0; i < N; i++) lines.push(`row ${i} reach user${i}@corp${i}.io ${pad}`);
+        lines.push("END-OF-REPORT-SENTINEL");
+        const body = lines.join("\n") + "\n";
+        expect(Buffer.byteLength(body)).toBeGreaterThan(200_000);
+        const inFile = path.join(dir, "input.txt");
+        fs.writeFileSync(inFile, body);
+
+        const { code, out } = runSlowPipe(dir, inFile, "--auto-redact pii.email");
+        expect(code).toBe("0"); // auto-redact mode always exits 0
+        // Every planted marker accounted for, and the final byte arrived.
+        expect(out.split("<REDACTED-EMAIL>").length - 1).toBe(N);
+        expect(out).not.toMatch(/user\d+@corp\d+\.io/);
+        expect(out.endsWith("END-OF-REPORT-SENTINEL\n")).toBe(true);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    20_000,
+  );
 });

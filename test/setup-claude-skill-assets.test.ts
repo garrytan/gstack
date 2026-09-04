@@ -196,7 +196,7 @@ describe('two-class referenced-paths (ENG-OV7)', () => {
     const missing: string[] = [];
     for (const { fromSkill, skillName, rel } of collectRefs()) {
       if (skillName !== 'gstack') continue; // class 1
-      if (rel.startsWith('.')) continue; // runtime state markers (.feature-prompted-*, .git)
+      if (rel.startsWith('.')) continue; // runtime state (.git; feature markers now live in ~/.gstack — #2728)
       if (BUILT_ARTIFACT_ALLOWLIST.some((a) => rel === a || rel.startsWith(a))) continue;
       if (KNOWN_BROKEN_CLASS2[rel]) continue;
       if (!fs.existsSync(path.join(ROOT, rel))) {

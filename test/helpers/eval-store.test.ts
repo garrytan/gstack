@@ -114,6 +114,36 @@ describe('EvalCollector', () => {
     expect(data.total_duration_ms).toBe(3000);
     expect(data.timestamp).toBeTruthy();
     expect(data.hostname).toBeTruthy();
+    // CLI version stamping: always a non-empty string ('unknown' when the
+    // claude binary is absent — the field must exist either way so flake
+    // investigations can correlate runs with the TUI they exercised).
+    expect(typeof data.claude_cli_version).toBe('string');
+    expect(data.claude_cli_version!.length).toBeGreaterThan(0);
+  });
+
+  test('a same-name re-record stamps attempts and surfaces flaky_retries', async () => {
+    // bun --retry re-runs the test BODY, so recordE2E fires again under the
+    // same name — the only reliable retry signal (bun's own output hides
+    // retried passes: fail→pass recaps as a clean pass, probed on 1.3.10).
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({ name: 'flaky-one', passed: false }));
+    collector.addTest(makeEntry({ name: 'flaky-one', passed: true }));
+    collector.addTest(makeEntry({ name: 'steady', passed: true }));
+    const filepath = await collector.finalize();
+
+    const data: EvalResult = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+    const attempts = data.tests.filter((t) => t.name === 'flaky-one').map((t) => t.attempt);
+    expect(attempts).toEqual([1, 2]);
+    expect(data.tests.find((t) => t.name === 'steady')?.attempt).toBe(1);
+    expect(data.flaky_retries).toEqual([{ name: 'flaky-one', attempts: 2 }]);
+  });
+
+  test('no retries → no flaky_retries field (absent, not empty)', async () => {
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({ name: 'only-once' }));
+    const filepath = await collector.finalize();
+    const data: EvalResult = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+    expect('flaky_retries' in data).toBe(false);
   });
 
   test('finalize creates directory if missing', async () => {

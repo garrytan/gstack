@@ -149,6 +149,19 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
  */
 export const NEEDS_SHELL_ON_WINDOWS = process.platform === "win32";
 
+/**
+ * Did an execFileSync/spawnSync failure come from the TIMEOUT budget (child
+ * killed) rather than the child itself failing? execFileSync kills the child
+ * when the budget runs out: `killed` with a SIGTERM on POSIX, ETIMEDOUT on
+ * runtimes that surface errno instead. Shared by the gbrain version probe,
+ * the engine classifier, and the gitleaks probe so the three sites can't
+ * drift on which shapes count as "slow, not broken".
+ */
+export function isExecTimeout(err: unknown): boolean {
+  const e = err as { killed?: boolean; signal?: string; code?: unknown };
+  return e?.killed === true || e?.signal === "SIGTERM" || e?.code === "ETIMEDOUT";
+}
+
 /** Where Git for Windows puts bash, most-specific first. */
 const WINDOWS_BASH_CANDIDATES = [
   "C:\\Program Files\\Git\\bin\\bash.exe",

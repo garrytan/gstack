@@ -119,7 +119,7 @@ describe('gstack-config: has subcommand (key-presence provenance)', () => {
 
   function has(key: string): number {
     try {
-      execSync(`${GSTACK_CONFIG} has '${key}'`, { encoding: 'utf-8', env: env2 });
+      execSync(`${GSTACK_CONFIG} has '${key}'`, { encoding: 'utf-8', env: env2, timeout: 30_000 });
       return 0;
     } catch (e: any) {
       return e.status ?? 1;
@@ -128,12 +128,12 @@ describe('gstack-config: has subcommand (key-presence provenance)', () => {
 
   test('absent key exits nonzero even though get returns the default', () => {
     expect(has('plan_tune_hooks')).not.toBe(0);
-    const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env: env2 }).trim();
+    const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env: env2, timeout: 30_000 }).trim();
     expect(got).toBe('prompt'); // default — indistinguishable from a saved value via get
   });
 
   test('present key exits 0 through the same STATE_DIR resolution as get', () => {
-    execSync(`${GSTACK_CONFIG} set plan_tune_hooks no`, { encoding: 'utf-8', env: env2 });
+    execSync(`${GSTACK_CONFIG} set plan_tune_hooks no`, { encoding: 'utf-8', env: env2, timeout: 30_000 });
     expect(has('plan_tune_hooks')).toBe(0);
     // GSTACK_STATE_ROOT was the writer — a hardcoded ~/.gstack grep would miss it.
   });
@@ -164,29 +164,30 @@ describe('gstack-config: plan_tune_hooks key', () => {
     const out = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, {
       encoding: 'utf-8',
       env,
+      timeout: 30_000,
     }).trim();
     expect(out).toBe('prompt');
   });
 
   test('appears in defaults and list output', () => {
-    const defaults = execSync(`${GSTACK_CONFIG} defaults`, { encoding: 'utf-8', env });
+    const defaults = execSync(`${GSTACK_CONFIG} defaults`, { encoding: 'utf-8', env, timeout: 30_000 });
     expect(defaults).toContain('plan_tune_hooks');
-    const list = execSync(`${GSTACK_CONFIG} list`, { encoding: 'utf-8', env });
+    const list = execSync(`${GSTACK_CONFIG} list`, { encoding: 'utf-8', env, timeout: 30_000 });
     expect(list).toContain('plan_tune_hooks');
   });
 
   test('accepts valid values (round-trips yes/no/prompt)', () => {
     for (const v of ['yes', 'no', 'prompt']) {
-      execSync(`${GSTACK_CONFIG} set plan_tune_hooks ${v}`, { encoding: 'utf-8', env });
-      const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env }).trim();
+      execSync(`${GSTACK_CONFIG} set plan_tune_hooks ${v}`, { encoding: 'utf-8', env, timeout: 30_000 });
+      const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env, timeout: 30_000 }).trim();
       expect(got).toBe(v);
     }
   });
 
   test('rejects out-of-domain values (warns + falls back to prompt)', () => {
-    const res = execSync(`${GSTACK_CONFIG} set plan_tune_hooks maybe 2>&1`, { encoding: 'utf-8', env });
+    const res = execSync(`${GSTACK_CONFIG} set plan_tune_hooks maybe 2>&1`, { encoding: 'utf-8', env, timeout: 30_000 });
     expect(res.toLowerCase()).toContain('not recognized');
-    const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env }).trim();
+    const got = execSync(`${GSTACK_CONFIG} get plan_tune_hooks`, { encoding: 'utf-8', env, timeout: 30_000 }).trim();
     expect(got).toBe('prompt');
   });
 });

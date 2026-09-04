@@ -54,6 +54,7 @@ function runBin(
     env: cleaned,
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',

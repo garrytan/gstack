@@ -61,7 +61,7 @@ const SCANNER_EXEMPT: { file: string; pattern: string; reason: string }[] = [
 ];
 
 function trackedFiles(): string[] {
-  const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
+  const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024, timeout: 30_000 });
   return out
     .split('\n')
     .map((s) => s.trim())

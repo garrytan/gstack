@@ -615,7 +615,7 @@ Review the site at ${serverUrl}. Use --quick mode. Skip any AskUserQuestion call
 
     // Check if any design fix commits were made
     const gitLog = spawnSync('git', ['log', '--oneline'], {
-      cwd: qaDesignDir, stdio: 'pipe',
+      cwd: qaDesignDir, stdio: 'pipe', timeout: 30_000,
     });
     const commits = gitLog.stdout.toString().trim().split('\n');
     const designFixCommits = commits.filter((c: string) => c.includes('style(design)'));

@@ -180,10 +180,11 @@ describe("gstack-global-discover", () => {
       // Create a git repo as the session target
       const repoDir = join(tmpDir, "fake-repo");
       mkdirSync(repoDir);
-      spawnSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+      spawnSync("git", ["init"], { cwd: repoDir, stdio: "pipe", timeout: 30_000 });
       spawnSync("git", ["commit", "--allow-empty", "-m", "init"], {
         cwd: repoDir,
         stdio: "pipe",
+        timeout: 30_000,
       });
 
       // Write a session with a 20KB first line (simulates Codex v0.117+)

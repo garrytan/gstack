@@ -6,8 +6,10 @@
  * mocked by manipulating strings directly).
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { normalize, copyPasteGate, findExecutable, resolvePdftotext, PdftotextUnavailableError } from "../src/pdftotext";
 
@@ -204,4 +206,98 @@ describe("resolvePdftotext (override resolution, v1.24-aligned)", () => {
       expect((thrown as Error).message).toContain("scoop install poppler");
     }
   });
+});
+
+// ─── Version + flavor probe (describeBinary via resolvePdftotext) ────
+//
+// Regression cover for the probe returning version="unknown" flavor="unknown"
+// on every poppler install. Two independent causes, both exercised here:
+//
+//   1. poppler writes its -v banner to STDERR and exits 0. The old code used
+//      execFileSync, which returns stdout (empty) and does not throw on a zero
+//      exit, so the stderr fallback in the catch block was unreachable.
+//   2. flavor was matched against the first line only. poppler prints
+//      "pdftotext version X" on line 1 and identifies itself on line 2
+//      ("Copyright ... The Poppler Developers"), so even a working stderr read
+//      yielded flavor="unknown".
+//
+// Real pdftotext binaries cannot be assumed present in CI, so these use shell
+// shims that reproduce each vendor's exact banner, stream and exit status.
+
+describe("describeBinary (version + flavor probe)", () => {
+  const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "pdftotext-shim-"));
+  afterAll(() => fs.rmSync(shimDir, { recursive: true, force: true }));
+
+  function shim(name: string, body: string): string {
+    if (process.platform === "win32") return "";
+    const p = path.join(shimDir, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return p;
+  }
+
+  // poppler: banner on stderr, exit 0, vendor named on line 2.
+  const popplerShim = shim(
+    "poppler-pdftotext",
+    [
+      'if [ "$1" = "-v" ]; then',
+      '  echo "pdftotext version 26.06.0" >&2',
+      '  echo "Copyright 2005-2026 The Poppler Developers - http://poppler.freedesktop.org" >&2',
+      '  echo "Copyright 1996-2011, 2022 Glyph & Cog, LLC" >&2',
+      "  exit 0",
+      "fi",
+      "exit 0",
+    ].join("\n"),
+  );
+
+  // xpdf: banner on stderr, non-zero exit, vendor named on line 1.
+  const xpdfShim = shim(
+    "xpdf-pdftotext",
+    [
+      'if [ "$1" = "-v" ]; then',
+      '  echo "pdftotext version 4.05 [xpdf]" >&2',
+      '  echo "Copyright 1996-2024 Glyph & Cog, LLC" >&2',
+      "  exit 99",
+      "fi",
+      "exit 0",
+    ].join("\n"),
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "reads a poppler banner from stderr on a zero exit",
+    () => {
+      const info = withEnv({ GSTACK_PDFTOTEXT_BIN: popplerShim }, () => resolvePdftotext());
+      expect(info.version).toBe("pdftotext version 26.06.0");
+      expect(info.flavor).toBe("poppler");
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "identifies poppler from the copyright line, not the version line",
+    () => {
+      const info = withEnv({ GSTACK_PDFTOTEXT_BIN: popplerShim }, () => resolvePdftotext());
+      // The line carrying the version does NOT contain the vendor name, which is
+      // exactly why a line-0-only match reported "unknown".
+      expect(info.version.toLowerCase()).not.toContain("poppler");
+      expect(info.flavor).toBe("poppler");
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "reads an xpdf banner from stderr on a non-zero exit",
+    () => {
+      const info = withEnv({ GSTACK_PDFTOTEXT_BIN: xpdfShim }, () => resolvePdftotext());
+      expect(info.version).toBe("pdftotext version 4.05 [xpdf]");
+      expect(info.flavor).toBe("xpdf");
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "falls back to unknown when the binary emits no banner",
+    () => {
+      const silent = shim("silent-pdftotext", "exit 0");
+      const info = withEnv({ GSTACK_PDFTOTEXT_BIN: silent }, () => resolvePdftotext());
+      expect(info.version).toBe("unknown");
+      expect(info.flavor).toBe("unknown");
+    },
+  );
 });

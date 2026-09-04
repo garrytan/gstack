@@ -297,7 +297,7 @@ describe('gstack-codex-probe: timeout wrapper + namespace hygiene', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-watchdog-'));
     try {
       const which = (tool: string) =>
-        spawnSync('bash', ['-c', `command -v ${tool}`]).stdout.toString().trim() || `/bin/${tool}`;
+        spawnSync('bash', ['-c', `command -v ${tool}`], { timeout: 30_000 }).stdout.toString().trim() || `/bin/${tool}`;
       fs.symlinkSync(which('bash'), path.join(dir, 'bash'));
       fs.symlinkSync(which('sleep'), path.join(dir, 'sleep'));
       const r = runProbe({
@@ -598,4 +598,169 @@ describe('codex skeleton+sections union: review sandbox + fail-closed gate + tim
       expect(inspected.length).toBeGreaterThanOrEqual(3);
     });
   }
+});
+
+// #2742: a Codex CLI that is on PATH but cannot execute (spawn ENOENT, missing
+// vendor payload, non-executable binary) used to land in the model probe's
+// fail-open bucket and resolve to CODEX_MODE: ready — so every Codex pass was
+// skipped in silence. These pin the classification, the exit-code contract, and
+// the fact that the fail-open path still exists for genuine transients.
+describe('codex broken-install detection (#2742)', () => {
+  // A fake `codex` on PATH that reproduces the real failure: node's spawn dump
+  // on stderr, non-zero exit. `mode` picks which failure shape to emit.
+  function shimHome(mode: 'enoent' | 'notexec' | 'timeout' | 'model400' | 'oksuspicious') {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-shim-'));
+    const bin = path.join(home, 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    // auth.json so the auth probe passes and we reach the model probe.
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.codex/auth.json'), '{}');
+    const bodies: Record<string, string> = {
+      enoent:
+        `echo "Error: spawn /x/vendor/aarch64-apple-darwin/codex/codex ENOENT" >&2\n` +
+        `echo "  errno: -2, code: 'ENOENT'" >&2\nexit 1\n`,
+      notexec: `echo "bash: codex: cannot execute binary file" >&2\nexit 126\n`,
+      timeout: `echo "network hiccup" >&2\nexit 124\n`,
+      model400: `echo "The 'gpt-x' model is not supported when using Codex with a ChatGPT account" >&2\nexit 1\n`,
+      oksuspicious: `echo "OK — note: the log you pasted mentions permission denied on /var/log"\nexit 0\n`,
+    };
+    fs.writeFileSync(path.join(bin, 'codex'), `#!/usr/bin/env bash\n${bodies[mode]}`, { mode: 0o755 });
+    return { home, bin };
+  }
+
+  const cases: Array<[string, 'enoent' | 'notexec', string]> = [
+    ['spawn ENOENT', 'enoent', 'ENOENT'],
+    ['non-executable binary (exit 126)', 'notexec', 'cannot execute binary file'],
+  ];
+
+  for (const [label, mode, needle] of cases) {
+    test(`${label} is classified as a broken install, not a transient`, () => {
+      const { home, bin } = shimHome(mode);
+      try {
+        const r = runProbe({
+          snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+          home,
+          env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        });
+        expect(r.stdout).toContain('MODEL_UNUSABLE_INSTALL');
+        // Exit 2 is what lets the preflight tell this apart from a model 400.
+        expect(r.stdout).toContain('EXIT:2');
+        // It must NOT fail open — that was the whole defect.
+        expect(r.stdout).not.toContain('MODEL_PROBE_INCONCLUSIVE');
+        // The remedy names the install, not the model pin.
+        expect(r.stdout).toContain('npm install -g @openai/codex');
+        expect(r.stdout.toLowerCase()).toContain(needle.toLowerCase());
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test('a broken install is never cached — a reinstall is picked up next probe', () => {
+    const { home, bin } = shimHome('enoent');
+    try {
+      runProbe({
+        snippet: '_gstack_codex_model_probe >/dev/null 2>&1',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      const cache = path.join(home, '.codex-model-probe');
+      if (fs.existsSync(cache)) {
+        expect(fs.readFileSync(cache, 'utf8')).not.toContain('MODEL_OK');
+      }
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a genuine transient (exit 124) still fails open', () => {
+    const { home, bin } = shimHome('timeout');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      expect(r.stdout).toContain('MODEL_PROBE_INCONCLUSIVE');
+      expect(r.stdout).toContain('EXIT:0');
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('the model 400 still classifies as MODEL_UNUSABLE, not a broken install', () => {
+    const { home, bin } = shimHome('model400');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      expect(r.stdout).toContain('MODEL_UNUSABLE');
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
+      expect(r.stdout).toContain('EXIT:1');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('version check warns instead of returning silently when codex cannot report a version', () => {
+    const { home, bin } = shimHome('enoent');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_version_check; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      // Previously this printed nothing: `codex --version 2>/dev/null | head -1`
+      // captured head's status, so a CLI that only ever errored read as healthy.
+      expect(r.stdout).toContain('WARN');
+      expect(r.stdout).toContain('npm install -g @openai/codex');
+      // Still non-fatal — the version check has never gated anything.
+      expect(r.stdout).toContain('EXIT:0');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // Wave-amended (#2745 absorption): string signatures only count on a FAILED
+  // spawn — a SUCCESSFUL response whose text mentions "permission denied"
+  // (e.g. the model quoting a log the user pasted) must stay healthy.
+  test('exit-0 response mentioning "permission denied" is NOT a broken install', () => {
+    const { home, bin } = shimHome('oksuspicious');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
+      expect(r.stdout).toContain('EXIT:0');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // Wave-amended (#2745 absorption): autoplan's preflight chain is the one
+  // hand-maintained copy that isn't resolver-generated — it must capture the
+  // probe's exit code and route 2 to its own broken-install arm, or /autoplan
+  // prints the wrong remedy for a broken binary.
+  test('autoplan preflight (tmpl + rendered) captures the probe exit and routes 2 to broken-install', () => {
+    for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
+      const src = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(src).toContain('_gstack_codex_model_probe; _CODEX_MP=$?');
+      expect(src).toMatch(/_CODEX_MP" -eq 2/);
+      expect(src).toContain('binary cannot run');
+      expect(src).not.toContain('elif ! _gstack_codex_model_probe');
+    }
+  });
+
+  test('the preflight resolver routes exit 2 to broken_install', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/constants.ts'), 'utf8');
+    expect(src).toContain('broken_install');
+    // The chain must capture the probe's code; `elif ! _gstack_codex_model_probe`
+    // collapses 1 and 2 into one branch and loses the distinction.
+    expect(src).toContain('_CODEX_MP=$?');
+  });
 });

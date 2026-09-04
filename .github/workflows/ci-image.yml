@@ -1,8 +1,12 @@
 name: Build CI Image
 on:
-  # Rebuild weekly (Monday 4am UTC) to pick up CLI updates — deliberately 2h
-  # BEFORE evals-periodic's 6am cron so the weekly eval run finds a fresh
-  # image instead of racing a half-pushed tag or duplicating the build.
+  # Weekly self-heal (Monday 4am UTC) — deliberately 2h BEFORE
+  # evals-periodic's 6am cron so the weekly eval run finds the image instead
+  # of racing a half-pushed tag. With the claude CLI pinned in Dockerfile.ci
+  # (v1.77+), this cron no longer pulls CLI updates: when the content-hash
+  # tag already exists it's a ~30s no-op, and it only rebuilds if the tag
+  # was somehow lost. CLI bumps happen by editing the Dockerfile pin in a PR
+  # that runs the PTY gate against the new TUI.
   schedule:
     - cron: '0 4 * * 1'
   # Rebuild on Dockerfile or lockfile changes. package.json is deliberately
@@ -32,7 +36,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Copy lockfile + package.json into Docker build context
       - run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
@@ -44,7 +48,7 @@ jobs:
       - id: meta
         run: echo "tag=ghcr.io/${{ github.repository }}/ci:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -65,10 +69,10 @@ jobs:
       # Registry cache export needs a docker-container builder — the default
       # `docker` driver hard-errors on cache-to.
       - if: steps.check.outputs.exists == 'false'
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - if: steps.check.outputs.exists == 'false'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci

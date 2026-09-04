@@ -239,7 +239,7 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     // estimate was a moving target: 4177 solo, 8356 and 8041 in two parallel
     // runs. A repo-budget ratchet measures the catalog that ships; CI always
     // checks the PR's committed tree anyway.
-    const trackedPaths = execSync('git ls-files -- "*/SKILL.md"', { cwd: REPO_ROOT, encoding: 'utf-8' })
+    const trackedPaths = execSync('git ls-files -- "*/SKILL.md"', { cwd: REPO_ROOT, encoding: 'utf-8', timeout: 30_000 })
       .split('\n')
       .filter(Boolean)
       .filter((p) => p.split('/').length === 2);
@@ -249,6 +249,7 @@ describe('SKILL.md size budget regression (gate, free)', () => {
         cwd: REPO_ROOT,
         encoding: 'utf-8',
         maxBuffer: 8 * 1024 * 1024,
+        timeout: 30_000,
       });
       descriptionBytes += Buffer.byteLength(extractDescription(committed), 'utf-8');
     }

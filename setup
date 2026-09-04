@@ -183,6 +183,7 @@ SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
+TIMELINE_STOP_HOOK_MODE=""  # "" = resolve from env/config; "yes"/"no" = explicit (#2677)
 MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 while [ $# -gt 0 ]; do
@@ -199,6 +200,9 @@ while [ $# -gt 0 ]; do
     --plan-tune-hooks)    PLAN_TUNE_HOOKS_MODE="yes"; shift ;;
     --no-plan-tune-hooks) PLAN_TUNE_HOOKS_MODE="no"; shift ;;
     --plan-tune-hooks=*)  PLAN_TUNE_HOOKS_MODE="${1#--plan-tune-hooks=}"; shift ;;
+    --timeline-stop-hook)    TIMELINE_STOP_HOOK_MODE="yes"; shift ;;
+    --no-timeline-stop-hook) TIMELINE_STOP_HOOK_MODE="no"; shift ;;
+    --timeline-stop-hook=*)  TIMELINE_STOP_HOOK_MODE="${1#--timeline-stop-hook=}"; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
@@ -2162,7 +2166,7 @@ if [ -x "$DETECT_BIN" ]; then
           # No pipe before the || guard: `cmd | tail -3` reports TAIL's exit
           # status, so a generator crash read as success (same masking the
           # main gen:skill-docs site had). Capture, show the tail, propagate.
-          _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" 2>&1)
+          _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" --link-root "$_GSTACK_RENDER_DIR" 2>&1)
           _GEN_USER_RC=$?
           printf '%s\n' "$_GEN_USER_OUT" | tail -3
           exit "$_GEN_USER_RC"
@@ -2463,7 +2467,42 @@ TIMELINE_STOP_HOOK="$(_hook_command_path hosts/claude/hooks/timeline-stop-hook |
 if [ "$IS_WINDOWS" -eq 1 ] && [ -n "$TIMELINE_STOP_HOOK" ]; then
   TIMELINE_STOP_HOOK="bash $TIMELINE_STOP_HOOK"
 fi
-if [ "$NO_TEAM_MODE" -ne 1 ] && [ -x "$SETTINGS_HOOK" ] && [ -n "$TIMELINE_STOP_HOOK" ]; then
+# #2677: PERSISTENT gate, mirroring the plan_tune_hooks pattern. --no-team is
+# (and stays) a one-shot teardown — every later bare ./setup, including the
+# ones /gstack-upgrade runs, re-registered the hook with no way to say
+# "never". Resolution: flag > env (GSTACK_TIMELINE_STOP_HOOK) > saved config
+# (timeline_stop_hook) > default yes. An explicit FLAG persists to config so
+# the decision survives upgrades; env stays session-scoped. Do NOT initialize
+# NO_TEAM_MODE from config — that would silently change --no-team semantics.
+if [ -n "$TIMELINE_STOP_HOOK_MODE" ]; then
+  TL_DECISION="$TIMELINE_STOP_HOOK_MODE"; TL_SOURCE="flag"
+elif [ -n "${GSTACK_TIMELINE_STOP_HOOK:-}" ]; then
+  TL_DECISION="${GSTACK_TIMELINE_STOP_HOOK}"; TL_SOURCE="env GSTACK_TIMELINE_STOP_HOOK"
+else
+  TL_DECISION="$("$GSTACK_CONFIG" get timeline_stop_hook 2>/dev/null || true)"
+  TL_SOURCE="config timeline_stop_hook"
+fi
+TL_DECISION=$(printf '%s' "$TL_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+TL_UNRECOGNIZED=0
+case "$TL_DECISION" in
+  n|no|false|skip|off|0) TL_DECISION="no" ;;
+  y|yes|true|on|1|"")    TL_DECISION="yes" ;;
+  *)
+    # A typo'd value (--timeline-stop-hook=noo) must not silently become a
+    # PERSISTED "yes" — warn, apply the default for this run only.
+    log "  WARNING: unrecognized timeline-stop-hook value '$TL_DECISION' (from $TL_SOURCE) — using default 'yes' for this run, not persisting"
+    TL_DECISION="yes"; TL_UNRECOGNIZED=1 ;;
+esac
+if [ -n "$TIMELINE_STOP_HOOK_MODE" ] && [ "$TL_UNRECOGNIZED" -eq 0 ]; then
+  "$GSTACK_CONFIG" set timeline_stop_hook "$TL_DECISION" >/dev/null 2>&1 || true
+fi
+if [ "$TL_DECISION" = "no" ] && [ -x "$SETTINGS_HOOK" ]; then
+  # Reconciliation arm: an explicit "no" with a live registration removes it —
+  # the opt-out works even when the hook was registered by an older setup.
+  "$SETTINGS_HOOK" remove-source --source gstack-timeline-stop >/dev/null 2>&1 || true
+  log "  timeline Stop hook disabled (via $TL_SOURCE) — removed its registration if one existed"
+fi
+if [ "$NO_TEAM_MODE" -ne 1 ] && [ "$TL_DECISION" != "no" ] && [ -x "$SETTINGS_HOOK" ] && [ -n "$TIMELINE_STOP_HOOK" ]; then
   if _TL_ENSURE_OUT=$("$SETTINGS_HOOK" ensure-event \
     --event Stop \
     --command "$TIMELINE_STOP_HOOK" \

@@ -141,8 +141,8 @@ function discoverEvalCoverage(repoRoot: string, skills: string[]): {
 
 function getGitInfo(repoRoot: string): { commit: string; branch: string } {
   try {
-    const commit = execSync('git rev-parse --short HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim();
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim();
+    const commit = execSync('git rev-parse --short HEAD', { cwd: repoRoot, encoding: 'utf-8', timeout: 30_000 }).trim();
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoRoot, encoding: 'utf-8', timeout: 30_000 }).trim();
     return { commit, branch };
   } catch {
     return { commit: 'unknown', branch: 'unknown' };

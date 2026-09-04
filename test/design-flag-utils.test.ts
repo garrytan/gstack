@@ -99,7 +99,7 @@ describe("normalizeIntFlag CLI wrapper (exit-1 semantics)", () => {
       const v = normalizeIntFlag(${rawExpr}, ${specExpr});
       console.log("VALUE:" + v);
     `;
-    const res = spawnSync("bun", ["-e", script], { encoding: "utf-8", cwd: ROOT });
+    const res = spawnSync("bun", ["-e", script], { encoding: "utf-8", cwd: ROOT, timeout: 30_000 });
     return { status: res.status ?? -1, stderr: res.stderr ?? "" };
   }
 

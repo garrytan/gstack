@@ -110,8 +110,14 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 
-# Patch SKILL.md name: fields to match prefix setting
+# Patch SKILL.md name: fields to match prefix setting. When a gbrain render
+# is active the loop above links SKILL.md from RENDER_DIR — the file the host
+# actually serves — so patch THAT tree too or skill_prefix=true is a no-op
+# for every brain-aware skill (#2738). gstack-patch-names takes an arbitrary
+# root, skips already-prefixed names (idempotent), and the render dir is
+# user-owned and untracked, so patching it never dirties a checkout.
 "$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
+[ -d "$RENDER_DIR" ] && "$INSTALL_DIR/bin/gstack-patch-names" "$RENDER_DIR" "$PREFIX"
 
 if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"

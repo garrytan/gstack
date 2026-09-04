@@ -37,7 +37,7 @@ function runSearch(args: string = ''): string {
     timeout: 15000,
   };
   try {
-    return execSync(`${BIN}/gstack-learnings-search ${args}`, execOpts).trim();
+    return execSync(`${BIN}/gstack-learnings-search ${args}`, execOpts).trim(); // timeout via execOpts
   } catch {
     return '';
   }

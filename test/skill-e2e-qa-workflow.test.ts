@@ -151,7 +151,7 @@ Write your report to ${qaOnlyDir}/qa-reports/qa-only-report.md`,
 
     // Verify git working tree is still clean (no source modifications)
     const gitStatus = spawnSync('git', ['status', '--porcelain'], {
-      cwd: qaOnlyDir, stdio: 'pipe',
+      cwd: qaOnlyDir, stdio: 'pipe', timeout: 30_000,
     });
     const statusLines = gitStatus.stdout.toString().trim().split('\n').filter(
       (l: string) => l.trim() && !l.includes('.prompt-tmp') && !l.includes('.gstack/') && !l.includes('qa-reports/'),
@@ -263,7 +263,7 @@ This is a test+fix loop: find bugs, fix them in the source code, commit each fix
 
     // Verify at least one fix commit was made beyond the initial commit
     const gitLog = spawnSync('git', ['log', '--oneline'], {
-      cwd: qaFixDir, stdio: 'pipe',
+      cwd: qaFixDir, stdio: 'pipe', timeout: 30_000,
     });
     const commits = gitLog.stdout.toString().trim().split('\n');
     console.log(`/qa fix loop: ${commits.length} commits total (1 initial + ${commits.length - 1} fixes)`);

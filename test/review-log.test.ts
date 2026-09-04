@@ -19,7 +19,7 @@ function run(input: string, opts: { expectFail?: boolean } = {}): { stdout: stri
     timeout: 10000,
   };
   try {
-    const stdout = execSync(`${BIN}/gstack-review-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim();
+    const stdout = execSync(`${BIN}/gstack-review-log '${input.replace(/'/g, "'\\''")}'`, execOpts).trim(); // timeout via execOpts
     return { stdout, exitCode: 0 };
   } catch (e: any) {
     if (opts.expectFail) {
@@ -119,7 +119,7 @@ describe('gstack-review-log', () => {
         encoding: 'utf-8',
         timeout: 10000,
       };
-      execSync(`${BIN}/gstack-review-log '{"skill":"review","status":"clean"}'`, execOpts);
+      execSync(`${BIN}/gstack-review-log '{"skill":"review","status":"clean"}'`, execOpts); // timeout via execOpts
       // A record landed somewhere under projects/ without a wtree stamp.
       const found: string[] = [];
       const walk = (d: string) => {
@@ -208,6 +208,40 @@ describe('gstack-wtree', () => {
       fs.utimesSync(file, pinned, pinned);
       fs.utimesSync(indexPath, pinned, pinned);
       expect(wtree()).not.toBe(clean);
+    });
+  });
+
+  // #2687 hardening: `touch -r ... || true` meant a FAILED touch silently
+  // reopened the racy-window hole (the temp index copy keeps its "now" stamp
+  // and every entry reads non-racy). A failed touch must fall through to the
+  // read-tree HEAD seed, which re-hashes everything.
+  test('racy-git window stays closed even when touch fails (stubbed-touch fallback)', () => {
+    withScratchRepo((repoDir, _wtree) => {
+      const file = path.join(repoDir, 'a.txt');
+      const indexPath = path.join(repoDir, '.git', 'index');
+      gitIn(repoDir, 'config core.trustctime false');
+      const pinned = new Date('2026-01-01T12:00:00Z');
+      fs.utimesSync(file, pinned, pinned);
+      gitIn(repoDir, 'add a.txt');
+      // PATH-stubbed `touch` that always fails.
+      const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-touch-stub-'));
+      fs.writeFileSync(path.join(stubDir, 'touch'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      const wtreeStubbed = () =>
+        execSync(`${BIN}/gstack-wtree`, {
+          cwd: repoDir,
+          encoding: 'utf-8',
+          timeout: 10000,
+          env: { ...process.env, PATH: `${stubDir}:${process.env.PATH ?? ''}` },
+        }).trim();
+      try {
+        const clean = wtreeStubbed();
+        fs.writeFileSync(file, 'howdy\n'); // same byte length as 'hello\n'
+        fs.utimesSync(file, pinned, pinned);
+        fs.utimesSync(indexPath, pinned, pinned);
+        expect(wtreeStubbed()).not.toBe(clean);
+      } finally {
+        fs.rmSync(stubDir, { recursive: true, force: true });
+      }
     });
   });
 
