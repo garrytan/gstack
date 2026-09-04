@@ -24,7 +24,7 @@ triggers:
 
 {{THIRD_PARTY_ACTIONS}}
 
-{{BROWSE_SETUP}}
+{{ASIDE_SETUP}}
 
 {{BASE_BRANCH_DETECT}}
 
@@ -308,45 +308,48 @@ Use the diff-scope classification from Step 5 to determine canary depth:
 | Diff Scope | Canary Depth |
 |------------|-------------|
 | SCOPE_DOCS only | Already skipped in Step 5 |
-| SCOPE_CONFIG only | Smoke: `$B goto` + verify 200 status |
+| SCOPE_CONFIG only | Smoke: the Aside script below; `responseStatus` in `NAV=` must be 200 |
 | SCOPE_BACKEND only | Console errors + perf check |
 | SCOPE_FRONTEND (any) | Full: console + perf + screenshot |
 | Mixed scopes | Full canary |
 
-**Full canary sequence:**
+**Full canary sequence** — one `aside repl` script does the whole check (console hook first, then load, then evidence):
 
 ```bash
-$B goto <url>
+aside repl '
+const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<url>");
+console.log("URL=" + pg.url());
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
+console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
+await pg.screenshot({ path: "post-deploy.jpg", type: "jpeg", quality: 60, fullPage: true });
+const a = await annotatedScreenshot(pg);
+await fs.writeFile(path.join(pwd, "post-deploy-annotated.png"), Buffer.from(a.base64Image, "base64"));
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
 
-Check that the page loaded successfully (200, not an error page).
+Then copy the evidence out of the printed session directory:
 
 ```bash
-$B console --errors
+mkdir -p .gstack/deploy-reports && cp "<ASIDE_DIR>/post-deploy.jpg" "<ASIDE_DIR>/post-deploy-annotated.png" .gstack/deploy-reports/
 ```
 
-Check for critical console errors: lines containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
+Read the output line by line:
 
-```bash
-$B perf
-```
-
-Check that page load time is under 10 seconds.
-
-```bash
-$B text
-```
-
-Verify the page has content (not blank, not a generic error page).
-
-```bash
-$B snapshot -i -a -o ".gstack/deploy-reports/post-deploy.png"
-```
-
-Take an annotated screenshot as evidence.
+- `URL=` — the page loaded and stayed on the site (not a redirect to an error page). A line starting with `[error` or a missing `GSTACK_STEP_OK` means the load failed.
+- `CONSOLE_ERRORS=` — check for critical errors: entries containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
+- `NAV=` — `responseStatus` is the HTTP status of the document (Chromium PerformanceNavigationTiming) — must be 200. `loadEventEnd` is the page load time. Check that it is under 10 seconds.
+- `TEXT_START` / `TEXT_END` — verify the page has real content (not blank, not a generic error page).
+- `post-deploy.jpg` and the annotated `post-deploy-annotated.png` are the evidence. Read the copied screenshot so the user sees it.
 
 **Health assessment:**
-- Page loads successfully with 200 status → PASS
+- Page loads successfully with 200 status (`responseStatus` in `NAV=`) → PASS
 - No critical console errors → PASS
 - Page has real content (not blank or error screen) → PASS
 - Loads in under 10 seconds → PASS
