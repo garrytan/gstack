@@ -19,7 +19,7 @@ import type { TemplateContext, ResolverFn } from './types';
 // Domain modules
 import { generatePreamble } from './preamble';
 import { generateTestFailureTriage } from './preamble';
-import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, generateUntrustedContentWarning } from './browse';
+import { generateBrowseSetup, generateUntrustedContentWarning } from './browse';
 import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch, generateDesignSetup, generateDesignMockup, generateDesignShotgunLoop, generateTasteProfile, generateUXPrinciples } from './design';
 import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCoverageAuditShip } from './testing';
 import { generateReviewDashboard, generatePlanFileReviewReport, generateExitPlanModeGate, generateAntiShortcutClause, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generateCodexDocReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec, generateScopeDrift, generateCrossReviewDedup } from './review';
@@ -35,6 +35,7 @@ import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactInvocationBlock } from './redact-doc';
 import { FOREGROUND_DISPATCH_NOTE } from './constants';
 import { generateThirdPartyActions } from './third-party-actions';
+import { generateAsideSetup, generateAsideCookbook } from './aside';
 import { generateDesignDocDiscovery } from './design-doc-discovery';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
@@ -44,11 +45,11 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
   THIRD_PARTY_ACTIONS: generateThirdPartyActions,
   DESIGN_DOC_DISCOVERY: generateDesignDocDiscovery,
-  COMMAND_REFERENCE: generateCommandReference,
-  SNAPSHOT_FLAGS: generateSnapshotFlags,
   UNTRUSTED_CONTENT_WARNING: generateUntrustedContentWarning,
   PREAMBLE: generatePreamble,
   BROWSE_SETUP: generateBrowseSetup,
+  ASIDE_SETUP: generateAsideSetup,
+  ASIDE_COOKBOOK: generateAsideCookbook,
   BASE_BRANCH_DETECT: generateBaseBranchDetect,
   QA_METHODOLOGY: generateQAMethodology,
   DESIGN_METHODOLOGY: generateDesignMethodology,
