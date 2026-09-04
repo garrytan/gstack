@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.79.1.0] - 2026-09-04
+
+**GBrain readiness is now a bounded, read-only check. Opening a session cannot
+silently sync a repository, launch an embedding job, or spend provider money.**
+
+GStack previously tried to repair a missing GBrain source pin automatically
+from session and skill startup. On a new repository that could run before the
+per-repository consent gate, send code to the configured brain, and leave a
+foreground skill waiting indefinitely on a stuck GBrain subprocess. The repair
+path is now explicit: automatic startup only reports readiness, while
+`/sync-gbrain --full` owns synchronization and indexing after the existing
+trust policy has been checked.
+
+### What changed
+
+- Every foreground GBrain probe has a 1–10 second timeout, with a three-second
+  default and a portable macOS fallback. A slow or dead brain degrades the
+  readiness signal instead of blocking `/review`, `/ship`, or another skill.
+- Missing, malformed, unregistered, or path-mismatched source pins fail closed
+  and point to the explicit `/sync-gbrain --full` repair path.
+- Session startup and skill startup never invoke sync, import, dream, embed,
+  edge backfill, source registration, or paid provider work.
+- Candor-specific Claude hooks and locally patched generated skill names were
+  removed from the generic upstream branch. Canonical generated files are
+  fresh again.
+
+### Verification
+
+- 119 focused readiness, sync, dream, skill-start, team-mode, and generated-doc
+  tests passed with zero failures before release preparation.
+- Independent exact-head review confirmed the prior privacy, timeout, source-ID,
+  generated-file, stale-base, and project-specific-hook blockers are closed.
+
 ## [1.79.0.0] - 2026-09-01
 
 **/ship can no longer be stranded by a backgrounded subagent.**
