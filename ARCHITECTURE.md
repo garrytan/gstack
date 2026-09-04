@@ -276,8 +276,7 @@ Templates contain the workflows, tips, and examples that require human judgment.
 
 | Placeholder | Source | What it generates |
 |-------------|--------|-------------------|
-| `{{COMMAND_REFERENCE}}` | `commands.ts` | Categorized command table |
-| `{{SNAPSHOT_FLAGS}}` | `snapshot.ts` | Flag reference with examples |
+| `{{ASIDE_SETUP}}` | `aside.ts` | Aside browser-driver contract: detection, rules, cookbook |
 | `{{PREAMBLE}}` | `gen-skill-docs.ts` | Startup block: update check, session tracking, contributor mode, AskUserQuestion format |
 | `{{BROWSE_SETUP}}` | `gen-skill-docs.ts` | Binary discovery + setup instructions |
 | `{{BASE_BRANCH_DETECT}}` | `gen-skill-docs.ts` | Dynamic base branch detection for PR-targeting skills (ship, review, qa, plan-ceo-review) |

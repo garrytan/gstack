@@ -44,6 +44,16 @@ a baseline, so a run can't compare against itself).
 
 ## Runners: how the suites execute (2026-08 overhaul)
 
+**Aside-driven E2E tests self-skip without a live browser.** Every skill that
+opens a web page drives the Aside AI browser (`scripts/resolvers/aside.ts`).
+The E2E files that exercise those skills (`test/skill-e2e-aside.test.ts`, the
+`qa-*` cases in `test/skill-e2e-qa-workflow.test.ts` / `skill-e2e-qa-bugs.test.ts`,
+`design-review-fix` in `test/skill-e2e-design.test.ts`) call
+`asideAvailable()` from `test/helpers/aside-available.ts` (the same probe the
+skills run in BROWSER SETUP) and skip when the `aside` CLI or the Aside app is
+absent. CI runners have no Aside, so these run only on macOS dev machines and
+sit in the periodic tier; set `GSTACK_SKIP_ASIDE=1` to force the skip locally.
+
 **Free suite (`bun run test:free`).** `scripts/test-free-shards.ts` runs N
 concurrent shard processes (serial within each) with strict-output
 classification per shard. Full-suite shards are packed by RECORDED PER-FILE

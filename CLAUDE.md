@@ -117,8 +117,9 @@ Codex config.toml pins a different model, rerun `./setup --host codex`
 afterwards to restore your profile (single-owner persistence is filed in
 TODOS.md).
 
-To add a new browse command: add it to `browse/src/commands.ts` and rebuild.
-To add a snapshot flag: add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts` and rebuild.
+To add a render-engine command to `browse`, add it to `browse/src/commands.ts`
+and rebuild. Browser steps in skills are `aside repl` scripts per
+`scripts/resolvers/aside.ts`, not browse commands.
 
 **Token ceiling:** Generated SKILL.md files trip a warning above 160KB (~40K tokens).
 This is a "watch for feature bloat" guardrail, not a hard gate. Modern flagship
@@ -201,17 +202,21 @@ writing-style was extracted to V1.1 — see `docs/designs/PACING_UPDATES_V0.md`.
 
 ## Browser interaction
 
-When you need to interact with a browser (QA, dogfooding, cookie setup), use the
-`/browse` skill or run the browse binary directly via `$B <command>`. NEVER use
-`mcp__claude-in-chrome__*` tools — they are slow, unreliable, and not what this
-project uses.
+When you need to interact with a browser (QA, dogfooding, inspecting a page), use
+the `/browse` skill — it drives the Aside AI browser, the user's real browser
+with their real sessions, through `aside repl` scripts that follow the contract
+in `scripts/resolvers/aside.ts` (`{{ASIDE_SETUP}}`). Every browser skill (`/qa`, `/qa-only`,
+`/design-review`, `/canary`, `/benchmark`, `/scrape`) does the same. The `browse`
+binary (`$B`) is the local-HTML render engine for make-pdf, diagram, and design
+previews only — never point it at a site. NEVER use `mcp__claude-in-chrome__*`
+tools — they are slow, unreliable, and not what this project uses.
 
-**Server / sidebar / extension internals:** before editing `browse/src/server.ts`,
-`extension/`, the sidebar PTY, any SSE endpoint, or CDP session code, read
-[docs/BROWSER_INTERNALS.md](docs/BROWSER_INTERNALS.md) — sidebar message flow,
-WebSocket auth, tunnel dual-listener rules, Unicode sanitization at egress,
-SSE/CDP helpers, setup symlink hardening, and the sidebar security stack all
-live there, each pinned by a CI tripwire.
+**Render-engine internals:** before editing `browse/src/server.ts`, `extension/`,
+or any SSE/CDP session code, read
+[docs/BROWSER_INTERNALS.md](docs/BROWSER_INTERNALS.md). The daemon's headed,
+extension, tunnel, and cookie surfaces are unreachable from any skill and are
+scheduled for deletion (TODOS.md, "Aside consolidation follow-ups"); until then
+their invariants there are each pinned by a CI tripwire.
 
 **Egress receipts at every off-machine sink** (v1.63.0.0+). Every gstack-initiated
 send off the machine MUST write a hash-chained receipt to
@@ -248,7 +253,7 @@ symlink or a real copy. If it's a symlink to your working directory, be aware th
 with a SKILL.md symlink inside (e.g., `qa/SKILL.md -> gstack/qa/SKILL.md`), plus
 links to each skill's runtime assets (sections/, templates, checklists — everything
 except SKILL.md, tests, build output, and `.tmpl` sources). Alias skills
-(`_gstack-command`, `connect-chrome`) install as rewritten copies, never symlinks.
+(`_gstack-command`) install as rewritten copies, never symlinks.
 This ensures Claude discovers them as top-level skills, not nested under `gstack/`.
 Names are either short (`qa`) or namespaced (`gstack-qa`), controlled by
 `skill_prefix` in `~/.gstack/config.yaml`. Pass `--no-prefix` or `--prefix` to
@@ -475,10 +480,10 @@ Concretely, NEVER write:
   not a user benefit.
 - "Two surgical edits, both in the dispatch path" — micro-narrative of the patch.
 
-Instead, describe the released system: "Browser-skills run end-to-end with the
+Instead, describe the released system: "Browser skills run end-to-end with the
 expected tab-access semantics." If a property of the shipped system is worth calling
-out (e.g., "skill spawns get permissive tab access; pair-agent tunnel tokens require
-ownership"), document it as a property, not as a fix. The shipped system is what
+out (e.g., "browser skills open their own Aside tabs; mutating actions on non-local
+targets ask once"), document it as a property, not as a fix. The shipped system is what
 the user gets; the path to that system is invisible to them.
 
 **When to write the CHANGELOG entry:**

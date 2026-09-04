@@ -6,10 +6,8 @@ Moved verbatim from CLAUDE.md (token-load reduction).
 
 ```
 gstack/
-├── browse/          # Headless browser CLI (Playwright)
-│   ├── src/         # CLI + server + commands
-│   │   ├── commands.ts  # Command registry (single source of truth)
-│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
+├── browse/          # Local-HTML render engine (make-pdf, diagram, design previews) — not a browser skill; skills browse through Aside
+│   ├── src/         # CLI + daemon; commands.ts is the command registry (pre-Aside surfaces pending prune, see TODOS.md)
 │   ├── test/        # Integration tests + fixtures
 │   └── dist/        # Compiled binary
 ├── hosts/           # Typed host configs (one per AI agent)
@@ -24,7 +22,7 @@ gstack/
 │   ├── gen-agents-digest.ts  # Generates the budget-capped instruction-tier digest (agents-digest/)
 │   ├── host-config.ts     # HostConfig interface + validator
 │   ├── host-config-export.ts  # Shell bridge for setup script
-│   ├── resolvers/   # Template resolver modules (preamble, design, review, gbrain, etc.)
+│   ├── resolvers/   # Template resolver modules (preamble, aside = the browser-driver contract, design, review, gbrain, etc.)
 │   ├── skill-check.ts     # Health dashboard
 │   ├── test-free-shards.ts  # Strict parallel free-suite runner (GSTACK_FREE_JOBS, opt-in flaky retry)
 │   ├── test-paid-shards.ts  # Sharded paid-tier runner (one Bun process per shard)
@@ -60,14 +58,13 @@ gstack/
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
 ├── design-consultation/ # /design-consultation skill (design system from scratch)
 ├── design-shotgun/  # /design-shotgun skill (visual design exploration)
-├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
-├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
+├── qa/, qa-only/, scrape/ # Browser skills (with browse/SKILL.md.tmpl, design-review/, canary/, benchmark/) — all drive the Aside browser via {{ASIDE_SETUP}}
 ├── design/          # Design binary CLI (GPT Image API)
 │   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
 │   ├── test/        # Integration tests
 │   └── dist/        # Compiled binary
 ├── agents-digest/   # Committed 2KB instruction-tier rules digest (gstack-AGENTS.md) for rules-reading hosts
-├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
+├── extension/       # Chrome extension for the retired sidebar — unreachable from any skill, retained only until the daemon prune (TODOS.md)
 ├── lib/             # Shared libraries (worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
 ├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide)
 ├── docs/designs/    # Design documents
@@ -81,5 +78,5 @@ gstack/
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
 ├── ETHOS.md         # Builder philosophy (Boil the Ocean, Search Before Building)
-└── package.json     # Build scripts for browse
+└── package.json     # Build + test scripts (render engine, design CLI, gen-skill-docs, test runners)
 ```

@@ -1167,8 +1167,8 @@ if (!DRY_RUN) {
 }
 
 // Regenerate gstack/llms.txt — single-file capability index for AI agents.
-// Runs after SKILL.md generation so it sees current skill descriptions and
-// browse command list. Wrapped in an IIFE so the await-import doesn't make
+// Runs after SKILL.md generation so it sees current skill descriptions.
+// Wrapped in an IIFE so the await-import doesn't make
 // this module async (test/gen-skill-docs.test.ts uses require() to pull
 // extractVoiceTriggers/processVoiceTriggers, which fails on async modules).
 // Freshness is asserted in test/llms-txt-shape.test.ts.
@@ -1183,7 +1183,7 @@ if (!DRY_RUN) {
       if (result.warnings.length > 0) {
         for (const w of result.warnings) console.error(`[gen-llms-txt] WARN: ${w}`);
       } else {
-        console.log(`[gen-llms-txt] gstack/llms.txt: ${result.skills.length} skills, ${result.browseCommands.length} browse commands`);
+        console.log(`[gen-llms-txt] gstack/llms.txt: ${result.skills.length} skills, ${result.designCommands.length} design commands`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

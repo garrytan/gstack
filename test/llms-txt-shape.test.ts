@@ -16,10 +16,12 @@ describe('gen-llms-txt — shape', () => {
   test('emits required top-level sections', () => {
     expect(generated.content).toContain('# gstack');
     expect(generated.content).toContain('## Skills');
-    expect(generated.content).toContain('## Browse Commands');
     // Convention block
     expect(generated.content).toContain('Skills are invoked by name');
-    expect(generated.content).toContain('Browse commands run as');
+    // Browser work runs in Aside; the retired browse command catalog must not come back.
+    expect(generated.content).toContain('Aside browser');
+    expect(generated.content).not.toContain('## Browse Commands');
+    expect(generated.content).not.toContain('$B');
     // Footer
     expect(generated.content).toContain('## More');
     expect(generated.content).toContain('auto-generated');
@@ -36,14 +38,6 @@ describe('gen-llms-txt — shape', () => {
     }
   });
 
-  test('every browse command in COMMAND_DESCRIPTIONS appears in the index', () => {
-    expect(generated.browseCommands.length).toBeGreaterThan(0);
-    for (const cmd of generated.browseCommands) {
-      // Use word boundaries; backtick-wrapped command name OR usage.
-      expect(generated.content).toContain(cmd);
-    }
-  });
-
   test('skills are sorted alphabetically', () => {
     const names = generated.skills.map((s) => s.name);
     const sorted = [...names].sort((a, b) => a.localeCompare(b));
@@ -54,7 +48,7 @@ describe('gen-llms-txt — shape', () => {
     // Find the Skills section and assert no entry contains a literal newline
     // mid-bullet (descriptions can be multi-paragraph in frontmatter; oneLine
     // collapses them).
-    const skillsSection = generated.content.split('## Skills')[1].split('## Browse Commands')[0];
+    const skillsSection = generated.content.split('## Skills')[1].split('\n## ')[0];
     const bullets = skillsSection.split('\n').filter((l) => l.startsWith('- ['));
     for (const b of bullets) {
       // No mid-bullet newline inside the bullet.
@@ -80,13 +74,8 @@ describe('gen-llms-txt — strict mode', () => {
         path.join(tmp, 'badskill', 'SKILL.md.tmpl'),
         '---\nname: badskill\n---\nbody\n',
       );
-      // Need a dummy browse/src/commands.ts shape — but we read from real
-      // ROOT for browse commands. The strict failure should fire on the
-      // skill before that. So we point at the real browse/src indirectly
-      // through the absolute import in gen-llms-txt.ts (already imported
-      // at module load). That's fine — strict throws on parsing, before
-      // browse commands are read. But the real ROOT includes valid skills
-      // too. Use the temp tree as `root` to isolate.
+      // Use the temp tree as `root` to isolate from the real skill set;
+      // strict throws while parsing frontmatter, before design commands are read.
       await expect(generateLlmsTxt({ root: tmp, strict: true })).rejects.toThrow(/missing name or description/);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

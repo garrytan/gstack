@@ -85,7 +85,7 @@ gstack/                          <- your working tree
 
 Setup creates real directories (not symlinks) at the top level with a SKILL.md
 symlink inside, plus links to each skill's runtime assets (sections/, templates,
-checklists). Alias skills (`_gstack-command`, `connect-chrome`) install as
+checklists). Alias skills (`_gstack-command`) install as
 rewritten copies, never symlinks — editing a symlinked alias would corrupt the
 generated source. This ensures Claude discovers them as top-level skills, not nested
 under `gstack/`. Names depend on your prefix setting (`~/.gstack/config.yaml`).
@@ -149,7 +149,7 @@ Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` f
 
 | Tier | Command | Cost | What it tests |
 |------|---------|------|---------------|
-| 1 — Static | `bun run test` | Free | Command validation, snapshot flags, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
+| 1 — Static | `bun run test` | Free | Render-engine command validation, Aside contract pins, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
 | 2 — E2E | `bun run test:e2e` | ~$4.20 | Full skill execution via `claude -p` subprocess |
 | 3 — LLM eval | `EVALS=1 bun test test/skill-llm-eval.test.ts` | ~$0.15 standalone | LLM-as-judge scoring of generated SKILL.md docs |
 | 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
@@ -178,7 +178,8 @@ make the suite run green (details in
 Don't type bare `bun test` for the suite: it walks the whole repo, loads paid
 eval files, and misses the strict classifier. No API keys needed.
 
-- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Catches typos, removed commands, and invalid snapshot flags.
+- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Only the render-engine skills (`make-pdf`, `diagram`, `design-html`, `office-hours`, `gstack-upgrade`) may invoke `$B` now; `test/aside-driver.test.ts` fails if any other skill does. Catches typos, removed commands, and invalid snapshot flags.
+- **Aside driver contract** (`test/aside-driver.test.ts`) — Browser behaviour in skills is written against `scripts/resolvers/aside.ts` (`{{ASIDE_SETUP}}`) and verified live against the Aside CLI on a Mac. CI cannot run Aside, so the Aside E2E tests self-skip where `aside` is not installed; the static pins (detection, consent, credential, one-flow-per-script, sentinel) are what CI proves.
 - **Skill validation tests** (`test/skill-validation.test.ts`) — Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
 - **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples).
 - **Tier-alignment invariant** (`test/e2e-tier-alignment.test.ts`) — For every self-gated `test/skill-e2e-*.test.ts` named in a touchfiles dep list, the file's `EVALS_TIER` self-gate must match its declared tier in `E2E_TIERS`. Kills the "inert demotion" class where a test is re-tiered in `touchfiles.ts` but the file still gates on the old tier and keeps running in the wrong lane. Unmapped or mixed-tier files are reported, never silently skipped.
@@ -332,7 +333,7 @@ bun run dev:skill
 
 For template authoring best practices (natural language over bash-isms, dynamic branch detection, `{{BASE_BRANCH_DETECT}}` usage), see CLAUDE.md's "Writing SKILL templates" section.
 
-To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
+To add a render-engine command to `browse`, add it to `browse/src/commands.ts` and rebuild. Browser steps in skills are not `browse` commands: write them as `aside repl` scripts that follow the cookbook in `scripts/resolvers/aside.ts`, and run them against the Aside CLI before committing.
 
 **Don't bundle puppeteer/Chromium in a skill.** `browse` is the one shared
 Chromium per box, including offline local-render workloads. A skill that needs to

@@ -1,5 +1,9 @@
 # Browser / sidebar / server internals
 
+> **Status:** the `browse` daemon is now the local-HTML render engine only (make-pdf,
+> diagram, design previews). Skills drive the Aside browser instead (`scripts/resolvers/aside.ts`).
+> The headed/extension/pair-agent/cookie surfaces documented below are unreachable from any skill and are pending the daemon prune (TODOS.md).
+
 Moved verbatim from CLAUDE.md (token-load reduction). These are the
 load-bearing invariants for `browse/src/server.ts`, the Chrome extension,
 the sidebar PTY, SSE endpoints, CDP sessions, and the sidebar security
