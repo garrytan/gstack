@@ -6,6 +6,16 @@ set -euo pipefail
 GSTACK_DIR="$1"
 DO_PREFIX="$2"
 
+# Canonical checkouts are generated source, not an install target. Refuse to
+# rewrite tracked SKILL.md files even if a future caller accidentally points
+# this legacy helper at the repository root; setup/relink create and patch
+# consumer copies instead.
+TRACKED_SKILLS=$(git -C "$GSTACK_DIR" ls-files 'SKILL.md' '*/SKILL.md' 2>/dev/null || true)
+if [ -n "$TRACKED_SKILLS" ]; then
+  echo "Error: refusing to patch tracked canonical SKILL.md files; run gstack-relink to refresh installed copies." >&2
+  exit 2
+fi
+
 # Normalize prefix arg
 case "$DO_PREFIX" in true|1) DO_PREFIX=1 ;; *) DO_PREFIX=0 ;; esac
 

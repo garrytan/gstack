@@ -42,13 +42,40 @@ PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 # every skill back to the canonical (blockless) source.
 RENDER_DIR="${GSTACK_USER_RENDER_DIR:-${GSTACK_HOME:-$HOME/.gstack}/render/claude}"
 
-# Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
+# Helper: remove an old gstack-owned skill entry. Prefixed installs are regular
+# files, so recognize them by the reserved gstack-* directory plus an exact
+# matching frontmatter name; never delete an arbitrary flat user directory.
 _cleanup_skill_entry() {
   local entry="$1"
+  local entry_name served_name
   if [ -L "$entry" ]; then
     rm -f "$entry"
   elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
     rm -rf "$entry"
+  elif [ -d "$entry" ] && [ -f "$entry/SKILL.md" ]; then
+    entry_name="$(basename "$entry")"
+    case "$entry_name" in
+      gstack-*)
+        served_name=$(grep -m1 '^name:' "$entry/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+        [ "$served_name" = "$entry_name" ] && rm -rf "$entry"
+        ;;
+    esac
+  fi
+}
+
+# Install the frontmatter that Claude actually serves. Canonical SKILL.md files
+# in INSTALL_DIR are generated source artifacts and must stay byte-identical to
+# their templates. Prefix mode therefore writes a consumer copy inside the
+# installed skill directory; flat mode can keep the cheaper source symlink.
+_install_served_skill_md() {
+  local source="$1"
+  local target_dir="$2"
+  local served_name="$3"
+  rm -f "$target_dir/SKILL.md"
+  if [ "$PREFIX" = "true" ]; then
+    sed "1,/^---\$/ s/^name:[[:space:]].*/name: $served_name/" "$source" > "$target_dir/SKILL.md"
+  else
+    ln -snf "$source" "$target_dir/SKILL.md"
   fi
 }
 
@@ -102,22 +129,13 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   target="$SKILLS_DIR/$link_name"
   # Upgrade old directory symlinks to real directories
   [ -L "$target" ] && rm -f "$target"
-  # Create real directory with symlinked SKILL.md (absolute path)
+  # Create a real top-level skill directory.
   mkdir -p "$target"
   skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
   [ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"
-  ln -snf "$skill_md_src" "$target/SKILL.md"
+  _install_served_skill_md "$skill_md_src" "$target" "$link_name"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
-
-# Patch SKILL.md name: fields to match prefix setting. When a gbrain render
-# is active the loop above links SKILL.md from RENDER_DIR — the file the host
-# actually serves — so patch THAT tree too or skill_prefix=true is a no-op
-# for every brain-aware skill (#2738). gstack-patch-names takes an arbitrary
-# root, skips already-prefixed names (idempotent), and the render dir is
-# user-owned and untracked, so patching it never dirties a checkout.
-"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
-[ -d "$RENDER_DIR" ] && "$INSTALL_DIR/bin/gstack-patch-names" "$RENDER_DIR" "$PREFIX"
 
 if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"

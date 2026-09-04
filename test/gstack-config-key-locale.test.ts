@@ -21,12 +21,8 @@ function run(args: string[]) {
   const result = spawnSync(CONFIG, args, {
     encoding: "utf8",
     // GSTACK_SETUP_RUNNING suppresses `set skill_prefix`'s auto-relink side
-    // effect. Without it, this test invokes the REPO's gstack-config, whose
-    // auto-relink resolves the install dir from its own path — i.e. the repo —
-    // and gstack-patch-names rewrites all 52 tracked SKILL.md files to
-    // gstack-prefixed names, poisoning every downstream test that reads the
-    // live tree (observed in the free-tests CI job). Relink behavior itself is
-    // covered in isolation by test/relink.test.ts's mock install.
+    // effect so this locale test stays scoped to config parsing. Relink behavior
+    // and source-tree immutability are covered in test/relink.test.ts.
     env: { ...process.env, GSTACK_STATE_ROOT: stateRoot, GSTACK_SETUP_RUNNING: "1" },
     timeout: 30_000,
   });

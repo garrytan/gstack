@@ -131,11 +131,9 @@ fi
   OLD_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
   UPDATE_URL=$(git -C "$GSTACK_DIR" remote get-url origin 2>/dev/null || echo "")
   UPDATE_HOST="${UPDATE_URL#*://}"; UPDATE_HOST="${UPDATE_HOST#*@}"; UPDATE_HOST="${UPDATE_HOST%%[/:]*}"
-  # --autostash: locally-patched TRACKED files are the NORM on installs, not
-  # the exception — skill-prefix mode rewrites frontmatter names and
-  # `gstack-config gbrain-refresh` renders brain blocks into SKILL.md. A bare
-  # --ff-only refuses over those edits, so auto-upgrade wedged permanently
-  # (observed: 308 consecutive PULL_FAILED with the reason discarded, #2566).
+  # --autostash preserves genuine operator edits while updating. Generated
+  # prefix/render variants live outside the tracked checkout, so a normal
+  # install is clean; the flag remains defensive for user-owned changes.
   # Capture stderr: the log must carry WHY a pull failed, never just the code.
   PULL_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-session-pull-XXXXXX" 2>/dev/null || echo "")
   GSTACK_HOME="$STATE_DIR" _receipted_git open session-update "${UPDATE_HOST:-unknown}" gstack-self-update-pull "auto_upgrade=true" \
@@ -153,26 +151,20 @@ fi
     PULL_REASON=$(head -c 300 "$PULL_ERR_FILE" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
     log_entry "PULL_FAILED exit=$PULL_EXIT reason=${PULL_REASON:-unknown}"
     # Autostash pop conflict leaves the stash behind and the tree half-merged.
-    # The local patches are REGENERABLE (prefix renames, gbrain blocks), so
-    # recover to a clean upstream tree and re-render them below rather than
-    # leaving conflict markers in a live install.
+    # Recover the tracked install and refresh its consumer renders rather than
+    # leaving conflict markers in the live checkout.
     if grep -qi "autostash" "$PULL_ERR_FILE" 2>/dev/null; then
       git -C "$GSTACK_DIR" checkout -q -- . 2>/dev/null
       git -C "$GSTACK_DIR" stash drop -q 2>/dev/null
       log_entry "AUTOSTASH_CONFLICT_RECOVERED tree_reset=1"
-      _PREFIX_CFG=$("$GSTACK_DIR/bin/gstack-config" get skill_prefix 2>/dev/null || echo false)
-      "$GSTACK_DIR/bin/gstack-patch-names" "$GSTACK_DIR" "$_PREFIX_CFG" >/dev/null 2>&1 || true
       "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
     fi
     rm -f "$PULL_ERR_FILE" 2>/dev/null
     exit 0
   fi
   rm -f "$PULL_ERR_FILE" 2>/dev/null
-  # Re-render local patches over the fresh tree (both tools are idempotent
-  # no-ops when the feature is unconfigured); the autostash pop usually
-  # preserves them, but a clean re-render costs nothing and self-heals.
-  _PREFIX_CFG=$("$GSTACK_DIR/bin/gstack-config" get skill_prefix 2>/dev/null || echo false)
-  "$GSTACK_DIR/bin/gstack-patch-names" "$GSTACK_DIR" "$_PREFIX_CFG" >/dev/null 2>&1 || true
+  # Refresh user-owned brain renders over the fresh tree. Prefix frontmatter is
+  # applied later to installed consumer copies by setup/relink, never here.
   "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
 
   # ── If HEAD moved, run setup -q ──

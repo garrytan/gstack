@@ -4,12 +4,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// #2566: on a normal install, tracked files are locally patched (skill-prefix
-// name rewrites, gbrain-refresh blocks), so a bare `git pull --ff-only`
-// refused FOREVER — 308 consecutive PULL_FAILED entries observed, with the
-// reason discarded by 2>/dev/null. The fix: --autostash un-wedges the pull
-// over local edits, and stderr is captured into the log so a real failure
-// names its cause.
+// #2566: a user-owned local edit must not wedge a session update forever.
+// Generated prefix/render variants now live outside the tracked checkout, but
+// --autostash remains defensive and stderr still names real pull failures.
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = path.join(ROOT, 'bin', 'gstack-session-update');
@@ -69,6 +66,11 @@ async function waitForLog(state: string, pattern: RegExp, ms = 15000): Promise<s
 }
 
 describe('gstack-session-update pull wedge (#2566)', () => {
+  test('session update never reapplies prefix names to the tracked checkout', () => {
+    const source = fs.readFileSync(SCRIPT, 'utf8');
+    expect(source).not.toMatch(/gstack-patch-names[^\n]*\$GSTACK_DIR/);
+  });
+
   test('locally-patched tracked files no longer wedge the ff-only pull', async () => {
     const { base, seed, install, state } = makeFixture();
     try {

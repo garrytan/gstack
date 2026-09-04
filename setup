@@ -912,8 +912,9 @@ _link_skill_runtime_assets() {
 }
 
 # ─── Helper: link Claude skill subdirectories into a skills parent directory ──
-# Creates real directories (not symlinks) at the top level with a SKILL.md symlink
-# inside. This ensures Claude discovers them as top-level skills, not nested under
+# Creates real directories (not symlinks) at the top level. Flat installs link
+# SKILL.md to canonical source; prefixed installs write a namespaced consumer
+# copy. This ensures Claude discovers them as top-level skills, not nested under
 # gstack/ (which would auto-prefix them as gstack-*).
 # When SKILL_PREFIX=1, directories are prefixed with "gstack-".
 # Use --no-prefix to restore flat names.
@@ -943,7 +944,7 @@ link_claude_skill_dirs() {
       if [ -L "$target" ]; then
         rm -f "$target"
       fi
-      # Create real directory with symlinked SKILL.md (absolute path)
+      # Create a real top-level skill directory.
       # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
       mkdir -p "$target"
       # Validate target isn't a symlink before creating the link
@@ -959,7 +960,14 @@ link_claude_skill_dirs() {
       if [ -f "$_render_dir/$dir_name/SKILL.md" ]; then
         _skill_md_src="$_render_dir/$dir_name/SKILL.md"
       fi
-      _link_or_copy "$_skill_md_src" "$target/SKILL.md"
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        # Prefixing is an install concern, never a source-tree mutation. The
+        # served copy carries the namespaced frontmatter while the canonical
+        # generated SKILL.md remains byte-identical to its template.
+        _install_alias_skill_md "$_skill_md_src" "$target" "$link_name"
+      else
+        _link_or_copy "$_skill_md_src" "$target/SKILL.md"
+      fi
       # Link every runtime asset the skill ships next to its SKILL.md (#2317,
       # #2454): sections/ for carved skills, review's checklist.md +
       # specialists/, qa's templates/ + references/, gstack-upgrade's
@@ -1093,6 +1101,7 @@ cleanup_prefixed_claude_symlinks() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local removed=()
+  local skill_dir skill_name prefixed_target link_dest installed_name
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
@@ -1119,12 +1128,16 @@ cleanup_prefixed_claude_symlinks() {
             removed+=("gstack-$skill_name")
             ;;
         esac
-      # Windows install pattern: real dir with real-file SKILL.md. Same
-      # reasoning as cleanup_old_claude_symlinks — directory name match plus
-      # IS_WINDOWS is safe during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
-        rm -rf "$prefixed_target"
-        removed+=("gstack-$skill_name")
+      # Prefix mode serves a rewritten regular-file copy. The reserved target
+      # name plus an exact matching frontmatter name proves this is the copy
+      # created for the current canonical skill without adding marker files to
+      # the consumer directory.
+      elif [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
+        installed_name=$(grep -m1 '^name:' "$prefixed_target/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+        if [ "$installed_name" = "gstack-$skill_name" ]; then
+          rm -rf "$prefixed_target"
+          removed+=("gstack-$skill_name")
+        fi
       fi
     fi
   done
@@ -1670,9 +1683,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     else
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
-    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
-    # reads the correct (patched) name: values for symlink naming
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     _CLAUDE_SKILLS_LINKED=1
@@ -1748,7 +1758,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       else
         cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       fi
-      "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       _CLAUDE_SKILLS_LINKED=1

@@ -79,6 +79,58 @@ function frontmatterName(skillMdPath: string): string | null {
 }
 
 describe('alias installs are rewritten copies (#2511, #2201)', () => {
+  test('repeated prefixed setup writes only installed copies and leaves every canonical skill byte-clean', () => {
+    const prefixedInstall = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefixed-install-'));
+    const sourceSkills = fs.readdirSync(ROOT)
+      .map((entry) => path.join(ROOT, entry, 'SKILL.md'))
+      .filter((skill) => fs.existsSync(skill));
+    const before = new Map(sourceSkills.map((skill) => [skill, fs.readFileSync(skill)]));
+    try {
+      const script = [
+        'set -e',
+        'IS_WINDOWS=0',
+        'SKILL_PREFIX=1',
+        'QUIET=1',
+        '_WINDOWS_COPY_NOTE_PRINTED=1',
+        `GSTACK_HOME="${prefixedInstall}/state"`,
+        extractFn('_link_or_copy'),
+        extractFn('_print_windows_copy_note_once'),
+        extractFn('_link_skill_runtime_assets'),
+        extractFn('_install_alias_skill_md'),
+        extractFn('link_claude_skill_dirs'),
+        `link_claude_skill_dirs "${ROOT}" "${prefixedInstall}"`,
+        // A normal re-run must refresh consumer copies idempotently without
+        // ever rewriting canonical generated sources.
+        `link_claude_skill_dirs "${ROOT}" "${prefixedInstall}"`,
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 60_000 });
+      expect(result.status).toBe(0);
+
+      for (const [skill, bytes] of before) expect(fs.readFileSync(skill)).toEqual(bytes);
+      for (const entry of fs.readdirSync(prefixedInstall).filter((name) => name.startsWith('gstack-'))) {
+        const installedSkill = path.join(prefixedInstall, entry, 'SKILL.md');
+        if (!fs.existsSync(installedSkill)) continue;
+        expect(fs.lstatSync(installedSkill).isSymbolicLink()).toBe(false);
+        expect(frontmatterName(installedSkill)).toBe(entry);
+      }
+
+      const cleanup = spawnSync('bash', ['-c', [
+        'set -e',
+        'IS_WINDOWS=0',
+        extractFn('cleanup_prefixed_claude_symlinks'),
+        `cleanup_prefixed_claude_symlinks "${ROOT}" "${prefixedInstall}"`,
+      ].join('\n')], { encoding: 'utf8', timeout: 60_000 });
+      expect(cleanup.status).toBe(0);
+      expect(fs.existsSync(path.join(prefixedInstall, 'gstack-qa'))).toBe(false);
+    } finally {
+      fs.rmSync(prefixedInstall, { recursive: true, force: true });
+    }
+  });
+
+  test('normal setup never points the legacy patch helper at SOURCE_GSTACK_DIR', () => {
+    expect(SETUP_SRC).not.toContain('gstack-patch-names" "$SOURCE_GSTACK_DIR"');
+  });
+
   test('_gstack-command alias is NOT a symlink and carries its own name', () => {
     const aliasDir = path.join(installDir, '_gstack-command');
     const aliasSkill = path.join(aliasDir, 'SKILL.md');

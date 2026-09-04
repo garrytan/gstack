@@ -2554,9 +2554,9 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
-    // Claude links should be real directories with absolute SKILL.md symlinks
-    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
+  test('link_claude_skill_dirs keeps canonical source immutable in prefix mode', () => {
+    // Claude entries stay top-level real directories. Flat mode can symlink
+    // canonical SKILL.md; prefix mode must create a rewritten consumer copy.
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
@@ -2565,7 +2565,9 @@ describe('setup script validation', () => {
     // v1.67 (#2569): the source is render-aware — canonical SKILL.md, or the
     // rendered :user variant from ${GSTACK_HOME}/render/claude when present.
     expect(fnBody).toContain('_skill_md_src="$gstack_dir/$dir_name/SKILL.md"');
+    expect(fnBody).toContain('_install_alias_skill_md "$_skill_md_src" "$target" "$link_name"');
     expect(fnBody).toContain('_link_or_copy "$_skill_md_src" "$target/SKILL.md"');
+    expect(fnBody).not.toContain('.gstack-managed');
   });
 
   // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
