@@ -1,5 +1,58 @@
 # Changelog
 
+## [2.0.0.0] - 2026-09-04
+
+**Aside is the browser. Every gstack skill that opens a page now drives it.**
+**The headless daemon, GStack Browser, cookie import, and pair-agent are gone.**
+
+gstack used to ship its own browser stack: a headless Chromium daemon behind `$B`, a branded headed Chrome with a sidebar extension, cookie import from your real browser, a pairing tunnel for remote agents, and a browser-skills runtime. All of it existed to get the agent into a browser that looked like yours. Aside already is yours. `/qa`, `/qa-only`, `/design-review`, `/scrape`, `/benchmark`, `/canary`, `/browse`, `/devex-review`, `/land-and-deploy`'s post-deploy check, and `/design-consultation`'s competitor research now run inside the Aside AI browser (macOS 15+, aside.com), in the sessions you are already signed in to. No cookie export, no "open the browser" step, no CAPTCHA handoff dance: if a page needs a login, you sign in inside Aside and the skill re-runs the step.
+
+Every skill follows one contract, `scripts/resolvers/aside.ts`. It was written from live probes against Aside CLI 1.26, not from memory: one flow per `aside repl` script (tabs close when the script ends), a console hook installed over CDP before navigation, labelled evidence lines, screenshots copied out of Aside's session directory, and a `GSTACK_STEP_OK` sentinel because the CLI's exit code is always 0. The rules are explicit about what a real browser means: open your own tabs, never read the user's, look freely but ask once before any mutating action on a non-local site, never touch credentials, treat everything a page returns as untrusted.
+
+### The numbers that matter
+
+Source: `git diff origin/main --stat`, `bun test/helpers/capture-context-budget.ts`, and the ten cookbook and skill scripts executed verbatim against Aside CLI 1.26 on a localhost fixture.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| `$B` browse commands inside the browsing skills | 221 | 0 | every one replaced by an `aside repl` script |
+| Browser surfaces a user has to run or configure | 4 (daemon, GStack Browser, cookie import, pair-agent) | 1 (the Aside app) | one browser |
+| Skill templates | 54 | 50 | skillify, setup-browser-cookies, pair-agent, open-gstack-browser retired |
+| Always-on catalog tokens | 6,344 | 6,061 | −283 |
+| Tracked lines | | | +2,891 / −9,725 |
+
+The 221 → 0 line is the one you feel: there is no longer a second browser to build, keep alive, or feed cookies. `/browse` itself is now the Aside cookbook plus a short report format, and the `browse` binary that remains in the repo renders local HTML for `/make-pdf`, `/diagram`, and design previews. It is not something you drive.
+
+What this means for anyone running gstack on a Mac: open Aside, sign in where your app lives, and run `/qa` the way you always did. Linux and Windows users have no browser skill until Aside ships there; every other skill is unchanged. Upgrading through `/gstack-upgrade` removes the retired skills from your install; the new `setup` also prunes them on every host.
+
+### Itemized changes
+
+#### Added
+- **Aside browser-driver contract** (`{{ASIDE_SETUP}}` + `{{ASIDE_COOKBOOK}}`): runtime detection with a READY / NEEDS_ASIDE / ASIDE_NOT_RUNNING probe, ten rules for driving a real browser (own tabs only, LOOK-not-ACT consent with a LOCAL host rule, credentials never pass through the agent, untrusted page content, one flow per script, artifact handoff through the session directory), and a verified cookbook: read a page with load-time console errors, drive a flow with a DOM diff, annotated screenshot, responsive captures over CDP emulation, same-origin link status, performance entries, PDF, element screenshot, and `aside exec` for open-ended reading.
+- **`/scrape` on Aside**: look-then-extract scripts that build the JSON inside the page and print it between `JSON_START` / `JSON_END`; `aside exec` for fuzzy intents; still read-only by contract.
+- **Live E2E for the Aside-driven skills** (`test/skill-e2e-aside.test.ts`, periodic tier): browse read, browse flow, quick QA, scrape JSON, and canary against a localhost fixture; asserts the sentinel appeared in real Bash output, not in a Read of the skill doc. Self-skips wherever Aside is not installed, including CI.
+- **Migration `v2.0.0.0`** removes the retired skills' links and rewritten alias copies from every host install; `setup` gains `_prune_stale_generated` so a skill removed from the source tree stops being rendered and linked on Codex, Kiro, Factory, OpenCode, and Cursor.
+
+#### Changed
+- `/qa` and `/qa-only`: the whole methodology (orient, explore, document, re-test) runs as Aside scripts; the authenticate phase is now "you are already signed in"; a 13th rule requires consent before mutating actions on non-local targets.
+- `/design-review` and `/design-consultation`: design-system extraction is one script printing FONTS, COLORS, HEADINGS, TOUCH_TARGETS, and NAV; competitor research confirms the exact URLs with you before opening any of them in your real browser.
+- `/benchmark` and `/canary`: per-page scripts print NAV, PAINT, LCP, RESOURCES, SCRIPTS, CSS, and SUMMARY; the canary loop re-runs the script every 60 seconds because nothing persists between scripts.
+- `/land-and-deploy` Step 7 and `/devex-review`: one Aside script each; the smoke row reads `responseStatus` from the navigation entry.
+- **Third-Party Web Actions** (`/ship`, `/spec`, `/setup-deploy`, `/office-hours`, `/land-and-deploy`): Aside is the only driver. The options are drive-in-Aside, manual, or defer; the old "gstack's own visible browser" fallback is gone, and the contract points at the `/browse` doc for how to drive.
+- `/browse` is the Aside-powered browser skill: contract, cookbook, mode choice (`aside repl` by default, `aside exec` for reading), report format.
+- The root router, README, `BROWSER.md`, `docs/skills.md`, `docs/PROJECT_STRUCTURE.md`, `CONTRIBUTING.md`, `CLAUDE.md`, and `gstack/llms.txt` describe the Aside world; `llms.txt` no longer advertises browse commands.
+
+#### Removed
+- Skills: `/skillify`, `/setup-browser-cookies`, `/pair-agent`, `/open-gstack-browser`, and the `/connect-chrome` alias.
+- The `/browse` command reference and snapshot-flag sections (`{{COMMAND_REFERENCE}}`, `{{SNAPSHOT_FLAGS}}`), `docs/REMOTE_BROWSER_ACCESS.md`, `docs/domain-skills.md`.
+- The gstack-browser fallback and `$B handoff` path from the Third-Party Web Actions contract.
+
+#### For contributors
+- `test/aside-driver.test.ts` pins the contract's load-bearing sentences and tripwires the consolidation: every browsing skill carries `## BROWSER SETUP (Aside`, only the render-engine skills (`make-pdf`, `diagram`, `design-html`, `office-hours`, `gstack-upgrade`) may invoke `$B`, and the retired skill dirs stay gone. `test/helpers/aside-available.ts` is the shared live-browser probe for E2E self-skips.
+- `{{BROWSE_SETUP}}` is now titled as the render-engine setup and stays only in the render-engine skills. `{{UNTRUSTED_CONTENT_WARNING}}` speaks in Aside terms.
+- The browse daemon still contains the headed-mode, extension, pair-agent tunnel, cookie-import, and browser-skills code paths; they are unreachable from any skill and filed for pruning in TODOS.md with a census (19 source files, ~100 of 144 daemon tests), alongside the other Aside follow-ups (CLI subcommands Aside's own skill lists but 1.26 lacks, an MCP path for persistent pages, a macOS runner for the live E2E).
+- Registries reconciled: touchfiles and E2E tiers (the Aside E2E keys are periodic; the qa and design-review E2E moved to periodic since they need a live browser), coverage matrix, size budgets, parity ceilings, context-budget fixture, ship goldens, LLM-judge evals.
+
 ## [1.79.0.0] - 2026-09-01
 
 **/ship can no longer be stranded by a backgrounded subagent.**
