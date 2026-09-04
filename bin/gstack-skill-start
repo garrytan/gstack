@@ -231,26 +231,21 @@ _BRAIN_CONFIG_BIN="$_BIN/gstack-config"
 # configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
-  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || true)
+  # Do not run a second, unbounded CLI probe before readiness. The bounded
+  # read-only checker below owns liveness and reports degradation explicitly.
+  _GBRAIN_VERSION_OK=1
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
     _GBRAIN_PIN_PATH=""
     _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
     if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
       _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
+    _GBRAIN_READY_OUTPUT="GBRAIN_GRAPH: degraded | reason=bootstrap_unavailable"
     if [ -n "$_GBRAIN_PIN_PATH" ]; then
 	  _GBRAIN_READY_BIN="$_BIN/gstack-gbrain-ready"
 	  if [ -x "$_GBRAIN_READY_BIN" ]; then
 	    _GBRAIN_READY_OUTPUT=$("$_GBRAIN_READY_BIN" --check-only --session-key "$PARENT_PID" 2>/dev/null || echo "GBRAIN_GRAPH: degraded | reason=bootstrap_failed")
 	    echo "$_GBRAIN_READY_OUTPUT"
-	    case "$_GBRAIN_READY_OUTPUT" in
-	      *"GBRAIN_GRAPH: ready"*) ;;
-	      *"GBRAIN_GRAPH: partial"*) ;;
-	      *"reason=repair_cooldown"*) ;;
-	      *)
-	        (cd "$_REPO_TOP" 2>/dev/null && "$_GBRAIN_READY_BIN" >/dev/null 2>&1) &
-	        ;;
-	    esac
 	  fi
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
@@ -258,18 +253,17 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
       case "$_GBRAIN_READY_OUTPUT" in
 	    *"GBRAIN_GRAPH: ready"*) echo "GBrain graph certified for this worktree." ;;
 	    *"GBRAIN_GRAPH: partial"*) echo "GBrain graph is useful but non-authoritative; verify impact with repository lookup." ;;
-	    *) echo "GBrain graph is degraded; use repository lookup until automatic repair certifies it." ;;
+	    *) echo "GBrain graph is degraded; use repository lookup and run \`/sync-gbrain --full\` to repair it explicitly." ;;
 	  esac
     else
 	  _GBRAIN_READY_BIN="$_BIN/gstack-gbrain-ready"
 	  if [ -x "$_GBRAIN_READY_BIN" ]; then
 	    _GBRAIN_READY_OUTPUT=$("$_GBRAIN_READY_BIN" --check-only --session-key "$PARENT_PID" 2>/dev/null || echo "GBRAIN_GRAPH: degraded | reason=bootstrap_failed")
 	    echo "$_GBRAIN_READY_OUTPUT"
-	    (cd "$_REPO_TOP" 2>/dev/null && "$_GBRAIN_READY_BIN" >/dev/null 2>&1) &
 	  else
 	    echo "GBRAIN_GRAPH: degraded | reason=bootstrap_unavailable"
 	  fi
-	  echo "This worktree is not yet certified; use repository lookup while automatic bootstrap runs."
+	  echo "This worktree is not certified; use repository lookup and run \`/sync-gbrain --full\` explicitly."
     fi
   fi
 fi

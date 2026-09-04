@@ -25,18 +25,6 @@ log_entry() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE" 2>/dev/null || true
 }
 
-# Claude Code sessions are disposable; graph identity is not. Bootstrap the
-# exact current worktree independently from the hourly self-update path. This
-# stays backgrounded and non-fatal so a degraded GBrain never blocks startup.
-SESSION_WORKDIR=$(pwd -P 2>/dev/null || pwd)
-SESSION_BIN=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
-if [ -x "$SESSION_BIN/gstack-gbrain-ready" ]; then
-  (
-    cd "$SESSION_WORKDIR" 2>/dev/null || exit 0
-    "$SESSION_BIN/gstack-gbrain-ready" >> "$LOG_FILE" 2>&1
-  ) >/dev/null 2>&1 &
-fi
-
 # ── Guard: gstack must be a git repo ──
 if [ ! -d "$GSTACK_DIR/.git" ]; then
   exit 0

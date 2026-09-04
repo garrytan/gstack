@@ -185,11 +185,10 @@ describe('gstack-session-update', () => {
     expect(result.exitCode).toBe(0);
   });
 
-  test('bootstraps GBrain readiness independently from auto-upgrade', () => {
+  test('session auto-upgrade never bootstraps or repairs GBrain', () => {
     const script = fs.readFileSync(SESSION_UPDATE, 'utf8');
-    expect(script).toContain('gstack-gbrain-ready');
-    expect(script).toContain('SESSION_WORKDIR');
-    expect(script).toContain('backgrounded and non-fatal');
+    expect(script).not.toContain('gstack-gbrain-ready');
+    expect(script).not.toContain('gstack-gbrain-sync');
   });
 });
 

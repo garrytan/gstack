@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
-# Verify that this exact worktree has a usable GBrain code graph.
-# Expensive work is cached by source + tracked-content fingerprint, so a new
-# session on an unchanged worktree pays only the cache lookup.
+# Read-only proof that this exact worktree has a usable GBrain code graph.
+#
+# This command is called from the latency-sensitive skill preamble. It must
+# never sync, index, run a dream cycle, spend provider credits, or write to an
+# external database. `/sync-gbrain` is the only repair path. The only writes
+# here are disposable local readiness receipts under GSTACK_HOME.
 
 set +e
 
-BIN_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 STATE_ROOT="${GSTACK_HOME:-$HOME/.gstack}/gbrain-readiness"
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-READINESS_SCHEMA=3
-REPAIR_COOLDOWN_SECONDS=1800
+READINESS_SCHEMA=4
 SESSION_KEY=""
-CHECK_ONLY=false
+
+PROBE_TIMEOUT_SECONDS="${GSTACK_GBRAIN_READY_TIMEOUT_SECONDS:-3}"
+case "$PROBE_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*) PROBE_TIMEOUT_SECONDS=3 ;;
+  *)
+    if [ "$PROBE_TIMEOUT_SECONDS" -lt 1 ] || [ "$PROBE_TIMEOUT_SECONDS" -gt 10 ]; then
+      PROBE_TIMEOUT_SECONDS=3
+    fi
+    ;;
+esac
 
 degraded() {
   echo "GBRAIN_GRAPH: degraded | reason=$1"
@@ -26,7 +36,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --check-only)
-      CHECK_ONLY=true
+      # Compatibility flag. Readiness is now always check-only.
       shift
       ;;
     *)
@@ -35,31 +45,51 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-run_code_sync() {
-  _sync_bin="$BIN_DIR/gstack-gbrain-sync.ts"
-  [ -f "$_sync_bin" ] || return 1
-  command -v bun >/dev/null 2>&1 || return 1
-  _repair='cd "$1" && bun run "$2" --code-only --quiet >/dev/null 2>&1 && _source=$(tr -d "[:space:]" < "$1/.gbrain-source" 2>/dev/null) && [ -n "$_source" ] && gbrain edges-backfill --source "$_source" --max-chunks 1000 --json >/dev/null 2>&1'
-  if command -v gtimeout >/dev/null 2>&1; then
-    gtimeout 300s sh -c "$_repair" sh "$REPO_ROOT" "$_sync_bin"
-  elif command -v timeout >/dev/null 2>&1; then
-    timeout 300s sh -c "$_repair" sh "$REPO_ROOT" "$_sync_bin"
-  else
-    perl -e 'alarm shift; exec @ARGV' 300 sh -c "$_repair" sh "$REPO_ROOT" "$_sync_bin"
+# Portable timeout: GNU coreutils when present, otherwise a watchdog that
+# mirrors timeout(1)'s exit-124 contract. No GBrain subprocess can outlive the
+# bounded foreground readiness probe on stock macOS.
+run_bounded() {
+  _duration="$1"
+  shift
+  _timeout_bin=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+  if [ -n "$_timeout_bin" ]; then
+    "$_timeout_bin" "$_duration" "$@"
+    return $?
   fi
+
+  "$@" &
+  _cmd_pid=$!
+  (
+    sleep "$_duration"
+    kill -TERM "$_cmd_pid" 2>/dev/null
+    sleep 1
+    kill -KILL "$_cmd_pid" 2>/dev/null
+  ) >/dev/null 2>&1 &
+  _watch_pid=$!
+  wait "$_cmd_pid"
+  _rc=$?
+  if kill -0 "$_watch_pid" 2>/dev/null; then
+    kill "$_watch_pid" 2>/dev/null
+    wait "$_watch_pid" 2>/dev/null
+  elif [ "$_rc" -ge 128 ]; then
+    _rc=124
+  fi
+  return "$_rc"
+}
+
+valid_source_id() {
+  [ "${#1}" -le 32 ] || return 1
+  printf '%s\n' "$1" | grep -Eq '^[a-z0-9]$|^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$'
 }
 
 [ -n "$REPO_ROOT" ] || degraded "not_a_git_worktree"
 command -v gbrain >/dev/null 2>&1 || degraded "gbrain_unavailable"
 command -v jq >/dev/null 2>&1 || degraded "jq_unavailable"
-if [ ! -f "$REPO_ROOT/.gbrain-source" ]; then
-  [ "$CHECK_ONLY" = "false" ] || degraded "source_pin_missing"
-  run_code_sync || degraded "source_bootstrap_failed"
-fi
-[ -f "$REPO_ROOT/.gbrain-source" ] || degraded "source_pin_missing_after_bootstrap"
+[ -f "$REPO_ROOT/.gbrain-source" ] || degraded "source_pin_missing"
 
 SOURCE_ID=$(tr -d '[:space:]' < "$REPO_ROOT/.gbrain-source" 2>/dev/null)
 [ -n "$SOURCE_ID" ] || degraded "source_pin_empty"
+valid_source_id "$SOURCE_ID" || degraded "source_pin_invalid"
 
 HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)
 TRACKED_DIFF=$(git -C "$REPO_ROOT" diff --no-ext-diff --binary HEAD 2>/dev/null | shasum | awk '{print $1}')
@@ -73,151 +103,73 @@ UNTRACKED_CODE_HASH=$(
     done | shasum | awk '{print $1}'
 )
 FINGERPRINT=$(printf '%s\n%s\n%s\n%s\n%s\n' "$READINESS_SCHEMA" "$SOURCE_ID" "$HEAD_SHA" "$TRACKED_DIFF" "$UNTRACKED_CODE_HASH" | shasum | awk '{print $1}')
-mkdir -p "$STATE_ROOT" 2>/dev/null
-SESSION_FILE=""
-if [ -n "$SESSION_KEY" ]; then
-  SESSION_FILE="$STATE_ROOT/session-${SESSION_KEY}-${FINGERPRINT}.partial"
-  if [ -f "$SESSION_FILE" ]; then
-    CANARY=$(head -1 "$SESSION_FILE" 2>/dev/null | tr -cd 'A-Za-z0-9_$')
-    echo "GBRAIN_GRAPH: partial | source=$SOURCE_ID | canary=${CANARY:-verified} | session=certified"
-    exit 0
-  fi
-fi
 
-SOURCES_JSON=$(cd "$REPO_ROOT" && gbrain sources list --json 2>/dev/null)
+# Validate the source and its path before SOURCE_ID participates in any state
+# path. `sources list`, like all GBrain probes below, is strictly bounded.
+SOURCES_JSON=$(cd "$REPO_ROOT" && run_bounded "$PROBE_TIMEOUT_SECONDS" gbrain sources list --json 2>/dev/null)
+[ $? -eq 0 ] && [ -n "$SOURCES_JSON" ] || degraded "sources_probe_failed_or_timed_out"
 SOURCE_PATH=$(printf '%s' "$SOURCES_JSON" | jq -r --arg id "$SOURCE_ID" '.sources[]? | select(.id == $id) | .local_path // empty' 2>/dev/null)
 [ -n "$SOURCE_PATH" ] || degraded "source_not_registered"
 SOURCE_REAL=$(cd "$SOURCE_PATH" 2>/dev/null && pwd -P)
 REPO_REAL=$(cd "$REPO_ROOT" 2>/dev/null && pwd -P)
 [ "$SOURCE_REAL" = "$REPO_REAL" ] || degraded "source_path_mismatch"
 
+mkdir -p "$STATE_ROOT" 2>/dev/null
 CACHE_FILE="$STATE_ROOT/${SOURCE_ID}-${FINGERPRINT}.partial"
-# Readiness evidence is fingerprint-specific, but repair budget is source-wide:
-# the resolver phase is brain-global and must not relaunch after every edit.
-ATTEMPT_FILE="$STATE_ROOT/${SOURCE_ID}.attempted-at"
-# Upgrade compatibility: preserve the newest cooldown receipt written by the
-# earlier fingerprint-scoped implementation, so installing this fix cannot
-# immediately repeat a resolver that just finished.
-if [ ! -f "$ATTEMPT_FILE" ]; then
-	LATEST_LEGACY_ATTEMPT=""
-	for LEGACY_ATTEMPT_FILE in "$STATE_ROOT/${SOURCE_ID}-"*.attempted-at; do
-		[ -f "$LEGACY_ATTEMPT_FILE" ] || continue
-		LEGACY_ATTEMPT=$(cat "$LEGACY_ATTEMPT_FILE" 2>/dev/null)
-		case "$LEGACY_ATTEMPT" in
-		  ''|*[!0-9]*) continue ;;
-		esac
-		if [ -z "$LATEST_LEGACY_ATTEMPT" ] || [ "$LEGACY_ATTEMPT" -gt "$LATEST_LEGACY_ATTEMPT" ]; then
-			LATEST_LEGACY_ATTEMPT="$LEGACY_ATTEMPT"
-		fi
-	done
-	[ -z "$LATEST_LEGACY_ATTEMPT" ] || printf '%s\n' "$LATEST_LEGACY_ATTEMPT" > "$ATTEMPT_FILE"
-fi
-CACHE_HIT=false
-CANARY=""
-if [ -f "$CACHE_FILE" ]; then
-  CACHE_HIT=true
-  CANARY=$(head -1 "$CACHE_FILE" 2>/dev/null | tr -cd 'A-Za-z0-9_$')
-fi
-
-LOCK_DIR="$STATE_ROOT/${SOURCE_ID}.lock"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-	LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null)
-	if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
-	  degraded "bootstrap_in_progress"
-	fi
-	# A killed session must not leave every future session permanently degraded.
-	rm -f "$LOCK_DIR/pid" 2>/dev/null
-	rmdir "$LOCK_DIR" 2>/dev/null || degraded "bootstrap_lock_stale_but_not_empty"
-	mkdir "$LOCK_DIR" 2>/dev/null || degraded "bootstrap_lock_contested"
-fi
-echo "$$" > "$LOCK_DIR/pid" 2>/dev/null
-trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null; rmdir "$LOCK_DIR" 2>/dev/null' EXIT
-
 REPO_KEY=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null | shasum | awk '{print $1}')
 CANARY_FILE="$STATE_ROOT/repo-${REPO_KEY}.canary"
+CANARY=$(head -1 "$CACHE_FILE" 2>/dev/null | tr -cd 'A-Za-z0-9_$')
 [ -n "$CANARY" ] || CANARY=$(head -1 "$CANARY_FILE" 2>/dev/null | tr -cd 'A-Za-z0-9_$')
 
 check_canary() {
   _symbol="$1"
   [ -n "$_symbol" ] || return 1
-  _def=$(cd "$REPO_ROOT" && gbrain code-def "$_symbol" --json 2>/dev/null)
+
+  _def=$(cd "$REPO_ROOT" && run_bounded "$PROBE_TIMEOUT_SECONDS" gbrain code-def "$_symbol" --json 2>/dev/null)
+  [ $? -eq 0 ] || return 1
   [ "$(printf '%s' "$_def" | jq -r '.ready == true and .count == 1' 2>/dev/null)" = "true" ] || return 1
-  _callers=$(cd "$REPO_ROOT" && gbrain code-callers "$_symbol" --json 2>/dev/null)
+
+  _callers=$(cd "$REPO_ROOT" && run_bounded "$PROBE_TIMEOUT_SECONDS" gbrain code-callers "$_symbol" --json 2>/dev/null)
+  [ $? -eq 0 ] || return 1
   [ "$(printf '%s' "$_callers" | jq -r '.ready == true and .count > 0' 2>/dev/null)" = "true" ] || return 1
 
-  _init=$(jq -nc '{jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2025-03-26",capabilities:{},clientInfo:{name:"gstack-graph-canary",version:"1"}}}')
+  _init=$(jq -nc '{jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2025-03-26",capabilities:{},clientInfo:{name:"gstack-graph-canary",version:"1"}}')
   _ready='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
   _call=$(jq -nc --arg symbol "$_symbol" --arg source "$SOURCE_ID" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"code_blast",arguments:{symbol:$symbol,source_id:$source,depth:2}}}')
-  _blast=$(cd "$REPO_ROOT" && { printf '%s\n' "$_init" "$_ready" "$_call"; } | gbrain serve --surface full 2>/dev/null | jq -r 'select(.id == 2) | .result.content[0].text' 2>/dev/null | jq -c '.' 2>/dev/null)
+  _blast_raw=$(cd "$REPO_ROOT" && { printf '%s\n' "$_init" "$_ready" "$_call"; } | run_bounded "$PROBE_TIMEOUT_SECONDS" gbrain serve --surface full 2>/dev/null)
+  [ $? -eq 0 ] || return 1
+  _blast=$(printf '%s' "$_blast_raw" | jq -r 'select(.id == 2) | .result.content[0].text' 2>/dev/null | jq -c '.' 2>/dev/null)
   [ "$(printf '%s' "$_blast" | jq -r '.ready == true and .result == "ok" and ([.depth_groups[]?.nodes[]?] | length) > 0' 2>/dev/null)" = "true" ] || return 1
   return 0
 }
 
-# A cached or repo-known canary is only a performance hint, never authority.
-# Re-run it before the repair cooldown so a healthy graph can certify a new
-# worktree fingerprint without waiting 30 minutes or launching another dream.
+# A prior canary is a hint, never authority. Re-prove it against the live graph.
 if [ -n "$CANARY" ] && check_canary "$CANARY"; then
-  [ -n "$SESSION_FILE" ] && printf '%s\n' "$CANARY" > "$SESSION_FILE"
   printf '%s\n' "$CANARY" > "$CACHE_FILE"
-  echo "GBRAIN_GRAPH: partial | source=$SOURCE_ID | canary=$CANARY | cache=$CACHE_HIT"
+  if [ -n "$SESSION_KEY" ]; then
+    printf '%s\n' "$CANARY" > "$STATE_ROOT/session-${SESSION_KEY}-${FINGERPRINT}.partial"
+  fi
+  echo "GBRAIN_GRAPH: partial | source=$SOURCE_ID | canary=$CANARY | cache=hit"
   exit 0
 fi
-rm -f "$CACHE_FILE" 2>/dev/null
 
-# A partial upstream graph must not turn every skill invocation into another
-# multi-minute global resolver cycle. One repair attempt per source every 30
-# minutes is enough even as HEAD/diffs change; repository lookup remains the
-# safe fallback.
-NOW_EPOCH=$(date +%s)
-LAST_ATTEMPT=$(cat "$ATTEMPT_FILE" 2>/dev/null)
-case "$LAST_ATTEMPT" in
-  ''|*[!0-9]*) ;;
-  *)
-    ATTEMPT_AGE=$((NOW_EPOCH - LAST_ATTEMPT))
-    [ "$ATTEMPT_AGE" -ge "$REPAIR_COOLDOWN_SECONDS" ] || degraded "repair_cooldown"
-    ;;
-esac
-
-# Startup checks must stay bounded. Repair is launched separately by the host
-# adapter so a cold or degraded graph never adds minutes to the user's first
-# interaction.
-[ "$CHECK_ONLY" = "false" ] || degraded "not_certified"
-
-# Keep the steady-state repair path code-only. Memory/document ingestion is a
-# different workload and must never be pulled into code-graph readiness.
-printf '%s\n' "$NOW_EPOCH" > "$ATTEMPT_FILE"
-run_code_sync || degraded "code_sync_failed_or_timed_out"
-
-if ! check_canary "$CANARY"; then
-  CANARY=""
-	EXPORTS_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-gbrain-exports-XXXXXX" 2>/dev/null)
-	CANDIDATES_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-gbrain-candidates-XXXXXX" 2>/dev/null)
-	git -C "$REPO_ROOT" grep -h -oE 'export (async )?function [A-Za-z_$][A-Za-z0-9_$]*' -- '*.ts' '*.tsx' 2>/dev/null \
-	  | awk '{print $NF}' | sort -u > "$EXPORTS_FILE"
-	# Rank exported functions by real textual use. This makes cold discovery try
-	# likely call-graph canaries first instead of paying one DB round-trip for
-	# every alphabetically early declaration.
-	git -C "$REPO_ROOT" grep -h -oE '[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*\(' -- '*.ts' '*.tsx' 2>/dev/null \
-	  | sed -E 's/[[:space:]]*\($//' | sort | uniq -c | sort -rn \
-	  | while read -r _count _name; do
-	      grep -Fqx "$_name" "$EXPORTS_FILE" 2>/dev/null && printf '%s\n' "$_name"
-	    done | head -8 > "$CANDIDATES_FILE"
-  while IFS= read -r candidate; do
-    [ -n "$candidate" ] || continue
-    if check_canary "$candidate"; then
-      CANARY="$candidate"
-      break
-    fi
-  done < "$CANDIDATES_FILE"
-	rm -f "$EXPORTS_FILE" "$CANDIDATES_FILE" 2>/dev/null
+# Cold discovery is local and deliberately limited to one likely symbol. That
+# keeps the total worst-case foreground budget bounded (sources + one canary),
+# while `/sync-gbrain --dream` remains the explicit repair when it cannot prove
+# a graph.
+CANARY=$(
+  git -C "$REPO_ROOT" grep -h -oE 'export (async )?function [A-Za-z_$][A-Za-z0-9_$]*' -- '*.ts' '*.tsx' 2>/dev/null |
+    awk '{print $NF}' | sort -u | head -1
+)
+if [ -n "$CANARY" ] && check_canary "$CANARY"; then
+  printf '%s\n' "$CANARY" > "$CANARY_FILE"
+  printf '%s\n' "$CANARY" > "$CACHE_FILE"
+  if [ -n "$SESSION_KEY" ]; then
+    printf '%s\n' "$CANARY" > "$STATE_ROOT/session-${SESSION_KEY}-${FINGERPRINT}.partial"
+  fi
+  echo "GBRAIN_GRAPH: partial | source=$SOURCE_ID | canary=$CANARY | cache=miss"
+  exit 0
 fi
 
-[ -n "$CANARY" ] || degraded "no_graph_canary"
-printf '%s\n' "$CANARY" > "$CANARY_FILE"
-printf '%s\n' "$CANARY" > "$CACHE_FILE"
-[ -n "$SESSION_FILE" ] && printf '%s\n' "$CANARY" > "$SESSION_FILE"
-# A successful canary proves that some graph queries work for this exact
-# worktree. It does NOT prove source-wide completeness: unrelated unresolved or
-# ambiguous edges may still exist. Until gbrain exposes a source-wide coverage
-# receipt, this state is deliberately partial and never authoritative.
-echo "GBRAIN_GRAPH: partial | source=$SOURCE_ID | canary=$CANARY | cache=miss"
+rm -f "$CACHE_FILE" 2>/dev/null
+degraded "no_graph_canary_run_sync_gbrain"
