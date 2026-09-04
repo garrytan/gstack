@@ -2,11 +2,12 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
-  ROOT, browseBin, runId, evalsEnabled,
+  ROOT, runId, evalsEnabled, selectedTests,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { asideAvailable } from './helpers/aside-available';
 import { startTestServer } from '../browse/test/test-server';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -14,6 +15,15 @@ import * as path from 'path';
 import * as os from 'os';
 
 const evalCollector = createEvalCollector('e2e-qa-workflow');
+
+// /qa and /qa-only drive the Aside AI browser (the user's real browser) and
+// nothing else. Without a live Aside daemon the browser-driving describes
+// skip — not fail — exactly like an unselected test (periodic tier: needs an
+// external app). qa-bootstrap opens no browser and is not gated.
+const asideSelected = evalsEnabled && asideAvailable() ? selectedTests : [];
+
+const asidePrompt = (skillMd: string) =>
+  `Aside is installed and running. Follow the BROWSER SETUP section in ${skillMd} exactly; drive the browser only through 'aside repl' scripts from the cookbook (one flow per script, console hook before goto, closeTab last, GSTACK_STEP_OK sentinel). Never look for any other browser binary.`;
 
 // --- B4: QA skill E2E ---
 
@@ -24,7 +34,6 @@ describeIfSelected('QA skill E2E', ['qa-quick'], () => {
   beforeAll(() => {
     testServer = startTestServer();
     qaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-'));
-    setupBrowseShims(qaDir);
 
     // Copy qa skill files into tmpDir
     copyDirSync(path.join(ROOT, 'qa'), path.join(qaDir, 'qa'));
@@ -40,7 +49,7 @@ describeIfSelected('QA skill E2E', ['qa-quick'], () => {
 
   testConcurrentIfSelected('qa-quick', async () => {
     const result = await runSkillTest({
-      prompt: `B="${browseBin}"
+      prompt: `${asidePrompt('qa/SKILL.md')}
 
 The test server is already running at: ${testServer.url}
 Target page: ${testServer.url}/basic.html
@@ -64,14 +73,10 @@ Write your report to ${qaDir}/qa-reports/qa-report.md`,
     recordE2E(evalCollector, '/qa quick', 'QA skill E2E', result, {
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
-    // browseErrors can include false positives from hallucinated paths
-    if (result.browseErrors.length > 0) {
-      console.warn('/qa quick browse errors (non-fatal):', result.browseErrors);
-    }
     // Accept error_max_turns — the agent doing thorough QA work is not a failure
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
   }, CAPTURE_MS);
-});
+}, asideSelected);
 
 // --- QA-Only E2E (report-only, no fixes) ---
 
@@ -82,7 +87,6 @@ describeIfSelected('QA-Only skill E2E', ['qa-only-no-fix'], () => {
   beforeAll(() => {
     testServer = startTestServer();
     qaOnlyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-only-'));
-    setupBrowseShims(qaOnlyDir);
 
     // Copy qa-only skill files
     copyDirSync(path.join(ROOT, 'qa-only'), path.join(qaOnlyDir, 'qa-only'));
@@ -107,14 +111,13 @@ describeIfSelected('QA-Only skill E2E', ['qa-only-no-fix'], () => {
   });
 
   afterAll(() => {
+    testServer?.server?.stop();
     try { fs.rmSync(qaOnlyDir, { recursive: true, force: true }); } catch {}
   });
 
   testConcurrentIfSelected('qa-only-no-fix', async () => {
     const result = await runSkillTest({
-      prompt: `IMPORTANT: The browse binary is already assigned below as B. Do NOT search for it or run the SKILL.md setup block — just use $B directly.
-
-B="${browseBin}"
+      prompt: `${asidePrompt('qa-only/SKILL.md')}
 
 Read the file qa-only/SKILL.md for the QA-only workflow instructions.
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
@@ -158,7 +161,7 @@ Write your report to ${qaOnlyDir}/qa-reports/qa-only-report.md`,
     );
     expect(statusLines.filter((l: string) => l.startsWith(' M') || l.startsWith('M '))).toHaveLength(0);
   }, CAPTURE_MS);
-});
+}, asideSelected);
 
 // --- QA Fix Loop E2E ---
 
@@ -168,7 +171,6 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
 
   beforeAll(() => {
     qaFixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-fix-'));
-    setupBrowseShims(qaFixDir);
 
     // Copy qa skill files
     copyDirSync(path.join(ROOT, 'qa'), path.join(qaFixDir, 'qa'));
@@ -233,7 +235,7 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
     const qaFixUrl = `http://127.0.0.1:${qaFixServer!.port}`;
 
     const result = await runSkillTest({
-      prompt: `You have a browse binary at ${browseBin}. Assign it to B variable like: B="${browseBin}"
+      prompt: `${asidePrompt('qa/SKILL.md')}
 
 Read the file qa/SKILL.md for the QA workflow instructions.
 qa is a carved skill: when SKILL.md tells you to Read ~/.claude/skills/gstack/qa/sections/<file>, read qa/sections/<file> in this working directory instead (same content, local copy).
@@ -273,81 +275,11 @@ This is a test+fix loop: find bugs, fix them in the source code, commit each fix
     const editCalls = result.toolCalls.filter(tc => tc.tool === 'Edit');
     expect(editCalls.length).toBeGreaterThan(0);
   }, CAPTURE_LONG_MS);
-});
+}, asideSelected);
 
-// --- Test Bootstrap E2E ---
+// --- Test Bootstrap E2E (no browser: not gated on Aside) ---
 
 describeIfSelected('Test Bootstrap E2E', ['qa-bootstrap'], () => {
-  let bootstrapDir: string;
-  let bootstrapServer: ReturnType<typeof Bun.serve>;
-
-  beforeAll(() => {
-    bootstrapDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-bootstrap-'));
-    setupBrowseShims(bootstrapDir);
-
-    // Copy qa skill files
-    copyDirSync(path.join(ROOT, 'qa'), path.join(bootstrapDir, 'qa'));
-
-    // Create a minimal Node.js project with NO test framework
-    fs.writeFileSync(path.join(bootstrapDir, 'package.json'), JSON.stringify({
-      name: 'test-bootstrap-app',
-      version: '1.0.0',
-      type: 'module',
-    }, null, 2));
-
-    // Create a simple app file with a bug
-    fs.writeFileSync(path.join(bootstrapDir, 'app.js'), `
-export function add(a, b) { return a + b; }
-export function subtract(a, b) { return a - b; }
-export function divide(a, b) { return a / b; } // BUG: no zero check
-`);
-
-    // Create a simple HTML page with a bug
-    fs.writeFileSync(path.join(bootstrapDir, 'index.html'), `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Bootstrap Test</title></head>
-<body>
-  <h1>Test App</h1>
-  <a href="/nonexistent-page">Broken Link</a>
-  <script>console.error("ReferenceError: undefinedVar is not defined");</script>
-</body>
-</html>
-`);
-
-    // Init git repo
-    const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: bootstrapDir, stdio: 'pipe', timeout: 5000 });
-    run('git', ['init', '-b', 'main']);
-    run('git', ['config', 'user.email', 'test@test.com']);
-    run('git', ['config', 'user.name', 'Test']);
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'initial commit']);
-
-    // Serve from working directory
-    bootstrapServer = Bun.serve({
-      port: 0,
-      hostname: '127.0.0.1',
-      fetch(req) {
-        const url = new URL(req.url);
-        let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
-        filePath = filePath.replace(/^\//, '');
-        const fullPath = path.join(bootstrapDir, filePath);
-        if (!fs.existsSync(fullPath)) {
-          return new Response('Not Found', { status: 404 });
-        }
-        const content = fs.readFileSync(fullPath, 'utf-8');
-        return new Response(content, {
-          headers: { 'Content-Type': 'text/html' },
-        });
-      },
-    });
-  });
-
-  afterAll(() => {
-    bootstrapServer?.stop();
-    try { fs.rmSync(bootstrapDir, { recursive: true, force: true }); } catch {}
-  });
-
   testConcurrentIfSelected('qa-bootstrap', async () => {
     // Test ONLY the bootstrap phase — install vitest, create config, write one test
     const bsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-bs-'));

@@ -4,13 +4,14 @@ import { runSkillTest } from './helpers/session-runner';
 import { outcomeJudge } from './helpers/llm-judge';
 import { judgePassed } from './helpers/eval-store';
 import {
-  ROOT, browseBin, runId, evalsEnabled, selectedTests, hasApiKey,
-  describeIfSelected, describeE2E, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E, dumpOutcomeDiagnostic,
+  ROOT, runId, evalsEnabled, selectedTests, hasApiKey,
+  testConcurrentIfSelected,
+  logCost, recordE2E, dumpOutcomeDiagnostic,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { asideAvailable } from './helpers/aside-available';
+import { generateAsideSetup } from '../scripts/resolvers/aside';
 import { startTestServer } from '../browse/test/test-server';
-import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -19,8 +20,10 @@ const evalCollector = createEvalCollector('e2e-qa-bugs');
 
 // --- B6/B7/B8: Planted-bug outcome evals ---
 
-// Outcome evals also need ANTHROPIC_API_KEY for the LLM judge
-const describeOutcome = (evalsEnabled && hasApiKey) ? describe : describe.skip;
+// Outcome evals need ANTHROPIC_API_KEY for the LLM judge AND a live Aside
+// daemon — the only browser /qa drives. Missing either → skip, never fail
+// (periodic tier: needs an external app).
+const describeOutcome = (evalsEnabled && hasApiKey && asideAvailable()) ? describe : describe.skip;
 
 // Wrap describeOutcome with selection — skip if no planted-bug tests are selected
 const outcomeTestNames = ['qa-b6-static', 'qa-b7-spa', 'qa-b8-checkout'];
@@ -29,20 +32,12 @@ const anyOutcomeSelected = selectedTests === null || outcomeTestNames.some(t => 
 let testServer: ReturnType<typeof startTestServer>;
 
 (anyOutcomeSelected ? describeOutcome : describe.skip)('Planted-bug outcome evals', () => {
-  let outcomeDir: string;
-
   beforeAll(() => {
     testServer = startTestServer();
-    outcomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-outcome-'));
-    setupBrowseShims(outcomeDir);
-
-    // Copy qa skill files
-    copyDirSync(path.join(ROOT, 'qa'), path.join(outcomeDir, 'qa'));
   });
 
   afterAll(() => {
     testServer?.server?.stop();
-    try { fs.rmSync(outcomeDir, { recursive: true, force: true }); } catch {}
   });
 
   /**
@@ -54,25 +49,25 @@ let testServer: ReturnType<typeof startTestServer>;
     // Each test gets its own isolated working directory to prevent cross-contamination
     // (agents reading previous tests' reports and hallucinating those bugs)
     const testWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), `skill-e2e-${label}-`));
-    setupBrowseShims(testWorkDir);
     const reportDir = path.join(testWorkDir, 'reports');
     fs.mkdirSync(path.join(reportDir, 'screenshots'), { recursive: true });
     const reportPath = path.join(reportDir, 'qa-report.md');
 
-    // Direct bug-finding with browse. Keep prompt concise — no reading long SKILL.md docs.
+    // The agent needs the Aside contract + cookbook, not the 1500-line qa/SKILL.md:
+    // write just that section (the same text qa/SKILL.md renders) into the work dir.
+    fs.writeFileSync(path.join(testWorkDir, 'BROWSER-SETUP.md'), generateAsideSetup({} as any));
+
+    // Direct bug-finding through Aside. Keep prompt concise — no reading long SKILL.md docs.
     // "Write early, update later" pattern ensures report exists even if agent hits max turns.
     const targetUrl = `${testServer.url}/${fixture}`;
     const result = await runSkillTest({
       prompt: `Find bugs on this page: ${targetUrl}
 
-Browser binary: B="${browseBin}"
+Aside is installed and running. Read BROWSER-SETUP.md in this directory and follow it exactly; drive the browser only through 'aside repl' scripts from its cookbook (one flow per script, console hook before goto, evidence as labelled lines, closeTab last, GSTACK_STEP_OK sentinel). Never look for any other browser binary. The target is LOCAL, so submitting its forms needs no consent question.
 
-PHASE 1 — Quick scan (5 commands max):
-$B goto ${targetUrl}
-$B console --errors
-$B snapshot -i
-$B snapshot -c
-$B accessibility
+PHASE 1 — Quick scan (2 scripts max):
+- The Read-a-page script: CONSOLE_ERRORS= from load, the interactive snapshot tree, the page text
+- One read-only pg.evaluate that lists img elements without alt text and form controls without a label or aria-label
 
 PHASE 2 — Write initial report to ${reportPath}:
 Write every bug you found so far. Format each as:
@@ -80,12 +75,12 @@ Write every bug you found so far. Format each as:
 - Severity: high / medium / low
 - Evidence: what you observed
 
-PHASE 3 — Interactive testing (targeted — max 15 commands):
-- Test email: type "user@" (no domain) and blur — does it validate?
+PHASE 3 — Interactive testing (targeted — max 6 scripts, one flow each, Drive-a-flow shape):
+- Test email: fill "user@" (no domain) and blur — does it validate?
 - Test quantity: clear the field entirely — check the total display
-- Test credit card: type a 25-character string — check for overflow
+- Test credit card: fill a 25-character string — check for overflow
 - Submit the form with zip code empty — does it require zip?
-- Submit a valid form and run $B console --errors
+- Submit a valid form and print CONSOLE_ERRORS=
 - After finding more bugs, UPDATE ${reportPath} with new findings
 
 PHASE 4 — Finalize report:
@@ -106,11 +101,8 @@ CRITICAL RULES:
 
     logCost(`/qa ${label}`, result);
 
-    // Phase 1: browse mechanics. Accept error_max_turns — agent may have written
+    // Phase 1: browser mechanics. Accept error_max_turns — agent may have written
     // a partial report before running out of turns. What matters is detection rate.
-    if (result.browseErrors.length > 0) {
-      console.warn(`${label} browse errors:`, result.browseErrors);
-    }
     if (result.exitReason !== 'success' && result.exitReason !== 'error_max_turns') {
       throw new Error(`${label}: unexpected exit reason: ${result.exitReason}`);
     }
@@ -126,9 +118,10 @@ CRITICAL RULES:
       report = fs.readFileSync(reportPath, 'utf-8');
     } else {
       // Agent may have named it differently — find any .md in reportDir or testWorkDir
+      // (BROWSER-SETUP.md is ours, not a report).
       for (const searchDir of [reportDir, testWorkDir]) {
         try {
-          const mdFiles = fs.readdirSync(searchDir).filter(f => f.endsWith('.md'));
+          const mdFiles = fs.readdirSync(searchDir).filter(f => f.endsWith('.md') && f !== 'BROWSER-SETUP.md');
           if (mdFiles.length > 0) {
             report = fs.readFileSync(path.join(searchDir, mdFiles[0]), 'utf-8');
             break;

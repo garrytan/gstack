@@ -57,7 +57,7 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 | Mode | full | `--regression .gstack/qa-reports/baseline.json` |
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
-| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Auth | Your Aside session (already signed in) | If a sign-in wall appears, you sign in yourself in Aside — no cookie files, no credentials in chat (see BROWSER SETUP) |
 
 **Tiers determine which issues get fixed:**
 - **Quick:** Fix critical + high severity only
@@ -65,12 +65,6 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 - **Exhaustive:** + low/cosmetic severity
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
-
-**CDP mode detection:** Before starting, check if the browse server is connected to the user's real browser:
-```bash
-$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
-```
-If `CDP_MODE=true`: skip cookie import prompts (the real browser already has cookies), skip user-agent overrides (real browser has real user-agent), and skip headless detection workarounds. The user's real auth sessions are already available.
 
 **Check for clean working tree:**
 
@@ -90,9 +84,9 @@ RECOMMENDATION: Choose A because uncommitted work should be preserved as a commi
 
 After the user chooses, execute their choice (commit or stash), then continue with setup.
 
-**Find the browse binary:**
+**Browser: Aside**
 
-{{BROWSE_SETUP}}
+{{ASIDE_SETUP}}
 
 **Check test framework (bootstrap if needed):**
 
@@ -101,7 +95,8 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 **Create output directories:**
 
 ```bash
-mkdir -p .gstack/qa-reports/screenshots
+REPORT_DIR=".gstack/qa-reports"
+mkdir -p "$REPORT_DIR/screenshots"
 ```
 
 ---
@@ -137,11 +132,11 @@ Record baseline health score at end of Phase 6 (per the Health Score Rubric in t
 .gstack/qa-reports/
 ├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
 ├── screenshots/
-│   ├── initial.png                        # Landing page annotated screenshot
-│   ├── issue-001-step-1.png               # Per-issue evidence
-│   ├── issue-001-result.png
-│   ├── issue-001-before.png               # Before fix (if fixed)
-│   ├── issue-001-after.png                # After fix (if fixed)
+│   ├── initial.jpg                        # Landing page screenshot
+│   ├── issue-001-step-1.jpg               # Per-issue evidence
+│   ├── issue-001-result.jpg
+│   ├── issue-002.png                      # Annotated screenshot (static bugs)
+│   ├── issue-001-after.jpg                # After fix (if fixed); the Phase 5 evidence is the before
 │   └── ...
 └── baseline.json                          # For regression mode
 ```
@@ -209,16 +204,35 @@ git commit -m "fix(qa): ISSUE-NNN — short description"
 ### 8d. Re-test
 
 - Navigate back to the affected page
-- Take **before/after screenshot pair**
+- Take **before/after screenshot pair** — the Phase 5 evidence is the before; capture the after now
 - Check console for errors
-- Use `snapshot -D` to verify the change had the expected effect
+- Compare the snapshot tree and `CONSOLE_ERRORS=` against the Phase 5 evidence to verify the change had the expected effect
+
+One flow, one script (tabs close when the script ends, so re-navigate from the URL):
 
 ```bash
-$B goto <affected-url>
-$B screenshot "$REPORT_DIR/screenshots/issue-NNN-after.png"
-$B console --errors
-$B snapshot -D
+aside repl '
+const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); })()`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<affected-url>");
+const s = await snapshot(pg, { interactive: true });
+console.log(s.tree);
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+await pg.screenshot({ path: "issue-NNN-after.jpg", type: "jpeg", quality: 60, fullPage: true });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
+
+Then copy the evidence out of the `ASIDE_DIR` the script printed:
+
+```bash
+cp "<ASIDE_DIR>/issue-NNN-after.jpg" "$REPORT_DIR/screenshots/issue-NNN-after.jpg"
+```
+
+Read `$REPORT_DIR/screenshots/issue-NNN-after.jpg` so the user sees the after state inline. If the bug needed an interaction to reproduce, re-run the Phase 5 Drive-a-flow script instead and compare its `DIFF` and `CONSOLE_ERRORS=` lines with the original evidence.
 
 ### 8e. Classify
 
