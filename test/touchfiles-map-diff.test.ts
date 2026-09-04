@@ -145,9 +145,9 @@ describe('selectTests map-diff wiring', () => {
       [TOUCHFILES_DATA_PATH],
       E2E_TOUCHFILES,
       GLOBAL_TOUCHFILES,
-      { mapDiff: okOutcome(['browse-basic']) },
+      { mapDiff: okOutcome(['aside-browse-basic']) },
     );
-    expect(result.selected).toEqual(['browse-basic']);
+    expect(result.selected).toEqual(['aside-browse-basic']);
     expect(result.reason).toBe('map-diff');
     expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 1);
   });
@@ -157,9 +157,9 @@ describe('selectTests map-diff wiring', () => {
       [TOUCHFILES_DATA_PATH, 'retro/SKILL.md'],
       E2E_TOUCHFILES,
       GLOBAL_TOUCHFILES,
-      { mapDiff: okOutcome(['browse-basic']) },
+      { mapDiff: okOutcome(['aside-browse-basic']) },
     );
-    expect(result.selected).toContain('browse-basic'); // from map-diff
+    expect(result.selected).toContain('aside-browse-basic'); // from map-diff
     expect(result.selected).toContain('retro');        // from pattern match
     expect(result.selected).toContain('retro-base-branch');
     expect(result.selected).not.toContain('cso-full-audit');
@@ -172,9 +172,9 @@ describe('selectTests map-diff wiring', () => {
       [TOUCHFILES_DATA_PATH],
       E2E_TOUCHFILES,
       GLOBAL_TOUCHFILES,
-      { mapDiff: okOutcome(['browse-basic', 'judge one']) },
+      { mapDiff: okOutcome(['aside-browse-basic', 'judge one']) },
     );
-    expect(result.selected).toEqual(['browse-basic']);
+    expect(result.selected).toEqual(['aside-browse-basic']);
   });
 
   test('removedTests reported, not selected', () => {
@@ -215,7 +215,7 @@ describe('selectTests map-diff wiring', () => {
       [TOUCHFILES_DATA_PATH, 'test/helpers/session-runner.ts'],
       E2E_TOUCHFILES,
       GLOBAL_TOUCHFILES,
-      { mapDiff: okOutcome(['browse-basic']) },
+      { mapDiff: okOutcome(['aside-browse-basic']) },
     );
     expect(result.selected.length).toBe(Object.keys(E2E_TOUCHFILES).length);
     expect(result.reason).toBe('global: test/helpers/session-runner.ts');

@@ -21,9 +21,13 @@
  * Each test lists the file patterns that, if changed, require the test to run.
  */
 export const E2E_TOUCHFILES: Record<string, string[]> = {
-  // Browse core (+ test-server dependency)
-  'browse-basic':    ['browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-bws.test.ts'],
-  'browse-snapshot': ['browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-bws.test.ts'],
+  // Aside-driven browsing skills — live E2E against the Aside AI browser
+  // (test/skill-e2e-aside.test.ts self-skips without a running Aside)
+  'aside-browse-basic':  ['browse/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-browse-flow':   ['browse/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/forms.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-qa-quick':      ['qa/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-scrape-json':   ['scrape/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-canary-quick':  ['canary/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
 
   // Hermetic isolation canaries (hermetic-env.ts is also a GLOBAL touchfile;
   // these entries exist so the canaries themselves stay tier-classified)
@@ -36,21 +40,15 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // gate + token→tip map live in bin/gstack-skill-start's emission layer).
   'first-task-scaffold': ['bin/gstack-skill-start', 'bin/gstack-skill-end', 'bin/gstack-first-task-detect', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'test/skill-e2e-first-task-scaffold.test.ts', 'test/helpers/session-runner.ts'],
 
-  // SKILL.md setup + preamble (depend on ROOT SKILL.md + gen-skill-docs)
-  'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-bws.test.ts'],
-  'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-bws.test.ts'],
-  'skillmd-outside-git':      ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-bws.test.ts'],
-
-  'session-awareness':        ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-bws.test.ts'],
-  'operational-learning':     ['scripts/resolvers/preamble.ts', 'bin/gstack-learnings-log', 'test/skill-e2e-bws.test.ts'],
-
-  // QA (+ test-server dependency)
-  'qa-quick':       ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
-  'qa-b6-static':   ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
-  'qa-b7-spa':      ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
-  'qa-b8-checkout': ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
-  'qa-only-no-fix': ['qa-only/**', 'qa/templates/**', 'test/skill-e2e-qa-workflow.test.ts'],
-  'qa-fix-loop':    ['qa/**', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
+  // QA — drives the Aside browser (+ test-server dependency). The planted-bug
+  // evals hand the agent the Aside contract directly, not qa/, so they track
+  // the resolver rather than the skill dir.
+  'qa-quick':       ['qa/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
+  'qa-b6-static':   ['scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
+  'qa-b7-spa':      ['scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
+  'qa-b8-checkout': ['scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
+  'qa-only-no-fix': ['qa-only/**', 'qa/templates/**', 'scripts/resolvers/aside.ts', 'scripts/resolvers/utility.ts', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
+  'qa-fix-loop':    ['qa/**', 'scripts/resolvers/aside.ts', 'test/skill-e2e-qa-workflow.test.ts'],
   'qa-bootstrap':   ['qa/**', 'ship/**', 'test/skill-e2e-qa-workflow.test.ts'],
 
   // Review
@@ -144,7 +142,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // devex, office-hours + future PR2 carves). One file iterating CARVE_GUARDS;
   // the selector sets GSTACK_CARVE_SKILL=<name> to scope cost to the changed
   // skill (D-CODEX A). Touching the registry/helper or sections.ts runs all.
-  'carve-section-loading':       ['design-html/**', 'design-shotgun/**', 'qa/**', 'browse/**', 'retro/**', 'autoplan/**', 'spec/**', 'setup-gbrain/**', 'review/**', 'codex/**', 'land-and-deploy/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'office-hours/**', 'document-release/**', 'design-consultation/**', 'cso/**', 'test/helpers/carve-guards.ts', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/carve-section-loading.test.ts'],
+  'carve-section-loading':       ['design-html/**', 'design-shotgun/**', 'qa/**', 'retro/**', 'autoplan/**', 'spec/**', 'setup-gbrain/**', 'review/**', 'codex/**', 'land-and-deploy/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'office-hours/**', 'document-release/**', 'design-consultation/**', 'cso/**', 'test/helpers/carve-guards.ts', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/carve-section-loading.test.ts'],
   'autoplan-chain-pty':          ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-autoplan-chain.test.ts'],
 
   // Per-finding AskUserQuestion count + review-report-at-bottom assertion.
@@ -301,7 +299,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-consultation-research':   ['design-consultation/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
   'design-consultation-preview':    ['design-consultation/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
   'plan-design-review-no-ui-scope': ['plan-design-review/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
-  'design-review-fix':              ['design-review/**', 'browse/src/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
+  'design-review-fix':              ['design-review/**', 'scripts/resolvers/aside.ts', 'scripts/resolvers/design.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
 
   // /diagram (diagram-render bundle consumers). Triplet = deterministic
   // functional (gate); authoring quality = LLM-judged benchmark (periodic).
@@ -315,8 +313,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'land-and-deploy-workflow':      ['land-and-deploy/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deploy.test.ts'],
   'land-and-deploy-first-run':     ['land-and-deploy/**', 'scripts/gen-skill-docs.ts', 'bin/gstack-slug', 'test/skill-e2e-deploy.test.ts'],
   'land-and-deploy-review-gate':   ['land-and-deploy/**', 'bin/gstack-review-read', 'test/skill-e2e-deploy.test.ts'],
-  'canary-workflow':               ['canary/**', 'browse/src/**', 'test/skill-e2e-deploy.test.ts'],
-  'benchmark-workflow':            ['benchmark/**', 'browse/src/**', 'test/skill-e2e-deploy.test.ts'],
+  'canary-workflow':               ['canary/**', 'scripts/resolvers/aside.ts', 'test/skill-e2e-deploy.test.ts'],
+  'benchmark-workflow':            ['benchmark/**', 'scripts/resolvers/aside.ts', 'test/skill-e2e-deploy.test.ts'],
   'setup-deploy-workflow':         ['setup-deploy/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deploy.test.ts'],
 
 
@@ -325,34 +323,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
   'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts', 'test/skill-e2e-benchmark-providers.test.ts'],
-
-  // Browser-skills Phase 2a — /scrape + /skillify (v1.19.0.0). Gate-tier
-  // E2E covers the D1 (provenance guard), D3 (atomic write) contracts plus
-  // the basic loop. Shared deps: both skill templates, the D3 helper, the
-  // Phase 1 runtime, and the bundled hackernews-frontpage reference (the
-  // match-path test relies on it).
-  'scrape-match-path': [
-    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
-    'browser-skills/hackernews-frontpage/**',
-    'test/skill-e2e-skillify.test.ts',
-  ],
-  'scrape-prototype-path': [
-    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
-    'test/skill-e2e-skillify.test.ts',
-  ],
-  'skillify-happy-path': [
-    'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
-    'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
-    'test/skill-e2e-skillify.test.ts',
-  ],
-  'skillify-provenance-refusal': [
-    'skillify/**', 'browse/src/browser-skill-write.ts',
-    'test/skill-e2e-skillify.test.ts',
-  ],
-  'skillify-approval-reject': [
-    'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
-    'test/skill-e2e-skillify.test.ts',
-  ],
 
   // Skill routing — journey-stage tests (depend on ALL skill descriptions)
   'journey-ideation':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-routing-e2e.test.ts'],
@@ -479,31 +449,29 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
  * Must have exactly the same keys as E2E_TOUCHFILES.
  */
 export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
-  // Browse core — gate (if browse breaks, everything breaks)
-  'browse-basic': 'gate',
-  'browse-snapshot': 'gate',
+  // Aside-driven browsing — periodic (external service: the Aside app; the
+  // file self-gates on 'periodic' and skips without a live Aside)
+  'aside-browse-basic': 'periodic',
+  'aside-browse-flow': 'periodic',
+  'aside-qa-quick': 'periodic',
+  'aside-scrape-json': 'periodic',
+  'aside-canary-quick': 'periodic',
 
   // Hermetic isolation — gate (deterministic env/config assertions; if the
   // clean room breaks, every other eval's signal is contaminated)
   'hermetic-canary': 'gate',
   'hermetic-sentinel': 'gate',
 
-  // SKILL.md setup — gate (if setup breaks, no skill works)
-  'skillmd-setup-discovery': 'gate',
-  'skillmd-no-local-binary': 'gate',
-  'skillmd-outside-git': 'gate',
-  'session-awareness': 'gate',
-  'operational-learning': 'gate',
-
   // P4 first-run scaffold — periodic (onboarding, non-safety, model-touched marker)
   'first-task-scaffold': 'periodic',
 
-  // QA — gate for functional, periodic for quality/benchmarks
-  'qa-quick': 'gate',
+  // QA — periodic wherever the test drives Aside (external app; skips without
+  // it), gate for qa-bootstrap which opens no browser
+  'qa-quick': 'periodic',
   'qa-b6-static': 'periodic',
   'qa-b7-spa': 'periodic',
   'qa-b8-checkout': 'periodic',
-  'qa-only-no-fix': 'gate',     // CRITICAL guardrail: Edit tool forbidden
+  'qa-only-no-fix': 'periodic', // CRITICAL guardrail: Edit tool forbidden (unchanged — only the Aside dependency moved it)
   'qa-fix-loop': 'periodic',
   'qa-bootstrap': 'gate',
 
@@ -740,13 +708,6 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
   'benchmark-providers-live': 'periodic',
 
-  // Browser-skills Phase 2a — gate (D1/D3 contracts must not silently break)
-  'scrape-match-path': 'gate',
-  'scrape-prototype-path': 'gate',
-  'skillify-happy-path': 'gate',
-  'skillify-provenance-refusal': 'gate',
-  'skillify-approval-reject': 'gate',
-
   // Skill routing — periodic (LLM routing is non-deterministic)
   'journey-ideation': 'periodic',
   'journey-plan-eng': 'periodic',
@@ -793,16 +754,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
  * LLM-judge test touchfiles — keyed by test description string.
  */
 export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
-  'command reference table':          ['browse/sections/**', 'SKILL.md', 'SKILL.md.tmpl', 'browse/src/commands.ts', 'test/skill-llm-eval.test.ts'],
-  'snapshot flags reference':         ['browse/sections/**', 'SKILL.md', 'SKILL.md.tmpl', 'browse/src/snapshot.ts', 'test/skill-llm-eval.test.ts'],
-  'browse/SKILL.md reference':        ['browse/sections/**', 'browse/SKILL.md', 'browse/SKILL.md.tmpl', 'browse/src/**', 'test/skill-llm-eval.test.ts'],
-  'setup block':                      ['SKILL.md', 'SKILL.md.tmpl', 'test/skill-llm-eval.test.ts'],
-  'regression vs baseline':           ['browse/sections/**', 'SKILL.md', 'SKILL.md.tmpl', 'browse/src/commands.ts', 'test/fixtures/eval-baselines.json', 'test/skill-llm-eval.test.ts'],
+  'setup block':                      ['browse/SKILL.md', 'browse/SKILL.md.tmpl', 'scripts/resolvers/aside.ts', 'test/skill-llm-eval.test.ts'],
   'qa/SKILL.md workflow':             ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts'],
   'qa/SKILL.md health rubric':        ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts'],
   'qa/SKILL.md anti-refusal':         ['qa/sections/**', 'qa/SKILL.md', 'qa/SKILL.md.tmpl', 'qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts'],
   'cross-skill greptile consistency': ['review/SKILL.md', 'review/SKILL.md.tmpl', 'ship/SKILL.md', 'ship/SKILL.md.tmpl', 'review/greptile-triage.md', 'retro/SKILL.md', 'retro/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts'],
-  'baseline score pinning':           ['browse/sections/**', 'SKILL.md', 'SKILL.md.tmpl', 'test/fixtures/eval-baselines.json', 'test/skill-llm-eval.test.ts'],
 
   // Ship & Release
   'ship/SKILL.md workflow':               ['ship/SKILL.md', 'ship/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts'],

@@ -48,7 +48,8 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   },
   qa: {
     gate: ['test/skill-e2e-qa-workflow.test.ts', 'test/skill-coverage-floor.test.ts'],
-    periodic: ['test/skill-e2e-qa-bugs.test.ts'],
+    periodic: ['test/skill-e2e-qa-workflow.test.ts', 'test/skill-e2e-qa-bugs.test.ts', 'test/skill-e2e-aside.test.ts'],
+    rationale: 'qa-bootstrap (no browser) is the gate row; every browser-driving test needs a live Aside, so it sits in periodic and self-skips without one.',
   },
   'qa-only': {
     gate: ['test/skill-coverage-floor.test.ts'],
@@ -61,8 +62,8 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   },
   browse: {
     gate: ['test/skill-coverage-floor.test.ts'],
-    periodic: [],
-    rationale: 'browse binary has its own integration suite under browse/test/.',
+    periodic: ['test/skill-e2e-aside.test.ts'],
+    rationale: '/browse drives the Aside browser; the live E2E (aside-browse-basic / aside-browse-flow) needs a running Aside, so it is periodic. The render-engine binary keeps its own suite under browse/test/.',
   },
   spec: {
     gate: [
@@ -127,7 +128,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   },
 
   // ─── Polish + design ────────────────────────────────────────
-  'design-review': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  'design-review': {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: ['test/skill-e2e-design.test.ts'],
+    rationale: 'design-review-fix drives the Aside browser (periodic; skips without one).',
+  },
   'design-consultation': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-shotgun': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-html': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
@@ -146,8 +151,16 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
 
   // ─── Ops + integrations ─────────────────────────────────────
   'land-and-deploy': { gate: ['test/skill-e2e-deploy.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
-  canary: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
-  benchmark: { gate: ['test/skill-e2e-benchmark-providers.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
+  canary: {
+    gate: ['test/skill-e2e-deploy.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: ['test/skill-e2e-aside.test.ts'],
+    rationale: 'canary-workflow (gate) runs the skill in simulation without a browser; aside-canary-quick drives Aside live (periodic).',
+  },
+  benchmark: {
+    gate: ['test/skill-e2e-deploy.test.ts', 'test/skill-e2e-benchmark-providers.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'benchmark-workflow (gate) runs the skill in simulation without a browser.',
+  },
   'benchmark-models': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   codex: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   retro: {
@@ -158,7 +171,6 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'context-save': { gate: ['test/skill-e2e-context-skills.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'context-restore': { gate: ['test/skill-e2e-context-skills.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'setup-deploy': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
-  'setup-browser-cookies': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'setup-gbrain': {
     gate: [
       'test/skill-e2e-setup-gbrain-bad-token.test.ts',
@@ -172,10 +184,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/regression-1611-gbrain-sync-resume.test.ts'],
   },
-  'open-gstack-browser': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
-  'pair-agent': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
-  scrape: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
-  skillify: { gate: ['test/skill-e2e-skillify.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
+  scrape: {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: ['test/skill-e2e-aside.test.ts'],
+    rationale: 'aside-scrape-json drives Aside live and checks the JSON-only output discipline (periodic; skips without Aside).',
+  },
   learn: { gate: ['test/skill-e2e-learnings.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'plan-tune': { gate: ['test/skill-e2e-plan-tune.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
 

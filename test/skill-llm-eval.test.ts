@@ -11,8 +11,6 @@
  */
 
 import { afterAll, expect } from 'bun:test';
-import { JUDGE_MS } from './helpers/eval-budgets';
-import Anthropic from '@anthropic-ai/sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { callJudge, judge } from './helpers/llm-judge';
@@ -35,38 +33,6 @@ import {
 // Eval result collector
 const evalCollector = createEvalCollector('llm-judge');
 
-/**
- * Browse carve (token-reduction Phase 4): the '## Snapshot Flags' and
- * '## Full Command List' reference blocks moved from browse/SKILL.md into the
- * generated on-demand section browse/sections/command-list.md ('## Snapshot
- * Flags' first, then '## Full Command List'). '## SETUP', '## Core QA
- * Patterns', and '## CSS Inspector' stay in the skeleton. Non-empty guard:
- * judging an empty slice would silently pass garbage to the judge.
- */
-function readBrowseCommandSection(): string {
-  const p = path.join(ROOT, 'browse', 'sections', 'command-list.md');
-  const content = fs.readFileSync(p, 'utf-8');
-  if (!content.includes('## Snapshot Flags') || !content.includes('## Full Command List')) {
-    throw new Error(
-      `${p} is missing the expected headers — regenerate with: bun run gen:skill-docs`,
-    );
-  }
-  return content;
-}
-
-/** Slice a section out of the command-list section file, guarded non-empty. */
-function sliceBrowseSection(startHeader: string, endHeader?: string): string {
-  const content = readBrowseCommandSection();
-  const start = content.indexOf(startHeader);
-  if (start < 0) throw new Error(`browse/sections/command-list.md: "${startHeader}" not found`);
-  const end = endHeader ? content.indexOf(endHeader) : -1;
-  const section = end > start ? content.slice(start, end) : content.slice(start);
-  if (section.trim().length < 200) {
-    throw new Error(`browse/sections/command-list.md slice at "${startHeader}" is empty/stub — regenerate with: bun run gen:skill-docs`);
-  }
-  return section;
-}
-
 // --- Diff-based test selection (LLM_JUDGE_TOUCHFILES, not the E2E table) ---
 const selectedTests = computeDiffSelection(LLM_JUDGE_TOUCHFILES, 'LLM-judge');
 
@@ -80,97 +46,18 @@ function testIfSelected(testName: string, fn: () => Promise<void>, timeout: numb
   testConcurrentIfSelected(testName, fn, timeout, selectedTests);
 }
 
-describeIfSelected('LLM-as-judge quality evals', [
-  'command reference table', 'snapshot flags reference',
-  'browse/SKILL.md reference', 'setup block', 'regression vs baseline',
-], () => {
-  testIfSelected('command reference table', async () => {
-    const t0 = Date.now();
-    // Browse carve: the command reference lives in the generated on-demand
-    // section browse/sections/command-list.md now (read via non-empty guard).
-    const section = sliceBrowseSection('## Full Command List');
-
-    const scores = await judge('command reference table', section);
-    console.log('Command reference scores:', JSON.stringify(scores, null, 2));
-
-    // Completeness threshold is 3 (not 4) — the command reference table is
-    // intentionally terse (quick-reference format). The judge consistently scores
-    // completeness=3 because detailed argument docs live in per-command sections.
-    evalCollector?.addTest({
-      name: 'command reference table',
-      suite: 'LLM-as-judge quality evals',
-      tier: 'llm-judge',
-      passed: scores.clarity >= 4 && scores.completeness >= 3 && scores.actionability >= 4,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_scores: { clarity: scores.clarity, completeness: scores.completeness, actionability: scores.actionability },
-      judge_reasoning: scores.reasoning,
-    });
-
-    expect(scores.clarity).toBeGreaterThanOrEqual(4);
-    expect(scores.completeness).toBeGreaterThanOrEqual(3);
-    expect(scores.actionability).toBeGreaterThanOrEqual(4);
-  }, 30_000);
-
-  testIfSelected('snapshot flags reference', async () => {
-    const t0 = Date.now();
-    // Browse carve: snapshot flags live in browse/sections/command-list.md now,
-    // ordered before '## Full Command List' (the '## CSS Inspector' end boundary
-    // stayed in the skeleton).
-    const section = sliceBrowseSection('## Snapshot Flags', '## Full Command List');
-
-    const scores = await judge('snapshot flags reference', section);
-    console.log('Snapshot flags scores:', JSON.stringify(scores, null, 2));
-
-    evalCollector?.addTest({
-      name: 'snapshot flags reference',
-      suite: 'LLM-as-judge quality evals',
-      tier: 'llm-judge',
-      passed: scores.clarity >= 4 && scores.completeness >= 4 && scores.actionability >= 4,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_scores: { clarity: scores.clarity, completeness: scores.completeness, actionability: scores.actionability },
-      judge_reasoning: scores.reasoning,
-    });
-
-    expect(scores.clarity).toBeGreaterThanOrEqual(4);
-    expect(scores.completeness).toBeGreaterThanOrEqual(4);
-    expect(scores.actionability).toBeGreaterThanOrEqual(4);
-  }, 30_000);
-
-  testIfSelected('browse/SKILL.md reference', async () => {
-    const t0 = Date.now();
-    // Browse carve: flags + commands are the whole generated section file.
-    const section = sliceBrowseSection('## Snapshot Flags');
-
-    const scores = await judge('browse skill reference (flags + commands)', section);
-    console.log('Browse SKILL.md scores:', JSON.stringify(scores, null, 2));
-
-    evalCollector?.addTest({
-      name: 'browse/SKILL.md reference',
-      suite: 'LLM-as-judge quality evals',
-      tier: 'llm-judge',
-      passed: scores.clarity >= 4 && scores.completeness >= 4 && scores.actionability >= 4,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_scores: { clarity: scores.clarity, completeness: scores.completeness, actionability: scores.actionability },
-      judge_reasoning: scores.reasoning,
-    });
-
-    expect(scores.clarity).toBeGreaterThanOrEqual(4);
-    expect(scores.completeness).toBeGreaterThanOrEqual(4);
-    expect(scores.actionability).toBeGreaterThanOrEqual(4);
-  }, 30_000);
-
+describeIfSelected('LLM-as-judge quality evals', ['setup block'], () => {
   testIfSelected('setup block', async () => {
     const t0 = Date.now();
-    // P2 (v1.2.0): the browse setup block moved from the root router to browse/SKILL.md.
+    // browse/SKILL.md carries the Aside contract ({{ASIDE_SETUP}}). Judge the
+    // detection block — probe + the three outcomes — up to the driving rules.
     const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const setupStart = content.indexOf('## SETUP');
-    const setupEnd = content.indexOf('## Core QA Patterns');
+    const setupStart = content.indexOf('## BROWSER SETUP (Aside');
+    const setupEnd = content.indexOf('### Rules for driving a real browser', setupStart);
+    if (setupStart < 0 || setupEnd < 0) throw new Error('browse/SKILL.md: Aside BROWSER SETUP block not found — regenerate with: bun run gen:skill-docs');
     const section = content.slice(setupStart, setupEnd);
 
-    const scores = await judge('setup/binary discovery instructions', section);
+    const scores = await judge('Aside browser detection / readiness instructions', section);
     console.log('Setup block scores:', JSON.stringify(scores, null, 2));
 
     evalCollector?.addTest({
@@ -184,95 +71,12 @@ describeIfSelected('LLM-as-judge quality evals', [
       judge_reasoning: scores.reasoning,
     });
 
-    // Setup block is intentionally minimal (binary discovery only).
-    // SKILL_DIR is inferred from context, so judge sometimes scores 3.
+    // The detection block is intentionally minimal (probe + three outcomes);
+    // the judge sometimes scores 3 because the driving rules live below it.
     expect(scores.actionability).toBeGreaterThanOrEqual(3);
     expect(scores.clarity).toBeGreaterThanOrEqual(3);
   }, 30_000);
 
-  testIfSelected('regression vs baseline', async () => {
-    const t0 = Date.now();
-    // Browse carve: the command reference lives in browse/sections/command-list.md.
-    const genSection = sliceBrowseSection('## Full Command List');
-
-    const baseline = `## Command Reference
-
-### Navigation
-| Command | Description |
-|---------|-------------|
-| \`goto <url>\` | Navigate to URL |
-| \`back\` / \`forward\` | History navigation |
-| \`reload\` | Reload page |
-| \`url\` | Print current URL |
-
-### Interaction
-| Command | Description |
-|---------|-------------|
-| \`click <sel>\` | Click element |
-| \`fill <sel> <val>\` | Fill input |
-| \`select <sel> <val>\` | Select dropdown |
-| \`hover <sel>\` | Hover element |
-| \`type <text>\` | Type into focused element |
-| \`press <key>\` | Press key (Enter, Tab, Escape) |
-| \`scroll [sel]\` | Scroll element into view |
-| \`wait <sel>\` | Wait for element (max 10s) |
-| \`wait --networkidle\` | Wait for network to be idle |
-| \`wait --load\` | Wait for page load event |
-
-### Inspection
-| Command | Description |
-|---------|-------------|
-| \`js <expr>\` | Run JavaScript |
-| \`css <sel> <prop>\` | Computed CSS |
-| \`attrs <sel>\` | Element attributes |
-| \`is <prop> <sel>\` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
-| \`console [--clear\\|--errors]\` | Console messages (--errors filters to error/warning) |`;
-
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: `You are comparing two versions of CLI documentation for an AI coding agent.
-
-VERSION A (baseline — hand-maintained):
-${baseline}
-
-VERSION B (auto-generated from source):
-${genSection}
-
-Which version is better for an AI agent trying to use these commands? Consider:
-- Completeness (more commands documented? all args shown?)
-- Clarity (descriptions helpful?)
-- Coverage (missing commands in either version?)
-
-Respond with ONLY valid JSON:
-{"winner": "A" or "B" or "tie", "reasoning": "brief explanation", "a_score": N, "b_score": N}
-
-Scores are 1-5 overall quality.`,
-      }],
-    });
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
-    const result = JSON.parse(jsonMatch[0]);
-    console.log('Regression comparison:', JSON.stringify(result, null, 2));
-
-    evalCollector?.addTest({
-      name: 'regression vs baseline',
-      suite: 'LLM-as-judge quality evals',
-      tier: 'llm-judge',
-      passed: result.b_score >= result.a_score,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_scores: { a_score: result.a_score, b_score: result.b_score },
-      judge_reasoning: result.reasoning,
-    });
-
-    expect(result.b_score).toBeGreaterThanOrEqual(result.a_score);
-  }, 30_000);
 });
 
 // --- Part 7: QA skill quality evals (C6) ---
@@ -313,7 +117,7 @@ describeIfSelected('QA skill quality evals', ['qa/SKILL.md workflow', 'qa/SKILL.
     const scores = await callJudge<JudgeScore>(`You are evaluating the quality of a QA testing workflow document for an AI coding agent.
 
 The agent reads this document to learn how to systematically QA test a web application. The workflow references
-a headless browser CLI ($B commands) that is documented separately — do NOT penalize for missing CLI definitions.
+the Aside browser driver (\`aside repl\` scripts) whose contract and cookbook are documented separately in the skill's BROWSER SETUP section — do NOT penalize for missing driver definitions.
 Instead, evaluate whether the workflow itself is clear, complete, and actionable.
 
 Rate on three dimensions (1-5 scale):
@@ -505,59 +309,6 @@ score (1-5): 5 = perfectly consistent, 1 = contradictory`);
     expect(result.consistent).toBe(true);
     expect(result.score).toBeGreaterThanOrEqual(4);
   }, 30_000);
-});
-
-// --- Part 7: Baseline score pinning (C9) ---
-
-describeIfSelected('Baseline score pinning', ['baseline score pinning'], () => {
-  const baselinesPath = path.join(ROOT, 'test', 'fixtures', 'eval-baselines.json');
-
-  testIfSelected('baseline score pinning', async () => {
-    const t0 = Date.now();
-    if (!fs.existsSync(baselinesPath)) {
-      console.log('No baseline file found — skipping pinning check');
-      return;
-    }
-
-    const baselines = JSON.parse(fs.readFileSync(baselinesPath, 'utf-8'));
-    const regressions: string[] = [];
-
-    // Browse carve: the command reference lives in browse/sections/command-list.md.
-    const cmdSection = sliceBrowseSection('## Full Command List');
-    const cmdScores = await judge('command reference table', cmdSection);
-
-    for (const dim of ['clarity', 'completeness', 'actionability'] as const) {
-      if (cmdScores[dim] < baselines.command_reference[dim]) {
-        regressions.push(`command_reference.${dim}: ${cmdScores[dim]} < baseline ${baselines.command_reference[dim]}`);
-      }
-    }
-
-    if (process.env.UPDATE_BASELINES) {
-      baselines.command_reference = {
-        clarity: cmdScores.clarity,
-        completeness: cmdScores.completeness,
-        actionability: cmdScores.actionability,
-      };
-      fs.writeFileSync(baselinesPath, JSON.stringify(baselines, null, 2) + '\n');
-      console.log('Updated eval baselines');
-    }
-
-    const passed = regressions.length === 0;
-    evalCollector?.addTest({
-      name: 'baseline score pinning',
-      suite: 'Baseline score pinning',
-      tier: 'llm-judge',
-      passed,
-      duration_ms: Date.now() - t0,
-      cost_usd: 0.02,
-      judge_scores: { clarity: cmdScores.clarity, completeness: cmdScores.completeness, actionability: cmdScores.actionability },
-      judge_reasoning: passed ? 'All scores at or above baseline' : regressions.join('; '),
-    });
-
-    if (!passed) {
-      throw new Error(`Score regressions detected:\n${regressions.join('\n')}`);
-    }
-  }, JUDGE_MS);
 });
 
 // --- Workflow SKILL.md quality evals (10 new tests for 100% coverage) ---
@@ -773,7 +524,7 @@ describeIfSelected('Deploy skill evals', [
       skillPath: 'canary/SKILL.md',
       startMarker: '### Phase 2: Baseline Capture',
       endMarker: '## Important Rules',
-      judgeContext: 'a post-deploy canary monitoring workflow using a headless browser daemon',
+      judgeContext: 'a post-deploy canary monitoring workflow driving the Aside browser via aside repl scripts',
       judgeGoal: 'how to capture baseline screenshots and metrics before deploy, run a continuous monitoring loop checking each page every 60 seconds for console errors and performance regressions, fire alerts with evidence (screenshots), and produce a health report with per-page status and verdict',
     });
   }, 30_000);
@@ -785,7 +536,7 @@ describeIfSelected('Deploy skill evals', [
       skillPath: 'benchmark/SKILL.md',
       startMarker: '### Phase 3: Performance Data Collection',
       endMarker: '## Important Rules',
-      judgeContext: 'a performance regression detection workflow using browser-based Web Vitals measurement',
+      judgeContext: 'a performance regression detection workflow using browser-based Web Vitals measurement, driven through the Aside browser',
       judgeGoal: 'how to collect real performance metrics (TTFB, FCP, LCP, bundle sizes, request counts) via performance.getEntries(), compare against baselines with regression thresholds, produce a performance report with delta analysis, and track trends over time',
     });
   }, 30_000);
