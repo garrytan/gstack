@@ -436,22 +436,14 @@ if [ -x "$D" ]; then
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "BROWSE_READY: $B"
-else
-  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
-fi
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (`DESIGN_SKETCH`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
-If `BROWSE_NOT_AVAILABLE`: use `open file://...` instead of `$B goto` to open
-comparison boards. The user just needs to see the HTML file in any browser.
+Comparison boards are local HTML files: open them with `open file://...` (macOS).
+The user just needs to see the file in their default browser.
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
@@ -470,7 +462,7 @@ data, not project files. They persist across branches, conversations, and worksp
 > **STOP.** Before analyzing the design or making any layout/visual decision (Step 1 onward) — the UX-principles doctrine governs every design choice, Read `~/.claude/skills/gstack/design-html/sections/doctrine.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-## SETUP (run this check BEFORE any browse command)
+## RENDER ENGINE SETUP (browse binary — renders local HTML for previews, PDFs, and diagrams; it is not a browser for QA — Aside is)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -485,7 +477,7 @@ fi
 ```
 
 If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
+1. Tell the user: "gstack's render engine needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
 2. Run: `cd <SKILL_DIR> && ./setup`
 3. If `bun` is not installed:
    ```bash

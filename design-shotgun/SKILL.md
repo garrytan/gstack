@@ -448,22 +448,14 @@ if [ -x "$D" ]; then
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "BROWSE_READY: $B"
-else
-  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
-fi
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (`DESIGN_SKETCH`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
-If `BROWSE_NOT_AVAILABLE`: use `open file://...` instead of `$B goto` to open
-comparison boards. The user just needs to see the HTML file in any browser.
+Comparison boards are local HTML files: open them with `open file://...` (macOS).
+The user just needs to see the file in their default browser.
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
@@ -554,9 +546,11 @@ design-shotgun will follow your lead, but won't diverge by default."
 curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "NO_LOCAL_SITE"
 ```
 
-If a local site is running AND the user referenced a URL or said something like "I don't
-like how this looks," screenshot the current page and use `$D evolve` instead of
-`$D variants` to generate improvement variants from the existing design.
+If the user referenced a URL or said something like "I don't like how this looks,"
+screenshot that page with Aside in Step 3c and use `$D evolve` instead of `$D variants`
+to generate improvement variants from the existing design. If they didn't name the URL,
+ask for it — never guess which page they mean. If the probe above printed `200`, offer
+`http://localhost:3000` as the default in the AskUserQuestion below (still ask — never assume).
 
 **AskUserQuestion with pre-filled context:** Pre-fill what you inferred from the codebase,
 DESIGN.md, and office-hours output. Then ask for what's missing. Frame as ONE question
@@ -692,11 +686,20 @@ If D: drop specified concepts, re-present, re-confirm.
 ### Step 3c: Parallel Generation
 
 **If evolving from a screenshot** (user said "I don't like THIS"), take ONE screenshot
-first:
+of the page the user named, in Aside (PNG — `$D evolve` reads PNG):
 
 ```bash
-$B screenshot "$_DESIGN_DIR/current.png"
+aside repl '
+const pg = await openTab("<url>");
+await pg.screenshot({ path: "current.png", type: "png", fullPage: true });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
+
+Then `cp "<ASIDE_DIR>/current.png" "$_DESIGN_DIR/current.png"` and Read it so the user
+sees what you're evolving from.
 
 **Launch N Agent subagents in a single message** (parallel execution). Use the Agent
 tool with `subagent_type: "general-purpose"` and `run_in_background: false` for each
