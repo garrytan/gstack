@@ -62,7 +62,7 @@ function makeFixture(): Fixture {
   return { home, stubDir, codexHome, gstackHome, stubLog };
 }
 
-function runProbe(f: Fixture, stubMode: string): { stdout: string; status: number } {
+function runProbe(f: Fixture, stubMode: string, extraEnv: Record<string, string> = {}): { stdout: string; status: number } {
   const result = spawnSync(
     'bash',
     ['-c', `set +e\nsource "${PROBE}"\n_gstack_codex_model_probe`],
@@ -75,6 +75,7 @@ function runProbe(f: Fixture, stubMode: string): { stdout: string; status: numbe
         STUB_MODE: stubMode,
         STUB_LOG: f.stubLog,
         _TEL: 'off',
+        ...extraEnv,
       },
       timeout: 10000,
     },
@@ -212,6 +213,38 @@ describe('codex model probe (#2477)', () => {
       const r = runProbe(f, 'ok');
       expect(r.stdout.trim()).toBe('MODEL_OK');
       expect(invocations(f)).toBe(2); // re-probed
+    } finally {
+      fs.rmSync(f.home, { recursive: true, force: true });
+    }
+  });
+
+  test('env auth key change invalidates the cached MODEL_OK (#2787)', () => {
+    const f = makeFixture();
+    try {
+      runProbe(f, 'ok', { CODEX_API_KEY: 'key-1' });
+      expect(invocations(f)).toBe(1);
+
+      // Rotating CODEX_API_KEY in env must bust the cache signature
+      const r = runProbe(f, 'ok', { CODEX_API_KEY: 'key-2' });
+      expect(r.stdout.trim()).toBe('MODEL_OK');
+      expect(invocations(f)).toBe(2);
+    } finally {
+      fs.rmSync(f.home, { recursive: true, force: true });
+    }
+  });
+
+  test('codex binary change invalidates the cached MODEL_OK (#2787)', () => {
+    const f = makeFixture();
+    try {
+      runProbe(f, 'ok');
+      expect(invocations(f)).toBe(1);
+
+      // Updating codex binary mtime must bust the cache signature
+      const future = Date.now() / 1000 + 10;
+      fs.utimesSync(path.join(f.stubDir, 'codex'), future, future);
+      const r = runProbe(f, 'ok');
+      expect(r.stdout.trim()).toBe('MODEL_OK');
+      expect(invocations(f)).toBe(2);
     } finally {
       fs.rmSync(f.home, { recursive: true, force: true });
     }
