@@ -1,5 +1,5 @@
 ---
-name: setup-deploy
+name: gstack-setup-deploy
 preamble-tier: 2
 version: 1.0.0
 description: Configure deployment settings for /land-and-deploy.

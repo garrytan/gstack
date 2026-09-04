@@ -1,5 +1,5 @@
 ---
-name: codex
+name: gstack-codex
 preamble-tier: 3
 version: 1.0.0
 description: OpenAI Codex CLI wrapper — three modes. (gstack)

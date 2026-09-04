@@ -1,5 +1,5 @@
 ---
-name: office-hours
+name: gstack-office-hours
 preamble-tier: 3
 version: 2.0.0
 description: YC Office Hours — two modes. (gstack)

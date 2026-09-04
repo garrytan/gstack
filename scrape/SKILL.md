@@ -1,5 +1,5 @@
 ---
-name: scrape
+name: gstack-scrape
 preamble-tier: 1
 version: 1.0.0
 description: Pull data from a web page. (gstack)

@@ -1,5 +1,5 @@
 ---
-name: learn
+name: gstack-learn
 preamble-tier: 2
 version: 1.0.0
 description: Manage project learnings.
