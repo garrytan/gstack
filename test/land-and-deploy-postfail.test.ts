@@ -94,6 +94,8 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
   // reconcile the remote branch instead of silently dropping that half.
   // #2696: that reconciliation must target the PR head repository, not the
   // base checkout's origin, because fork branches do not exist in origin.
+  // #2765: repo ownership is resolved canonically via gh repo view nameWithOwner,
+  // never against remote URL text.
   test("MERGED branch reconciles the PR head repository (ls-remote, confirm-first delete)", () => {
     const body = readTmpl();
     expect(body).toMatch(/gh pr view --json headRepositoryOwner,headRepository,headRefName/);
@@ -101,6 +103,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     // owner/name is composed from headRepositoryOwner.login + headRepository.name.
     expect(body).toMatch(/headRepositoryOwner\.login/);
     expect(body).not.toMatch(/\[\.headRepository\.nameWithOwner/);
+    expect(body).toMatch(/gh repo view --json nameWithOwner -q \.nameWithOwner/);
     expect(body).toMatch(/git ls-remote --heads "https:\/\/github\.com\/<head-repository>\.git" "<head-branch>"/);
     expect(body).toMatch(/git push "https:\/\/github\.com\/<head-repository>\.git" --delete "<head-branch>"/);
     expect(body).not.toMatch(/git ls-remote --heads origin/);
@@ -139,6 +142,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(md).toMatch(/### 4a-postfail: Post-failure PR-state check/);
     expect(md).toMatch(/state == "MERGED"/);
     expect(md).toMatch(/headRepositoryOwner\.login/);
+    expect(md).toMatch(/gh repo view --json nameWithOwner/);
     expect(md).not.toMatch(/git ls-remote --heads origin/);
   });
 });
