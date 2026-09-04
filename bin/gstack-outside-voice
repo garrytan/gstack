@@ -857,12 +857,22 @@ cmd_exec() {
 
   # --- AN EXPLICIT final_gate MUST SAY IT MEANT IT (VAS-2660) -----------------
   #
-  # THE MEASURED PROBLEM. `--phase auto` landed, was verified end-to-end, and was widened to
-  # every repo this owner has -- and the cheap tier still took 0 of 127 rounds over the four days
-  # that followed. Not because the routing was broken: because 124 of those rounds came from
-  # callers that never asked for it. opencode composes this command itself, at runtime, and fired
-  # `--phase final_gate` hardcoded 84 times in a single session; the focused review path names
-  # the phase from a template that does not offer `auto` at all.
+  # THE MEASURED PROBLEM, and it is TWO populations rather than one. `--phase auto` landed, was
+  # verified end-to-end, and was widened to every repo this owner has -- and the cheap tier still
+  # took 0 of 127 ledger rounds over the four days that followed. Not because the routing broke:
+  # 124 of those 127 came from callers instructed to name the gate, the Claude Code routing rule
+  # having been scoped to one repo.
+  #
+  # opencode is the SECOND population and it is not inside that 127. It composes this command
+  # itself, at runtime, and fired `--phase final_gate` hardcoded 84 times in a single session --
+  # of which 74 never reached the ledger at all, because a harness that does not identify itself
+  # cannot be counted. So those rounds do not explain the 127; they sit outside it and make it an
+  # UNDERCOUNT. Both causes are real and only one of them explains that number -- worth stating
+  # precisely, because the tempting shorthand ("opencode is why the tier ran zero") is wrong in a
+  # way that would send the next person to fix the wrong caller.
+  #
+  # The focused review path is a third: it names the phase from a template that does not offer
+  # `auto` at all (VAS-2664).
   #
   # WHY A REFUSAL RATHER THAN A DOCTRINE LINE. The alternative -- get every harness's prompt to
   # pass `auto` -- was already tried and is what produced this ticket: the instruction lives in a
@@ -899,8 +909,10 @@ cmd_exec() {
     die "--phase final_gate was passed without --gate-direct.
 
   A hardcoded final_gate bypasses --phase auto, so this round takes the frontier gate whether or
-  not a cheap loop round could have done the work. That bypass was silent, and it is why the loop
-  tier ran 0 of 127 rounds while being reachable, configured and live (VAS-2660).
+  not a cheap loop round could have done the work -- silently, which is the actual problem: a
+  bypass nobody can see is a bypass nobody can price. One harness fired this exact command 84
+  times in a single session and 74 of those rounds never reached the ledger at all, so they were
+  not merely expensive, they were invisible (VAS-2660).
 
   Pick one, deliberately:
     --phase auto          route this lane: a cheap loop round first, promoted to the gate in this
