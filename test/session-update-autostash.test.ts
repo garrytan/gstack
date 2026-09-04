@@ -4,9 +4,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// #2566: a user-owned local edit must not wedge a session update forever.
-// Generated prefix/render variants now live outside the tracked checkout, but
-// --autostash remains defensive and stderr still names real pull failures.
+// A session-start background updater never owns local operator edits. Dirty
+// checkouts fail closed before pull, so autostash conflicts cannot discard the
+// worktree or its recoverable stash/ref.
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = path.join(ROOT, 'bin', 'gstack-session-update');
@@ -22,15 +22,20 @@ function makeFixture() {
   const install = path.join(base, 'install');
   const state = path.join(base, 'state');
   fs.mkdirSync(state, { recursive: true });
-  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
 
   fs.mkdirSync(path.join(seed, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(seed, 'VERSION'), '1.0.0\n');
   fs.writeFileSync(path.join(seed, 'SKILL.md'), '# top\nname: qa\nbody line\n');
-  // Stub config: auto_upgrade on, prefix off; gbrain-refresh no-op.
+  // Stub config: auto_upgrade on, prefix off; record any pre-setup render refresh.
   fs.writeFileSync(
     path.join(seed, 'bin', 'gstack-config'),
-    '#!/usr/bin/env bash\nif [ "$1" = "get" ]; then case "$2" in auto_upgrade) echo true;; skill_prefix) echo false;; *) echo "";; esac; fi\nexit 0\n',
+    '#!/usr/bin/env bash\nif [ "$1" = "get" ]; then case "$2" in auto_upgrade) echo true;; skill_prefix) echo false;; *) echo "";; esac; fi\nif [ "$1" = "gbrain-refresh" ]; then echo called >> "$GSTACK_STATE_DIR/gbrain-refresh.calls"; fi\nexit 0\n',
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(seed, 'setup'),
+    '#!/usr/bin/env bash\nprintf "%s\\n" "${GSTACK_UPGRADE_FROM_HEAD:-missing}" > "$GSTACK_STATE_DIR/setup-old-head"\nprintf "attempt\\n" >> "$GSTACK_STATE_DIR/setup-attempts"\n[ ! -f "$GSTACK_STATE_DIR/force-setup-failure" ]\n',
     { mode: 0o755 },
   );
   fs.writeFileSync(path.join(seed, 'bin', 'gstack-patch-names'), '#!/usr/bin/env bash\nexit 0\n', {
@@ -42,7 +47,7 @@ function makeFixture() {
   git(seed, 'branch', '-M', 'main');
   git(seed, 'remote', 'add', 'origin', origin);
   git(seed, 'push', '-q', 'origin', 'main');
-  execFileSync('git', ['clone', '-q', origin, install]);
+  execFileSync('git', ['clone', '-q', origin, install], { timeout: 30_000 });
   return { base, origin, seed, install, state };
 }
 
@@ -71,7 +76,7 @@ describe('gstack-session-update pull wedge (#2566)', () => {
     expect(source).not.toMatch(/gstack-patch-names[^\n]*\$GSTACK_DIR/);
   });
 
-  test('locally-patched tracked files no longer wedge the ff-only pull', async () => {
+  test('a dirty checkout is preserved exactly and skipped before pull', async () => {
     const { base, seed, install, state } = makeFixture();
     try {
       // Upstream advances (edit at the TOP of SKILL.md)…
@@ -81,21 +86,158 @@ describe('gstack-session-update pull wedge (#2566)', () => {
       );
       git(seed, 'commit', '-aqm', 'upstream change');
       git(seed, 'push', '-q', 'origin', 'main');
-      const upstreamHead = git(seed, 'rev-parse', 'HEAD');
-
-      // …while the install carries a local patch at the BOTTOM (the
-      // prefix-rename / gbrain-block shape: tracked file, modified).
+      // …while the install carries a local operator edit.
       fs.appendFileSync(path.join(install, 'SKILL.md'), 'locally patched line\n');
+      const headBefore = git(install, 'rev-parse', 'HEAD');
+      const statusBefore = git(install, 'status', '--porcelain=v1');
+      const bytesBefore = fs.readFileSync(path.join(install, 'SKILL.md'));
 
       const r = runScript(install, state);
       expect(r.status).toBe(0);
-      const log = await waitForLog(state, /UPDATING|UP_TO_DATE|PULL_FAILED/);
+      const log = await waitForLog(state, /SKIP dirty_worktree/);
       expect(log).not.toContain('PULL_FAILED');
-      expect(log).toContain('UPDATING');
-      expect(git(install, 'rev-parse', 'HEAD')).toBe(upstreamHead);
-      // The autostash pop preserved the local patch over the new tree.
-      expect(fs.readFileSync(path.join(install, 'SKILL.md'), 'utf8')).toContain(
-        'locally patched line',
+      expect(log).toContain(`SKIP dirty_worktree head=${headBefore}`);
+      expect(git(install, 'rev-parse', 'HEAD')).toBe(headBefore);
+      expect(git(install, 'status', '--porcelain=v1')).toBe(statusBefore);
+      expect(fs.readFileSync(path.join(install, 'SKILL.md'))).toEqual(bytesBefore);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  test('a would-be autostash conflict preserves worktree, index, HEAD, and exact stash refs', async () => {
+    const { base, seed, install, state } = makeFixture();
+    try {
+      // Keep a pre-existing operator stash so the test proves the updater does
+      // not drop, reorder, or replace any stash ref.
+      fs.appendFileSync(path.join(install, 'VERSION'), 'stashed operator work\n');
+      git(install, 'stash', 'push', '-q', '-m', 'operator-keeper');
+
+      // Remote and local now edit the same line: `pull --autostash` would
+      // fast-forward and conflict while reapplying the local patch.
+      fs.writeFileSync(path.join(seed, 'SKILL.md'), '# top\nname: qa\nremote body\n');
+      git(seed, 'commit', '-aqm', 'remote conflicting change');
+      git(seed, 'push', '-q', 'origin', 'main');
+      fs.writeFileSync(path.join(install, 'SKILL.md'), '# top\nname: qa\nlocal body\n');
+      git(install, 'add', 'SKILL.md');
+
+      const headBefore = git(install, 'rev-parse', 'HEAD');
+      const statusBefore = git(install, 'status', '--porcelain=v1');
+      const stagedBefore = git(install, 'diff', '--cached', '--binary');
+      const skillBefore = fs.readFileSync(path.join(install, 'SKILL.md'));
+      const stashesBefore = git(install, 'stash', 'list', '--format=%H %gd %gs');
+
+      const r = runScript(install, state);
+      expect(r.status).toBe(0);
+      const log = await waitForLog(state, /SKIP dirty_worktree/);
+      expect(log).toContain(`SKIP dirty_worktree head=${headBefore}`);
+      expect(git(install, 'rev-parse', 'HEAD')).toBe(headBefore);
+      expect(git(install, 'status', '--porcelain=v1')).toBe(statusBefore);
+      expect(git(install, 'diff', '--cached', '--binary')).toBe(stagedBefore);
+      expect(fs.readFileSync(path.join(install, 'SKILL.md'))).toEqual(skillBefore);
+      expect(git(install, 'stash', 'list', '--format=%H %gd %gs')).toBe(stashesBefore);
+      expect(fs.existsSync(path.join(install, '.git', 'MERGE_MSG'))).toBe(false);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  test('session updater contains no destructive autostash recovery path', () => {
+    const source = fs.readFileSync(SCRIPT, 'utf8');
+    expect(source).not.toContain('--autostash');
+    expect(source).not.toMatch(/git[^\n]*checkout[^\n]*-- \,?\./);
+    expect(source).not.toMatch(/stash drop/);
+  });
+
+  test('a real HEAD transition gives setup the exact pre-pull revision before any render refresh', async () => {
+    const { base, seed, install, state } = makeFixture();
+    try {
+      const oldHead = git(install, 'rev-parse', 'HEAD');
+      fs.writeFileSync(path.join(seed, 'VERSION'), '2.0.0\n');
+      git(seed, 'commit', '-aqm', 'upstream upgrade');
+      git(seed, 'push', '-q', 'origin', 'main');
+
+      const r = runScript(install, state);
+      expect(r.status).toBe(0);
+      const log = await waitForLog(state, /UPDATED from=/);
+      expect(log).toContain('UPDATED from=1.0.0');
+      expect(fs.readFileSync(path.join(state, 'setup-old-head'), 'utf8').trim()).toBe(oldHead);
+      expect(fs.existsSync(path.join(state, 'gbrain-refresh.calls'))).toBe(false);
+      expect(fs.existsSync(path.join(state, '.pending-session-setup'))).toBe(false);
+
+      const source = fs.readFileSync(SCRIPT, 'utf8');
+      expect(source).toContain('GSTACK_UPGRADE_FROM_HEAD="$PENDING_SETUP_FROM" ./setup -q');
+      expect(source.indexOf('GSTACK_UPGRADE_FROM_HEAD="$PENDING_SETUP_FROM" ./setup -q')).toBeLessThan(
+        source.indexOf('"$GSTACK_DIR/bin/gstack-config" gbrain-refresh'),
+      );
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  test('a failed setup remains pending and retries from the exact pre-pull revision', async () => {
+    const { base, seed, install, state } = makeFixture();
+    try {
+      const oldHead = git(install, 'rev-parse', 'HEAD');
+      fs.writeFileSync(path.join(state, 'force-setup-failure'), 'fail\n');
+      fs.writeFileSync(path.join(seed, 'VERSION'), '2.0.0\n');
+      git(seed, 'commit', '-aqm', 'upstream upgrade requiring setup');
+      git(seed, 'push', '-q', 'origin', 'main');
+
+      const first = runScript(install, state);
+      expect(first.status).toBe(0);
+      const failedLog = await waitForLog(state, /SETUP_FAILED/);
+      expect(failedLog).toContain(`from=${oldHead}`);
+      expect(failedLog).not.toContain('UPDATED from=');
+      expect(git(install, 'rev-parse', 'HEAD')).not.toBe(oldHead);
+      expect(fs.readFileSync(path.join(state, '.pending-session-setup'), 'utf8')).toBe(
+        `from=${oldHead}\n`,
+      );
+      expect(fs.existsSync(path.join(state, 'just-upgraded-from'))).toBe(false);
+      expect(fs.existsSync(path.join(state, 'gbrain-refresh.calls'))).toBe(false);
+
+      // The first run wrote the normal one-hour throttle. A pending migration
+      // must bypass it and converge immediately once the failure is repaired.
+      fs.rmSync(path.join(state, 'force-setup-failure'));
+      const lockDeadline = Date.now() + 5_000;
+      while (fs.existsSync(path.join(state, '.setup-lock')) && Date.now() < lockDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const second = runScript(install, state);
+      expect(second.status).toBe(0);
+      const recoveredLog = await waitForLog(state, /SETUP_RECOVERED/);
+      expect(recoveredLog).toContain('SETUP_RECOVERED from=1.0.0 to=2.0.0');
+      expect(fs.readFileSync(path.join(state, 'setup-old-head'), 'utf8').trim()).toBe(oldHead);
+      expect(fs.readFileSync(path.join(state, 'setup-attempts'), 'utf8')).toBe(
+        'attempt\nattempt\n',
+      );
+      expect(fs.existsSync(path.join(state, '.pending-session-setup'))).toBe(false);
+      expect(fs.readFileSync(path.join(state, 'just-upgraded-from'), 'utf8')).toBe('1.0.0\n');
+      expect(fs.existsSync(path.join(state, 'gbrain-refresh.calls'))).toBe(false);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  test('a pending base from unrelated history fails closed without pulling or running setup', async () => {
+    const { base, install, state } = makeFixture();
+    try {
+      const mainHead = git(install, 'rev-parse', 'HEAD');
+      git(install, 'checkout', '-qb', 'unrelated-pending-base');
+      fs.writeFileSync(path.join(install, 'VERSION'), 'unrelated\n');
+      git(install, 'commit', '-aqm', 'unrelated pending base');
+      const unrelatedHead = git(install, 'rev-parse', 'HEAD');
+      git(install, 'checkout', '-q', 'main');
+      fs.writeFileSync(path.join(state, '.pending-session-setup'), `from=${unrelatedHead}\n`);
+
+      const r = runScript(install, state);
+      expect(r.status).toBe(0);
+      const log = await waitForLog(state, /SETUP_PENDING_INVALID/);
+      expect(log).toContain('SETUP_PENDING_INVALID');
+      expect(git(install, 'rev-parse', 'HEAD')).toBe(mainHead);
+      expect(fs.existsSync(path.join(state, 'setup-attempts'))).toBe(false);
+      expect(fs.readFileSync(path.join(state, '.pending-session-setup'), 'utf8')).toBe(
+        `from=${unrelatedHead}\n`,
       );
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
@@ -137,7 +279,10 @@ describe('gstack-session-update lock identity + TTL (#2613)', () => {
   function makeSlowGitShim(base: string, sleepSecs: number): string {
     const shimDir = path.join(base, 'shim');
     fs.mkdirSync(shimDir, { recursive: true });
-    const realGit = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+    const realGit = execFileSync('bash', ['-c', 'command -v git'], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }).trim();
     fs.writeFileSync(
       path.join(shimDir, 'git'),
       `#!/usr/bin/env bash\ncase "$*" in *pull*) sleep ${sleepSecs};; esac\nexec "${realGit}" "$@"\n`,
@@ -181,6 +326,39 @@ describe('gstack-session-update lock identity + TTL (#2613)', () => {
       expect(fs.existsSync(path.join(state, '.setup-lock'))).toBe(true);
       expect(isAlive(pid)).toBe(true);
       await waitForLog(state, /UP_TO_DATE|UPDATING|PULL_FAILED/);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  test('upgrade intent is atomically durable before a pull can move HEAD', async () => {
+    const { base, install, state } = makeFixture();
+    const shimDir = makeSlowGitShim(base, 3);
+    try {
+      const oldHead = git(install, 'rev-parse', 'HEAD');
+      const r = runScriptWithPath(install, state, shimDir);
+      expect(r.status).toBe(0);
+
+      const pendingPath = path.join(state, '.pending-session-setup');
+      const lockPath = path.join(state, '.setup-lock');
+      const deadline = Date.now() + 2_000;
+      while (!fs.existsSync(pendingPath) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(fs.existsSync(lockPath)).toBe(true);
+      expect(fs.readFileSync(pendingPath, 'utf8')).toBe(`from=${oldHead}\n`);
+
+      await waitForLog(state, /UP_TO_DATE/);
+      const clearDeadline = Date.now() + 5_000;
+      while (fs.existsSync(pendingPath) && Date.now() < clearDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(fs.existsSync(pendingPath)).toBe(false);
+
+      const source = fs.readFileSync(SCRIPT, 'utf8');
+      expect(source.indexOf('mv -f "$PENDING_SETUP_TMP" "$PENDING_SETUP_FILE"')).toBeLessThan(
+        source.indexOf('_receipted_git open session-update'),
+      );
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }

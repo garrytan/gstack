@@ -202,6 +202,11 @@ describe('test-free-shards: strict shard execution', () => {
   const commandFor = (files: string[]) => {
     const mode = files[0];
     if (mode === 'spin') return { command: process.execPath, args: ['-e', BUSY_LOOP] };
+    if (mode === 'spin-corrupt-process-registry') {
+      const script = 'require("node:fs").appendFileSync(process.env.GSTACK_TEST_PROCESS_REGISTRY, "not-json\\n");'
+        + BUSY_LOOP;
+      return { command: process.execPath, args: ['-e', script] };
+    }
     if (mode === 'no-summary') return { command: process.execPath, args: ['-e', 'console.log("ok")'] };
     if (mode === 'fail-exit') {
       return { command: process.execPath, args: ['-e', `console.log(${JSON.stringify(SUMMARY_1)}); process.exit(3)`] };
@@ -211,6 +216,37 @@ describe('test-free-shards: strict shard execution', () => {
     }
     if (mode === 'wrong-file-count') {
       return { command: process.execPath, args: ['-e', 'console.log("Ran 3 tests across 4 files. [12.00ms]")'] };
+    }
+    if (mode === 'corrupt-process-registry') {
+      const script = `
+        const fs = require('node:fs');
+        const path = require('node:path');
+        const { spawn, spawnSync } = require('node:child_process');
+        const marker = path.join(${JSON.stringify(ROOT)}, 'browse', 'src', 'server.ts');
+        const owned = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', marker], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        owned.unref();
+        const ps = (field) => (spawnSync('ps', ['-p', String(owned.pid), '-o', field], { encoding: 'utf8', timeout: 2000 }).stdout || '').trim();
+        fs.appendFileSync(process.env.GSTACK_TEST_PROCESS_REGISTRY,
+          JSON.stringify({
+            schema: 1,
+            type: 'process',
+            runId: process.env.GSTACK_TEST_PROCESS_REGISTRY_ID,
+            kind: 'browse-server',
+            pid: owned.pid,
+            parentPid: process.pid,
+            processGroupId: Number.parseInt(ps('pgid='), 10),
+            processStartTime: ps('lstart='),
+            port: null,
+            stateFile: null,
+            registeredAt: new Date().toISOString(),
+          }) + '\\nnot-json\\n');
+        fs.writeFileSync(process.env.GSTACK_CORRUPT_REGISTRY_RECEIPT, String(owned.pid));
+        console.log(${JSON.stringify(SUMMARY_1)});
+      `;
+      return { command: process.execPath, args: ['-e', script] };
     }
     return { command: process.execPath, args: ['-e', `console.log(${JSON.stringify(SUMMARY_1)})`] };
   };
@@ -245,6 +281,27 @@ describe('test-free-shards: strict shard execution', () => {
     expect(outcome.status).toBe('failed');
   });
 
+  test('a corrupted detached-process registry fails the shard closed', async () => {
+    if (process.platform === 'win32') return;
+    const receiptRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-corrupt-registry-'));
+    const receiptPath = path.join(receiptRoot, 'owned.pid');
+    try {
+      const outcome = await runFreeShard(['corrupt-process-registry'], 1, 1, {
+        commandFor,
+        quiet: true,
+        log: () => {},
+        env: { ...process.env, GSTACK_CORRUPT_REGISTRY_RECEIPT: receiptPath },
+      });
+      expect(outcome.status).toBe('failed');
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.unattributedFailures).toBeGreaterThan(0);
+      const ownedPid = Number.parseInt(fs.readFileSync(receiptPath, 'utf8'), 10);
+      expect(() => process.kill(ownedPid, 0)).toThrow();
+    } finally {
+      fs.rmSync(receiptRoot, { recursive: true, force: true });
+    }
+  });
+
   test('a spinning shard is killed at the wall-clock deadline and reported timed-out, distinct from failed', async () => {
     const lines: string[] = [];
     const outcome = await runFreeShard(['spin'], 1, 1, {
@@ -259,6 +316,18 @@ describe('test-free-shards: strict shard execution', () => {
       expect(() => process.kill(outcome.groupPid as number, 0)).toThrow();
     }
     expect(lines.some((l) => /^\[test:free\] shard 1\/1: 1 files, \d+s, timed-out$/.test(l))).toBe(true);
+  }, 30_000);
+
+  test('a timeout retains its cleanup failure instead of hiding it behind status 124', async () => {
+    const outcome = await runFreeShard(['spin-corrupt-process-registry'], 1, 1, {
+      commandFor,
+      quiet: true,
+      wallTimeoutMs: 300,
+      log: () => {},
+    });
+    expect(outcome.status).toBe('timed-out');
+    expect(outcome.cleanupFailure).toContain('1 invalid registry row(s)');
+    expect(outcome.unattributedFailures).toBeGreaterThan(0);
   }, 30_000);
 
   test('an empty shard is a fast no-op success and never spawns (stable CI-matrix indices)', async () => {
@@ -297,7 +366,10 @@ describe('test-free-shards: strict shard execution', () => {
         `const fs = require("fs");`
         + `fs.writeFileSync(${JSON.stringify(dump)}, JSON.stringify({`
         + `  home: process.env.GSTACK_HOME ?? null, tmp: process.env.TMPDIR,`
-        + `  tmpExists: fs.existsSync(process.env.TMPDIR || "") }));`
+        + `  tmpExists: fs.existsSync(process.env.TMPDIR || ""),`
+        + `  browseState: process.env.BROWSE_STATE_FILE,`
+        + `  processRegistry: process.env.GSTACK_TEST_PROCESS_REGISTRY,`
+        + `  registryExists: fs.existsSync(process.env.GSTACK_TEST_PROCESS_REGISTRY || "") }));`
         + `console.log(${JSON.stringify(SUMMARY_1)});`;
       const outcome = await runFreeShard(['env-dump'], 1, 1, {
         commandFor: () => ({ command: process.execPath, args: ['-e', script] }),
@@ -312,7 +384,13 @@ describe('test-free-shards: strict shard execution', () => {
       expect(seen.tmp).toContain('gstack-free-shard-');
       expect(seen.tmpExists).toBe(true);
       expect(seen.tmp).not.toBe(process.env.TMPDIR ?? '');
+      expect(seen.browseState).toContain('gstack-free-shard-');
+      expect(seen.processRegistry).toContain('gstack-free-shard-');
+      expect(seen.registryExists).toBe(true);
+      expect(path.dirname(seen.tmp)).toBe(path.dirname(seen.browseState));
+      expect(path.dirname(seen.processRegistry)).toBe(path.dirname(seen.browseState));
       expect(fs.existsSync(seen.tmp)).toBe(false);
+      expect(fs.existsSync(seen.processRegistry)).toBe(false);
     } finally {
       fs.rmSync(captureDir, { recursive: true, force: true });
     }

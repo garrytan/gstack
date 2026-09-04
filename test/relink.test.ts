@@ -82,6 +82,18 @@ function readSkillName(skillDir: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+function gitInInstall(args: string[]): string {
+  const result = spawnSync('git', args, { cwd: installDir, encoding: 'utf8', timeout: 30_000 });
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+function commitInstall(message: string): string {
+  gitInInstall(['add', '.']);
+  gitInInstall(['commit', '-qm', message]);
+  return gitInInstall(['rev-parse', 'HEAD']);
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-relink-test-'));
 });
@@ -178,9 +190,153 @@ describe('gstack-relink (#578)', () => {
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
       expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(false);
       expect(readSkillName(skillPath)).toBe(skill);
+      expect(fs.readFileSync(skillMdPath, 'utf8')).toContain(
+        `<!-- AUTO-GENERATED from gstack consumer; source=${skill.replace(/^gstack-/, '')}; served=${skill} -->`,
+      );
     }
     expect(fs.readFileSync(path.join(installDir, 'qa', 'SKILL.md'), 'utf8')).toBe(qaSource);
     expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+  });
+
+  test('a failed rewrite leaves the previously served SKILL.md intact', () => {
+    setupMockInstall(['qa']);
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'skill_prefix: true\n');
+    run(path.join(installDir, 'bin', 'gstack-relink'), {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    const targetDir = path.join(skillsDir, 'gstack-qa');
+    const targetSkill = path.join(targetDir, 'SKILL.md');
+    const sourceSkill = path.join(installDir, 'qa', 'SKILL.md');
+    const servedBefore = fs.readFileSync(targetSkill);
+    const shimDir = path.join(tmpDir, 'shim');
+    const realSed = execSync('command -v sed', {
+      encoding: 'utf8',
+      shell: '/bin/bash',
+      timeout: 30_000,
+    }).trim();
+    fs.mkdirSync(shimDir);
+    fs.writeFileSync(
+      path.join(shimDir, 'sed'),
+      `#!/usr/bin/env bash\nlast=""\nfor arg in "$@"; do last="$arg"; done\nif [ "$last" = "$GSTACK_FAIL_SOURCE" ]; then printf 'partial output\\n'; exit 19; fi\nexec "${realSed}" "$@"\n`,
+      { mode: 0o755 },
+    );
+
+    const result = spawnSync(path.join(installDir, 'bin', 'gstack-relink'), [], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${shimDir}:${process.env.PATH}`,
+        GSTACK_FAIL_SOURCE: sourceSkill,
+        GSTACK_STATE_DIR: tmpDir,
+        GSTACK_HOME: tmpDir,
+        GSTACK_INSTALL_DIR: installDir,
+        GSTACK_SKILLS_DIR: skillsDir,
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(fs.readFileSync(targetSkill)).toEqual(servedBefore);
+    expect(fs.readdirSync(targetDir).filter((name) => name.startsWith('.gstack-skill.'))).toEqual([]);
+    const source = fs.readFileSync(path.join(installDir, 'bin', 'gstack-relink'), 'utf8');
+    const installBody = source.slice(
+      source.indexOf('_install_served_skill_md()'),
+      source.indexOf('_root_alias_owned()'),
+    );
+    expect(installBody).not.toContain('rm -f "$target_dir/SKILL.md"');
+    expect(installBody.indexOf('mktemp "$target_dir/.gstack-skill.XXXXXX"')).toBeLessThan(
+      installBody.indexOf('mv -f "$tmp_file" "$target_dir/SKILL.md"'),
+    );
+  });
+
+  test('first rerun adopts only a byte-exact legacy prefixed copy and adds provenance', () => {
+    setupMockInstall(['qa']);
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'skill_prefix: true\n');
+    const target = path.join(skillsDir, 'gstack-qa');
+    fs.mkdirSync(target);
+    const source = fs.readFileSync(path.join(installDir, 'qa', 'SKILL.md'), 'utf8');
+    fs.writeFileSync(path.join(target, 'SKILL.md'), source.replace(/^name:.*$/m, 'name: gstack-qa'));
+
+    run(path.join(installDir, 'bin', 'gstack-relink'), {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    const installed = fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8');
+    expect(installed).toContain(
+      '<!-- AUTO-GENERATED from gstack consumer; source=qa; served=gstack-qa -->',
+    );
+    expect(installed.match(/AUTO-GENERATED from gstack consumer/g)?.length).toBe(1);
+  });
+
+  test('first upgrade adopts the exact OLD_HEAD prefixed copy after source bytes changed', () => {
+    setupMockInstall(['qa']);
+    gitInInstall(['init', '-q']);
+    gitInInstall(['config', 'user.name', 'GStack Test']);
+    gitInInstall(['config', 'user.email', 'gstack-test@example.invalid']);
+    const oldSource = fs.readFileSync(path.join(installDir, 'qa', 'SKILL.md'), 'utf8');
+    const oldHead = commitInstall('old generated source');
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'skill_prefix: true\n');
+    const target = path.join(skillsDir, 'gstack-qa');
+    fs.mkdirSync(target);
+    fs.writeFileSync(
+      path.join(target, 'SKILL.md'),
+      oldSource.replace(/^name:.*$/m, 'name: gstack-qa'),
+    );
+    fs.writeFileSync(
+      path.join(installDir, 'qa', 'SKILL.md'),
+      '---\nname: qa\ndescription: test\n---\n# qa changed after pull',
+    );
+    commitInstall('new generated source');
+
+    run(path.join(installDir, 'bin', 'gstack-relink'), {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_UPGRADE_FROM_HEAD: oldHead,
+    });
+
+    const installed = fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8');
+    expect(installed).toContain('# qa changed after pull');
+    expect(installed).toContain(
+      '<!-- AUTO-GENERATED from gstack consumer; source=qa; served=gstack-qa -->',
+    );
+  });
+
+  test('first upgrade adopts the exact OLD_HEAD root alias after source bytes changed', () => {
+    setupMockInstall(['qa']);
+    const oldRoot = '---\nname: gstack\ndescription: root\n---\n# old root';
+    fs.writeFileSync(path.join(installDir, 'SKILL.md'), oldRoot);
+    gitInInstall(['init', '-q']);
+    gitInInstall(['config', 'user.name', 'GStack Test']);
+    gitInInstall(['config', 'user.email', 'gstack-test@example.invalid']);
+    const oldHead = commitInstall('old root source');
+    const alias = path.join(skillsDir, '_gstack-command');
+    fs.mkdirSync(alias);
+    fs.writeFileSync(
+      path.join(alias, 'SKILL.md'),
+      oldRoot.replace(/^name:.*$/m, 'name: _gstack-command'),
+    );
+    fs.writeFileSync(
+      path.join(installDir, 'SKILL.md'),
+      '---\nname: gstack\ndescription: root\n---\n# new root',
+    );
+    commitInstall('new root source');
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'skill_prefix: false\n');
+
+    run(path.join(installDir, 'bin', 'gstack-relink'), {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_UPGRADE_FROM_HEAD: oldHead,
+    });
+
+    const installed = fs.readFileSync(path.join(alias, 'SKILL.md'), 'utf8');
+    expect(installed).toContain('# new root');
+    expect(installed).toContain(
+      '<!-- AUTO-GENERATED from gstack alias; served=_gstack-command -->',
+    );
   });
 
   // Upgrade: old directory symlinks get replaced with real directories
@@ -233,6 +389,9 @@ describe('gstack-relink (#578)', () => {
     expect(fs.lstatSync(aliasSkill).isSymbolicLink()).toBe(false);
     const aliasContent = fs.readFileSync(aliasSkill, 'utf-8');
     expect(aliasContent).toContain('name: _gstack-command');
+    expect(aliasContent).toContain(
+      '<!-- AUTO-GENERATED from gstack alias; served=_gstack-command -->',
+    );
     expect(aliasContent).not.toContain('name: gstack\n');
     // The rewrite happened on the COPY: the canonical source keeps its name.
     expect(fs.readFileSync(path.join(installDir, 'SKILL.md'), 'utf-8')).toContain('name: gstack');
@@ -420,6 +579,9 @@ describe('gstack-relink (#578)', () => {
     });
     let entries = fs.readdirSync(skillsDir);
     expect(entries.filter(e => !e.startsWith('gstack-'))).toEqual([]);
+    expect(fs.readFileSync(path.join(skillsDir, 'gstack-qa', 'SKILL.md'), 'utf8')).toContain(
+      '<!-- AUTO-GENERATED from gstack consumer; source=qa; served=gstack-qa -->',
+    );
 
     // Switch to no-prefix
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
@@ -436,6 +598,110 @@ describe('gstack-relink (#578)', () => {
     const leaked = entries.filter(e => e.startsWith('gstack-') && e !== 'gstack-upgrade');
     expect(leaked).toEqual([]);
   });
+
+  test('a colliding user-owned gstack-* directory is never overwritten or deleted', () => {
+    setupMockInstall(['qa']);
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'skill_prefix: true\n');
+    const collision = path.join(skillsDir, 'gstack-qa');
+    fs.mkdirSync(collision, { recursive: true });
+    fs.writeFileSync(
+      path.join(collision, 'SKILL.md'),
+      '---\nname: gstack-qa\ndescription: my private workflow\n---\n# keep me\n',
+    );
+    fs.writeFileSync(path.join(collision, 'private.txt'), 'irreplaceable\n');
+
+    const result = spawnSync(path.join(installDir, 'bin', 'gstack-relink'), [], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        GSTACK_STATE_DIR: tmpDir,
+        GSTACK_HOME: tmpDir,
+        GSTACK_INSTALL_DIR: installDir,
+        GSTACK_SKILLS_DIR: skillsDir,
+      },
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('refusing to replace non-gstack skill entry');
+    expect(fs.readFileSync(path.join(collision, 'SKILL.md'), 'utf8')).toContain('# keep me');
+    expect(fs.readFileSync(path.join(collision, 'private.txt'), 'utf8')).toBe('irreplaceable\n');
+  });
+
+  test('prefix-to-flat cleanup preserves an unmarked gstack-* user directory', () => {
+    setupMockInstall(['qa']);
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'skill_prefix: false\n');
+    const collision = path.join(skillsDir, 'gstack-qa');
+    fs.mkdirSync(collision, { recursive: true });
+    fs.writeFileSync(path.join(collision, 'SKILL.md'), '---\nname: gstack-qa\n---\n# user owned\n');
+
+    const result = spawnSync(path.join(installDir, 'bin', 'gstack-relink'), [], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        GSTACK_STATE_DIR: tmpDir,
+        GSTACK_HOME: tmpDir,
+        GSTACK_INSTALL_DIR: installDir,
+        GSTACK_SKILLS_DIR: skillsDir,
+      },
+    });
+
+    expect(result.status).toBe(2);
+    expect(fs.readFileSync(path.join(collision, 'SKILL.md'), 'utf8')).toContain('# user owned');
+    expect(fs.existsSync(path.join(skillsDir, 'qa'))).toBe(false);
+  });
+
+  for (const scenario of [
+    { label: 'prefix to flat', prefix: false, oldName: 'gstack-qa', targetName: 'qa' },
+    { label: 'flat to prefix', prefix: true, oldName: 'qa', targetName: 'gstack-qa' },
+  ]) {
+    test(`${scenario.label} collision is rejected before either entry is mutated`, () => {
+      setupMockInstall(['qa']);
+      const initialPrefix = !scenario.prefix;
+      fs.writeFileSync(path.join(tmpDir, 'config.yaml'), `skill_prefix: ${initialPrefix}\n`);
+      run(path.join(installDir, 'bin', 'gstack-relink'), {
+        GSTACK_INSTALL_DIR: installDir,
+        GSTACK_SKILLS_DIR: skillsDir,
+      });
+
+      const oldDir = path.join(skillsDir, scenario.oldName);
+      const oldSkill = path.join(oldDir, 'SKILL.md');
+      const oldBytes = fs.readFileSync(oldSkill);
+      const oldWasLink = fs.lstatSync(oldSkill).isSymbolicLink();
+      const oldLink = oldWasLink ? fs.readlinkSync(oldSkill) : null;
+
+      const userDir = path.join(skillsDir, scenario.targetName);
+      fs.mkdirSync(userDir);
+      const userBytes = `---\nname: ${scenario.targetName}\n---\n# private destination\n`;
+      fs.writeFileSync(path.join(userDir, 'SKILL.md'), userBytes);
+      fs.writeFileSync(path.join(userDir, 'keep.txt'), 'irreplaceable\n');
+      fs.writeFileSync(path.join(tmpDir, 'config.yaml'), `skill_prefix: ${scenario.prefix}\n`);
+
+      const result = spawnSync(path.join(installDir, 'bin', 'gstack-relink'), [], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          GSTACK_STATE_DIR: tmpDir,
+          GSTACK_HOME: tmpDir,
+          GSTACK_INSTALL_DIR: installDir,
+          GSTACK_SKILLS_DIR: skillsDir,
+        },
+      });
+
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('refusing to replace non-gstack skill entry');
+      expect(fs.readFileSync(oldSkill)).toEqual(oldBytes);
+      expect(fs.lstatSync(oldSkill).isSymbolicLink()).toBe(oldWasLink);
+      if (oldLink !== null) expect(fs.readlinkSync(oldSkill)).toBe(oldLink);
+      expect(fs.readFileSync(path.join(userDir, 'SKILL.md'), 'utf8')).toBe(userBytes);
+      expect(fs.readFileSync(path.join(userDir, 'keep.txt'), 'utf8')).toBe('irreplaceable\n');
+    });
+  }
 
   // SWITCH: no-prefix → prefix must clean up ALL flat entries
   test('switching no-prefix to prefix removes all flat entries completely', () => {

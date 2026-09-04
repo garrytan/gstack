@@ -41,25 +41,132 @@ PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 # skill, relink serves it — otherwise a config change would silently flip
 # every skill back to the canonical (blockless) source.
 RENDER_DIR="${GSTACK_USER_RENDER_DIR:-${GSTACK_HOME:-$HOME/.gstack}/render/claude}"
+COLLISIONS=0
 
-# Helper: remove an old gstack-owned skill entry. Prefixed installs are regular
-# files, so recognize them by the reserved gstack-* directory plus an exact
-# matching frontmatter name; never delete an arbitrary flat user directory.
+_gstack_upgrade_base_sha() {
+  local candidate resolved
+
+  candidate="${GSTACK_UPGRADE_FROM_HEAD:-}"
+  case "$candidate" in
+    ''|*[!0-9a-fA-F]*) candidate="" ;;
+  esac
+  if [ -n "$candidate" ]; then
+    resolved=$(git -C "$INSTALL_DIR" rev-parse --verify "${candidate}^{commit}" 2>/dev/null || true)
+    if [ -n "$resolved" ]; then
+      printf '%s\n' "$resolved"
+      return 0
+    fi
+  fi
+
+  resolved=$(git -C "$INSTALL_DIR" rev-parse --verify 'HEAD@{1}^{commit}' 2>/dev/null || true)
+  [ -n "$resolved" ] || return 1
+  printf '%s\n' "$resolved"
+}
+
+_skill_file_matches_source() {
+  local installed_file="$1"
+  local source_file="$2"
+  local served_name="$3"
+  local rewrite_name="$4"
+  local expected_file result
+
+  [ -f "$installed_file" ] && [ -f "$source_file" ] || return 1
+  expected_file=$(mktemp "${TMPDIR:-/tmp}/gstack-expected-skill.XXXXXX") || return 1
+  if [ "$rewrite_name" -eq 1 ]; then
+    sed "1,/^---\$/ s/^name:[[:space:]].*/name: $served_name/" "$source_file" > "$expected_file"
+  else
+    cp "$source_file" "$expected_file"
+  fi
+  cmp -s "$expected_file" "$installed_file"
+  result=$?
+  rm -f "$expected_file"
+  return "$result"
+}
+
+# The release immediately before consumer provenance markers wrote exact
+# rewritten copies. Recognize that legacy shape byte-for-byte against either
+# the current source or the exact pre-upgrade commit only when refreshing the
+# same target. Cleanup never uses this path.
+_legacy_skill_copy_matches() {
+  local entry="$1"
+  local source_name="$2"
+  local served_name="$3"
+  local source_file rewrite_name upgrade_sha prior_file result
+
+  [ -d "$entry" ] && [ -f "$entry/SKILL.md" ] && [ ! -L "$entry/SKILL.md" ] || return 1
+  source_file="$INSTALL_DIR/$source_name/SKILL.md"
+  [ -f "$RENDER_DIR/$source_name/SKILL.md" ] && source_file="$RENDER_DIR/$source_name/SKILL.md"
+  [ -f "$source_file" ] || return 1
+
+  rewrite_name=0
+  if [ "$source_name" = "$served_name" ]; then
+    rewrite_name=0
+  else
+    rewrite_name=1
+  fi
+
+  _skill_file_matches_source "$entry/SKILL.md" "$source_file" "$served_name" "$rewrite_name" && return 0
+
+  upgrade_sha=$(_gstack_upgrade_base_sha 2>/dev/null || true)
+  [ -n "$upgrade_sha" ] || return 1
+  prior_file=$(mktemp "${TMPDIR:-/tmp}/gstack-prior-skill.XXXXXX") || return 1
+  if ! git -C "$INSTALL_DIR" show "$upgrade_sha:$source_name/SKILL.md" > "$prior_file" 2>/dev/null; then
+    rm -f "$prior_file"
+    return 1
+  fi
+  _skill_file_matches_source "$entry/SKILL.md" "$prior_file" "$served_name" "$rewrite_name"
+  result=$?
+  rm -f "$prior_file"
+  return "$result"
+}
+
+# A real consumer directory is ours only when its provenance is exact. A
+# reserved `gstack-*` name plus matching frontmatter is not ownership: users
+# are allowed to create their own namespaced skills. Unix flat installs are
+# proven by an exact symlink into this checkout/render; rewritten copies carry
+# a source+served marker generated below.
+_skill_entry_owned() {
+  local entry="$1"
+  local source_name="$2"
+  local served_name="$3"
+  local allow_legacy="${4:-0}"
+  local link_dest marker
+
+  [ -e "$entry" ] || [ -L "$entry" ] || return 1
+  if [ -L "$entry" ]; then
+    link_dest=$(readlink "$entry" 2>/dev/null || true)
+    [ "$link_dest" = "$INSTALL_DIR/$source_name" ] && return 0
+    return 1
+  fi
+  [ -d "$entry" ] || return 1
+  if [ -L "$entry/SKILL.md" ]; then
+    link_dest=$(readlink "$entry/SKILL.md" 2>/dev/null || true)
+    [ "$link_dest" = "$INSTALL_DIR/$source_name/SKILL.md" ] && return 0
+    [ "$link_dest" = "$RENDER_DIR/$source_name/SKILL.md" ] && return 0
+    return 1
+  fi
+  [ -f "$entry/SKILL.md" ] || return 1
+  marker="<!-- AUTO-GENERATED from gstack consumer; source=$source_name; served=$served_name -->"
+  grep -Fqx "$marker" "$entry/SKILL.md" 2>/dev/null && return 0
+  [ "$allow_legacy" -eq 1 ] && _legacy_skill_copy_matches "$entry" "$source_name" "$served_name"
+}
+
+_report_collision() {
+  echo "Error: refusing to replace non-gstack skill entry: $1" >&2
+  COLLISIONS=1
+}
+
 _cleanup_skill_entry() {
   local entry="$1"
-  local entry_name served_name
-  if [ -L "$entry" ]; then
-    rm -f "$entry"
-  elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
+  local source_name="$2"
+  local served_name="$3"
+  if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+    return 0
+  fi
+  if _skill_entry_owned "$entry" "$source_name" "$served_name"; then
     rm -rf "$entry"
-  elif [ -d "$entry" ] && [ -f "$entry/SKILL.md" ]; then
-    entry_name="$(basename "$entry")"
-    case "$entry_name" in
-      gstack-*)
-        served_name=$(grep -m1 '^name:' "$entry/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
-        [ "$served_name" = "$entry_name" ] && rm -rf "$entry"
-        ;;
-    esac
+  else
+    _report_collision "$entry"
   fi
 }
 
@@ -71,28 +178,134 @@ _install_served_skill_md() {
   local source="$1"
   local target_dir="$2"
   local served_name="$3"
-  rm -f "$target_dir/SKILL.md"
+  local source_name="$4"
+  local tmp_file
+  tmp_file=$(mktemp "$target_dir/.gstack-skill.XXXXXX") || return 1
   if [ "$PREFIX" = "true" ]; then
-    sed "1,/^---\$/ s/^name:[[:space:]].*/name: $served_name/" "$source" > "$target_dir/SKILL.md"
+    if ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $served_name/" "$source" > "$tmp_file" \
+      || ! printf '\n<!-- AUTO-GENERATED from gstack consumer; source=%s; served=%s -->\n' "$source_name" "$served_name" >> "$tmp_file"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
   else
-    ln -snf "$source" "$target_dir/SKILL.md"
+    rm -f "$tmp_file"
+    if ! ln -s "$source" "$tmp_file"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
   fi
+  # The previously served file/link remains valid until this same-directory
+  # rename commits the complete replacement. A failed render or interrupted
+  # relink can therefore never leave the skill entry empty.
+  mv -f "$tmp_file" "$target_dir/SKILL.md"
+}
+
+_root_alias_owned() {
+  local target="$1"
+  local marker link_dest upgrade_sha prior_file result
+
+  [ -e "$target" ] || [ -L "$target" ] || return 1
+  if [ -L "$target" ]; then
+    link_dest=$(readlink "$target" 2>/dev/null || true)
+    [ "$link_dest" = "$INSTALL_DIR" ]
+    return $?
+  fi
+  [ -d "$target" ] || return 1
+  if [ -L "$target/SKILL.md" ]; then
+    link_dest=$(readlink "$target/SKILL.md" 2>/dev/null || true)
+    [ "$link_dest" = "$INSTALL_DIR/SKILL.md" ]
+    return $?
+  fi
+  [ -f "$target/SKILL.md" ] || return 1
+
+  marker='<!-- AUTO-GENERATED from gstack alias; served=_gstack-command -->'
+  grep -Fqx "$marker" "$target/SKILL.md" 2>/dev/null && return 0
+  _skill_file_matches_source "$target/SKILL.md" "$INSTALL_DIR/SKILL.md" "_gstack-command" 1 && return 0
+
+  upgrade_sha=$(_gstack_upgrade_base_sha 2>/dev/null || true)
+  [ -n "$upgrade_sha" ] || return 1
+  prior_file=$(mktemp "${TMPDIR:-/tmp}/gstack-prior-root-alias.XXXXXX") || return 1
+  if ! git -C "$INSTALL_DIR" show "$upgrade_sha:SKILL.md" > "$prior_file" 2>/dev/null; then
+    rm -f "$prior_file"
+    return 1
+  fi
+  _skill_file_matches_source "$target/SKILL.md" "$prior_file" "_gstack-command" 1
+  result=$?
+  rm -f "$prior_file"
+  return "$result"
 }
 
 _link_root_skill_alias() {
   local target="$SKILLS_DIR/_gstack-command"
+  local marker expected_file
 
   [ -f "$INSTALL_DIR/SKILL.md" ] || return 0
-  [ -L "$target" ] && rm -f "$target"
+  marker='<!-- AUTO-GENERATED from gstack alias; served=_gstack-command -->'
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    if ! _root_alias_owned "$target"; then
+      _report_collision "$target"
+      return 0
+    fi
+    [ -L "$target" ] && rm -f "$target"
+  fi
   mkdir -p "$target"
+  expected_file=$(mktemp "$target/.gstack-root-alias.XXXXXX")
+  sed "1,/^---\$/ s/^name:[[:space:]].*/name: _gstack-command/" "$INSTALL_DIR/SKILL.md" > "$expected_file"
   # Copy-then-rewrite, never a symlink (#2511): a symlinked alias re-serves
   # the canonical `name: gstack`, Claude Code sees a duplicate skill name,
   # and drops the ENTIRE personal-skills set. sed reads the source and writes
-  # a fresh copy — remove any prior symlink first so the redirect can never
-  # write through it into the generated source.
-  rm -f "$target/SKILL.md"
-  sed "1,/^---\$/ s/^name:[[:space:]].*/name: _gstack-command/" "$INSTALL_DIR/SKILL.md" > "$target/SKILL.md"
+  # a fresh copy. The same-directory rename replaces any prior symlink itself;
+  # it never follows that symlink into the generated source.
+  printf '\n%s\n' "$marker" >> "$expected_file"
+  mv -f "$expected_file" "$target/SKILL.md"
 }
+
+# Preflight every destination and every opposite-mode cleanup candidate before
+# changing anything. A failed mode switch must leave the old working install
+# and the user's colliding destination byte-for-byte intact.
+if [ -f "$INSTALL_DIR/SKILL.md" ] \
+  && { [ -e "$SKILLS_DIR/_gstack-command" ] || [ -L "$SKILLS_DIR/_gstack-command" ]; } \
+  && ! _root_alias_owned "$SKILLS_DIR/_gstack-command"; then
+  _report_collision "$SKILLS_DIR/_gstack-command"
+fi
+
+for skill_dir in "$INSTALL_DIR"/*/; do
+  [ -d "$skill_dir" ] || continue
+  [ -L "${skill_dir%/}" ] && continue
+  skill=$(basename "$skill_dir")
+  case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
+  [ -f "$skill_dir/SKILL.md" ] || continue
+
+  cleanup_target=""
+  if [ "$PREFIX" = "true" ]; then
+    case "$skill" in
+      gstack-*) link_name="$skill" ;;
+      *)        link_name="gstack-$skill"; cleanup_target="$SKILLS_DIR/$skill" ;;
+    esac
+  else
+    link_name="$skill"
+    case "$skill" in
+      gstack-*) ;;
+      *)        cleanup_target="$SKILLS_DIR/gstack-$skill" ;;
+    esac
+  fi
+
+  target="$SKILLS_DIR/$link_name"
+  if { [ -e "$target" ] || [ -L "$target" ]; } \
+    && ! _skill_entry_owned "$target" "$skill" "$link_name" 1; then
+    _report_collision "$target"
+  fi
+  if [ -n "$cleanup_target" ] \
+    && { [ -e "$cleanup_target" ] || [ -L "$cleanup_target" ]; } \
+    && ! _skill_entry_owned "$cleanup_target" "$skill" "$(basename "$cleanup_target")" 0; then
+    _report_collision "$cleanup_target"
+  fi
+done
+
+if [ "$COLLISIONS" -ne 0 ]; then
+  echo "Resolve the reported skill-name collisions, then run gstack-relink again." >&2
+  exit 2
+fi
 
 _link_root_skill_alias
 
@@ -117,23 +330,29 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       *)        link_name="gstack-$skill" ;;
     esac
     # Remove old flat entry if it exists (and isn't the same as the new link)
-    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill"
+    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill" "$skill"
   else
     link_name="$skill"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
     case "$skill" in
       gstack-*) ;; # Already the real name, no old prefixed link to clean
-      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" ;;
+      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" "$skill" "gstack-$skill" ;;
     esac
   fi
   target="$SKILLS_DIR/$link_name"
-  # Upgrade old directory symlinks to real directories
-  [ -L "$target" ] && rm -f "$target"
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    if _skill_entry_owned "$target" "$skill" "$link_name" 1; then
+      [ -L "$target" ] && rm -f "$target"
+    else
+      _report_collision "$target"
+      continue
+    fi
+  fi
   # Create a real top-level skill directory.
   mkdir -p "$target"
   skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
   [ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"
-  _install_served_skill_md "$skill_md_src" "$target" "$link_name"
+  _install_served_skill_md "$skill_md_src" "$target" "$link_name" "$skill"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 
@@ -141,4 +360,9 @@ if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"
 else
   echo "Relinked $SKILL_COUNT skills as flat names"
+fi
+
+if [ "$COLLISIONS" -ne 0 ]; then
+  echo "Resolve the reported skill-name collisions, then run gstack-relink again." >&2
+  exit 2
 fi

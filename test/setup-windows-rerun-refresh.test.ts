@@ -60,25 +60,39 @@ describe('setup: Windows re-run refresh — static guard sites (#2444)', () => {
   // ownership, and every sidecar/runtime-root installer must refuse a
   // user-owned root. A bypass without its gate deletes user data.
   test.each([
-    'link_codex_skill_dirs',
-    'link_factory_skill_dirs',
-    'link_opencode_skill_dirs',
-    'link_cursor_skill_dirs',
-  ])('%s gates the Windows real-dir replacement on _owned_for_windows_refresh', (fn) => {
-    expect(extractFn(fn)).toContain('_owned_for_windows_refresh "$target"');
+    ['link_codex_skill_dirs', 'codex'],
+    ['link_factory_skill_dirs', 'factory'],
+    ['link_opencode_skill_dirs', 'opencode'],
+    ['link_cursor_skill_dirs', 'cursor'],
+  ])('%s binds Windows ownership to its exact host/source/target mapping', (fn, host) => {
+    expect(extractFn(fn)).toContain(
+      `_owned_for_windows_refresh "$target" "$skill_dir" "${host}" "$skill_name"`,
+    );
+    expect(extractFn(fn)).toContain(
+      `_mark_windows_skill_copy "$target" "$skill_dir" "${host}" "$skill_name"`,
+    );
   });
 
   test.each([
     'create_agents_sidecar',
     'create_cursor_sidecar',
-    'create_cursor_runtime_root',
   ])('%s refuses a user-owned root via _sidecar_root_user_owned', (fn) => {
     expect(extractFn(fn)).toContain('_sidecar_root_user_owned');
+  });
+
+  test.each([
+    'create_codex_runtime_root',
+    'create_factory_runtime_root',
+    'create_opencode_runtime_root',
+    'create_cursor_runtime_root',
+  ])('%s preflights whole-root ownership before replacement', (fn) => {
+    expect(extractFn(fn)).toContain('_prepare_runtime_root');
+    expect(extractFn(fn)).not.toContain('rm -rf "$');
   });
 });
 
 describe('setup: Windows refresh ownership gate — behavior fixture (#2142)', () => {
-  test("IS_WINDOWS=1: a user's own real dir on a gstack* name survives; a bannered install refreshes", () => {
+  test('IS_WINDOWS=1: generic banners and wrong mapping markers do not authorize replacement', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-owned-'));
     try {
       const fake = path.join(tmp, 'gstack');
@@ -91,23 +105,29 @@ describe('setup: Windows refresh ownership gate — behavior fixture (#2142)', (
         fs.writeFileSync(path.join(d, 'SKILL.md'), `${banner}upstream-v2\n`);
       }
       fs.mkdirSync(skills, { recursive: true });
-      // gstack-demo: a prior gstack install (bannered) — must refresh.
+      // A lookalike generated banner is not proof of this exact copy.
       fs.mkdirSync(path.join(skills, 'gstack-demo'), { recursive: true });
       fs.writeFileSync(path.join(skills, 'gstack-demo', 'SKILL.md'), `${banner}installed-v1\n`);
-      // gstack-notes: the USER'S own hand-written skill — must survive.
+      // Nor is a marker issued for another host/source mapping.
       fs.mkdirSync(path.join(skills, 'gstack-notes'), { recursive: true });
       fs.writeFileSync(path.join(skills, 'gstack-notes', 'SKILL.md'), '# my own notes\n');
+      fs.writeFileSync(
+        path.join(skills, 'gstack-notes', '.gstack-owner'),
+        `gstack-owner-v1 kind=host-skill host=cursor source=${path.join(fake, '.agents', 'skills', 'gstack-demo')} target=${path.join(skills, 'gstack-notes')} served=gstack-notes\n`,
+      );
 
       const r = runInstaller(
         '1',
-        ['_owned_for_windows_refresh', 'link_codex_skill_dirs'],
+        ['link_codex_skill_dirs'],
         `link_codex_skill_dirs "${tmp}/gstack" "${skills}"`,
       );
-      expect(r.status).toBe(0);
-      expect(fs.readFileSync(path.join(skills, 'gstack-demo', 'SKILL.md'), 'utf-8')).toContain('upstream-v2');
+      expect(r.status).toBe(2);
+      expect(fs.readFileSync(path.join(skills, 'gstack-demo', 'SKILL.md'), 'utf-8')).toBe(
+        `${banner}installed-v1\n`,
+      );
       expect(fs.readFileSync(path.join(skills, 'gstack-notes', 'SKILL.md'), 'utf-8')).toBe('# my own notes\n');
-      expect(r.stderr).toContain('left in place');
-      expect(r.stderr).toContain('gstack-notes');
+      expect(r.stderr).toContain('refusing to replace non-gstack skill entry');
+      expect(r.stderr).toContain('gstack-demo');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -160,14 +180,117 @@ function runInstaller(
     extraVars,
     extractFn('_link_or_copy'),
     // Ownership gates (#2142) — dependencies of every installer under test.
+    extractFn('_host_skill_owner_marker'),
     extractFn('_owned_for_windows_refresh'),
+    extractFn('_mark_windows_skill_copy'),
     extractFn('_sidecar_root_user_owned'),
+    extractFn('_runtime_root_owner_marker'),
+    extractFn('_runtime_root_owned'),
+    extractFn('_prepare_runtime_root'),
     ...fns.map(extractFn),
     invocation,
   ].join('\n');
   const r = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 15_000 });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
+
+const RUNTIME_ROOT_HOSTS = [
+  ['codex', '.agents', 'create_codex_runtime_root'],
+  ['factory', '.factory', 'create_factory_runtime_root'],
+  ['opencode', '.opencode', 'create_opencode_runtime_root'],
+  ['cursor', '.cursor', 'create_cursor_runtime_root'],
+] as const;
+
+describe('setup: runtime root ownership — behavior fixture', () => {
+  test.each(RUNTIME_ROOT_HOSTS)(
+    '%s preserves an unmarked or wrongly marked user root byte-for-byte',
+    (host, generatedDir, fn) => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `gstack-${host}-root-collision-`));
+      try {
+        const fake = path.join(tmp, 'gstack-source');
+        const generatedRoot = path.join(fake, generatedDir, 'skills', 'gstack');
+        const target = path.join(tmp, 'user-skills', 'gstack');
+        fs.mkdirSync(generatedRoot, { recursive: true });
+        fs.writeFileSync(path.join(generatedRoot, 'SKILL.md'), `generated-${host}\n`);
+        fs.mkdirSync(target, { recursive: true });
+        const userSkill = '<!-- AUTO-GENERATED from something-else -->\n# user root\n';
+        fs.writeFileSync(path.join(target, 'SKILL.md'), userSkill);
+        fs.writeFileSync(path.join(target, 'keep.txt'), 'must survive\n');
+        fs.writeFileSync(
+          path.join(target, '.gstack-owner'),
+          `gstack-owner-v1 kind=runtime-root host=some-other-host source=${fake} target=${target}\n`,
+        );
+
+        const r = runInstaller('0', [fn], `${fn} "${fake}" "${target}"`);
+        expect(r.status).toBe(2);
+        expect(r.stderr).toContain('refusing to replace non-gstack runtime root');
+        expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf-8')).toBe(userSkill);
+        expect(fs.readFileSync(path.join(target, 'keep.txt'), 'utf-8')).toBe('must survive\n');
+        expect(fs.readFileSync(path.join(target, '.gstack-owner'), 'utf-8')).toContain(
+          'some-other-host',
+        );
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.each(RUNTIME_ROOT_HOSTS)(
+    '%s marks a new root and safely refreshes only that exact managed root',
+    (host, generatedDir, fn) => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `gstack-${host}-root-managed-`));
+      try {
+        const fake = path.join(tmp, 'gstack-source');
+        const generatedRoot = path.join(fake, generatedDir, 'skills', 'gstack');
+        const target = path.join(tmp, 'user-skills', 'gstack');
+        fs.mkdirSync(generatedRoot, { recursive: true });
+        fs.writeFileSync(path.join(generatedRoot, 'SKILL.md'), `generated-${host}-v1\n`);
+
+        let r = runInstaller('1', [fn], `${fn} "${fake}" "${target}"`);
+        expect(r.status).toBe(0);
+        expect(fs.readFileSync(path.join(target, '.gstack-owner'), 'utf-8')).toBe(
+          `gstack-owner-v1 kind=runtime-root host=${host} source=${fake} target=${target}\n`,
+        );
+        fs.writeFileSync(path.join(target, 'stale-runtime-file'), 'remove on refresh\n');
+        fs.writeFileSync(path.join(generatedRoot, 'SKILL.md'), `generated-${host}-v2\n`);
+
+        r = runInstaller('1', [fn], `${fn} "${fake}" "${target}"`);
+        expect(r.status).toBe(0);
+        expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf-8')).toBe(
+          `generated-${host}-v2\n`,
+        );
+        expect(fs.existsSync(path.join(target, 'stale-runtime-file'))).toBe(false);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test('a byte-exact markerless Windows root is adopted once, then marked', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-legacy-'));
+    try {
+      const fake = path.join(tmp, 'gstack-source');
+      const generatedRoot = path.join(fake, '.agents', 'skills', 'gstack');
+      const target = path.join(tmp, 'user-skills', 'gstack');
+      fs.mkdirSync(generatedRoot, { recursive: true });
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(generatedRoot, 'SKILL.md'), 'legacy-generated-root\n');
+      fs.writeFileSync(path.join(target, 'SKILL.md'), 'legacy-generated-root\n');
+
+      const r = runInstaller(
+        '1',
+        ['create_codex_runtime_root'],
+        `create_codex_runtime_root "${fake}" "${target}"`,
+      );
+      expect(r.status).toBe(0);
+      expect(fs.readFileSync(path.join(target, '.gstack-owner'), 'utf-8')).toBe(
+        `gstack-owner-v1 kind=runtime-root host=codex source=${fake} target=${target}\n`,
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('setup: Windows re-run refresh — behavior fixture (#2444)', () => {
   test('IS_WINDOWS=1: link_codex_skill_dirs refreshes an already-installed skill', () => {
@@ -178,8 +301,8 @@ describe('setup: Windows re-run refresh — behavior fixture (#2444)', () => {
       const demo = path.join(fake, '.agents', 'skills', 'gstack-demo');
       fs.mkdirSync(demo, { recursive: true });
       fs.mkdirSync(skills, { recursive: true });
-      // Generated SKILL.md files always carry the banner — the #2142
-      // ownership gate keys the Windows refresh on it.
+      // The first install writes an exact host/source/served marker next to
+      // the copied skill. Later source changes are refreshable via that marker.
       const banner = '<!-- AUTO-GENERATED from SKILL.md.tmpl - DO NOT EDIT DIRECTLY -->\n';
       fs.writeFileSync(path.join(demo, 'SKILL.md'), `${banner}v1-original\n`);
 
@@ -189,6 +312,9 @@ describe('setup: Windows re-run refresh — behavior fixture (#2444)', () => {
       const installed = path.join(skills, 'gstack-demo', 'SKILL.md');
       expect(fs.readFileSync(installed, 'utf-8')).toBe(`${banner}v1-original\n`);
       expect(fs.lstatSync(path.join(skills, 'gstack-demo')).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(skills, 'gstack-demo', '.gstack-owner'), 'utf-8')).toBe(
+        `gstack-owner-v1 kind=host-skill host=codex source=${demo} target=${path.join(skills, 'gstack-demo')} served=gstack-demo\n`,
+      );
 
       // Upstream ships a change (the git pull).
       fs.writeFileSync(path.join(demo, 'SKILL.md'), `${banner}v2-UPDATED\n`);
@@ -209,6 +335,12 @@ describe('setup: Windows re-run refresh — behavior fixture (#2444)', () => {
       fs.mkdirSync(path.join(fake, 'bin'), { recursive: true });
       fs.writeFileSync(path.join(fake, 'bin', 'tool.sh'), 'v1\n');
       fs.writeFileSync(path.join(fake, 'ETHOS.md'), 'ethos-v1\n');
+      const sidecarRoot = path.join(fake, '.agents', 'skills', 'gstack');
+      fs.mkdirSync(sidecarRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(sidecarRoot, 'SKILL.md'),
+        '---\nname: gstack\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n',
+      );
 
       const vars = `SOURCE_GSTACK_DIR="${fake}"`;
       let r = runInstaller('1', ['create_agents_sidecar'], `create_agents_sidecar "${fake}"`, vars);

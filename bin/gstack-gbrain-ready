@@ -13,12 +13,12 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 READINESS_SCHEMA=4
 SESSION_KEY=""
 
-PROBE_TIMEOUT_SECONDS="${GSTACK_GBRAIN_READY_TIMEOUT_SECONDS:-3}"
+PROBE_TIMEOUT_SECONDS="${GSTACK_GBRAIN_READY_TIMEOUT_SECONDS:-5}"
 case "$PROBE_TIMEOUT_SECONDS" in
-  ''|*[!0-9]*) PROBE_TIMEOUT_SECONDS=3 ;;
+  ''|*[!0-9]*) PROBE_TIMEOUT_SECONDS=5 ;;
   *)
     if [ "$PROBE_TIMEOUT_SECONDS" -lt 1 ] || [ "$PROBE_TIMEOUT_SECONDS" -gt 10 ]; then
-      PROBE_TIMEOUT_SECONDS=3
+      PROBE_TIMEOUT_SECONDS=5
     fi
     ;;
 esac
@@ -45,34 +45,50 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# Portable timeout: GNU coreutils when present, otherwise a watchdog that
-# mirrors timeout(1)'s exit-124 contract. No GBrain subprocess can outlive the
-# bounded foreground readiness probe on stock macOS.
+# Portable timeout with one lifecycle owner. Bash job control gives the probe
+# its own process group on stock macOS; timeout tears down that whole group,
+# first gracefully and then with SIGKILL. Polling a separate timer avoids the
+# classic watchdog race where the parent dies on SIGTERM, the watchdog gets
+# cancelled, and a TERM-resistant descendant keeps the caller's pipe open.
 run_bounded() {
   _duration="$1"
   shift
-  _timeout_bin=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
-  if [ -n "$_timeout_bin" ]; then
-    "$_timeout_bin" "$_duration" "$@"
-    return $?
+  _had_monitor=0
+  case "$-" in *m*) _had_monitor=1 ;; esac
+  set -m
+  # Keep pipeline input attached explicitly. Non-interactive shells may replace
+  # stdin for an asynchronous command with /dev/null unless it has a redirect.
+  "$@" <&0 &
+  _cmd_pid=$!
+  [ "$_had_monitor" -eq 1 ] || set +m
+
+  sleep "$_duration" &
+  _timer_pid=$!
+  while kill -0 "$_cmd_pid" 2>/dev/null && kill -0 "$_timer_pid" 2>/dev/null; do
+    sleep 0.05
+  done
+
+  if kill -0 "$_cmd_pid" 2>/dev/null; then
+    # Timer won. The negative PID addresses the isolated process group, not
+    # just the direct wrapper process.
+    wait "$_timer_pid" 2>/dev/null
+    kill -TERM -- "-$_cmd_pid" 2>/dev/null || true
+    sleep 1
+    kill -KILL -- "-$_cmd_pid" 2>/dev/null || true
+    wait "$_cmd_pid" 2>/dev/null
+    return 124
   fi
 
-  "$@" &
-  _cmd_pid=$!
-  (
-    sleep "$_duration"
-    kill -TERM "$_cmd_pid" 2>/dev/null
-    sleep 1
-    kill -KILL "$_cmd_pid" 2>/dev/null
-  ) >/dev/null 2>&1 &
-  _watch_pid=$!
+  kill "$_timer_pid" 2>/dev/null
+  wait "$_timer_pid" 2>/dev/null
   wait "$_cmd_pid"
   _rc=$?
-  if kill -0 "$_watch_pid" 2>/dev/null; then
-    kill "$_watch_pid" 2>/dev/null
-    wait "$_watch_pid" 2>/dev/null
-  elif [ "$_rc" -ge 128 ]; then
-    _rc=124
+  # A readiness command must never daemonize work. Reap any process that
+  # inherited its group even when the direct command exited successfully.
+  if kill -0 -- "-$_cmd_pid" 2>/dev/null; then
+    kill -TERM -- "-$_cmd_pid" 2>/dev/null || true
+    sleep 0.05
+    kill -KILL -- "-$_cmd_pid" 2>/dev/null || true
   fi
   return "$_rc"
 }
@@ -133,9 +149,9 @@ check_canary() {
   [ $? -eq 0 ] || return 1
   [ "$(printf '%s' "$_callers" | jq -r '.ready == true and .count > 0' 2>/dev/null)" = "true" ] || return 1
 
-  _init=$(jq -nc '{jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2025-03-26",capabilities:{},clientInfo:{name:"gstack-graph-canary",version:"1"}}')
-  _ready='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
-  _call=$(jq -nc --arg symbol "$_symbol" --arg source "$SOURCE_ID" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"code_blast",arguments:{symbol:$symbol,source_id:$source,depth:2}}}')
+  _init=$(jq -nc '{jsonrpc:"2.0",id:1,method:"initialize",params:{protocolVersion:"2025-03-26",capabilities:{},clientInfo:{name:"gstack-graph-canary",version:"1"}}}')
+  _ready=$(jq -nc '{jsonrpc:"2.0",method:"notifications/initialized",params:{}}')
+  _call=$(jq -nc --arg symbol "$_symbol" --arg source "$SOURCE_ID" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"code_blast",arguments:{symbol:$symbol,source_id:$source,depth:1,max_nodes:1}}}')
   _blast_raw=$(cd "$REPO_ROOT" && { printf '%s\n' "$_init" "$_ready" "$_call"; } | run_bounded "$PROBE_TIMEOUT_SECONDS" gbrain serve --surface full 2>/dev/null)
   [ $? -eq 0 ] || return 1
   _blast=$(printf '%s' "$_blast_raw" | jq -r 'select(.id == 2) | .result.content[0].text' 2>/dev/null | jq -c '.' 2>/dev/null)

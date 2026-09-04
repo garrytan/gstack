@@ -10,9 +10,12 @@
 
 import { validateSkill } from '../test/helpers/skill-parser';
 import { discoverTemplates, discoverSkillFiles } from './discover-skills';
+import { resolveCodexGenerationModel } from './resolve-codex-generation-model';
+import { ALL_HOST_CONFIGS, getExternalHosts, getHostConfig } from '../hosts/index';
+import type { HostConfig } from './host-config';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
@@ -24,6 +27,66 @@ function isRepoRootSymlink(candidateDir: string): boolean {
     return false;
   }
 }
+
+/**
+ * Canonical in-tree SKILL.md files are the Claude-host render. A host may
+ * deliberately exclude a same-name wrapper skill (for example, /claude is an
+ * outside-voice skill that must not be installed in Claude Code). Such a
+ * template has no canonical Claude output by design and is not "missing".
+ */
+export function hostGeneratesTemplate(
+  tmpl: string,
+  hostConfig: HostConfig,
+  rootDir = ROOT,
+): boolean {
+  const parent = path.dirname(tmpl);
+  const skillDir = parent === '.' ? path.basename(rootDir) : parent.split(path.sep)[0];
+  const included = hostConfig.generation.includeSkills;
+  if (included?.length && !included.includes(skillDir)) return false;
+  return !hostConfig.generation.skipSkills?.includes(skillDir);
+}
+
+export interface FreshnessInvocation {
+  args: string[];
+  command: string;
+  model?: string;
+  modelSource?: string;
+  warnings: string[];
+}
+
+/** Build the exact generator invocation setup uses for the effective host. */
+export function freshnessInvocation(
+  hostConfig: HostConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): FreshnessInvocation {
+  const args = ['run', 'scripts/gen-skill-docs.ts'];
+  if (hostConfig.name !== 'claude') args.push('--host', hostConfig.name);
+
+  let model: string | undefined;
+  let modelSource: string | undefined;
+  let warnings: string[] = [];
+  if (hostConfig.name === 'codex') {
+    const resolution = resolveCodexGenerationModel({
+      codexHome: env.CODEX_HOME,
+      home: env.HOME,
+    });
+    model = resolution.model;
+    modelSource = resolution.source;
+    warnings = resolution.warnings;
+    args.push('--model', resolution.model);
+  }
+
+  args.push('--dry-run');
+  return {
+    args,
+    command: ['bun', ...args].join(' '),
+    model,
+    modelSource,
+    warnings,
+  };
+}
+
+if (import.meta.main) {
 
 // Find all SKILL.md files (dynamic discovery — no hardcoded list)
 const SKILL_FILES = discoverSkillFiles(ROOT);
@@ -64,10 +127,15 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const canonicalHost = getHostConfig('claude');
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
+  if (!hostGeneratesTemplate(tmpl, canonicalHost)) {
+    console.log(`  -  ${tmpl.padEnd(30)} — skipped for ${canonicalHost.displayName}`);
+    continue;
+  }
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
     continue;
@@ -89,8 +157,6 @@ for (const file of SKILL_FILES) {
 }
 
 // ─── External Host Skills (config-driven) ───────────────────
-
-import { getExternalHosts } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -130,24 +196,35 @@ for (const hostConfig of getExternalHosts()) {
 
 // ─── Freshness (config-driven) ──────────────────────────────
 
-import { ALL_HOST_CONFIGS } from '../hosts/index';
-
 for (const hostConfig of ALL_HOST_CONFIGS) {
-  const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;
+  const invocation = freshnessInvocation(hostConfig);
   console.log(`\n  Freshness (${hostConfig.displayName}):`);
-  try {
-    execSync(`bun run scripts/gen-skill-docs.ts${hostFlag} --dry-run`, { cwd: ROOT, stdio: 'pipe' });
+  if (invocation.model) {
+    console.log(`  Profile: ${invocation.model} (${invocation.modelSource})`);
+  }
+  for (const warning of invocation.warnings) {
+    console.log(`  ⚠️  ${warning}`);
+  }
+  const result = spawnSync('bun', invocation.args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: process.env,
+    timeout: 120_000,
+  });
+  if (!result.error && result.status === 0) {
     console.log(`  \u2705 All ${hostConfig.displayName} generated files are fresh`);
-  } catch (err: any) {
+  } else {
     hasErrors = true;
-    const output = err.stdout?.toString() || '';
+    const output = result.stdout || '';
     console.log(`  \u274c ${hostConfig.displayName} generated files are stale:`);
     for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
       console.log(`      ${line}`);
     }
-    console.log(`      Run: bun run gen:skill-docs${hostFlag}`);
+    if (result.error) console.log(`      ${result.error.message}`);
+    console.log(`      Run: ${invocation.command.replace(/ --dry-run$/, '')}`);
   }
 }
 
 console.log('');
 process.exit(hasErrors ? 1 : 0);
+}

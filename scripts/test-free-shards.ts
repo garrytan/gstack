@@ -89,6 +89,15 @@ import {
   strictTestExitCode,
   stripAnsiLine,
 } from './test-strict-output';
+import {
+  createTestShardProcessRegistry,
+  forceReapRegisteredProcessesSync,
+  reapTestShardProcesses,
+  registryEnvironment,
+  signalRegisteredServersForCancellation,
+  type TestShardProcessCleanupDependencies,
+  type TestShardProcessCleanupReport,
+} from './test-shard-process-owner';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 // design/test was silently absent from BOTH the package.json test script and
@@ -251,6 +260,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'browse/test/security-audit-r2.test.ts',
     reason: 'symlink-attack fixtures (evil-link) need Developer Mode CI runners lack; expect(toThrow) fires unhandled on Windows',
+  },
+  {
+    file: 'test/test-free-shards-detached-lifecycle.test.ts',
+    reason: 'POSIX process-session E2E launches real Playwright Chromium and proves setsid daemon cleanup; Windows uses different process ownership semantics',
   },
 ];
 
@@ -1101,6 +1114,8 @@ export interface FreeShardOutcome {
    * hole the strict classifier exists to close.
    */
   unattributedFailures: number;
+  /** Exact detached-process cleanup failure, retained even when timeout owns exit 124. */
+  cleanupFailure: string | null;
 }
 
 export interface ShardCommand {
@@ -1117,6 +1132,8 @@ export interface RunFreeShardOptions {
   parallel?: boolean;
   /** Override the spawned command. Tests inject fake pass/fail/slow commands. */
   commandFor?: (files: string[]) => ShardCommand;
+  /** Test seam for proving that a failed OS process census fails cleanup closed. */
+  processCleanupDependencies?: TestShardProcessCleanupDependencies;
   /** Suppress ALL child output from the console (tests). The classifier and the log file still see every byte. */
   quiet?: boolean;
   /** Forward the full child stream to the console (legacy firehose). Default: the quiet filtered console. */
@@ -1179,7 +1196,7 @@ export async function runFreeShard(
   // so an unoccupied index must not fail or shift work to a different runner.
   if (files.length === 0) {
     const outcome: FreeShardOutcome = {
-      shard: shardNumber, files: [], status: 'passed', exitCode: 0, elapsedMs: 0, groupPid: null, failingFiles: [], unattributedFailures: 0,
+      shard: shardNumber, files: [], status: 'passed', exitCode: 0, elapsedMs: 0, groupPid: null, failingFiles: [], unattributedFailures: 0, cleanupFailure: null,
     };
     log(shardEpilogue(outcome, totalShards));
     return outcome;
@@ -1208,11 +1225,18 @@ export async function runFreeShard(
 
   const env = { ...(options.env ?? process.env) };
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-free-shard-'));
+  const processRegistry = createTestShardProcessRegistry(stateDir);
   const childTmp = path.join(stateDir, 'tmp');
   fs.mkdirSync(childTmp);
   env.TMPDIR = childTmp;
   env.TEMP = childTmp;
   env.TMP = childTmp;
+  // Browser daemons intentionally setsid() so they persist across interactive
+  // CLI invocations. A test-owned daemon must instead remain owned by this
+  // shard even after escaping the child's process group. The injected registry
+  // is outside TMPDIR so a test deleting its own fixture cannot erase custody.
+  Object.assign(env, registryEnvironment(processRegistry));
+  env.BROWSE_STATE_FILE = path.join(stateDir, 'browse.json');
   // Per-shard Chromium profile (same isolation idea as TMPDIR): nine test
   // files launch in-process persistent contexts or daemons that default to
   // the SHARED ~/.gstack/chromium-profile, and two concurrent shards on one
@@ -1234,10 +1258,22 @@ export async function runFreeShard(
     windowsHide: true,
   });
   const groupPid = child.pid ?? null;
+  let signalForwardingCleanupError: string | null = null;
   // Group-kill on parent SIGINT/SIGTERM too, not just on timeout.
   const forwarding = installChildSignalForwarding({
     kill: (signal?: NodeJS.Signals | number) => {
-      killProcessGroup(child, (signal as NodeJS.Signals) ?? 'SIGTERM');
+      const forwardedSignal = (signal as NodeJS.Signals) ?? 'SIGTERM';
+      killProcessGroup(child, forwardedSignal);
+      try {
+        if (forwardedSignal === 'SIGKILL') {
+          forceReapRegisteredProcessesSync(processRegistry);
+        } else {
+          signalRegisteredServersForCancellation(processRegistry);
+        }
+      } catch (error) {
+        signalForwardingCleanupError = `could not signal detached-process registry: ${error instanceof Error ? error.message : String(error)}`;
+        console.error(`${label} ${signalForwardingCleanupError}`);
+      }
       return true;
     },
   });
@@ -1277,6 +1313,9 @@ export async function runFreeShard(
   }, wallTimeoutMs);
 
   let exitCode: number | null = null;
+  let processCleanup: TestShardProcessCleanupReport | null = null;
+  let processCleanupError: string | null = null;
+  let retainShardState = false;
   try {
     const streams: Array<Promise<void>> = [];
     if (child.stdout) streams.push(consumeStream(child.stdout, 'stdout'));
@@ -1289,28 +1328,67 @@ export async function runFreeShard(
   } finally {
     clearTimeout(killTimer);
     forwarding.dispose();
-    // Reap survivors of this shard even on the clean path.
+    // First reap the ordinary shard group, then the detached processes that
+    // deliberately escaped it. The registry must remain on disk until both
+    // graceful and exact-force cleanup have converged.
     killProcessGroup(child, 'SIGKILL');
+    try {
+      processCleanup = await reapTestShardProcesses(processRegistry, options.processCleanupDependencies);
+      if (!processCleanup.success) {
+        processCleanupError = `${processCleanup.survivors} survivor(s), `
+          + `${processCleanup.unsafeGroups} unsafe process group(s), `
+          + `${processCleanup.identityMismatches} identity mismatch(es), `
+          + `${processCleanup.invalidRecords} invalid registry row(s)`;
+        retainShardState = processCleanup.survivors > 0
+          || processCleanup.unsafeGroups > 0
+          || processCleanup.identityMismatches > 0;
+      }
+    } catch (error) {
+      processCleanupError = error instanceof Error ? error.message : String(error);
+      // Without a trusted registry header we cannot prove what still needs
+      // custody. Preserve the shard root instead of deleting the only receipt.
+      retainShardState = true;
+    }
+    if (signalForwardingCleanupError) {
+      processCleanupError = processCleanupError
+        ? `${signalForwardingCleanupError}; ${processCleanupError}`
+        : signalForwardingCleanupError;
+      retainShardState = true;
+    }
     reporter.end();
     await new Promise<void>((resolve) => logStream.end(() => resolve()));
-    try {
-      fs.rmSync(stateDir, { recursive: true, force: true });
-    } catch {
-      // Best-effort cleanup of a throwaway temp dir — a locked file on
-      // Windows must not turn a real verdict into an exception.
+    if (!retainShardState) {
+      try {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup of a throwaway temp dir — a locked file on
+        // Windows must not turn a real verdict into an exception.
+      }
+    }
+    if (fs.existsSync(stateDir)) {
+      processCleanupError = processCleanupError
+        ? `${processCleanupError}; shard state retained at ${stateDir}`
+        : 'shard state directory survived cleanup';
     }
   }
 
   const summary = classifier.end();
   const status: FreeShardStatus = timedOut
     ? 'timed-out'
-    : strictTestExitCode(exitCode ?? 1, summary, files.length) === 0 ? 'passed' : 'failed';
+    : processCleanupError
+      ? 'failed'
+      : strictTestExitCode(exitCode ?? 1, summary, files.length) === 0 ? 'passed' : 'failed';
 
   if (status === 'timed-out') {
     console.error(
       `${label} exceeded the ${Math.round(wallTimeoutMs / 1000)}s wall-clock deadline — `
       + 'killed the process group. Reporting as TIMED-OUT (distinct from failed).',
     );
+    if (processCleanupError) {
+      console.error(`${label} timed out AND detached-process cleanup failed: ${processCleanupError}`);
+    }
+  } else if (processCleanupError) {
+    console.error(`${label} detached-process leak gate failed: ${processCleanupError}`);
   } else if (status === 'failed' && (exitCode ?? 1) === 0) {
     const reason = summary.failedTests > 0 || summary.unhandledBetweenTests > 0
       ? `printed ${summary.failedTests} failing result(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
@@ -1330,11 +1408,17 @@ export async function runFreeShard(
   const unattributedFailures = status === 'passed' ? 0
     : report.failures.filter((f) => !f.file).length
       + report.unhandledErrors.length
-      + (report.sawTerminalSummary ? 0 : 1);
+      + (report.sawTerminalSummary ? 0 : 1)
+      + (processCleanupError ? 1 : 0);
   const outcome: FreeShardOutcome = {
-    shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,
+    shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures, cleanupFailure: processCleanupError,
   };
   log(shardEpilogue(outcome, totalShards));
+  if (processCleanup && processCleanup.registered > 0) {
+    log(`${label} detached-process gate: ${processCleanup.registered} registered, `
+      + `${processCleanup.gracefullyStoppedServers} server(s) graceful, `
+      + `${processCleanup.survivors} survivor(s), ${processCleanup.success ? 'pass' : 'fail'}`);
+  }
   for (const line of buildRunEpilogue(status, report, outcome.elapsedMs, logPath)) log(line);
   return outcome;
 }
@@ -1533,6 +1617,14 @@ async function main(): Promise<number> {
       }
     }
     outcomes.push(mutatorOutcome);
+  }
+
+  const cleanupFailures = outcomes.filter((outcome) => outcome.cleanupFailure !== null);
+  if (cleanupFailures.length > 0) {
+    console.error(`[test:free] DETACHED-PROCESS CLEANUP FAILURES — ${cleanupFailures.length} shard(s):`);
+    for (const outcome of cleanupFailures) {
+      console.error(`[test:free]   shard ${outcome.shard}: ${outcome.cleanupFailure}`);
+    }
   }
 
   // Opt-in flaky retry (GSTACK_FREE_RETRY_FLAKY=1): when every failure is an

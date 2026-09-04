@@ -987,19 +987,22 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // Persist the source's purpose, not just this invocation's override.
   // Autopilot and `sync --all` read sources.config.strategy and otherwise
   // fall back to markdown, which can silently replace a valid code index on
-  // their next full walk. Older gbrain builds lack set-strategy; keep the
-  // explicit --strategy code invocation below as a backwards-compatible
-  // fallback, but make the degraded durability visible outside quiet mode.
+  // their next full walk. A one-shot `--strategy code` override cannot make
+  // that durable, so failure here must fail the stage closed.
   const strategyResult = spawnGbrain(["sources", "set-strategy", sourceId, "code"], {
     stdio: ["ignore", "ignore", "pipe"],
     timeout: 10_000,
     baseEnv: gbrainEnv,
   });
-  if (strategyResult.status !== 0 && !args.quiet) {
-    console.error(
-      `[sync:code] source strategy could not be persisted; continuing with the explicit code override ` +
-      `(upgrade gbrain if autopilot or sync --all manages this source).`,
-    );
+  if (strategyResult.status !== 0) {
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `gbrain sources set-strategy ${sourceId} code exited ${strategyResult.status}`,
+      detail: { source_id: sourceId, source_path: root, status: "failed" },
+    };
   }
 
   // Step 2: Always run the page-creating file walk first, then (for --full)

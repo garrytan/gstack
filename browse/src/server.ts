@@ -70,6 +70,7 @@ import {
 import {
   mintLease, validateLease, refreshLease, revokeLease,
 } from './pty-session-lease';
+import { registerTestShardDescendants, registerTestShardProcess } from './test-shard-process-registry';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -3040,6 +3041,17 @@ export async function start() {
 
   const port = await findPort();
   LOCAL_LISTEN_PORT = port;
+  // Production daemons intentionally outlive the CLI invocation that starts
+  // them. Free-test shards inject a private registry so the same setsid()
+  // boundary cannot escape test ownership. With no injected registry this is
+  // a strict no-op and interactive persistence is unchanged.
+  registerTestShardProcess({
+    kind: 'browse-server',
+    pid: process.pid,
+    parentPid: process.ppid,
+    port,
+    stateFile: config.stateFile,
+  });
 
   // ─── Proxy config (D8 + codex F5) ──────────────────────────────
   // BROWSE_PROXY_URL is set by the CLI when --proxy was passed. For SOCKS5
@@ -3119,6 +3131,12 @@ export async function start() {
     }
     try {
       xvfb = await spawnXvfb(displayNum);
+      registerTestShardProcess({
+        kind: 'xvfb',
+        pid: xvfb.pid,
+        parentPid: process.pid,
+        stateFile: config.stateFile,
+      });
       process.env.DISPLAY = xvfb.display;
       console.log(`[browse] [xvfb] spawned on ${xvfb.display} (pid ${xvfb.pid})`);
     } catch (err) {
@@ -3149,6 +3167,21 @@ export async function start() {
     } else {
       await browserManager.launch();
     }
+    const chromium = browserManager.getChromiumProcInfo();
+    if (chromium) {
+      registerTestShardProcess({
+        kind: 'chromium',
+        pid: chromium.pid,
+        parentPid: process.pid,
+        stateFile: config.stateFile,
+      });
+    }
+    registerTestShardDescendants({
+      kind: 'chromium',
+      ancestorPid: process.pid,
+      port,
+      stateFile: config.stateFile,
+    });
   }
 
   const startTime = Date.now();

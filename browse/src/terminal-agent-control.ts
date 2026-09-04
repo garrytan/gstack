@@ -19,6 +19,7 @@ import * as path from 'path';
 import { safeUnlink, safeKill, isProcessAlive } from './error-handling';
 import { restrictFilePermissions, mkdirSecure } from './file-permissions';
 import { atomicWriteSync } from '../../lib/fs-atomic';
+import { registerTestShardProcess } from './test-shard-process-registry';
 
 /**
  * Locate the terminal-agent script on disk. In dev (cli.ts running via
@@ -86,7 +87,17 @@ export function spawnTerminalAgent(opts: {
     windowsHide: true,
   });
   proc.unref?.();
-  return proc.pid ?? null;
+  const pid = proc.pid ?? null;
+  if (pid !== null) {
+    registerTestShardProcess({
+      kind: 'terminal-agent',
+      pid,
+      parentPid: opts.ownerPid,
+      port: opts.serverPort,
+      stateFile: opts.stateFile,
+    });
+  }
+  return pid;
 }
 
 export interface AgentRecord {

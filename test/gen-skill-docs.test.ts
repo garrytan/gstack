@@ -2565,7 +2565,9 @@ describe('setup script validation', () => {
     // v1.67 (#2569): the source is render-aware — canonical SKILL.md, or the
     // rendered :user variant from ${GSTACK_HOME}/render/claude when present.
     expect(fnBody).toContain('_skill_md_src="$gstack_dir/$dir_name/SKILL.md"');
-    expect(fnBody).toContain('_install_alias_skill_md "$_skill_md_src" "$target" "$link_name"');
+    expect(fnBody).toContain(
+      '_install_managed_skill_md "$_skill_md_src" "$target" "$dir_name" "$link_name" 1',
+    );
     expect(fnBody).toContain('_link_or_copy "$_skill_md_src" "$target/SKILL.md"');
     expect(fnBody).not.toContain('.gstack-managed');
   });

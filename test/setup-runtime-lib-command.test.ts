@@ -49,6 +49,7 @@ interface CommandResult {
   learningsWritten: boolean;
   libIsSymlink: boolean | null;
   supabaseConfigPresent: boolean;
+  scriptsSurfacePresent: boolean;
 }
 
 // Build one host runtime root inside a sandbox using the real setup shell code
@@ -68,7 +69,15 @@ function buildRootAndRunCommand(
     const { script, rootDir } = buildScript(sandbox);
     const build = spawnSync(
       'bash',
-      ['-c', `IS_WINDOWS=${isWindows}\n${extractFunction('_link_or_copy')}\n${script}`],
+      ['-c', [
+        `IS_WINDOWS=${isWindows}`,
+        extractFunction('_link_or_copy'),
+        extractFunction('_sidecar_root_user_owned'),
+        extractFunction('_runtime_root_owner_marker'),
+        extractFunction('_runtime_root_owned'),
+        extractFunction('_prepare_runtime_root'),
+        script,
+      ].join('\n')],
       { encoding: 'utf-8', timeout: 30000 },
     );
 
@@ -99,6 +108,9 @@ function buildRootAndRunCommand(
       // [ -f ... ] guard means a missing file degrades SILENTLY, so only a
       // presence check on the installed root catches it.
       supabaseConfigPresent: fs.existsSync(path.join(rootDir, 'supabase', 'config.sh')),
+      scriptsSurfacePresent:
+        fs.existsSync(path.join(rootDir, 'scripts', 'jargon-list.json'))
+        && fs.existsSync(path.join(rootDir, 'scripts', 'question-registry.ts')),
     };
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
@@ -138,6 +150,13 @@ const HOST_ROOTS: Record<string, (sandbox: string) => { script: string; rootDir:
     ].join('\n'),
     rootDir: path.join(sandbox, 'home', '.opencode', 'skills', 'gstack'),
   }),
+  cursor: (sandbox) => ({
+    script: [
+      extractFunction('create_cursor_runtime_root'),
+      `create_cursor_runtime_root "${ROOT}" "${sandbox}/home/.cursor/skills/gstack"`,
+    ].join('\n'),
+    rootDir: path.join(sandbox, 'home', '.cursor', 'skills', 'gstack'),
+  }),
   kiro: (sandbox) => ({
     script: [
       `HOME="${sandbox}/home"`,
@@ -165,6 +184,7 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       expect(r.runStatus).toBe(0);
       expect(r.learningsWritten).toBe(true);
       expect(r.supabaseConfigPresent).toBe(true);
+      expect(r.scriptsSurfacePresent).toBe(true);
     });
 
     test(`${host} root (Windows copy install): gstack-learnings-log imports ../lib and writes the learning`, () => {
@@ -176,6 +196,7 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       expect(r.runStatus).toBe(0);
       expect(r.learningsWritten).toBe(true);
       expect(r.supabaseConfigPresent).toBe(true);
+      expect(r.scriptsSurfacePresent).toBe(true);
     });
   }
 

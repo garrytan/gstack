@@ -16,6 +16,7 @@ STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 # never block a session over a receipt hiccup.
 . "$(cd "$(dirname "$0")" && pwd)/gstack-egress-lib.sh"
 THROTTLE_FILE="$STATE_DIR/.last-session-update"
+PENDING_SETUP_FILE="$STATE_DIR/.pending-session-setup"
 LOCK_DIR="$STATE_DIR/.setup-lock"
 LOG_FILE="$STATE_DIR/analytics/session-update.log"
 THROTTLE_SECONDS=3600  # 1 hour
@@ -37,7 +38,10 @@ if [ "$AUTO" != "true" ]; then
 fi
 
 # ── Throttle: skip if checked recently ──
-if [ -f "$THROTTLE_FILE" ]; then
+# A pending setup is an incomplete upgrade, not a routine update check. It
+# deliberately bypasses this throttle so the next session retries as soon as
+# the collision/environmental failure has been resolved.
+if [ -f "$THROTTLE_FILE" ] && [ ! -f "$PENDING_SETUP_FILE" ]; then
   LAST=$(cat "$THROTTLE_FILE" 2>/dev/null || echo 0)
   NOW=$(date +%s)
   ELAPSED=$(( NOW - LAST ))
@@ -129,15 +133,55 @@ fi
 
   # ── Pull latest ──
   OLD_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
+
+  # A background session hook is not an owner of operator edits. Never invoke
+  # pull/autostash on a dirty checkout: an autostash apply conflict leaves a
+  # half-merged tree, and attempting to "recover" it with checkout + stash
+  # drop destroys the only recoverable copy. Fail closed with HEAD, worktree,
+  # index, and every existing stash/ref byte-for-byte untouched.
+  if [ -n "$(git -C "$GSTACK_DIR" status --porcelain --untracked-files=normal 2>/dev/null)" ]; then
+    date +%s > "$THROTTLE_FILE" 2>/dev/null
+    log_entry "SKIP dirty_worktree head=${OLD_HEAD:-unknown}"
+    exit 0
+  fi
+
+  # Persist upgrade intent BEFORE git can move HEAD. If this process crashes
+  # after the fast-forward but before/during setup, the next session still has
+  # the exact pre-upgrade revision needed to prove legacy generated copies.
+  # Never overwrite an older pending base: setup may have failed at A -> B and
+  # the source may advance again to C before the collision is repaired.
+  HAD_PENDING_SETUP=0
+  PENDING_SETUP_FROM=""
+  if [ -f "$PENDING_SETUP_FILE" ]; then
+    HAD_PENDING_SETUP=1
+    PENDING_SETUP_FROM=$(sed -n 's/^from=//p' "$PENDING_SETUP_FILE" 2>/dev/null | head -n 1)
+    case "$PENDING_SETUP_FROM" in
+      ''|*[!0-9a-fA-F]*) PENDING_SETUP_FROM="" ;;
+    esac
+    if [ -z "$PENDING_SETUP_FROM" ] \
+      || ! git -C "$GSTACK_DIR" rev-parse --verify "${PENDING_SETUP_FROM}^{commit}" >/dev/null 2>&1 \
+      || ! git -C "$GSTACK_DIR" merge-base --is-ancestor "$PENDING_SETUP_FROM" "$OLD_HEAD" >/dev/null 2>&1; then
+      log_entry "SETUP_PENDING_INVALID"
+      exit 0
+    fi
+  else
+    PENDING_SETUP_FROM="$OLD_HEAD"
+    PENDING_SETUP_TMP=$(mktemp "$STATE_DIR/.pending-session-setup.XXXXXX" 2>/dev/null || echo "")
+    if [ -z "$PENDING_SETUP_TMP" ] \
+      || ! printf 'from=%s\n' "$PENDING_SETUP_FROM" > "$PENDING_SETUP_TMP" 2>/dev/null \
+      || ! mv -f "$PENDING_SETUP_TMP" "$PENDING_SETUP_FILE" 2>/dev/null; then
+      [ -n "$PENDING_SETUP_TMP" ] && rm -f "$PENDING_SETUP_TMP" 2>/dev/null
+      log_entry "SETUP_PENDING_WRITE_FAILED head=${OLD_HEAD:-unknown}"
+      exit 0
+    fi
+  fi
+
   UPDATE_URL=$(git -C "$GSTACK_DIR" remote get-url origin 2>/dev/null || echo "")
   UPDATE_HOST="${UPDATE_URL#*://}"; UPDATE_HOST="${UPDATE_HOST#*@}"; UPDATE_HOST="${UPDATE_HOST%%[/:]*}"
-  # --autostash preserves genuine operator edits while updating. Generated
-  # prefix/render variants live outside the tracked checkout, so a normal
-  # install is clean; the flag remains defensive for user-owned changes.
   # Capture stderr: the log must carry WHY a pull failed, never just the code.
   PULL_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-session-pull-XXXXXX" 2>/dev/null || echo "")
   GSTACK_HOME="$STATE_DIR" _receipted_git open session-update "${UPDATE_HOST:-unknown}" gstack-self-update-pull "auto_upgrade=true" \
-    bash -c 'git -C "$1" pull --ff-only --autostash -q 2>"${2:-/dev/null}"' _ "$GSTACK_DIR" "$PULL_ERR_FILE"
+    bash -c 'git -C "$1" pull --ff-only -q 2>"${2:-/dev/null}"' _ "$GSTACK_DIR" "$PULL_ERR_FILE"
   PULL_EXIT=$?
   NEW_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
 
@@ -150,46 +194,77 @@ fi
   if [ "$PULL_EXIT" -ne 0 ]; then
     PULL_REASON=$(head -c 300 "$PULL_ERR_FILE" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
     log_entry "PULL_FAILED exit=$PULL_EXIT reason=${PULL_REASON:-unknown}"
-    # Autostash pop conflict leaves the stash behind and the tree half-merged.
-    # Recover the tracked install and refresh its consumer renders rather than
-    # leaving conflict markers in the live checkout.
-    if grep -qi "autostash" "$PULL_ERR_FILE" 2>/dev/null; then
-      git -C "$GSTACK_DIR" checkout -q -- . 2>/dev/null
-      git -C "$GSTACK_DIR" stash drop -q 2>/dev/null
-      log_entry "AUTOSTASH_CONFLICT_RECOVERED tree_reset=1"
-      "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
-    fi
     rm -f "$PULL_ERR_FILE" 2>/dev/null
+    # A marker created solely for this unchanged failed pull carries no
+    # incomplete migration. Preserve pre-existing markers and any marker whose
+    # pull moved HEAD despite returning non-zero.
+    if [ "$HAD_PENDING_SETUP" -eq 0 ] && [ "$OLD_HEAD" = "$NEW_HEAD" ]; then
+      rm -f "$PENDING_SETUP_FILE" 2>/dev/null
+    fi
     exit 0
   fi
   rm -f "$PULL_ERR_FILE" 2>/dev/null
-  # Refresh user-owned brain renders over the fresh tree. Prefix frontmatter is
-  # applied later to installed consumer copies by setup/relink, never here.
-  "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
+  # ── If HEAD moved or an earlier setup is pending, run setup -q ──
+  if [ "$OLD_HEAD" != "$NEW_HEAD" ] || [ "$HAD_PENDING_SETUP" -eq 1 ]; then
+    if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
+      log_entry "UPDATING old=$OLD_HEAD new=$NEW_HEAD"
+    else
+      log_entry "SETUP_RETRY from=$PENDING_SETUP_FROM head=$NEW_HEAD"
+    fi
 
-  # ── If HEAD moved, run setup -q ──
-  if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
-    log_entry "UPDATING old=$OLD_HEAD new=$NEW_HEAD"
+    # Do not let a stale success marker claim that an upgrade completed while
+    # its consumer/runtime migration is still pending.
+    rm -f "$STATE_DIR/just-upgraded-from" 2>/dev/null
 
     # bun must be available for setup
     if command -v bun >/dev/null 2>&1; then
-      ( cd "$GSTACK_DIR" && ./setup -q ) >/dev/null 2>&1 || {
-        log_entry "SETUP_FAILED"
-      }
-      # Heartbeat: setup done (either way) — refresh the TTL clock.
+      # Keep the exact pre-pull revision available to setup's one-time legacy
+      # ownership migration. Setup refreshes brain-aware renders only after it
+      # has adopted the prior consumer copies, so a source change cannot turn
+      # a legitimate first upgrade into a false collision.
+      if ( cd "$GSTACK_DIR" && GSTACK_UPGRADE_FROM_HEAD="$PENDING_SETUP_FROM" ./setup -q ) >/dev/null 2>&1; then
+        SETUP_OK=1
+      else
+        SETUP_EXIT=$?
+        SETUP_OK=0
+        log_entry "SETUP_FAILED exit=$SETUP_EXIT from=$PENDING_SETUP_FROM head=$NEW_HEAD"
+      fi
+      # Heartbeat: setup done — refresh the TTL clock.
       touch "$LOCK_DIR/pid" 2>/dev/null
     else
-      log_entry "SETUP_SKIPPED bun_missing"
+      SETUP_OK=0
+      log_entry "SETUP_DEFERRED bun_missing from=$PENDING_SETUP_FROM head=$NEW_HEAD"
+    fi
+
+    if [ "$SETUP_OK" -ne 1 ]; then
+      # PENDING_SETUP_FILE intentionally survives. Its presence bypasses the
+      # throttle and forces a retry even when the next pull leaves HEAD equal.
+      exit 0
+    fi
+    if ! rm -f "$PENDING_SETUP_FILE" 2>/dev/null; then
+      log_entry "SETUP_PENDING_CLEAR_FAILED from=$PENDING_SETUP_FROM head=$NEW_HEAD"
+      exit 0
     fi
 
     # Write marker so next skill preamble shows "just upgraded"
-    OLD_VER=$(git -C "$GSTACK_DIR" show "$OLD_HEAD:VERSION" 2>/dev/null || echo "unknown")
+    OLD_VER=$(git -C "$GSTACK_DIR" show "$PENDING_SETUP_FROM:VERSION" 2>/dev/null || echo "unknown")
     echo "$OLD_VER" > "$STATE_DIR/just-upgraded-from" 2>/dev/null
     rm -f "$STATE_DIR/last-update-check" 2>/dev/null
     rm -f "$STATE_DIR/update-snoozed" 2>/dev/null
 
-    log_entry "UPDATED from=$OLD_VER to=$(cat "$GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
+    if [ "$HAD_PENDING_SETUP" -eq 1 ] && [ "$OLD_HEAD" = "$NEW_HEAD" ]; then
+      log_entry "SETUP_RECOVERED from=$OLD_VER to=$(cat "$GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
+    else
+      log_entry "UPDATED from=$OLD_VER to=$(cat "$GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
+    fi
   else
+    # The pre-pull intent marker is no longer needed: HEAD did not move and no
+    # earlier migration was pending.
+    rm -f "$PENDING_SETUP_FILE" 2>/dev/null
+    # No upgrade migration is needed. Refreshing here keeps user-rendered
+    # skills current without replacing the old render before setup can prove
+    # ownership on an actual HEAD transition.
+    "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
     log_entry "UP_TO_DATE head=$OLD_HEAD"
   fi
 # The detached subshell must own its stdio: it inherits the session hook's

@@ -33,17 +33,16 @@ describe('setup: cleanup_old_claude_symlinks — static (#2204)', () => {
     expect(body).toContain('for old_target in "$skills_dir"/*');
     expect(body).toContain('[ "$skill_name" = "gstack" ] && continue');
     expect(body).toContain('readlink');
-    expect(body).toContain('gstack/*');
     expect(body).toContain('gstack-*) continue');
     expect(body).toContain('-d "$old_target"');
     expect(body).toContain('-L "$old_target/SKILL.md"');
     expect(body).toContain('rm -rf "$old_target"');
-    // SKILL.md arm must use path-segment provenance, not a bare substring.
-    expect(body).toContain('gstack/*|*/gstack/*|*/.gstack/render/claude/*');
-    expect(body).not.toMatch(/\*gstack\*\)/);
+    expect(body).toContain('[ "$link_dest" = "$gstack_dir/$skill_name" ]');
+    expect(body).toContain('[ "$link_dest" = "$render_dir/$skill_name/SKILL.md" ]');
+    expect(body).not.toMatch(/case "\$link_dest" in\s+gstack\/\*\|\*\/gstack\/\*/);
   });
 
-  test('Windows real-file reap still requires a live payload name list', () => {
+  test('Windows real-file reap requires a live payload name and ownership marker', () => {
     const body = cleanupBody();
     expect(body).toContain('for skill_dir in "$gstack_dir"/*/');
     expect(body).toContain('[ "${IS_WINDOWS:-0}" -eq 1 ] && [ -d "$gstack_dir" ]');
@@ -54,20 +53,22 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
   function runCleanup(opts: {
     isWindows?: '0' | '1';
     payload?: boolean;
-    plant: (skills: string, payload: string) => void;
+    plant: (skills: string, payload: string, renderDir: string) => void;
   }): { status: number; stdout: string; stderr: string; names: string[]; tmp: string } {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cleanup-orphans-'));
     const skills = path.join(tmp, 'skills');
     const payload = path.join(skills, 'gstack');
+    const renderDir = path.join(tmp, 'render', 'claude');
     fs.mkdirSync(skills, { recursive: true });
     if (opts.payload) {
       fs.mkdirSync(payload, { recursive: true });
     }
-    opts.plant(skills, payload);
+    opts.plant(skills, payload, renderDir);
     const gstackArg = opts.payload ? payload : path.join(skills, 'missing-payload');
     const script = [
       'set -e',
       `IS_WINDOWS=${opts.isWindows ?? '0'}`,
+      `GSTACK_USER_RENDER_DIR="${renderDir}"`,
       extractFn('cleanup_old_claude_symlinks'),
       `cleanup_old_claude_symlinks "${gstackArg}" "${skills}"`,
     ].join('\n');
@@ -207,13 +208,61 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
     }
   });
 
-  test('reaps a leftover whose SKILL.md points at the user render dir', () => {
+  test('does not remove a whole-dir user symlink into an unrelated gstack checkout', () => {
     const r = runCleanup({
       payload: false,
       plant(skills) {
+        const userTarget = path.join(path.dirname(skills), 'user', 'gstack', 'qa');
+        fs.mkdirSync(userTarget, { recursive: true });
+        fs.writeFileSync(path.join(userTarget, 'keep.txt'), 'user data\n');
+        fs.symlinkSync(userTarget, path.join(skills, 'qa'));
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('');
+      expect(r.names).toEqual(['qa']);
+      expect(fs.lstatSync(path.join(r.tmp, 'skills', 'qa')).isSymbolicLink()).toBe(true);
+      expect(fs.readFileSync(path.join(r.tmp, 'user', 'gstack', 'qa', 'keep.txt'), 'utf-8')).toBe(
+        'user data\n',
+      );
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('does not remove a user SKILL.md symlink into an unrelated gstack checkout', () => {
+    const r = runCleanup({
+      payload: false,
+      plant(skills) {
+        const userSkill = path.join(path.dirname(skills), 'user', 'gstack', 'qa', 'SKILL.md');
+        fs.mkdirSync(path.dirname(userSkill), { recursive: true });
+        fs.writeFileSync(userSkill, '# user qa\n');
+        const installed = path.join(skills, 'qa');
+        fs.mkdirSync(installed);
+        fs.symlinkSync(userSkill, path.join(installed, 'SKILL.md'));
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('');
+      expect(r.names).toEqual(['qa']);
+      expect(fs.lstatSync(path.join(r.tmp, 'skills', 'qa', 'SKILL.md')).isSymbolicLink()).toBe(true);
+      expect(fs.readFileSync(path.join(r.tmp, 'user', 'gstack', 'qa', 'SKILL.md'), 'utf-8')).toBe(
+        '# user qa\n',
+      );
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('reaps a leftover whose SKILL.md points at the user render dir', () => {
+    const r = runCleanup({
+      payload: false,
+      plant(skills, _payload, renderDir) {
         const dir = path.join(skills, 'qa');
         fs.mkdirSync(dir);
-        fs.symlinkSync('../../.gstack/render/claude/qa/SKILL.md', path.join(dir, 'SKILL.md'));
+        fs.symlinkSync(path.join(renderDir, 'qa', 'SKILL.md'), path.join(dir, 'SKILL.md'));
       },
     });
     try {
@@ -259,7 +308,7 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
     }
   });
 
-  test('Windows real-file leftover is removed when the payload still names it', () => {
+  test('Windows unmarked real-file leftover survives even when the payload names it', () => {
     const r = runCleanup({
       isWindows: '1',
       payload: true,
@@ -268,6 +317,31 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
         fs.mkdirSync(src);
         fs.writeFileSync(path.join(src, 'SKILL.md'), '---\nname: qa\n---\n');
         plantUserSkill(skills, 'qa');
+        plantUserSkill(skills, 'my-own');
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.names).toEqual(['gstack', 'my-own', 'qa']);
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('Windows marked real-file leftover is removed when the payload names it', () => {
+    const r = runCleanup({
+      isWindows: '1',
+      payload: true,
+      plant(skills, payload) {
+        const src = path.join(payload, 'qa');
+        fs.mkdirSync(src);
+        fs.writeFileSync(path.join(src, 'SKILL.md'), '---\nname: qa\n---\n');
+        const installed = path.join(skills, 'qa');
+        fs.mkdirSync(installed);
+        fs.writeFileSync(
+          path.join(installed, 'SKILL.md'),
+          '---\nname: qa\n---\n<!-- AUTO-GENERATED from gstack consumer; source=qa; served=qa -->\n',
+        );
         plantUserSkill(skills, 'my-own');
       },
     });

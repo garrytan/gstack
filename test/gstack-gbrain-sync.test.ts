@@ -169,7 +169,7 @@ exit 99
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("keeps a symlink-equivalent pinned source registered as-is", () => {
+  it("keeps a symlink-equivalent pinned source registered as-is and requires durable code strategy", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     const repo = mkdtempSync(join(tmpdir(), "gstack-pinned-source-repo-"));
@@ -186,8 +186,14 @@ exit 99
     writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
 printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
 case "$*" in
-  --version) echo 'gbrain 0.42.0.0' ;;
+  --version) echo 'gbrain 0.48.2.0' ;;
   "sources list --json") echo '{"sources":[{"id":"client-acme-app","local_path":"${link}","page_count":1}]}' ;;
+  "sources set-strategy client-acme-app code")
+    if [ "\${GSTACK_TEST_FAIL_SET_STRATEGY:-0}" = "1" ]; then
+      echo "set-strategy failed" >&2
+      exit 23
+    fi
+    ;;
   "sync --strategy code --source client-acme-app"|"sources attach client-acme-app") ;;
   *) echo "unexpected gbrain command: $*" >&2; exit 1 ;;
 esac
@@ -219,9 +225,31 @@ esac
 
     const commands = readFileSync(commandLog, "utf-8");
     expect(r.status).toBe(0);
+    expect(commands).toContain("sources set-strategy client-acme-app code");
     expect(commands).toContain("sync --strategy code --source client-acme-app");
     expect(commands).toContain("sources attach client-acme-app");
     expect(commands).not.toMatch(/^sources (add|remove) /m);
+
+    writeFileSync(commandLog, "");
+    const failedStrategy = spawnSync("bun", [SCRIPT, "--code-only", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: link,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GBRAIN_HOME: "",
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        GSTACK_TEST_FAIL_SET_STRATEGY: "1",
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+    const failedCommands = readFileSync(commandLog, "utf-8");
+    expect(failedStrategy.status).toBe(1);
+    expect(failedCommands).toContain("sources set-strategy client-acme-app code");
+    expect(failedCommands).not.toContain("sync --strategy code --source client-acme-app");
+    expect(failedCommands).not.toContain("sources attach client-acme-app");
     rmSync(repo, { recursive: true, force: true });
     rmSync(linkDir, { recursive: true, force: true });
     rmSync(bindir, { recursive: true, force: true });

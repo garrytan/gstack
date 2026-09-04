@@ -21,10 +21,10 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const DETECT = path.join(ROOT, 'bin', 'gstack-gbrain-detect');
 const INSTALL = path.join(ROOT, 'bin', 'gstack-gbrain-install');
 
-// Minimal PATH with POSIX tools + homebrew (for jq/git/curl) but no user-bin
-// dirs — this keeps `gbrain` out of PATH deterministically across dev machines
-// while still finding jq, git, curl, sed, cat, etc. Each test can prepend a
-// fake-gbrain dir when it wants to simulate presence.
+// Minimal PATH with system POSIX tools but no package-manager or user-bin dirs.
+// This keeps any real `gbrain` out of PATH deterministically across dev
+// machines while still finding jq, git, curl, sed, cat, etc. Each test can
+// prepend a fake-gbrain dir when it wants to simulate presence.
 // Deterministic PATH for spawned children — but it must still contain the
 // bun runtime itself: the bin's `#!/usr/bin/env -S bun run` shebang resolves
 // bun from PATH, and CI installs bun outside the standard dirs (~/.bun/bin),
@@ -34,7 +34,7 @@ const INSTALL = path.join(ROOT, 'bin', 'gstack-gbrain-install');
 // symlink to bun and nothing else.
 const BUN_ONLY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bun-only-'));
 fs.symlinkSync(process.execPath, path.join(BUN_ONLY_DIR, 'bun'));
-const SAFE_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${BUN_ONLY_DIR}`;
+const SAFE_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:${BUN_ONLY_DIR}`;
 
 let tmpHome: string;
 let tmpHomeReal: string;
