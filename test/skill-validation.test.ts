@@ -2,6 +2,7 @@ import { describe, test, expect, afterAll } from 'bun:test';
 import { validateSkill, extractRemoteSlugPatterns, extractWeightsFromTable } from './helpers/skill-parser';
 import { ALL_COMMANDS, COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
+import { RENDER_ENGINE_SKILLS } from '../scripts/resolvers/aside';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -50,133 +51,47 @@ function readShipUnion(): string {
 }
 
 describe('SKILL.md command validation', () => {
-  // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
-  // skill. The browse body lives only in browse/SKILL.md now. This regression
-  // pins the split: the router carries routing rules and zero browse commands,
-  // while browse/SKILL.md still advertises the full QA surface (asserted below).
+  // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER. It carries zero
+  // browse commands — it routes, it does not browse.
   test('top-level SKILL.md is a router with no browse body (P2)', () => {
     const md = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(md).toContain('## Route first');
+    expect(md).toContain('invoke `/investigate`');
     expect(md).not.toContain('gstack browse: QA Testing'); // browse body removed
-    expect(md).toContain('## Route first'); // router head present
-    expect(md).toContain('invoke `/investigate`'); // routing rules present
     const result = validateSkill(path.join(ROOT, 'SKILL.md'));
-    expect(result.invalid).toHaveLength(0); // no INVALID browse commands
-    expect(result.valid.length).toBe(0); // and no browse commands at all — it routes, not browses
-  });
-
-  test('all $B commands in browse/SKILL.md are valid browse commands', () => {
-    const result = validateSkill(path.join(ROOT, 'browse', 'SKILL.md'));
     expect(result.invalid).toHaveLength(0);
-    expect(result.valid.length).toBeGreaterThan(0);
+    expect(result.valid.length).toBe(0);
   });
 
-  test('all snapshot flags in browse/SKILL.md are valid', () => {
-    const result = validateSkill(path.join(ROOT, 'browse', 'SKILL.md'));
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
+  // Browser consolidation: every skill that opens a web page drives the Aside
+  // browser through `aside repl` / `aside exec`. The `$B` binary survives only
+  // as the local-HTML render engine, so a browsing skill's generated docs must
+  // carry ZERO `$B` commands and zero snapshot flags — not "only valid ones".
+  const BROWSING_DOCS = [
+    'browse/SKILL.md', 'qa/SKILL.md', 'qa-only/SKILL.md', 'design-review/SKILL.md',
+    'plan-design-review/SKILL.md', 'design-consultation/SKILL.md', 'autoplan/SKILL.md',
+    ...(fs.existsSync(path.join(ROOT, 'qa', 'sections'))
+      ? fs.readdirSync(path.join(ROOT, 'qa', 'sections')).filter(f => f.endsWith('.md')).map(f => `qa/sections/${f}`)
+      : []),
+  ];
+  for (const rel of BROWSING_DOCS) {
+    test(`${rel} drives Aside — zero $B commands and snapshot flags`, () => {
+      const result = validateSkill(path.join(ROOT, rel));
+      expect(result.valid).toEqual([]);
+      expect(result.invalid).toEqual([]);
+      expect(result.snapshotFlagErrors).toEqual([]);
+    });
+  }
 
-  test('all $B commands in qa/SKILL.md are valid browse commands', () => {
-    const qaSkill = path.join(ROOT, 'qa', 'SKILL.md');
-    if (!fs.existsSync(qaSkill)) return; // skip if missing
-    const result = validateSkill(qaSkill);
-    expect(result.invalid).toHaveLength(0);
-  });
-
-  test('all snapshot flags in qa/SKILL.md are valid', () => {
-    const qaSkill = path.join(ROOT, 'qa', 'SKILL.md');
-    if (!fs.existsSync(qaSkill)) return;
-    const result = validateSkill(qaSkill);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
-
-  // qa carve: the Phases 1-6 methodology (with its $B command examples) moved
-  // into qa/sections/*.md — validate the section files too so browse-command
-  // coverage doesn't silently shrink with the carve.
-  test('all $B commands and snapshot flags in qa/sections/*.md are valid', () => {
-    const secDir = path.join(ROOT, 'qa', 'sections');
-    if (!fs.existsSync(secDir)) return; // pre-carve checkout
-    const sectionMds = fs.readdirSync(secDir).filter(f => f.endsWith('.md') && !f.endsWith('.md.tmpl'));
-    expect(sectionMds.length).toBeGreaterThan(0);
-    let validTotal = 0;
-    for (const f of sectionMds) {
-      const result = validateSkill(path.join(secDir, f));
-      expect({ file: f, invalid: result.invalid }).toEqual({ file: f, invalid: [] });
-      expect({ file: f, snapshotFlagErrors: result.snapshotFlagErrors }).toEqual({ file: f, snapshotFlagErrors: [] });
-      validTotal += result.valid.length;
-    }
-    // Non-empty guard: the carved methodology must still carry $B examples.
-    expect(validTotal).toBeGreaterThan(0);
-  });
-
-  test('all $B commands in qa-only/SKILL.md are valid browse commands', () => {
-    const qaOnlySkill = path.join(ROOT, 'qa-only', 'SKILL.md');
-    if (!fs.existsSync(qaOnlySkill)) return;
-    const result = validateSkill(qaOnlySkill);
-    expect(result.invalid).toHaveLength(0);
-  });
-
-  test('all snapshot flags in qa-only/SKILL.md are valid', () => {
-    const qaOnlySkill = path.join(ROOT, 'qa-only', 'SKILL.md');
-    if (!fs.existsSync(qaOnlySkill)) return;
-    const result = validateSkill(qaOnlySkill);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
-
-  test('all $B commands in plan-design-review/SKILL.md are valid browse commands', () => {
-    const skill = path.join(ROOT, 'plan-design-review', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.invalid).toHaveLength(0);
-  });
-
-  test('all snapshot flags in plan-design-review/SKILL.md are valid', () => {
-    const skill = path.join(ROOT, 'plan-design-review', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
-
-  test('all $B commands in design-review/SKILL.md are valid browse commands', () => {
-    const skill = path.join(ROOT, 'design-review', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.invalid).toHaveLength(0);
-  });
-
-  test('all snapshot flags in design-review/SKILL.md are valid', () => {
-    const skill = path.join(ROOT, 'design-review', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
-
-  test('all $B commands in design-consultation/SKILL.md are valid browse commands', () => {
-    const skill = path.join(ROOT, 'design-consultation', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.invalid).toHaveLength(0);
-  });
-
-  test('all snapshot flags in design-consultation/SKILL.md are valid', () => {
-    const skill = path.join(ROOT, 'design-consultation', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
-
-  test('all $B commands in autoplan/SKILL.md are valid browse commands', () => {
-    const skill = path.join(ROOT, 'autoplan', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.invalid).toHaveLength(0);
-  });
-
-  test('all snapshot flags in autoplan/SKILL.md are valid', () => {
-    const skill = path.join(ROOT, 'autoplan', 'SKILL.md');
-    if (!fs.existsSync(skill)) return;
-    const result = validateSkill(skill);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
-  });
+  // The render-engine skills still invoke `$B` to rasterize local HTML; every
+  // command they document must exist and every snapshot flag must parse.
+  for (const skill of RENDER_ENGINE_SKILLS) {
+    test(`${skill}/SKILL.md: every $B command is a real render-engine command`, () => {
+      const result = validateSkill(path.join(ROOT, skill, 'SKILL.md'));
+      expect(result.invalid).toEqual([]);
+      expect(result.snapshotFlagErrors).toEqual([]);
+    });
+  }
 
   test('autoplan section skip list includes the scope gate', () => {
     // autoplan Step 3 reads plan-eng-review / plan-design-review SKILL.md
@@ -302,7 +217,6 @@ describe('Update check preamble', () => {
   const skillsWithUpdateCheck = [
     'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
     'qa-only/SKILL.md',
-    'setup-browser-cookies/SKILL.md',
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
@@ -664,7 +578,7 @@ describe('TODOS-format.md reference consistency', () => {
 
 describe('v0.4.1 preamble features', () => {
   // Tier 1 skills have core preamble only (no AskUserQuestion format)
-  const tier1Skills = ['SKILL.md', 'browse/SKILL.md', 'setup-browser-cookies/SKILL.md', 'benchmark/SKILL.md'];
+  const tier1Skills = ['SKILL.md', 'browse/SKILL.md', 'benchmark/SKILL.md'];
 
   // Tier 2+ skills have AskUserQuestion format with RECOMMENDATION
   const tier2PlusSkills = [
@@ -1721,7 +1635,7 @@ describe('Skill trigger phrases', () => {
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
-    'codex', 'browse', 'setup-browser-cookies',
+    'codex', 'browse',
   ];
 
   for (const skill of SKILLS_REQUIRING_TRIGGERS) {
@@ -1820,7 +1734,7 @@ describe('Doc inventory cross-check', () => {
   //   hosts) that don't show up in the user-facing skill table.
   const DOC_INVENTORY_EXCLUDE = new Set([
     // Infra / non-skills
-    'agents', 'claude', 'connect-chrome', 'contrib', 'hosts',
+    'agents', 'claude', 'contrib', 'hosts',
     'lib', 'model-overlays', 'openclaw', 'supabase', 'scripts', 'test',
   ]);
 
@@ -2071,86 +1985,6 @@ describe('no compiled binaries in git', () => {
   });
 });
 
-
-// ─── Browser-skills validation ──────────────────────────────────
-//
-// Browser-skills are bundled in <gstack-root>/browser-skills/<name>/. Each
-// must have a SKILL.md whose frontmatter satisfies the contract enforced by
-// browse/src/browser-skills.ts:parseSkillFile (host required, args + triggers
-// parseable as the right shape). This test catches malformed bundled skills
-// at CI time, before they ship.
-
-describe('Bundled browser-skills frontmatter contract', () => {
-  const browserSkillsRoot = path.join(ROOT, 'browser-skills');
-
-  function listBundledSkillDirs(): string[] {
-    if (!fs.existsSync(browserSkillsRoot)) return [];
-    return fs.readdirSync(browserSkillsRoot)
-      .filter(name => !name.startsWith('.'))
-      .map(name => path.join(browserSkillsRoot, name))
-      .filter(dir => {
-        try { return fs.statSync(dir).isDirectory(); } catch { return false; }
-      });
-  }
-
-  test('each bundled skill has a SKILL.md', () => {
-    for (const dir of listBundledSkillDirs()) {
-      const skillFile = path.join(dir, 'SKILL.md');
-      expect(fs.existsSync(skillFile)).toBe(true);
-    }
-  });
-
-  test('each bundled skill SKILL.md frontmatter parses with required fields', async () => {
-    const { parseSkillFile } = await import('../browse/src/browser-skills');
-    for (const dir of listBundledSkillDirs()) {
-      const name = path.basename(dir);
-      const content = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8');
-      // parseSkillFile throws on missing required fields; we just want to
-      // make sure none of our shipped skills tripwire it.
-      const { frontmatter } = parseSkillFile(content, { skillName: name });
-      expect(frontmatter.name).toBe(name);
-      expect(typeof frontmatter.host).toBe('string');
-      expect(frontmatter.host.length).toBeGreaterThan(0);
-      expect(Array.isArray(frontmatter.triggers)).toBe(true);
-      expect(Array.isArray(frontmatter.args)).toBe(true);
-    }
-  });
-
-  test('each bundled skill has a script.ts', () => {
-    for (const dir of listBundledSkillDirs()) {
-      expect(fs.existsSync(path.join(dir, 'script.ts'))).toBe(true);
-    }
-  });
-
-  test('each bundled skill ships a sibling SDK at _lib/browse-client.ts', () => {
-    for (const dir of listBundledSkillDirs()) {
-      expect(fs.existsSync(path.join(dir, '_lib', 'browse-client.ts'))).toBe(true);
-    }
-  });
-
-  test('each bundled skill has a script.test.ts', () => {
-    for (const dir of listBundledSkillDirs()) {
-      expect(fs.existsSync(path.join(dir, 'script.test.ts'))).toBe(true);
-    }
-  });
-
-  test("each bundled skill's _lib/browse-client.ts matches the canonical SDK", () => {
-    // If the canonical SDK changes, the bundled copy must be updated. This
-    // test enforces that — the _lib copy should be byte-identical.
-    const canonical = fs.readFileSync(path.join(ROOT, 'browse', 'src', 'browse-client.ts'), 'utf-8');
-    for (const dir of listBundledSkillDirs()) {
-      const sibling = fs.readFileSync(path.join(dir, '_lib', 'browse-client.ts'), 'utf-8');
-      expect(sibling).toBe(canonical);
-    }
-  });
-
-  test('script.ts imports browse from ./_lib/browse-client', () => {
-    for (const dir of listBundledSkillDirs()) {
-      const content = fs.readFileSync(path.join(dir, 'script.ts'), 'utf-8');
-      expect(content).toMatch(/from\s+['"]\.\/_lib\/browse-client['"]/);
-    }
-  });
-});
 
 // Token-reduction Phase 5: the four ios skills demoted from preamble-tier 3
 // to 2 — they never consume the tier-3 sections (repo-mode ownership, search

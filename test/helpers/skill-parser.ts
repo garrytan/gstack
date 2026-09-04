@@ -17,7 +17,7 @@ import * as path from 'path';
 
 /** CLI-only commands: valid $B invocations that are handled by the CLI, not the server */
 const CLI_COMMANDS = new Set([
-  'status', 'pair-agent', 'tunnel',
+  'status',
 ]);
 
 export interface BrowseCommand {
