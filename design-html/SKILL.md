@@ -1,5 +1,5 @@
 ---
-name: gstack-design-html
+name: design-html
 preamble-tier: 2
 version: 1.0.0
 description: "Design finalization: generates production-quality Pretext-native HTML/CSS. (gstack)"

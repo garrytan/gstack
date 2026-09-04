@@ -1,5 +1,5 @@
 ---
-name: gstack-document-generate
+name: document-generate
 preamble-tier: 2
 version: 1.0.0
 description: Generate missing documentation from scratch for a feature, module, or entire project. (gstack)

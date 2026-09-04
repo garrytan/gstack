@@ -1,5 +1,5 @@
 ---
-name: gstack-qa
+name: qa
 preamble-tier: 4
 version: 2.0.0
 description: Systematically QA test a web application and fix bugs found. (gstack)

@@ -1,5 +1,5 @@
 ---
-name: gstack-skillify
+name: skillify
 preamble-tier: 2
 version: 1.0.0
 description: Codify the most recent successful /scrape flow into a permanent browser-skill on disk. (gstack)

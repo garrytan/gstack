@@ -1,5 +1,5 @@
 ---
-name: gstack-ios-design-review
+name: ios-design-review
 preamble-tier: 2
 version: 1.0.0
 description: Visual design audit for iOS apps on real hardware. (gstack)

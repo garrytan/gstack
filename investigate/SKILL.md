@@ -1,5 +1,5 @@
 ---
-name: gstack-investigate
+name: investigate
 preamble-tier: 2
 version: 1.0.0
 description: Systematic debugging with root cause investigation. (gstack)

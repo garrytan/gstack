@@ -1,5 +1,5 @@
 ---
-name: gstack-context-restore
+name: context-restore
 preamble-tier: 2
 version: 1.0.0
 description: Restore working context saved earlier by /context-save. (gstack)

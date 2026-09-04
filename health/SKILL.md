@@ -1,5 +1,5 @@
 ---
-name: gstack-health
+name: health
 preamble-tier: 2
 version: 1.0.0
 description: Code quality dashboard. (gstack)

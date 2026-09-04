@@ -1,5 +1,5 @@
 ---
-name: gstack-review
+name: review
 preamble-tier: 4
 version: 1.0.0
 description: Pre-landing PR review. (gstack)

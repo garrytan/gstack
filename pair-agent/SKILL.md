@@ -1,5 +1,5 @@
 ---
-name: gstack-pair-agent
+name: pair-agent
 preamble-tier: 2
 version: 0.1.0
 description: Pair a remote AI agent with your browser. (gstack)
