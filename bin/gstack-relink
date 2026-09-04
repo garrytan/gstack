@@ -73,10 +73,9 @@ _link_root_skill_alias
 SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do
   [ -d "$skill_dir" ] || continue
-  # Skip symlinked skill dirs (connect-chrome → open-gstack-browser): linking
-  # one under the symlink's basename would duplicate the canonical frontmatter
-  # name and collide in Claude Code's skill registry (#2201). setup owns the
-  # rewritten-copy alias for those.
+  # Skip symlinked skill dirs: linking one under the symlink's basename would
+  # duplicate the canonical frontmatter name and collide in Claude Code's
+  # skill registry (#2201). setup owns rewritten-copy aliases for those.
   [ -L "${skill_dir%/}" ] && continue
   skill=$(basename "$skill_dir")
   # Skip non-skill directories

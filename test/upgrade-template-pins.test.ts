@@ -36,11 +36,10 @@ describe('gstack-upgrade template: ff-only precedes the gated reset (#2517)', ()
 });
 
 describe('untrusted-content warning injection points (#2441)', () => {
-  test('scrape and skillify templates carry the shared token', () => {
+  test('the scrape template carries the shared token', () => {
     // The wording lives in ONE exported const (resolvers/browse.ts); these
     // pins keep the injection POINTS from silently disappearing.
     expect(read('scrape/SKILL.md.tmpl')).toContain('{{UNTRUSTED_CONTENT_WARNING}}');
-    expect(read('skillify/SKILL.md.tmpl')).toContain('{{UNTRUSTED_CONTENT_WARNING}}');
   });
 });
 

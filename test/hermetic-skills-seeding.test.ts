@@ -10,8 +10,9 @@
  * 2. Registration mirrors ./setup exactly: one entry per
  *    skillCensus().registryEntries, each a REAL dir with a SKILL.md symlink
  *    resolving to a real file (plus sections/ when the skill has one).
- * 3. connect-chrome (dir symlink) collapses into open-gstack-browser — no
- *    duplicate, no connect-chrome entry.
+ * 3. No retired browser-surface skill (connect-chrome, open-gstack-browser,
+ *    pair-agent, setup-browser-cookies, skillify) is seeded — the Aside
+ *    consolidation deleted them.
  * 4. Per-process idempotence: the second call returns the cached dir.
  */
 
@@ -58,10 +59,11 @@ describe('hermeticSkillsConfigDir', () => {
     expect(fs.statSync(link).isDirectory()).toBe(true);
   });
 
-  test('connect-chrome collapses into a single open-gstack-browser entry', () => {
+  test('no retired browser-surface skill is seeded', () => {
     const seeded = fs.readdirSync(skillsDir);
-    expect(seeded.filter((n) => n === 'open-gstack-browser')).toHaveLength(1);
-    expect(seeded).not.toContain('connect-chrome');
+    for (const retired of ['connect-chrome', 'open-gstack-browser', 'pair-agent', 'setup-browser-cookies', 'skillify']) {
+      expect(seeded).not.toContain(retired);
+    }
   });
 
   test('root router registered as _gstack-command pointing at the root SKILL.md', () => {

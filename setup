@@ -99,10 +99,10 @@ _link_or_copy() {
   if [ "$IS_WINDOWS" -eq 1 ]; then
     rm -rf "$dst"
     # Unix `ln -snf` accepts a name-only or relative-path source even when the
-    # target doesn't resolve from CWD (e.g. the connect-chrome alias points at
-    # the sibling-relative "gstack/open-gstack-browser"). On Windows the
-    # equivalent semantics don't exist — we'd need a real source on disk to
-    # copy. Skip the alias quietly rather than aborting setup under `set -e`.
+    # target doesn't resolve from CWD (e.g. a sibling-relative "gstack/<skill>"
+    # link target). On Windows the equivalent semantics don't exist — we'd need
+    # a real source on disk to copy. Skip the alias quietly rather than aborting
+    # setup under `set -e`.
     if [ ! -e "$src" ]; then
       return 0
     fi
@@ -132,6 +132,28 @@ _owned_for_windows_refresh() {
   if [ -L "$dst" ]; then return 0; fi
   if [ ! -d "$dst" ]; then return 0; fi
   grep -q '<!-- AUTO-GENERATED from' "$dst/SKILL.md" 2>/dev/null
+}
+
+# ─── Helper: prune generated skill dirs whose source is gone ─────────────────
+# gen-skill-docs writes .agents/.factory/.opencode/.cursor/skills but never
+# deletes, so a skill removed from the source tree (v2.0 retired the browser-
+# surface skills) stays rendered — and the link loops below would re-link it
+# into every host on every run. $1 = install root, $2 = generated tree,
+# $3 = host skills dir (optional): the host's entry for a pruned name goes too,
+# gated by _owned_for_windows_refresh so a user's own dir is never touched.
+_prune_stale_generated() {
+  local gstack_dir="$1" gen_dir="$2" skills_dir="${3:-}" d n
+  for d in "$gen_dir"/gstack-*/; do
+    [ -d "$d" ] || continue
+    n="$(basename "$d")"
+    [ -f "$gstack_dir/${n#gstack-}/SKILL.md.tmpl" ] && continue
+    [ -f "$gstack_dir/$n/SKILL.md.tmpl" ] && continue
+    rm -rf "$d"
+    if [ -n "$skills_dir" ] && { [ -e "$skills_dir/$n" ] || [ -L "$skills_dir/$n" ]; } && _owned_for_windows_refresh "$skills_dir/$n"; then
+      rm -rf "$skills_dir/$n"
+    fi
+    echo "  pruned retired skill: $n"
+  done
 }
 
 # A sidecar/runtime ROOT (…/skills/gstack) is provably USER-owned when it is
@@ -729,6 +751,7 @@ if [ "$NEEDS_AGENTS_GEN" -eq 1 ]; then
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL"
   )
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$AGENTS_DIR"
 fi
 
 # 1c. Generate .factory/ Factory Droid skill docs
@@ -832,8 +855,9 @@ if ! ensure_playwright_browser; then
       # Bun's node_modules already has playwright; verify Node can require it
       node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
       # @ngrok/ngrok is externalized in server-node.mjs and resolved at runtime.
-      # Verify the platform-specific native binary is installed so /pair-agent
-      # tunnels don't fail later with a cryptic module-not-found error.
+      # The browse daemon's tunnel code still imports it (retained pending the
+      # daemon prune), so verify the platform-specific native binary is
+      # installed or the daemon fails later with a cryptic module-not-found.
       node -e "require('@ngrok/ngrok')" 2>/dev/null || npm install --no-save @ngrok/ngrok
     )
   fi
@@ -978,16 +1002,16 @@ link_claude_skill_dirs() {
 }
 
 # ─── Helper: install an alias SKILL.md as a rewritten COPY ───────────────────
-# Alias dirs (_gstack-command, connect-chrome) must NOT symlink the canonical
+# Alias dirs (_gstack-command) must NOT symlink the canonical
 # SKILL.md: the alias then carries the canonical frontmatter name:, Claude Code
 # sees two skills with the same name, and drops the ENTIRE personal-skills set
 # (#2511, #2201). Copy-then-rewrite instead: sed reads the SOURCE and writes a
 # fresh copy with name: set to the alias. It must never edit through an
 # existing symlink — that would rewrite the generated source file itself.
-# NOTE: every alias name passed to this helper (_gstack-command,
-# connect-chrome, gstack-connect-chrome) is hardcoded in the _INVENTORY seed
-# list in bin/gstack-uninstall — keep the two sites in sync when adding or
-# renaming an alias, or uninstall will refuse to delete the new alias dir.
+# NOTE: every alias name passed to this helper (_gstack-command) is hardcoded
+# in the _INVENTORY seed list in bin/gstack-uninstall — keep the two sites in
+# sync when adding or renaming an alias, or uninstall will refuse to delete
+# the new alias dir.
 _install_alias_skill_md() {
   local src_skill_md="$1"
   local dst_dir="$2"
@@ -1683,17 +1707,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     if [ -x "$GSTACK_RELINK" ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
-    # Backwards-compat alias: /connect-chrome → /open-gstack-browser
-    # Rewritten copy, not a symlink: a symlinked alias re-serves the canonical
-    # name: open-gstack-browser, so one of the two silently shadows the other
-    # (#2201) — and duplicate names can drop the whole skill set (#2511).
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    _OGB_ALIAS_NAME="connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-      _OGB_ALIAS_NAME="gstack-connect-chrome"
-    fi
-    _install_alias_skill_md "$SOURCE_GSTACK_DIR/open-gstack-browser/SKILL.md" "$_OGB_LINK" "$_OGB_ALIAS_NAME"
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
       log "  skills: $INSTALL_SKILLS_DIR"
@@ -1756,17 +1769,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
       fi
-      # Rewritten copy, not a symlink: a symlinked alias re-serves the
-      # canonical name: open-gstack-browser, so one of the two silently
-      # shadows the other (#2201) — and duplicate names can drop the whole
-      # skill set (#2511).
-      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-      _OGB_ALIAS_NAME="connect-chrome"
-      if [ "$SKILL_PREFIX" -eq 1 ]; then
-        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-        _OGB_ALIAS_NAME="gstack-connect-chrome"
-      fi
-      _install_alias_skill_md "$SOURCE_GSTACK_DIR/open-gstack-browser/SKILL.md" "$_OGB_LINK" "$_OGB_ALIAS_NAME"
       log "gstack ready (claude)."
       log "  browse: $BROWSE_BIN"
     fi
@@ -1787,6 +1789,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
     create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
   fi
   # Install generated Codex-format skills (not Claude source dirs)
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.agents/skills" "$CODEX_SKILLS"
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 
   log "gstack ready (codex)."
@@ -1859,6 +1862,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   if [ ! -d "$AGENTS_DIR" ]; then
     echo "  warning: no .agents/skills/ directory found — run 'bun run build' first" >&2
   else
+    _prune_stale_generated "$SOURCE_GSTACK_DIR" "$AGENTS_DIR" "$KIRO_SKILLS"
     for skill_dir in "$AGENTS_DIR"/gstack*/; do
       [ -f "$skill_dir/SKILL.md" ] || continue
       skill_name="$(basename "$skill_dir")"
@@ -1904,6 +1908,7 @@ fi
 if [ "$INSTALL_FACTORY" -eq 1 ]; then
   mkdir -p "$FACTORY_SKILLS"
   create_factory_runtime_root "$SOURCE_GSTACK_DIR" "$FACTORY_GSTACK"
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.factory/skills" "$FACTORY_SKILLS"
   link_factory_skill_dirs "$SOURCE_GSTACK_DIR" "$FACTORY_SKILLS"
   echo "gstack ready (factory)."
   echo "  browse: $BROWSE_BIN"
@@ -1914,6 +1919,7 @@ fi
 if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   mkdir -p "$OPENCODE_SKILLS"
   create_opencode_runtime_root "$SOURCE_GSTACK_DIR" "$OPENCODE_GSTACK"
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.opencode/skills" "$OPENCODE_SKILLS"
   link_opencode_skill_dirs "$SOURCE_GSTACK_DIR" "$OPENCODE_SKILLS"
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
@@ -1926,6 +1932,7 @@ if [ "$INSTALL_CURSOR" -eq 1 ]; then
   create_cursor_runtime_root "$SOURCE_GSTACK_DIR" "$CURSOR_GSTACK"
   # Link before sidecar. Sidecar mkdir -p creates .cursor/skills/gstack, which
   # would make link_cursor_skill_dirs' "[ ! -d generated ]" gen fallback a no-op.
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.cursor/skills" "$CURSOR_SKILLS"
   link_cursor_skill_dirs "$SOURCE_GSTACK_DIR" "$CURSOR_SKILLS"
   create_cursor_sidecar "$SOURCE_GSTACK_DIR"
   echo "gstack ready (cursor)."

@@ -173,10 +173,13 @@ CLAUDE_SKILLS="$HOME/.claude/skills"
 # prefixed variants, and the alias dirs. Built BEFORE the install root is
 # removed. A real directory in ~/.claude/skills is only deletable when its
 # name is in this inventory AND its SKILL.md carries the generated banner.
-# The seed names below are the alias dirs setup's _install_alias_skill_md
-# creates (setup: link_claude_root_skill_alias + the connect-chrome call
-# sites) — keep in sync with setup if an alias is added or renamed there.
-_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
+# Seeds: `_gstack-command` is the alias dir setup's _install_alias_skill_md
+# creates (setup: link_claude_root_skill_alias) — keep in sync with setup if
+# an alias is added or renamed there. The rest were retired in v2.0 — their
+# source dirs are gone, so the loop below can't discover them, but an install
+# refreshed via `git pull && ./setup` (no /gstack-upgrade migration) still
+# carries them; still reap (the banner/readlink gates below still apply).
+_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome open-gstack-browser gstack-open-gstack-browser pair-agent gstack-pair-agent setup-browser-cookies gstack-setup-browser-cookies skillify gstack-skillify "
 if [ -d "$GSTACK_DIR" ]; then
   for _SRC in "$GSTACK_DIR"/*/; do
     [ -f "$_SRC/SKILL.md" ] || continue

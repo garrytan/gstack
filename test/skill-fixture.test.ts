@@ -225,10 +225,10 @@ describe('real-skill pins: section lists used by E2E fixtures', () => {
 });
 
 describe('real-skill pins: body/head extraction used by E2E fixtures', () => {
-  // scrape/skillify/context-*: skill-e2e-skillify + skill-e2e-context-skills.
+  // scrape/context-*: skill-e2e-aside + skill-e2e-context-skills.
   // review/plan-eng-review/ship: skill-e2e-coverage-audit + skill-e2e-triage.
   const BODY_EXTRACTED_SKILLS = [
-    'scrape', 'skillify', 'context-save', 'context-restore',
+    'scrape', 'context-save', 'context-restore',
     'review', 'plan-eng-review', 'ship',
   ];
 
@@ -243,9 +243,8 @@ describe('real-skill pins: body/head extraction used by E2E fixtures', () => {
     });
   }
 
-  test('body extraction keeps the sections the skillify/context E2E tests assert on', () => {
-    expect(extractSkillBody(path.join(ROOT, 'skillify'))).toContain('## Step 1 — Provenance guard (D1)');
-    expect(extractSkillBody(path.join(ROOT, 'scrape'))).toContain('## Step 4 — Prototype phase');
+  test('body extraction keeps the sections the scrape/context E2E tests assert on', () => {
+    expect(extractSkillBody(path.join(ROOT, 'scrape'))).toContain('## Step 3 — Read the page');
     expect(extractSkillBody(path.join(ROOT, 'context-save'))).toContain('## List flow');
     expect(extractSkillBody(path.join(ROOT, 'context-restore'))).toContain('## If no saved contexts exist');
   });
@@ -255,7 +254,7 @@ describe('real-skill pins: body/head extraction used by E2E fixtures', () => {
     '', 'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review',
     'plan-design-review', 'design-review', 'design-consultation', 'retro',
     'document-release', 'investigate', 'office-hours', 'browse',
-    'setup-browser-cookies', 'gstack-upgrade', 'humanizer',
+    'gstack-upgrade', 'humanizer',
   ];
 
   test('extractSkillHead works for every discovery-fixture skill', () => {
