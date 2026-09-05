@@ -32,16 +32,17 @@ wave"). Each was explicitly deferred with rationale, not dropped:
 - **#2447 typecheck infra** — tsconfig + repo-wide typecheck script + latent
   type fixes. High-value, repo-wide blast radius, own PR with bake time.
   Effort M. Re-derive on current main (several of its fixes landed since).
-- **#2492 per-project Chromium profile** — needs an on-disk migration story
-  for the machine-wide profile default and SingletonLock scoping. Effort M.
+- **#2492 per-project Chromium profile** — **Superseded** by the Aside
+  consolidation: the browse daemon and its Chromium profile are deleted, so
+  close #2492 rather than migrate it.
 - **#2286 `triggers:` frontmatter** — the Claude Code router never reads the
   key; folding voice-triggers into description costs catalog tokens. Needs a
   maintainer token-budget decision (catalog cap is enforced). Effort S.
 - **#2378 release-tag upgrade semantics** — update-check gates on
   main:VERSION while upgrade installs main HEAD; installs sit between
   releases. Design decision: tag-pinned installs vs HEAD. Effort M.
-- **Feature-PR triage queue** — #2564 (/deck), #2497 (browse record — best of
-  the batch), #2476 (a11y review, unblocked by the CDP media-emulation entry
+- **Feature-PR triage queue** — #2564 (/deck), #2497 (browse record —
+  superseded: the browse daemon it recorded from is deleted; close it), #2476 (a11y review, unblocked by the CDP media-emulation entry
   landed in v1.67), #2446 (Cua), #2448 (tiered outside voice), #2412 (lens
   layer), #2241 (/grok), #2507 (pi host), #2298 (Kimi host), #2438+#2436
   (gbrain doc-sync pair, ordered), #2442 (portable skill roots), #2534
@@ -198,10 +199,8 @@ The wave's Step-7 coverage audit (5 subsystem agents, ~700 changed paths,
 shipped verified by hand or adjacent tests); each is a cheap pin against
 silent regression:
 
-- **setup Playwright bootstrap block** — `_clear_playwright_quarantine`,
-  `_PW_LOCK` stale-holder reclaim, `_kill_tree`/`_wait_with_deadline`, Ubuntu
-  26.04 platform override: zero test references. The P0 #2554 heal's shell
-  half. Effort S each.
+- **setup Playwright bootstrap block** — **Superseded**: Playwright and the
+  bootstrap block are deleted with the browse daemon.
 - **redact-prepush `scanAddedLines` slicing** — the >1MiB catch-up-diff chunk
   path (the reason the function exists) is unexercised; a regression
   reintroduces blocking-while-unscanned. Effort S.
@@ -209,13 +208,13 @@ silent regression:
   200 chars vs ingest's 500 (dead server cap); no column↔migration pin.
 - **gbrain-repo-policy-client** — no direct test file; the spawn-failed vs
   unreadable split (its raison d'être) and win32 bash-wrapping unpinned.
-- **extension client half of token bootstrap** — `POST /extension-token` 403
-  → disconnected path untested (server half is exhaustively pinned); also
-  pin manifest `key` ↔ `GSTACK_EXTENSION_ID` via extension-id.ts. Effort S.
-- **`assertJsOriginAllowed`** — this wave made the js/eval origin gate
-  mandatory; the gate itself has zero direct tests. Effort S.
-- **`runBoundedChromiumReinstall`** — every heal test stubs it; the 120s
-  deadline + process-group SIGKILL + spawn-error branch never execute.
+- **extension client half of token bootstrap** — **Superseded**: the
+  extension and `/extension-token` are deleted with the browse daemon.
+- **`assertJsOriginAllowed`** — **Superseded**: the js/eval origin gate was
+  the browse daemon's; the renderer now serves one local directory per render
+  through `lib/aside-render.ts`.
+- **`runBoundedChromiumReinstall`** — **Superseded**: there is no Chromium to
+  reinstall; deleted with Playwright.
 - **CI three-way image-tag drift** — ci-image.yml + evals.yml +
   evals-periodic.yml each carry the hashFiles tag expression, synced by
   comment only. One test reading all three. Effort S.
@@ -228,9 +227,8 @@ silent regression:
   guard and Package.swift's `.define("DEBUG")` have no tripwire (Guideline
   2.5.1 exposure on revert); parity test runs periodic-lane only.
 - **Smaller pins:** gstack-egress `sanitizeForDisplay`; freeze-dir tilde
-  expansion; gstack-config `pair_agent` key + space-bearing values;
-  session-cookie-store tripwire scope (points at the wrapper, not the
-  factory); redact-patterns `/^pass(word)?$/i` placeholder loosening +
+  expansion; gstack-config space-bearing values;
+  redact-patterns `/^pass(word)?$/i` placeholder loosening +
   compact-timestamp negative; fs-atomic adoption tripwire; tracker-guard
   `safeSource`; eval-watch `PARTIAL_PATH`; `killProcessGroup`;
   make-pdf orchestrator `PAYLOAD_TMP_DIR` + CJK stack + smartypants NUL;
@@ -251,8 +249,7 @@ Filed at review-fix-batch time, deferred with rationale:
 - **cmd.exe `%VAR%` expansion in gbrainInvocation quoting** — Windows-only,
   contrived escalation (requires attacker-controlled env var names), but the
   quoting is not cmd.exe-safe. Fix direction: route win32 spawns through
-  cross-spawn (dependency decision — bun-polyfill.cjs already carries it for
-  the browse daemon). Effort S.
+  cross-spawn (dependency decision). Effort S.
 - **make-pdf flag registry metadata** — commands.ts flags are bare strings;
   add a takes-value field and DERIVE cli.ts's BOOLEAN_FLAGS from the
   registry (the structural `--no-*` test added in this batch covers only the
@@ -393,8 +390,8 @@ manual command. **Effort:** M. **Priority:** P2.
 
 **2026-08-29 update (test-infra overhaul):** (1) the sidebar E2E trio is
 ALREADY DELETED — no file in the tree POSTs to /sidebar-command or
-/sidebar-chat; only tombstone tests remain (browse/test/sidebar-tabs.test.ts
-asserts the endpoints STAY deleted), so part (1) closes as already-done.
+/sidebar-chat, and the whole browse tree left with the Aside consolidation, so
+part (1) closes as already-done.
 (2) skill-e2e-ship-idempotency and (3) skill-e2e-brain-privacy-gate are now
 EXCLUDED from the weekly lane with tracking
 (test/helpers/periodic-exclude-data.ts) — removing their entries re-activates
@@ -443,8 +440,8 @@ apple-release.md) added template surface with `~/.claude/skills/gstack/bin`
 references — include it in this fix's coverage list.
 
 **Context / where to start:**
-- Rewire `ctx.paths.binDir` (and browse/design dir paths) + the ~9 resolvers that
-  emit the literal (`testing.ts`, `review.ts`, `design.ts`, `browse.ts`,
+- Rewire `ctx.paths.binDir` (and the design dir path) + the resolvers that
+  emit the literal (`testing.ts`, `review.ts`, `design.ts`,
   `redact-doc.ts`, `tasks-section.ts`, `preamble/generate-*.ts`) to use the
   preamble-defined `$GSTACK_ROOT`/`$GSTACK_BIN`.
 - Ensure `GSTACK_ROOT`/`GSTACK_BIN` are defined before first use in EVERY skill's
@@ -512,6 +509,8 @@ never echoes captured-secret instructions. Sibling of the tpa-* suite in
 **Depends on:** the third-party-actions Aside contract branch landing.
 
 ### fd-anchor file-level permission writes (symlink/TOCTOU parity with dirs)
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. `browse/src/file-permissions.ts` is gone with the daemon; refile if a copy lands in `lib/`.
 
 **What:** `restrictFilePermissions` / `writeSecureFile` / `appendSecureFile`
 in `browse/src/file-permissions.ts` still use symlink-following `chmodSync` /
@@ -622,26 +621,11 @@ coverage fill. Remaining, in rough priority order:
   post-migration flake data exists (the Codex outside-voice's "green means
   green is not delivered while paid stays advisory" point — correct, and
   deliberately a branch-protection decision, not repo YAML). Effort S.
-- **P2 — browse daemon lifecycle vs in-suite browsers (top remaining free-suite
-  flake).** The post-#994 daemon deliberately outlives its parent and lingers
-  across test FILES in a shard process; a later file's browser use can then
-  fight it ('[browse] FATAL: Chromium process crashed' + 5s element-wait
-  timeouts). Receipts: commands+snapshot in one bun process fails identically
-  WITH and WITHOUT per-file CHROMIUM_PROFILE isolation (pre-existing; PR
-  #2721 triage), and CI shard 1 on d9b78b5a died at model-overlay-sonnet-5
-  after a daemon-spawning file. Per-shard + per-file profile isolation
-  (landed) removed the cross-shard kills; the intra-shard daemon handoff
-  needs a real design: tests that spawn the daemon should stop it in
-  afterAll, or the daemon should detect a foreign CHROMIUM_PROFILE env and
-  refuse reuse. Effort M.
-- **P2 — browse daemon /tmp-namespace hardening.** Every file-path transport
-  to the daemon (eval <file>, load-html --from-file, pdf output, upload,
-  cookie-import) assumes client and daemon share one /tmp view; a sandboxed
-  shell reusing an out-of-namespace daemon gets "File not found" on files it
-  just wrote (root-caused live, reproduced with unshare). Minimal fix: the
-  CLI reads a local `eval <file>` itself and sends the code as `js` (
-  semantics-preserving; keep the daemon path for remote callers), plus a
-  namespace hint appended to read-commands.ts:313's error. Effort S.
+- **P2 — browse daemon lifecycle vs in-suite browsers.** **Superseded**: the
+  daemon is deleted; no test spawns a browser any more (Aside E2E self-skips
+  without the app).
+- **P2 — browse daemon /tmp-namespace hardening.** **Superseded**: the daemon
+  is deleted; `lib/aside-render.ts` serves the render directory itself.
 - **P2 — PTY boot-readiness wait.** The PTY tests' Bun.sleep(8000) preludes
   and invokeAndObserve's 6s boot_grace_ms are blind waits; a real readiness
   waitFor needs empirical CLI 2.1.x ready-marker probing in a working
@@ -1055,6 +1039,8 @@ carve ceilings).
 
 ## gbrowser memory follow-ups (filed via /plan-eng-review + /codex on the v1.49 leak-fix PR)
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Every entry below targets the browse daemon's Chromium.
+
 These four items came out of the memory-leak investigation that shipped
 the `$B memory` diagnostic + the four leak fixes. They were
 deliberately deferred from that PR (already 14 commits / ~12 files);
@@ -1275,6 +1261,8 @@ will not (the hint covers the second half today).
 ---
 
 ## browse server: terminal-agent teardown follow-ups (filed v1.41 via /plan-eng-review)
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 ### ✅ DONE (v1.44.0.0): Identity-based terminal-agent kill (replace pkill regex with PID)
 
@@ -1623,6 +1611,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 ---
 ## Sidebar Terminal (cc-pty-import follow-ups)
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 ### v1.1: PTY session survives sidebar reload
 
 **What:** Today the Terminal tab's PTY dies with the WebSocket — sidebar
@@ -1969,6 +1959,8 @@ calibration gate is trustworthy.
 
 ## Sidebar Security
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. The sidebar agent, its security sidecar, and the ONNX classifier are deleted with the daemon.
+
 ### ML Prompt Injection Classifier — v1 SHIPPED (branch garrytan/prompt-injection-guard)
 
 **Status:** IN PROGRESS on branch `garrytan/prompt-injection-guard`. Classifier swap:
@@ -2208,6 +2200,8 @@ May replace `/setup-browser-cookies` for most use cases since the user's real co
 **Depends on:** Chrome 146+, DevTools MCP server installed
 
 ## Browse
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Every entry below, shipped or not, targets the deleted browse daemon.
 
 ### Bundle server.ts into compiled binary
 
@@ -2615,17 +2609,17 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ## Retro
 
-### Deployment health tracking (retro + browse)
+### Deployment health tracking (retro + Aside)
 
 **What:** Screenshot production state, check perf metrics (page load times), count console errors across key pages, track trends over retro window.
 
 **Why:** Retro should include production health alongside code metrics.
 
-**Context:** Requires browse integration. Screenshots + metrics fed into retro output.
+**Context:** Requires driving Aside for the screenshots. Screenshots + metrics fed into retro output.
 
 **Effort:** L
 **Priority:** P3
-**Depends on:** Browse sessions
+**Depends on:** Aside
 
 ## Infrastructure
 
@@ -2640,7 +2634,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ### gstack-upload helper
 
-**What:** `browse/bin/gstack-upload` — upload file to S3, return public URL.
+**What:** `bin/gstack-upload` — upload file to S3, return public URL.
 
 **Why:** Shared utility for all skills that need to embed images in PRs.
 
@@ -2696,7 +2690,7 @@ Shipped: Default model changed to Sonnet for structure tests (~30), Opus retaine
 
 **Why:** Automated quality gate catches regressions before merge. Currently QA is manual — CI integration makes it part of the standard workflow.
 
-**Context:** Requires headless browse binary available in CI. The `/qa` skill already produces `baseline.json` with health scores — CI step would compare against the main branch baseline and fail if score drops. Would need `ANTHROPIC_API_KEY` in CI secrets since `/qa` uses Claude.
+**Context:** Requires a browser in CI, which today means Aside on a macOS runner (see "Aside consolidation follow-ups"). The `/qa` skill already produces `baseline.json` with health scores — CI step would compare against the main branch baseline and fail if score drops. Would need `ANTHROPIC_API_KEY` in CI secrets since `/qa` uses Claude.
 
 **Effort:** M
 **Priority:** P2
@@ -2713,6 +2707,8 @@ Shipped: Default model changed to Sonnet for structure tests (~30), Opus retaine
 **Depends on:** Nothing
 
 ### CDP-based DOM mutation detection for ref staleness
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Snapshot refs are Aside's now.
 
 **What:** Use Chrome DevTools Protocol `DOM.documentUpdated` / MutationObserver events to proactively invalidate stale refs when the DOM changes, without requiring an explicit `snapshot` call.
 
@@ -3102,6 +3098,8 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 ### Browse MCP server for Factory Droid
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. There is no browse binary to expose.
+
 **What:** Expose gstack's browse binary and key workflows as an MCP server that Factory Droid connects to natively. Factory users would run /mcp, add the gstack server, and get browse, QA, and review capabilities as Factory tools.
 
 **Why:** Factory already supports 40+ MCP servers in its registry. Getting gstack's browse binary listed there is a distribution play. Nobody else has a real compiled browser binary as an MCP tool. This is the thing that makes gstack uniquely valuable on Factory Droid.
@@ -3287,6 +3285,8 @@ record and surface them in eval:compare.
 
 ### P3: SECURITY_BENCH periodic lane — classifier behavioral coverage runs nowhere
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Gating the live L4 classifier tests on SECURITY_BENCH=1 fixed local
 suite speed but left the prompt-injection classifier with no scheduled lane.
 Add SECURITY_BENCH=1 (with model-cache warmup, 112MB first run) to
@@ -3344,6 +3344,8 @@ detector), test/skill-e2e-plan-mode-no-op.test.ts.
 **Effort:** S (human ~3h, CC ~20min + one CI round with evidence).
 
 ### P3: Diagnose the browser-manager-unit wedge on windows-latest
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** The expanded Windows lane wedges to its wall deadline inside
 browse/test/browser-manager-unit.test.ts (in-flight at kill, PR #2593 run
@@ -3804,7 +3806,7 @@ path to the fixture during the run.
 
 **What:** Cache rendered diagram SVG/PNG in `~/.gstack/cache/diagram-render/`,
 keyed on `sha256(fence source + bundle version + render options)`, so repeat
-`make-pdf` runs skip the browse render tab for unchanged diagrams.
+`make-pdf` runs skip the Aside render for unchanged diagrams.
 
 **Why:** Every run currently re-renders every fence (~150-300ms each). Docs with
 10+ diagrams pay seconds per iteration during write-preview loops. Codex
@@ -3824,7 +3826,7 @@ shipping (lib/diagram-render bundle versioning).
 
 **What:** Five e2e files (`combined-gate`, `emoji-gate`, `diagram-gate`,
 `landscape-gate`, `format-gate`) each hand-roll the same prerequisite probe
-(binary/browse/poppler checks with CI hard-fail vs local skip), mkdtemp/rm
+(binary/Aside/poppler checks with CI hard-fail vs local skip), mkdtemp/rm
 lifecycle, and child-timeout constants. Extract a shared
 `make-pdf/test/e2e/helpers.ts` (prerequisites(), withWorkDir(), runGenerate()).
 
@@ -3843,7 +3845,7 @@ five green files at the tail of a release. Zero user-facing value; pure DRY.
 ### P2: egress ledger rotation with chain-genesis records
 
 **What:** Rotate `~/.gstack/security/egress.jsonl` at a size threshold (match
-`attempts.jsonl`'s 10MB/5-generation pattern in `browse/src/security.ts`), where
+`attempts.jsonl`'s 10MB/5-generation pattern the retired browse daemon used), where
 each new generation's FIRST record embeds the prior file's tail hash so
 `gstack-egress verify` can walk across generations.
 
@@ -3862,6 +3864,8 @@ rotation precedent.
 **Effort:** S (human ~4h, CC ~25min). **Depends on:** v1.63 port wave landed.
 
 ### P3: launch-nonce token bootstrap (local-process impersonation)
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** Add a launch-time nonce to the `/extension-token` bootstrap: `browse`
 mints a nonce at headed launch, seeds it into the extension (CDP
@@ -3925,14 +3929,12 @@ tests. Filed so they are tracked, not dropped.
   from a single deduplicated `walkMd(root)` pass, or exclude child dirs from the root
   skill's `totalMd`. Needs a fixture test. (`lib/context-bill.ts`.)
 - **P3 — DRY/robustness polish:** one shared `_gstack_egress_host_of` helper for the
-  ~11 hand-rolled URL-to-host extractions across the egress shell sinks; extract the
-  duplicated tunnel-open `writeReceipt` block in `browse/src/server.ts` (two sites);
+  ~11 hand-rolled URL-to-host extractions across the egress shell sinks;
   hoist the per-iteration `SharedArrayBuffer` alloc out of the egress-receipt lock spin;
   replace context-bill's exact-mode `errorPct === 0` sentinel with an explicit flag;
   reuse `frontmatterName()` from `skill-census.ts` in `catalog-budget.test.ts`.
 - **P3 — test-coverage gaps the audit named:** `PAID_TEST_GLOBS` ↔ `package.json`
-  `test:gate` parity test; `GSTACK_EXTENSION_ID` ↔ `manifest.json` key derivation parity
-  test (`browse/scripts/extension-id.ts`); a runner test asserting each shard child gets
+  `test:gate` parity test; a runner test asserting each shard child gets
   its own `GSTACK_EVAL_DIR` under `shards/<slug>`; receipt-refusal branch tests for
   supabase-provision / gbrain-sync / memory-ingest.
 
@@ -3970,49 +3972,38 @@ refresh (B); brain-sync disposition model + source pins + thin-client
 detection (C); version allocator end-state + subdir manifests + diff-scope
 globs (D). What remains, re-filed individually:
 
-- Watchdog kills headed handoff sessions (PRs 2565/2405/2346) and the three
-  darwin-skipped handoff tests in browse/test/handoff.test.ts — verify
-  whether the v1.67 XProtect + rebrand work un-blocks them, then un-skip or
-  fix. Effort S.
+- Watchdog kills headed handoff sessions (PRs 2565/2405/2346) — **Superseded**:
+  headed mode and browse/test/handoff.test.ts are deleted with the daemon.
 - Transcript trust/scope/source isolation (PR 2232, issue 2140) — needs the
   never-double-store review. Effort M.
 - Versionless-repo onboarding (#1474, issues 2343/2334) — the #2501 JSON
   version-path half landed; the no-version-file-at-all flow did not.
 - Playwright bootstrap abort/timeout absorbs (PRs 2233/2359, issues
-  1902/2136) — partially superseded by v1.67's bounded bootstrap; verify
-  and close or extract the remainder.
+  1902/2136) — **Superseded**: Playwright is deleted with the daemon; close them.
 
 ## Aside consolidation follow-ups (filed when the browser stack collapsed into Aside)
 
-gstack's browser features (the headless `/browse` daemon as a browsing surface,
-GStack Browser / headed mode, the sidebar extension + PTY, `/pair-agent`
-tunnels, cookie import, browser-skills + domain-skills) were retired in favor
-of the Aside AI browser; `scripts/resolvers/aside.ts` is the contract. The
-`browse` binary stays only as the local-HTML render engine for `/make-pdf`,
-`/diagram`, `/design-html` previews, and `/office-hours` sketches. Loose ends:
+gstack's browser features (the headless `browse` daemon, GStack Browser /
+headed mode, the sidebar extension + PTY, `/pair-agent` tunnels, cookie import,
+browser-skills + domain-skills, Playwright and the Chromium download) were
+retired in favor of the Aside AI browser and deleted from the repo in v2.0.0.0;
+`scripts/resolvers/aside.ts` is the contract. Local-HTML rendering (make-pdf,
+diagram, design previews) goes through `lib/aside-render.ts` /
+`bin/gstack-render.ts`, also Aside. Loose ends:
 
-### P1: Prune the browse daemon down to the render engine
+### Known limitation: make-pdf and diagram need Aside (macOS) — no Linux renderer
 
-**What:** Delete the `browse/src` code paths no skill can reach any more:
-headed/connect mode, the extension sidebar + terminal-agent PTY, the pair-agent
-tunnel (dual listener, allowlist, denial log), cookie import (browser decryption
-+ picker UI), the browser-skills + domain-skills runtimes, and the security
-sidecar that only guarded the sidebar agent. Delete `extension/` with them.
-Keep `load-html`, `goto file://`, `pdf`, `screenshot`, `js`/`eval`,
-`newtab`/`closetab`, `wait`, `status`, `stop`.
+**What:** `/make-pdf`, `/diagram`, and design previews render through the Aside
+browser, which ships for macOS 15+ only. On Linux and Windows they stop at the
+readiness check (`NEEDS_ASIDE`) and say so; there is no headless renderer, by
+design, and none will be added. Linux CI therefore never renders a PDF or a
+diagram (the gates self-skip); the Mac run is the evidence.
 
-**Why:** Dead surface is attack surface plus maintenance load. Census
-(`grep -l -i`, patterns overlap): 18 of ~70 `browse/src` files reference the
-extension; of 143 `browse/test` files, 33 touch extension/sidebar, 48
-connect/headed, 20 pair-agent/tunnel, 31 cookie, 72 terminal-agent/pty. Until
-the prune lands, `docs/BROWSER_INTERNALS.md` describes machinery no skill uses.
+**Why:** One browser, one contract. A second engine kept for rendering alone was
+the maintenance load this round removed. Revisit only when Aside ships a Linux
+build; the same wrappers then work unchanged.
 
-**Context:** `RENDER_ENGINE_SKILLS` in `scripts/resolvers/aside.ts` names the
-five skills allowed to invoke `$B`; `test/aside-driver.test.ts` fails if any
-other generated skill does. Prune behind that tripwire, one subsystem per
-commit, re-running `bun run test` and the make-pdf/diagram E2E gate after each.
-
-**Effort:** L (human ~1 week, CC ~3h). **Priority:** P1. **Depends on:** Aside consolidation merged.
+**Effort:** none until Aside ships there. **Priority:** known limitation, not work. **Depends on:** Aside releases.
 
 ### P2: Aside CLI 1.26 lacks subcommands Aside's own skill doc lists
 
@@ -4029,8 +4020,9 @@ on an unknown-command error the agent will then try to "fix" blindly.
 
 ### P2: Aside E2E tests run only where Aside is installed
 
-**What:** The Aside-driven E2E tests self-skip when `aside` is absent, so CI's
-Linux runners never exercise a browser skill end to end; only macOS dev
+**What:** The Aside-driven E2E tests, make-pdf's render gates, and the /diagram
+E2E self-skip when `aside` is absent, so CI's Linux runners never exercise a
+browser skill or a render end to end; only macOS dev
 machines do. Evaluate a self-hosted macOS runner (or a scheduled job on a Mac
 mini) that runs the Aside lane weekly under the same hermetic env as the other
 E2E lanes.

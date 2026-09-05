@@ -42,7 +42,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+. Browser skills, `/make-pdf`, and `/diagram` also need the [Aside](https://aside.com) browser (macOS 15+).
 
 ### Step 1: Install on your machine
 
@@ -317,7 +317,9 @@ gstack works well with one sprint. It gets interesting with ten running at once.
 
 **`/document-release` is the engineer you never had.** It reads every doc file in your project, cross-references the diff, and updates everything that drifted. README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md, TODOS — all kept current automatically. And now `/ship` auto-invokes it — docs stay current without an extra command.
 
-**The browser is Aside.** gstack drives the [Aside](https://aside.com) AI browser — your real browser, with your real logged-in sessions. No headless daemon to babysit, no cookie import, no "open the browser" step, no CAPTCHA handoff dance. `/qa`, `/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/scrape`, and `/browse` all run there, in tabs the agent opens for itself and closes when it's done — it never touches a tab of yours unless you name it. Hit a sign-in wall? Sign in inside Aside, say "done", and the agent continues; the session was already yours. Anything a page returns is treated as untrusted content — the agent takes syntax from it, never instructions. Aside is macOS 15+ (download at aside.com); Linux and Windows get the browser skills the day Aside ships there.
+**The browser is Aside. The only browser.** gstack drives the [Aside](https://aside.com) AI browser — your real browser, with your real logged-in sessions. gstack ships no browser engine of its own: no headless daemon to babysit, no Chromium download, no cookie import, no "open the browser" step, no CAPTCHA handoff dance. `/qa`, `/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/scrape`, and `/browse` all run there, in tabs the agent opens for itself and closes when it's done — it never touches a tab of yours unless you name it. Hit a sign-in wall? Sign in inside Aside, say "done", and the agent continues; the session was already yours. Anything a page returns is treated as untrusted content — the agent takes syntax from it, never instructions. Web research inside the planning and review skills runs through Aside's own agent too, not a separate search tool.
+
+Aside is also the renderer. `/make-pdf`, `/diagram`, and design previews hand their locally generated HTML to Aside for printing and screenshots (served from your machine on loopback, one render per script, nothing leaves the box). Aside is macOS 15+ (download at aside.com, gstack never installs it for you). On Linux and Windows there is no browser and no renderer: the browser skills, `/make-pdf`, and `/diagram` stop at the readiness check and say so. They light up the day Aside ships there; gstack does not invent a fallback.
 
 **Multi-AI second opinion.** `/codex` gets an independent review from OpenAI's Codex CLI — a completely different AI looking at the same diff. Three modes: code review with a pass/fail gate, adversarial challenge that actively tries to break your code, and open consultation with session continuity. When both `/review` (Claude) and `/codex` (OpenAI) have reviewed the same branch, you get a cross-model analysis showing which findings overlap and which are unique to each.
 
@@ -349,17 +351,14 @@ If gstack is installed on your machine:
 ~/.claude/skills/gstack/bin/gstack-uninstall
 ```
 
-This handles skills, symlinks, global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
+This handles skills, symlinks, global state (`~/.gstack/`), project-local state, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
 
 ### Option 2: Manual removal (no local repo)
 
 If you don't have the repo cloned (e.g. you installed via a Claude Code paste and later deleted the clone):
 
 ```bash
-# 1. Stop browse daemons
-pkill -f "gstack.*browse" 2>/dev/null || true
-
-# 2. Remove per-skill directories whose SKILL.md points into gstack/
+# 1. Remove per-skill directories whose SKILL.md points into gstack/
 #    (rm -rf, not rmdir — installed dirs also contain runtime-asset links)
 find ~/.claude/skills -mindepth 1 -maxdepth 1 -type d ! -name gstack 2>/dev/null |
 while IFS= read -r dir; do
@@ -375,13 +374,13 @@ done
 # Alias skills install as copies (no symlink to detect) — remove by name
 rm -rf ~/.claude/skills/_gstack-command 2>/dev/null
 
-# 3. Remove gstack
+# 2. Remove gstack
 rm -rf ~/.claude/skills/gstack
 
-# 4. Remove global state
+# 3. Remove global state
 rm -rf ~/.gstack
 
-# 5. Remove integrations (skip any you never installed)
+# 4. Remove integrations (skip any you never installed)
 rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/gstack"* 2>/dev/null
 rm -rf ~/.factory/skills/gstack* 2>/dev/null
 rm -rf ~/.kiro/skills/gstack* 2>/dev/null
@@ -389,10 +388,10 @@ rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
 rm -rf ~/.cursor/skills/gstack* 2>/dev/null
 rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null
 
-# 6. Remove temp files
+# 5. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null
 
-# 7. Per-project cleanup (run from each project root)
+# 6. Per-project cleanup (run from each project root)
 rm -rf .gstack .gstack-worktrees .claude/skills/gstack 2>/dev/null
 rm -rf .agents/skills/gstack* .factory/skills/gstack* 2>/dev/null
 ```
@@ -409,9 +408,9 @@ on every matching event once the install directory is gone.
 
 The uninstall script does not edit CLAUDE.md. In each project where gstack was added, remove the `## gstack` and `## Skill routing` sections.
 
-### Playwright
+### Aside
 
-`~/Library/Caches/ms-playwright/` (macOS) is left in place because other tools may share it. Remove it if nothing else needs it.
+gstack never installed Aside, so it never uninstalls it. Keep it or remove it like any other app.
 
 ---
 
@@ -472,7 +471,7 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 | [Using GBrain with GStack](USING_GBRAIN_WITH_GSTACK.md) | Every path, flag, bin helper, and troubleshooting step for `/setup-gbrain` |
 | [GBrain Sync](docs/gbrain-sync.md) | Cross-machine memory setup, privacy modes, troubleshooting |
 | [Architecture](ARCHITECTURE.md) | Design decisions and system internals |
-| [Browser](BROWSER.md) | How gstack drives the Aside browser (the cookbook), what changed, and what the `browse` render engine still does |
+| [Browser](BROWSER.md) | How gstack drives the Aside browser (the contract and cookbook), how PDFs and diagrams render through it, what was removed, and how to migrate |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |
 | [Changelog](CHANGELOG.md) | What's new in every version |
 
@@ -497,7 +496,7 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **`/browse` (or `/qa`, `/design-review`) stops at the browser check?** Is the Aside app open and signed in? Browser skills drive Aside (macOS 15+, [aside.com](https://aside.com)) — `aside --version` should print a version and `aside repl 'console.log("ok")'` should print `ok`. gstack never installs it for you.
 
-**`/make-pdf` or `/diagram` fails to render?** `cd ~/.claude/skills/gstack && bun install && bun run build` — those use the local `browse` render engine, not Aside.
+**`/make-pdf` or `/diagram` says `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`?** Same answer: is the Aside app open? Those skills render their HTML through Aside too. Test the renderer directly with `bun run ~/.claude/skills/gstack/bin/gstack-render.ts some.html --screenshot /tmp/out.png`. On Linux and Windows there is no renderer until Aside ships there.
 
 **Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
 
@@ -507,7 +506,7 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd "${CODEX_HOME:-$HOME/.codex}/skills/gstack" && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse render engine (used by `/make-pdf`, `/diagram`, design previews) automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. The browser skills (`/browse`, `/qa`, `/design-review`, `/canary`, `/benchmark`, `/scrape`) drive Aside, which is macOS-only today — on Windows and Linux they stop at the browser check until Aside ships there.
+**Windows users:** gstack works on Windows 11 via Git Bash or WSL for everything that does not need a browser. The browser skills (`/browse`, `/qa`, `/design-review`, `/canary`, `/benchmark`, `/scrape`) and the renderer behind `/make-pdf` and `/diagram` drive Aside, which is macOS-only today — on Windows and Linux they stop at the readiness check with a plain message until Aside ships there. There is no fallback browser or renderer.
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 

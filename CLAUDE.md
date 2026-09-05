@@ -14,7 +14,6 @@ bun run test:periodic:sharded  # periodic tier via the sharded paid runner (impl
 bun run test:e2e     # run E2E tests only (diff-based, ~$4.20/run max)
 bun run test:e2e:all # run ALL E2E tests regardless of diff
 bun run eval:select  # show which tests would run based on current diff
-bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
 bun run build        # gen docs + compile binaries
 bun run gen:skill-docs  # regenerate SKILL.md files from templates
 bun run skill:check  # health dashboard for all skills
@@ -86,25 +85,28 @@ gone: `TREE_MUTATING` is empty (gen-skill-docs has a main() guard and
 docs/TESTING_INTERNALS.md). Never type bare `bun test` for the suite: it
 walks the whole repo, loading paid eval files and missing the strict
 classifier.
-It covers skill validation, gen-skill-docs quality checks, and browse
-integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
-tests via `claude -p`. Both must pass before creating a PR.
+It covers skill validation, gen-skill-docs quality checks, the Aside contract
+pins, and the render-wrapper pins. `bun run test:evals` runs LLM-judge quality
+evals and E2E tests via `claude -p`. Both must pass before creating a PR.
+Anything that needs a browser (Aside E2E, make-pdf render gates, `/diagram`
+E2E) runs only on a Mac with the Aside app open and self-skips elsewhere.
 
 ## Project structure
 
 Full annotated tree: [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).
-Quick map: `browse/` headless-browser CLI, `design/` design binary,
-`hosts/` typed host configs, `scripts/` build+DX tooling (gen-skill-docs,
-resolvers), `test/` validation+evals, `lib/` shared libraries, `bin/` CLI
-utilities, `extension/` Chrome extension, one directory per skill
-(`ship/`, `review/`, `qa/`, ...), `.github/` CI, `contrib/` contributor
-tools, `docs/designs/` design documents.
+Quick map: `design/` design binary, `make-pdf/` PDF binary, `hosts/` typed
+host configs, `scripts/` build+DX tooling (gen-skill-docs, resolvers),
+`test/` validation+evals, `lib/` shared libraries (`aside-render.ts` renders
+local HTML through Aside), `bin/` CLI utilities (`gstack-render.ts` is the
+render CLI skills call), one directory per skill (`ship/`, `review/`, `qa/`,
+`browse/`, ...), `.github/` CI, `contrib/` contributor tools,
+`docs/designs/` design documents.
 
 ## SKILL.md workflow
 
 SKILL.md files are **generated** from `.tmpl` templates. To update docs:
 
-1. Edit the `.tmpl` file (e.g. `SKILL.md.tmpl` or `browse/SKILL.md.tmpl`)
+1. Edit the `.tmpl` file (e.g. `SKILL.md.tmpl` or `qa/SKILL.md.tmpl`)
 2. Run `bun run gen:skill-docs` (or `bun run build` which does it automatically)
 3. Commit both the `.tmpl` and generated `.md` files
 
@@ -117,9 +119,10 @@ Codex config.toml pins a different model, rerun `./setup --host codex`
 afterwards to restore your profile (single-owner persistence is filed in
 TODOS.md).
 
-To add a render-engine command to `browse`, add it to `browse/src/commands.ts`
-and rebuild. Browser steps in skills are `aside repl` scripts per
-`scripts/resolvers/aside.ts`, not browse commands.
+Browser steps in skills are `aside repl` scripts per
+`scripts/resolvers/aside.ts`. Local-HTML rendering in a skill template is a
+`bun run ~/.claude/skills/gstack/bin/gstack-render.ts` call; new render
+options go into `lib/aside-render.ts`, never into a skill's own bash.
 
 **Token ceiling:** Generated SKILL.md files trip a warning above 160KB (~40K tokens).
 This is a "watch for feature bloat" guardrail, not a hard gate. Modern flagship
@@ -202,21 +205,22 @@ writing-style was extracted to V1.1 — see `docs/designs/PACING_UPDATES_V0.md`.
 
 ## Browser interaction
 
-When you need to interact with a browser (QA, dogfooding, inspecting a page), use
-the `/browse` skill — it drives the Aside AI browser, the user's real browser
-with their real sessions, through `aside repl` scripts that follow the contract
-in `scripts/resolvers/aside.ts` (`{{ASIDE_SETUP}}`). Every browser skill (`/qa`, `/qa-only`,
-`/design-review`, `/canary`, `/benchmark`, `/scrape`) does the same. The `browse`
-binary (`$B`) is the local-HTML render engine for make-pdf, diagram, and design
-previews only — never point it at a site. NEVER use `mcp__claude-in-chrome__*`
+gstack has exactly one browser: the Aside AI browser (macOS 15+). When you need
+to interact with a browser (QA, dogfooding, inspecting a page), use the
+`/browse` skill — it drives Aside, the user's real browser with their real
+sessions, through `aside repl` scripts that follow the contract in
+`scripts/resolvers/aside.ts` (`{{ASIDE_SETUP}}`). Every browser skill (`/qa`,
+`/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/scrape`) does the same,
+and web research in skills runs through Aside's agent (`{{ASIDE_RESEARCH}}`),
+never through the WebSearch tool. There is no `$B`, no browse binary, no
+headless fallback: `test/skill-validation.test.ts` and `test/aside-driver.test.ts`
+fail if a generated skill invokes one. Local HTML that a skill generated itself
+(make-pdf, diagram, design previews) renders through
+`bin/gstack-render.ts` / `lib/aside-render.ts`, which serve the file on
+loopback and print or screenshot it in Aside — never point the renderer at a
+site. Linux and Windows have no browser or renderer until Aside ships there;
+say so plainly, never invent a fallback. NEVER use `mcp__claude-in-chrome__*`
 tools — they are slow, unreliable, and not what this project uses.
-
-**Render-engine internals:** before editing `browse/src/server.ts`, `extension/`,
-or any SSE/CDP session code, read
-[docs/BROWSER_INTERNALS.md](docs/BROWSER_INTERNALS.md). The daemon's headed,
-extension, tunnel, and cookie surfaces are unreachable from any skill and are
-scheduled for deletion (TODOS.md, "Aside consolidation follow-ups"); until then
-their invariants there are each pinned by a CI tripwire.
 
 **Egress receipts at every off-machine sink** (v1.63.0.0+). Every gstack-initiated
 send off the machine MUST write a hash-chained receipt to
@@ -224,7 +228,7 @@ send off the machine MUST write a hash-chained receipt to
 `writeReceipt` from `lib/egress-receipt.ts`; shell scripts source
 `bin/gstack-egress-lib.sh` and use `_receipted_curl` / `_receipted_git`. Failure
 polarity is per-class: fail-closed for sensitive sinks (brain-sync, memory-ingest,
-gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision), fail-open
+gbrain-sync, telemetry, mcp-verify, supabase-provision), fail-open
 + stderr warning for user-facing ones (design OpenAI calls, update-check,
 dashboards, git-class ops). The new-sink scanner in
 `test/egress-receipt-wiring.test.ts` fails CI on an unreceipted `curl` /
@@ -272,15 +276,14 @@ migration script to `gstack-upgrade/migrations/`. Read CONTRIBUTING.md's "Upgrad
 migrations" section for the format and testing requirements. The upgrade skill runs
 these automatically after `./setup` during `/gstack-upgrade`.
 
-## Compiled binaries — never commit browse/dist/, design/dist/, or make-pdf/dist/
+## Compiled binaries — never commit design/dist/ or make-pdf/dist/
 
-The `browse/dist/`, `design/dist/`, and `make-pdf/dist/` directories contain
-compiled Bun binaries (`browse`, `find-browse`, `design`, ~62MB each). These are
-Mach-O arm64 only — they do NOT work on Linux, Windows, or Intel Macs. The
-`./setup` script builds from source for every platform.
+The `design/dist/` and `make-pdf/dist/` directories contain compiled Bun
+binaries (`design`, `pdf`, ~60MB each). These are Mach-O arm64 only — they do
+NOT work on Linux, Windows, or Intel Macs. The `./setup` script builds from
+source for every platform.
 
-These directories are **untracked and gitignored** (`.gitignore:3-6`; the
-`browse/dist/` binaries were untracked in `64d5a3e4`, v0.11.16.0; the others were
+These directories are **untracked and gitignored** (`.gitignore`; they were
 never tracked). They will NOT appear in `git status`. If a dist binary ever does
 show up in `git status`, something force-added it (`git add -f`) — do not commit
 it; unstage it and find out how it got there.
@@ -359,7 +362,7 @@ Before fixing any finding, read [docs/SLOP_SCAN.md](docs/SLOP_SCAN.md):
 it separates genuine quality fixes (empty catches around file ops → 
 `safeUnlink()`, process kills → `safeKill()`) from linter gaming we
 reject (string-matching error messages, tightening best-effort cleanup).
-Utilities live in `browse/src/error-handling.ts`. Don't chase the score.
+Utilities live in `lib/error-handling.ts`. Don't chase the score.
 
 ## Community PR guardrails
 
@@ -715,8 +718,8 @@ gbrain-refresh` renders into the install (those generated blocks differ from
 restore them across all your projects' Claude sessions. It's idempotent.
 
 Or copy the binaries directly:
-- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+- `cp make-pdf/dist/pdf ~/.claude/skills/gstack/make-pdf/dist/pdf`
 
 ## Skill routing
 

@@ -4,263 +4,79 @@ This document explains **why** gstack is built the way it is. For setup and comm
 
 ## The core idea
 
-gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.
+gstack gives Claude Code a set of opinionated workflow skills and exactly one browser: the user's own [Aside](https://aside.com) AI browser. Everything gstack ships is Markdown, small TypeScript helpers, and two skill binaries (design, make-pdf) plus the tiny `gstack-global-discover` helper, all compiled by `scripts/build.sh`. The browser is not ours — that is the point.
 
-The key insight: an AI agent interacting with a browser needs **sub-second latency** and **persistent state**. If every command cold-starts a browser, you're waiting 3-5 seconds per tool call. If the browser dies between commands, you lose cookies, tabs, and login sessions. So gstack runs a long-lived Chromium daemon that the CLI talks to over localhost HTTP.
+The key insight, learned the expensive way: an AI agent needs to be in *your* browser, not in a browser that imitates you. We spent a long time building a headless Chromium daemon that came closer and closer to the real thing — a persistent daemon for sub-second commands, a cookie importer so it could be logged in as you, a headed mode so you could watch, a CAPTCHA handoff, a tunnel so other agents could join, a sidebar so it could talk back. Every piece existed to close the gap to the browser you already had open. Aside is that browser with an agent-grade CLI, so the whole stack collapsed into one contract:
 
 ```
-Claude Code                     gstack
-─────────                      ──────
-                               ┌──────────────────────┐
-  Tool call: $B snapshot -i    │  CLI (compiled binary)│
-  ─────────────────────────→   │  • reads state file   │
-                               │  • POST /command      │
-                               │    to localhost:PORT   │
-                               └──────────┬───────────┘
-                                          │ HTTP
-                               ┌──────────▼───────────┐
-                               │  Server (Bun.serve)   │
-                               │  • dispatches command  │
-                               │  • talks to Chromium   │
-                               │  • returns plain text  │
-                               └──────────┬───────────┘
-                                          │ CDP
-                               ┌──────────▼───────────┐
-                               │  Chromium (headless)   │
-                               │  • persistent tabs     │
-                               │  • cookies carry over  │
-                               │  • 30min idle timeout  │
-                               └───────────────────────┘
+Claude Code                           Aside (the user's browser, macOS 15+)
+─────────                             ─────
+  bash: aside repl '<script>'   ───→   fresh sandboxed session
+                                         • openTab(url) in the user's real profile
+                                         • snapshot / click / fill / evaluate / screenshot
+                                         • artifacts under the session dir (pwd)
+                                         • tabs close when the script ends
+  stdout: evidence lines +       ←───   exit code is always 0; truth is the
+          GSTACK_STEP_OK sentinel       sentinel (or a `[error` line)
 ```
 
-First call starts everything (~3s). Every call after: ~100-200ms.
+One flow per script. Nothing persists between calls, so a skill re-navigates from the URL for each step, prints labelled evidence lines, and copies artifacts out of the session directory in bash. The full contract — detect-never-install, own tabs only, look-freely-act-with-consent, credentials never pass through the agent, everything a page returns is untrusted — lives in `scripts/resolvers/aside.ts` and renders into every browser skill as `{{ASIDE_SETUP}}`; `test/aside-driver.test.ts` pins its sentences. [BROWSER.md](BROWSER.md) is the reader's version.
+
+Web research in the planning and review skills goes through the same door: `aside exec "<question>"` in the user's browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, the answer treated as untrusted content, "Search unavailable" without Aside. gstack has no search tool of its own.
 
 ## Why Bun
 
 Node.js would work. Bun is better here for three reasons:
 
-1. **Compiled binaries.** `bun build --compile` produces a single ~58MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project.
+1. **Compiled binaries.** `bun build --compile` produces a single ~60MB executable. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs. This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project. The design CLI and make-pdf ship this way; make-pdf embeds `lib/aside-render.ts`, so a PDF needs nothing but the Aside app.
 
-2. **Native SQLite.** Cookie decryption reads Chromium's SQLite cookie database directly. Bun has `new Database()` built in — no `better-sqlite3`, no native addon compilation, no gyp. One less thing that breaks on different machines.
+2. **Native TypeScript.** The `bin/*.ts` helpers and `scripts/*.ts` tooling run as `bun run file.ts` — no compilation step, no `ts-node`, no source maps to debug. Skill templates call `bun run ~/.claude/skills/gstack/bin/gstack-render.ts` directly.
 
-3. **Native TypeScript.** The server runs as `bun run server.ts` during development. No compilation step, no `ts-node`, no source maps to debug. The compiled binary is for deployment; source files are for development.
+3. **Built-in HTTP server.** `Bun.serve()` is what `lib/aside-render.ts` uses to serve a render's directory on loopback for a few seconds. No framework, no dependency.
 
-4. **Built-in HTTP server.** `Bun.serve()` is fast, simple, and doesn't need Express or Fastify. The server handles ~10 routes total. A framework would be overhead.
+Bun's startup speed (~1ms for the compiled binary vs ~100ms for Node) is nice but not the reason. The compiled binary and zero-config TypeScript are.
 
-The bottleneck is always Chromium, not the CLI or server. Bun's startup speed (~1ms for the compiled binary vs ~100ms for Node) is nice but not the reason we chose it. The compiled binary and native SQLite are.
+## Rendering local HTML through Aside
 
-## The daemon model
+`/make-pdf`, `/diagram`, `/design-html` previews, and `/office-hours` sketches generate HTML and need a browser to print or rasterize it. That browser is Aside, through `lib/aside-render.ts` (the TypeScript API, embedded in make-pdf) and `bin/gstack-render.ts` (the CLI skill templates call). Every fact below was verified against Aside CLI 1.26:
 
-### Why not start a browser per command?
+1. **Aside refuses `file://` URLs**, so the HTML's directory is served with `Bun.serve()` on `127.0.0.1` at an ephemeral port for the duration of one render and opened with `goto(url, { waitUntil: "load" })` — the default "interactive" readiness never fires for the 9MB diagram bundle.
+2. **One `aside repl` process runs one generated script**: open, wait (`--wait-selector` / `--wait-expr`), run the steps in order (`--pdf`, `--screenshot`, `--eval … --out`), close the tab. Nothing persists between CLI calls, so a render is always a single script.
+3. **Artifacts are written inside Aside's sandbox** (the per-run session directory is the only writable place), the script prints `ASIDE_DIR=<pwd>`, and the wrapper copies them out.
+4. **PDFs go through raw CDP `Page.printToPDF`** via `page._sendToTarget`, so header/footer templates, tagged PDF, and the document outline keep working — `page.pdf()` exposes only the Playwright subset.
+5. **Sized screenshots use CDP `Emulation.setDeviceMetricsOverride`.** There is no `setViewportSize`.
+6. **The CLI exit code is 0 even when the script throws.** Truth is the `GSTACK_RENDER_OK` sentinel on stdout; a `[error` line is failure.
 
-Playwright can launch Chromium in ~2-3 seconds. For a single screenshot, that's fine. For a QA session with 20+ commands, it's 40+ seconds of browser startup overhead. Worse: you lose all state between commands. Cookies, localStorage, login sessions, open tabs — all gone.
-
-The daemon model means:
-
-- **Persistent state.** Log in once, stay logged in. Open a tab, it stays open. localStorage persists across commands.
-- **Sub-second commands.** After the first call, every command is just an HTTP POST. ~100-200ms round-trip including Chromium's work.
-- **Automatic lifecycle.** The server auto-starts on first use, auto-shuts down after 30 minutes idle. No process management needed.
-
-### State file
-
-The server writes `.gstack/browse.json` (atomic write via tmp + rename, mode 0o600):
-
-```json
-{ "pid": 12345, "port": 34567, "token": "uuid-v4", "startedAt": "...", "binaryVersion": "abc123" }
-```
-
-The CLI reads this file to find the server. If the file is missing or the daemon process is dead, the CLI spawns a new server. A process that is alive but not answering `/health` is busy, not dead: the CLI probes for a bounded ~8s, then reports busy with a nonzero exit — only an explicit `--force-restart` kills a live daemon. Process liveness uses signal-0 (`isProcessAlive`, EPERM counts as alive) on every platform, with the health check (GET /health) as the responsiveness signal. Daemon stdout/stderr persists to `<project>/.gstack/browse-daemon.log`.
-
-### Port selection
-
-Random port between 10000-49151 (retry up to 5 on collision), allocated through the shared `browse/src/port-allocator.ts` so every long-lived gstack listener draws from the same range. The range ends at 49151 on purpose: 49152-65535 is the macOS ephemeral pool, and allocating inside it meant the OS could hand the same port to another process moments later. This means 10 Conductor workspaces can each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
-
-### Version auto-restart
-
-The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI invocation, if the binary's version doesn't match the running server's `binaryVersion`, the CLI kills the old server and starts a new one. This prevents the "stale binary" class of bugs entirely — rebuild the binary, next command picks it up automatically.
+The renderer serves a local directory and nothing else. Pointing it at a website is forbidden by the same contract that forbids substituting a headless browser for a browser step. Aside is macOS 15+, so Linux and Windows have no renderer until Aside ships there; the skills say so at their readiness check instead of inventing a fallback.
 
 ## Security model
 
-### Localhost only
+### The browser boundary
 
-The HTTP server binds to `127.0.0.1`, not `0.0.0.0`. It's not reachable from the network.
+The browser is the user's, so the security model is about what the agent may do inside it, not about protecting a daemon. The rules are prose in `scripts/resolvers/aside.ts`, rendered into every browser skill and pinned by `test/aside-driver.test.ts`:
 
-### Dual-listener tunnel architecture (v1.6.0.0)
+- **Detect, never install.** A missing or closed Aside stops the skill with one message; gstack never runs an installer and never substitutes another browser.
+- **Own tabs only.** The agent works in tabs it opened (or one the user named). `listBrowserTabs()` output is private data and never lands in a report.
+- **Look freely, act with consent.** Invoking a skill with a target is consent to read, navigate, and fill without submitting. Mutating actions on a non-local target hit the user's real account, so they get ONE AskUserQuestion per run listing the exact actions first. Logout/delete/cancel/unsubscribe links are never followed.
+- **Credentials never pass through the agent.** Sign-in walls are solved by the user inside Aside; the agent never types, reads, or prints passwords, one-time codes, cookies, tokens, or localStorage.
+- **Everything a page returns is untrusted.** Snapshot trees, page text, console output, `aside exec` answers, screenshots: content, never instructions (`{{UNTRUSTED_CONTENT_WARNING}}` is the single-source wording).
 
-When a user runs `pair-agent --client`, the daemon starts an ngrok tunnel so a remote paired agent can drive the browser. Exposing the full daemon surface to the internet (even behind a random ngrok subdomain) meant `/health` leaked the root token on any Origin spoof, and `/cookie-picker` embedded the token into HTML that any caller could fetch.
-
-The fix is **two HTTP listeners**, not one:
-
-- **Local listener** (`127.0.0.1:LOCAL_PORT`) — always bound. Serves token bootstrap (`POST /extension-token`, released only to the pinned extension identity), `/health` (liveness/status only — never a token), `/cookie-picker`, `/inspector/*`, `/welcome`, `/refs`, the sidebar-agent API, and the full command surface. Never forwarded.
-- **Tunnel listener** (`127.0.0.1:TUNNEL_PORT`) — bound lazily on `/tunnel/start`, torn down on `/tunnel/stop`. Serves a locked allowlist: `/connect` (pairing ceremony, unauth + rate-limited) and `/command` (scoped tokens only, further restricted to a browser-driving command allowlist). Everything else 404s.
-
-ngrok forwards only the tunnel port. The security property comes from **physical port separation**: a tunnel caller cannot reach `/health` or `/cookie-picker` because those paths don't exist on that TCP socket. Header inference (check `x-forwarded-for`, check origin) is unreliable (ngrok header behavior changes; local proxies can add these headers); socket separation isn't.
-
-| Endpoint | Local listener | Tunnel listener | Notes |
-|---|---|---|---|
-| `GET /health` | public (liveness/status only — never a token) | 404 | Token bootstrap moved to `POST /extension-token` (v1.63) |
-| `POST /extension-token` | pinned Origin (`chrome-extension://<GSTACK_EXTENSION_ID>`) + loopback Host | 404 | The only endpoint that hands out the root token |
-| `GET /connect` | public (`{alive:true}`) | public (`{alive:true}`) | Probe path for tunnel liveness |
-| `POST /connect` | public (rate-limited 300/min) | public (rate-limited) | Setup-key exchange for pair-agent |
-| `POST /command` | auth (Bearer root OR scoped) | auth (scoped only, allowlisted commands) | Root token on tunnel = 403 |
-| `POST /pair` | root-only | 404 | Pairing mint — local operator action |
-| `POST /tunnel/{start,stop}` | root-only | 404 | Daemon configuration |
-| `POST /token`, `DELETE /token/:id` | root-only | 404 | Scoped token mint/revoke |
-| `GET /cookie-picker`, `GET /cookie-picker/*` | public UI, auth API | 404 | Local-only — reads local browser DBs |
-| `GET /inspector`, `/inspector/events`, etc. | auth | 404 | Extension callback, local-only |
-| `GET /welcome` | public | 404 | GStack Browser landing page, local-only |
-| `GET /refs` | auth | 404 | Ref map — internal state |
-| `GET /activity/stream` | Bearer OR HttpOnly `gstack_sse` cookie | 404 | SSE. ?token= query param no longer accepted |
-| `GET /inspector/events` | Bearer OR HttpOnly `gstack_sse` cookie | 404 | SSE. Same cookie as /activity/stream |
-| `POST /sse-session` | auth (Bearer) | 404 | Mints the view-only 30-min SSE session cookie |
-
-**Extension token bootstrap (v1.63.0.0).** `GET /health` never carries a token in any mode — it is liveness/status only. The sidebar extension obtains the root token via `POST /extension-token`, which releases it only when the caller's Origin is exactly `chrome-extension://<GSTACK_EXTENSION_ID>` (pinned by the `key` field in `extension/manifest.json`; reproduce the derivation with `bun browse/scripts/extension-id.ts`) and the Host header parses to a loopback hostname — parsed with `new URL()`, never compared raw, because Host carries the port. Web pages cannot forge a `chrome-extension://` Origin, and the endpoint is never added to the tunnel allowlist, so the tunnel surface 404s it by default-deny.
-
-**Tunnel surface denial logs.** Every rejection on the tunnel listener (`path_not_on_tunnel`, `root_token_on_tunnel`, `missing_scoped_token`, `disallowed_command:*`) is recorded asynchronously to `~/.gstack/security/attempts.jsonl` with timestamp, source IP (from `x-forwarded-for`), path, and method. Rate-capped at 60 writes/min globally to prevent log-flood DoS. Shares the attempt log with the prompt-injection scanner.
-
-**SSE session cookies.** EventSource can't send Authorization headers, so the extension POSTs `/sse-session` once at bootstrap with the root Bearer and receives a 30-minute view-only cookie (`gstack_sse`, HttpOnly, SameSite=Strict). The cookie is valid ONLY for `/activity/stream` and `/inspector/events` — it is NOT a scoped token and cannot be used on `/command`. Scope isolation is enforced by the module boundary: `sse-session-cookie.ts` has no imports from `token-registry.ts`.
-
-**Non-goal in this wave** (tracked as #1136): the cookie-import-browser path launches Chrome with `--remote-debugging-port=<random>`. On Windows with App-Bound Encryption v20, a same-user local process can connect to that port and exfiltrate decrypted v20 cookies — an elevation path relative to reading the SQLite DB directly (which can't decrypt v20 without DPAPI context). Fix direction is `--remote-debugging-pipe` instead of TCP; requires restructuring the CDP client.
-
-### Bearer token auth
-
-Every server session generates a random UUID token, written to the state file with mode 0o600 (owner-only read). Every HTTP request that mutates browser state must include `Authorization: Bearer <token>`. If the token doesn't match, the server returns 401.
-
-This prevents other processes on the same machine from talking to your browse server. The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt on the local listener — they're 127.0.0.1-bound and don't execute commands. On the tunnel listener nothing is exempt except `/connect`.
-
-### Cookie security
-
-Cookies are the most sensitive data gstack handles. The design:
-
-1. **Keychain access requires user approval.** First cookie import per browser triggers a macOS Keychain dialog. The user must click "Allow" or "Always Allow." gstack never silently accesses credentials.
-
-2. **Decryption happens in-process.** Cookie values are decrypted in memory (PBKDF2 + AES-128-CBC), loaded into the Playwright context, and never written to disk in plaintext. The cookie picker UI never displays cookie values — only domain names and counts.
-
-3. **Database is read-only.** gstack copies the Chromium cookie DB to a temp file (to avoid SQLite lock conflicts with the running browser) and opens it read-only. It never modifies your real browser's cookie database.
-
-4. **Key caching is per-session.** The Keychain password + derived AES key are cached in memory for the server's lifetime. When the server shuts down (idle timeout or explicit stop), the cache is gone.
-
-5. **No cookie values in logs.** Console, network, and dialog logs never contain cookie values. The `cookies` command outputs cookie metadata (domain, name, expiry) but values are truncated.
-
-### Shell injection prevention
-
-The browser registry (Comet, Chrome, Arc, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input. Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
+There is no cookie decryption, no bearer-token daemon, no tunnel: those threat surfaces left with the code that had them. Drives happen inside Aside, so they produce no gstack-side audit trail; Aside keeps its own history.
 
 ### Egress receipt ledger (v1.63.0.0)
 
 Every enumerated gstack-initiated off-machine sink writes a hash-chained, tamper-evident receipt to `~/.gstack/security/egress.jsonl` BEFORE the send — `writeReceipt` in `lib/egress-receipt.ts` for TypeScript callers, `_receipted_curl` / `_receipted_git` from `bin/gstack-egress-lib.sh` for shell scripts. Receipts record a sha256 of the exact bytes sent when the caller owns them (subprocess-owned sends like git pushes record `sha256: null`); they never store the body.
 
-Failure polarity is per-class and pinned by tests. Sensitive sinks are fail-closed: brain-sync pushes, memory-ingest, gbrain-sync, telemetry, ngrok tunnel starts, mcp-verify, and supabase-provision refuse to send if the receipt can't be written (each refusal prints problem + cause + fix). User-facing sinks fail open with a stderr warning — the design binary's OpenAI calls, update-check, the read-only dashboards, and git-class receipts proceed even when the receipt write failed, so a fail-open send can go unrecorded (warned, by design). The new-sink scanner in `test/egress-receipt-wiring.test.ts` fails CI when an off-machine sink ships unwired; its only exemptions are enumerated with reasons (user-directed page fetches, reachability probes, install-doc strings, skill prose).
+Failure polarity is per-class and pinned by tests. Sensitive sinks are fail-closed: brain-sync pushes, memory-ingest, gbrain-sync, telemetry, mcp-verify, and supabase-provision refuse to send if the receipt can't be written (each refusal prints problem + cause + fix). User-facing sinks fail open with a stderr warning — the design binary's OpenAI calls, update-check, the read-only dashboards, and git-class receipts proceed even when the receipt write failed, so a fail-open send can go unrecorded (warned, by design). The new-sink scanner in `test/egress-receipt-wiring.test.ts` fails CI when an off-machine sink ships unwired; its only exemptions are enumerated with reasons (user-directed page fetches, reachability probes, install-doc strings, skill prose).
 
 Inspect the ledger with `bin/gstack-egress`: `list` (what gstack attempted to send), `verify` (recompute the chain, exit 3 on tamper), `grants` (the standing consent settings and how to revoke each). `verify` detects in-place edits, reordering, and mid-chain deletion; it does NOT detect tail-truncation, whole-file re-fabrication, or deletion of the ledger itself — guarding against the same-machine, same-user actor who owns the file is out of scope for a forensic log. Threat model: the ledger is forensic observability of ATTEMPTED egress — it records what gstack tried to send so accidents are auditable; it is not an exfiltration control.
 
-### Unicode sanitization at server egress (v1.38.0.0)
-
-Page content harvested by CDP can contain lone UTF-16 surrogate halves (orphaned high or low surrogates from broken JavaScript string handling on the page). When those reach `JSON.stringify`, Bun emits them as `\uD800`-style escape sequences that the downstream consumer's `JSON.parse` accepts, but the Anthropic API rejects with a 400 — turning a single weird page into a session-killing error. Defense is single-point, applied at every server egress that ships page-derived strings.
-
-| Egress path | Module | Sanitization point |
-|---|---|---|
-| `POST /command` (HTTP) | `browse/src/server.ts` | `handleCommandInternal` wrapper (sanitizes the result of `handleCommandInternalImpl`) |
-| `POST /command/batch` | `browse/src/server.ts` | Same wrapper — batch consumers inherit it |
-| `GET /activity/stream` (SSE) | `browse/src/server.ts` | `sanitizeReplacer` passed to `JSON.stringify` |
-| `GET /inspector/events` (SSE) | `browse/src/server.ts` | `sanitizeReplacer` passed to `JSON.stringify` |
-
-`sanitizeReplacer` is a `JSON.stringify` replacer function that cleans every string value during encoding. Post-stringify regex doesn't work here — `JSON.stringify` has already converted `\uD800` into the literal escape sequence `"\\ud800"` before the regex could match, so the replacer must run inside the encoding pipeline. The pure-string helper `sanitizeLoneSurrogates` is used directly for `text/plain` responses.
-
-**Architectural invariant.** Every new SSE/WebSocket writer or HTTP response that ships page-content-derived strings MUST go through one of two paths: `JSON.stringify(payload, sanitizeReplacer)` for object payloads, or `sanitizeLoneSurrogates(body)` for text bodies. New surfaces that bypass both will desync the system. Inline comments at both SSE producers in `server.ts` say so; `browse/test/server-sanitize-surrogates.test.ts` pins wiring with bug-repro + invariant tests (`handleCommandInternalImpl` rename, central sanitization line, replacer existence, SSE producers stringify with replacer).
-
-### Prompt injection defense (sidebar agent)
-
-The Chrome sidebar agent has tools (Bash, Read, Glob, Grep, WebFetch) and reads hostile web pages, so it's the part of gstack most exposed to prompt injection. Defense is layered, not single-point.
-
-1. **L1-L3 content security (`browse/src/content-security.ts`).** Runs on every page-content command and every tool output: datamarking, hidden-element strip, ARIA regex, URL blocklist, and a trust-boundary envelope wrapper. Applied at both the server and the agent.
-
-2. **L4 ML classifier — TestSavantAI (`browse/src/security-classifier.ts`).** A 22MB BERT-small ONNX model (int8 quantized) running in the security sidecar subprocess. Runs locally, no network. Scans page-derived content on the inject-scan path before the agent sees it.
-
-3. **L4b transcript classifier (removed).** A Claude Haiku conversation-shape pass existed until the chat-path agent that invoked it was ripped; it was deleted as dead code (zero production callers), along with the opt-in DeBERTa ensemble. Do not re-document either as live.
-
-4. **L5 canary token (`browse/src/security.ts`).** Generate/inject/detect utilities for a random system-prompt token whose leak means the attacker convinced the model to reveal the system prompt. Canary leak BLOCKs deterministically. The utilities are pure and tested; the chat prompt-builder that injected the canary was ripped, so no production path injects it today.
-
-5. **L6 ensemble combiner (`combineVerdict`).** BLOCK requires agreement from two ML classifiers at >= `WARN` (0.75), not a single confident hit. This is the Stack Overflow instruction-writing false-positive mitigation. On tool-output scans, single-layer high confidence BLOCKs directly — the content wasn't user-authored, so the FP concern doesn't apply.
-
-**Critical constraint:** `security-classifier.ts` runs only in the security sidecar subprocess (`security-sidecar-entry.ts`), never in the compiled browse binary. `@huggingface/transformers` v4 requires `onnxruntime-node`, which fails `dlopen` from Bun compile's temp extract directory. Only the pure-string pieces (canary inject/check, verdict combiner) are in `security.ts`, which is safe to import from `server.ts`. (The attack log lives in `tunnel-denial-log.ts`; the session-state/status surface was removed in #2557.)
-
-**Env knobs:** `GSTACK_SECURITY_OFF=1` is a real kill switch (classifier stays off even if warmed; the L1-L3 filters keep running). Model cache at `~/.gstack/models/testsavant-small/` (112MB, first run). Attack log at `~/.gstack/security/attempts.jsonl` (salted sha256 + domain, rotates at 10MB, 5 generations). Per-device salt at `~/.gstack/security/device-salt` (0600), cached in-process to survive FS-unwritable environments.
-
-**Visibility.** A centered banner appears on canary leak or BLOCK verdict with the exact layer scores. `bin/gstack-security-dashboard` aggregates local attempts; `supabase/functions/community-pulse` aggregates opt-in community telemetry across users. (The sidebar header's SEC shield icon and the `/health` `security` field were removed in #2557: their only data source — `~/.gstack/security/session-state.json` — lost its only writer when the chat-path agent was ripped, so the shield reported stale or empty state. The live defenses report through their own call sites.)
-
-## The ref system
-
-Refs (`@e1`, `@e2`, `@c1`) are how the agent addresses page elements without writing CSS selectors or XPath.
-
-### How it works
-
-```
-1. Agent runs: $B snapshot -i
-2. Server calls Playwright's page.accessibility.snapshot()
-3. Parser walks the ARIA tree, assigns sequential refs: @e1, @e2, @e3...
-4. For each ref, builds a Playwright Locator: getByRole(role, { name }).nth(index)
-5. Stores Map<string, RefEntry> on the BrowserManager instance (role + name + Locator)
-6. Returns the annotated tree as plain text
-
-Later:
-7. Agent runs: $B click @e3
-8. Server resolves @e3 → Locator → locator.click()
-```
-
-### Why Locators, not DOM mutation
-
-The obvious approach is to inject `data-ref="@e1"` attributes into the DOM. This breaks on:
-
-- **CSP (Content Security Policy).** Many production sites block DOM modification from scripts.
-- **React/Vue/Svelte hydration.** Framework reconciliation can strip injected attributes.
-- **Shadow DOM.** Can't reach inside shadow roots from the outside.
-
-Playwright Locators are external to the DOM. They use the accessibility tree (which Chromium maintains internally) and `getByRole()` queries. No DOM mutation, no CSP issues, no framework conflicts.
-
-### Ref lifecycle
-
-Refs are cleared on navigation (the `framenavigated` event on the main frame). This is correct — after navigation, all locators are stale. The agent must run `snapshot` again to get fresh refs. This is by design: stale refs should fail loudly, not click the wrong element.
-
-### Ref staleness detection
-
-SPAs can mutate the DOM without triggering `framenavigated` (e.g. React router transitions, tab switches, modal opens). This makes refs stale even though the page URL didn't change. To catch this, `resolveRef()` performs an async `count()` check before using any ref:
-
-```
-resolveRef(@e3) → entry = refMap.get("e3")
-                → count = await entry.locator.count()
-                → if count === 0: throw "Ref @e3 is stale — element no longer exists. Run 'snapshot' to get fresh refs."
-                → if count > 0: return { locator }
-```
-
-This fails fast (~5ms overhead) instead of letting Playwright's 30-second action timeout expire on a missing element. The `RefEntry` stores `role` and `name` metadata alongside the Locator so the error message can tell the agent what the element was.
-
-### Cursor-interactive refs (@c)
-
-The `-C` flag finds elements that are clickable but not in the ARIA tree — things styled with `cursor: pointer`, elements with `onclick` attributes, or custom `tabindex`. These get `@c1`, `@c2` refs in a separate namespace. This catches custom components that frameworks render as `<div>` but are actually buttons.
-
-## Logging architecture
-
-Three ring buffers (50,000 entries each, O(1) push):
-
-```
-Browser events → CircularBuffer (in-memory) → Async flush to .gstack/*.log
-```
-
-Console messages, network requests, and dialog events each have their own buffer. Flushing happens every 1 second — the server appends only new entries since the last flush. This means:
-
-- HTTP request handling is never blocked by disk I/O
-- Logs survive server crashes (up to 1 second of data loss)
-- Memory is bounded (50K entries × 3 buffers)
-- Disk files are append-only, readable by external tools
-
-The `console`, `network`, and `dialog` commands read from the in-memory buffers, not disk. Disk files are for post-mortem debugging.
 
 ## SKILL.md template system
 
 ### The problem
 
-SKILL.md files tell Claude how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors. Hand-maintained docs always drift from code.
+SKILL.md files carry the contracts skills run on: the Aside driver rules, the render CLI's flags, the preamble runtime's STATUS lines, the review dashboard. If the prose drifts from the code it describes, the agent hits an error it then tries to "fix" blindly. Hand-maintained docs always drift from code.
 
 ### The solution
 
@@ -276,16 +92,18 @@ Templates contain the workflows, tips, and examples that require human judgment.
 
 | Placeholder | Source | What it generates |
 |-------------|--------|-------------------|
-| `{{ASIDE_SETUP}}` | `aside.ts` | Aside browser-driver contract: detection, rules, cookbook |
+| `{{ASIDE_SETUP}}` | `resolvers/aside.ts` | Aside browser-driver contract: readiness probe + the rules for driving a real browser |
+| `{{ASIDE_COOKBOOK}}` | `resolvers/aside.ts` | The verified `aside repl` script shapes (carried by /browse and /devex-review; other skills inline their own) |
+| `{{ASIDE_RESEARCH}}` | `resolvers/aside.ts` | Web research through `aside exec` in the user's browser, with the readiness probe and the no-Aside degrade |
+| `{{UNTRUSTED_CONTENT_WARNING}}` | `resolvers/aside.ts` | The one untrusted-content rule for everything the browser hands back |
 | `{{PREAMBLE}}` | `gen-skill-docs.ts` | Startup block: update check, session tracking, contributor mode, AskUserQuestion format |
-| `{{BROWSE_SETUP}}` | `gen-skill-docs.ts` | Binary discovery + setup instructions |
 | `{{BASE_BRANCH_DETECT}}` | `gen-skill-docs.ts` | Dynamic base branch detection for PR-targeting skills (ship, review, qa, plan-ceo-review) |
 | `{{QA_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared QA methodology block for /qa and /qa-only |
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
 | `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
 | `{{TEST_BOOTSTRAP}}` | `gen-skill-docs.ts` | Test framework detection, bootstrap, CI/CD setup for /qa, /ship, /design-review |
 | `{{CODEX_PLAN_REVIEW}}` | `gen-skill-docs.ts` | Optional cross-model plan review (Codex or Claude subagent fallback) for /plan-ceo-review and /plan-eng-review |
-| `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for `$D` design binary, mirrors `{{BROWSE_SETUP}}` |
+| `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for the `$D` design binary |
 | `{{DESIGN_SHOTGUN_LOOP}}` | `resolvers/design.ts` | Shared comparison board feedback loop for /design-shotgun, /plan-design-review, /design-consultation |
 | `{{UX_PRINCIPLES}}` | `resolvers/design.ts` | User behavioral foundations (scanning, satisficing, goodwill reservoir, trunk test) for /design-html, /design-shotgun, /design-review, /plan-design-review |
 | `{{GBRAIN_CONTEXT_LOAD}}` | `resolvers/gbrain.ts` | Brain-first context search with keyword extraction, health awareness, and data-research routing. Injected into 10 brain-aware skills. Suppressed on non-brain hosts. |
@@ -316,43 +134,11 @@ Three reasons:
 
 | Tier | What | Cost | Speed |
 |------|------|------|-------|
-| 1 — Static validation | Parse every `$B` command in SKILL.md, validate against registry | Free | <2s |
+| 1 — Static validation | Pin the Aside contract sentences, assert no `$B` survives in any SKILL.md, check the render wrapper's option mapping | Free | <2s |
 | 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, check for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun run test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
-
-## Command dispatch
-
-Commands are categorized by side effects:
-
-- **READ** (text, html, links, console, cookies, ...): No mutations. Safe to retry. Returns page state.
-- **WRITE** (goto, click, fill, press, ...): Mutates page state. Not idempotent.
-- **META** (snapshot, screenshot, tabs, chain, ...): Server-level operations that don't fit neatly into read/write.
-
-This isn't just organizational. The server uses it for dispatch:
-
-```typescript
-if (READ_COMMANDS.has(cmd))  → handleReadCommand(cmd, args, bm)
-if (WRITE_COMMANDS.has(cmd)) → handleWriteCommand(cmd, args, bm)
-if (META_COMMANDS.has(cmd))  → handleMetaCommand(cmd, args, bm, shutdown)
-```
-
-The `help` command returns all three sets so agents can self-discover available commands.
-
-## Error philosophy
-
-Errors are for AI agents, not humans. Every error message must be actionable:
-
-- "Element not found" → "Element not found or not interactable. Run `snapshot -i` to see available elements."
-- "Selector matched multiple elements" → "Selector matched multiple elements. Use @refs from `snapshot` instead."
-- Timeout → "Navigation timed out after 30s. The page may be slow or the URL may be wrong."
-
-Playwright's native errors are rewritten through `wrapError()` to strip internal stack traces and add guidance. The agent should be able to read the error and know what to do next without human intervention.
-
-### Crash recovery
-
-The server doesn't try to self-heal. If Chromium crashes (`browser.on('disconnected')`), the server exits immediately. The CLI detects the dead server on the next command and auto-restarts. This is simpler and more reliable than trying to reconnect to a half-dead browser process.
 
 ## E2E test infrastructure
 
@@ -430,16 +216,18 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 
 | Tier | What | Cost | Speed |
 |------|------|------|-------|
-| 1 — Static validation | Parse `$B` commands, validate against registry, observability unit tests | Free | <5s |
+| 1 — Static validation | Aside contract pins, no-`$B` sweep, render-wrapper pins, observability unit tests | Free | <5s |
 | 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, scan for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun run test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
 
+Anything that needs a browser — `test/skill-e2e-aside.test.ts`, the qa and design-review E2E cases, make-pdf's render gates, `test/skill-e2e-diagram.test.ts` — runs only on a Mac with the Aside app open and self-skips elsewhere (`asideAvailable()` in `test/helpers/aside-available.ts`; `GSTACK_SKIP_ASIDE=1` forces the skip). Linux CI proves the static pins, never the live drive.
+
 ## What's intentionally not here
 
-- **No WebSocket streaming.** HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.
-- **No MCP protocol.** MCP adds JSON schema overhead per request and requires a persistent connection. Plain HTTP + plain text output is lighter on tokens and easier to debug.
-- **No multi-user support.** One server per workspace, one user. The token auth is defense-in-depth, not multi-tenancy.
-- **No Windows/Linux cookie decryption.** macOS Keychain is the only supported credential store. Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
-- **No iframe auto-discovery.** `$B frame` supports cross-frame interaction (CSS selector, @ref, `--name`, `--url` matching), but the ref system does not auto-crawl iframes during `snapshot`. You must explicitly enter a frame context first.
+- **No browser engine.** No headless Chromium, no Playwright, no daemon, no cookie import, no tunnel. Aside is the browser and the renderer; the day it ships on Linux and Windows those platforms get every browser skill unchanged. Until then they have none, and the skills say so instead of faking it.
+- **No persistent page across CLI calls.** Every `aside repl` is a fresh session and its tabs die with it. Re-navigating per script is the honest tax of the model; `aside mcp` may lift it later (TODOS.md).
+- **No search tool.** Research steps use `aside exec` in the user's browser or degrade to in-distribution knowledge, out loud.
+- **No MCP protocol for the browser.** Bash + `aside repl` + labelled stdout lines are lighter on tokens and debuggable by reading the transcript.
+- **No multi-user support.** One user, one browser, one machine.

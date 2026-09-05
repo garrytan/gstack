@@ -77,9 +77,10 @@ gstack/                          <- your working tree
 │   └── SKILL.md                 <- edit this, test with /review
 ├── ship/
 │   └── SKILL.md
-├── browse/
-│   ├── src/                     <- TypeScript source
-│   └── dist/                    <- compiled binary (gitignored)
+├── lib/
+│   └── aside-render.ts          <- local-HTML rendering through Aside (make-pdf, diagram, previews)
+├── bin/
+│   └── gstack-render.ts         <- the CLI skills call to render a local HTML file
 └── ...
 ```
 
@@ -105,7 +106,7 @@ bun run gen:skill-docs   # or: bun run dev:skill (watch mode, auto-regen on chan
 # 3. Test it in Claude Code — changes are live
 #    > /review
 
-# 4. Editing browse source? Rebuild the binary
+# 4. Editing make-pdf or design source? Rebuild the binaries
 bun run build
 
 # 5. Done for the day? Tear down
@@ -149,7 +150,7 @@ Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` f
 
 | Tier | Command | Cost | What it tests |
 |------|---------|------|---------------|
-| 1 — Static | `bun run test` | Free | Render-engine command validation, Aside contract pins, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
+| 1 — Static | `bun run test` | Free | Aside contract pins, render-wrapper option mapping, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
 | 2 — E2E | `bun run test:e2e` | ~$4.20 | Full skill execution via `claude -p` subprocess |
 | 3 — LLM eval | `EVALS=1 bun test test/skill-llm-eval.test.ts` | ~$0.15 standalone | LLM-as-judge scoring of generated SKILL.md docs |
 | 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
@@ -178,9 +179,10 @@ make the suite run green (details in
 Don't type bare `bun test` for the suite: it walks the whole repo, loads paid
 eval files, and misses the strict classifier. No API keys needed.
 
-- **Skill parser tests** (`test/skill-parser.test.ts`) — Extracts every `$B` command from SKILL.md bash code blocks and validates against the command registry in `browse/src/commands.ts`. Only the render-engine skills (`make-pdf`, `diagram`, `design-html`, `office-hours`, `gstack-upgrade`) may invoke `$B` now; `test/aside-driver.test.ts` fails if any other skill does. Catches typos, removed commands, and invalid snapshot flags.
+- **Skill parser tests** (`test/skill-parser.test.ts`) — Unit test of the parser helper (`test/helpers/skill-parser.ts`) against temp fixtures: `$B <cmd>` extraction, line numbers, multi-command lines. Every `$B` it finds is invalid, because the browse binary is gone.
 - **Aside driver contract** (`test/aside-driver.test.ts`) — Browser behaviour in skills is written against `scripts/resolvers/aside.ts` (`{{ASIDE_SETUP}}`) and verified live against the Aside CLI on a Mac. CI cannot run Aside, so the Aside E2E tests self-skip where `aside` is not installed; the static pins (detection, consent, credential, one-flow-per-script, sentinel) are what CI proves.
-- **Skill validation tests** (`test/skill-validation.test.ts`) — Validates that SKILL.md files reference only real commands and flags, and that command descriptions meet quality thresholds.
+- **Aside render wrapper** (`test/aside-render.test.ts`) — Pins the option mapping and generated script of `lib/aside-render.ts` everywhere; the live render (PDF + screenshot through a real Aside) runs only where Aside is open and self-skips elsewhere. make-pdf's own gates (`make-pdf/test/e2e/*-gate.test.ts`) and `test/skill-e2e-diagram.test.ts` gate the same way.
+- **Skill validation tests** (`test/skill-validation.test.ts`) — The no-`$B` sweep: walks every generated SKILL.md and sections file and fails on any `$B` token (browser steps are `aside repl` scripts, local rendering goes through `bin/gstack-render.ts`). `test/aside-driver.test.ts` pins the same invariant from the resolver side. Also cross-checks the skill inventory in AGENTS.md and docs/skills.md.
 - **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples).
 - **Tier-alignment invariant** (`test/e2e-tier-alignment.test.ts`) — For every self-gated `test/skill-e2e-*.test.ts` named in a touchfiles dep list, the file's `EVALS_TIER` self-gate must match its declared tier in `E2E_TIERS`. Kills the "inert demotion" class where a test is re-tiered in `touchfiles.ts` but the file still gates on the old tier and keeps running in the wrong lane. Unmapped or mixed-tier files are reported, never silently skipped.
 - **Catalog budget** (`test/catalog-budget.test.ts`) — Caps the aggregate discovery surface: the sum of every skill's frontmatter `name` + `description` (what every host loads at discovery, every session) must stay under 1,150 token-equivalents, with a 260-byte per-skill cap. Counting goes through the shared census in `test/helpers/skill-census.ts` (physical files vs authored skills vs registry entries — three deliberately different counts). Adding a skill? The failure message carries the re-measure + ratchet protocol.
@@ -188,7 +190,7 @@ eval files, and misses the strict classifier. No API keys needed.
 
 ### Tier 2: E2E via `claude -p` (~$4.20/run)
 
-Spawns `claude -p` as a subprocess with `--output-format stream-json --verbose`, streams NDJSON for real-time progress, and scans for browse errors. This is the closest thing to "does this skill actually work end-to-end?"
+Spawns `claude -p` as a subprocess with `--output-format stream-json --verbose`, streams NDJSON for real-time progress, and scans for tool errors. This is the closest thing to "does this skill actually work end-to-end?"
 
 ```bash
 # Must run from a plain terminal — can't nest inside Claude Code or Conductor
@@ -311,7 +313,7 @@ Supply-chain gates run alongside it:
 
 The supply-chain workflows pin their third-party actions to commit SHAs. The PR template (`.github/PULL_REQUEST_TEMPLATE.md`) asks for evidence — tests run, eval output — not promises.
 
-Tests run against the browse binary directly — they don't require dev mode.
+Tests don't require dev mode. Anything that needs a browser (Aside E2E, make-pdf render gates, `/diagram` E2E) runs only on a Mac with the Aside app open and self-skips elsewhere.
 
 ## Editing SKILL.md files
 
@@ -319,7 +321,7 @@ SKILL.md files are **generated** from `.tmpl` templates. Don't edit the `.md` di
 
 ```bash
 # 1. Edit the template
-vim SKILL.md.tmpl              # or browse/SKILL.md.tmpl
+vim SKILL.md.tmpl              # or qa/SKILL.md.tmpl
 
 # 2. Regenerate for all hosts
 bun run gen:skill-docs --host all
@@ -333,15 +335,16 @@ bun run dev:skill
 
 For template authoring best practices (natural language over bash-isms, dynamic branch detection, `{{BASE_BRANCH_DETECT}}` usage), see CLAUDE.md's "Writing SKILL templates" section.
 
-To add a render-engine command to `browse`, add it to `browse/src/commands.ts` and rebuild. Browser steps in skills are not `browse` commands: write them as `aside repl` scripts that follow the cookbook in `scripts/resolvers/aside.ts`, and run them against the Aside CLI before committing.
+Browser steps in skills are `aside repl` scripts that follow the cookbook in `scripts/resolvers/aside.ts`; run them against the Aside CLI before committing. There is no gstack browser binary to extend.
 
-**Don't bundle puppeteer/Chromium in a skill.** `browse` is the one shared
-Chromium per box, including offline local-render workloads. A skill that needs to
-rasterize its own HTML/JSON (diagrams, cards, og-images) should route through
-`browse` — `screenshot --selector` for visual output, `load-html` + `js --out` for
-bytes a render function returns — instead of `npm i puppeteer` and downloading a
-second Chromium that drifts out of version sync. One install to pin, one daemon to
-manage.
+**Render through `lib/aside-render.ts`.** gstack has one browser, Aside, and it
+is the renderer too. A skill that needs to rasterize or print its own HTML/JSON
+(diagrams, cards, og-images, PDFs) calls `bin/gstack-render.ts` from its
+template (`--screenshot`, `--pdf`, `--eval JS --out FILE`) or imports
+`renderWithAside` from `lib/aside-render.ts` in TypeScript. Never `npm i
+puppeteer`, never download a Chromium, never point the renderer at a website.
+If the wrapper lacks an option you need, add it to `lib/aside-render.ts` (and
+pin it in `test/aside-render.test.ts`) so every caller gets it.
 
 ## Jargon list (V1 writing style)
 
@@ -454,7 +457,7 @@ When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It d
 
 - **SKILL.md files are generated.** Edit the `.tmpl` template, not the `.md`. Run `bun run gen:skill-docs` to regenerate.
 - **TODOS.md is the unified backlog.** Organized by skill/component with P0-P4 priorities. `/ship` auto-detects completed items. All planning/review/retro skills read it for context.
-- **Browse source changes need a rebuild.** If you touch `browse/src/*.ts`, run `bun run build`.
+- **make-pdf and design source changes need a rebuild.** If you touch `make-pdf/src/*.ts`, `lib/aside-render.ts`, or `design/src/*.ts`, run `bun run build`.
 - **Dev mode shadows your global install.** Project-local skills take priority over `~/.claude/skills/gstack`. `bin/dev-teardown` restores the global one.
 - **Conductor workspaces are independent.** Each workspace is its own git worktree. `bin/dev-setup` runs automatically via `conductor.json`.
 - **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.

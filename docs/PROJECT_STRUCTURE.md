@@ -6,10 +6,6 @@ Moved verbatim from CLAUDE.md (token-load reduction).
 
 ```
 gstack/
-├── browse/          # Local-HTML render engine (make-pdf, diagram, design previews) — not a browser skill; skills browse through Aside
-│   ├── src/         # CLI + daemon; commands.ts is the command registry (pre-Aside surfaces pending prune, see TODOS.md)
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
 ├── hosts/           # Typed host configs (one per AI agent)
 │   ├── claude.ts    # Primary host config
 │   ├── claude/hooks/  # Claude Code lifecycle hooks (AUQ capture + enforcement, spawned-session directive, timeline stop)
@@ -30,8 +26,11 @@ gstack/
 │   ├── sandbox-doctor.sh  # One-command cloud-sandbox fixer: makes the free suite run green
 │   └── dev-skill.ts       # Watch mode
 ├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
+│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts, aside-available.ts (Aside self-skip probe), test-server.ts (loopback static server for render/E2E fixtures)
 │   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
+│   │   └── pages/   # Static HTML pages served by test-server.ts for Aside-driven E2E
+│   ├── aside-driver.test.ts      # Tier 1: pins the {{ASIDE_SETUP}} contract sentences; no `$B` anywhere
+│   ├── aside-render.test.ts      # Tier 1 pins + a live render (self-skips without Aside)
 │   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
 │   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
 │   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
@@ -52,31 +51,33 @@ gstack/
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── spec/            # /spec skill (five-phase spec → GitHub issue, optional agent spawn, /ship auto-closes)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
-├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, etc.)
+├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside, gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, etc.)
 ├── document-release/ # /document-release skill (post-ship doc updates + Diataxis coverage map)
 ├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
 ├── design-consultation/ # /design-consultation skill (design system from scratch)
 ├── design-shotgun/  # /design-shotgun skill (visual design exploration)
-├── qa/, qa-only/, scrape/ # Browser skills (with browse/SKILL.md.tmpl, design-review/, canary/, benchmark/) — all drive the Aside browser via {{ASIDE_SETUP}}
+├── browse/          # /browse skill: the base browser skill + the aside repl cookbook (SKILL.md.tmpl only, no code)
+├── qa/, qa-only/, scrape/ # Browser skills (with design-review/, canary/, benchmark/) — all drive the Aside browser via {{ASIDE_SETUP}}
+├── make-pdf/        # /make-pdf skill + compiled `pdf` binary (embeds lib/aside-render.ts; renders through Aside)
+├── diagram/         # /diagram skill (mermaid → SVG/PNG/.excalidraw through bin/gstack-render.ts + lib/diagram-render)
 ├── design/          # Design binary CLI (GPT Image API)
 │   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
 │   ├── test/        # Integration tests
 │   └── dist/        # Compiled binary
 ├── agents-digest/   # Committed 2KB instruction-tier rules digest (gstack-AGENTS.md) for rules-reading hosts
-├── extension/       # Chrome extension for the retired sidebar — unreachable from any skill, retained only until the daemon prune (TODOS.md)
-├── lib/             # Shared libraries (worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
-├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide)
+├── lib/             # Shared libraries (aside-render.ts = local-HTML rendering through Aside, claude-bin.ts, error-handling.ts, worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
+│   └── diagram-render/  # Vendored mermaid + excalidraw runtimes, built into one offline bundle Aside loads
 ├── docs/designs/    # Design documents
 ├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + shared composite actions (.github/actions/) + Docker image (claude CLI pinned)
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), quality-gate.yml (secret scan), dependency-review.yml, osv-scanner.yml, skill-docs.yml, actionlint.yml, and 8 more (windows, periodic evals, release gates, ci-image)
-│   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
+│   ├── workflows/   # evals.yml (E2E on Ubicloud), quality-gate.yml (secret scan), dependency-review.yml, osv-scanner.yml, skill-docs.yml, actionlint.yml, and 7 more (windows, periodic evals, release gates, ci-image)
+│   └── docker/      # Dockerfile.ci (pre-baked toolchain; no browser — Aside has no Linux build)
 ├── contrib/         # Contributor-only tools (never installed for users)
 │   └── add-host/    # /gstack-contrib-add-host skill
-├── setup            # One-time setup: build binary + symlink skills
+├── setup            # One-time setup: build the design + make-pdf binaries, symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
 ├── ETHOS.md         # Builder philosophy (Boil the Ocean, Search Before Building)
-└── package.json     # Build + test scripts (render engine, design CLI, gen-skill-docs, test runners)
+└── package.json     # Build + test scripts (design CLI, make-pdf, gen-skill-docs, test runners)
 ```

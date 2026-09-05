@@ -1,25 +1,18 @@
 # Browser — Aside is the browser
 
-gstack no longer ships a browser. Every skill that opens a web page — `/browse`,
-`/qa`, `/qa-only`, `/design-review`, `/canary`, `/benchmark`, `/scrape`, and the
+gstack has exactly one browser: the [Aside](https://aside.com) AI browser
+(macOS 15+). Every skill that opens a web page — `/browse`, `/qa`, `/qa-only`,
+`/design-review`, `/canary`, `/benchmark`, `/scrape`, `/devex-review`, and the
 third-party web actions inside `/ship`, `/spec`, `/land-and-deploy`,
-`/setup-deploy`, and `/office-hours` — drives the [Aside](https://aside.com) AI
-browser (macOS 15+). It is your real browser: real cookies, real logged-in
-accounts, your actual tabs. The agent works in tabs it opens for itself and
-closes when it is done, and never touches a tab of yours unless you name it.
+`/setup-deploy`, and `/office-hours` — drives it. It is your real browser: real
+cookies, real logged-in accounts, your actual tabs. The agent works in tabs it
+opens for itself and closes when it is done, and never touches a tab of yours
+unless you name it.
 
-## What changed and why
-
-We were maintaining a second browser. A headless Chromium with its own cookie
-jar and daemon lifecycle, a headed mode so you could watch it, a session importer
-so it could be you, a rescue path so you could get it past CAPTCHAs, a tunnel so
-other agents could join, and a sidebar so it could talk back. Every one of those
-existed to get the agent closer to *your* browser. Aside is your browser with an
-agent-grade CLI, so the whole stack collapsed into one contract: open a tab, do
-the work, print evidence, close the tab. Nothing to import, nothing to babysit,
-and QA runs against the sessions you actually have. The `browse` binary stays
-only as a local-HTML render engine (see below); it is never a browser a skill
-drives.
+Aside is also the renderer. `/make-pdf`, `/diagram`, and design previews hand
+their locally generated HTML to Aside for printing and screenshots. gstack
+ships no browser engine of its own: no headless daemon, no bundled Chromium, no
+Playwright.
 
 ## The driver contract
 
@@ -79,15 +72,101 @@ raw CDP via `pg._sendToTarget(method, params)`, locators with
 count/screenshot/waitFor`, and the globals `fs` (promises, session dir only),
 `path`, `Buffer`, `pwd`, `fetch` (user's cookies), `sleep`. Nothing else: no
 `process`, `require`, `import`, no viewport setter (use CDP
-`Emulation.setDeviceMetricsOverride`), and no console event hook (install one
-through CDP before `goto`, as the cookbook does).
+`Emulation.setDeviceMetricsOverride`), no console event hook (install one
+through CDP before `goto`, as the cookbook does), and no `file://` navigation.
+
+## What each skill does in Aside
+
+| Skill | In Aside |
+|-------|----------|
+| `/browse` | The base skill and the home of the cookbook. Open a page, read it, click through a flow, take screenshots, check console errors. |
+| `/qa`, `/qa-only` | Read the git diff, open the affected routes in their own tabs, run the QA methodology, capture before/after evidence. `/qa` fixes; `/qa-only` reports. |
+| `/design-review` | The 80-item visual audit plus responsive captures (CDP device metrics), then the fix loop with before/after screenshots. |
+| `/canary` | One `aside repl` script per page per cycle: console errors, `performance` entries, screenshots against the pre-deploy baseline. |
+| `/benchmark` | Navigation and resource timings read from the page's own `performance` entries on a real load. |
+| `/scrape` | Prototype the extraction with `aside repl`, hand back the table, list, or prices as structured data. Read-only. |
+| `/devex-review` | Walk the real onboarding flow and time it, carrying the cookbook inline. |
+| `/ship`, `/spec`, `/land-and-deploy`, `/setup-deploy`, `/office-hours` | Third-party web actions (vendor dashboards, API keys, webhooks) offered as an Aside drive across your real sessions, with the one-question consent gate for anything mutating. |
+| `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review`, `/design-consultation`, `/review`, `/investigate`, `/cso`, `/office-hours` | Web research runs through `aside exec` in your real browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, answers treated as untrusted content. No Aside → the skill says "Search unavailable" once and proceeds on in-distribution knowledge. |
+
+## Local-HTML rendering
+
+`/make-pdf`, `/diagram`, `/design-html` previews, and `/office-hours` sketches
+generate HTML on disk and need a browser to print or rasterize it. That browser
+is Aside, through two thin wrappers:
+
+- [`lib/aside-render.ts`](lib/aside-render.ts) — the TypeScript API
+  (`probeAside()`, `renderWithAside(spec)`), embedded into the compiled
+  make-pdf binary.
+- [`bin/gstack-render.ts`](bin/gstack-render.ts) — the CLI skill templates
+  call:
+
+  ```bash
+  bun run ~/.claude/skills/gstack/bin/gstack-render.ts page.html \
+    --wait-selector '#ready' \
+    --pdf out.pdf --paper letter --margin 0.75in --page-numbers --tagged --outline \
+    --screenshot out.png --width 1280 \
+    --eval 'window.renderSvg()' --out out.svg
+  ```
+
+  One `OK <path>` line per artifact, `EVAL <i>: …` for inline evals,
+  `PAGE_ERRORS=[…]` when the page logged errors, exit 1 with `ERROR: …` on
+  failure. `NEEDS_ASIDE` / `ASIDE_NOT_RUNNING` follow the same readiness
+  contract as the browser skills.
+
+How a render works (every fact verified against Aside CLI 1.26): Aside refuses
+`file://` URLs, so the HTML's directory is served on `127.0.0.1` on an
+ephemeral port for the duration of one render and opened with
+`goto(url, { waitUntil: "load" })`. One `aside repl` script does the whole job
+(open, wait, run the steps in order, close the tab) because nothing persists
+between CLI calls. Artifacts are written inside Aside's sandbox (the per-run
+session directory is the only writable place) and copied out afterwards. PDFs
+go through raw CDP `Page.printToPDF` so header/footer templates, tagged PDF,
+and the document outline keep working; sized screenshots use CDP
+`Emulation.setDeviceMetricsOverride`. The CLI exit code is 0 even when the
+script throws, so the wrappers trust only the `GSTACK_RENDER_OK` sentinel on
+stdout.
+
+Never point the renderer at a website: it serves a local directory and nothing
+else. Site work is the driver contract above.
+
+## Web research runs in Aside
+
+The planning, review, and design skills used to reach for a search tool when a
+step said "look up the competitors" or "check current best practices". They now
+run that research through Aside's own agent (`aside exec`) in your real
+browser, via `{{ASIDE_RESEARCH}}` in `scripts/resolvers/aside.ts`: one
+read-only request per question, the answer cited as untrusted content, the
+query sanitized before it leaves the machine (no hostnames, paths, SQL, or
+secrets). Without Aside the skill says "Search unavailable — proceeding with
+in-distribution knowledge only" once and carries on. gstack has no other search
+path. (Codex keeps its own `web_search` config flag; that is Codex's tool, not
+gstack's.)
+
+## What was removed and why
+
+We were maintaining a second browser. A headless Chromium with its own cookie
+jar and daemon lifecycle, a headed mode so you could watch it, a session
+importer so it could be you, a rescue path so you could get it past CAPTCHAs, a
+tunnel so other agents could join, a sidebar so it could talk back, a
+browser-skills runtime so flows could be codified, and a print pipeline riding
+on the same engine. Every one of those existed to get the agent closer to
+*your* browser. Aside is your browser with an agent-grade CLI, so the whole
+stack collapsed into one contract: open a tab, do the work, print evidence,
+close the tab.
+
+Gone from the repo in v2.0.0.0: the `browse` daemon and CLI, GStack Browser
+(headed Chromium + the sidebar extension), `/pair-agent` tunnels, cookie import
+and the cookie picker, the browser-skills and domain-skills runtimes, the
+sidebar security sidecar, Playwright, and the Chromium download. Nothing to
+import, nothing to babysit, nothing to rebuild, and QA runs against the
+sessions you actually have.
 
 ## Cookbook
 
-The block below is copied verbatim from `generateAsideSetup()` in
-`scripts/resolvers/aside.ts` and must stay byte-identical to it — edit the
-resolver, then re-copy. Every script was executed against Aside CLI 1.26 before
-it was written down.
+The block below is copied verbatim from `generateAsideCookbook()` in
+`scripts/resolvers/aside.ts`. Edit the resolver, then re-copy. Every script was
+executed against Aside CLI 1.26 before it was written down.
 
 ### Cookbook (verified against Aside CLI 1.26 — use these shapes, not memory)
 
@@ -196,59 +275,46 @@ await closeTab(pg); console.log("GSTACK_STEP_OK");
 aside exec "Open <url>. Read-only, do not submit or change anything. <question>. Reply with <format>, then stop."
 ```
 
-## The render engine: what `browse` still does
-
-The `browse` binary in `browse/` is a local Chromium (Playwright) that renders
-HTML a skill generated itself. That is its whole job now. Five skills use it —
-`/make-pdf`, `/diagram`, `/design-html` previews, `/office-hours` sketches, and
-`/gstack-upgrade` (which rebuilds it) — through `{{BROWSE_SETUP}}` and the `$B`
-shorthand, and `test/aside-driver.test.ts` fails if any other skill's generated
-docs invoke it (`RENDER_ENGINE_SKILLS` in `scripts/resolvers/aside.ts`). The
-commands those skills need:
-
-| Command | Purpose |
-|---------|---------|
-| `load-html <file>` / `goto file://<abs>` | Put self-contained or on-disk HTML into a tab (safe-dirs: under cwd or `$TMPDIR`) |
-| `js <expr> [--out <file>]` | Run a render function in the page; `--out` writes returned bytes (PNG data URLs decoded) straight to disk |
-| `screenshot [--selector <css>] [path]` | Rasterize the page or one element |
-| `pdf [path] [--format …] [--toc] …` | Print the page to PDF (Paged.js aware, headers/footers, tagged output) |
-| `newtab [url] [--json]` / `closetab [id]` | Isolate one render per tab |
-| `wait <sel>` / `wait --networkidle` / `wait --load` | Let fonts and scripts settle before capture |
-| `status` / `stop` | Health check / shut the daemon down |
-
-Never point it at a website you want to test — that is Aside's job, and the
-contract above forbids substituting a headless browser for the browser step.
-
-The daemon still contains its pre-Aside browsing machinery (headed mode, the
-sidebar extension and PTY, tunnel listeners, session import, per-site script
-runtimes). None of it is reachable from any skill; it is
-scheduled for deletion under "Aside consolidation follow-ups" in
-[`TODOS.md`](TODOS.md). Its internals and CI tripwires are documented in
-[`docs/BROWSER_INTERNALS.md`](docs/BROWSER_INTERNALS.md).
-
 ## Migrating from the old browser surface
+
+v2.0.0.0 installs reap the retired skills (`/open-gstack-browser`,
+`/connect-chrome`, `/setup-browser-cookies`, `/pair-agent`, `/skillify`) from
+`~/.claude/skills/` and the other host directories on `./setup` and
+`/gstack-upgrade`; nothing else on disk needs your attention.
 
 | You used to… | Now |
 |--------------|-----|
 | Import cookies so the headless browser could be you | Nothing to do. Aside is your browser; sign in there once and every skill sees the session. |
-| Run `/open-gstack-browser` (or its alias) to watch the agent | Aside is already visible. Watch the tabs the agent opens; they close themselves when a script ends. |
+| Run `/open-gstack-browser` (or `/connect-chrome`) to watch the agent | Aside is already visible. Watch the tabs the agent opens; they close themselves when a script ends. |
 | Hand the browser to yourself for a CAPTCHA or MFA, then resume | Solve it in Aside and tell the agent "done" — it re-runs the step in the same session. |
 | `/pair-agent` to share the browser with another agent over a tunnel | Removed. Each agent that drives Aside opens its own tabs; there is no shared daemon to pair with. |
 | `/skillify` a `/scrape` into a browser-skill script | Removed. `/scrape` prototypes with `aside repl` each time; durable per-site automation belongs to Aside's own skills. |
-| `browse <command>` / `$B goto`, `snapshot`, `click`, `fill`, … against a site | The equivalent `aside repl` script from the cookbook (one flow per script). `$B` remains only for local-HTML rendering in the five render-engine skills. |
+| `browse <command>` / `$B goto`, `snapshot`, `click`, `fill`, … against a site | The equivalent `aside repl` script from the cookbook (one flow per script). |
+| `$B load-html` / `$B pdf` / `$B screenshot` to render your own HTML | `bin/gstack-render.ts` (or `lib/aside-render.ts` from TypeScript). |
+| `bun run build` to fix a broken `/make-pdf` or `/diagram` | Open the Aside app. There is no engine to rebuild. |
 | `$B domain-skill save` per-site notes | Removed with the daemon surface. `/learn` still records project learnings. |
+| A search tool for research steps in the planning skills | `aside exec` in your real browser; "Search unavailable" without Aside. |
 
-## Not yet
+## Known gaps
 
-- **Aside is macOS 15+ only.** On Linux and Windows, every browser skill stops
-  at the setup check with a plain message; there is no fallback browser, by
-  design. Those platforms get the browser skills the day Aside ships there.
-  The render engine (`/make-pdf`, `/diagram`) is unaffected and runs everywhere.
+- **Aside is macOS 15+ only.** On Linux and Windows every browser skill, and
+  the renderer behind `/make-pdf` and `/diagram`, stops at the setup check with
+  a plain message. There is no fallback browser or renderer, by design; those
+  platforms get everything the day Aside ships there.
+- **Aside CLI 1.26's command set.** Aside's own skill doc lists `session`,
+  `memory`, `skills`, `host`, and `--permission`; the 1.26 binary has none of
+  them (`aside --help` is the authority). Skills use only what the binary
+  exposes today and re-probe on each Aside release (tracked in `TODOS.md`).
+- **No persistent page across CLI calls.** Every `aside repl` is a fresh
+  session and its tabs die with it, so a long audit re-navigates from the URL in
+  each script and a render is always one script. `aside mcp` may lift this
+  later (tracked in `TODOS.md`).
 - **No browser-side audit trail from gstack.** Drives happen inside Aside, so
   they produce no gstack egress receipts or daemon logs; Aside keeps its own
   history.
-- **CI cannot run Aside.** The Aside E2E tests self-skip where the CLI is not
-  installed; the static contract pins in `test/aside-driver.test.ts` are what CI
-  proves. A self-hosted macOS lane is tracked in `TODOS.md`.
+- **CI cannot run Aside.** The Aside E2E tests, make-pdf's render gates, and
+  the `/diagram` E2E self-skip where the CLI is not installed; the static
+  contract pins in `test/aside-driver.test.ts` and `test/aside-render.test.ts`
+  are what CI proves. A self-hosted macOS lane is tracked in `TODOS.md`.
 - **`aside exec` is another agent.** Its answer is content; skills use it only
   for read-only research and never take scope or consent from it.
