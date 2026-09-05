@@ -1,5 +1,5 @@
 /**
- * Shared error-handling utilities for browse server and CLI.
+ * Shared error-handling utilities for gstack's TypeScript tools and tests.
  *
  * Each wrapper uses selective catches (checks err.code) to avoid masking
  * unexpected errors. Empty catches would be flagged by slop-scan.
@@ -38,7 +38,7 @@ export function safeKill(pid: number, signal: NodeJS.Signals | number): void {
  * Check if a PID is alive. Pure boolean probe — never throws.
  *
  * Signal 0 on EVERY platform (#1952). Node maps `process.kill(pid, 0)` to an
- * OpenProcess existence check on Windows — and on Windows the browse daemon
+ * OpenProcess existence check on Windows — and on Windows a daemon
  * runs under Node (dist/server-node.mjs + bun-polyfill, the documented
  * fallback for oven-sh/bun#4253) — so the POSIX idiom is portable here.
  *

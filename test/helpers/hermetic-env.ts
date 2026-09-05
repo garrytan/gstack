@@ -36,7 +36,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { promotedEnv } from '../../lib/conductor-env-shim';
-import { isProcessAlive, safeUnlink } from '../../browse/src/error-handling';
+import { isProcessAlive, safeUnlink } from '../../lib/error-handling';
 import { skillCensus, frontmatterName } from './skill-census';
 
 /** Exact env names a hermetic child keeps. Everything not listed (or matched
