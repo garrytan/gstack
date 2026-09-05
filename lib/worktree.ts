@@ -133,10 +133,6 @@ export class WorktreeManager {
       }
     }
 
-    const browseDist = path.join(this.repoRoot, 'browse', 'dist');
-    if (fs.existsSync(browseDist)) {
-      copyDirSync(browseDist, path.join(worktreePath, 'browse', 'dist'));
-    }
 
     const info: WorktreeInfo = {
       path: worktreePath,

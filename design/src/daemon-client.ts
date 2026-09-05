@@ -6,7 +6,7 @@
  *
  *   ensureDaemon() → publishBoard(html, opts) → openBrowser(url) → exit 0
  *
- * Mirrors browse/src/cli.ts:317-415 — same health-check-first attach
+ * Same health-check-first attach pattern the former browse daemon used
  * decision, same fs.openSync('wx') lock, same re-read-under-lock guard.
  * Adds two design-specific safety properties Codex flagged on the daemon
  * plan:
@@ -22,7 +22,7 @@
  *
  * Spawn uses Node's child_process.spawn with detached: true + stdio
  * pointed at a log file. Bun.spawn().unref() has macOS session-detach
- * quirks browse already discovered (browse/src/cli.ts:225-275).
+ * quirks the former browse daemon already discovered.
  */
 
 import { spawn as nodeSpawn } from "child_process";

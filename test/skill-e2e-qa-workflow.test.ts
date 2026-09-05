@@ -8,7 +8,7 @@ import {
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { asideAvailable } from './helpers/aside-available';
-import { startTestServer } from '../browse/test/test-server';
+import { startTestServer } from './helpers/test-server';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';

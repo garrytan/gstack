@@ -1,12 +1,12 @@
 /**
  * Tiny Bun.serve for test fixtures
- * Serves HTML files from test/fixtures/ on a random available port
+ * Serves the HTML fixture pages in test/fixtures/pages/ on a random available port
  */
 
 import * as path from 'path';
 import * as fs from 'fs';
 
-const FIXTURES_DIR = path.resolve(import.meta.dir, 'fixtures');
+const FIXTURES_DIR = path.resolve(import.meta.dir, '..', 'fixtures', 'pages');
 
 export function startTestServer(port: number = 0): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({

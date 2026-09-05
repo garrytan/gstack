@@ -2,7 +2,7 @@
  * Atomic file writes — the ONE implementation of tmp-write-then-rename.
  *
  * Before this module, the pattern was reimplemented ~20 times across lib/,
- * bin/, and browse/src with three different tmp-suffix conventions — one of
+ * bin/, and the former browse daemon with three different tmp-suffix conventions — one of
  * which (a bare `.tmp`) carries a real collision race that browse's
  * server.ts documented after hitting it in production: two writers (batch
  * subcommands, /tunnel/start handlers, or any combination) collide on the

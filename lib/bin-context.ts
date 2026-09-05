@@ -142,7 +142,7 @@ export function outermostRemoteRepo(startDir: string): { root: string; url: stri
  *   3. Canonical remote-derived slug from the OUTERMOST remote-bearing repo
  *      (see outermostRemoteRepo — never PROJECT_ROOT, which may be a
  *      marker-only ancestor with no remote): [:/]<owner>/<repo>[.git] →
- *      owner-repo, byte-parity with browse/bin/remote-slug. Degenerate slugs
+ *      owner-repo, the same parse as bin/gstack-slug step 2. Degenerate slugs
  *      ("", ".", "..", anything with "/") are rejected — a hostile origin
  *      like `url = ..` must never escape ~/.gstack/projects/<slug>.
  *   4. Project root's basename; else basename(cwd) for plain non-project folders.
@@ -200,8 +200,7 @@ export function slugFromEnvironment(gstackHome?: string, cwd: string = process.c
     }
   }
   // 3. canonical remote-derived slug from the outermost remote-bearing repo.
-  //    Parse mirrors bin/gstack-slug step 2 exactly (byte-parity with
-  //    browse/bin/remote-slug): `${REMOTE_URL%.git}` strips ONE trailing
+  //    Parse mirrors bin/gstack-slug step 2 exactly: `${REMOTE_URL%.git}` strips ONE trailing
   //    ".git" (case-sensitive), then sed extracts the LAST two path segments
   //    — and sed's no-match passthrough means the stripped URL itself is the
   //    raw slug when no [:/]owner/repo tail exists.

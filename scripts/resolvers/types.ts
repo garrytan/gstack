@@ -11,7 +11,6 @@ export interface HostPaths {
   skillRoot: string;
   localSkillRoot: string;
   binDir: string;
-  browseDir: string;
   designDir: string;
   makePdfDir: string;
 }
@@ -50,7 +49,6 @@ function buildHostPaths(): Record<string, HostPaths> {
         skillRoot: '$GSTACK_ROOT',
         localSkillRoot: config.localSkillRoot,
         binDir: '$GSTACK_BIN',
-        browseDir: '$GSTACK_BROWSE',
         designDir: '$GSTACK_DESIGN',
         makePdfDir: '$GSTACK_MAKE_PDF',
       };
@@ -60,7 +58,6 @@ function buildHostPaths(): Record<string, HostPaths> {
         skillRoot: root,
         localSkillRoot: config.localSkillRoot,
         binDir: `${root}/bin`,
-        browseDir: `${root}/browse/dist`,
         designDir: `${root}/design/dist`,
         makePdfDir: `${root}/make-pdf/dist`,
       };
@@ -73,7 +70,7 @@ export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
 /**
  * Render a HostPaths binary dir as a shell-expandable absolute path.
- * Claude-style dirs are `~`-rooted (e.g. `~/.claude/skills/gstack/browse/dist`)
+ * Claude-style dirs are `~`-rooted (e.g. `~/.claude/skills/gstack/design/dist`)
  * and expand via `$HOME`; env-var hosts already carry an absolute `$GSTACK_*`
  * value, so they pass through untouched — prepending `$HOME` would double it.
  */

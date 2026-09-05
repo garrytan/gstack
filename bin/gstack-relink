@@ -79,7 +79,7 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   [ -L "${skill_dir%/}" ] && continue
   skill=$(basename "$skill_dir")
   # Skip non-skill directories
-  case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
+  case "$skill" in bin|design|docs|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
 
   if [ "$PREFIX" = "true" ]; then

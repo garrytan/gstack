@@ -28,7 +28,7 @@
  *
  * Cost: ~$1-3 per run (five sessions, 30-40 turns each). Each session gets
  * its own tmp workdir with only the skill's runtime files copied in (never
- * browse/dist or browse/src) and cleans it up in a finally.
+ * compiled binaries or engine sources) and cleans it up in a finally.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
@@ -41,7 +41,7 @@ import {
 } from './helpers/e2e-helpers';
 import { e2eTierEnabled } from './helpers/e2e-gate';
 import { asideAvailable } from './helpers/aside-available';
-import { startTestServer } from '../browse/test/test-server';
+import { startTestServer } from './helpers/test-server';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

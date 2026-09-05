@@ -1,10 +1,10 @@
 name: Free Tests
 
-# The free suite (~400 files: test/, browse/test/, make-pdf/test/, design/test/)
-# had ZERO Linux CI coverage before this lane — only a curated Windows subset
-# ran anywhere. This job runs the whole thing through the canonical runner
+# The free suite (test/, make-pdf/test/, design/test/, ios-qa/) had ZERO Linux
+# CI coverage before this lane — only a curated Windows subset ran anywhere.
+# This job runs the whole thing through the canonical runner
 # (scripts/test-free-shards.ts): N concurrent shard processes (serial within
-# each, plus a trailing serial tree-mutating shard) with strict-output
+# each) with strict-output
 # classification per shard, so a truncated or summary-less run can never
 # report green.
 #
@@ -67,29 +67,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: linux-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            linux-playwright-
-
-      # Cache restores browser binaries; install is still required for system
-      # deps and is a fast no-op for already-present browsers.
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-
-      # Headed-browser tests (handoff, extension sidepanel DOM) need a real
-      # DISPLAY — first Linux run failed with Playwright's "launched a headed
-      # browser without an XServer" banner. xvfb-run below provides it;
-      # x11-utils ships xdpyinfo for display probing. poppler-utils ships
-      # pdftotext/pdffonts/pdftoppm for the make-pdf e2e gates;
-      # fonts-noto-color-emoji is the emoji-gate's render font (playwright
-      # --with-deps usually installs it, but the gate must not depend on a
-      # transitive package list). Fonts must land BEFORE the first browse
-      # daemon launch — Chromium snapshots fontconfig at startup.
-      - name: Install Xvfb + X11 utilities + gate tools
-        run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji
+      # poppler-utils ships pdftotext/pdffonts/pdfinfo for the make-pdf tests.
+      # There is no browser or renderer on this runner: the Aside-driven
+      # make-pdf e2e gates self-skip here (Aside is macOS-only), and the
+      # remaining make-pdf tests only need the poppler tools.
+      - name: Install gate tools
+        run: sudo apt-get install -y --no-install-recommends poppler-utils
 
       - name: Configure git identity (tests init temp repos)
         run: |
@@ -104,29 +87,18 @@ jobs:
         # Golden-file tests read generated host outputs that are gitignored.
         run: bun run gen:skill-docs --host all
 
-      - name: Vendor xterm assets into the extension
-        # extension/lib/xterm* are gitignored (vendored from npm at build
-        # time). Without them the sidepanel's terminal script bails and the
-        # sidepanel DOM tests time out waiting on init that never happens.
-        run: bun run vendor:xterm
-
-      - name: Build server-node bundle (loaded by browse cli imports)
-        run: bash browse/scripts/build-node-server.sh
-
-      # Narrowed gate build: the make-pdf e2e gates probe make-pdf/dist/pdf,
-      # browse/dist/browse, and the diagram-render bundle, then self-skip when
-      # absent — which made them silently skip on Linux for their whole life
-      # (this lane never built binaries). Full `bun run build` compiles five
-      # binaries and would add ~60-90s to the ONLY required check; the gates
-      # need exactly these three artifacts.
-      - name: Build gate binaries (make-pdf e2e gates)
+      # Narrowed gate build: make-pdf/dist/pdf, design/dist/design and the
+      # diagram-render bundle are exactly what make-pdf/test/e2e/ci-prereqs
+      # asserts. Full `bun run build` also regenerates docs and compiles
+      # gstack-global-discover, wall time the ONLY required check does not need.
+      - name: Build gate binaries (make-pdf, design, diagram-render)
         run: bun run build:gates
 
       # GSTACK_EXPECT_BINARIES=1 arms make-pdf/test/e2e/ci-prereqs.test.ts:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
       - name: Run free suite
-        run: xvfb-run -a bun run test:free
+        run: bun run test:free
         env:
           GSTACK_EXPECT_BINARIES: "1"
           # WS1 flake telemetry: a single timing flake must not red the only

@@ -11,7 +11,7 @@ import {
 } from './helpers/e2e-helpers';
 import { asideAvailable } from './helpers/aside-available';
 import { generateAsideSetup } from '../scripts/resolvers/aside';
-import { startTestServer } from '../browse/test/test-server';
+import { startTestServer } from './helpers/test-server';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

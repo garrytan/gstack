@@ -71,7 +71,6 @@ jobs:
           git diff --unified=0 --no-color "$BASE_SHA" "$HEAD_SHA" -- \
             . \
             ':(exclude)test/fixtures/**' \
-            ':(exclude)browse/test/fixtures/**' \
             ':(exclude)docs/evals/**' \
             ':(exclude)test/helpers/security-bench*' \
             | node .github/scripts/gate-secret-scan.mjs
@@ -90,6 +89,4 @@ jobs:
           shellcheck --severity=error
           setup
           scripts/build.sh
-          scripts/build-app.sh
           scripts/write-version-files.sh
-          browse/scripts/build-node-server.sh
