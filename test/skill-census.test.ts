@@ -15,15 +15,15 @@ const ROOT = path.resolve(import.meta.path, '..', '..');
 const census = skillCensus(ROOT);
 
 describe('skillCensus', () => {
-  it('physicalSkillFiles includes the root router and the symlinked dir', () => {
+  it('physicalSkillFiles includes the root router and authored skill dirs', () => {
     expect(census.physicalSkillFiles).toContain('SKILL.md');
-    expect(census.physicalSkillFiles).toContain('connect-chrome/SKILL.md');
-    expect(census.physicalSkillFiles).toContain('open-gstack-browser/SKILL.md');
+    expect(census.physicalSkillFiles).toContain('qa/SKILL.md');
+    expect(census.physicalSkillFiles).toContain('scrape/SKILL.md');
   });
 
-  it('authoredSkills dedupes the connect-chrome symlink and excludes the root router', () => {
-    expect(census.authoredSkills).toContain('open-gstack-browser');
-    expect(census.authoredSkills).not.toContain('connect-chrome');
+  it('authoredSkills lists real skill dirs and excludes the root router', () => {
+    expect(census.authoredSkills).toContain('qa');
+    expect(census.authoredSkills).toContain('scrape');
     // Root router is not an authored skill; its dir entry would be '' anyway.
     for (const name of census.authoredSkills) expect(name.length).toBeGreaterThan(0);
   });
@@ -31,13 +31,13 @@ describe('skillCensus', () => {
   it('registryEntries carries the root alias and collapses shared frontmatter names', () => {
     expect(census.registryEntries).toContain('_gstack-command');
     expect(
-      census.registryEntries.filter((n) => n === 'open-gstack-browser'),
+      census.registryEntries.filter((n) => n === 'scrape'),
     ).toHaveLength(1);
   });
 
   it('count relationships hold: physical = authored + root + symlink dups', () => {
     const symlinkDups = census.physicalSkillFiles.length - 1 - census.authoredSkills.length;
-    expect(symlinkDups).toBeGreaterThanOrEqual(1); // connect-chrome today
+    expect(symlinkDups).toBeGreaterThanOrEqual(0); // no alias dir symlinks since the Aside consolidation retired connect-chrome
     // Registry = unique frontmatter names + root alias. It can only collapse
     // entries relative to physical, never invent them.
     expect(census.registryEntries.length).toBeLessThanOrEqual(census.physicalSkillFiles.length);
@@ -47,8 +47,8 @@ describe('skillCensus', () => {
   it('frontmatterName mirrors setup: first ^name: line, whitespace stripped', () => {
     const qa = frontmatterName(path.join(ROOT, 'qa', 'SKILL.md'));
     expect(qa).toBe('qa');
-    const alias = frontmatterName(path.join(ROOT, 'connect-chrome', 'SKILL.md'));
-    expect(alias).toBe('open-gstack-browser');
+    const scrape = frontmatterName(path.join(ROOT, 'scrape', 'SKILL.md'));
+    expect(scrape).toBe('scrape');
     expect(frontmatterName(path.join(ROOT, 'no-such-dir', 'SKILL.md'))).toBe('');
   });
 

@@ -14,7 +14,8 @@
  *      colored pixels — text extraction can't fake that.
  *
  * Free-tier deterministic gate: runs under plain `bun test` when the compiled
- * binaries + poppler are available; hard-fails in CI when missing.
+ * binary, Aside, and poppler are available; self-skips otherwise (ci-prereqs.test.ts
+ * is the CI tripwire for the build artifacts).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -23,11 +24,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { resolvePopplerTool } from "../../src/pdftotext";
+import { asideAvailable } from "../../../test/helpers/aside-available";
 
 const FIXTURE = path.resolve(__dirname, "../fixtures/diagram-gate.md");
 const ROOT = path.resolve(__dirname, "../../..");
 const PDF_BIN = path.join(ROOT, "make-pdf/dist/pdf");
-const BROWSE_BIN = path.join(ROOT, "browse/dist/browse");
 const BUNDLE = path.join(ROOT, "lib/diagram-render/dist/diagram-render.html");
 
 const CHILD_TIMEOUT_MS = 60_000;
@@ -38,7 +39,8 @@ const SATURATION_DELTA = 60;
 
 function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } {
   if (!fs.existsSync(PDF_BIN)) return { ok: false, reason: `make-pdf binary missing (${PDF_BIN}). Run bun run build.` };
-  if (!fs.existsSync(BROWSE_BIN)) return { ok: false, reason: `browse binary missing (${BROWSE_BIN}).` };
+  // Aside is the browser (macOS 15+); CI runners have none, so this is a skip.
+  if (!asideAvailable()) return { ok: false, reason: "Aside browser not available (install + open Aside, or GSTACK_SKIP_ASIDE=1)." };
   if (!fs.existsSync(BUNDLE)) return { ok: false, reason: `diagram-render bundle missing (${BUNDLE}). Run bun run build:diagram-render.` };
   if (!fs.existsSync(FIXTURE)) return { ok: false, reason: `fixture missing (${FIXTURE}).` };
   if (!resolvePopplerTool("pdftotext")) return { ok: false, reason: "pdftotext not found (install poppler-utils)." };
@@ -80,7 +82,6 @@ describe("diagram render gate", () => {
     try {
       // No --quiet: stderr carries the downscale warning asserted below.
       const run = Bun.spawnSync([PDF_BIN, "generate", FIXTURE, outputPdf], {
-        env: { ...process.env, BROWSE_BIN },
         stdout: "pipe",
         stderr: "pipe",
         timeout: 120_000,
@@ -92,8 +93,8 @@ describe("diagram render gate", () => {
       expect(fs.existsSync(outputPdf)).toBe(true);
 
       // 0. Print-resolution downscale fired on the 4200px noise photo — this
-      //    is the only live coverage of __downscaleRaster AND the chunked
-      //    jsViaBuffer transport (the data URI exceeds the 100KB argv path).
+      //    is the only live coverage of __downscaleRaster AND the served-dir
+      //    payload transport (the data URI is far too big for argv).
       expect(stderr).toMatch(/downscaled huge-noise\.png 4200px → \d+px/);
 
       const pdftotext = resolvePopplerTool("pdftotext")!;
@@ -101,8 +102,8 @@ describe("diagram render gate", () => {
 
       // 1. Vector text from BOTH diagrams (multi-fence + id-collision check).
       //    The broken fence sits BETWEEN them in the fixture, so the second
-      //    diagram rendering at all proves the reset contract (D6.2): the
-      //    bundle page reloaded after the failure and kept working.
+      //    diagram rendering at all proves a failed fence never poisons the
+      //    batch (D6.2): the script kept going and the next render succeeded.
       for (const label of ["gatealphanode", "gatebetanode", "gategammanode", "gatedeltanode", "gateepsilonnode"]) {
         expect(text).toContain(label);
       }
@@ -148,8 +149,7 @@ describe("diagram render gate", () => {
       try {
         execFileSync(PDF_BIN, ["generate", md, path.join(workDir, "out.pdf"), "--quiet", "--strict"], {
           encoding: "utf8",
-          env: { ...process.env, BROWSE_BIN },
-          stdio: ["ignore", "pipe", "pipe"],
+            stdio: ["ignore", "pipe", "pipe"],
           timeout: CHILD_TIMEOUT_MS,
         });
       } catch (err: any) {
@@ -164,13 +164,9 @@ describe("diagram render gate", () => {
   }, 120000);
 
   if (!avail.ok) {
-    test("diagram gate prerequisites are present (hard-required in CI)", () => {
-      // Hard-require only where the binary is expected: the make-pdf gate
-      // workflow is macOS-only (path-filtered) and builds dist/pdf first.
-      // The Linux free lane deliberately doesn't build it — warn-skip there.
-      if (process.env.CI && process.platform === 'darwin') {
-        throw new Error(`diagram gate prerequisites missing in CI: ${avail.reason}`);
-      }
+    // A visible skip, never a failure: ci-prereqs.test.ts is the CI tripwire for
+    // the build artifacts + poppler this gate needs; Aside itself has no CI runner.
+    test("diagram gate prerequisites are present", () => {
       console.warn(`[skip] ${avail.reason}`);
     });
   }

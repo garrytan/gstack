@@ -18,7 +18,7 @@ const codex = defineHost({
 
   // generateMetadata emits agents/openai.yaml (the format is hardcoded in
   // gen-skill-docs.ts). Codex also gets a repo-local sidecar at
-  // .agents/skills/gstack (symlinked runtime assets: bin, browse, review, qa,
+  // .agents/skills/gstack (symlinked runtime assets: bin, lib, review, qa,
   // ETHOS.md) — that behavior lives in setup's create_agents_sidecar, not here.
   generation: {
     generateMetadata: true,

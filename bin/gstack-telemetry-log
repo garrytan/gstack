@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
     --failed-step)   FAILED_STEP="$2"; shift 2 ;;
     --event-type)    EVENT_TYPE="$2"; shift 2 ;;
     --source)        SOURCE="$2"; shift 2 ;;
-    # Security event fields — emitted by browse/src/security.ts logAttempt()
+    # Security event fields — legacy (emitted by the retired browse daemon)
     --url-domain)    SEC_URL_DOMAIN="$2"; shift 2 ;;
     --payload-hash)  SEC_PAYLOAD_HASH="$2"; shift 2 ;;
     --confidence)    SEC_CONFIDENCE="$2"; shift 2 ;;

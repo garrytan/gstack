@@ -49,8 +49,6 @@ around obstacles.
 
 {{SECTION:doctrine}}
 
-{{BROWSE_SETUP}}
-
 ---
 
 ## Step 0: Input Detection
@@ -325,13 +323,15 @@ kill $_SERVER_PID 2>/dev/null || true
 
 ### Verification Screenshots
 
-If `$B` is available (browse binary), take verification screenshots at 3 viewports:
+Take verification screenshots at 3 viewports through the Aside browser. One
+`gstack-render` call serves the HTML's directory on 127.0.0.1 (so relative
+assets resolve), opens the page in Aside, and captures each width:
 
 ```bash
-$B goto "file://<path-to-finalized.html>"
-$B screenshot /tmp/gstack-verify-mobile.png --width 375
-$B screenshot /tmp/gstack-verify-tablet.png --width 768
-$B screenshot /tmp/gstack-verify-desktop.png --width 1440
+bun run ~/.claude/skills/gstack/bin/gstack-render.ts <path-to-finalized.html> \
+  --screenshot /tmp/gstack-verify-mobile.jpg --width 375 --jpeg \
+  --screenshot /tmp/gstack-verify-tablet.jpg --width 768 --jpeg \
+  --screenshot /tmp/gstack-verify-desktop.jpg --width 1440 --jpeg
 ```
 
 Show all three screenshots inline using the Read tool. Check for:
@@ -341,8 +341,10 @@ Show all three screenshots inline using the Read tool. Check for:
 
 If issues are found, note them and fix before presenting to the user.
 
-If `$B` is not available, skip verification and note:
-"Browse binary not available. Skipping automated viewport verification."
+If `gstack-render` prints `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`, skip
+verification and note: "Aside browser not available (install it from aside.com
+or open the app). Skipping automated viewport verification." Never install it
+for the user.
 
 ### Refinement Loop
 

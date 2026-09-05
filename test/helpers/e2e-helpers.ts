@@ -145,8 +145,6 @@ export function describeIfSelected(name: string, testNames: string[], fn: () => 
 // Unique run ID for this E2E session — used for heartbeat + per-run log directory
 export const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
 
-export const browseBin = path.resolve(ROOT, 'browse', 'dist', 'browse');
-
 // Check if Anthropic API key is available (needed for outcome evals)
 export const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
 
@@ -164,34 +162,6 @@ export function copyDirSync(src: string, dest: string) {
       fs.copyFileSync(srcPath, destPath);
     }
   }
-}
-
-/**
- * Set up browse shims (binary symlink, find-browse, remote-slug) in a tmpDir.
- */
-export function setupBrowseShims(dir: string) {
-  // Symlink browse binary
-  const binDir = path.join(dir, 'browse', 'dist');
-  fs.mkdirSync(binDir, { recursive: true });
-  if (fs.existsSync(browseBin)) {
-    fs.symlinkSync(browseBin, path.join(binDir, 'browse'));
-  }
-
-  // find-browse shim
-  const findBrowseDir = path.join(dir, 'browse', 'bin');
-  fs.mkdirSync(findBrowseDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(findBrowseDir, 'find-browse'),
-    `#!/bin/bash\necho "${browseBin}"\n`,
-    { mode: 0o755 },
-  );
-
-  // remote-slug shim (returns test-project)
-  fs.writeFileSync(
-    path.join(findBrowseDir, 'remote-slug'),
-    `#!/bin/bash\necho "test-project"\n`,
-    { mode: 0o755 },
-  );
 }
 
 /**

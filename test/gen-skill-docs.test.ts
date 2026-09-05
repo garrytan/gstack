@@ -1,7 +1,5 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { assertSinglePreamble } from '../scripts/gen-skill-docs';
-import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
-import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -152,56 +150,10 @@ afterAll(() => {
 });
 
 describe('gen-skill-docs', () => {
-  // Browse carve (token-reduction Phase 4): the command reference + snapshot
-  // flags render into browse/sections/command-list.md now — read the
-  // skeleton+sections union so these pins hold across the carve.
-  test('generated SKILL.md contains all command categories', () => {
-    const content = readSkillUnion('browse');
-    const categories = new Set(Object.values(COMMAND_DESCRIPTIONS).map(d => d.category));
-    for (const cat of categories) {
-      expect(content).toContain(`### ${cat}`);
-    }
-  });
-
-  test('generated SKILL.md contains all commands', () => {
-    const content = readSkillUnion('browse');
-    for (const [cmd, meta] of Object.entries(COMMAND_DESCRIPTIONS)) {
-      const display = meta.usage || cmd;
-      expect(content).toContain(display);
-    }
-  });
-
-  test('command table is sorted alphabetically within categories', () => {
-    const content = readSkillUnion('browse');
-    // Extract command names from the Navigation section as a test
-    const navSection = content.match(/### Navigation\n\|.*\n\|.*\n([\s\S]*?)(?=\n###|\n## )/);
-    expect(navSection).not.toBeNull();
-    const rows = navSection![1].trim().split('\n');
-    const commands = rows.map(r => {
-      const match = r.match(/\| `(\w+)/);
-      return match ? match[1] : '';
-    }).filter(Boolean);
-    const sorted = [...commands].sort();
-    expect(commands).toEqual(sorted);
-  });
-
   test('generated header is present in SKILL.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('AUTO-GENERATED from SKILL.md.tmpl');
     expect(content).toContain('Regenerate: bun run gen:skill-docs');
-  });
-
-  test('generated header is present in browse/SKILL.md', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('AUTO-GENERATED from SKILL.md.tmpl');
-  });
-
-  test('snapshot flags section contains all flags', () => {
-    const content = readSkillUnion('browse');
-    for (const flag of SNAPSHOT_FLAGS) {
-      expect(content).toContain(flag.short);
-      expect(content).toContain(flag.description);
-    }
   });
 
   test('every skill has a SKILL.md.tmpl template', () => {
@@ -337,25 +289,17 @@ describe('gen-skill-docs', () => {
 
   test('templates contain placeholders', () => {
     // P2 (v1.2.0): the root template is a pure router — only {{PREAMBLE}}.
-    // The browse command/snapshot placeholders live in browse/SKILL.md.tmpl now.
     const rootTmpl = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
     expect(rootTmpl).toContain('{{PREAMBLE}}');
-    expect(rootTmpl).not.toContain('{{COMMAND_REFERENCE}}');
-    expect(rootTmpl).not.toContain('{{SNAPSHOT_FLAGS}}');
 
-    // Browse carve: the reference resolvers moved into the on-demand section
-    // template (so gen-skill-docs keeps them fresh from browse/src); the
-    // skeleton points at the section instead of inlining the reference.
-    const browseTmpl = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md.tmpl'), 'utf-8');
-    expect(browseTmpl).not.toContain('{{COMMAND_REFERENCE}}');
-    expect(browseTmpl).not.toContain('{{SNAPSHOT_FLAGS}}');
-    expect(browseTmpl).toContain('{{SECTION:command-list}}');
-    expect(browseTmpl).toContain('{{PREAMBLE}}');
-
-    const browseSectionTmpl = fs.readFileSync(
-      path.join(ROOT, 'browse', 'sections', 'command-list.md.tmpl'), 'utf-8');
-    expect(browseSectionTmpl).toContain('{{COMMAND_REFERENCE}}');
-    expect(browseSectionTmpl).toContain('{{SNAPSHOT_FLAGS}}');
+    // Browser consolidation: the browsing skills render the Aside contract; no
+    // template may still ask for the retired browse setup block.
+    const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
+    expect(qaTmpl).toContain('{{ASIDE_SETUP}}');
+    for (const skill of ALL_SKILLS) {
+      const tmpl = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md.tmpl'), 'utf-8');
+      expect({ skill: skill.dir, hasBrowseSetup: tmpl.includes('{{BROWSE_SETUP}}') }).toEqual({ skill: skill.dir, hasBrowseSetup: false });
+    }
   });
 
   test('generated SKILL.md contains operational self-improvement (replaced contributor mode)', () => {
@@ -695,82 +639,15 @@ describe('GitLab support in generated skills', () => {
  * not just structurally valid. Each test targets a specific
  * regression we actually shipped and caught in review.
  */
-describe('description quality evals', () => {
-  // Regression: snapshot flags lost value hints (-d <N>, -s <sel>, -o <path>)
-  // Browse carve: the flag reference renders into browse/sections/command-list.md.
-  test('snapshot flags with values include value hints in output', () => {
-    const content = readSkillUnion('browse');
-    for (const flag of SNAPSHOT_FLAGS) {
-      if (flag.takesValue) {
-        expect(flag.valueHint).toBeDefined();
-        expect(content).toContain(`${flag.short} ${flag.valueHint}`);
-      }
-    }
-  });
-
-  // Regression: "is" lost the valid states enum
-  test('is command lists valid state values', () => {
-    const desc = COMMAND_DESCRIPTIONS['is'].description;
-    for (const state of ['visible', 'hidden', 'enabled', 'disabled', 'checked', 'editable', 'focused']) {
-      expect(desc).toContain(state);
-    }
-  });
-
-  // Regression: "press" lost common key examples
-  test('press command lists example keys', () => {
-    const desc = COMMAND_DESCRIPTIONS['press'].description;
-    expect(desc).toContain('Enter');
-    expect(desc).toContain('Tab');
-    expect(desc).toContain('Escape');
-  });
-
-  // Regression: "console" lost --errors filter note
-  test('console command describes --errors behavior', () => {
-    const desc = COMMAND_DESCRIPTIONS['console'].description;
-    expect(desc).toContain('--errors');
-  });
-
-  // Regression: snapshot -i lost "@e refs" context
-  test('snapshot -i mentions @e refs', () => {
-    const flag = SNAPSHOT_FLAGS.find(f => f.short === '-i')!;
-    expect(flag.description).toContain('@e');
-  });
-
-  // Regression: snapshot -C lost "@c refs" context
-  test('snapshot -C mentions @c refs', () => {
-    const flag = SNAPSHOT_FLAGS.find(f => f.short === '-C')!;
-    expect(flag.description).toContain('@c');
-  });
-
-  // Guard: every description must be at least 8 chars (catches empty or stub descriptions)
-  test('all command descriptions have meaningful length', () => {
-    for (const [cmd, meta] of Object.entries(COMMAND_DESCRIPTIONS)) {
-      expect(meta.description.length).toBeGreaterThanOrEqual(8);
-    }
-  });
-
-  // Guard: snapshot flag descriptions must be at least 10 chars
-  test('all snapshot flag descriptions have meaningful length', () => {
-    for (const flag of SNAPSHOT_FLAGS) {
-      expect(flag.description.length).toBeGreaterThanOrEqual(10);
-    }
-  });
-
-  // Guard: descriptions must not contain pipe (breaks markdown table cells)
-  // Usage strings are backtick-wrapped in the table so pipes there are safe.
-  test('no command description contains pipe character', () => {
-    for (const [cmd, meta] of Object.entries(COMMAND_DESCRIPTIONS)) {
-      expect(meta.description).not.toContain('|');
-    }
-  });
-
+describe('generated output style', () => {
   // Guard: generated output uses → not ->
   test('generated SKILL.md uses unicode arrows', () => {
-    // P2 (v1.2.0): the browse body moved out of the top-level router into
-    // browse/SKILL.md. Guard arrow style on the browse body (sliced from its
-    // H1 so the auto-generated `-->` header comments are excluded).
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
-    const body = content.slice(content.indexOf('# browse: QA Testing'));
+    // Guard arrow style on the /qa body (sliced from its H1 so the
+    // auto-generated `-->` header comments are excluded).
+    const content = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+    const h1 = content.search(/^# /m);
+    expect(h1).toBeGreaterThan(-1);
+    const body = content.slice(h1);
     expect(body).toContain('→');
     expect(body).not.toContain('->');
   });
@@ -1381,12 +1258,10 @@ describe('DESIGN_SKETCH resolver', () => {
     expect(content).toMatch(/wireframe|sketch/i);
   });
 
-  test('references browse binary for rendering', () => {
-    expect(content).toContain('$B goto');
-  });
-
-  test('references screenshot capture', () => {
-    expect(content).toContain('$B screenshot');
+  test('wireframes render through gstack-render (Aside), never the retired browse binary', () => {
+    expect(content).toContain('gstack-render.ts');
+    expect(content).toContain('--screenshot');
+    expect(content).not.toMatch(/\$B(?!\w)/);
   });
 
   test('specifies rough aesthetic', () => {
@@ -1815,7 +1690,7 @@ describe('DESIGN_SKETCH extended with outside voices', () => {
 
   test('still contains original wireframe steps', () => {
     expect(content).toContain('wireframe');
-    expect(content).toContain('$B goto');
+    expect(content).toContain('gstack-render.ts');
   });
 });
 
@@ -2191,7 +2066,6 @@ describe('Codex generation (--host codex)', () => {
   test('Claude output unchanged: all Claude skills have zero Codex paths', () => {
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
-      // pair-agent legitimately documents how Codex agents store credentials.
       // codex + autoplan document the Codex CLI auth file (~/.codex/auth.json)
       // and log path (~/.codex/logs/) — those are user-facing Codex CLI paths,
       // not the gstack Codex host install path. ~/.codex/sessions/ (rollout
@@ -2199,7 +2073,7 @@ describe('Codex generation (--host codex)', () => {
       // ~/.codex/config.toml (the model_unusable guidance in the shared
       // codexPreflight, #2477) are the same user-facing class, so they are
       // scrubbed before the ban.
-      if (skill.dir !== 'pair-agent' && skill.dir !== 'codex' && skill.dir !== 'autoplan') {
+      if (skill.dir !== 'codex' && skill.dir !== 'autoplan') {
         expect(
           content
             .replaceAll('~/.codex/sessions/', '')
@@ -2312,7 +2186,7 @@ describe('Factory generation (--host factory)', () => {
   });
 
   test('non-sensitive skills lack disable-model-invocation', () => {
-    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-investigate', 'gstack-browse'];
+    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-investigate', 'gstack-scrape'];
     for (const name of NON_SENSITIVE) {
       const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
       const fmEnd = content.indexOf('\n---', 4);
@@ -2681,8 +2555,7 @@ describe('setup script validation', () => {
     const fnEnd = setupContent.indexOf('create_cursor_sidecar()', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
-    expect(fnBody).toContain('browse/dist');
-    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).not.toContain('browse/');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
     expect(fnBody).toContain('checklist.md');
     expect(fnBody).toContain('TODOS-format.md');
@@ -2701,8 +2574,7 @@ describe('setup script validation', () => {
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('.cursor/skills/gstack');
     expect(fnBody).toContain('bin');
-    expect(fnBody).toContain('browse/dist');
-    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).not.toContain('browse/');
     expect(fnBody).toContain('ETHOS.md');
     expect(fnBody).not.toContain('rm -rf');
   });
@@ -2751,13 +2623,13 @@ describe('setup script validation', () => {
   });
 
   test('create_agents_sidecar links runtime assets', () => {
-    // Sidecar must link bin with its shared lib modules, plus browse, review, qa
+    // Sidecar must link bin with its shared lib modules, plus review, qa
     const fnStart = setupContent.indexOf('create_agents_sidecar()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('bin');
     expect(fnBody).toContain('lib');
-    expect(fnBody).toContain('browse');
+    expect(fnBody).not.toContain('browse');
     expect(fnBody).toContain('review');
     expect(fnBody).toContain('qa');
   });
@@ -2768,8 +2640,7 @@ describe('setup script validation', () => {
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('$codex_gstack/lib');
-    expect(fnBody).toContain('browse/dist');
-    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).not.toContain('browse/');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
     // Review runtime assets (individual files, not the whole dir)
     expect(fnBody).toContain('checklist.md');

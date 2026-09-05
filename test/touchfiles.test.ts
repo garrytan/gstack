@@ -24,13 +24,13 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 describe('matchGlob', () => {
   test('** matches any depth of path segments', () => {
-    expect(matchGlob('browse/src/commands.ts', 'browse/src/**')).toBe(true);
-    expect(matchGlob('browse/src/deep/nested/file.ts', 'browse/src/**')).toBe(true);
-    expect(matchGlob('browse/src/cli.ts', 'browse/src/**')).toBe(true);
+    expect(matchGlob('lib/diagram-render/render.ts', 'lib/diagram-render/**')).toBe(true);
+    expect(matchGlob('lib/diagram-render/deep/nested/file.ts', 'lib/diagram-render/**')).toBe(true);
+    expect(matchGlob('lib/diagram-render/README.md', 'lib/diagram-render/**')).toBe(true);
   });
 
   test('** does not match unrelated paths', () => {
-    expect(matchGlob('browse/src/commands.ts', 'qa/**')).toBe(false);
+    expect(matchGlob('lib/diagram-render/render.ts', 'qa/**')).toBe(false);
     expect(matchGlob('review/SKILL.md', 'qa/**')).toBe(false);
   });
 
@@ -61,63 +61,14 @@ describe('matchGlob', () => {
 // --- selectTests ---
 
 describe('selectTests', () => {
-  test('browse/src change selects browse and qa tests', () => {
-    const result = selectTests(['browse/src/commands.ts'], E2E_TOUCHFILES);
-    expect(result.selected).toContain('browse-basic');
-    expect(result.selected).toContain('browse-snapshot');
+  test('aside resolver change selects the Aside-driven skill tests', () => {
+    const result = selectTests(['scripts/resolvers/aside.ts'], E2E_TOUCHFILES);
+    expect(result.selected).toContain('aside-browse-basic');
+    expect(result.selected).toContain('aside-browse-flow');
     expect(result.selected).toContain('qa-quick');
     expect(result.selected).toContain('qa-fix-loop');
     expect(result.selected).toContain('design-review-fix');
     expect(result.reason).toBe('diff');
-    // Should NOT include unrelated tests
-    expect(result.selected).not.toContain('plan-ceo-review');
-    expect(result.selected).not.toContain('retro');
-    expect(result.selected).not.toContain('document-release');
-  });
-
-  test('skill-specific change selects only that skill and related tests', () => {
-    const result = selectTests(['plan-ceo-review/SKILL.md'], E2E_TOUCHFILES);
-    expect(result.selected).toContain('plan-ceo-review');
-    expect(result.selected).toContain('plan-ceo-review-selective');
-    expect(result.selected).toContain('plan-ceo-review-benefits');
-    expect(result.selected).toContain('plan-ceo-review-expansion-energy');
-    expect(result.selected).toContain('codex-offered-ceo-review');
-    expect(result.selected).toContain('plan-ceo-review-format-mode');
-    expect(result.selected).toContain('plan-ceo-review-format-approach');
-    // v1.10.2.0 plan-mode handshake entries also depend on plan-ceo-review/**
-    expect(result.selected).toContain('plan-ceo-review-plan-mode');
-    expect(result.selected).toContain('plan-mode-no-op');
-    expect(result.selected).toContain('plan-ceo-review-prosons-cadence');
-    expect(result.selected).toContain('plan-review-prosons-format');
-    expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
-    expect(result.selected).toContain('plan-review-prosons-neutral-neg');
-    // v1.13.x real-PTY E2E batch entries that also depend on plan-ceo-review/**
-    expect(result.selected).toContain('auq-format-gate');
-    expect(result.selected).toContain('plan-ceo-mode-routing');
-    expect(result.selected).toContain('autoplan-chain-pty');
-    // Per-finding count + review-report-at-bottom (v1.21.x)
-    expect(result.selected).toContain('plan-ceo-finding-count');
-    // v1.22+ AskUserQuestion-blocked regression: auto-decide-preserved
-    // also depends on plan-ceo-review/** (autoplan-auto-mode test was
-    // removed in v1.28 — see commit message for the rationale).
-    expect(result.selected).toContain('auto-decide-preserved');
-    // v1.27+ gate-tier reviewCount-floor regression for transcript bug
-    expect(result.selected).toContain('plan-ceo-finding-floor');
-    // garrytan/askuserquestion-split-on-overflow: split-overflow periodic
-    // E2E test also depends on plan-ceo-review/** (5-option scope decision
-    // regression for the "drop to fit 4 options" failure mode).
-    expect(result.selected).toContain('plan-ceo-split-overflow');
-    // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
-    expect(result.selected).toContain('plan-ceo-section-loading');
-    expect(result.selected.length).toBe(21);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
-  });
-
-  test('global touchfile triggers ALL tests', () => {
-    const result = selectTests(['test/helpers/session-runner.ts'], E2E_TOUCHFILES);
-    expect(result.selected.length).toBe(Object.keys(E2E_TOUCHFILES).length);
-    expect(result.skipped.length).toBe(0);
-    expect(result.reason).toContain('global');
   });
 
   test('gen-skill-docs.ts is a scoped touchfile, not global', () => {
@@ -127,8 +78,8 @@ describe('selectTests', () => {
     expect(result.selected.length).toBeLessThan(Object.keys(E2E_TOUCHFILES).length);
     expect(result.reason).toBe('diff');
     // Should include tests that depend on gen-skill-docs.ts
-    expect(result.selected).toContain('skillmd-setup-discovery');
-    expect(result.selected).toContain('session-awareness');
+    expect(result.selected).toContain('tpa-present');
+    expect(result.selected).toContain('design-review-fix');
     expect(result.selected).toContain('journey-ideation');
     // Should NOT include tests that don't depend on it
     expect(result.selected).not.toContain('retro');
@@ -169,10 +120,9 @@ describe('selectTests', () => {
 
   test('SKILL.md.tmpl root template selects root-dependent tests and routing tests', () => {
     const result = selectTests(['SKILL.md.tmpl'], E2E_TOUCHFILES);
-    // Should select the 7 tests that depend on root SKILL.md
-    expect(result.selected).toContain('skillmd-setup-discovery');
-    expect(result.selected).toContain('session-awareness');
-    expect(result.selected).toContain('session-awareness');
+    // Root SKILL.md is the router: only the journey routing tests depend on it
+    expect(result.selected).toContain('journey-qa');
+    expect(result.selected).toContain('journey-ship');
     // Also selects journey routing tests (SKILL.md.tmpl in their touchfiles)
     expect(result.selected).toContain('journey-ideation');
     // Should NOT select unrelated non-routing tests

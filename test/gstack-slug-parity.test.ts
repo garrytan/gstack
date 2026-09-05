@@ -1,38 +1,42 @@
 /**
- * bin/gstack-slug ↔ browse/bin/remote-slug parity.
+ * bin/gstack-slug ↔ lib/bin-context.ts slugFromEnvironment() parity.
+ *
+ * Two implementations of one identity: the bash script every skill preamble
+ * runs, and the TypeScript port the bins fall back to when the script cannot
+ * be spawned (Windows). They must agree byte-for-byte or the stores keyed on
+ * the slug (decisions, timeline, ceo-plans, learnings) split in two.
  *
  * The bug this pins (2026-08-17, observed live in a Conductor worktree of
  * garrytan/gstack): a stray marker-bearing ancestor above the repo — an empty
  * `~/.git` directory that is not even a valid git repo — captured
  * gstack-slug's "outermost strong marker" walk-up as the project root. That
  * ancestor has no `origin` remote, so the resolver silently degraded to
- * `basename($HOME)` and emitted `SLUG=garrytan`, while remote-slug (which
- * asks git for the containing repo's remote) correctly said
- * `garrytan-gstack`. Every store keyed on the slug (decisions, timeline,
- * ceo-plans, learnings) filed into ~/.gstack/projects/garrytan/ — one bucket
- * shared by every repo under $HOME.
+ * `basename($HOME)` and emitted `SLUG=garrytan`, while a git-based derivation
+ * (ask git for the containing repo's remote) correctly said `garrytan-gstack`.
+ * Every store keyed on the slug filed into ~/.gstack/projects/garrytan/ — one
+ * bucket shared by every repo under $HOME.
  *
- * The fix makes the canonical remote authoritative: gstack-slug now walks the
+ * The fix makes the canonical remote authoritative: gstack-slug walks the
  * ancestor chain for the OUTERMOST dir with a `.git` entry (dir for normal
  * clones, FILE for git-worktrees) whose `origin` remote resolves, and derives
- * `owner-repo` with the exact same parse remote-slug uses. Marker-only
+ * `owner-repo` with the exact same parse slugFromEnvironment uses. Marker-only
  * ancestors that are not remote-bearing repos can still anchor the basename
  * FALLBACK, but they can no longer shadow a real remote.
  *
  * Contracts pinned here:
  *  - Parity: for any repo (plain clone or git-worktree) whose slug derivation
- *    reaches a canonical remote, gstack-slug's SLUG equals remote-slug's
+ *    reaches a canonical remote, gstack-slug's SLUG equals slugFromEnvironment's
  *    output — including under a stray-marker home.
  *  - Walk-up preserved: a nested inner repo under an outer canonical-remote
- *    repo resolves to the OUTER repo's owner-repo (outermost wins), matching
- *    remote-slug run at the outer root.
+ *    repo resolves to the OUTER repo's owner-repo (outermost wins).
  *  - Fallback preserved: a no-remote repo still resolves to its basename.
  *  - Cache self-heal: a pre-fix degraded cache entry (== the bogus marker
  *    root's basename) is rewritten to the canonical slug; legit #2212 sticky
  *    identity (repo that adopted a remote after first use) is NOT healed.
  *
  * Test pattern mirrors test/gstack-slug-cwd-walk-up.test.ts: per-test
- * tmpHome, spawnSync against the real bash scripts, fixtures on disk.
+ * tmpHome, spawnSync against the real bash script and a `bun -e` call into
+ * the TypeScript resolver, fixtures on disk.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { spawnSync, type SpawnSyncReturns } from 'child_process';
@@ -42,7 +46,7 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SLUG_SCRIPT = path.join(ROOT, 'bin', 'gstack-slug');
-const REMOTE_SLUG_SCRIPT = path.join(ROOT, 'browse', 'bin', 'remote-slug');
+const BIN_CONTEXT = path.join(ROOT, 'lib', 'bin-context.ts');
 
 function baseEnv(tmpHome: string): Record<string, string | undefined> {
   // Drop any ambient override: a sibling test leaking GSTACK_PROJECT_SLUG in
@@ -60,8 +64,10 @@ function runSlug(cwd: string, tmpHome: string): SpawnSyncReturns<string> {
   });
 }
 
+/** The TypeScript resolver, run out-of-process so it sees the same HOME/GSTACK_HOME/cwd as the bash script. */
 function runRemoteSlug(cwd: string, tmpHome: string): SpawnSyncReturns<string> {
-  return spawnSync('bash', [REMOTE_SLUG_SCRIPT], {
+  const code = `const { slugFromEnvironment } = await import(${JSON.stringify(BIN_CONTEXT)}); process.stdout.write(slugFromEnvironment(process.env.GSTACK_HOME, process.cwd()));`;
+  return spawnSync('bun', ['-e', code], {
     cwd,
     env: baseEnv(tmpHome),
     encoding: 'utf8',
@@ -105,7 +111,7 @@ function expectParity(cwd: string, tmpHome: string, expected: string): void {
   expect(slugOf(gstack)).toBe(remoteOut);
 }
 
-describe('gstack-slug ↔ remote-slug parity', () => {
+describe('gstack-slug ↔ slugFromEnvironment parity', () => {
   let tmpHome: string;
   let fixtures: string;
 
@@ -172,10 +178,9 @@ describe('gstack-slug ↔ remote-slug parity', () => {
 
     const gstack = runSlug(inner, tmpHome);
     expect(gstack.status).toBe(0);
-    // Outermost remote-bearing repo wins — same answer as remote-slug asked
-    // at the outer root. (remote-slug asked from INSIDE the inner repo can't
-    // see past the inner .git — its remote derivation does not succeed there,
-    // so the parity clause doesn't apply; the walk-up contract does.)
+    // Outermost remote-bearing repo wins — same answer as slugFromEnvironment
+    // gives at the outer root (both resolvers walk up, so they also agree from
+    // INSIDE the inner repo; the outer-root check is the historical pin).
     expect(slugOf(gstack)).toBe('acme-outer');
     expect(runRemoteSlug(outer, tmpHome).stdout.trim()).toBe('acme-outer');
   });
@@ -190,13 +195,13 @@ describe('gstack-slug ↔ remote-slug parity', () => {
     expect(slugOf(gstack)).toBe('acme-outer');
   });
 
-  test('fallback unchanged: no-remote repo resolves to its basename (and remote-slug agrees)', () => {
+  test('fallback unchanged: no-remote repo resolves to its basename (and slugFromEnvironment agrees)', () => {
     const repo = makeRepo(path.join(fixtures, 'lonely'));
     const gstack = runSlug(repo, tmpHome);
     expect(gstack.status).toBe(0);
     expect(slugOf(gstack)).toBe('lonely');
-    // remote-slug's own no-remote fallback is basename(toplevel) — parity
-    // holds incidentally on this shape too.
+    // The TypeScript no-remote fallback is basename(root) too — parity holds
+    // on this shape as well.
     expect(runRemoteSlug(repo, tmpHome).stdout.trim()).toBe('lonely');
   });
 

@@ -22,7 +22,7 @@ import type { TemplateContext } from '../types';
 export function generatePlanModeInfo(_ctx: TemplateContext): string {
   return `## Plan Mode Safe Operations
 
-In plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`, writes to the plan file, and \`open\` for generated artifacts.
+In plan mode, allowed because they inform the plan: \`$D\`, \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`, writes to the plan file, and \`open\` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 

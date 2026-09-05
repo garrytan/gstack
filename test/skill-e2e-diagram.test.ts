@@ -1,50 +1,76 @@
 /**
- * /diagram skill E2E (paid, claude -p).
+ * /diagram skill E2E (paid, claude -p) — periodic tier, live Aside required.
  *
- * Two tests with deliberately different tiers (eng-review D5):
+ * gstack renders local HTML through the Aside browser: the /diagram skill runs
+ * ONE `bun run bin/gstack-render.ts` call per triplet (staged bundle, three
+ * --eval/--out pairs). Aside is an external service with no CI runner
+ * (CLAUDE.md tiering rule 3), so the whole file is periodic and self-skips —
+ * never fails — when EVALS_TIER is not 'periodic' or `asideAvailable()` is
+ * false (no `aside` on PATH, app not running, or GSTACK_SKIP_ASIDE=1):
  *
- *   diagram-triplet (gate) — deterministic functional contract: from an
- *   English ask, the agent following the skill emits a parseable triplet —
- *   .mmd source, .excalidraw scene with elements, SVG markup, PNG bytes.
- *   No quality judgment; either the artifacts exist and parse or they don't.
+ *   EVALS=1 EVALS_TIER=periodic EVALS_ALL=1 bun test test/skill-e2e-diagram.test.ts
  *
- *   diagram-authoring-quality (periodic) — LLM-judged benchmark of the
- *   authored mermaid itself (faithfulness to the ask, label quality,
- *   readable size). Non-deterministic by nature → never blocks merge.
+ * Two tests:
+ *
+ *   diagram-triplet — deterministic functional contract: from an English ask,
+ *   the agent following the skill emits a parseable triplet (.mmd source,
+ *   .excalidraw scene with elements, SVG markup, PNG bytes) and did it through
+ *   gstack-render (a Bash tool call names it). No quality judgment.
+ *
+ *   diagram-authoring-quality — LLM-judged benchmark of the authored mermaid
+ *   itself (faithfulness to the ask, label quality, readable size).
  *
  * Per the extract-don't-copy fixture rule, the prompt embeds only the skill's
  * working section (from "# /diagram" onward), not the full generated SKILL.md
  * with its preamble.
  */
-import { describe, expect } from 'bun:test';
+import { expect } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { runSkillTest } from './helpers/session-runner';
+import { runSkillTest, type SkillTestResult } from './helpers/session-runner';
 import {
-  ROOT, browseBin, runId,
+  ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
   logCost,
 } from './helpers/e2e-helpers';
+import { e2eTierEnabled } from './helpers/e2e-gate';
+import { asideAvailable } from './helpers/aside-available';
 import { callJudge } from './helpers/llm-judge';
 
+// --- Whole-file gate: periodic tier AND a live Aside. Skip, never fail. ---
+
+const tierOk = e2eTierEnabled('periodic');
+const shouldRun = tierOk && asideAvailable();
+if (process.env.EVALS && !shouldRun) {
+  process.stderr.write(`\nskill-e2e-diagram: SKIPPED — ${tierOk
+    ? 'Aside is not installed or not running (or GSTACK_SKIP_ASIDE=1)'
+    : 'external-service test, periodic tier only'}\n`);
+}
+
+/** describeIfSelected, forced to describe.skip when the whole-file gate is closed. */
+const describeDiagram = (name: string, keys: string[], fn: () => void) =>
+  describeIfSelected(name, keys, fn, shouldRun ? undefined : []);
+
 const BUNDLE = path.join(ROOT, 'lib', 'diagram-render', 'dist', 'diagram-render.html');
+const RENDER = path.join(ROOT, 'bin', 'gstack-render.ts');
 
 /** Extract the working section of the generated skill doc (post-preamble). */
 function skillExtract(): string {
   const full = fs.readFileSync(path.join(ROOT, 'diagram', 'SKILL.md'), 'utf-8');
   const start = full.indexOf('# /diagram');
   if (start < 0) throw new Error('diagram/SKILL.md missing "# /diagram" section — regenerate skill docs');
+  if (!full.includes('gstack-render')) throw new Error('diagram/SKILL.md does not render through gstack-render (stale generated doc) — run `bun run gen:skill-docs`');
   return full.slice(start);
 }
 
 function setupDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.writeFileSync(path.join(dir, 'diagram-skill.md'), skillExtract());
-  // Pre-stage the bundle so the test is hermetic (no global install needed in
-  // CI); the prompt tells the agent discovery is already done.
+  // Pre-stage the bundle so the test is hermetic (no global install needed);
+  // gstack-render serves this directory on loopback for the render.
   fs.copyFileSync(BUNDLE, path.join(dir, 'diagram-render.html'));
   fs.mkdirSync(path.join(dir, 'out'));
   return dir;
@@ -53,23 +79,30 @@ function setupDir(prefix: string): string {
 function basePrompt(dir: string, ask: string): string {
   return `You have the /diagram skill instructions at ./diagram-skill.md — read them and follow Steps 1-4.
 
-Environment notes (already set up — skip Step 2's bundle discovery):
-- The browse binary is at ${browseBin} — use it wherever the skill says $B.
-- The render bundle is ALREADY staged at ./diagram-render.html in this directory; load it with: ${browseBin} load-html ./diagram-render.html
+Environment notes (already set up — skip Step 2's bundle discovery and staging):
+- Aside is installed and running on this machine.
+- The render bundle is ALREADY staged at ${dir}/diagram-render.html — use that path wherever the skill says <staged>.
+- gstack-render lives at ${RENDER}; run it as \`bun run ${RENDER}\` instead of the ~/.claude/skills/gstack/bin/gstack-render.ts path the skill shows.
 - Write all four artifacts into ./out/ with the slug "flow" (out/flow.mmd, out/flow.excalidraw, out/flow.svg, out/flow.png).
 - Do not open any other applications. Do not use the Read tool on the PNG (no inline display needed here).
 
 The diagram to create: ${ask}`;
 }
 
-describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-quality'], () => {
+/** The skill's render contract: at least one Bash tool call ran gstack-render. */
+function expectRenderedViaGstackRender(result: SkillTestResult): void {
+  const ran = result.toolCalls.some((c) => c.tool === 'Bash' && JSON.stringify(c.input ?? {}).includes('gstack-render'));
+  expect(ran).toBe(true);
+}
+
+describeDiagram('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-quality'], () => {
   testConcurrentIfSelected('diagram-triplet', async () => {
     const dir = setupDir('diagram-triplet-');
     try {
       const result = await runSkillTest({
         prompt: basePrompt(
           dir,
-          'a flowchart (graph LR) of a 4-stage pipeline: markdown → prepass → Chromium → PDF.',
+          'a flowchart (graph LR) of a 4-stage pipeline: markdown → prepass → Aside render → PDF.',
         ),
         workingDirectory: dir,
         maxTurns: 25,
@@ -80,6 +113,7 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
       });
       logCost('diagram triplet', result);
       expect(result.exitReason).toBe('success');
+      expectRenderedViaGstackRender(result);
 
       // The deterministic contract: all four artifacts exist and parse.
       const mmd = fs.readFileSync(path.join(dir, 'out', 'flow.mmd'), 'utf-8');
@@ -107,7 +141,7 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
       const result = await runSkillTest({
         prompt: basePrompt(
           dir,
-          'how gstack renders diagrams in PDFs: markdown containing mermaid fences goes through a pre-pass that extracts the fences, renders them in a browse daemon tab using an offline bundle, substitutes the SVG back in, inlines local images, and prints via Chromium. Failures become visible diagnostic blocks.',
+          'how gstack renders diagrams in PDFs: markdown containing mermaid fences goes through a pre-pass that extracts the fences, renders them in the Aside browser using an offline bundle, substitutes the SVG back in, inlines local images, and prints the PDF through Aside. Failures become visible diagnostic blocks.',
         ),
         workingDirectory: dir,
         maxTurns: 25,
@@ -118,6 +152,7 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
       });
       logCost('diagram authoring quality', result);
       expect(result.exitReason).toBe('success');
+      expectRenderedViaGstackRender(result);
 
       const mmd = fs.readFileSync(path.join(dir, 'out', 'flow.mmd'), 'utf-8');
       const svg = fs.readFileSync(path.join(dir, 'out', 'flow.svg'), 'utf-8');
@@ -127,9 +162,9 @@ describeIfSelected('/diagram skill E2E', ['diagram-triplet', 'diagram-authoring-
         `You are judging the quality of an agent-authored mermaid diagram.
 
 THE ASK: a diagram of gstack's PDF diagram-rendering flow — mermaid fences are
-extracted by a pre-pass, rendered in a browse tab via an offline bundle,
-substituted back as SVG, images inlined, printed by Chromium, with render
-failures becoming visible diagnostic blocks.
+extracted by a pre-pass, rendered in the Aside browser via an offline bundle,
+substituted back as SVG, images inlined, printed to PDF through Aside, with
+render failures becoming visible diagnostic blocks.
 
 THE AUTHORED MERMAID:
 \`\`\`mermaid

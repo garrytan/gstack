@@ -1,6 +1,6 @@
 /**
  * jsonl-store — shared plumbing for gstack's append-only JSONL stores in
- * lib/ and bin/. (browse/src keeps its own appenders by design — the
+ * lib/ and bin/. (the former browse daemon kept its own appenders by design — the
  * compiled-binary surface has different logging semantics and its own
  * secure-append helper.)
  *

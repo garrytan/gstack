@@ -160,7 +160,6 @@ lookup_default() {
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
-    pair_agent) echo "off" ;; # remote tunnel consent — fail-closed until /pair-agent asks
     founder_resources) echo "true" ;; # office-hours resource pitch — #538 permanent opt-out sets false
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
     #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
@@ -392,10 +391,6 @@ case "${1:-}" in
     if [ "$KEY" = "redact_prepush_hook" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
       echo "Warning: redact_prepush_hook '$VALUE' not recognized. Valid values: true, false. Using false." >&2
       VALUE="false"
-    fi
-    if [ "$KEY" = "pair_agent" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
-      echo "Warning: pair_agent '$VALUE' not recognized. Valid values: on, off. Using off." >&2
-      VALUE="off"
     fi
     if [ "$KEY" = "founder_resources" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
       echo "Warning: founder_resources '$VALUE' not recognized. Valid values: true, false. Using true." >&2

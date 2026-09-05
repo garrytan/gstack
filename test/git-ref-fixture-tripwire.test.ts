@@ -19,7 +19,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SCAN_ROOTS = ['test', 'browse/test', 'design/test', 'make-pdf/test'];
+const SCAN_ROOTS = ['test', 'design/test', 'make-pdf/test'];
 const SELF = path.join('test', 'git-ref-fixture-tripwire.test.ts');
 
 // Quoted `SHA:` rev-path (7-40 hex chars, optional ^/~ suffix, then colon) —

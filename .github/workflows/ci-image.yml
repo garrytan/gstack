@@ -18,7 +18,6 @@ on:
     paths:
       - '.github/docker/Dockerfile.ci'
       - 'bun.lock'
-      - 'patches/**'
   # Manual trigger
   workflow_dispatch:
 
@@ -39,14 +38,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Copy lockfile + package.json into Docker build context
-      - run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
+      - run: cp package.json bun.lock .github/docker/
 
       # Same content-hash tag expression as evals.yml / evals-periodic.yml
       # (byte-identity pinned by test/ci-image-tag-binding.test.ts). This is
       # the tag the eval matrix looks up first — without pushing it here, the
       # weekly/main prebuild never warms the cache that matters.
       - id: meta
-        run: echo "tag=ghcr.io/${{ github.repository }}/ci:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=ghcr.io/${{ github.repository }}/ci:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:

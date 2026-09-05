@@ -110,7 +110,7 @@ Published to ClawHub. Install with `clawhub install`:
 
 Source lives in `openclaw/skills/` in the gstack repo. These are hand-crafted
 adaptations of the gstack methodology for OpenClaw's conversational context.
-No gstack infrastructure (no browse, no telemetry, no preamble).
+No gstack infrastructure (no browser, no telemetry, no preamble).
 
 ## Spawned session detection
 

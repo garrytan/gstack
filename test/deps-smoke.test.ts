@@ -5,8 +5,7 @@
  * sharp 0.35.0; lib/diagram-render: nanoid 5.x, lodash-es 4.18.x) defeat
  * nested exact pins, so a green unit suite alone does not prove the forced
  * versions actually work for their consumers. These smokes exercise the
- * overridden surfaces directly. SOCKS is covered by
- * browse/test/socks-bridge.test.ts; the diagram bundle by
+ * overridden surfaces directly. The diagram bundle is covered by
  * test/diagram-render-drift.test.ts + the paid diagram E2E.
  */
 import { describe, expect, test } from "bun:test";
@@ -29,8 +28,7 @@ describe("dependency-wave smoke", () => {
   test("ip-address 10.3.1 override: both nested consumers resolve the fixed version", async () => {
     const lock = await Bun.file(`${import.meta.dir}/../bun.lock`).text();
     // No vulnerable ip-address node may survive anywhere in the tree
-    // (socks pulled 10.2.0; express-rate-limit exact-pinned 10.1.0 — the
-    // override must defeat both).
+    // (express-rate-limit exact-pins 10.1.0 — the override must defeat it).
     expect(lock).not.toMatch(/ip-address@10\.(1|2)\./);
     expect(lock).toMatch(/ip-address@10\.3\./);
   });

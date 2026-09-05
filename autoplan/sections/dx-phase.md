@@ -6,7 +6,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 **Override rules:**
 - Mode selection: DX POLISH
 - Persona: infer from README/docs, pick the most common developer type (P6)
-- Competitive benchmark: run searches if WebSearch available, use reference benchmarks otherwise (P1)
+- Competitive benchmark: research through Aside per the loaded skill's "Web research runs in Aside" section when its probe prints `READY`; use the reference benchmarks otherwise (P1)
 - Magical moment: pick the lowest-effort delivery vehicle that achieves the competitive tier (P5)
 - Getting started friction: always optimize toward fewer steps (P5, simpler over clever)
 - Error message quality: always require problem + cause + fix (P1, completeness)

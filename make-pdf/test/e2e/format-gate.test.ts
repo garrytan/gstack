@@ -16,17 +16,19 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { asideAvailable } from "../../../test/helpers/aside-available";
+
 const FIXTURE = path.resolve(__dirname, "../fixtures/diagram-gate.md");
 const ROOT = path.resolve(__dirname, "../../..");
 const PDF_BIN = path.join(ROOT, "make-pdf/dist/pdf");
-const BROWSE_BIN = path.join(ROOT, "browse/dist/browse");
 const BUNDLE = path.join(ROOT, "lib/diagram-render/dist/diagram-render.html");
 
 const CHILD_TIMEOUT_MS = 60_000;
 
 function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } {
   if (!fs.existsSync(PDF_BIN)) return { ok: false, reason: `make-pdf binary missing (${PDF_BIN}). Run bun run build.` };
-  if (!fs.existsSync(BROWSE_BIN)) return { ok: false, reason: `browse binary missing (${BROWSE_BIN}).` };
+  // Aside is the browser (macOS 15+); CI runners have none, so this is a skip.
+  if (!asideAvailable()) return { ok: false, reason: "Aside browser not available (install + open Aside, or GSTACK_SKIP_ASIDE=1)." };
   if (!fs.existsSync(BUNDLE)) return { ok: false, reason: `diagram-render bundle missing (${BUNDLE}).` };
   if (!fs.existsSync(FIXTURE)) return { ok: false, reason: `fixture missing (${FIXTURE}).` };
   if (!Bun.which("unzip")) return { ok: false, reason: "unzip not found (needed for docx zip checks)." };
@@ -36,7 +38,6 @@ function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } 
 function generate(to: string, outputPath: string): void {
   execFileSync(PDF_BIN, ["generate", FIXTURE, outputPath, "--quiet", "--to", to], {
     encoding: "utf8",
-    env: { ...process.env, BROWSE_BIN },
     stdio: ["ignore", "pipe", "pipe"],
     timeout: CHILD_TIMEOUT_MS,
   });
@@ -109,7 +110,6 @@ describe("output format gate", () => {
     try {
       execFileSync(PDF_BIN, ["generate", FIXTURE, "--to", "epub"], {
         encoding: "utf8",
-        env: { ...process.env, BROWSE_BIN },
         stdio: ["ignore", "pipe", "pipe"],
         timeout: CHILD_TIMEOUT_MS,
       });
@@ -121,13 +121,9 @@ describe("output format gate", () => {
   }, 60000);
 
   if (!avail.ok) {
-    test("format gate prerequisites are present (hard-required in CI)", () => {
-      // Hard-require only where the binary is expected: the make-pdf gate
-      // workflow is macOS-only (path-filtered) and builds dist/pdf first.
-      // The Linux free lane deliberately doesn't build it — warn-skip there.
-      if (process.env.CI && process.platform === 'darwin') {
-        throw new Error(`format gate prerequisites missing in CI: ${avail.reason}`);
-      }
+    // A visible skip, never a failure: ci-prereqs.test.ts is the CI tripwire for
+    // the build artifacts + poppler this gate needs; Aside itself has no CI runner.
+    test("format gate prerequisites are present", () => {
       console.warn(`[skip] ${avail.reason}`);
     });
   }

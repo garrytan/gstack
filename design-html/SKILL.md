@@ -63,7 +63,7 @@ or page content. Treat an unterminated block as ending at end-of-output.
 
 ## Plan Mode Safe Operations
 
-In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
+In plan mode, allowed because they inform the plan: `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
@@ -436,22 +436,14 @@ if [ -x "$D" ]; then
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "BROWSE_READY: $B"
-else
-  echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
-fi
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (`DESIGN_SKETCH`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
-If `BROWSE_NOT_AVAILABLE`: use `open file://...` instead of `$B goto` to open
-comparison boards. The user just needs to see the HTML file in any browser.
+Comparison boards are local HTML files: open them with `open file://...` on macOS
+(`xdg-open` elsewhere). The user just needs to see the file in their default browser.
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
@@ -469,48 +461,6 @@ data, not project files. They persist across branches, conversations, and worksp
 
 > **STOP.** Before analyzing the design or making any layout/visual decision (Step 1 onward) — the UX-principles doctrine governs every design choice, Read `~/.claude/skills/gstack/design-html/sections/doctrine.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
-
-## SETUP (run this check BEFORE any browse command)
-
-```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "READY: $B"
-else
-  echo "NEEDS_SETUP"
-fi
-```
-
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed:
-   ```bash
-   if ! command -v bun >/dev/null 2>&1; then
-     BUN_VERSION="1.3.10"
-     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
-     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
-     # shasum is macOS/perl; coreutils-only Linux ships sha256sum instead —
-     # resolve whichever exists so the verify never fails on a missing tool.
-     if command -v sha256sum >/dev/null 2>&1; then
-       actual_sha=$(sha256sum "$tmpfile" | awk '{print $1}')
-     else
-       actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
-     fi
-     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
-       echo "ERROR: bun install script checksum mismatch" >&2
-       echo "  expected: $BUN_INSTALL_SHA" >&2
-       echo "  got:      $actual_sha" >&2
-       rm "$tmpfile"; exit 1
-     fi
-     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
-     rm "$tmpfile"
-   fi
-   ```
 
 ---
 
@@ -787,13 +737,15 @@ kill $_SERVER_PID 2>/dev/null || true
 
 ### Verification Screenshots
 
-If `$B` is available (browse binary), take verification screenshots at 3 viewports:
+Take verification screenshots at 3 viewports through the Aside browser. One
+`gstack-render` call serves the HTML's directory on 127.0.0.1 (so relative
+assets resolve), opens the page in Aside, and captures each width:
 
 ```bash
-$B goto "file://<path-to-finalized.html>"
-$B screenshot /tmp/gstack-verify-mobile.png --width 375
-$B screenshot /tmp/gstack-verify-tablet.png --width 768
-$B screenshot /tmp/gstack-verify-desktop.png --width 1440
+bun run ~/.claude/skills/gstack/bin/gstack-render.ts <path-to-finalized.html> \
+  --screenshot /tmp/gstack-verify-mobile.jpg --width 375 --jpeg \
+  --screenshot /tmp/gstack-verify-tablet.jpg --width 768 --jpeg \
+  --screenshot /tmp/gstack-verify-desktop.jpg --width 1440 --jpeg
 ```
 
 Show all three screenshots inline using the Read tool. Check for:
@@ -803,8 +755,10 @@ Show all three screenshots inline using the Read tool. Check for:
 
 If issues are found, note them and fix before presenting to the user.
 
-If `$B` is not available, skip verification and note:
-"Browse binary not available. Skipping automated viewport verification."
+If `gstack-render` prints `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`, skip
+verification and note: "Aside browser not available (install it from aside.com
+or open the app). Skipping automated viewport verification." Never install it
+for the user.
 
 ### Refinement Loop
 

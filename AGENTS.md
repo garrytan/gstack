@@ -36,8 +36,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/devex-review` | Live developer experience audit (TTHW measured against the real flow). |
 | `/qa` | Open a real browser, find bugs, fix them, re-verify. |
 | `/qa-only` | Same methodology as /qa but report only — no code changes. |
-| `/scrape` | Pull data from a web page. First call prototypes; codified call runs in ~200ms. |
-| `/skillify` | Codify the most recent successful `/scrape` flow into a permanent browser-skill. |
+| `/scrape` | Pull data from a web page in your Aside browser, with your real logged-in state. Read-only. |
 
 ### Release + deploy
 
@@ -45,7 +44,7 @@ Invoke them by name (e.g., `/office-hours`).
 |-------|-------------|
 | `/ship` | Run tests, review, push, open PR. Workspace-aware version queue. |
 | `/land-and-deploy` | Merge the PR, wait for CI and deploy, verify production health. |
-| `/canary` | Post-deploy monitoring loop using the browse daemon. |
+| `/canary` | Post-deploy monitoring loop in your Aside browser. |
 | `/landing-report` | Read-only dashboard for the workspace-aware ship queue. |
 | `/document-release` | Update all docs to match what you just shipped. |
 | `/document-generate` | Generate Diataxis docs (tutorial / how-to / reference / explanation) from code. |
@@ -67,14 +66,15 @@ Invoke them by name (e.g., `/office-hours`).
 | `/setup-gbrain` | Set up gbrain for cross-machine session memory sync. |
 | `/sync-gbrain` | Keep gbrain current with this repo's code; refresh agent search guidance in CLAUDE.md. |
 
-### Browser + agent integration
+### Browser
+
+gstack has one browser: the Aside AI browser (macOS 15+, aside.com). It is the
+user's real browser with their real sessions; skills drive it through `aside repl`
+scripts and never install it. There is no headless fallback and no cookie import.
 
 | Skill | What it does |
 |-------|-------------|
-| `/browse` | Headless browser — real Chromium, real clicks, ~100ms/command. |
-| `/open-gstack-browser` | Launch the visible GStack Browser with sidebar + stealth. |
-| `/setup-browser-cookies` | Import cookies from your real browser for authenticated testing. |
-| `/pair-agent` | Pair a remote AI agent (OpenClaw, Codex, etc.) with your browser. |
+| `/browse` | Drive your Aside browser: open a page, read it, click through a flow, screenshots, console errors. Every other browser skill stands on it. |
 
 ### iOS QA — drive real iPhones over USB or Tailscale (v1.43.0.0+)
 
@@ -104,8 +104,8 @@ End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-t
 | `/freeze` | Lock edits to one directory. Hard block, not just a warning. |
 | `/guard` | Activate both careful + freeze at once. |
 | `/unfreeze` | Remove directory edit restrictions. |
-| `/make-pdf` | Turn any markdown file into a publication-quality PDF. |
-| `/diagram` | English in, diagram out: mermaid source + editable .excalidraw + SVG/PNG, offline. |
+| `/make-pdf` | Turn any markdown file into a publication-quality PDF. Renders through Aside. |
+| `/diagram` | English in, diagram out: mermaid source + editable .excalidraw + SVG/PNG, offline. Renders through Aside. |
 
 ## Build commands
 
@@ -126,12 +126,16 @@ bun run skill:check      # health dashboard for all skills
   MSYS today; native PowerShell support is a future expansion. The `bin/gstack-paths`
   helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
   installs work on every platform.
+- **Browser and renderer**: the browser skills, `/make-pdf`, and `/diagram` need
+  the Aside browser, which is macOS 15+ only. Linux and Windows have no browser
+  and no renderer until Aside ships there; the skills stop at their readiness
+  check and say so.
 
 ## Key conventions
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
 - Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
-- The browse binary provides headless browser access. Use `$B <command>` in skills.
+- The browser is Aside. Browser steps in skills are `aside repl` scripts per `scripts/resolvers/aside.ts`; local HTML renders through `bin/gstack-render.ts`. No `$B`, no headless fallback.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
 - State paths resolve via `bin/gstack-paths` (sourced via `eval "$(...)"`). Honors `GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLANS_DIR`.
-- The `claude` CLI binary resolves via `browse/src/claude-bin.ts` (`Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.
+- The `claude` CLI binary resolves via `lib/claude-bin.ts` (`Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.

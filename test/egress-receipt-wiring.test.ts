@@ -49,7 +49,6 @@ const POLARITY: Record<string, 'fail-closed' | 'fail-open'> = {
   'memory-ingest': 'fail-closed',
   'gbrain-sync': 'fail-closed',
   'telemetry-sync': 'fail-closed',
-  'browse-tunnel (ngrok)': 'fail-closed',
   'gbrain-mcp-verify': 'fail-closed',
   'supabase-provision': 'fail-closed',
   // fail-open: user-facing operations that must not die over an audit-log
@@ -66,7 +65,6 @@ const POLARITY: Record<string, 'fail-closed' | 'fail-open'> = {
 const MODULE_SINKS = [
   'bin/gstack-gbrain-sync.ts',
   'bin/gstack-memory-ingest.ts',
-  'browse/src/server.ts',
   // Code-intelligence adapters (fork port wave 2): the gbrain adapter shells
   // repo content to the user's gbrain DB and the Sourcebot adapter POSTs
   // queries to a self-hosted HTTP endpoint — both sensitive-class
@@ -123,16 +121,6 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'git fetch appears only in an error-message string',
   'bin/gstack-redact-prepush':
     'git push mentions are hook documentation strings (bypass instructions)',
-  'browse/src/security-classifier.ts':
-    'HF model download: bodyless GET of a public classifier model (variable URL)',
-  'browse/src/write-commands.ts':
-    'user-directed page fetch — the browser command surface fetches what the user asked for',
-  'browse/src/cli.ts':
-    'health probe of the user\'s own pair-agent tunnel URL (reachability probe)',
-  'browse/src/commands.ts':
-    'git pull appears only in an upgrade-hint message string',
-  'browse/src/cookie-picker-ui.ts':
-    'served-page JS talking to its own loopback server (same-origin relative fetch)',
   'design/src/compare.ts':
     'served-page JS talking to its own loopback server (relative ./api fetch)',
   // Skill prose templates: these render agent-executed instructions (the
@@ -261,21 +249,6 @@ describe('egress receipt wiring tripwire', () => {
     ).toEqual([]);
   });
 
-  test('browse tunnel: every ngrok.forward() has a writeReceipt in the 30 preceding lines', () => {
-    const lines = read('browse/src/server.ts').split('\n');
-    const offenders: string[] = [];
-    let sawForward = false;
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].includes('ngrok.forward(')) continue;
-      if (/^\s*(\/\/|\*)/.test(lines[i])) continue;
-      sawForward = true;
-      const context = lines.slice(Math.max(0, i - 30), i).join('\n');
-      if (!context.includes('writeReceipt(')) offenders.push(`browse/src/server.ts:${i + 1}`);
-    }
-    expect(sawForward, 'expected ngrok.forward call sites in server.ts').toBe(true);
-    expect(offenders, 'tunnel session opened without a receipt: ' + offenders.join(', ')).toEqual([]);
-  });
-
   test('design: every api.openai.com call routes through receiptedFetch', () => {
     for (const rel of DESIGN_SINKS) {
       const src = read(rel);
@@ -314,7 +287,6 @@ describe('egress receipt wiring tripwire', () => {
     const open = Object.entries(POLARITY).filter(([, p]) => p === 'fail-open').map(([s]) => s);
     expect(closed.sort()).toEqual([
       'brain-sync',
-      'browse-tunnel (ngrok)',
       'gbrain-mcp-verify',
       'gbrain-sync',
       'memory-ingest',
@@ -357,7 +329,7 @@ describe('egress receipt wiring tripwire', () => {
   });
 
   test('NEW-SINK SCANNER: every outbound network op in the tree is wired or reasoned-exempt', () => {
-    const SWEEP = ['bin', 'lib', 'scripts', 'design/src', 'browse/src'];
+    const SWEEP = ['bin', 'lib', 'scripts', 'design/src'];
     const offenders: string[] = [];
     for (const dirRel of SWEEP) {
       const dir = path.join(ROOT, dirRel);

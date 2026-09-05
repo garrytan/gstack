@@ -11,8 +11,8 @@
  * user actually cares about — features interact, and the combined
  * extraction is what predicts production quality.
  *
- * Gating: only runs when the compiled binary + browse + pdftotext are all
- * available. Skipped cleanly otherwise (local dev without full install).
+ * Gating: only runs when the compiled binary + the Aside browser + pdftotext
+ * are all available. Skipped cleanly otherwise (local dev, CI runners).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,16 +22,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { copyPasteGate, resolvePdftotext } from "../../src/pdftotext";
+import { asideAvailable } from "../../../test/helpers/aside-available";
 
 const FIXTURE = path.resolve(__dirname, "../fixtures/combined-gate.md");
 const EXPECTED = path.resolve(__dirname, "../fixtures/combined-gate.expected.txt");
 const ROOT = path.resolve(__dirname, "../../..");
 const PDF_BIN = path.join(ROOT, "make-pdf/dist/pdf");
-const BROWSE_BIN = path.join(ROOT, "browse/dist/browse");
 
 function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } {
   if (!fs.existsSync(PDF_BIN)) return { ok: false, reason: `make-pdf binary missing (${PDF_BIN}). Run bun run build.` };
-  if (!fs.existsSync(BROWSE_BIN)) return { ok: false, reason: `browse binary missing (${BROWSE_BIN}).` };
+  // Aside is the browser (macOS 15+); CI runners have none, so this is a skip.
+  if (!asideAvailable()) return { ok: false, reason: "Aside browser not available (install + open Aside, or GSTACK_SKIP_ASIDE=1)." };
   if (!fs.existsSync(FIXTURE)) return { ok: false, reason: `fixture missing (${FIXTURE}).` };
   if (!fs.existsSync(EXPECTED)) return { ok: false, reason: `expected.txt missing (${EXPECTED}).` };
   try { resolvePdftotext(); } catch (err: any) { return { ok: false, reason: err.message }; }
@@ -43,15 +44,11 @@ describe("combined-features copy-paste gate", () => {
 
   test.skipIf(!avail.ok)("fixture PDF extracts cleanly through pdftotext", () => {
     if (!avail.ok) return; // satisfies the type checker
-    // Use /tmp directly (browse's validateOutputPath allows /private/tmp,
-    // which macOS resolves /tmp to). os.tmpdir() returns /var/folders/...
-    // which is outside the safe-dirs allowlist.
-    const outputPdf = `/tmp/make-pdf-combined-gate-${process.pid}.pdf`;
+    const outputPdf = path.join(os.tmpdir(), `make-pdf-combined-gate-${process.pid}.pdf`);
     try {
       execFileSync(PDF_BIN, ["generate", FIXTURE, outputPdf, "--quiet"], {
         encoding: "utf8",
-        timeout: 30_000,
-        env: { ...process.env, BROWSE_BIN },
+        timeout: 60_000,
         stdio: ["ignore", "pipe", "pipe"],
       });
       expect(fs.existsSync(outputPdf)).toBe(true);
@@ -67,7 +64,7 @@ describe("combined-features copy-paste gate", () => {
     } finally {
       try { fs.unlinkSync(outputPdf); } catch { /* ignore */ }
     }
-  }, 30000);
+  }, 60000);
 
   if (!avail.ok) {
     test("prerequisites check", () => {

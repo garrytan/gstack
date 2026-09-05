@@ -44,6 +44,27 @@ a baseline, so a run can't compare against itself).
 
 ## Runners: how the suites execute (2026-08 overhaul)
 
+**Aside-driven E2E tests self-skip without a live browser.** Every skill that
+opens a web page drives the Aside AI browser (`scripts/resolvers/aside.ts`).
+The E2E files that exercise those skills (`test/skill-e2e-aside.test.ts`, the
+`qa-*` cases in `test/skill-e2e-qa-workflow.test.ts` / `skill-e2e-qa-bugs.test.ts`,
+`design-review-fix` in `test/skill-e2e-design.test.ts`) call
+`asideAvailable()` from `test/helpers/aside-available.ts` (the same probe the
+skills run in BROWSER SETUP) and skip when the `aside` CLI or the Aside app is
+absent. CI runners have no Aside, so these run only on macOS dev machines and
+sit in the periodic tier; set `GSTACK_SKIP_ASIDE=1` to force the skip locally.
+
+**The renderer is Aside too, so render gates self-skip the same way.** gstack
+has no browser engine of its own: `/make-pdf`, `/diagram`, and design previews
+print and screenshot their local HTML through `lib/aside-render.ts` /
+`bin/gstack-render.ts`. `test/aside-render.test.ts` pins the option mapping and
+generated script everywhere and runs one live render only where Aside is open;
+make-pdf's gates (`make-pdf/test/e2e/*-gate.test.ts`) and
+`test/skill-e2e-diagram.test.ts` (periodic, paid) gate on the same
+`asideAvailable()` probe. A render gate that is green on Linux CI proved
+nothing about rendering; the Mac run is the evidence. There is no
+`browse/test` tree any more.
+
 **Free suite (`bun run test:free`).** `scripts/test-free-shards.ts` runs N
 concurrent shard processes (serial within each) with strict-output
 classification per shard. Full-suite shards are packed by RECORDED PER-FILE

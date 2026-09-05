@@ -1,13 +1,14 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
-import { runSkillTest } from './helpers/session-runner';
+import { runSkillTest, type SkillTestResult } from './helpers/session-runner';
 import { callJudge } from './helpers/llm-judge';
 import {
-  ROOT, browseBin, runId, evalsEnabled,
+  ROOT, runId, evalsEnabled, selectedTests,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { asideAvailable } from './helpers/aside-available';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -182,13 +183,26 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
   }, CAPTURE_LONG_MS);
 
   testConcurrentIfSelected('design-consultation-research', async () => {
-    // Test WebSearch integration — research phase only, no DESIGN.md generation
+    // Research phase only, no DESIGN.md generation. Web research runs in Aside
+    // ({{ASIDE_RESEARCH}}, rendered into design-consultation/SKILL.md): with a live
+    // Aside the agent must issue `aside exec` through Bash; without one (CI, or
+    // GSTACK_SKIP_ASIDE=1) it must say the fallback sentence and write the notes
+    // from in-distribution knowledge. Either way the notes file must exist.
     const researchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-research-'));
 
-    const result = await runSkillTest({
-      prompt: `You have access to WebSearch. Research civic tech data platform designs.
+    // Extract only the research contract (CLAUDE.md: extract, don't copy). The tree's
+    // SKILL.md unless GSTACK_E2E_DOCS_ROOT points at a `gen:skill-docs --out-dir` render.
+    const skill = fs.readFileSync(path.join(process.env.GSTACK_E2E_DOCS_ROOT || ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
+    const sectionStart = skill.indexOf('## Web research runs in Aside');
+    if (sectionStart < 0) throw new Error('design-consultation/SKILL.md has no "Web research runs in Aside" section — regenerate with: bun run gen:skill-docs');
+    const sectionEnd = skill.indexOf('\n## ', sectionStart + 1);
+    fs.writeFileSync(path.join(researchDir, 'research-contract.md'), skill.slice(sectionStart, sectionEnd > sectionStart ? sectionEnd : undefined));
+    const live = asideAvailable();
 
-Do exactly 2 WebSearch queries:
+    const result = await runSkillTest({
+      prompt: `Read ${researchDir}/research-contract.md first and follow it exactly: it says how web research runs in this project.
+
+Research civic tech data platform designs. Run exactly 2 research queries:
 1. 'civic tech government data platform design 2025'
 2. 'open data portal UX best practices'
 
@@ -196,7 +210,7 @@ Summarize the key design patterns you found to ${researchDir}/research-notes.md.
 Include: color trends, typography patterns, and layout conventions you observed.
 Do NOT generate a full DESIGN.md — just research notes.`,
       workingDirectory: researchDir,
-      maxTurns: 8,
+      maxTurns: 10,
       // 300s, not 90s: saturated-runner class (same as review-dashboard-via /
       // retro-base-branch). PR #2533 CI observed the sibling preview test at
       // 0 turns/$0.00 for 93s x3 attempts — session up, first completion
@@ -214,19 +228,26 @@ Do NOT generate a full DESIGN.md — just research notes.`,
     const notesExist = fs.existsSync(notesPath);
     const notesContent = notesExist ? fs.readFileSync(notesPath, 'utf-8') : '';
 
-    // Check if WebSearch was used
-    const webSearchCalls = result.toolCalls.filter(tc => tc.tool === 'WebSearch');
-    if (webSearchCalls.length > 0) {
-      console.log(`WebSearch used ${webSearchCalls.length} times`);
-    } else {
-      console.warn('WebSearch not used — may be unavailable in test env');
-    }
+    // Live Aside: research went through `aside exec` in a Bash tool call.
+    const asideExecCalls = result.toolCalls.filter(tc => tc.tool === 'Bash' && /\baside exec\b/.test(String(tc.input?.command ?? '')));
+    // No Aside: the agent SAID the fallback. Assistant text blocks only — the
+    // contract file the agent Reads contains the same sentence, so tool_result
+    // content must not count.
+    const assistantText = result.transcript
+      .filter((e: any) => e?.type === 'assistant')
+      .flatMap((e: any) => (e.message?.content ?? []).filter((c: any) => c?.type === 'text').map((c: any) => String(c.text)))
+      .join('\n');
+    const saidFallback = assistantText.includes('Search unavailable');
+    const researchOk = live ? asideExecCalls.length > 0 : saidFallback;
+    console.log(live ? `aside exec issued ${asideExecCalls.length} times` : `Aside absent; fallback said: ${saidFallback}`);
 
     recordE2E(evalCollector, '/design-consultation research', 'Design Consultation E2E', result, {
-      passed: notesExist && notesContent.length > 200 && ['success', 'error_max_turns'].includes(result.exitReason),
+      passed: researchOk && notesExist && notesContent.length > 200 && ['success', 'error_max_turns'].includes(result.exitReason),
     });
 
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    if (live) expect(asideExecCalls.length).toBeGreaterThan(0);
+    else expect(saidFallback).toBe(true);
     expect(notesExist).toBe(true);
     if (notesExist) {
       expect(notesContent.length).toBeGreaterThan(200);
@@ -502,13 +523,36 @@ IMPORTANT: Do NOT try to browse any URLs or use a browse binary. This is a plan 
 
 // --- Design Review E2E (live-site audit + fix) ---
 
+/**
+ * Concatenated tool_result text from the stream-json transcript. runSkillTest
+ * leaves toolCalls[].output empty, and the agent's Bash INPUT also contains
+ * the sentinel string — only the tool_result proves the script printed it.
+ */
+function toolOutput(result: SkillTestResult): string {
+  const parts: string[] = [];
+  for (const e of result.transcript) {
+    if (e?.type !== 'user') continue;
+    for (const item of e.message?.content ?? []) {
+      if (item?.type !== 'tool_result') continue;
+      parts.push(typeof item.content === 'string' ? item.content : JSON.stringify(item.content ?? ''));
+    }
+  }
+  return parts.join('\n');
+}
+
+// /design-review drives the Aside browser; without it the skill's BROWSER SETUP stops at
+// NEEDS_ASIDE, so the block self-skips (CI runners have no Aside).
 describeIfSelected('Design Review E2E', ['design-review-fix'], () => {
+  // bun runs describe.skip callbacks too — probe only when this block is actually selected,
+  // so an unrelated eval run never pays the up-to-30s `aside repl` probe.
+  const selected = evalsEnabled && (selectedTests === null || selectedTests.includes('design-review-fix'));
+  if (selected && !asideAvailable()) { test.skip('needs Aside', () => {}); return; }
+
   let qaDesignDir: string;
   let qaDesignServer: ReturnType<typeof Bun.serve> | null = null;
 
   beforeAll(() => {
     qaDesignDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-design-'));
-    setupBrowseShims(qaDesignDir);
 
     const run = (cmd: string, args: string[]) =>
       spawnSync(cmd, args, { cwd: qaDesignDir, stdio: 'pipe', timeout: 5000 });
@@ -594,11 +638,7 @@ describeIfSelected('Design Review E2E', ['design-review-fix'], () => {
     const serverUrl = `http://localhost:${(qaDesignServer as any)?.port}`;
 
     const result = await runSkillTest({
-      prompt: `IMPORTANT: The browse binary is already assigned below as B. Do NOT search for it or run the SKILL.md setup block — just use $B directly.
-
-B="${browseBin}"
-
-Read design-review/SKILL.md for the design review + fix workflow.
+      prompt: `The Aside browser is installed and running. Read design-review/SKILL.md for the design review + fix workflow and follow its BROWSER SETUP section: drive the browser with \`aside repl\` scripts shaped exactly like its cookbook. Do not look for any other browser binary.
 
 Review the site at ${serverUrl}. Use --quick mode. Skip any AskUserQuestion calls — this is non-interactive. Fix up to 3 issues max. Write your report to ./design-audit.md.`,
       workingDirectory: qaDesignDir,
@@ -620,12 +660,24 @@ Review the site at ${serverUrl}. Use --quick mode. Skip any AskUserQuestion call
     const commits = gitLog.stdout.toString().trim().split('\n');
     const designFixCommits = commits.filter((c: string) => c.includes('style(design)'));
 
+    // The agent must actually drive Aside: an `aside repl` Bash call, a printed sentinel
+    // (from a tool_result, never the input), and no reach for the retired browse binary.
+    const bashCommands = result.toolCalls
+      .filter(t => t.tool === 'Bash')
+      .map(t => String(t.input?.command ?? ''));
+    const droveAside = bashCommands.some(c => /aside repl/.test(c));
+    const sentinelPrinted = /GSTACK_STEP_OK/.test(toolOutput(result));
+    const usedBrowseBin = bashCommands.some(c => /browse\/dist\/browse|\$B /.test(c));
+
     recordE2E(evalCollector, '/design-review fix', 'Design Review E2E', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      passed: ['success', 'error_max_turns'].includes(result.exitReason) && droveAside && sentinelPrinted && !usedBrowseBin,
     });
 
     // Accept error_max_turns — the fix loop is complex
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    expect(droveAside).toBe(true);
+    expect(sentinelPrinted).toBe(true);
+    expect(usedBrowseBin).toBe(false);
 
     // Report and commits are best-effort — log what happened
     if (reportExists) {

@@ -46,8 +46,6 @@ export interface PdftotextInfo {
 
 /**
  * Probe a base path for executability, honoring Windows extension suffixes.
- * Matches browseClient.ts:findExecutable — duplicated rather than shared
- * because the two modules already duplicate isExecutable for compile-isolation.
  */
 export function findExecutable(base: string): string | null {
   if (isExecutable(base)) return base;
@@ -144,6 +142,8 @@ export function resolvePopplerTool(
 
 function isExecutable(p: string): boolean {
   try {
+    // access(X_OK) is true for directories (the traverse bit); only regular files count.
+    if (!fs.statSync(p).isFile()) return false;
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch {

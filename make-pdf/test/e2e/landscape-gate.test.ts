@@ -11,7 +11,7 @@
  *   - wide mermaid with page=portrait fence  → MUST stay portrait (veto)
  *
  * Also runs the --toc combo: Paged.js isn't shipped in v1 (TOC renders
- * without page numbers, browse falls through after 3s), so named-page
+ * without page numbers, the print falls through after 3s), so named-page
  * landscape must survive a --toc run unchanged. If Paged.js ever lands and
  * re-paginates, this is the test that catches the interaction.
  */
@@ -22,18 +22,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { resolvePopplerTool } from "../../src/pdftotext";
+import { asideAvailable } from "../../../test/helpers/aside-available";
 
 const FIXTURE = path.resolve(__dirname, "../fixtures/landscape-gate.md");
 const ROOT = path.resolve(__dirname, "../../..");
 const PDF_BIN = path.join(ROOT, "make-pdf/dist/pdf");
-const BROWSE_BIN = path.join(ROOT, "browse/dist/browse");
 const BUNDLE = path.join(ROOT, "lib/diagram-render/dist/diagram-render.html");
 
 const CHILD_TIMEOUT_MS = 60_000;
 
 function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } {
   if (!fs.existsSync(PDF_BIN)) return { ok: false, reason: `make-pdf binary missing (${PDF_BIN}). Run bun run build.` };
-  if (!fs.existsSync(BROWSE_BIN)) return { ok: false, reason: `browse binary missing (${BROWSE_BIN}).` };
+  // Aside is the browser (macOS 15+); CI runners have none, so this is a skip.
+  if (!asideAvailable()) return { ok: false, reason: "Aside browser not available (install + open Aside, or GSTACK_SKIP_ASIDE=1)." };
   if (!fs.existsSync(BUNDLE)) return { ok: false, reason: `diagram-render bundle missing (${BUNDLE}).` };
   if (!fs.existsSync(FIXTURE)) return { ok: false, reason: `fixture missing (${FIXTURE}).` };
   if (!resolvePopplerTool("pdfinfo")) return { ok: false, reason: "pdfinfo not found (install poppler-utils)." };
@@ -66,7 +67,6 @@ const isLandscape = (b: PageBox) => b.width > b.height;
 function generate(args: string[], outputPdf: string): void {
   execFileSync(PDF_BIN, ["generate", FIXTURE, outputPdf, "--quiet", ...args], {
     encoding: "utf8",
-    env: { ...process.env, BROWSE_BIN },
     stdio: ["ignore", "pipe", "pipe"],
     timeout: CHILD_TIMEOUT_MS,
   });
@@ -141,13 +141,9 @@ describe("landscape promotion gate", () => {
   }, 120000);
 
   if (!avail.ok) {
-    test("landscape gate prerequisites are present (hard-required in CI)", () => {
-      // Hard-require only where the binary is expected: the make-pdf gate
-      // workflow is macOS-only (path-filtered) and builds dist/pdf first.
-      // The Linux free lane deliberately doesn't build it — warn-skip there.
-      if (process.env.CI && process.platform === 'darwin') {
-        throw new Error(`landscape gate prerequisites missing in CI: ${avail.reason}`);
-      }
+    // A visible skip, never a failure: ci-prereqs.test.ts is the CI tripwire for
+    // the build artifacts + poppler this gate needs; Aside itself has no CI runner.
+    test("landscape gate prerequisites are present", () => {
       console.warn(`[skip] ${avail.reason}`);
     });
   }

@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { resolveClaudeCommand } from '../../../browse/src/claude-bin';
+import { resolveClaudeCommand } from '../../../lib/claude-bin';
 
 /**
  * Claude adapter — wraps the `claude` CLI via claude -p.

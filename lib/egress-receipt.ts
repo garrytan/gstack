@@ -20,7 +20,7 @@
  *     line ("" for line 1). `verifyLedger` recomputes the chain.
  *
  * Node builtins only, so bun TS binaries and the compiled browse binary can
- * both import it (same constraint as browse/src/security.ts: no native
+ * both import it (no native
  * modules).
  */
 

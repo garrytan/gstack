@@ -49,7 +49,9 @@ const GATE_PATTERNS = [
 function trackedTestFiles(): string[] {
   const out = spawnSync('git', ['ls-files', '*.test.ts'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
   if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
-  return out.stdout.split('\n').filter(Boolean);
+  // The index still lists a file deleted in the working tree until the
+  // deletion is staged; scan what is actually on disk.
+  return out.stdout.split('\n').filter((f) => f && fs.existsSync(path.join(ROOT, f)));
 }
 
 describe('paid orphan tripwire', () => {

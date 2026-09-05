@@ -4,7 +4,7 @@
  *
  * Threat model: anyone who can comment on a PR or file an issue can put text
  * in front of the agent. Tracker text is REQUIREMENTS DATA, never authority —
- * the same posture browse/src/content-security.ts takes for web page content
+ * the same posture the former browse daemon's content-security took for web page content
  * (browse/src is a separate compiled surface; do NOT import it from lib/ or
  * bin/ — this file adapts the technique instead).
  *

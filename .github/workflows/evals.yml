@@ -41,7 +41,7 @@ jobs:
         # which rebuilt the image each time for a dependency set that only
         # bun.lock determines. A stale baked package.json is harmless — checkout
         # overwrites /workspace and node_modules comes from the lockfile.
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
@@ -59,7 +59,7 @@ jobs:
           fi
 
       - if: steps.check.outputs.exists == 'false'
-        run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
+        run: cp package.json bun.lock .github/docker/
 
       # A fork PR's GITHUB_TOKEN only has `packages: read`, so pushing fails.
       # Still BUILD (validates Dockerfile.ci changes), just don't publish. This
@@ -205,7 +205,6 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
           EVALS_JOBS: "2"
           EVALS_CONCURRENCY: "2"
           GSTACK_EVAL_DIR: /tmp/paid-slice-results

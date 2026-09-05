@@ -263,50 +263,6 @@ Migrations are idempotent bash scripts in `gstack-upgrade/migrations/`. Each is 
 `v{VERSION}.sh` and runs only when upgrading from an older version. See CONTRIBUTING.md
 for how to add new migrations.
 
-### Step 4.8: Stop any stale daemon (unconditional)
-
-A browse daemon started before the upgrade keeps serving the OLD binary's code
-until it is stopped — it survives `git reset --hard` and `./setup` because the
-running process holds the old executable (#2551). Always run this step, using
-the install directory detected in Step 2.
-
-```bash
-INSTALL_DIR_PLACEHOLDER="<install dir from Step 2>"
-NEW_HASH=$(cat "$INSTALL_DIR_PLACEHOLDER/browse/dist/.version" 2>/dev/null || echo "")
-_STATE_FILE="${BROWSE_STATE_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/browse.json}"
-if [ -z "$NEW_HASH" ] || [ ! -f "$_STATE_FILE" ]; then
-  echo "DAEMON_CHECK=none (no state file or no fresh build hash)"
-else
-  DAEMON_PID=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$_STATE_FILE" | head -1)
-  DAEMON_PORT=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$_STATE_FILE" | head -1)
-  OLD_HASH=$(sed -n 's/.*"binaryVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_STATE_FILE" | head -1)
-  if [ -z "$DAEMON_PID" ] || ! kill -0 "$DAEMON_PID" 2>/dev/null; then
-    echo "DAEMON_CHECK=dead (no live daemon to stop)"
-  elif [ "$OLD_HASH" = "$NEW_HASH" ]; then
-    echo "DAEMON_CHECK=current (daemon already runs the new binary)"
-  elif curl -fsS --max-time 2 "http://127.0.0.1:$DAEMON_PORT/health" 2>/dev/null | grep -q '"status":"healthy"'; then
-    echo "DAEMON_CHECK=stale-responsive pid=$DAEMON_PID hash=${OLD_HASH:-unknown} -> $NEW_HASH"
-    "$INSTALL_DIR_PLACEHOLDER/browse/dist/browse" stop && echo "DAEMON_STOPPED=yes"
-  else
-    echo "DAEMON_CHECK=stale-busy pid=$DAEMON_PID hash=${OLD_HASH:-unknown} -> $NEW_HASH"
-  fi
-fi
-```
-
-Replace `<install dir from Step 2>` with the actual install directory before
-running. Interpret the `DAEMON_CHECK` result:
-
-1. **`stale-responsive` + `DAEMON_STOPPED=yes`:** Tell the user "Stopped the
-   old browse daemon (binary {OLD_HASH} → {NEW_HASH}). The next browse command
-   starts a fresh daemon on the new binary."
-2. **`stale-busy`:** The daemon runs the old binary but is mid-work — DEFER to
-   it, never kill a busy daemon during upgrade. Tell the user: "A browse daemon
-   is still running the pre-upgrade binary ({OLD_HASH} → {NEW_HASH}) but is
-   busy right now. When it finishes, stop it with `browse stop` — or force it
-   immediately with `browse --force-restart stop` (loses that session's
-   tabs/cookies/logins)."
-3. **`none` / `dead` / `current`:** Nothing to do — say nothing.
-
 ### Step 5: Write marker + clear cache
 
 ```bash

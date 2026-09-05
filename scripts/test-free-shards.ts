@@ -3,7 +3,8 @@
  * test-free-shards — enumerate, shard, curate, and run the free test suite.
  *
  * Four jobs:
- *   1. Enumeration. Walk `browse/test/`, `test/`, `make-pdf/test/` and return
+ *   1. Enumeration. Walk `test/`, `make-pdf/test/`, `design/test/` (and the
+ *      ios-qa roots) and return
  *      every `*.test.{ts,tsx,js,jsx,mjs,cjs}` that isn't a paid-eval test.
  *   2. Sharding. Stable-hash assign each test to one of N shards. Used by CI
  *      to parallelize the free suite when needed.
@@ -97,7 +98,6 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // source of truth for free-suite roots: package.json's `test` script routes
 // through this runner rather than passing its own directory globs.
 export const TEST_ROOTS = [
-  'browse/test',
   'test',
   'make-pdf/test',
   'design/test',
@@ -105,7 +105,6 @@ export const TEST_ROOTS = [
   // written coverage that caught nothing. All were green on arrival.
   'ios-qa/daemon/test',
   'ios-qa/scripts',
-  'browser-skills',
 ] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 
@@ -138,18 +137,6 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   //   - join(import.meta.dir, '..', 'bin', 'name')   — destructured (diff-scope)
   //   - path.join(ROOT, 'bin')                       — bare BIN constant (brain-sync)
   { pattern: /,\s*['"]bin['"]\s*[,)]|['"]\.?\/?bin\/[a-z][\w-]+['"]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
-  // Tests that launch a real Playwright browser. The windows-free-tests CI job
-  // runs a curated subset that intentionally does NOT install Chromium —
-  // browser bring-up on Windows is a separate concern (see PR #1238). Tests
-  // matching `await foo.launch(` need Chromium and fail with "Executable
-  // doesn't exist" on the runner.
-  { pattern: /await\s+\w+\.launch\(/, reason: 'launches Playwright browser (Chromium not installed in windows-free CI)' },
-  // Tests that spawn the browse server as a subprocess via `bun run server.ts`.
-  // The Bun → server.ts → Playwright path is the same one that doesn't work
-  // on Windows (PR #1238 windows-pty-bun-pty-fix). Tests typically set
-  // BROWSE_HEADLESS_SKIP=1 to skip the browser launch but still need a working
-  // server, which they don't get on Windows.
-  { pattern: /BROWSE_HEADLESS_SKIP|spawn\(\[['"]bun['"],\s*['"]run['"]/, reason: 'spawns the browse server subprocess (Bun-driven path is Windows-broken)' },
 ];
 
 // Explicit known-Windows-incompatible test files that don't fit a regex
@@ -161,10 +148,6 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/host-config.test.ts',
     reason: 'asserts "claude" binary on PATH (only true when running inside Claude Code, not on bare CI runner)',
   },
-  {
-    file: 'browse/test/findport.test.ts',
-    reason: 'asserts Bun.serve.stop() is fire-and-forget — Bun behavior differs on Windows for this polyfill',
-  },
   // First full run of the expanded lane (v1.66, 13 → ~258 files) surfaced
   // seven POSIX-bound files the content patterns cannot see (their
   // POSIX-ness is what they TEST, or arrives via a variable). Receipts:
@@ -172,10 +155,6 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/codex-under-codex-detection.test.ts',
     reason: 'drives the rendered preflight bash under a hardcoded POSIX PATH (/usr/bin:/bin) — bash is unreachable through that PATH on Windows, so every case sees empty output (v1.67 windows lane run 95234224148)',
-  },
-  {
-    file: 'test/regression-pr1169-build-app-sed.test.ts',
-    reason: 'tests sed escape sequences in build-app.sh — sed/bash are the subject under test',
   },
   {
     file: 'test/setup-conductor-worktree.test.ts',
@@ -194,10 +173,6 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'spawns the PostToolUse hook script (bash shebang) directly; Windows spawn cannot exec it',
   },
   {
-    file: 'browse/test/browser-skills-e2e.test.ts',
-    reason: 'asserts forward-slash tier paths (<repo>/browser-skills/) that resolve with backslashes on Windows',
-  },
-  {
     file: 'design/test/variants-retry-after.test.ts',
     reason: 'wall-clock retry-timing assertions — flaky on the slow windows-latest runner even with widened bounds',
   },
@@ -206,18 +181,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/skill-census.test.ts',
     reason: 'census walk throws at module load on Windows (skill-census.ts:63) — the skills-tree symlink layout needs Developer Mode that CI runners lack',
   },
-  {
-    file: 'browse/test/browser-manager-unit.test.ts',
-    reason: 'wedges the shard to its wall deadline on windows-latest (in-flight at kill); needs a Windows repro to diagnose — macOS + Linux lanes cover the file',
-  },
   // Round-3 census (PR #2593 run 31919871680): the round-2 wedge had been
   // TRUNCATING its shard, so these seven only surfaced once shard 2 completed.
   // All the same POSIX-environment classes: PID/cmdline identity probing,
   // bash scripts as the subject under test, env-scrubbed child spawns.
-  {
-    file: 'browse/test/server-embedder-terminal-port.test.ts',
-    reason: 'identity-based terminal-agent kill probes PID/cmdline with POSIX semantics; teardown asserts fail on windows-latest',
-  },
   {
     file: 'design/test/daemon-discovery.test.ts',
     reason: 'verifyIdentity matches a spawned daemon via /proc-style cmdline probing — POSIX identity semantics',
@@ -241,16 +208,6 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/question-preference-hook.test.ts',
     reason: 'spawns the PreToolUse preference hook (shebang script) directly; Windows spawn cannot exec it',
-  },
-  // Round-4 census (PR #2593 run 31920052810): unhandled errors with no
-  // (fail) lines — attributed statically (the lane had no log artifact yet).
-  {
-    file: 'browse/test/browser-skill-commands.test.ts',
-    reason: 'spawnSkill spawns bun with a constructed env — bun resolution fails under Windows spawn (unhandled, no (fail) line)',
-  },
-  {
-    file: 'browse/test/security-audit-r2.test.ts',
-    reason: 'symlink-attack fixtures (evil-link) need Developer Mode CI runners lack; expect(toThrow) fires unhandled on Windows',
   },
 ];
 
@@ -278,31 +235,6 @@ const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
     // ONLY reproduces on the copy install shape windows-latest exercises.
     // The symlink-shape describe block self-skips on win32.
     reason: 'bin/ hit is a bash-spawned script path; #2563 real-dir uninstall coverage must run on windows-latest',
-  },
-  {
-    file: 'browse/test/file-permissions.test.ts',
-    // Trips the POSIX-mode-bitmask pattern, but every `mode & 0o777` assertion
-    // is platform-guarded: win32-only tests return early, POSIX-only tests
-    // guard the bitmask behind `process.platform !== 'win32'`, and the
-    // symlink-skip regression test both wraps symlinkSync in try/catch
-    // (runners without Developer Mode can't create symlinks) and guards its
-    // bitmask — on win32 it asserts behavior (warns, skips, doesn't throw,
-    // target stays usable), never fake Windows mode bits (dirs stat 0o777
-    // there, so a 0o755 expectation fails on runner semantics, not our code).
-    // This file carries the win32-only icacls-by-SID regression tests, which
-    // can ONLY execute on windows-latest — excluding it here means the
-    // machine-account ACL lockout regression is never exercised on the one
-    // platform it bricks.
-    reason: 'every mode-bitmask assertion is guarded off win32 (behavior asserted instead); win32-only ACL regression tests must run on windows-latest',
-  },
-  {
-    file: 'browse/test/terminal-agent-owner-watchdog.test.ts',
-    // Trips the spawn(['bun','run',...]) pattern, whose reason is the
-    // Playwright-bound browse server. This test spawns terminal-agent.ts,
-    // which imports only fs/path/crypto + local helpers (no Playwright, no
-    // PTY at module scope) and boots under Bun on Windows — the owner-PID
-    // orphan leak it pins was reported on Windows (#2019).
-    reason: 'spawns terminal-agent (no Playwright), not the browse server; owner-orphan leak is a Windows defect',
   },
 ];
 
@@ -336,7 +268,7 @@ export function wallTimeoutForShard(fileCount: number, baseMs = DEFAULT_WALL_TIM
 /**
  * Wall for a duration-packed shard. The count heuristic above assumes count
  * approximates cost; LPT packing breaks that BY DESIGN (a shard may hold six
- * slow Playwright files), so packed shards get max(base, predicted x 3) —
+ * slow spawn-heavy files), so packed shards get max(base, predicted x 3) —
  * generous against seed drift, still bounded.
  */
 export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_WALL_TIMEOUT_MS, fileCount = 0): number {
@@ -351,13 +283,13 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
 /**
  * Full-suite parallelism: leave RESERVED_CPUS cores for the parent runner +
  * OS, cap at MAX_FULL_SUITE_JOBS — beyond ~6 concurrent bun processes the
- * playwright-heavy shards contend on browser launches instead of finishing
- * sooner (measured on an M-series dev box).
+ * spawn-heavy shards contend on the CPU instead of finishing sooner
+ * (measured on an M-series dev box).
  *
  * GSTACK_FREE_JOBS overrides the computed count (the free runner's analogue
  * of the paid runner's EVALS_JOBS). Exists for syscall-supervised sandboxes:
  * on Vercel sandboxes, PID 1 (sandbox-init) installs a seccomp filter whose
- * user-space supervisor saturates under ~6 concurrent bun+playwright shards
+ * user-space supervisor saturates under ~6 concurrent bun shards
  * and starts returning EACCES from plain file syscalls (measured: 200/200
  * `git init` probes in fresh mktemp dirs fail with
  * "Cannot access work tree: Permission denied" while the suite runs, 0/200
@@ -389,10 +321,8 @@ export function fullSuiteJobs(): number {
  * should anyone re-attempt it on a newer Bun.
  */
 export const WORKER_HOSTILE: Record<string, string> = {
-  'browse/test/security-live-playwright.test.ts':
-    'Bun 1.3.13 segfaults running this file in a --parallel worker ("panic: '
-    + 'Segmentation fault ... a bug in Bun"), and the crashed-worker retry then '
-    + 'wedges the whole invocation past the wall clock. Passes serially.',
+  // The one recorded entry (a browse-era Playwright file that segfaulted a
+  // Bun 1.3.13 --parallel worker) left with the browser engine in v2.0.
 };
 
 /**
@@ -536,9 +466,9 @@ export function assignFilesToShards(files: string[], shardCount: number): string
 }
 
 // ─── Duration-aware packing (full-suite path ONLY) ─────────────────────────
-// Hash sharding balances file COUNTS (~1.15x spread) but not cost: the 15
-// Playwright-launching files land 4/3/4/1/2/1 across 6 shards, giving a
-// measured 28s–97s shard spread and ~40s of idle tail on every run. LPT
+// Hash sharding balances file COUNTS (~1.15x spread) but not cost: the
+// slowest spawn-heavy files land unevenly across shards, giving a measured
+// 28s–97s shard spread and ~40s of idle tail on every run. LPT
 // packing over recorded per-file durations reclaims most of it. The `--shard`
 // CI-matrix path is deliberately untouched — its contract is stable indices
 // via assignFilesToShards/stableHash (empty shards no-op; see above).
@@ -635,7 +565,7 @@ export interface BuildShardArgsOptions {
 export function buildShardArgs(files: string[], options: BuildShardArgsOptions = {}): string[] {
   // Exact absolute selectors: bun treats positional test paths as substring
   // filters, so a relative `test/x.test.ts` would ALSO select
-  // `browse/test/x.test.ts` — shard bleed that double-runs files.
+  // `make-pdf/test/x.test.ts` — shard bleed that double-runs files.
   const selectors = exactTestFileSelectors(files, options.rootDir ?? ROOT);
   const args = ['test', ...selectors, `--timeout=${FREE_TEST_TIMEOUT_MS}`];
   if (options.parallel) args.push('--parallel');
@@ -1213,17 +1143,6 @@ export async function runFreeShard(
   env.TMPDIR = childTmp;
   env.TEMP = childTmp;
   env.TMP = childTmp;
-  // Per-shard Chromium profile (same isolation idea as TMPDIR): nine test
-  // files launch in-process persistent contexts or daemons that default to
-  // the SHARED ~/.gstack/chromium-profile, and two concurrent shards on one
-  // profile dir kill each other's browser — observed live on CI once
-  // duration packing recomposed shards (handoff's launchPersistentContext
-  // died "Target page, context or browser has been closed" while a sibling
-  // shard's daemon logged "Chromium process crashed"). Hash sharding had
-  // masked the collision by chance placement. Within a shard, files run
-  // serially, so sharing the per-shard profile is safe; config tests that
-  // assert resolution order save/restore this env around their assertions.
-  env.CHROMIUM_PROFILE = path.join(stateDir, 'chromium-profile');
 
   const startedAt = Date.now();
   const child = spawn(command, args, {
@@ -1473,7 +1392,7 @@ async function main(): Promise<number> {
   // paid runner's proven model. One `bun test --parallel` invocation was
   // tried first (decision V3) and abandoned after three distinct
   // worker-runtime pathologies in a single day on Bun 1.3.13: a segfault
-  // whose crashed-worker retry wedged the run (security-live-playwright), a
+  // whose crashed-worker retry wedged the run (a browse-era Playwright file), a
   // gated file's still-running file-level hooks stalling a worker
   // (compare-board), and spawn-heavy files hanging workers under load
   // (session-runner-timeout). Plain child processes have none of these:
@@ -1541,7 +1460,7 @@ async function main(): Promise<number> {
   // downgrades the run to a loud flaky-pass; a repeat failure stays a
   // failure. Default OFF: dev boxes should see flakes, not absorb them.
   // Exists for syscall-supervised sandboxes (see fullSuiteJobs) where a run
-  // lands 0-1 spurious browser-timing failures under an otherwise-green
+  // lands 0-1 spurious timing failures under an otherwise-green
   // suite. Capped so a genuinely broken tree never masquerades as flaky.
   const RETRY_CAP = 5;
   if (

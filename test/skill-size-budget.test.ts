@@ -177,15 +177,20 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     //   {{PREAMBLE}} literally, so the generator expanded the ENTIRE preamble a
     //   second time mid-sentence (~47 KB of duplication). Fixed by rewording the
     //   prose; spec/SKILL.md now carries exactly one preamble (~80.9 KB, ×0.79).
-    // - scrape/diagram/open-gstack-browser/landing-report/pair-agent/skillify:
-    //   the baseline measured these at the silent tier-4 default (a missing
-    //   preamble-tier frontmatter fell through `?? 4`). Their tiers are now
-    //   declared correctly (1-2), shedding the tier-2..4 onboarding prose they
-    //   never should have carried (-271 lines each for tier 1).
+    // - scrape/diagram/landing-report: the baseline measured these at the
+    //   silent tier-4 default (a missing preamble-tier frontmatter fell through
+    //   `?? 4`). Their tiers are now declared correctly (1-2), shedding the
+    //   tier-2..4 onboarding prose they never should have carried (-271 lines
+    //   each for tier 1). (The retired browser-surface skills that shared this
+    //   note are gone from the tree; removed skills are skipped below.)
+    // - browse: the baseline measured the headless-browse skill with its ~17 KB
+    //   $B command reference + snapshot-flag tables. /browse now drives the
+    //   Aside browser and carries the Aside contract instead (~23.9 KB, x0.58);
+    //   the command tables went with the retired browse daemon.
     const INTENTIONAL_SHRINKS = new Set<string>([
       'spec',
-      'scrape', 'diagram', 'open-gstack-browser',
-      'landing-report', 'pair-agent', 'skillify',
+      'scrape', 'diagram', 'landing-report',
+      'browse',
     ]);
 
     const undershoots: Array<{

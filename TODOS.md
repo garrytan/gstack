@@ -32,16 +32,17 @@ wave"). Each was explicitly deferred with rationale, not dropped:
 - **#2447 typecheck infra** — tsconfig + repo-wide typecheck script + latent
   type fixes. High-value, repo-wide blast radius, own PR with bake time.
   Effort M. Re-derive on current main (several of its fixes landed since).
-- **#2492 per-project Chromium profile** — needs an on-disk migration story
-  for the machine-wide profile default and SingletonLock scoping. Effort M.
+- **#2492 per-project Chromium profile** — **Superseded** by the Aside
+  consolidation: the browse daemon and its Chromium profile are deleted, so
+  close #2492 rather than migrate it.
 - **#2286 `triggers:` frontmatter** — the Claude Code router never reads the
   key; folding voice-triggers into description costs catalog tokens. Needs a
   maintainer token-budget decision (catalog cap is enforced). Effort S.
 - **#2378 release-tag upgrade semantics** — update-check gates on
   main:VERSION while upgrade installs main HEAD; installs sit between
   releases. Design decision: tag-pinned installs vs HEAD. Effort M.
-- **Feature-PR triage queue** — #2564 (/deck), #2497 (browse record — best of
-  the batch), #2476 (a11y review, unblocked by the CDP media-emulation entry
+- **Feature-PR triage queue** — #2564 (/deck), #2497 (browse record —
+  superseded: the browse daemon it recorded from is deleted; close it), #2476 (a11y review, unblocked by the CDP media-emulation entry
   landed in v1.67), #2446 (Cua), #2448 (tiered outside voice), #2412 (lens
   layer), #2241 (/grok), #2507 (pi host), #2298 (Kimi host), #2438+#2436
   (gbrain doc-sync pair, ordered), #2442 (portable skill roots), #2534
@@ -57,9 +58,9 @@ wave"). Each was explicitly deferred with rationale, not dropped:
   the harness-pinned agent-sdk) carry `ignoreUntil` expiries (~2026-11-30) and
   re-justify themselves on expiry. When the agent-sdk pin next moves, drop the
   GHSA-p7fg ignore. Effort S. **Priority:** P3.
-- **#2701 cookie-import profile pills (Local State info_cache)** — confirmed
-  bug + minimal fix known, but PR #2658 rewrites the same file; land or
-  reject #2658 first, then apply the info_cache read + numeric-aware sort.
+- **#2701 cookie-import profile pills (Local State info_cache)** — **Superseded**
+  by the Aside consolidation: cookie import is deleted, so close #2701 rather
+  than fix it and re-triage PR #2658 against the render-engine-only tree.
   Effort S. **Priority:** P3. **Blocked by:** #2658 disposition.
 - **#2750 split absorption** — the record-scanning Codex JSONL parser (real
   fix; current Codex streams interleave envelopes so sessions vanish from
@@ -142,6 +143,8 @@ global-path registration + re-point). Remaining:
 
 ### P2: skillify structural isolation (filed from the v1.68 wave reviews)
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** /skillify turns scraped page content into durable executable skill
 code on disk. The v1.68 wave added the untrusted-content warning to its prose
 (#2441), but a warning is not a boundary — generated actions derived from
@@ -196,10 +199,8 @@ The wave's Step-7 coverage audit (5 subsystem agents, ~700 changed paths,
 shipped verified by hand or adjacent tests); each is a cheap pin against
 silent regression:
 
-- **setup Playwright bootstrap block** — `_clear_playwright_quarantine`,
-  `_PW_LOCK` stale-holder reclaim, `_kill_tree`/`_wait_with_deadline`, Ubuntu
-  26.04 platform override: zero test references. The P0 #2554 heal's shell
-  half. Effort S each.
+- **setup Playwright bootstrap block** — **Superseded**: Playwright and the
+  bootstrap block are deleted with the browse daemon.
 - **redact-prepush `scanAddedLines` slicing** — the >1MiB catch-up-diff chunk
   path (the reason the function exists) is unexercised; a regression
   reintroduces blocking-while-unscanned. Effort S.
@@ -207,13 +208,13 @@ silent regression:
   200 chars vs ingest's 500 (dead server cap); no column↔migration pin.
 - **gbrain-repo-policy-client** — no direct test file; the spawn-failed vs
   unreadable split (its raison d'être) and win32 bash-wrapping unpinned.
-- **extension client half of token bootstrap** — `POST /extension-token` 403
-  → disconnected path untested (server half is exhaustively pinned); also
-  pin manifest `key` ↔ `GSTACK_EXTENSION_ID` via extension-id.ts. Effort S.
-- **`assertJsOriginAllowed`** — this wave made the js/eval origin gate
-  mandatory; the gate itself has zero direct tests. Effort S.
-- **`runBoundedChromiumReinstall`** — every heal test stubs it; the 120s
-  deadline + process-group SIGKILL + spawn-error branch never execute.
+- **extension client half of token bootstrap** — **Superseded**: the
+  extension and `/extension-token` are deleted with the browse daemon.
+- **`assertJsOriginAllowed`** — **Superseded**: the js/eval origin gate was
+  the browse daemon's; the renderer now serves one local directory per render
+  through `lib/aside-render.ts`.
+- **`runBoundedChromiumReinstall`** — **Superseded**: there is no Chromium to
+  reinstall; deleted with Playwright.
 - **CI three-way image-tag drift** — ci-image.yml + evals.yml +
   evals-periodic.yml each carry the hashFiles tag expression, synced by
   comment only. One test reading all three. Effort S.
@@ -226,9 +227,8 @@ silent regression:
   guard and Package.swift's `.define("DEBUG")` have no tripwire (Guideline
   2.5.1 exposure on revert); parity test runs periodic-lane only.
 - **Smaller pins:** gstack-egress `sanitizeForDisplay`; freeze-dir tilde
-  expansion; gstack-config `pair_agent` key + space-bearing values;
-  session-cookie-store tripwire scope (points at the wrapper, not the
-  factory); redact-patterns `/^pass(word)?$/i` placeholder loosening +
+  expansion; gstack-config space-bearing values;
+  redact-patterns `/^pass(word)?$/i` placeholder loosening +
   compact-timestamp negative; fs-atomic adoption tripwire; tracker-guard
   `safeSource`; eval-watch `PARTIAL_PATH`; `killProcessGroup`;
   make-pdf orchestrator `PAYLOAD_TMP_DIR` + CJK stack + smartypants NUL;
@@ -249,8 +249,7 @@ Filed at review-fix-batch time, deferred with rationale:
 - **cmd.exe `%VAR%` expansion in gbrainInvocation quoting** — Windows-only,
   contrived escalation (requires attacker-controlled env var names), but the
   quoting is not cmd.exe-safe. Fix direction: route win32 spawns through
-  cross-spawn (dependency decision — bun-polyfill.cjs already carries it for
-  the browse daemon). Effort S.
+  cross-spawn (dependency decision). Effort S.
 - **make-pdf flag registry metadata** — commands.ts flags are bare strings;
   add a takes-value field and DERIVE cli.ts's BOOLEAN_FLAGS from the
   registry (the structural `--no-*` test added in this batch covers only the
@@ -391,8 +390,8 @@ manual command. **Effort:** M. **Priority:** P2.
 
 **2026-08-29 update (test-infra overhaul):** (1) the sidebar E2E trio is
 ALREADY DELETED — no file in the tree POSTs to /sidebar-command or
-/sidebar-chat; only tombstone tests remain (browse/test/sidebar-tabs.test.ts
-asserts the endpoints STAY deleted), so part (1) closes as already-done.
+/sidebar-chat, and the whole browse tree left with the Aside consolidation, so
+part (1) closes as already-done.
 (2) skill-e2e-ship-idempotency and (3) skill-e2e-brain-privacy-gate are now
 EXCLUDED from the weekly lane with tracking
 (test/helpers/periodic-exclude-data.ts) — removing their entries re-activates
@@ -441,8 +440,8 @@ apple-release.md) added template surface with `~/.claude/skills/gstack/bin`
 references — include it in this fix's coverage list.
 
 **Context / where to start:**
-- Rewire `ctx.paths.binDir` (and browse/design dir paths) + the ~9 resolvers that
-  emit the literal (`testing.ts`, `review.ts`, `design.ts`, `browse.ts`,
+- Rewire `ctx.paths.binDir` (and the design dir path) + the resolvers that
+  emit the literal (`testing.ts`, `review.ts`, `design.ts`,
   `redact-doc.ts`, `tasks-section.ts`, `preamble/generate-*.ts`) to use the
   preamble-defined `$GSTACK_ROOT`/`$GSTACK_BIN`.
 - Ensure `GSTACK_ROOT`/`GSTACK_BIN` are defined before first use in EVERY skill's
@@ -461,9 +460,13 @@ references — include it in this fix's coverage list.
 
 ### QA logged-in-evidence path via Aside (Phase 2)
 
-**What:** Consent-gated `aside repl` as an alternative evidence source in /qa,
-/qa-only, and /browse when cookie-import can't reach a session (SSO,
-device-bound auth, Safari-side logins Chromium export can't see).
+**Landed as the default, not a fallback:** the Aside consolidation made `aside repl`
+the only evidence source for /qa, /qa-only, and /browse (see "Aside consolidation
+follow-ups"). Kept for the rationale.
+
+**What:** Consent-gated `aside repl` as the evidence source in /qa, /qa-only,
+and /browse for sessions a headless browser could never reach (SSO,
+device-bound auth, Safari-side logins).
 
 **Why:** Fills the exact gap `docs/designs/CHROME_VS_CHROMIUM_EXPLORATION.md`
 records as attempted and abandoned — QA evidence from the user's REAL
@@ -473,7 +476,7 @@ consent-gated pattern to evidence gathering.
 
 **Context:** Shape sketched as Option 2 in the Aside integration plan
 (2026-08-27): a small `{{AGENTIC_BROWSER_FALLBACK}}` resolver injected into
-qa/qa-only/browse (optionally scrape + a setup-browser-cookies cross-ref).
+qa/qa-only/browse (optionally scrape).
 Port the fork PR time-attack/gstack#40 judgment qualitatively — "logged-in
 pages only; never bulk crawling" — never its perishable timing numbers.
 Requires: untrusted-content wrapping of repl output (prose rule), a
@@ -507,6 +510,8 @@ never echoes captured-secret instructions. Sibling of the tpa-* suite in
 
 ### fd-anchor file-level permission writes (symlink/TOCTOU parity with dirs)
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. `browse/src/file-permissions.ts` is gone with the daemon; refile if a copy lands in `lib/`.
+
 **What:** `restrictFilePermissions` / `writeSecureFile` / `appendSecureFile`
 in `browse/src/file-permissions.ts` still use symlink-following `chmodSync` /
 `writeFileSync`; give them the same `O_NOFOLLOW` + fstat/fchmod treatment the
@@ -526,6 +531,8 @@ audit trail lives in Aside.
 ## Test infrastructure
 
 ### P1: skillify gate test red — HOME-override sessions never discover project skills (pre-existing)
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** `test/skill-e2e-skillify.test.ts` `skillify-provenance-refusal` fails
 on BOTH this branch and origin/main @ b5a951e6 (proven 2026-08-29: identical
@@ -614,26 +621,11 @@ coverage fill. Remaining, in rough priority order:
   post-migration flake data exists (the Codex outside-voice's "green means
   green is not delivered while paid stays advisory" point — correct, and
   deliberately a branch-protection decision, not repo YAML). Effort S.
-- **P2 — browse daemon lifecycle vs in-suite browsers (top remaining free-suite
-  flake).** The post-#994 daemon deliberately outlives its parent and lingers
-  across test FILES in a shard process; a later file's browser use can then
-  fight it ('[browse] FATAL: Chromium process crashed' + 5s element-wait
-  timeouts). Receipts: commands+snapshot in one bun process fails identically
-  WITH and WITHOUT per-file CHROMIUM_PROFILE isolation (pre-existing; PR
-  #2721 triage), and CI shard 1 on d9b78b5a died at model-overlay-sonnet-5
-  after a daemon-spawning file. Per-shard + per-file profile isolation
-  (landed) removed the cross-shard kills; the intra-shard daemon handoff
-  needs a real design: tests that spawn the daemon should stop it in
-  afterAll, or the daemon should detect a foreign CHROMIUM_PROFILE env and
-  refuse reuse. Effort M.
-- **P2 — browse daemon /tmp-namespace hardening.** Every file-path transport
-  to the daemon (eval <file>, load-html --from-file, pdf output, upload,
-  cookie-import) assumes client and daemon share one /tmp view; a sandboxed
-  shell reusing an out-of-namespace daemon gets "File not found" on files it
-  just wrote (root-caused live, reproduced with unshare). Minimal fix: the
-  CLI reads a local `eval <file>` itself and sends the code as `js` (
-  semantics-preserving; keep the daemon path for remote callers), plus a
-  namespace hint appended to read-commands.ts:313's error. Effort S.
+- **P2 — browse daemon lifecycle vs in-suite browsers.** **Superseded**: the
+  daemon is deleted; no test spawns a browser any more (Aside E2E self-skips
+  without the app).
+- **P2 — browse daemon /tmp-namespace hardening.** **Superseded**: the daemon
+  is deleted; `lib/aside-render.ts` serves the render directory itself.
 - **P2 — PTY boot-readiness wait.** The PTY tests' Bun.sleep(8000) preludes
   and invokeAndObserve's 6s boot_grace_ms are blind waits; a real readiness
   waitFor needs empirical CLI 2.1.x ready-marker probing in a working
@@ -1047,6 +1039,8 @@ carve ceilings).
 
 ## gbrowser memory follow-ups (filed via /plan-eng-review + /codex on the v1.49 leak-fix PR)
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Every entry below targets the browse daemon's Chromium.
+
 These four items came out of the memory-leak investigation that shipped
 the `$B memory` diagnostic + the four leak fixes. They were
 deliberately deferred from that PR (already 14 commits / ~12 files);
@@ -1268,6 +1262,8 @@ will not (the hint covers the second half today).
 
 ## browse server: terminal-agent teardown follow-ups (filed v1.41 via /plan-eng-review)
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 ### ✅ DONE (v1.44.0.0): Identity-based terminal-agent kill (replace pkill regex with PID)
 
 **Resolved:** Bundled into the v1.44.0.0 long-lived-sidebar PR as Commit 0.
@@ -1408,6 +1404,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ### P1: Browser-skills Phase 2 — `/scrape` and `/skillify` skill templates
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Phase 2a of the browser-skills design (`docs/designs/BROWSER_SKILLS_V1.md`). Two new gstack skills: `/scrape <intent>` (read-only) is the single entry point for pulling page data — first call prototypes via `$B` primitives, subsequent calls on a matching intent route to a codified browser-skill in ~200ms. `/skillify` codifies the most recent successful prototype into a permanent browser-skill on disk: synthesizes `script.ts` + `script.test.ts` + fixture from the agent's own context (final-attempt $B calls only), runs the test in a temp dir, asks before committing, atomic rename to `~/.gstack/browser-skills/<name>/`. The mutating-flow sibling `/automate` is split out as its own P0 (below) — same skillify pattern, different trust profile.
 
 **Why:** Phase 1 shipped the runtime — humans can hand-write deterministic browser scripts that gstack runs. Phase 2a unlocks the productivity gain: an agent that gets a flow right once via 20+ `$B` commands says `/skillify` and the script becomes a 200ms call forever after. Same skillify pattern Garry's articles describe, applied to the read-only browser activity (scraping) most amenable to deterministic compression. Mutating actions ship next as `/automate` because the failure mode (unintended writes) needs stronger gates.
@@ -1426,6 +1424,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ### P2: Browser-skills Phase 3 — resolver injection at session start
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Mirror the domain-skill resolver at `browse/src/server.ts:722-743`. When a sidebar-agent session starts on a host with matching browser-skills, inject a list block telling the agent which skills exist for that host and how to invoke them (`$B skill run <name> --arg ...`). UNTRUSTED-wrapped via the existing L1-L6 security stack. Add `gstack-config browser_skillify_prompts` knob (default `off`) controlling end-of-task nudges in `/qa`, `/design-review`, etc. when activity feed shows ≥N commands on a single host AND no skill exists yet for that host+intent.
 
 **Why:** Without the resolver, browser-skills only work when the user explicitly types `$B skill run <name>`. With the resolver, agents auto-discover existing skills for the current host and reach for them instead of re-exploring. Same compounding pattern as domain-skills.
@@ -1441,6 +1441,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 ---
 
 ### P2: Browser-skills Phase 4 — eval infrastructure + fixture staleness + OS sandbox
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** Three loosely-coupled extensions: (a) LLM-judge eval ("did the agent reach for the skill instead of re-exploring?"), classified `periodic` per `test/helpers/touchfiles.ts`. (b) Fixture-staleness detection — periodic comparison of bundled fixtures against live pages, flagging mismatches before they break tests silently. (c) OS-level FS sandbox for untrusted spawns: `sandbox-exec` profile on macOS, namespaces / seccomp on Linux. Drops in cleanly behind the existing trusted/untrusted contract (Phase 1 just stripped env; Phase 4 adds real FS isolation).
 
@@ -1530,6 +1532,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ### P3: GBrain skillpack publishing for domain skills
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Domain skills are agent-authored notes per hostname. Right now they're per-machine or per-agent-repo. The natural compounding extension: publish curated skill packs to GBrain (`gstack-brain-sync`) so others can subscribe. "Louise's LinkedIn skills" or "Garry's GitHub skills" become packs anyone can pull.
 
 **Why:** v1.8.0.0 gets us per-machine compounding. Cross-user compounding is the network effect — every user contributes, every user benefits.
@@ -1547,6 +1551,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 ---
 
 ### P3: Replay/record demonstrated flows to domain-skills
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** Watch a human drive a site once (record DOM events + screenshots + nav), generalize to a domain-skill. "Teach by showing." Different research dream than v1.8.0.0's per-site notes.
 
@@ -1566,6 +1572,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ### P3: `$B commands review` batch-mode UX
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Originally an alternative for the inline-on-first-use approval gate (DevEx D6 alternative C). Instead of approving each agent-authored command at first invocation, batch them: agent scaffolds many, human reviews `$B commands review` at a convenient time, approves/rejects in one pass.
 
 **Why:** If self-authoring commands ever ships (the P1 above), the inline approval at first-use can interrupt the agent mid-task. Batch review is friendlier for the human.
@@ -1584,6 +1592,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ### P3: Heuristic command-gap watcher
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Sidebar-agent watches the activity feed; when an agent repeats a similar action 3+ times (e.g., calls `$B js` with structurally similar arguments), suggest scaffolding a command. From DevEx D4 alternative C.
 
 **Why:** Closes the discoverability loop on self-authoring commands. Agent is most likely to write a command when it just hit the same friction multiple times.
@@ -1600,6 +1610,8 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ---
 ## Sidebar Terminal (cc-pty-import follow-ups)
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 ### v1.1: PTY session survives sidebar reload
 
@@ -1711,6 +1723,8 @@ plus a TTL so abandoned PTYs eventually exit.
 **Depends on:** `/context-save` + `/context-restore` rename stable in production (v1.0.1.0+). Research: does Conductor expose a spawn-workspace CLI?
 
 ## P0: Browser-skills Phase 2 follow-up — `/automate` skill
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** The mutating-flow sibling of `/scrape` (Phase 2b). `/automate <intent>` codifies form fills, click sequences, and multi-step interactions into permanent browser-skills. Reuses Phase 2a's skillify machinery (`/skillify` is shared) and the D3 atomic-write helper. Adds: per-mutating-step UNTRUSTED-wrapped summary + `AskUserQuestion` confirmation gate when running non-codified (codified skills run unattended after the initial human approval). Defaults to `trusted: false` per Phase 1 — env-scrubbed spawn, scoped-token capability, no admin scope.
 
@@ -1931,6 +1945,8 @@ calibration gate is trustworthy.
 
 ### Scope sidebar-agent kill to session PID, not `pkill -f sidebar-agent\.ts`
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** `shutdown()` in `browse/src/server.ts:1193` uses `pkill -f sidebar-agent\.ts` to kill the sidebar-agent daemon, which matches every sidebar-agent on the machine, not just the one this server spawned. Replace with PID tracking: store the sidebar-agent PID when `cli.ts` spawns it (via state file or env), then `process.kill(pid, 'SIGTERM')` in `shutdown()`.
 
 **Why:** A user running two Conductor worktrees (or any multi-session setup), each with its own `$B connect`, closes one browser window ... and the other worktree's sidebar-agent gets killed too. The blast radius was there before, but the v0.18.1.0 disconnect-cleanup fix makes it more reachable: every user-close now runs the full `shutdown()` path, whereas before user-close bypassed it.
@@ -1942,6 +1958,8 @@ calibration gate is trustworthy.
 **Depends on:** None
 
 ## Sidebar Security
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. The sidebar agent, its security sidecar, and the ONNX classifier are deleted with the daemon.
 
 ### ML Prompt Injection Classifier — v1 SHIPPED (branch garrytan/prompt-injection-guard)
 
@@ -2163,6 +2181,8 @@ Remaining work (XL, multi-week):
 
 ### Real Chrome session access
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Integrate Chrome DevTools MCP to connect to the user's real Chrome session with real cookies, real state, no Playwright middleman.
 
 **Why:** Right now, headed mode launches a fresh Chromium profile. Users must log in manually or import cookies. Chrome DevTools MCP connects to the user's actual Chrome ... instant access to every authenticated site. This is the future of browser automation for AI agents.
@@ -2180,6 +2200,8 @@ May replace `/setup-browser-cookies` for most use cases since the user's real co
 **Depends on:** Chrome 146+, DevTools MCP server installed
 
 ## Browse
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Every entry below, shipped or not, targets the deleted browse daemon.
 
 ### Bundle server.ts into compiled binary
 
@@ -2587,17 +2609,17 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ## Retro
 
-### Deployment health tracking (retro + browse)
+### Deployment health tracking (retro + Aside)
 
 **What:** Screenshot production state, check perf metrics (page load times), count console errors across key pages, track trends over retro window.
 
 **Why:** Retro should include production health alongside code metrics.
 
-**Context:** Requires browse integration. Screenshots + metrics fed into retro output.
+**Context:** Requires driving Aside for the screenshots. Screenshots + metrics fed into retro output.
 
 **Effort:** L
 **Priority:** P3
-**Depends on:** Browse sessions
+**Depends on:** Aside
 
 ## Infrastructure
 
@@ -2612,7 +2634,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ### gstack-upload helper
 
-**What:** `browse/bin/gstack-upload` — upload file to S3, return public URL.
+**What:** `bin/gstack-upload` — upload file to S3, return public URL.
 
 **Why:** Shared utility for all skills that need to embed images in PRs.
 
@@ -2668,7 +2690,7 @@ Shipped: Default model changed to Sonnet for structure tests (~30), Opus retaine
 
 **Why:** Automated quality gate catches regressions before merge. Currently QA is manual — CI integration makes it part of the standard workflow.
 
-**Context:** Requires headless browse binary available in CI. The `/qa` skill already produces `baseline.json` with health scores — CI step would compare against the main branch baseline and fail if score drops. Would need `ANTHROPIC_API_KEY` in CI secrets since `/qa` uses Claude.
+**Context:** Requires a browser in CI, which today means Aside on a macOS runner (see "Aside consolidation follow-ups"). The `/qa` skill already produces `baseline.json` with health scores — CI step would compare against the main branch baseline and fail if score drops. Would need `ANTHROPIC_API_KEY` in CI secrets since `/qa` uses Claude.
 
 **Effort:** M
 **Priority:** P2
@@ -2685,6 +2707,8 @@ Shipped: Default model changed to Sonnet for structure tests (~30), Opus retaine
 **Depends on:** Nothing
 
 ### CDP-based DOM mutation detection for ref staleness
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Snapshot refs are Aside's now.
 
 **What:** Use Chrome DevTools Protocol `DOM.documentUpdated` / MutationObserver events to proactively invalidate stale refs when the DOM changes, without requiring an explicit `snapshot` call.
 
@@ -3074,6 +3098,8 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 ### Browse MCP server for Factory Droid
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. There is no browse binary to expose.
+
 **What:** Expose gstack's browse binary and key workflows as an MCP server that Factory Droid connects to natively. Factory users would run /mcp, add the gstack server, and get browse, QA, and review capabilities as Factory tools.
 
 **Why:** Factory already supports 40+ MCP servers in its registry. Getting gstack's browse binary listed there is a distribution play. Nobody else has a real compiled browser binary as an MCP tool. This is the thing that makes gstack uniquely valuable on Factory Droid.
@@ -3105,6 +3131,8 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** --host factory
 
 ## GStack Browser
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted. Both entries below target the headed Chromium the daemon no longer launches.
 
 ### Anti-bot stealth: Playwright CDP patches (rebrowser-style)
 
@@ -3257,6 +3285,8 @@ record and surface them in eval:compare.
 
 ### P3: SECURITY_BENCH periodic lane — classifier behavioral coverage runs nowhere
 
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
+
 **What:** Gating the live L4 classifier tests on SECURITY_BENCH=1 fixed local
 suite speed but left the prompt-injection classifier with no scheduled lane.
 Add SECURITY_BENCH=1 (with model-cache warmup, 112MB first run) to
@@ -3314,6 +3344,8 @@ detector), test/skill-e2e-plan-mode-no-op.test.ts.
 **Effort:** S (human ~3h, CC ~20min + one CI round with evidence).
 
 ### P3: Diagnose the browser-manager-unit wedge on windows-latest
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** The expanded Windows lane wedges to its wall deadline inside
 browse/test/browser-manager-unit.test.ts (in-flight at kill, PR #2593 run
@@ -3774,7 +3806,7 @@ path to the fixture during the run.
 
 **What:** Cache rendered diagram SVG/PNG in `~/.gstack/cache/diagram-render/`,
 keyed on `sha256(fence source + bundle version + render options)`, so repeat
-`make-pdf` runs skip the browse render tab for unchanged diagrams.
+`make-pdf` runs skip the Aside render for unchanged diagrams.
 
 **Why:** Every run currently re-renders every fence (~150-300ms each). Docs with
 10+ diagrams pay seconds per iteration during write-preview loops. Codex
@@ -3794,7 +3826,7 @@ shipping (lib/diagram-render bundle versioning).
 
 **What:** Five e2e files (`combined-gate`, `emoji-gate`, `diagram-gate`,
 `landscape-gate`, `format-gate`) each hand-roll the same prerequisite probe
-(binary/browse/poppler checks with CI hard-fail vs local skip), mkdtemp/rm
+(binary/Aside/poppler checks with CI hard-fail vs local skip), mkdtemp/rm
 lifecycle, and child-timeout constants. Extract a shared
 `make-pdf/test/e2e/helpers.ts` (prerequisites(), withWorkDir(), runGenerate()).
 
@@ -3813,7 +3845,7 @@ five green files at the tail of a release. Zero user-facing value; pure DRY.
 ### P2: egress ledger rotation with chain-genesis records
 
 **What:** Rotate `~/.gstack/security/egress.jsonl` at a size threshold (match
-`attempts.jsonl`'s 10MB/5-generation pattern in `browse/src/security.ts`), where
+`attempts.jsonl`'s 10MB/5-generation pattern the retired browse daemon used), where
 each new generation's FIRST record embeds the prior file's tail hash so
 `gstack-egress verify` can walk across generations.
 
@@ -3832,6 +3864,8 @@ rotation precedent.
 **Effort:** S (human ~4h, CC ~25min). **Depends on:** v1.63 port wave landed.
 
 ### P3: launch-nonce token bootstrap (local-process impersonation)
+
+**Superseded** by the Aside consolidation (see "Aside consolidation follow-ups"); the runtime this depended on is deleted.
 
 **What:** Add a launch-time nonce to the `/extension-token` bootstrap: `browse`
 mints a nonce at headed launch, seeds it into the extension (CDP
@@ -3895,14 +3929,12 @@ tests. Filed so they are tracked, not dropped.
   from a single deduplicated `walkMd(root)` pass, or exclude child dirs from the root
   skill's `totalMd`. Needs a fixture test. (`lib/context-bill.ts`.)
 - **P3 — DRY/robustness polish:** one shared `_gstack_egress_host_of` helper for the
-  ~11 hand-rolled URL-to-host extractions across the egress shell sinks; extract the
-  duplicated tunnel-open `writeReceipt` block in `browse/src/server.ts` (two sites);
+  ~11 hand-rolled URL-to-host extractions across the egress shell sinks;
   hoist the per-iteration `SharedArrayBuffer` alloc out of the egress-receipt lock spin;
   replace context-bill's exact-mode `errorPct === 0` sentinel with an explicit flag;
   reuse `frontmatterName()` from `skill-census.ts` in `catalog-budget.test.ts`.
 - **P3 — test-coverage gaps the audit named:** `PAID_TEST_GLOBS` ↔ `package.json`
-  `test:gate` parity test; `GSTACK_EXTENSION_ID` ↔ `manifest.json` key derivation parity
-  test (`browse/scripts/extension-id.ts`); a runner test asserting each shard child gets
+  `test:gate` parity test; a runner test asserting each shard child gets
   its own `GSTACK_EVAL_DIR` under `shards/<slug>`; receipt-refusal branch tests for
   supabase-provision / gbrain-sync / memory-ingest.
 
@@ -3940,14 +3972,87 @@ refresh (B); brain-sync disposition model + source pins + thin-client
 detection (C); version allocator end-state + subdir manifests + diff-scope
 globs (D). What remains, re-filed individually:
 
-- Watchdog kills headed handoff sessions (PRs 2565/2405/2346) and the three
-  darwin-skipped handoff tests in browse/test/handoff.test.ts — verify
-  whether the v1.67 XProtect + rebrand work un-blocks them, then un-skip or
-  fix. Effort S.
+- Watchdog kills headed handoff sessions (PRs 2565/2405/2346) — **Superseded**:
+  headed mode and browse/test/handoff.test.ts are deleted with the daemon.
 - Transcript trust/scope/source isolation (PR 2232, issue 2140) — needs the
   never-double-store review. Effort M.
 - Versionless-repo onboarding (#1474, issues 2343/2334) — the #2501 JSON
   version-path half landed; the no-version-file-at-all flow did not.
 - Playwright bootstrap abort/timeout absorbs (PRs 2233/2359, issues
-  1902/2136) — partially superseded by v1.67's bounded bootstrap; verify
-  and close or extract the remainder.
+  1902/2136) — **Superseded**: Playwright is deleted with the daemon; close them.
+
+## Aside consolidation follow-ups (filed when the browser stack collapsed into Aside)
+
+gstack's browser features (the headless `browse` daemon, GStack Browser /
+headed mode, the sidebar extension + PTY, `/pair-agent` tunnels, cookie import,
+browser-skills + domain-skills, Playwright and the Chromium download) were
+retired in favor of the Aside AI browser and deleted from the repo in v2.0.0.0;
+`scripts/resolvers/aside.ts` is the contract. Local-HTML rendering (make-pdf,
+diagram, design previews) goes through `lib/aside-render.ts` /
+`bin/gstack-render.ts`, also Aside. Loose ends:
+
+### Known limitation: make-pdf and diagram need Aside (macOS) — no Linux renderer
+
+**What:** `/make-pdf`, `/diagram`, and design previews render through the Aside
+browser, which ships for macOS 15+ only. On Linux and Windows they stop at the
+readiness check (`NEEDS_ASIDE`) and say so; there is no headless renderer, by
+design, and none will be added. Linux CI therefore never renders a PDF or a
+diagram (the gates self-skip); the Mac run is the evidence.
+
+**Why:** One browser, one contract. A second engine kept for rendering alone was
+the maintenance load this round removed. Revisit only when Aside ships a Linux
+build; the same wrappers then work unchanged.
+
+**Effort:** none until Aside ships there. **Priority:** known limitation, not work. **Depends on:** Aside releases.
+
+### P2: Aside CLI 1.26 lacks subcommands Aside's own skill doc lists
+
+**What:** Aside's skill doc lists `session`, `memory`, `skills`, `host`, and
+`--permission`; Aside CLI 1.26 has none of them (`aside --help`). Skills must
+not depend on them until the CLI ships them. Re-probe on each Aside release;
+when they land, evaluate `session` for multi-script flows and `--permission`
+for the mutating-action consent gate.
+
+**Why:** A skill written against the doc instead of the binary dies at runtime
+on an unknown-command error the agent will then try to "fix" blindly.
+
+**Effort:** S (human ~half day, CC ~20min per re-probe). **Priority:** P2. **Depends on:** Aside releases.
+
+### P2: Aside E2E tests run only where Aside is installed
+
+**What:** The Aside-driven E2E tests, make-pdf's render gates, and the /diagram
+E2E self-skip when `aside` is absent, so CI's Linux runners never exercise a
+browser skill or a render end to end; only macOS dev
+machines do. Evaluate a self-hosted macOS runner (or a scheduled job on a Mac
+mini) that runs the Aside lane weekly under the same hermetic env as the other
+E2E lanes.
+
+**Why:** A browser contract nobody runs in CI drifts silently — exactly the
+class `test/aside-driver.test.ts` pins statically but cannot prove live.
+
+**Effort:** M (human ~2 days, CC ~1h plus the machine). **Priority:** P2. **Depends on:** a macOS host with Aside signed in.
+
+### P3: Evaluate `aside mcp` for multi-step flows
+
+**What:** `aside repl` is one flow per script — a fresh session per call, tabs
+closed when it ends. `aside mcp` keeps a persistent REPL page across calls.
+Once the CLI stabilizes, measure whether an MCP path makes long QA audits
+cheaper (no re-navigation per script) without losing the "leave the browser as
+you found it" guarantee.
+
+**Why:** Re-navigating from the URL per script is the honest tax of the current
+model; a persistent page could cut it but adds a session that must be cleaned up.
+
+**Effort:** M (human ~2 days, CC ~1h). **Priority:** P3. **Depends on:** Aside CLI stability.
+
+### P3: Eval that skills treat `aside exec` output as untrusted
+
+**What:** `aside exec "<task>"` returns another agent's answer. Add an LLM-judge
+or E2E eval that plants an instruction inside an `aside exec` result and checks
+the skill takes syntax from it, never scope, permissions, or consent (contract
+rule 5).
+
+**Why:** The rule is pinned as prose; nothing yet proves a skill obeys it when
+the injected text arrives through the one channel that reads like a colleague.
+
+**Effort:** S (human ~1 day, CC ~30min). **Priority:** P3. **Depends on:** the Aside E2E lane above.

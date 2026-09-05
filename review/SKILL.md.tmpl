@@ -16,7 +16,6 @@ allowed-tools:
   - Glob
   - Agent
   - AskUserQuestion
-  - WebSearch
 triggers:
   - review this pr
   - code review
@@ -124,6 +123,8 @@ available (e.g., slop-scan not installed), skip this step silently.
 
 {{LEARNINGS_SEARCH}}
 
+{{ASIDE_RESEARCH}}
+
 ## Step 4: Critical pass (core review)
 
 Apply the CRITICAL categories from the checklist against the diff:
@@ -133,12 +134,16 @@ Also apply the remaining INFORMATIONAL categories that are still in the checklis
 
 **Enum & Value Completeness requires reading code OUTSIDE the diff.** When the diff introduces a new enum value, status, tier, or type constant, use Grep to find all files that reference sibling values, then Read those files to check if the new value is handled. This is the one category where within-diff review is insufficient.
 
-**Search-before-recommending:** When recommending a fix pattern (especially for concurrency, caching, auth, or framework-specific behavior):
+**Search-before-recommending:** When recommending a fix pattern (especially for concurrency, caching, auth, or framework-specific behavior), research through Aside (Web research runs in Aside, above):
 - Verify the pattern is current best practice for the framework version in use
 - Check if a built-in solution exists in newer versions before recommending a workaround
 - Verify API signatures against current docs (APIs change between versions)
 
-Takes seconds, prevents recommending outdated patterns. If WebSearch is unavailable, note it and proceed with in-distribution knowledge.
+```bash
+aside exec "Search the web for {framework} {version} {pattern} current best practice and whether a built-in replaces it. Read-only: do not sign in, submit, or change anything. Reply with up to 5 bullets, each with its source URL, then stop."
+```
+
+Takes seconds, prevents recommending outdated patterns. If the Aside check did not print `READY`, note it and proceed with in-distribution knowledge.
 
 Follow the output format specified in the checklist. Respect the suppressions — do NOT flag items listed in the "DO NOT flag" section.
 

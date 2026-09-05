@@ -21,8 +21,9 @@ describe('setup Codex model activation', () => {
     // on the codex host being selected, or a Sol user's profile gets
     // clobbered back to the hardcoded fallback.
     const blockStart = setup.indexOf('# Resolve the model overlay');
-    const blockEnd = setup.indexOf('# 1. Build browse binary', blockStart);
+    const blockEnd = setup.indexOf('# 1. Build the design + make-pdf binaries', blockStart);
     expect(blockStart).toBeGreaterThan(-1);
+    expect(blockEnd).toBeGreaterThan(blockStart);
     const block = setup.slice(blockStart, blockEnd);
     const resolverAt = block.indexOf('_CODEX_MODEL_OUTPUT=');
     const firstGateAt = block.indexOf('INSTALL_CODEX');

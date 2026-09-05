@@ -2,9 +2,9 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
-  ROOT, browseBin, runId, evalsEnabled,
+  ROOT, runId, evalsEnabled,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { judgePosture } from './helpers/llm-judge';
@@ -430,9 +430,6 @@ export function main() { return Dashboard(); }
     // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
     { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
 
-    // Set up remote-slug shim and browse shims (plan-eng-review uses remote-slug for artifact path)
-    setupBrowseShims(planDir);
-
     // Create project directory for artifacts
     projectDir = path.join(os.homedir(), '.gstack', 'projects', 'test-project');
     fs.mkdirSync(projectDir, { recursive: true });
@@ -471,7 +468,7 @@ Read plan.md — that's the plan to review. This is a standalone plan with sourc
 
 Proceed directly to the full review. Skip any AskUserQuestion calls — this is non-interactive.
 
-IMPORTANT: After your review, you MUST write the test-plan artifact as described in the "Test Plan Artifact" section of SKILL.md. The remote-slug shim is at ${planDir}/browse/bin/remote-slug.
+IMPORTANT: After your review, you MUST write the test-plan artifact as described in the "Test Plan Artifact" section of SKILL.md.
 
 Write your review to ${planDir}/review-output.md`,
       workingDirectory: planDir,

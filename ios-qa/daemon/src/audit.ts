@@ -1,5 +1,5 @@
 // Audit + attempts logging. Reuses the same rotation primitives as
-// browse/src/tunnel-denial-log.ts (10MB rotation, 5 generations).
+// the former browse daemon's tunnel-denial-log (10MB rotation, 5 generations).
 
 import { mkdir, appendFile, stat, rename, readFile } from 'fs/promises';
 import { join, dirname } from 'path';

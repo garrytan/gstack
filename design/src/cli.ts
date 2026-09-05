@@ -1,8 +1,7 @@
 /**
  * gstack design CLI — stateless CLI for AI-powered design generation.
  *
- * Unlike the browse binary (persistent Chromium daemon), the design binary
- * is stateless: each invocation makes API calls and writes files. Session
+ * The design binary is stateless: each invocation makes API calls and writes files. Session
  * state for multi-turn iteration is a JSON file in /tmp.
  *
  * Flow:

@@ -25,9 +25,11 @@ const EXPECT_BINARIES = process.env.GSTACK_EXPECT_BINARIES === "1";
 describe("gate prerequisites (CI tripwire)", () => {
   test.skipIf(!EXPECT_BINARIES)("gate artifacts and tools exist when the lane promises them", () => {
     const missing: string[] = [];
+    // Aside itself is deliberately NOT asserted: CI runners have no Aside, so
+    // the sibling gates self-skip on it (asideAvailable) and this tripwire
+    // only guards the build artifacts + poppler the workflow promises.
     for (const rel of [
       "make-pdf/dist/pdf",
-      "browse/dist/browse",
       "lib/diagram-render/dist/diagram-render.html",
     ]) {
       if (!fs.existsSync(path.join(ROOT, rel))) missing.push(rel);

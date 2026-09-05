@@ -4,7 +4,7 @@ preamble-tier: 2
 version: 1.0.0
 description: |
   Post-deploy canary monitoring. Watches the live app for console errors,
-  performance regressions, and page failures using the browse daemon. Takes
+  performance regressions, and page failures. Takes
   periodic screenshots, compares against pre-deploy baselines, and alerts
   on anomalies. Use when: "monitor deploy", "canary", "post-deploy check",
   "watch production", "verify deploy". (gstack)
@@ -22,7 +22,7 @@ triggers:
 
 {{PREAMBLE}}
 
-{{BROWSE_SETUP}}
+{{ASIDE_SETUP}}
 
 {{BASE_BRANCH_DETECT}}
 
@@ -30,7 +30,7 @@ triggers:
 
 You are a **Release Reliability Engineer** watching production after a deploy. You've seen deploys that pass CI but break in production — a missing environment variable, a CDN cache serving stale assets, a database migration that's slower than expected on real data. Your job is to catch these in the first 10 minutes, not 10 hours.
 
-You use the browse daemon to watch the live app, take screenshots, check console errors, and compare against baselines. You are the safety net between "shipped" and "verified."
+You drive the Aside browser to watch the live app, take screenshots, check console errors, and compare against baselines. You are the safety net between "shipped" and "verified."
 
 ## User-invocable
 When the user types `/canary`, run this skill.
@@ -62,14 +62,24 @@ If the user passed `--baseline`, capture the current state BEFORE deploying.
 For each page (either from `--pages` or the homepage):
 
 ```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/baselines/<page-name>.png"
-$B console --errors
-$B perf
-$B text
+aside repl '
+const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<page-url>");
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
+console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
+await pg.screenshot({ path: "<page-name>.jpg", type: "jpeg", quality: 60, fullPage: true });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
 
-Collect for each page: screenshot path, console error count, page load time from `perf`, and a text content snapshot.
+Then copy the screenshot out of the printed session directory: `cp "<ASIDE_DIR>/<page-name>.jpg" .gstack/canary-reports/baselines/<page-name>.jpg`
+
+Collect for each page: screenshot path, console error count (`CONSOLE_ERRORS=`), load time (`loadEventEnd` in `NAV=`), and the text snapshot between `TEXT_START` / `TEXT_END`.
 
 Save the baseline manifest to `.gstack/canary-reports/baseline.json`:
 
@@ -80,7 +90,7 @@ Save the baseline manifest to `.gstack/canary-reports/baseline.json`:
   "branch": "<current branch>",
   "pages": {
     "/": {
-      "screenshot": "baselines/home.png",
+      "screenshot": "baselines/home.jpg",
       "console_errors": 0,
       "load_time_ms": 450
     }
@@ -95,12 +105,15 @@ Then STOP and tell the user: "Baseline captured. Deploy your changes, then run `
 If no `--pages` were specified, auto-discover pages to monitor:
 
 ```bash
-$B goto <url>
-$B links
-$B snapshot -i
+aside repl '
+const pg = await openTab("<url>");
+const links = await pg.evaluate(() => [...new Set([...document.querySelectorAll("a[href]")].map(a => a.href))].filter(h => h.startsWith(location.origin) && !/logout|signout|delete|remove|cancel|unsubscribe/i.test(h)));
+for (const l of links) { const r = await fetch(l, { method: "HEAD" }).catch(e => ({ status: "ERR " + e.message })); console.log("LINK", r.status, l); }
+await closeTab(pg); console.log("GSTACK_STEP_OK");
+'
 ```
 
-Extract the top 5 internal navigation links from the `links` output. Always include the homepage. Present the page list via AskUserQuestion:
+Extract the top 5 internal navigation links from the `LINK` lines (same-origin only — the script already filters). Always include the homepage. Present the page list via AskUserQuestion:
 
 - **Context:** Monitoring the production site at the given URL after a deploy.
 - **Question:** Which pages should the canary monitor?
@@ -115,29 +128,35 @@ If no `baseline.json` exists, take a quick snapshot now as a reference point.
 
 For each page to monitor:
 
-```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/screenshots/pre-<page-name>.png"
-$B console --errors
-$B perf
-```
+Run the Phase 2 read script for each page with the screenshot saved as `pre-<page-name>.jpg`, then `cp "<ASIDE_DIR>/pre-<page-name>.jpg" .gstack/canary-reports/screenshots/`.
 
 Record the console error count and load time for each page. These become the reference for detecting regressions during monitoring.
 
 ### Phase 5: Continuous Monitoring Loop
 
-Monitor for the specified duration. Every 60 seconds, check each page:
+Monitor for the specified duration. Every 60 seconds, check each page. Nothing persists between scripts — every check re-opens the page from its URL and captures fresh evidence:
 
 ```bash
-$B goto <page-url>
-$B snapshot -i -a -o ".gstack/canary-reports/screenshots/<page-name>-<check-number>.png"
-$B console --errors
-$B perf
+aside repl '
+const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<page-url>");
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
+console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
+await pg.screenshot({ path: "<page-name>-<check-number>.jpg", type: "jpeg", quality: 60, fullPage: true });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
+
+Then `cp "<ASIDE_DIR>/<page-name>-<check-number>.jpg" .gstack/canary-reports/screenshots/`.
 
 After each check, compare results against the baseline (or pre-deploy snapshot):
 
-1. **Page load failure** — `goto` returns error or timeout → CRITICAL ALERT
+1. **Page load failure** — the script prints a line starting with `[error` or never prints `GSTACK_STEP_OK` → CRITICAL ALERT
 2. **New console errors** — errors not present in baseline → HIGH ALERT
 3. **Performance regression** — load time exceeds 2x baseline → MEDIUM ALERT
 4. **Broken links** — new 404s not in baseline → LOW ALERT

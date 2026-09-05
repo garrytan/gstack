@@ -1,6 +1,6 @@
 /**
  * Renderer unit tests — pure-function assertions for render.ts, smartypants.ts,
- * and print-css.ts. No Playwright, no PDF generation.
+ * and print-css.ts. No browser, no PDF generation.
  */
 
 import { describe, expect, test } from "bun:test";

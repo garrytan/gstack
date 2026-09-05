@@ -2,9 +2,9 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
-  ROOT, browseBin, runId, evalsEnabled,
+  ROOT, runId, evalsEnabled,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { spawnSync } from 'child_process';
@@ -202,10 +202,9 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
   }, CAPTURE_MS);
 });
 
-// setup-cookies-detect REMOVED: The cookie-import-browser module has 30+ thorough
-// unit tests in browse/test/cookie-import-browser.test.ts (decryption, profile
-// detection, error handling, path traversal). The E2E just tested LLM instruction-
-// following ("write a file saying no browsers") on a CI box with no browsers.
+// setup-cookies-detect REMOVED: cookie import left with the browser stack in
+// v2.0 (Aside is the user's real browser, already signed in). The E2E only
+// tested LLM instruction-following ("write a file saying no browsers") anyway.
 
 // --- gstack-upgrade E2E ---
 

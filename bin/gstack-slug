@@ -16,8 +16,8 @@
 #   2. Derive the slug from the canonical git remote: the OUTERMOST ancestor
 #      that is an actual git repo (`.git` directory, or `.git` FILE for
 #      worktrees/submodules) with an `origin` remote wins. The slug is
-#      `owner-repo`, parsed EXACTLY like browse/bin/remote-slug so the two
-#      bins can never disagree on a canonical-remote repo. Marker-only
+#      `owner-repo` (strip trailing .git, then owner/repo → owner-repo); this
+#      is the only slug implementation and lib/bin-context.ts mirrors it. Marker-only
 #      ancestors that are NOT remote-bearing repos (a stray empty ~/.git,
 #      a stray package.json in $HOME) still anchor the basename FALLBACK,
 #      but they can no longer shadow a real remote. (2026-08-17 bug fix:
@@ -220,9 +220,9 @@ fi
 
 # 2. Canonical remote-derived slug. Sourced from the outermost remote-bearing
 #    repo (see 1a) — NOT from PROJECT_ROOT, which may be a marker-only
-#    ancestor with no remote. Parse kept byte-identical to
-#    browse/bin/remote-slug (strip trailing .git, then owner/repo → owner-repo)
-#    so the two bins agree on every canonical-remote repo, worktrees included.
+#    ancestor with no remote. Strip trailing .git, then owner/repo → owner-repo;
+#    lib/bin-context.ts mirrors this parse byte-for-byte so bash and TypeScript
+#    callers agree on every canonical-remote repo, worktrees included.
 #    Parity pinned by test/gstack-slug-parity.test.ts.
 if [[ -z "$SLUG" ]]; then
   _resolve_remote
