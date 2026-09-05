@@ -170,6 +170,13 @@ function parsePathFlag(flag: string): string | null {
 }
 const OUT_DIR: string | null = parsePathFlag('--out-dir');
 
+// External-host outputs rendered in THIS run, keyed by host. Used after the
+// render to prune `gstack-*` output dirs whose skill no longer exists: the
+// generator never deleted, so a retired skill stayed rendered (and linked by
+// setup) forever — v2.0 retired five browser skills and the stale renders
+// still read config keys the DEFAULTS table had dropped.
+const RENDERED_EXTERNAL: Map<string, Set<string>> = new Map();
+
 // #2692: callers that render into a TMP dir and atomically swap it into place
 // (bin/gstack-config gbrain-refresh, setup — the #2569 pattern) must pass the
 // FINAL directory here, or rewriteSectionBase bakes the tmp path
@@ -799,6 +806,8 @@ function processExternalHost(
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
   // --out-dir mirrors the host tree (outputs only; inputs read from ROOT).
   const outputDir = path.join(OUT_DIR ?? ROOT, hostConfig.hostSubdir, 'skills', name);
+  if (!RENDERED_EXTERNAL.has(host)) RENDERED_EXTERNAL.set(host, new Set());
+  RENDERED_EXTERNAL.get(host)!.add(name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
@@ -1164,6 +1173,24 @@ if (!DRY_RUN) {
       }
     }
   } catch { /* non-fatal */ }
+}
+
+// Prune stale external-host outputs. A run always renders every skill for the
+// chosen host(s) (there is no per-skill filter), so any `gstack-*` directory
+// left in <host>/skills/ that this run did not write belongs to a skill that
+// no longer exists. Symlinks (the `gstack` sidecar) and non-prefixed entries
+// are never touched.
+if (!DRY_RUN) {
+  for (const [host, names] of RENDERED_EXTERNAL) {
+    const skillsRoot = path.join(OUT_DIR ?? ROOT, getHostConfig(host as Host).hostSubdir, 'skills');
+    let entries: fs.Dirent[] = [];
+    try { entries = fs.readdirSync(skillsRoot, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.isSymbolicLink() || !e.isDirectory() || !e.name.startsWith('gstack-') || names.has(e.name)) continue;
+      fs.rmSync(path.join(skillsRoot, e.name), { recursive: true, force: true });
+      console.log(`  pruned stale ${host} render: ${e.name}`);
+    }
+  }
 }
 
 // Regenerate gstack/llms.txt — single-file capability index for AI agents.
