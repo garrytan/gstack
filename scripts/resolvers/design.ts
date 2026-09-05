@@ -499,7 +499,7 @@ Tie everything to user goals and product objectives. Always suggest specific imp
 11. **Show screenshots to the user.** After every script that saves a screenshot, annotated screenshot, or responsive set, \`cp\` the files out of the printed \`ASIDE_DIR\` into \`$REPORT_DIR/screenshots/\` and use the Read tool on each copied file so the user can see them inline. For the responsive set (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
 }
 
-export function generateDesignSketch(_ctx: TemplateContext): string {
+export function generateDesignSketch(ctx: TemplateContext): string {
   return `## Visual Sketch (UI ideas only)
 
 If the chosen approach involves user-facing UI (screens, pages, forms, dashboards,
@@ -530,20 +530,23 @@ Generate a single-page HTML file with these constraints:
   matches the actual use case)
 - Add HTML comments explaining design decisions
 
-Write to a temp file:
+Write it to \`/tmp/gstack-sketch/sketch.html\` (Write tool) — its own directory,
+because the renderer serves that directory over loopback:
 \`\`\`bash
-SKETCH_FILE="/tmp/gstack-sketch-$(date +%s).html"
+mkdir -p /tmp/gstack-sketch
 \`\`\`
 
 **Step 3: Render and capture**
 
+\`gstack-render\` opens the sketch in the Aside browser and screenshots it:
+
 \`\`\`bash
-$B goto "file://$SKETCH_FILE"
-$B screenshot /tmp/gstack-sketch.png
+bun run ${toShellPath(ctx.paths.binDir)}/gstack-render.ts /tmp/gstack-sketch/sketch.html --screenshot /tmp/gstack-sketch.png --width 1280
 \`\`\`
 
-If \`$B\` is not available (browse binary not set up), skip the render step. Tell the
-user: "Visual sketch requires the browse binary. Run the setup script to enable it."
+If it prints \`NEEDS_ASIDE\` or \`ASIDE_NOT_RUNNING\`, skip the render step. Tell the
+user: "The visual sketch renders through the Aside browser (macOS 15+, aside.com).
+Install it or open the app and I'll render the wireframe." Never install it for them.
 
 **Step 4: Present and iterate**
 
@@ -855,8 +858,8 @@ If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (\`DESIGN_SKETCH\`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
-Comparison boards are local HTML files: open them with \`open file://...\` (macOS).
-The user just needs to see the file in their default browser.
+Comparison boards are local HTML files: open them with \`open file://...\` on macOS
+(\`xdg-open\` elsewhere). The user just needs to see the file in their default browser.
 
 If \`DESIGN_READY\`: the design binary is available for visual mockup generation.
 Commands:
