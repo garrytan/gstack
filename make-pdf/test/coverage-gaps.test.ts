@@ -1,6 +1,6 @@
 /**
  * Coverage-gap fills from the v1.58.0.0 ship audit — the branches the main
- * suites couldn't reach without a live browse tab (mock-tab here), plus the
+ * suites couldn't reach without a live bundle page (mock runner here), plus the
  * pure-function stragglers (WebP probing, landscape geometry, bundle path
  * resolution, screen CSS).
  */
@@ -10,8 +10,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import {
-  RenderCallError,
-  type RenderTab,
+  type BundleCall,
+  type BundleResult,
   landscapeContentBox,
   rasterizeDiagramFigures,
   renderFenceSlots,
@@ -21,19 +21,22 @@ import {
 import { imageDims } from "../src/image-size";
 import { screenCss } from "../src/print-css";
 
-/** Duck-typed RenderTab: scripted call results + a loadBundle counter. */
-function mockTab(script: (fn: string, ...args: Array<string | number>) => string) {
+/** Scripted BundleRun: a throwing script call becomes an ERR result, plus counters. */
+function mockRun(script: (fn: string, ...args: unknown[]) => string) {
   const calls: string[] = [];
-  let reloads = 0;
-  const tab = {
-    call: (fn: string, ...args: Array<string | number>) => {
-      calls.push(fn);
-      return script(fn, ...args);
-    },
-    loadBundle: () => { reloads++; },
-    close: () => {},
-  } as unknown as RenderTab;
-  return { tab, calls, reloadCount: () => reloads };
+  let batches = 0;
+  const run = async (batch: BundleCall[]): Promise<BundleResult[]> => {
+    batches++;
+    return batch.map((c) => {
+      calls.push(c.fn);
+      try {
+        return { ok: true, value: script(c.fn, ...c.args) };
+      } catch (e: any) {
+        return { ok: false, error: e.message };
+      }
+    });
+  };
+  return { run, calls, batchCount: () => batches };
 }
 
 const fence = (over: Partial<{ lang: string; source: string; ordinal: number }>) => ({
@@ -49,88 +52,99 @@ const fence = (over: Partial<{ lang: string; source: string; ordinal: number }>)
 
 // ─── renderFenceSlots: reset contract + excalidraw branches ───────────
 
-describe("renderFenceSlots (mock tab)", () => {
-  test("reset contract: a failure reloads the bundle and the NEXT fence still renders", () => {
-    const { tab, reloadCount } = mockTab((fn, ...args) => {
-      if (String(args[1] ?? "").includes("BROKEN")) throw new RenderCallError("Parse error on line 1");
+describe("renderFenceSlots (mock runner)", () => {
+  test("one batch for all fences: a failure is a diagnostic block and the NEXT fence still renders", async () => {
+    const { run, batchCount } = mockRun((fn, ...args) => {
+      if (String(args[1] ?? "").includes("BROKEN")) throw new Error("Parse error on line 1");
       return "<svg><g/></svg>";
     });
     const warnings: string[] = [];
-    const slots = renderFenceSlots(
+    const slots = await renderFenceSlots(
       [
         fence({ ordinal: 1 }),
         fence({ ordinal: 2, source: "BROKEN" }),
         fence({ ordinal: 3 }),
       ],
-      tab,
+      run,
       (m) => warnings.push(m),
     );
     expect(slots.get("tok-1")).toContain("<svg>");
     expect(slots.get("tok-2")).toContain("diagram-error");
+    expect(slots.get("tok-2")).toContain("Parse error on line 1");
     expect(slots.get("tok-3")).toContain("<svg>"); // post-failure fence rendered
-    expect(reloadCount()).toBe(1);                 // exactly one reset reload
+    expect(batchCount()).toBe(1);                  // one script for the whole document
     expect(warnings[0]).toContain("failed to render");
   });
 
-  test("excalidraw fence renders via __excalidrawToSvg", () => {
-    const { tab, calls } = mockTab(() => "<svg data-x><g/></svg>");
-    const slots = renderFenceSlots(
+  test("excalidraw fence renders via __excalidrawToSvg", async () => {
+    const { run, calls } = mockRun(() => "<svg data-x><g/></svg>");
+    const slots = await renderFenceSlots(
       [fence({ lang: "excalidraw", source: '{"type":"excalidraw","elements":[]}' })],
-      tab,
+      run,
       () => {},
     );
     expect(calls).toEqual(["__excalidrawToSvg"]);
     expect(slots.get("tok-1")).toContain("<svg");
   });
 
-  test("invalid excalidraw JSON fails fast into a diagnostic WITHOUT calling the tab", () => {
-    const { tab, calls, reloadCount } = mockTab(() => "<svg/>");
+  test("invalid excalidraw JSON fails fast into a diagnostic WITHOUT a bundle call", async () => {
+    const { run, calls } = mockRun(() => "<svg/>");
     const warnings: string[] = [];
-    const slots = renderFenceSlots(
+    const slots = await renderFenceSlots(
       [fence({ lang: "excalidraw", source: "{not json" })],
-      tab,
+      run,
       (m) => warnings.push(m),
     );
     expect(calls).toEqual([]); // JSON.parse threw before any bundle call
     expect(slots.get("tok-1")).toContain("diagram-error");
-    expect(reloadCount()).toBe(1);
     expect(warnings).toHaveLength(1);
   });
 });
 
 // ─── rasterizeDiagramFigures: svg-data-URI + error fallbacks ──────────
 
-describe("rasterizeDiagramFigures (mock tab)", () => {
+describe("rasterizeDiagramFigures (mock runner)", () => {
   const figure = `<figure class="diagram" role="img" aria-label="flow"><svg viewBox="0 0 10 10"><g/></svg></figure>`;
 
-  test("svg data-URI images rasterize to PNG", () => {
+  test("figures and svg data-URI images rasterize to PNG in ONE batch", async () => {
     const svgUri = `data:image/svg+xml;base64,${Buffer.from("<svg/>").toString("base64")}`;
-    const { tab } = mockTab(() => "data:image/png;base64,AAAA");
-    const out = rasterizeDiagramFigures(`<img src="${svgUri}" alt="v">`, tab, 6.5, () => {});
-    expect(out).toContain('src="data:image/png;base64,AAAA"');
+    const { run, calls, batchCount } = mockRun((_fn, svg) => `data:image/png;base64,${String(svg).includes("viewBox") ? "FIG" : "IMG"}`);
+    const out = await rasterizeDiagramFigures(`${figure}<img src="${svgUri}" alt="v">`, run, 6.5, () => {});
+    expect(calls).toEqual(["__rasterize", "__rasterize"]);
+    expect(batchCount()).toBe(1);
+    expect(out).toContain('<p><img src="data:image/png;base64,FIG" alt="flow"></p>');
+    expect(out).toContain('src="data:image/png;base64,IMG" alt="v"');
+    expect(out).not.toContain("gstack-raster-slot");
   });
 
-  test("figure rasterization failure surfaces the SOURCE as text (never silent loss)", () => {
+  test("no rasterizable content → no bundle call at all", async () => {
+    const { run, batchCount } = mockRun(() => "x");
+    const html = `<p>plain</p><img src="data:image/png;base64,AAAA">`;
+    expect(await rasterizeDiagramFigures(html, run, 6.5, () => {})).toBe(html);
+    expect(batchCount()).toBe(0);
+  });
+
+  test("figure rasterization failure surfaces the SOURCE as text (never silent loss)", async () => {
     // Returning the figure unchanged would make the diagram vanish in DOCX
     // (the converter drops <figure>/<svg>) — the failure must be visible.
-    const { tab } = mockTab(() => { throw new RenderCallError("tainted"); });
+    const { run } = mockRun(() => { throw new Error("tainted"); });
     const warnings: string[] = [];
     const srcFigure = figure.replace(
       '<figure class="diagram"',
       `<figure class="diagram" data-gstack-source="${Buffer.from("graph LR\n  A --> B").toString("base64")}"`,
     );
-    const out = rasterizeDiagramFigures(srcFigure, tab, 6.5, (m) => warnings.push(m));
+    const out = await rasterizeDiagramFigures(srcFigure, run, 6.5, (m) => warnings.push(m));
     expect(out).toContain("could not be rasterized");
     expect(out).toContain("A --&gt; B"); // source visible (escaped), not dropped
     expect(out).not.toContain("<figure");
     expect(warnings[0]).toContain("rasterization failed");
   });
 
-  test("svg data-URI rasterization failure keeps the original tag", () => {
+  test("svg data-URI rasterization failure keeps the original tag", async () => {
     const svgUri = `data:image/svg+xml;base64,${Buffer.from("<svg/>").toString("base64")}`;
-    const { tab } = mockTab(() => { throw new RenderCallError("decode failed"); });
+    const { run } = mockRun(() => { throw new Error("decode failed"); });
     const tagIn = `<img src="${svgUri}">`;
-    const out = rasterizeDiagramFigures(tagIn, tab, 6.5, () => {});
+    const out = await rasterizeDiagramFigures(tagIn, run, 6.5, () => {});
     expect(out).toBe(tagIn);
   });
 });

@@ -147,6 +147,30 @@ describe("findExecutable (pdftotext.ts)", () => {
   test("returns null when no extension matches", () => {
     expect(findExecutable("/nonexistent/path/to/nothing")).toBeNull();
   });
+
+  // access(X_OK) is TRUE for directories (they carry the traverse bit), so a bare
+  // X_OK probe once resolved a docs folder as "the binary". Only regular files count.
+  test("rejects a DIRECTORY even though it passes access(X_OK)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-dir-"));
+    try {
+      fs.accessSync(dir, fs.constants.X_OK); // precondition: the bare probe passes
+      expect(findExecutable(dir)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a directory that shadows the binary name", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-shadow-"));
+    const shadow = path.join(base, "pdftotext");
+    fs.mkdirSync(shadow);
+    fs.writeFileSync(path.join(shadow, "README.md"), "# not a binary\n");
+    try {
+      expect(findExecutable(shadow)).toBeNull();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("resolvePdftotext (override resolution, v1.24-aligned)", () => {

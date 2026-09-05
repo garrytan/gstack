@@ -18,7 +18,7 @@ export interface GenerateOptions {
   output?: string;                // output path (default: /tmp/<slug>.<ext>)
 
   // Output format (NOT --format, which is a --page-size alias):
-  //   pdf  — print-quality PDF via Chromium (default)
+  //   pdf  — print-quality PDF through the Aside browser (default)
   //   html — single self-contained file, zero network references
   //   docx — content-fidelity Word document (diagrams embedded as PNG)
   to?: OutputFormat;
@@ -83,32 +83,6 @@ export interface PreviewOptions {
 }
 
 /**
- * Parsed page.pdf() options passed to browse.
- */
-export interface BrowsePdfOptions {
-  output: string;
-  tabId: number;
-  format?: PageSize;
-  width?: string;
-  height?: string;
-  margins?: {
-    top: string;
-    right: string;
-    bottom: string;
-    left: string;
-  };
-  headerTemplate?: string;
-  footerTemplate?: string;
-  pageNumbers?: boolean;
-  displayHeaderFooter?: boolean;
-  tagged?: boolean;
-  outline?: boolean;
-  printBackground?: boolean;
-  preferCSSPageSize?: boolean;
-  toc?: boolean;                  // signals browse to wait for Paged.js
-}
-
-/**
  * Exit codes for $P generate.
  * Mirror these in orchestrator error paths.
  */
@@ -117,20 +91,28 @@ export const ExitCode = {
   BadArgs: 1,
   RenderError: 2,
   PagedJsTimeout: 3,
-  BrowseUnavailable: 4,
+  AsideUnavailable: 4,
 } as const;
 export type ExitCode = typeof ExitCode[keyof typeof ExitCode];
 
+export type AsideUnavailableReason = "NEEDS_ASIDE" | "ASIDE_NOT_RUNNING";
+
+/** What to tell the user for each probe outcome (lib/aside-render probeAside). */
+export const ASIDE_HELP: Record<AsideUnavailableReason, string> = {
+  NEEDS_ASIDE: "make-pdf renders through the Aside browser (macOS 15+). Install it from aside.com, open it, and re-run.",
+  ASIDE_NOT_RUNNING: "Open the Aside app and re-run.",
+};
+
 /**
- * Structured error for browse CLI shell-out failures.
+ * The Aside browser is not usable: not installed, or installed but not open.
+ * A render that fails while Aside IS reachable is a plain Error (exit 2).
  */
-export class BrowseClientError extends Error {
+export class AsideClientError extends Error {
   constructor(
-    public readonly exitCode: number,
-    public readonly command: string,
-    public readonly stderr: string,
+    public readonly reason: AsideUnavailableReason,
+    public readonly detail: string,
   ) {
-    super(`browse ${command} exited ${exitCode}: ${stderr.trim()}`);
-    this.name = "BrowseClientError";
+    super(`${ASIDE_HELP[reason]}${detail ? ` (${detail})` : ""}`);
+    this.name = "AsideClientError";
   }
 }

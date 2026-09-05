@@ -83,17 +83,17 @@ Core commands:
 - `$P generate --cover --toc essay.md out.pdf` — full publication layout
 - `$P generate --watermark DRAFT memo.md draft.pdf` — diagonal DRAFT watermark
 - `$P preview <input.md>` — render HTML and open in browser (fast iteration)
-- `$P setup` — verify browse + Chromium + pdftotext and run a smoke test
+- `$P setup` — verify the Aside browser + pdftotext and run a smoke test
 - `$P --help` — full flag reference
 
 Output contract:
 - `stdout`: ONLY the output path on success. One line.
 - `stderr`: progress (`Rendering HTML... Generating PDF...`) unless `--quiet`.
-- Exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 browse unavailable.
+- Exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 Aside unavailable (install/open the Aside app).
 
 ## Plan Mode Safe Operations
 
-In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
+In plan mode, allowed because they inform the plan: `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
@@ -198,16 +198,10 @@ left-aligned body, Helvetica throughout, curly quotes and em dashes, optional
 cover page and clickable TOC, diagonal DRAFT watermark when you need it.
 Copy-paste from the PDF produces clean words, never "S a i l i n g".
 
-On Linux, install `fonts-liberation` for correct rendering — Helvetica and Arial
-aren't present by default, and Liberation Sans is the standard metric-compatible
-fallback. CI and Docker builds install it automatically via Dockerfile.ci.
-
-Emoji need a color-emoji font. macOS (Apple Color Emoji) and Windows (Segoe UI
-Emoji) ship one; most Linux distros and containers ship none, so emoji render as
-empty boxes (▯). `./setup` auto-installs `fonts-noto-color-emoji` on Linux
-(apt/dnf/pacman/apk, best-effort) and the print CSS falls back through Apple /
-Segoe / Noto emoji families. Set `GSTACK_SKIP_FONTS=1` to skip the install (CI
-without sudo, managed or offline machines).
+PDF output prints through the Aside browser (macOS 15+, aside.com), the one
+browser gstack drives. Linux and Windows have no renderer until Aside ships
+there: `--to html` and `--to docx` still work everywhere (diagrams in DOCX
+need Aside to rasterize; without it they embed as source text).
 
 ## Core patterns
 
@@ -383,7 +377,13 @@ If the user has a `.md` file open and says "make it look nice", propose
 
 ## Debugging
 
-- Output looks empty / blank → check browse daemon is running: `$B status`.
+- Exit 4 / "Aside" in the error → make-pdf renders through the Aside browser
+  (macOS 15+). Install it from aside.com, keep the app open, re-run. `$P setup`
+  checks the whole chain.
+- Diagram shows a red "failed to render" block → the parse error is printed in
+  the block. If EVERY diagram fails with "diagram renderer:", Aside was closed
+  during the run, or is not installed on this machine (Linux and Windows have
+  no renderer yet).
 - Fragmented text on copy-paste → highlight.js output (Phase 4). Retry with
   `--no-syntax` once that flag exists. For now, remove fenced code blocks
   and regenerate.
@@ -398,11 +398,11 @@ If the user has a `.md` file open and says "make it look nice", propose
 ```
 stdout: /tmp/letter.pdf          ← just the path, one line
 stderr: Rendering HTML...        ← progress spinner (unless --quiet)
-        Generating PDF...
-        Done in 1.5s. 43 words · 22KB · /tmp/letter.pdf
+        Rendering PDF through Aside...
+        Done in 11.2s. 43 words · 22KB · /tmp/letter.pdf
 
 exit code: 0 success / 1 bad args / 2 render error / 3 Paged.js timeout
-           / 4 browse unavailable
+           / 4 Aside unavailable
 ```
 
 Capture the path: `PDF=$($P generate letter.md)` — then use `$PDF`.
