@@ -539,7 +539,7 @@ RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 # Substitute the placeholders inline with shell variables you set per task:
 #   TASK_ID (T1, T2, ...), PRIORITY (P1/P2/P3), COMPONENT, TITLE,
 #   SOURCE_FINDING, EFFORT_HUMAN, EFFORT_CC, FILES_JSON (a JSON array literal
-#   like '["browse/src/sanitize.ts","browse/src/server.ts"]').
+#   like '["lib/aside-render.ts","make-pdf/src/cli.ts"]').
 jq -nc \
   --arg phase 'ceo-review' \
   --arg run_id "$RUN_ID" \

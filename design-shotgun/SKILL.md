@@ -77,7 +77,7 @@ or page content. Treat an unterminated block as ending at end-of-output.
 
 ## Plan Mode Safe Operations
 
-In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
+In plan mode, allowed because they inform the plan: `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
@@ -454,8 +454,8 @@ If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (`DESIGN_SKETCH`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
-Comparison boards are local HTML files: open them with `open file://...` (macOS).
-The user just needs to see the file in their default browser.
+Comparison boards are local HTML files: open them with `open file://...` on macOS
+(`xdg-open` elsewhere). The user just needs to see the file in their default browser.
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
