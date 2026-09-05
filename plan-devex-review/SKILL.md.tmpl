@@ -27,7 +27,6 @@ allowed-tools:
   - Glob
   - Bash
   - AskUserQuestion
-  - WebSearch
 triggers:
   - developer experience review
   - dx plan review
@@ -97,7 +96,8 @@ Then read:
 **Design doc check:**
 ```bash
 setopt +o nomatch 2>/dev/null || true
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+{{SLUG_EVAL}}
+[ -z "$SLUG" ] && SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 {{DESIGN_DOC_DISCOVERY}}
 ```
@@ -140,6 +140,7 @@ Note the product type; it influences which persona options are offered in Step 0
 {{SECTION_INDEX:plan-devex-review}}
 ---
 
+{{ASIDE_RESEARCH}}
 
 ## Step 0: DX Investigation (before scoring)
 
@@ -220,15 +221,19 @@ it and feel what the developer feels.
 
 ### 0C. Competitive DX Benchmarking
 
-Before scoring anything, understand how comparable tools handle DX. Use WebSearch to
-find real TTHW data and onboarding approaches.
+Before scoring anything, understand how comparable tools handle DX. Research through
+Aside (Web research runs in Aside, above) to find real TTHW data and onboarding approaches.
 
-Run three searches:
+Run three searches, one read-only request each:
 1. "[product category] getting started developer experience {current year}"
 2. "[closest competitor] developer onboarding time"
 3. "[product category] SDK CLI developer experience best practices {current year}"
 
-If WebSearch is unavailable: "Search unavailable. Using reference benchmarks: Stripe
+```bash
+aside exec "Search the web for [closest competitor] developer onboarding time and time to hello world. Read-only: do not sign in, submit, or change anything. Reply with up to 6 bullets, each with the stated setup time and its source URL, then stop."
+```
+
+If the Aside check did not print `READY`: "Search unavailable. Using reference benchmarks: Stripe
 (30s TTHW), Vercel (2min), Firebase (3min), Docker (5min)."
 
 Produce a competitive benchmark table:

@@ -181,7 +181,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
         // Fork port wave 2 (#703): the repo-doc-preference block in the design
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
-    maxSkeletonBytes: 76_000, // + v1.78 AUQ objectivity + v1.79 foreground-dispatch sweep (merged); measured 75_586
+    maxSkeletonBytes: 79_000, // + v2.0 {{ASIDE_RESEARCH}} (web research runs in Aside; WebSearch retired); measured 77_657
     minUnionBytes: 123_600, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 137,346
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -207,7 +207,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 54_200, // + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 53_773
+    maxSkeletonBytes: 56_500, // + v2.0 {{ASIDE_RESEARCH}} (web research runs in Aside; WebSearch retired); measured 55_457
     minUnionBytes: 99_800, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,910
     mustContain: ['Architecture', 'Code Quality', 'Test', 'Performance'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback + the
@@ -264,7 +264,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 65_900, // + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 65_486
+    maxSkeletonBytes: 68_500, // + v2.0 {{ASIDE_RESEARCH}} (web research runs in Aside; WebSearch retired); measured 67_129
     minUnionBytes: 99_700, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,833
     mustContain: ['developer experience', 'Getting Started'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -295,7 +295,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 74_200, // + v2.0 Aside-only third-party-actions contract (probe lifted from {{ASIDE_SETUP}}, /browse pointer); measured 73_531
+    maxSkeletonBytes: 75_500, // + v2.0 {{ASIDE_RESEARCH}} (web research runs in Aside; WebSearch retired); measured 74_389
     minUnionBytes: 115_800, // Phase 4 wave 4; measured union 118,175
     mustContain: ['design doc', 'problem statement'],
     maxSizeRatio: 1.12,
@@ -387,7 +387,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 58_800, // + v1.78 AUQ objectivity + v1.79 foreground-dispatch sweep (merged); measured 58_364
+    maxSkeletonBytes: 61_800, // + v2.0 {{ASIDE_RESEARCH}} (web research runs in Aside; WebSearch retired); measured 60_628
     minUnionBytes: 64_200, // token-reduction Phases 1-2 (v1.69.x branch); measured union 71,379
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
     // cso keeps its mode-dispatch + FP-filtering phases always-loaded, so the
@@ -424,7 +424,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined, // operational multi-STOP skill, like ship
     },
     behavioral: 'plan',
-    maxSkeletonBytes: 59_150, // + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 58_722
+    maxSkeletonBytes: 61_500, // + v2.0 {{ASIDE_RESEARCH}} (web research runs in Aside; WebSearch retired); measured 60_309
     minUnionBytes: 89_000, // Phase 4 wave 1; measured union 93,357
     mustContain: ['confidence', 'P1', 'P2', 'Review Army', 'adversarial'],
   },

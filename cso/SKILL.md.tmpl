@@ -23,7 +23,6 @@ allowed-tools:
   - Glob
   - Write
   - Agent
-  - WebSearch
   - AskUserQuestion
 triggers:
   - security audit
@@ -65,7 +64,15 @@ When the user types `/cso`, run this skill.
 4. `--diff` is combinable with ANY scope flag AND with `--comprehensive`.
 5. When `--diff` is active, each phase constrains scanning to files/configs changed on the current branch vs the base branch. For git history scanning (Phase 2), `--diff` limits to commits on the current branch only.
 6. Phases 0, 1, 12, 13, 14 ALWAYS run regardless of scope flag.
-7. If WebSearch is unavailable, skip checks that require it and note: "WebSearch unavailable — proceeding with local-only analysis."
+7. Web lookups (CVE advisories, OWASP references, upstream fix versions) run through Aside (Web research runs in Aside, below), one read-only request per lookup. If the Aside check did not print `READY`, skip the checks that need them and note: "Search unavailable — proceeding with local-only analysis."
+
+{{ASIDE_RESEARCH}}
+
+For this skill the queries are advisory lookups. Sanitize first: package names and versions only, never file paths, hostnames, or config values from the repo.
+
+```bash
+aside exec "Search the web for <package> <version> CVE advisories and the first fixed version. Read-only: do not sign in, submit, or change anything. Reply with up to 5 bullets, each with its source URL, then stop."
+```
 
 ---
 {{SECTION_INDEX:cso}}
