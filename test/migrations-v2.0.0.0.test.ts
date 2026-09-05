@@ -17,6 +17,13 @@
  *   - unrelated user skill with a retired name (no gstack provenance) → kept
  *   - idempotent second run: exit 0, silent
  *   - missing skills dir → exit 0
+ *
+ * And the retired engine itself (second describe): browse/dist (browse/ itself
+ * stays: it holds the live /browse skill), extension/ and browser-skills/ under
+ * the install, host runtime roots' browse/ links, ~/.gstack chromium profile +
+ * engine state files, the repo's browse.json + logs + terminal-agent records
+ * (user-authored skillify output is kept); a dead or recycled pid is never
+ * killed (argv must sit under browse/src/ or browse/dist/), a live daemon is.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
@@ -72,11 +79,11 @@ function dirWithRealSkillMd(name: string, content: string, dir: string = skillsD
 
 /** Run with the runner's env shape. Default mirrors the old explicit contract;
  *  pass `{}` plus GSTACK_INSTALL_DIR to mirror gstack-upgrade Step 4.75 exactly. */
-function run(env: Record<string, string> = { GSTACK_SKILLS_DIR: skillsDir }) {
+function run(env: Record<string, string> = { GSTACK_SKILLS_DIR: skillsDir }, cwd: string = tmpHome) {
   const r = spawnSync(MIGRATION, [], {
     env: { PATH: '/usr/bin:/bin', HOME: tmpHome, ...env },
     encoding: 'utf-8',
-    cwd: tmpHome,
+    cwd,
     timeout: 30_000,
   });
   return { code: r.status ?? -1, stdout: r.stdout || '', stderr: r.stderr || '' };
@@ -256,5 +263,156 @@ describe('v2.0.0.0 migration — retired browser-surface skills', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
     expect(r.stderr).toBe('');
+  });
+});
+
+describe('v2.0.0.0 migration — retired browse engine', () => {
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const spawned: Array<ReturnType<typeof Bun.spawn>> = [];
+  afterEach(() => { for (const p of spawned) p.kill('SIGKILL'); spawned.length = 0; });
+  /** Resolves once the child has been reaped (a killed-but-unreaped child still passes kill -0). */
+  const exited = (p: ReturnType<typeof Bun.spawn>) =>
+    Promise.race([p.exited, new Promise<'still-running'>((r) => setTimeout(() => r('still-running'), 3000))]);
+
+  /** A git repo under tmpHome with a .gstack/browse.json naming `pid`. */
+  function repoWithBrowseJson(pid: number): string {
+    const repo = path.join(tmpHome, 'repo');
+    fs.mkdirSync(path.join(repo, '.gstack'), { recursive: true });
+    spawnSync('git', ['init', '-q', repo], { timeout: 30_000 });
+    fs.writeFileSync(path.join(repo, '.gstack', 'browse.json'), JSON.stringify({ pid, port: 1, token: 'x' }));
+    return repo;
+  }
+  /** A long-lived process whose argv[0] sits under browse/dist/ like the real daemon (a symlink to sleep). */
+  function fakeDaemon(name = 'browse', dir = path.join(tmpHome, 'browse', 'dist')) {
+    fs.mkdirSync(dir, { recursive: true });
+    const bin = path.join(dir, name);
+    fs.symlinkSync('/bin/sleep', bin);
+    const p = Bun.spawn([bin, '300'], { stdout: 'ignore', stderr: 'ignore' });
+    spawned.push(p);
+    return p;
+  }
+
+  test('install + host roots + ~/.gstack shed every engine artifact; neighbours survive', () => {
+    const touch = (p: string) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'x'); return p; };
+    const gone = [
+      touch(path.join(installRoot, 'browse', 'dist', 'browse')),
+      touch(path.join(installRoot, 'extension', 'manifest.json')),
+      touch(path.join(installRoot, 'browser-skills', 'README.md')),
+      touch(path.join(tmpHome, '.gstack', 'chromium-profile', 'Default', 'Cookies')),
+      touch(path.join(tmpHome, '.gstack', 'browse-audit.jsonl')),
+      touch(path.join(tmpHome, '.gstack', 'browse-network.log')),
+      touch(path.join(tmpHome, '.gstack', 'browse-daemon.log')),
+      touch(path.join(tmpHome, '.gstack', 'tabs.json')), // terminal-agent record
+    ];
+    const kept = [
+      touch(path.join(installRoot, 'browse', 'SKILL.md')), // the live /browse skill: only dist goes
+      touch(path.join(installRoot, 'bin', 'gstack-render.ts')),
+      touch(path.join(tmpHome, '.gstack', 'browser-skills', 'mine.md')), // user-authored skillify output
+      touch(path.join(tmpHome, '.gstack', 'config.yaml')),
+      touch(path.join(tmpHome, '.gstack', 'projects', 'p', 'decisions.jsonl')),
+    ];
+    // Host runtime roots: browse/ is a real dir of links into the install's dist.
+    for (const root of ['.codex/skills/gstack', '.factory/skills/gstack', '.config/opencode/skills/gstack', '.cursor/skills/gstack', '.kiro/skills/gstack']) {
+      const r = path.join(tmpHome, root);
+      fs.mkdirSync(path.join(r, 'browse'), { recursive: true });
+      fs.symlinkSync(path.join(installRoot, 'browse', 'dist'), path.join(r, 'browse', 'dist'));
+      gone.push(path.join(r, 'browse'));
+      kept.push(touch(path.join(r, 'bin', 'gstack-config')));
+    }
+
+    const r = run({ GSTACK_INSTALL_DIR: installRoot });
+    expect(r.code).toBe(0);
+    expect(r.stderr).toBe('');
+    for (const p of gone) expect(fs.existsSync(p)).toBe(false);
+    for (const p of kept) expect(fs.existsSync(p)).toBe(true);
+    const lines = r.stdout.split('\n').filter((l) => l.includes('removed: '));
+    expect(lines.length).toBe(3 + 5 + 5); // install (dist, extension, browser-skills) + host roots + ~/.gstack entries
+    expect(r.stdout).not.toContain('hint:');
+
+    const again = run({ GSTACK_INSTALL_DIR: installRoot });
+    expect(again.code).toBe(0);
+    expect(again.stdout).toBe('');
+  });
+
+  test('repo: browse.json with a DEAD pid is removed and nothing is killed; sidecar browse links go too', () => {
+    const repo = repoWithBrowseJson(2147483000);
+    for (const root of ['.agents/skills/gstack', '.cursor/skills/gstack']) {
+      fs.mkdirSync(path.join(repo, root), { recursive: true });
+      fs.symlinkSync(path.join(installRoot, 'browse'), path.join(repo, root, 'browse'));
+    }
+    fs.writeFileSync(path.join(repo, '.gstack', 'browse-network.log'), 'x');
+    fs.mkdirSync(path.join(repo, '.gstack', 'browse-states'));
+    fs.writeFileSync(path.join(repo, '.gstack', 'terminal-agent-pid'), '{"pid":1}');
+    fs.writeFileSync(path.join(repo, '.gstack', 'qa-report.md'), 'keep');
+    fs.mkdirSync(path.join(repo, '.gstack', 'browser-skills'));
+    fs.writeFileSync(path.join(repo, '.gstack', 'browser-skills', 'mine.md'), 'keep');
+
+    const r = run({ GSTACK_INSTALL_DIR: installRoot }, repo);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).not.toContain('stopped browse daemon');
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse-network.log'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse-states'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'terminal-agent-pid'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'qa-report.md'))).toBe(true);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browser-skills', 'mine.md'))).toBe(true);
+    expect(fs.lstatSync(path.join(repo, '.agents', 'skills', 'gstack')).isDirectory()).toBe(true);
+    expect(fs.existsSync(path.join(repo, '.agents', 'skills', 'gstack', 'browse'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.cursor', 'skills', 'gstack', 'browse'))).toBe(false);
+  });
+
+  test('repo: a LIVE browse daemon named in browse.json is stopped', async () => {
+    const d = fakeDaemon();
+    const repo = repoWithBrowseJson(d.pid);
+    expect(alive(d.pid)).toBe(true);
+
+    const r = run({ GSTACK_INSTALL_DIR: installRoot }, repo);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`stopped browse daemon (PID ${d.pid})`);
+    expect(await exited(d)).not.toBe('still-running');
+    expect(alive(d.pid)).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(false);
+  });
+
+  test('a live pid that is NOT a browse daemon (recycled pid) is left alone, even with "browse" in argv', () => {
+    // Firefox's `plugin-container -isForBrowser` and Chrome's `--browser-*` flags
+    // all contain "browse"; only a browse/src/ or browse/dist/ path is ours.
+    const d = fakeDaemon('browser', tmpHome);
+    const repo = repoWithBrowseJson(d.pid);
+
+    const r = run({ GSTACK_INSTALL_DIR: installRoot }, repo);
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain('stopped browse daemon');
+    expect(alive(d.pid)).toBe(true);
+    expect(d.exitCode).toBeNull();
+    expect(fs.existsSync(path.join(repo, '.gstack', 'browse.json'))).toBe(false);
+  });
+
+  test('daemons tracked under ~/.gstack/projects/*/ and ~/.gstack/browse.json are stopped', async () => {
+    const a = fakeDaemon('browse-a');
+    const b = fakeDaemon('browse-b');
+    const proj = path.join(tmpHome, '.gstack', 'projects', 'slug', '.gstack');
+    fs.mkdirSync(proj, { recursive: true });
+    fs.writeFileSync(path.join(proj, 'browse.json'), `{"pid": ${a.pid}, "port": 1}`);
+    fs.writeFileSync(path.join(tmpHome, '.gstack', 'browse.json'), `{"pid":${b.pid}}`);
+
+    const r = run({ GSTACK_INSTALL_DIR: installRoot });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`stopped browse daemon (PID ${a.pid})`);
+    expect(r.stdout).toContain(`stopped browse daemon (PID ${b.pid})`);
+    expect(await exited(a)).not.toBe('still-running');
+    expect(await exited(b)).not.toBe('still-running');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack', 'browse.json'))).toBe(false);
+  });
+
+  test('ms-playwright cache is left in place with a one-line hint', () => {
+    const cache = path.join(tmpHome, 'Library', 'Caches', 'ms-playwright', 'chromium-1234');
+    fs.mkdirSync(cache, { recursive: true });
+    const r = run({ GSTACK_INSTALL_DIR: installRoot });
+    expect(r.code).toBe(0);
+    expect(fs.existsSync(cache)).toBe(true);
+    expect(r.stdout.split('\n').filter((l) => l.includes('hint:')).length).toBe(1);
+    expect(r.stdout).toContain('ms-playwright');
   });
 });

@@ -97,6 +97,32 @@ describe('gstack-uninstall', () => {
       expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(false);
     });
 
+    test('no daemon logic: a repo browse.json with a live pid is removed with .gstack/, the process untouched', () => {
+      const daemon = Bun.spawn(['/bin/sleep', '300'], { stdout: 'ignore', stderr: 'ignore' });
+      try {
+        fs.mkdirSync(path.join(mockGitRoot, '.gstack'), { recursive: true });
+        fs.writeFileSync(path.join(mockGitRoot, '.gstack', 'browse.json'), `{"pid":${daemon.pid},"port":1}`);
+        const result = spawnSync('bash', [UNINSTALL, '--force'], {
+          stdio: 'pipe',
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            HOME: mockHome,
+            GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+            GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+          },
+          cwd: mockGitRoot,
+        });
+        expect(result.status).toBe(0);
+        expect(result.stdout.toString()).not.toContain('browse daemon');
+        expect(fs.existsSync(path.join(mockGitRoot, '.gstack'))).toBe(false);
+        expect(() => process.kill(daemon.pid, 0)).not.toThrow();
+        expect(fs.readFileSync(UNINSTALL, 'utf-8')).not.toContain('stop_browse_daemon');
+      } finally {
+        daemon.kill('SIGKILL');
+      }
+    });
+
     test('--keep-state preserves state directory', () => {
       const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
         stdio: 'pipe',

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack-uninstall — remove gstack skills, state, and browse daemons
+# gstack-uninstall — remove gstack skills and state
 #
 # Usage:
 #   gstack-uninstall              — interactive uninstall (prompts before removing)
@@ -14,16 +14,19 @@
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
 #   ~/.cursor/skills/gstack*      — Cursor skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
-#                                   repos, installation-id, browse error logs)
+#                                   repos, installation-id, and any pre-v2 leftovers:
+#                                   chromium-profile*, browse-*.log/jsonl)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
-#   .gstack/                      — per-project browse state (in current git repo)
+#   .gstack/                      — per-project state + reports (in current git repo)
 #   .gstack-worktrees/            — per-project test worktrees (in current git repo)
 #   .agents/skills/gstack*        — Codex/Gemini sidecar (in current git repo)
 #   .cursor/skills/gstack*        — project-local Cursor skills (in current git repo)
-#   Running browse daemons        — stopped via SIGTERM before cleanup
 #
 # What is NOT REMOVED:
-#   ~/Library/Caches/ms-playwright/  — Playwright Chromium (shared, may be used by other tools)
+#   ~/Library/Caches/ms-playwright/  — Playwright Chromium (pre-v2 gstack downloaded it; other tools may still use it)
+#   a pre-v2 browse daemon that is still running from an install refreshed by a
+#     bare `git pull` (neither ./setup nor /gstack-upgrade ran the v2.0.0.0
+#     migration that stops it); run /gstack-upgrade first, or kill it by hand
 #   ~/.gstack-dev/                   — developer eval artifacts (only present in gstack contributors)
 #
 # Env overrides (for testing):
@@ -73,16 +76,10 @@ if [ "$FORCE" -eq 0 ]; then
 
   if [ -n "$_GIT_ROOT" ]; then
     [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
-    [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
+    [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
     [ -d "$_GIT_ROOT/.cursor/skills" ] && echo "  $_GIT_ROOT/.cursor/skills/gstack*"
-  fi
-
-  # Preview running daemons
-  if [ -n "$_GIT_ROOT" ] && [ -f "$_GIT_ROOT/.gstack/browse.json" ]; then
-    _PREVIEW_PID="$(awk -F'[:,]' '/"pid"/ { for(i=1;i<=NF;i++) if($i ~ /"pid"/) { gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit } }' "$_GIT_ROOT/.gstack/browse.json" 2>/dev/null || true)"
-    [ -n "$_PREVIEW_PID" ] && kill -0 "$_PREVIEW_PID" 2>/dev/null && echo "  browse daemon (PID $_PREVIEW_PID) will be stopped"
   fi
 
   printf "\nContinue? [y/N] "
@@ -94,43 +91,6 @@ if [ "$FORCE" -eq 0 ]; then
 fi
 
 REMOVED=()
-
-# ─── Stop running browse daemons ─────────────────────────────
-# Browse servers write PID to {project}/.gstack/browse.json.
-# Stop any we can find before removing state directories.
-stop_browse_daemon() {
-  local state_file="$1"
-  if [ ! -f "$state_file" ]; then
-    return
-  fi
-  local pid
-  pid="$(awk -F'[:,]' '/"pid"/ { for(i=1;i<=NF;i++) if($i ~ /"pid"/) { gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit } }' "$state_file" 2>/dev/null || true)"
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
-    # Wait up to 2s for graceful shutdown
-    local waited=0
-    while [ "$waited" -lt 4 ] && kill -0 "$pid" 2>/dev/null; do
-      sleep 0.5
-      waited=$(( waited + 1 ))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null || true
-    fi
-    REMOVED+=("browse daemon (PID $pid)")
-  fi
-}
-
-# Stop daemon in current project
-if [ -n "$_GIT_ROOT" ] && [ -f "$_GIT_ROOT/.gstack/browse.json" ]; then
-  stop_browse_daemon "$_GIT_ROOT/.gstack/browse.json"
-fi
-
-# Stop daemons tracked in global projects directory
-if [ -d "$STATE_DIR/projects" ]; then
-  while IFS= read -r _BJ; do
-    stop_browse_daemon "$_BJ"
-  done < <(find "$STATE_DIR/projects" -name browse.json -path '*/.gstack/*' 2>/dev/null || true)
-fi
 
 # ─── Remove gstack hooks from Claude Code settings ──────────
 # MUST run BEFORE any install-root deletion: SETTINGS_HOOK resolves inside the

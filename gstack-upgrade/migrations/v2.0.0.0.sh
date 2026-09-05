@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Migration: v2.0.0.0 — remove the retired browser-surface skills from every
-# installed skills tree.
+# installed skills tree, then shed the retired browse engine itself (daemon,
+# binaries, extension, browser-skills runtime, Chromium profiles).
 #
 # Why a migration: v2.0 consolidated gstack's own browser features (GStack
 # Browser, cookie import, pair-agent, browser-skills) into the Aside browser
@@ -95,6 +96,63 @@ for base in $RETIRED; do
       rm -rf "$d" && echo "  [v2.0.0.0] removed stale render: $d"
     fi
   done
+done
+
+# ── The engine itself. v2.0 deleted the browse daemon sources (browse/src,
+# browse/bin, browse/test), extension/ and browser-skills/ from the repo.
+# browse/ itself STAYS: browse/SKILL.md.tmpl is the live Aside-powered /browse
+# skill. After `git pull` the gitignored browse/dist binaries are the only
+# leftover under browse/, and every host runtime root still links to them.
+# User-authored skillify output (~/.gstack/browser-skills, <repo>/.gstack/
+# browser-skills) is inert now but not ours to delete; it is left alone.
+# Stop first: a daemon started pre-upgrade holds the old executable open.
+_pid_of() { awk -F'[:,]' '/"pid"/ { for(i=1;i<=NF;i++) if($i ~ /"pid"/) { gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit } }' "$1" 2>/dev/null; }
+_stop_daemon() {
+  local pid; pid="$(_pid_of "$1")"
+  { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; } || return 0
+  # A stale pid file whose pid was recycled by an unrelated process: never kill
+  # it. The real daemon's argv was `bun run <install>/browse/src/server.ts`
+  # (or `node .../browse/dist/server-node.mjs` on Windows), so anchor on that
+  # path: a bare `browse` would also match Firefox/Chrome helper processes
+  # (`-isForBrowser`, `--browser-*`).
+  ps -o command= -p "$pid" 2>/dev/null | grep -qE 'browse/(src|dist)/' || return 0
+  kill "$pid" 2>/dev/null || return 0
+  local i=0
+  while [ "$i" -lt 4 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.5; i=$((i + 1)); done
+  kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+  echo "  [v2.0.0.0] stopped browse daemon (PID $pid) from $1"
+}
+REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$REPO" ] && _stop_daemon "$REPO/.gstack/browse.json"
+_stop_daemon "$GH/browse.json"
+if [ -d "$GH/projects" ]; then
+  while IFS= read -r f; do _stop_daemon "$f"; done < <(find "$GH/projects" -name browse.json 2>/dev/null)
+fi
+
+_rm() { if [ -e "$1" ] || [ -L "$1" ]; then rm -rf "$1" && echo "  [v2.0.0.0] removed: $1"; fi; }
+# Everything the daemon + terminal-agent wrote into a state dir (<repo>/.gstack
+# or ~/.gstack): browse.json, browse-{console,network,dialog}.log,
+# browse-audit.jsonl, browse-daemon.log*, browse-startup-error.log,
+# browse-states/, and the terminal-agent's pid/tab/session records.
+_rm_engine_state() {
+  local f
+  for f in "$1"/browse.json "$1"/browse-* "$1"/terminal-agent-pid "$1"/tabs.json "$1"/active-tab.json "$1"/claude-available.json "$1"/session-state.json; do _rm "$f"; done
+}
+_rm "$INSTALL_DIR/browse/dist"
+for d in extension browser-skills; do _rm "$INSTALL_DIR/$d"; done
+# Host runtime roots (setup: create_*_runtime_root, Kiro block) each carry a
+# browse/ dir of links into the install's dist; the repo sidecars link browse/ whole.
+for root in "${CODEX_HOME:-$HOME/.codex}/skills/gstack" "$HOME/.factory/skills/gstack" "$HOME/.config/opencode/skills/gstack" "$HOME/.cursor/skills/gstack" "$HOME/.kiro/skills/gstack"; do
+  _rm "$root/browse"
+done
+if [ -n "$REPO" ]; then
+  for root in "$REPO/.agents/skills/gstack" "$REPO/.cursor/skills/gstack"; do _rm "$root/browse"; done
+  _rm_engine_state "$REPO/.gstack"
+fi
+_rm "$GH/chromium-profile"
+_rm_engine_state "$GH"
+for cache in "$HOME/Library/Caches/ms-playwright" "$HOME/.cache/ms-playwright"; do
+  [ -d "$cache" ] && echo "  [v2.0.0.0] hint: $cache is Playwright's Chromium download; gstack no longer uses it. Remove it if nothing else on this machine uses Playwright."
 done
 
 exit 0
