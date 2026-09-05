@@ -1,8 +1,11 @@
 /**
  * SKILL.md parser and validator.
  *
- * Extracts $B commands from code blocks, validates them against
- * the command registry and snapshot flags.
+ * Extracts `$B <command>` invocations from bash code blocks. The browse
+ * binary (`$B`) is gone: the Aside AI browser drives every page, and local
+ * HTML renders through lib/aside-render / bin/gstack-render.ts. So there is
+ * no command registry to validate against any more — EVERY `$B` occurrence
+ * is invalid and is reported with its file:line.
  *
  * Used by:
  *   - test/skill-validation.test.ts (Tier 1 static tests)
@@ -10,15 +13,8 @@
  *   - scripts/dev-skill.ts (watch mode)
  */
 
-import { ALL_COMMANDS } from '../../browse/src/commands';
-import { parseSnapshotArgs } from '../../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
-
-/** CLI-only commands: valid $B invocations that are handled by the CLI, not the server */
-const CLI_COMMANDS = new Set([
-  'status',
-]);
 
 export interface BrowseCommand {
   command: string;
@@ -28,8 +24,11 @@ export interface BrowseCommand {
 }
 
 export interface ValidationResult {
+  /** Always empty: no `$B` command is valid since the browse binary was retired. */
   valid: BrowseCommand[];
+  /** Every `$B <word>` found, with its 1-based line. */
   invalid: BrowseCommand[];
+  /** Always empty: kept so scripts/skill-check.ts and scripts/dev-skill.ts keep their shape. */
   snapshotFlagErrors: Array<{ command: BrowseCommand; error: string }>;
   warnings: string[];
 }
@@ -100,7 +99,9 @@ export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
 }
 
 /**
- * Extract and validate all $B commands in a SKILL.md file.
+ * Validate a SKILL.md: any `$B <command>` is a retired browse invocation.
+ * Returns the same shape as before so callers keep working; `valid` and
+ * `snapshotFlagErrors` are always empty.
  */
 export function validateSkill(skillPath: string): ValidationResult {
   const commands = extractBrowseCommands(skillPath);
@@ -111,28 +112,9 @@ export function validateSkill(skillPath: string): ValidationResult {
     warnings: [],
   };
 
-  if (commands.length === 0) {
-    result.warnings.push('no $B commands found');
-    return result;
-  }
-
   for (const cmd of commands) {
-    if (!ALL_COMMANDS.has(cmd.command) && !CLI_COMMANDS.has(cmd.command)) {
-      result.invalid.push(cmd);
-      continue;
-    }
-
-    // Validate snapshot flags
-    if (cmd.command === 'snapshot' && cmd.args.length > 0) {
-      try {
-        parseSnapshotArgs(cmd.args);
-      } catch (err: any) {
-        result.snapshotFlagErrors.push({ command: cmd, error: err.message });
-        continue;
-      }
-    }
-
-    result.valid.push(cmd);
+    result.invalid.push(cmd);
+    result.warnings.push(`${skillPath}:${cmd.line}: retired browse command \`${cmd.raw}\` — drive pages through Aside, render local HTML through bin/gstack-render.ts`);
   }
 
   return result;
@@ -144,7 +126,9 @@ export function validateSkill(skillPath: string): ValidationResult {
  */
 export function extractRemoteSlugPatterns(rootDir: string, subdirs: string[]): Map<string, string[]> {
   const results = new Map<string, string[]>();
-  const pattern = /^REMOTE_SLUG=\$\(.*\)$/;
+  // Accepts both the bare `REMOTE_SLUG=$(...)` form and the gstack-slug form
+  // (`eval "$(...gstack-slug)"; REMOTE_SLUG="${SLUG:-...}"`).
+  const pattern = /^(?:eval\s[^;]*;\s*)?REMOTE_SLUG=\S/;
 
   for (const subdir of subdirs) {
     const dir = path.join(rootDir, subdir);

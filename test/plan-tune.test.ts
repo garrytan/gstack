@@ -469,7 +469,6 @@ describe('preamble — QUESTION_TUNING injection', () => {
         skillRoot: '~/.claude/skills/gstack',
         localSkillRoot: '.claude/skills/gstack',
         binDir: '~/.claude/skills/gstack/bin',
-        browseDir: '~/.claude/skills/gstack/browse/dist',
         designDir: '~/.claude/skills/gstack/design/dist',
       },
       preambleTier: 2,
@@ -500,7 +499,6 @@ describe('preamble — QUESTION_TUNING injection', () => {
         skillRoot: '~/.claude/skills/gstack',
         localSkillRoot: '.claude/skills/gstack',
         binDir: '~/.claude/skills/gstack/bin',
-        browseDir: '~/.claude/skills/gstack/browse/dist',
         designDir: '~/.claude/skills/gstack/design/dist',
       },
       preambleTier: 1,
@@ -521,7 +519,6 @@ describe('preamble — QUESTION_TUNING injection', () => {
         skillRoot: '$GSTACK_ROOT',
         localSkillRoot: '.agents/skills/gstack',
         binDir: '$GSTACK_BIN',
-        browseDir: '$GSTACK_BROWSE',
         designDir: '$GSTACK_DESIGN',
       },
     };

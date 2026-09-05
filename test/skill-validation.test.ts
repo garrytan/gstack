@@ -1,8 +1,5 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { validateSkill, extractRemoteSlugPatterns, extractWeightsFromTable } from './helpers/skill-parser';
-import { ALL_COMMANDS, COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from '../browse/src/commands';
-import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
-import { RENDER_ENGINE_SKILLS } from '../scripts/resolvers/aside';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -52,7 +49,7 @@ function readShipUnion(): string {
 
 describe('SKILL.md command validation', () => {
   // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER. It carries zero
-  // browse commands — it routes, it does not browse.
+  // browser commands — it routes, it does not browse.
   test('top-level SKILL.md is a router with no browse body (P2)', () => {
     const md = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(md).toContain('## Route first');
@@ -60,38 +57,38 @@ describe('SKILL.md command validation', () => {
     expect(md).not.toContain('gstack browse: QA Testing'); // browse body removed
     const result = validateSkill(path.join(ROOT, 'SKILL.md'));
     expect(result.invalid).toHaveLength(0);
-    expect(result.valid.length).toBe(0);
   });
 
-  // Browser consolidation: every skill that opens a web page drives the Aside
-  // browser through `aside repl` / `aside exec`. The `$B` binary survives only
-  // as the local-HTML render engine, so a browsing skill's generated docs must
-  // carry ZERO `$B` commands and zero snapshot flags — not "only valid ones".
-  const BROWSING_DOCS = [
-    'browse/SKILL.md', 'qa/SKILL.md', 'qa-only/SKILL.md', 'design-review/SKILL.md',
-    'plan-design-review/SKILL.md', 'design-consultation/SKILL.md', 'autoplan/SKILL.md',
-    ...(fs.existsSync(path.join(ROOT, 'qa', 'sections'))
-      ? fs.readdirSync(path.join(ROOT, 'qa', 'sections')).filter(f => f.endsWith('.md')).map(f => `qa/sections/${f}`)
-      : []),
-  ];
-  for (const rel of BROWSING_DOCS) {
-    test(`${rel} drives Aside — zero $B commands and snapshot flags`, () => {
-      const result = validateSkill(path.join(ROOT, rel));
-      expect(result.valid).toEqual([]);
-      expect(result.invalid).toEqual([]);
-      expect(result.snapshotFlagErrors).toEqual([]);
-    });
-  }
+  // Browser consolidation: gstack has exactly one browser, the Aside AI browser
+  // (`aside repl` / `aside exec`). Local HTML renders through
+  // bin/gstack-render.ts. The `$B` browse binary is gone, so NO generated
+  // SKILL.md or sections file anywhere in the tree may invoke it.
+  test('no generated SKILL.md or sections file anywhere in the tree contains $B', () => {
+    const docs = [path.join(ROOT, 'SKILL.md')];
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const skillMd = path.join(ROOT, entry.name, 'SKILL.md');
+      if (fs.existsSync(skillMd)) docs.push(skillMd);
+      const sections = path.join(ROOT, entry.name, 'sections');
+      if (fs.existsSync(sections)) {
+        for (const f of fs.readdirSync(sections)) if (f.endsWith('.md')) docs.push(path.join(sections, f));
+      }
+    }
+    expect(docs.length).toBeGreaterThan(40); // scan-rot guard
 
-  // The render-engine skills still invoke `$B` to rasterize local HTML; every
-  // command they document must exist and every snapshot flag must parse.
-  for (const skill of RENDER_ENGINE_SKILLS) {
-    test(`${skill}/SKILL.md: every $B command is a real render-engine command`, () => {
-      const result = validateSkill(path.join(ROOT, skill, 'SKILL.md'));
-      expect(result.invalid).toEqual([]);
-      expect(result.snapshotFlagErrors).toEqual([]);
-    });
-  }
+    // `$B` as a whole token (so `$BASE_BRANCH` and `$BRANCH` do not match):
+    // catches bash invocations, backticked mentions in prose, and quoted uses.
+    const B_TOKEN = /\$B(?!\w)/;
+    const offenders: string[] = [];
+    for (const doc of docs) {
+      const rel = path.relative(ROOT, doc);
+      fs.readFileSync(doc, 'utf-8').split('\n').forEach((line, i) => {
+        if (B_TOKEN.test(line)) offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 100)}`);
+      });
+      for (const cmd of validateSkill(doc).invalid) offenders.push(`${rel}:${cmd.line}: ${cmd.raw}`);
+    }
+    expect(offenders).toEqual([]);
+  });
 
   test('autoplan section skip list includes the scope gate', () => {
     // autoplan Step 3 reads plan-eng-review / plan-design-review SKILL.md
@@ -103,104 +100,9 @@ describe('SKILL.md command validation', () => {
   });
 });
 
-describe('Command registry consistency', () => {
-  test('COMMAND_DESCRIPTIONS covers all commands in sets', () => {
-    const allCmds = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
-    const descKeys = new Set(Object.keys(COMMAND_DESCRIPTIONS));
-    for (const cmd of allCmds) {
-      expect(descKeys.has(cmd)).toBe(true);
-    }
-  });
-
-  test('COMMAND_DESCRIPTIONS has no extra commands not in sets', () => {
-    const allCmds = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
-    for (const key of Object.keys(COMMAND_DESCRIPTIONS)) {
-      expect(allCmds.has(key)).toBe(true);
-    }
-  });
-
-  test('ALL_COMMANDS matches union of all sets', () => {
-    const union = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
-    expect(ALL_COMMANDS.size).toBe(union.size);
-    for (const cmd of union) {
-      expect(ALL_COMMANDS.has(cmd)).toBe(true);
-    }
-  });
-
-  test('SNAPSHOT_FLAGS option keys are valid SnapshotOptions fields', () => {
-    const validKeys = new Set([
-      'interactive', 'compact', 'depth', 'selector',
-      'diff', 'annotate', 'outputPath', 'cursorInteractive',
-      'heatmap',
-    ]);
-    for (const flag of SNAPSHOT_FLAGS) {
-      expect(validKeys.has(flag.optionKey)).toBe(true);
-    }
-  });
-});
-
-describe('Usage string consistency', () => {
-  // Normalize a usage string to its structural skeleton for comparison.
-  // Replaces <param-names> with <>, [optional] with [], strips parenthetical hints.
-  // This catches format mismatches (e.g., <name>:<value> vs <name> <value>)
-  // without tripping on abbreviation differences (e.g., <sel> vs <selector>).
-  function skeleton(usage: string): string {
-    return usage
-      .replace(/\(.*?\)/g, '')        // strip parenthetical hints like (e.g., Enter, Tab)
-      .replace(/<[^>]*>/g, '<>')      // normalize <param-name> → <>
-      .replace(/\[[^\]]*\]/g, '[]')   // normalize [optional] → []
-      .replace(/\s+/g, ' ')           // collapse whitespace
-      .trim();
-  }
-
-  // Cross-check Usage: patterns in implementation against COMMAND_DESCRIPTIONS
-  test('implementation Usage: structural format matches COMMAND_DESCRIPTIONS', () => {
-    const implFiles = [
-      path.join(ROOT, 'browse', 'src', 'write-commands.ts'),
-      path.join(ROOT, 'browse', 'src', 'read-commands.ts'),
-      path.join(ROOT, 'browse', 'src', 'meta-commands.ts'),
-    ];
-
-    // Extract "Usage: browse <pattern>" from throw new Error(...) calls
-    const usagePattern = /throw new Error\(['"`]Usage:\s*browse\s+(.+?)['"`]\)/g;
-    const implUsages = new Map<string, string>();
-
-    for (const file of implFiles) {
-      const content = fs.readFileSync(file, 'utf-8');
-      let match;
-      while ((match = usagePattern.exec(content)) !== null) {
-        const usage = match[1].split('\\n')[0].trim();
-        const cmd = usage.split(/\s/)[0];
-        implUsages.set(cmd, usage);
-      }
-    }
-
-    // Compare structural skeletons
-    const mismatches: string[] = [];
-    for (const [cmd, implUsage] of implUsages) {
-      const desc = COMMAND_DESCRIPTIONS[cmd];
-      if (!desc) continue;
-      if (!desc.usage) continue;
-      const descSkel = skeleton(desc.usage);
-      const implSkel = skeleton(implUsage);
-      if (descSkel !== implSkel) {
-        mismatches.push(`${cmd}: docs "${desc.usage}" (${descSkel}) vs impl "${implUsage}" (${implSkel})`);
-      }
-    }
-
-    expect(mismatches).toEqual([]);
-  });
-});
-
 describe('Generated SKILL.md freshness', () => {
   test('no unresolved {{placeholders}} in generated SKILL.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const unresolved = content.match(/\{\{\w+\}\}/g);
-    expect(unresolved).toBeNull();
-  });
-
-  test('no unresolved {{placeholders}} in generated browse/SKILL.md', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
     const unresolved = content.match(/\{\{\w+\}\}/g);
     expect(unresolved).toBeNull();
   });
@@ -215,7 +117,7 @@ describe('Generated SKILL.md freshness', () => {
 
 describe('Update check preamble', () => {
   const skillsWithUpdateCheck = [
-    'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
+    'SKILL.md', 'qa/SKILL.md',
     'qa-only/SKILL.md',
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
@@ -322,8 +224,13 @@ describe('Cross-skill path consistency', () => {
       allPatterns.push(...filePatterns);
     }
 
-    // Should find at least 2 occurrences (qa/SKILL.md + review/greptile-triage.md)
+    // Should find at least 2 occurrences (review/greptile-triage.md carries two)
     expect(allPatterns.length).toBeGreaterThanOrEqual(2);
+
+    // browse/bin/remote-slug is gone. A pattern that still calls it silently
+    // falls through to basename, a different slug scheme than gstack-slug's
+    // owner-repo, and splits per-project greptile-history across two buckets.
+    for (const p of allPatterns) expect(p).not.toContain('browse/');
 
     // All occurrences must be character-for-character identical
     const unique = new Set(allPatterns);
@@ -578,7 +485,7 @@ describe('TODOS-format.md reference consistency', () => {
 
 describe('v0.4.1 preamble features', () => {
   // Tier 1 skills have core preamble only (no AskUserQuestion format)
-  const tier1Skills = ['SKILL.md', 'browse/SKILL.md', 'benchmark/SKILL.md'];
+  const tier1Skills = ['SKILL.md', 'benchmark/SKILL.md'];
 
   // Tier 2+ skills have AskUserQuestion format with RECOMMENDATION
   const tier2PlusSkills = [
@@ -780,9 +687,10 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('DESIGN.md');
   });
 
-  test('contains browse rendering', () => {
-    expect(content).toContain('$B goto');
-    expect(content).toContain('$B screenshot');
+  test('wireframes render through gstack-render (Aside), never the retired browse binary', () => {
+    expect(content).toContain('gstack-render.ts');
+    expect(content).toContain('--screenshot');
+    expect(content).not.toMatch(/\$B(?!\w)/);
   });
 
   test('contains rough aesthetic instruction', () => {
@@ -907,7 +815,7 @@ describe('Planted-bug fixture validation', () => {
   });
 
   test('qa-eval.html contains the planted bugs', () => {
-    const html = fs.readFileSync(path.join(ROOT, 'browse', 'test', 'fixtures', 'qa-eval.html'), 'utf-8');
+    const html = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'pages', 'qa-eval.html'), 'utf-8');
     // BUG 1: broken link
     expect(html).toContain('/nonexistent-404-page');
     // BUG 2: disabled submit
@@ -1116,13 +1024,13 @@ describe('Test Bootstrap ({{TEST_BOOTSTRAP}}) integration', () => {
     expect(content).toContain('100% test coverage');
   });
 
-  test('WebSearch is in allowed-tools for qa, ship, design-review', () => {
+  test('WebSearch is gone from qa, ship, design-review (web research runs in Aside)', () => {
     const qa = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
     const ship = readShipUnion();
     const qaDesign = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
-    expect(qa).toContain('WebSearch');
-    expect(ship).toContain('WebSearch');
-    expect(qaDesign).toContain('WebSearch');
+    expect(qa).not.toContain('WebSearch');
+    expect(ship).not.toContain('WebSearch');
+    expect(qaDesign).not.toContain('WebSearch');
   });
 });
 
@@ -1629,13 +1537,13 @@ describe('Codex skill', () => {
 
 describe('Skill trigger phrases', () => {
   // Skills that must have "Use when" trigger phrases in their description.
-  // Excluded: root gstack (browser tool), gstack-upgrade (gstack-specific),
+  // Excluded: root gstack (router), gstack-upgrade (gstack-specific),
   // humanizer (text tool)
   const SKILLS_REQUIRING_TRIGGERS = [
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
-    'codex', 'browse',
+    'codex', 'scrape',
   ];
 
   for (const skill of SKILLS_REQUIRING_TRIGGERS) {
@@ -1829,17 +1737,14 @@ describe('Codex skill validation', () => {
     }
   });
 
-  test('$B commands in Codex SKILL.md files are valid browse commands', () => {
-    const codexDirs = fs.readdirSync(AGENTS_DIR);
-    for (const dir of codexDirs) {
+  test('no Codex SKILL.md carries a $B command (the browse binary is retired)', () => {
+    const offenders: string[] = [];
+    for (const dir of fs.readdirSync(AGENTS_DIR)) {
       const skillMd = path.join(AGENTS_DIR, dir, 'SKILL.md');
       if (!fs.existsSync(skillMd)) continue;
-      const content = fs.readFileSync(skillMd, 'utf-8');
-      // Only validate if the skill contains $B commands
-      if (!content.includes('$B ')) continue;
-      const result = validateSkill(skillMd);
-      expect(result.invalid).toHaveLength(0);
+      for (const cmd of validateSkill(skillMd).invalid) offenders.push(`${dir}/SKILL.md:${cmd.line}: ${cmd.raw}`);
     }
+    expect(offenders).toEqual([]);
   });
 });
 

@@ -29,12 +29,10 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // behalf of tests and wedge shards just the same).
 const SCAN_ROOTS = [
   'test',
-  'browse/test',
   'design/test',
   'make-pdf/test',
   'ios-qa/daemon/test',
   'ios-qa/scripts',
-  'browser-skills',
 ];
 
 const SYNC_SPAWN = /\b(?:spawnSync|execSync|execFileSync|Bun\.spawnSync)\s*\(/;

@@ -14,7 +14,6 @@ function ctx(model: TemplateContext['model']): TemplateContext {
       skillRoot: '$GSTACK_ROOT',
       localSkillRoot: '.agents/skills/gstack',
       binDir: '$GSTACK_BIN',
-      browseDir: '$GSTACK_BROWSE',
       designDir: '$GSTACK_DESIGN',
       makePdfDir: '$GSTACK_MAKE_PDF',
     },

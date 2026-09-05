@@ -24,28 +24,25 @@ describe("setup: Apple Silicon codesign", () => {
     const forMatch = content.match(/for _bin in ([^;]+);/);
     expect(forMatch).toBeTruthy();
     const binaries = forMatch![1].trim().split(/\s+/);
-    // All four compiled binaries from `bun run build` must be covered
-    expect(binaries).toContain("browse/dist/browse");
-    expect(binaries).toContain("browse/dist/find-browse");
-    expect(binaries).toContain("design/dist/design");
-    expect(binaries).toContain("bin/gstack-global-discover");
+    // Every compiled binary from `bun run build` must be covered — and only those.
+    expect(binaries.sort()).toEqual(["bin/gstack-global-discover", "design/dist/design", "make-pdf/dist/pdf"]);
   });
 
   test("codesign block is inside the NEEDS_BUILD=1 branch", () => {
     const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     // The codesign block should appear after the build command and before the
-    // `if [ ! -x "$BROWSE_BIN" ]` guard that checks the build succeeded. The
+    // `if [ ! -x "$PDF_BIN" ]` guard that checks the build succeeded. The
     // setup script invokes the build via `bun_cmd run build` (not literal
     // `bun run build`) so the wrapper can route through asdf/volta/etc;
     // matching the wrapped form keeps this test stable across that indirection.
     const buildIdx = content.indexOf("bun_cmd run build");
     const codesignIdx = content.indexOf("codesign --remove-signature");
-    const browseCheckIdx = content.indexOf(
-      "gstack setup failed: browse binary missing",
+    const pdfCheckIdx = content.indexOf(
+      "gstack setup failed: make-pdf binary missing",
     );
     expect(buildIdx).toBeGreaterThan(-1);
     expect(codesignIdx).toBeGreaterThan(buildIdx);
-    expect(browseCheckIdx).toBeGreaterThan(codesignIdx);
+    expect(pdfCheckIdx).toBeGreaterThan(codesignIdx);
   });
 
   test("codesign block is idempotent (skips missing binaries)", () => {

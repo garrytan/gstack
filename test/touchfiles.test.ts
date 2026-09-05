@@ -24,13 +24,13 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 describe('matchGlob', () => {
   test('** matches any depth of path segments', () => {
-    expect(matchGlob('browse/src/commands.ts', 'browse/src/**')).toBe(true);
-    expect(matchGlob('browse/src/deep/nested/file.ts', 'browse/src/**')).toBe(true);
-    expect(matchGlob('browse/src/cli.ts', 'browse/src/**')).toBe(true);
+    expect(matchGlob('lib/diagram-render/render.ts', 'lib/diagram-render/**')).toBe(true);
+    expect(matchGlob('lib/diagram-render/deep/nested/file.ts', 'lib/diagram-render/**')).toBe(true);
+    expect(matchGlob('lib/diagram-render/README.md', 'lib/diagram-render/**')).toBe(true);
   });
 
   test('** does not match unrelated paths', () => {
-    expect(matchGlob('browse/src/commands.ts', 'qa/**')).toBe(false);
+    expect(matchGlob('lib/diagram-render/render.ts', 'qa/**')).toBe(false);
     expect(matchGlob('review/SKILL.md', 'qa/**')).toBe(false);
   });
 

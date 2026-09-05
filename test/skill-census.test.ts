@@ -18,12 +18,12 @@ describe('skillCensus', () => {
   it('physicalSkillFiles includes the root router and authored skill dirs', () => {
     expect(census.physicalSkillFiles).toContain('SKILL.md');
     expect(census.physicalSkillFiles).toContain('qa/SKILL.md');
-    expect(census.physicalSkillFiles).toContain('browse/SKILL.md');
+    expect(census.physicalSkillFiles).toContain('scrape/SKILL.md');
   });
 
   it('authoredSkills lists real skill dirs and excludes the root router', () => {
     expect(census.authoredSkills).toContain('qa');
-    expect(census.authoredSkills).toContain('browse');
+    expect(census.authoredSkills).toContain('scrape');
     // Root router is not an authored skill; its dir entry would be '' anyway.
     for (const name of census.authoredSkills) expect(name.length).toBeGreaterThan(0);
   });
@@ -31,7 +31,7 @@ describe('skillCensus', () => {
   it('registryEntries carries the root alias and collapses shared frontmatter names', () => {
     expect(census.registryEntries).toContain('_gstack-command');
     expect(
-      census.registryEntries.filter((n) => n === 'browse'),
+      census.registryEntries.filter((n) => n === 'scrape'),
     ).toHaveLength(1);
   });
 
@@ -47,8 +47,8 @@ describe('skillCensus', () => {
   it('frontmatterName mirrors setup: first ^name: line, whitespace stripped', () => {
     const qa = frontmatterName(path.join(ROOT, 'qa', 'SKILL.md'));
     expect(qa).toBe('qa');
-    const browse = frontmatterName(path.join(ROOT, 'browse', 'SKILL.md'));
-    expect(browse).toBe('browse');
+    const scrape = frontmatterName(path.join(ROOT, 'scrape', 'SKILL.md'));
+    expect(scrape).toBe('scrape');
     expect(frontmatterName(path.join(ROOT, 'no-such-dir', 'SKILL.md'))).toBe('');
   });
 

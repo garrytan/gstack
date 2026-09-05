@@ -10,8 +10,7 @@
  * (dangling symlinks into a deleted render dir).
  *
  * The pattern is: save the original, assign in beforeAll, restore in
- * afterAll — confining the value to the file's execution window. See
- * browse/test/cdp-e2e.test.ts for the reference shape.
+ * afterAll — confining the value to the file's execution window.
  *
  * Heuristic: repo test files write module-scope statements unindented, so a
  * column-0 assignment is module scope; indented assignments (inside hooks,
@@ -29,7 +28,9 @@ function trackedTestFiles(): string[] {
     cwd: ROOT, encoding: 'utf-8', timeout: 30_000,
   });
   if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
-  return out.stdout.split('\n').filter(Boolean);
+  // The index can still list a file deleted from the working tree (a pending
+  // `git rm`); scan only what exists on disk.
+  return out.stdout.split('\n').filter(Boolean).filter((rel) => fs.existsSync(path.join(ROOT, rel)));
 }
 
 describe('GSTACK_HOME module-scope tripwire', () => {

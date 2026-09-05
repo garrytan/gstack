@@ -116,64 +116,42 @@ describe('extractBrowseCommands', () => {
 });
 
 describe('validateSkill', () => {
-  test('valid commands pass validation', () => {
-    const p = writeFixture('valid.md', [
+  test('every $B invocation is a retired browse command: invalid, reported with file:line', () => {
+    const p = writeFixture('retired.md', [
+      '# Skill',
       '```bash',
       '$B goto https://example.com',
-      '$B text',
-      '$B click @e3',
-      '$B snapshot -i -a',
+      'echo ok',
+      '$B snapshot -i',
       '```',
     ].join('\n'));
     const result = validateSkill(p);
-    expect(result.valid).toHaveLength(4);
-    expect(result.invalid).toHaveLength(0);
+    expect(result.valid).toHaveLength(0);
     expect(result.snapshotFlagErrors).toHaveLength(0);
+    expect(result.invalid.map(c => [c.command, c.line])).toEqual([['goto', 3], ['snapshot', 5]]);
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings[0]).toContain(`${p}:3`);
+    expect(result.warnings[0]).toContain('retired browse command');
+    expect(result.warnings[0]).toContain('Aside');
   });
 
-  test('invalid commands flagged in result', () => {
-    const p = writeFixture('invalid.md', [
+  test('a skill with no $B is clean: nothing invalid, no warnings', () => {
+    const p = writeFixture('clean.md', [
+      '# Nothing here',
       '```bash',
-      '$B goto https://example.com',
-      '$B explode',
-      '$B halp',
+      'aside repl \'console.log("ASIDE_READY " + pwd)\'',
       '```',
     ].join('\n'));
-    const result = validateSkill(p);
-    expect(result.valid).toHaveLength(1);
-    expect(result.invalid).toHaveLength(2);
-    expect(result.invalid[0].command).toBe('explode');
-    expect(result.invalid[1].command).toBe('halp');
+    expect(validateSkill(p)).toEqual({ valid: [], invalid: [], snapshotFlagErrors: [], warnings: [] });
   });
 
-  test('snapshot flags validated via parseSnapshotArgs', () => {
-    const p = writeFixture('bad-snapshot.md', [
+  test('$BASE_BRANCH and other $B-prefixed variables are not $B commands', () => {
+    const p = writeFixture('vars.md', [
       '```bash',
-      '$B snapshot --bogus',
+      'git diff $BASE_BRANCH...HEAD',
+      'echo "$BRANCH"',
       '```',
     ].join('\n'));
-    const result = validateSkill(p);
-    expect(result.snapshotFlagErrors).toHaveLength(1);
-    expect(result.snapshotFlagErrors[0].error).toContain('Unknown snapshot flag');
-  });
-
-  test('returns warning when no $B commands found', () => {
-    const p = writeFixture('empty.md', '# Nothing here\n');
-    const result = validateSkill(p);
-    expect(result.warnings).toContain('no $B commands found');
-  });
-
-  test('valid snapshot flags pass', () => {
-    const p = writeFixture('snap-valid.md', [
-      '```bash',
-      '$B snapshot -i -a -C -o /tmp/out.png',
-      '$B snapshot -D',
-      '$B snapshot -d 3',
-      '$B snapshot -s "main"',
-      '```',
-    ].join('\n'));
-    const result = validateSkill(p);
-    expect(result.valid).toHaveLength(4);
-    expect(result.snapshotFlagErrors).toHaveLength(0);
+    expect(validateSkill(p).invalid).toHaveLength(0);
   });
 });

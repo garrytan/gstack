@@ -13,7 +13,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
-  ROOT, browseBin, runId, evalsEnabled,
+  ROOT, runId, evalsEnabled,
   describeIfSelected, testConcurrentIfSelected,
   logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,

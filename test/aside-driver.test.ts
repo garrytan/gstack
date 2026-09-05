@@ -4,14 +4,15 @@
  *
  * gstack's browser features (headless browse skill, GStack Browser, pair-agent,
  * cookie import, browser-skills runtime) were consolidated into the Aside AI
- * browser. Every skill that opens a web page carries the Aside contract, and
- * `$B` (the browse render engine) may appear only in the render-engine skills.
+ * browser. Every skill that opens a web page carries the Aside contract. The
+ * `$B` browse binary is gone: local HTML renders through bin/gstack-render.ts,
+ * so `$B` may appear in NO skill.
  * These pins keep both facts true as templates evolve.
  */
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { generateAsideSetup, generateAsideCookbook, ASIDE_LOCAL_HOST_RULE, RENDER_ENGINE_SKILLS } from '../scripts/resolvers/aside';
+import { generateAsideSetup, generateAsideCookbook, ASIDE_LOCAL_HOST_RULE } from '../scripts/resolvers/aside';
 import { RESOLVERS } from '../scripts/resolvers/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -119,13 +120,12 @@ describe('browser consolidation tripwires', () => {
     }
   });
 
-  test('`$B` browsing is gone: only render-engine skills may invoke the browse binary', () => {
+  test('`$B` is gone from every generated skill doc, allowlist or not', () => {
     const offenders: string[] = [];
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       const skillMd = path.join(ROOT, entry.name, 'SKILL.md');
       if (!fs.existsSync(skillMd)) continue;
-      if (RENDER_ENGINE_SKILLS.includes(entry.name)) continue;
       const files = [skillMd];
       const sections = path.join(ROOT, entry.name, 'sections');
       if (fs.existsSync(sections)) {
@@ -133,7 +133,10 @@ describe('browser consolidation tripwires', () => {
       }
       for (const f of files) {
         const body = fs.readFileSync(f, 'utf-8');
-        if (/\$B\s+[a-z-]+/.test(body) || body.includes('{{BROWSE_SETUP}}') || body.includes('## SETUP (run this check BEFORE any browse command)')) {
+        // `$B` as a whole token: `$BASE_BRANCH` is fine, `$B goto` and a backticked `$B` are not.
+        // browse/ survives only as the Aside-driven /browse skill dir: its dist/, bin/ (remote-slug)
+        // and src/ are gone, so any path into them is a dead reference.
+        if (/\$B(?!\w)/.test(body) || /browse\/(dist|bin|src)\b/.test(body) || body.includes('{{BROWSE_SETUP}}') || body.includes('## SETUP (run this check BEFORE any browse command)')) {
           offenders.push(path.relative(ROOT, f));
         }
       }

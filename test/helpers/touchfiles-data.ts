@@ -23,11 +23,11 @@
 export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Aside-driven browsing skills — live E2E against the Aside AI browser
   // (test/skill-e2e-aside.test.ts self-skips without a running Aside)
-  'aside-browse-basic':  ['browse/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
-  'aside-browse-flow':   ['browse/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/forms.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
-  'aside-qa-quick':      ['qa/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
-  'aside-scrape-json':   ['scrape/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
-  'aside-canary-quick':  ['canary/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'browse/test/fixtures/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-browse-basic':  ['browse/**', 'scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/fixtures/pages/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-browse-flow':   ['browse/**', 'scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/fixtures/pages/forms.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-qa-quick':      ['qa/**', 'scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/fixtures/pages/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-scrape-json':   ['scrape/**', 'scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/fixtures/pages/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
+  'aside-canary-quick':  ['canary/**', 'scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/fixtures/pages/basic.html', 'test/helpers/aside-available.ts', 'test/skill-e2e-aside.test.ts'],
 
   // Hermetic isolation canaries (hermetic-env.ts is also a GLOBAL touchfile;
   // these entries exist so the canaries themselves stay tier-classified)
@@ -43,11 +43,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // QA — drives the Aside browser (+ test-server dependency). The planted-bug
   // evals hand the agent the Aside contract directly, not qa/, so they track
   // the resolver rather than the skill dir.
-  'qa-quick':       ['qa/**', 'scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
-  'qa-b6-static':   ['scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
-  'qa-b7-spa':      ['scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
-  'qa-b8-checkout': ['scripts/resolvers/aside.ts', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
-  'qa-only-no-fix': ['qa-only/**', 'qa/templates/**', 'scripts/resolvers/aside.ts', 'scripts/resolvers/utility.ts', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
+  'qa-quick':       ['qa/**', 'scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
+  'qa-b6-static':   ['scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/helpers/llm-judge.ts', 'test/fixtures/pages/qa-eval.html', 'test/fixtures/qa-eval-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
+  'qa-b7-spa':      ['scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/helpers/llm-judge.ts', 'test/fixtures/pages/qa-eval-spa.html', 'test/fixtures/qa-eval-spa-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
+  'qa-b8-checkout': ['scripts/resolvers/aside.ts', 'test/helpers/test-server.ts', 'test/helpers/llm-judge.ts', 'test/fixtures/pages/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts'],
+  'qa-only-no-fix': ['qa-only/**', 'qa/templates/**', 'scripts/resolvers/aside.ts', 'scripts/resolvers/utility.ts', 'test/helpers/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
   'qa-fix-loop':    ['qa/**', 'scripts/resolvers/aside.ts', 'test/skill-e2e-qa-workflow.test.ts'],
   'qa-bootstrap':   ['qa/**', 'ship/**', 'test/skill-e2e-qa-workflow.test.ts'],
 
@@ -301,10 +301,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-design-review-no-ui-scope': ['plan-design-review/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
   'design-review-fix':              ['design-review/**', 'scripts/resolvers/aside.ts', 'scripts/resolvers/design.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
 
-  // /diagram (diagram-render bundle consumers). Triplet = deterministic
-  // functional (gate); authoring quality = LLM-judged benchmark (periodic).
-  'diagram-triplet':            ['diagram/**', 'lib/diagram-render/**', 'browse/src/write-commands.ts', 'browse/src/read-commands.ts', 'test/skill-e2e-diagram.test.ts'],
-  'diagram-authoring-quality':  ['diagram/**', 'lib/diagram-render/**', 'test/helpers/llm-judge.ts', 'test/skill-e2e-diagram.test.ts'],
+  // /diagram renders its triplet through gstack-render (lib/aside-render.ts +
+  // bin/gstack-render.ts) in the Aside browser, so both keys track the renderer
+  // and the Aside probe; the file self-skips without a live Aside.
+  'diagram-triplet':            ['diagram/**', 'lib/diagram-render/**', 'lib/aside-render.ts', 'bin/gstack-render.ts', 'test/helpers/aside-available.ts', 'test/skill-e2e-diagram.test.ts'],
+  'diagram-authoring-quality':  ['diagram/**', 'lib/diagram-render/**', 'lib/aside-render.ts', 'bin/gstack-render.ts', 'test/helpers/aside-available.ts', 'test/helpers/llm-judge.ts', 'test/skill-e2e-diagram.test.ts'],
 
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**', 'test/skill-e2e-workflow.test.ts'],
@@ -686,8 +687,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-design-review-no-ui-scope': 'gate',
   'design-review-fix': 'periodic',
 
-  // /diagram — triplet is deterministic functional, judge is a quality benchmark
-  'diagram-triplet': 'gate',
+  // /diagram — both render through the Aside browser (external app, no CI
+  // runner: tiering rule 3), so both are periodic; the file self-skips
+  // without a live Aside. The triplet stays a deterministic contract check.
+  'diagram-triplet': 'periodic',
   'diagram-authoring-quality': 'periodic',
 
   // gstack-upgrade

@@ -27,7 +27,6 @@ function makeCtx(explainLevel?: 'default' | 'terse', tier: number = 4): Template
       skillRoot: '~/.claude/skills/gstack',
       localSkillRoot: '.claude/skills',
       binDir: '~/.claude/skills/gstack/bin',
-      browseDir: '~/.claude/skills/gstack/browse/dist',
       designDir: '~/.claude/skills/gstack/design/dist',
       makePdfDir: '~/.claude/skills/gstack/make-pdf/dist',
     },

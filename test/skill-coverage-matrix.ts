@@ -63,7 +63,7 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   browse: {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-aside.test.ts'],
-    rationale: '/browse drives the Aside browser; the live E2E (aside-browse-basic / aside-browse-flow) needs a running Aside, so it is periodic. The render-engine binary keeps its own suite under browse/test/.',
+    rationale: '/browse drives the Aside browser; the live E2E (aside-browse-basic / aside-browse-flow) needs a running Aside, so it is periodic. Local-HTML rendering (lib/aside-render.ts, bin/gstack-render.ts) is a library, covered by test/aside-render.test.ts, not a skill test.',
   },
   spec: {
     gate: [
@@ -137,9 +137,9 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'design-shotgun': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-html': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   diagram: {
-    gate: ['test/skill-e2e-diagram.test.ts', 'test/skill-coverage-floor.test.ts'],
+    gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-diagram.test.ts'],
-    rationale: 'Triplet contract is gate-tier deterministic; authoring-quality judge is periodic (E2E_TIERS: diagram-triplet/diagram-authoring-quality).',
+    rationale: 'Both diagram E2E keys (diagram-triplet, diagram-authoring-quality) render through gstack-render in a live Aside, so the file is periodic and self-skips without one; the renderer itself is pinned free by test/aside-render.test.ts.',
   },
   cso: {
     gate: ['test/skill-e2e-cso.test.ts', 'test/cso-preserved.test.ts', 'test/skill-coverage-floor.test.ts'],
@@ -206,6 +206,10 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   guard: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'landing-report': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   health: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
-  'make-pdf': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  'make-pdf': {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'make-pdf is a binary with its own free suite under make-pdf/test/ (print pipeline via lib/aside-render.ts); the skill doc is structure-checked by the floor.',
+  },
   'devex-review': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
 };

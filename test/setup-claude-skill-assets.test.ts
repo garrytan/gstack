@@ -15,7 +15,7 @@
  *     runtime reads against the flattened alias — a miss is a broken skill.
  *   - Class 2 (repo-anchored): a `~/.claude/skills/gstack/<relpath>`
  *     reference must exist in the source tree, EXCEPT built artifacts
- *     (browse/dist, design/dist, make-pdf/dist, the compiled
+ *     (design/dist, make-pdf/dist, the compiled
  *     bin/gstack-global-discover) — the free suite never builds binaries, so
  *     a naive "every path exists" either false-fails on dist or gets watered
  *     down to uselessness.
@@ -31,7 +31,6 @@ const SETUP_SRC = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
 /** Built-at-setup artifacts: allowed to be absent from a fresh clone. */
 const BUILT_ARTIFACT_ALLOWLIST = [
-  'browse/dist/',
   'design/dist/',
   'make-pdf/dist/',
   'bin/gstack-global-discover', // compiled from bin/gstack-global-discover.ts at build time

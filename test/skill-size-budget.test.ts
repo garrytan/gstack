@@ -186,7 +186,7 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     // - browse: the baseline measured the headless-browse skill with its ~17 KB
     //   $B command reference + snapshot-flag tables. /browse now drives the
     //   Aside browser and carries the Aside contract instead (~23.9 KB, x0.58);
-    //   the command tables belong to the render-engine binary, not a skill doc.
+    //   the command tables went with the retired browse daemon.
     const INTENTIONAL_SHRINKS = new Set<string>([
       'spec',
       'scrape', 'diagram', 'landing-report',

@@ -2,9 +2,9 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
-  ROOT, browseBin, runId, evalsEnabled, selectedTests,
+  ROOT, runId, evalsEnabled, selectedTests,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { extractSkillSections, REVIEW_E2E_SECTIONS } from './helpers/skill-fixture';

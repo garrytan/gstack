@@ -74,7 +74,7 @@ function installSkills(tmpDir: string) {
     '', // root gstack SKILL.md
     'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review',
     'plan-design-review', 'design-review', 'design-consultation', 'retro',
-    'document-release', 'investigate', 'office-hours', 'browse', 'setup-browser-cookies',
+    'document-release', 'investigate', 'office-hours', 'browse',
     'gstack-upgrade', 'humanizer',
   ];
 
