@@ -72,11 +72,11 @@ const queryTokens = queryRaw.split(/\s+/).filter(Boolean);
 const scoreTokens = Array.from(new Set(queryTokens));
 
 // #2762: word-boundary containment, used for RELEVANCE only (never for recall).
-// Hand-rolled rather than a RegExp because building one from caller input needs
-// the standard escape idiom, and that idiom requires a literal dollar sign --
-// which cannot appear in this block, since the whole thing is a double-quoted
-// bash string. (Backslash escapes are fine here and this file already uses
-// them; the dollar sign is the constraint.) Hyphens, dots and slashes are all
+// Hand-rolled rather than a RegExp so that no pattern is ever built from caller
+// input: indexOf cannot backtrack, so a hostile query cannot turn scoring into a
+// ReDoS, and there is no escape idiom to get wrong. (The real constraint on this
+// block is command substitution -- keep backticks and dollar-paren out of it, as
+// the comment further down already says.) Hyphens, dots and slashes are all
 // separators, so hyphenated keys and file paths yield their individual words.
 function isWordChar(c) {
   // Case-folding identifies letters without a character-class escape: a letter
