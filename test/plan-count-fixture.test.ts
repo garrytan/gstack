@@ -168,6 +168,7 @@ try {
         { name: 'design-direct', skillName: 'plan-design-review', prompt: PROMPT, mode: 'direct-finding' },
         { name: 'design-batched', skillName: 'plan-design-review', prompt: PROMPT, mode: 'batched-finding' },
         { name: 'failed-native', skillName: 'plan-design-review', prompt: PROMPT, mode: 'failed-call' },
+        { name: 'permission-lifecycle', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission-lifecycle' },
         { name: 'permission', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission' },
         { name: 'missing-transcript', skillName: 'plan-design-review', prompt: PROMPT, mode: 'missing-transcript' },
         { name: 'ceo', skillName: 'plan-ceo-review', prompt: '# Independent CEO plan\nUnique product context.', mode: 'complete' },
@@ -245,6 +246,10 @@ let firstInput = true;
 let completion;
 let question = 0;
 let selected = '';
+let permissionStage = 'first';
+const filePermission = () => '\nDo you want to make this edit to gstack-test-plan-design.md?\n' +
+  '❯1.Yes\n2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)forthissession;Yes,and\n' +
+  'alwaysallowaccessto/tmp/fixtureforthissession\n3.No\nEsctocancel·Tabtoamend\n';
 process.stdin.on('data', (data) => {
   const input = data.toString('utf8');
   record({ type: 'input', data: input });
@@ -311,6 +316,35 @@ process.stdin.on('data', (data) => {
         answer();
         process.stdout.write('\nGSTACK REVIEW REPORT\n');
       }
+      return;
+    }
+    if (process.env.FIXTURE_MODE === 'permission-lifecycle' && input.includes('\r')) {
+      if (permissionStage === 'first') {
+        record({ type: 'permission-grant', number: 1, input });
+        permissionStage = 'pending';
+        process.stdout.write(filePermission()); // Same pending menu, appended redraw.
+        completion = setTimeout(() => {
+          permissionStage = 'completed';
+          process.stdout.write('\n⎿ Wrote320linesto../fixture/gstack-test-plan-design.md\n' + '·'.repeat(1600));
+          completion = setTimeout(() => {
+            permissionStage = 'second';
+            process.stdout.write(filePermission()); // New request, identical file/text.
+          }, 4500);
+        }, 4500);
+      } else if (permissionStage === 'second') {
+        record({ type: 'permission-grant', number: 2, input });
+        permissionStage = 'question';
+        process.stdout.write('\n⎿ Added2lines\n');
+        ask([questionMetadata('File policy', 'Do you want to create gstack-test-plan-design.md?', ['Yes', 'No'])]);
+        process.stdout.write('\n☐ File policy\nDo you want to create gstack-test-plan-design.md?\n❯1.Yes\n2.No\n' +
+          'Enter to select · ↑/↓ to navigate · Esc to cancel\n');
+      } else if (permissionStage === 'question') {
+        record({ type: 'file-policy-answer', input });
+        native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Your question has been answered.' }],
+          { toolUseResult: { answers: { [nativeQuestions[0].question]: input.startsWith('2') ? 'No' : 'Yes' } } });
+        permissionStage = 'done';
+        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      } else record({ type: 'unexpected-permission-input', stage: permissionStage, input });
       return;
     }
     if (process.env.FIXTURE_MODE === 'permission' && input.includes('\r')) {
@@ -381,6 +415,10 @@ process.stdin.on('data', (data) => {
     process.stdout.write('\r☐ Setup\rWhich fixture setup should be used?\r❯1.First setup\r2.Second setup\r');
     return;
   }
+  if (process.env.FIXTURE_MODE === 'permission-lifecycle') {
+    process.stdout.write(filePermission());
+    return;
+  }
   if (process.env.FIXTURE_MODE === 'permission') {
     process.stdout.write('\rDo you want to create PLAN.md?\r❯1.Yes\r2.Yes, and switch to accept edits\r3.No\r');
     return;
@@ -424,7 +462,7 @@ const results = await Promise.all(cases.map(async (item) => ({
     pickAUQ: ['late-mode', 'batched-mode'].includes(item.mode) ? devexReviewModePick
       : item.custom ? fp => fp.promptSnippet.includes('routing-proof-after-240') ? 1 : null : undefined,
     reviewCountCeiling: 8,
-    timeoutMs: 15000,
+    timeoutMs: item.mode === 'permission-lifecycle' ? 22000 : 15000,
     firstAUQPick: () => ['late-mode', 'batched-mode'].includes(item.mode) ? 1 : 2,
     env: {
       FIXTURE_RECORD: item.record, FIXTURE_SKILL: item.skillName, FIXTURE_MODE: item.mode,
@@ -487,6 +525,7 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           expect(startup.sections).toBe(fs.readFileSync(path.join(ROOT, item.skillName, 'sections/review-sections.md'), 'utf8'));
           expect(events.filter((event) => event.type === 'input').map((event) => event.data).join(''))
             .toBe(`/${item.skillName}\r` + (item.mode === 'prerequisite' ? `${item.custom ? 1 : 2}\r${item.skipIndex}\r`
+              : item.mode === 'permission-lifecycle' ? '1\r1\r2\r'
               : item.mode === 'damaged-submit' ? '\x1b[Z2\r\r'
               : item.mode === 'batched-finding' ? '2\r1\r' : item.mode === 'batched-mode' ? '1\r'
               : ['direct-finding', 'failed-call', 'permission', 'late-mode', 'damaged-menu'].includes(item.mode) ? '2\r' : ''));
@@ -519,6 +558,15 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           if (item.mode === 'failed-call') {
             expect(result.observation.transcript.calls[0].failure).toContain('is_error');
             expect(result.observation.transcript.calls[0].answered).toBe(false);
+          }
+          if (item.mode === 'permission-lifecycle') {
+            expect(events.filter(event => event.type === 'unexpected-permission-input')).toEqual([]);
+            expect(events.filter(event => event.type === 'permission-grant').map(event => event.input)).toEqual(['1\r', '1\r']);
+            expect(events.filter(event => event.type === 'file-policy-answer').map(event => event.input)).toEqual(['2\r']);
+            expect(result.observation.step0Count).toBe(1);
+            expect(result.observation.reviewCount).toBe(0);
+            expect(result.observation.transcript.calls).toHaveLength(1);
+            expect(result.observation.transcript.calls[0].answers['Do you want to create gstack-test-plan-design.md?']).toBe('No');
           }
           if (['permission', 'missing-transcript'].includes(item.mode)) {
             expect(result.observation.reviewCount).toBe(0);

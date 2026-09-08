@@ -5,21 +5,36 @@ export function autoplanRoutingSetupInput(visible: string, seen: Set<string>): s
   const question = capturePlanCountQuestion(visible, seen, 0, true);
   if (!question) return null;
 
-  // Live captures vary in wording and can lose characters from the qid.
-  // Require an explicit CLAUDE.md skill-routing setup question plus both
-  // named setup actions; a routing qid or a generic recommendation alone
-  // cannot authorize answering a review/taste question.
-  const prompt = question.promptSnippet.replace(/\s+/g, '');
-  if (!/gstackworksbestwhenyourproject['’]sCLAUDE\.mdincludesskillroutingrules\.Addthemnow\?/i.test(prompt) &&
-      !/Addgstackskillroutingrulesto(?:thisproject['’]s)?CLAUDE\.md\?/i.test(prompt)) {
-    return null;
-  }
+  // The model rephrases the setup question's closing sentence. Its routing
+  // identity/premise and two opposed setup actions establish what is being
+  // asked; an exact "Add them now?" sentence is not a stable interface.
+  // Keep the actual question/premise separate from its header and later ELI10
+  // prose, which may mention CLAUDE.md even on an unrelated question.
+  const primary = question.promptSnippet.replace(/^(?:Routing\s*rules|CLAUDE\.md)\s*/i, '').split('?', 1)[0]!;
+  const prompt = primary.replace(/\s+/g, '');
   const options = question.options.map(option => ({
     index: option.index,
     title: option.label.split(/[│┌\r\n]/, 1)[0]!.replace(/\s+/g, ''),
   }));
-  const add = options.find(option => /^Add(?:routingrules(?:toCLAUDE\.md)?|toCLAUDE\.md)(?:\(Recommended\))?$/i.test(option.title));
-  const decline = options.find(option => /^(?:Nothanks(?:,manual|,I['’]llinvokeskillsmanually)?|Skip[—–-]invoke(?:skills)?manually)(?:\(Recommended\))?$/i.test(option.title));
-  if (!add || !decline) return null;
-  return `${add.index}\r`;
+  const add = options.filter(option => /^Add(?:routingrules(?:toCLAUDE\.md)?|toCLAUDE\.md)(?:\(Recommended\))?$/i.test(option.title));
+  // Match the declined setup action, not every English label separately:
+  // No thanks/Skip may stand alone or opt into manual invocation. A manual
+  // migration, deletion, or unrelated workflow is not the opposed action.
+  const decline = options.filter(option => {
+    const title = option.title.replace(/\(Recommended\)$/i, '');
+    const prefix = /^(?:Nothanks|Skip)(?:[,—–-])?/i.exec(title);
+    if (!prefix) return false;
+    const action = title.slice(prefix[0].length);
+    return action === '' || /^(?:manual(?:invocation)?|(?:I['’]ll)?invoke(?:skills)?manually)$/i.test(action);
+  });
+  if (add.length !== 1 || decline.length !== 1 || add[0]!.index === decline[0]!.index) return null;
+  const routingId = /<gstack-qid:routing-injection>/i.test(question.promptSnippet);
+  const routingPremise = /gstack/i.test(prompt) && /CLAUDE\.md/i.test(prompt) && /skillroutingrules/i.test(prompt);
+  // A qid can replace the longer premise, but cannot override a question
+  // about a different target. The Add action and question must agree on
+  // project setup rather than a product routing or taste decision.
+  const claudeTarget = /CLAUDE\.md/i.test(prompt);
+  const quotedPremise = /\b(?:plan|spec|document)\s+(?:quotes?|cites?|references?)\b/i.test(primary);
+  if (!claudeTarget || quotedPremise || (!routingId && !routingPremise)) return null;
+  return `${add[0]!.index}\r`;
 }

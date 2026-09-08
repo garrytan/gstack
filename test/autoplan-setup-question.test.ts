@@ -43,7 +43,80 @@ const CURRENT_CAPTURE = [
   'Entertoselect·↑/↓tonavigate·Esctocancel',
 ].join('\n');
 
+// Targeted-b's first attempt stayed on this complete setup menu until its
+// 15-minute deadline. The parser retained the prompt and both labels, but
+// the setup selector rejected "No thanks, invoke manually".
+const B_CAPTURE = [
+  ' ☐ CLAUDE.md',
+  '',
+  '│ D1 — Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>',
+  '│',
+  '│ELI10:ThisprojecthasnoCLAUDE.md.Thatfileiswheregstacklooksforroutingrules—instructionstellingClaude',
+  '│Codewhichskilltoauto-invokeforwhichrequest(e.g."ship→/ship","bugs→/investigate").Withoutityoutype',
+  '│theskillnameeverytime.Withit,gstackcanrecognizeyourintentandrouteautomatically.',
+  '│',
+  '│Stakesifweskip:Noauto-routing;youinvokeskillsmanuallyeachsession.',
+  '│',
+  '│Recommendation:A—one-timesetup,saveskeystrokesoneveryfuturesession.',
+  '│Completeness:A=9/10,B=5/10',
+  '',
+  '❯1.AddroutingrulestoCLAUDE.md(Recommended)',
+  'AppendsthestandardgstackroutingblocktoanewCLAUDE.mdandcommitsit.Doneonce,activeforever.',
+  '2.Nothanks,invokemanually',
+  'SkipCLAUDE.mdsetup.Youcontinuecalling/autoplan,/ship,/qa,etc.bynameeachtime.',
+  '3.Typesomething.',
+  '─'.repeat(120),
+  '4.Chataboutthis',
+  'Entertoselect·↑/↓tonavigate·Esctocancel',
+].join('\r\r');
+
+// Fresh broad retry: the complete setup menu uses a noun for the manual
+// alternative. This is the same opposed setup action as "invoke manually".
+const FRESH_RETRY_CAPTURE = [
+  '☐Routingsetup',
+  "│gstackworksbestwhenyourproject'sCLAUDE.mdincludesskillroutingrules.Addthemnow?",
+  '❯1.Addroutingrules(Recommended)',
+  'AppendskillroutingrulestoCLAUDE.mdsoClaudeautomaticallyinvokestherightskillforproduct,engineering,',
+  'design,andshipworkflows.Willbedoneafterplanapproval(planmodeisactivenow).',
+  '2.Nothanks,manualinvocation',
+  "Skip—I'llinvokeskillsmanually.Thispromptwon'tappearagain.",
+  '3.Typesomething.',
+  '─'.repeat(120),
+  '4.Chataboutthis',
+  'Entertoselect·↑/↓tonavigate·Esctocancel',
+].join('\n');
+
 describe('autoplan routing setup handling', () => {
+  test('answers the fresh retry manual-invocation setup once in either option order', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE, seen)).toBeNull();
+    const reordered = FRESH_RETRY_CAPTURE.replace('❯1.Addroutingrules(Recommended)', '❯1.Nothanks,manualinvocation')
+      .replace('2.Nothanks,manualinvocation', '2.Addroutingrules(Recommended)');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+  });
+
+  test('requires opposed manual setup actions and rejects ambiguous or unrelated choices', () => {
+    for (const decline of [
+      'No thanks, delete the file manually',
+      'No thanks, manual data migration',
+      'No thanks, invoke the deploy manually',
+      'Manual invocation',
+      'Accept recommendation',
+      'No thanks, manual invocation then delete CLAUDE.md',
+    ]) {
+      const frame = FRESH_RETRY_CAPTURE.replace('Nothanks,manualinvocation', decline);
+      expect(autoplanRoutingSetupInput(frame, new Set()), decline).toBeNull();
+    }
+    expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE.replace('3.Typesomething.', '3.Add routing rules'), new Set())).toBeNull();
+    expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE.replace('3.Typesomething.', '3.Skip—invoke manually'), new Set())).toBeNull();
+    const review = FRESH_RETRY_CAPTURE.replace(
+      "gstackworksbestwhenyourproject'sCLAUDE.mdincludesskillroutingrules.Addthemnow?",
+      'Which product routing design should we ship? <gstack-qid:routing-injection>',
+    );
+    expect(autoplanRoutingSetupInput(review, new Set())).toBeNull();
+  });
+
   test('answers the captured setup once, using the full question identity', () => {
     const seen = new Set<string>();
     expect(autoplanRoutingSetupInput(CAPTURE, seen)).toBe('1\r');
@@ -90,6 +163,50 @@ describe('autoplan routing setup handling', () => {
       .replace('2.Nothanks', '2.No thanks, manual');
     expect(autoplanRoutingSetupInput(retry, new Set())).toBe('1\r');
     expect(autoplanRoutingSetupInput(retry.replace('No thanks, manual', 'No thanks, delete it'), new Set())).toBeNull();
+  });
+
+  test('answers the exact B timeout menu by its routing label, in either order', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(B_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(B_CAPTURE, seen)).toBeNull();
+    const reordered = B_CAPTURE.replace('❯1.AddroutingrulestoCLAUDE.md(Recommended)', '❯1.Nothanks,invokemanually')
+      .replace('2.Nothanks,invokemanually', '2.AddroutingrulestoCLAUDE.md(Recommended)');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(B_CAPTURE.replace('Nothanks,invokemanually', 'Nothanks,deletethefilemanually'), new Set())).toBeNull();
+    expect(autoplanRoutingSetupInput(B_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md?', 'Which routing design should the application use?'), new Set())).toBeNull();
+  });
+
+  test('recognizes the setup premise without depending on its closing sentence', () => {
+    const openings = [
+      "gstack works best when your project's CLAUDE.md includes skill routing rules. Would you like to add them?",
+      "gstack works best when your project's CLAUDE.md includes skill routing rules. Enable them for this repository?",
+      'Should we configure skill routing rules for gstack in CLAUDE.md?',
+      'Set up gstack skill routing rules in CLAUDE.md.',
+    ];
+    for (const opening of openings) {
+      const frame = CURRENT_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>', opening);
+      expect(autoplanRoutingSetupInput(frame, new Set()), opening).toBe('1\r');
+    }
+  });
+
+  test('recognizes an intact setup qid with an explicit CLAUDE.md action and opposed manual decline', () => {
+    const frame = CURRENT_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md?', 'Configure this project’s CLAUDE.md?');
+    expect(autoplanRoutingSetupInput(frame, new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(frame.replace('gstack-qid:routing-injection', 'gstack-qid:product-routing'), new Set())).toBeNull();
+    expect(autoplanRoutingSetupInput(frame.replace('AddtoCLAUDE.md(recommended)', 'Acceptrecommendation'), new Set())).toBeNull();
+    expect(autoplanRoutingSetupInput(frame.replace('Skip—invokemanually', 'Deferthisfinding'), new Set())).toBeNull();
+  });
+
+  test('keeps generic review, quoted premises and different routing targets out of setup handling', () => {
+    for (const question of [
+      'Which dashboard layout should we ship?',
+      'Add routing rules to the application API? <gstack-qid:product-routing>',
+      'The plan quotes gstack CLAUDE.md skill routing rules. Which API design should we use?',
+      'The document references gstack skill routing rules in CLAUDE.md. Should we expand the feature?',
+    ]) {
+      const frame = CURRENT_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>', question);
+      expect(autoplanRoutingSetupInput(frame, new Set()), question).toBeNull();
+    }
   });
 
   test('waits for complete recognized choices rather than guessing a default', () => {

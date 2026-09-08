@@ -11,14 +11,12 @@
  *     gate reviews the final amended plan)
  *
  * Why this exists: each individual phase has its own plan-mode smoke
- * test. Nothing verifies the SEQUENCING — that phases don't run in
- * parallel, that Phase 3 doesn't start before Phase 1 ends, that
- * conditional phases (Design, DX) are skipped when their scope is absent.
- * A regression where the autoplan template wires phases concurrently
- * would not be caught by per-phase tests.
+ * test. This checks cross-phase completion order, including the conditional
+ * Design/DX phases when they run. Completion markers do not establish phase
+ * start times or prove that no work overlapped between phases.
  *
- * Approach: tee timestamps as each "**Phase N complete." marker first
- * appears in the visible buffer. Assert observed ordering. Phase 2 is
+ * Approach: read standalone phase-completion announcements and their native
+ * assistant timestamps from the isolated transcript. Assert observed ordering. Phase 2 is
  * optional — UI-heavy fixture should make it run; backend-only fixtures
  * should make it skip.
  *
@@ -41,16 +39,14 @@ import {
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
 import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
+import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
+import { readPlanCountTranscript, type PlanCountTranscript } from './helpers/plan-count-transcript';
+import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
 
 const describeE2E = describeE2ETier('periodic');
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const UI_FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
-
-interface PhaseHit {
-  phase: number;
-  ts: number;
-}
 
 function diagnosticTail(text: string): string {
   return stripVTControlCharacters(text)
@@ -60,7 +56,7 @@ function diagnosticTail(text: string): string {
 
 describeE2E('/autoplan chain ordering (periodic)', () => {
   test(
-    'phases run sequentially: Phase 1 (CEO) before Phase 3 (Eng), Phase 2 (Design) between when present',
+    'phase completions are ordered: Phase 1 (CEO) before Phase 3 (Eng), Phase 2 (Design) between when present',
     async () => {
       // UI-heavy fixture so Phase 2 runs.
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-autoplan-chain-'));
@@ -85,29 +81,47 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           seedSkills: true,
         });
 
-        const hits: PhaseHit[] = [];
+        let hits: AutoplanPhaseHit[] = [];
+        let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
         let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' = 'timeout';
         let evidence = '';
         let fullSessionEvidence = '';
         let exitCode: number | null = null;
+        let commandStartedAt = Date.now();
+        const saveSnapshot = createPlanCountSnapshotWriter();
+        let artifacts: { artifactDir?: string; artifactError?: string } = {};
+        const observe = () => {
+          transcript = session.hermeticConfigDir
+            ? readPlanCountTranscript(session.hermeticConfigDir, tempDir)
+            : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated autoplan transcript directory' };
+          hits = autoplanPhaseCompletions(transcript, commandStartedAt);
+        };
+        const capture = (state: string) => {
+          artifacts = saveSnapshot({
+            skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
+            raw: session.rawOutput(), visible: session.visibleText(),
+            observation: { state, hits, native: transcript, exitCode: session.exitCode() },
+          });
+        };
 
         try {
           await Bun.sleep(8000);
           const since = session.mark();
+          commandStartedAt = Date.now();
           session.send('/autoplan\r');
 
           const budgetMs = 900_000; // 15 min
           const start = Date.now();
-          // Phase markers live in autoplan's carved phase sections
-          // (autoplan/sections/{ceo,design,eng,dx}-phase.md — the skeleton
-          // STOP-Reads each one at its phase boundary):
-          //   "**Phase 1 complete." / "**Phase 2 complete." / "**Phase 2.5 complete." / "**Phase 3 complete."
-          const phasePattern = /\*\*Phase\s+(\d+(?:\.\d+)?)\s+complete\.?\*\*/g;
-
           let lastPermSig = '';
+          let lastCheckpointAt = start;
           const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
             await Bun.sleep(5000);
+            observe();
+            if (Date.now() - lastCheckpointAt >= 30_000) {
+              capture('in_progress');
+              lastCheckpointAt = Date.now();
+            }
             if (session.exited()) {
               outcome = 'exited';
               evidence = session.visibleSince(since).slice(-3000);
@@ -140,16 +154,6 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
               continue;
             }
 
-            // Re-scan for any phase markers we haven't yet recorded.
-            phasePattern.lastIndex = 0;
-            let m: RegExpExecArray | null;
-            while ((m = phasePattern.exec(visible)) !== null) {
-              const phaseNum = parseFloat(m[1] ?? '0');
-              if (Number.isNaN(phaseNum)) continue;
-              if (hits.some(h => h.phase === phaseNum)) continue;
-              hits.push({ phase: phaseNum, ts: Date.now() });
-            }
-
             // Terminal: Phase 3 (Eng) seen — chain reached the required end.
             if (hits.some(h => h.phase === 3)) {
               outcome = 'chain_complete';
@@ -170,12 +174,15 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           // status before close() deliberately terminates a live session.
           exitCode = session.exitCode();
           fullSessionEvidence = diagnosticTail(session.visibleText());
+          observe();
+          capture(outcome);
           await session.close();
         }
 
         if (outcome === 'exited' || outcome === 'timeout') {
           throw new Error(
             `autoplan chain test FAILED: outcome=${outcome}, exitCode=${exitCode}, hits=${JSON.stringify(hits)}\n` +
+              `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
               `--- post-command evidence (last 3KB) ---\n${diagnosticTail(evidence)}\n` +
               `--- full-session visible tail, including startup (last 3KB) ---\n${fullSessionEvidence}`,
           );
@@ -188,6 +195,7 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
         if (!ceo || !eng) {
           throw new Error(
             `Required phase markers missing. Saw: ${JSON.stringify(hits)}\n` +
+              `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
               `--- evidence ---\n${evidence}`,
           );
         }

@@ -41,6 +41,7 @@ import {
   COMPLETION_SUMMARY_RE,
   classifyPlanCountFrame,
   capturePlanCountQuestion,
+  createPlanCountPermissionGuard,
   planCountPrerequisitePick,
   planCountSubmissionInput,
   assertReviewReportAtBottom,
@@ -1597,6 +1598,150 @@ describe('Step0BoundaryPredicate per-skill', () => {
     };
   }
 
+  describe('native Cross-project onboarding boundary', () => {
+    // Fresh paid run D, 2026-09-08: native question stems, labels and
+    // successful answers. Long explanatory paragraphs are omitted; they
+    // must not determine this structural setup boundary.
+    const captured = [
+  {
+    "header": "Routing rules",
+    "question": "Should I add gstack skill routing rules to your project's CLAUDE.md? (Note: we're in plan mode — if you pick A, I'll make the edit after we exit plan mode.)",
+    "options": [
+      "Add routing rules (recommended)",
+      "Skip — invoke manually"
+    ],
+    "answer": "Add routing rules (recommended)"
+  },
+  {
+    "header": "Scope challenge",
+    "question": "D2 — The plan introduces 4 new classes across 12 files. Should I flag scope reduction as a primary recommendation in the review, or accept the 4-class design and focus findings on quality issues?",
+    "options": [
+      "Accept 4-class design, focus on quality",
+      "Flag scope reduction as primary finding (recommended)"
+    ],
+    "answer": "Accept 4-class design, focus on quality"
+  },
+  {
+    "header": "Cross-project",
+    "question": "D3 — Should gstack search learnings from your other projects on this machine when reviewing?",
+    "options": [
+      "Enable cross-project learnings (recommended)",
+      "Keep learnings project-scoped only"
+    ],
+    "answer": "Enable cross-project learnings (recommended)"
+  },
+  {
+    "header": "AuthCache race",
+    "question": "D4 — AuthCache is shared mutable state mutated by two services with no serialization. How should we fix it?",
+    "options": [
+      "Single-writer: AuthBroker owns all writes (recommended)",
+      "Immutable cache + versioned replace",
+      "Accept and document the race"
+    ],
+    "answer": "Single-writer: AuthBroker owns all writes (recommended)"
+  },
+  {
+    "header": "Double-cache risk",
+    "question": "D5 — The plan introduces a new AuthCache class but doesn't say what happens to the existing cache adapter. Are they running in parallel?",
+    "options": [
+      "AuthCache replaces the adapter — add migration to plan (recommended)",
+      "AuthCache wraps the adapter — adapter stays as storage layer",
+      "Leave ambiguous — clarify in implementation"
+    ],
+    "answer": "AuthCache replaces the adapter — add migration to plan (recommended)"
+  },
+  {
+    "header": "Error swallowing",
+    "question": "D6 — validateAndDispatch() swallows three different error classes across nested try/catch blocks. How should this be resolved in the plan?",
+    "options": [
+      "Decompose + typed error results (recommended)",
+      "Keep structure, add logging + rethrow",
+      "Leave as-is — document that swallowing is intentional"
+    ],
+    "answer": "Decompose + typed error results (recommended)"
+  },
+  {
+    "header": "Invalidation tests",
+    "question": "D7 — When AuthCache replaces the existing adapter (per D5), the existing invalidation tests (logout, revocation, tenant suspension) become dead — they're testing a retired object. Should the plan explicitly require migrating them?",
+    "options": [
+      "Migrate invalidation tests to AuthCache — add to plan (recommended)",
+      "Scope to new component tests only — leave invalidation as follow-up",
+      "Assume existing tests cover it — no explicit migration step"
+    ],
+    "answer": "Migrate invalidation tests to AuthCache — add to plan (recommended)"
+  },
+  {
+    "header": "IDP parallelization",
+    "question": "D8 — The plan identifies 5 sequential IDP calls that are independent and could be parallelized with Promise.all. Should we include the fix in this PR or defer it?",
+    "options": [
+      "Parallelize with Promise.all in this PR (recommended)",
+      "Defer to TODOS.md",
+      "Leave sequential — document as known limitation"
+    ],
+    "answer": "Parallelize with Promise.all in this PR (recommended)"
+  }
+];
+    const fingerprint = (index: number) => {
+      const row = captured[index];
+      return nativePlanCallFingerprint({
+        sessionId: 'fresh-eng-cross-project', toolUseId: `call-${index}`, answered: true,
+        questions: [{ header: row.header, question: row.question, options: row.options.map(label => ({ label })) }],
+        answers: { [row.question]: row.answer },
+      }, index, true);
+    };
+
+    test('keeps D3 as setup and counts each following actual review call', () => {
+      let started = false;
+      const phases = captured.map((_, i) => {
+        const phase = planCountQuestionPhase(fingerprint(i), started, engStep0Boundary);
+        started = phase.reviewStarted;
+        return phase;
+      });
+      expect(phases.slice(0, 3).map(p => p.preReview)).toEqual([true, true, true]);
+      expect(phases[2].reviewStarted).toBe(true);
+      expect(phases.slice(3).map(p => p.preReview)).toEqual([false, false, false, false, false]);
+    });
+
+    test('uses the native opposed scope choices without depending on a prompt suffix', () => {
+      const fp = fingerprint(2);
+      expect(engStep0Boundary(fp)).toBe(true);
+      const q = fp.nativeCall!.questions[0];
+      q.question = 'Should local lessons from other repositories be included during reviews?';
+      q.options.reverse();
+      fp.nativeCall!.answers = { [q.question]: q.options[0].label };
+      expect(engStep0Boundary(nativePlanCallFingerprint(fp.nativeCall!, 0, true))).toBe(true);
+    });
+
+    test("an unanswered Cross-project tab cannot borrow another tab's answer", () => {
+      const call = structuredClone(fingerprint(2).nativeCall!);
+      const other = { header: 'Routing rules', question: 'Add routing rules?', options: [{ label: 'Add rules' }, { label: 'Skip' }] };
+      call.questions.push(other);
+      call.answers = { [other.question]: 'Add rules' };
+      expect(engStep0Boundary(nativePlanCallFingerprint(call, 0, true))).toBe(false);
+      call.answers = { [call.questions[0].question]: call.questions[0].options[1].label };
+      expect(engStep0Boundary(nativePlanCallFingerprint(call, 0, true))).toBe(true);
+    });
+
+    test('pending, failed, missing native metadata and ordinary review questions are not this gate', () => {
+      const fp = fingerprint(2);
+      expect(engStep0Boundary({ ...fp, nativeCall: undefined })).toBe(false);
+      for (const alter of [
+        (call: any) => { call.answered = false; },
+        (call: any) => { call.failed = true; },
+        (call: any) => { call.questions[0].header = 'Architecture'; },
+        (call: any) => { call.questions[0].options = [{ label: 'Enable cross-project search' }, { label: 'Disable all search' }]; },
+        (call: any) => { call.questions[0].options = [{ label: 'Enable cross-project search with project-scoped storage' }, { label: 'Discuss later' }]; },
+        (call: any) => { call.questions[0].question = 'How should concurrent AuthCache writes across projects be serialized?';
+          call.questions[0].options = [{ label: 'Serialize mutations' }, { label: 'Use project-scoped locks' }]; },
+      ]) {
+        const call = structuredClone(fp.nativeCall!);
+        alter(call);
+        call.answers = { [call.questions[0].question]: call.questions[0].options[0].label };
+        expect(engStep0Boundary(nativePlanCallFingerprint(call, 0, true))).toBe(false);
+      }
+    });
+  });
+
   describe('ceoStep0Boundary', () => {
     test('FIRES on Step 0F mode-pick AUQ (HOLD SCOPE in options)', () => {
       const f = fp('Pick a mode', ['HOLD SCOPE', 'SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'SCOPE REDUCTION']);
@@ -1887,5 +2032,79 @@ describe('Step0BoundaryPredicate per-skill', () => {
       const f = fp('Friction point: 5-min CI wait. Address?', ['Now', 'Defer', 'Skip']);
       expect(devexStep0Boundary(f)).toBe(false);
     });
+  });
+});
+
+
+describe('file permission lifecycle replay', () => {
+  const permission = (file = 'gstack-test-plan-design.md') => [
+    `Do you want to make this edit to ${file}?`,
+    '❯ 1. Yes',
+    '2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)forthissession;Yes,and',
+    'alwaysallowaccessto/tmp/fixtureforthissession',
+    '3.No',
+    'Esctocancel·Tabtoamend',
+  ].join('\n');
+
+  test('ignores the granted menu and its redraw until a new request follows file-tool completion', () => {
+    const guard = createPlanCountPermissionGuard();
+    const first = permission();
+    expect(guard(first)).toBe('grant');
+    expect(guard(first)).toBe('handled');
+    const redraw = first + '\n' + permission();
+    expect(guard(redraw)).toBe('handled');
+    const completed = redraw + '\n●Write(/tmp/fixture/gstack-test-plan-design.md)\n' +
+      '⎿ Wrote320linesto../fixture/gstack-test-plan-design.md\n' + '·'.repeat(1600);
+    expect(classifyPlanCountFrame(completed)).toBeNull();
+    expect(guard(completed)).toBe('handled');
+    expect(guard(completed + '\n' + permission())).toBe('grant');
+  });
+
+  test('singular native Write/Edit results release a fresh identical permission', () => {
+    for (const result of ['⎿ Added1line,removed1line', '⎿ Wrote1lineto../fixture/plan.md', '⎿ Removed1line', '⎿\u00a0Wrote320linesto../fixture/plan.md']) {
+      const guard = createPlanCountPermissionGuard();
+      const first = permission();
+      expect(guard(first)).toBe('grant');
+      const completed = first + '\n' + result;
+      expect(guard(completed)).toBe('handled');
+      expect(guard(completed + '\n' + permission())).toBe('grant');
+    }
+  });
+
+  test('the captured active Edit menu remains a permission behind a long diff repaint', () => {
+    const visible = permission('gstack-test-plan-ceo.md') + '\n' +
+      '  89 +The plan adds StripePaymentWebhookHandler outside WebhookDispatcher.\n'.repeat(40);
+    expect(visible.length).toBeLessThan(4096);
+    expect(classifyPlanCountFrame(visible)).toBeNull(); // The old 1.5 KB scan misses it.
+    const guard = createPlanCountPermissionGuard();
+    expect(guard(visible)).toBe('grant');
+    expect(guard(visible)).toBe('handled');
+  });
+
+  test('a completed Write invalidates an old menu even if polling missed the original grant', () => {
+    const visible = permission() + '\n⎿ Wrote320linesto../fixture/gstack-test-plan-design.md';
+    expect(createPlanCountPermissionGuard()(visible)).toBe('handled');
+  });
+
+  test('proposed results and tool headers do not release the same pending permission', () => {
+    const guard = createPlanCountPermissionGuard();
+    let visible = permission();
+    expect(guard(visible)).toBe('grant');
+    for (const line of ['320 +⎿ Wrote320lines', '●Write(/tmp/fixture/plan.md)', '⎿ Tip: use /btw', '⎿ Error: denied']) {
+      visible += '\n' + line + '\n' + permission();
+      expect(guard(visible)).toBe('handled');
+    }
+  });
+
+  test('a different file and a genuine native file-policy question retain their own input', () => {
+    const guard = createPlanCountPermissionGuard();
+    const first = permission('first.md');
+    expect(guard(first)).toBe('grant');
+    expect(guard(first + '\n' + permission('FIRST.md'))).toBe('grant'); // Targets remain case-sensitive.
+    expect(guard(first + '\n' + permission('second.md'))).toBe('grant');
+    const question = '\n☐ File policy\nDo you want to create first.md?\n❯1.Yes\n2.No\n' +
+      'Enter to select · ↑/↓ to navigate · Esc to cancel';
+    expect(guard(first + question)).toBeNull();
+    expect(capturePlanCountQuestion(first + question, new Set(), 0, true)?.promptSnippet).toContain('File policy');
   });
 });

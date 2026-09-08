@@ -1273,6 +1273,35 @@ export function capturePlanCountQuestion(
   return { signature, promptSnippet, options, observedAtMs, preReview };
 }
 
+/**
+ * Consume file-permission menus separately from native review questions.
+ * A granted menu can be repainted, then linger after the tool completes.
+ * Its text is not a new answer request. The same file can ask again after
+ * a successful native Write/Edit result, so content-only dedup is too broad.
+ */
+export function createPlanCountPermissionGuard(): (visible: string) => 'grant' | 'handled' | null {
+  let granted: { signature: string; completedAt: number } | undefined;
+  return (visible) => {
+    const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+    const start = Math.max(0, normalized.length - 4096);
+    const cursor = [...normalized.slice(start).matchAll(/❯\s*1\./g)].at(-1);
+    if (!cursor) return null;
+    const cursorAt = start + cursor.index;
+    const question = [...normalized.slice(start, cursorAt).matchAll(/^[\t │]*(Do\s*you\s*want\s*to\s*(?:create|overwrite|edit|make\s*this\s*edit\s*to)[^\n?]*\?)/gim)].at(-1)?.[1];
+    if (!question || !isPermissionDialogVisible(question + '\n' + normalized.slice(cursorAt))) return null;
+    const signature = question.replace(/\s+/g, '');
+
+    // Match actual native file-tool results, not proposed diff rows, tool
+    // headers, or tips. A diff repaint after the menu is still pending.
+    const completed = [...normalized.matchAll(/^[\t ]*⎿[\t \u00a0]*(?:Wrote\s*\d+\s*lines?|Added\s*\d+\s*lines?|Removed\s*\d+\s*lines?|Updated\b|Edited\b)/gm)].at(-1);
+    const completedAt = completed?.index ?? -1;
+    if (completedAt > cursorAt) return 'handled';
+    if (granted?.signature === signature && completedAt <= granted.completedAt) return 'handled';
+    granted = { signature, completedAt };
+    return 'grant';
+  };
+}
+
 /** Keep a seeded count plan intact by declining its optional prerequisite. */
 export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint): number | null {
   // Require the recognized prerequisite body AND both opposed labels. A
@@ -1472,6 +1501,13 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
   }) ?? false;
 
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  // Native onboarding identifies this choice by its header and opposed
+  // scopes; the question body can paraphrase "cross-project learnings".
+  // An answered sibling tab cannot close setup for this unanswered choice.
+  (fp.nativeCall?.answered === true && !fp.nativeCall.failed && fp.nativeCall.questions.some(q =>
+    Boolean(fp.nativeCall?.answers?.[q.question]) && /^cross[- ]project$/i.test(q.header.trim()) &&
+    q.options.some((enabled, i) => /^enable\s+cross[- ]project\b/i.test(enabled.label.trim()) &&
+      q.options.some((scoped, j) => j !== i && /\bproject[- ]scoped\b/i.test(scoped.label))))) ||
   // The native complexity gate can say "Reduce scope or proceed as-is"
   // without the historical "scope reduction recommendation" wording.
   // It closes setup only once that exact scope question has an answer.
@@ -2289,6 +2325,7 @@ export async function runPlanSkillCounting(opts: {
   const fingerprints: AskUserQuestionFingerprint[] = [];
   const seen = new Set<string>();
   const countedCalls = new Set<string>();
+  const filePermission = createPlanCountPermissionGuard();
   let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
   let boundaryFired = false;
   let step0Count = 0;
@@ -2391,8 +2428,9 @@ export async function runPlanSkillCounting(opts: {
       }
 
       const frame = classifyPlanCountFrame(visible);
-      if (frame === 'permission') {
-        session.send(`${defaultPick}\r`);
+      const permission = filePermission(visible);
+      if (frame === 'permission' || (permission === 'grant' && frame === null)) {
+        if (permission !== 'handled') session.send(`${defaultPick}\r`);
         await Bun.sleep(1500);
         continue;
       }
@@ -2446,6 +2484,9 @@ export async function runPlanSkillCounting(opts: {
           visible,
         );
       }
+
+      // A dismissed or repainted permission is never a native question.
+      if (permission === 'handled') continue;
 
       // Dedupe the complete question, not just its answer labels: separate
       // findings often reuse the same Add to plan / Defer / Skip menu.
