@@ -87,6 +87,42 @@ const FRESH_RETRY_CAPTURE = [
 ].join('\n');
 
 describe('autoplan routing setup handling', () => {
+  // Source-F retry's first complete frame preceded damaged terminal redraws.
+  const F_SETUP_CAPTURE = [
+    'Planning: /tmp/hermetic/.claude/plans/deep-coalescing-valiant.md',
+    '☐Skillrouting',
+    "│gstackworksbestwhenyourproject'sCLAUDE.mdincludesskillroutingrules.Addthemnow?",
+    '❯1.AddroutingrulestoCLAUDE.md',
+    'AppendsskillroutingrulestoCLAUDE.mdsogstackauto-invokestherightskillforcommonrequests(review,ship,',
+    'investigate,etc.).Willbecommittedtotherepo.(recommended)',
+    '2.Nothanks,skip',
+    "I'llinvokeskillsmanually.Youcanaddroutinglater.",
+    '3.Typesomething.',
+    '4.Chataboutthis',
+    'Entertoselect·↑/↓tonavigate·Esctocancel',
+  ].join('\r\r');
+
+  test('answers the captured combined decline action once, regardless of option order', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE, seen)).toBeNull();
+    const reordered = F_SETUP_CAPTURE.replace('❯1.AddroutingrulestoCLAUDE.md', '❯1.Nothanks,skip')
+      .replace('2.Nothanks,skip', '2.AddroutingrulestoCLAUDE.md');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE.replace('Nothanks,skip', 'No thanks, skip—invoke skills manually'), new Set())).toBe('1\r');
+  });
+
+  test('does not infer a routing answer from damaged, ambiguous, or unrelated setup choices', () => {
+    for (const frame of [
+      F_SETUP_CAPTURE.replace('Addroutingrules', 'Addrutingrules'),
+      F_SETUP_CAPTURE.replace('Nothanks,skip', 'Nothank,skip'),
+      F_SETUP_CAPTURE.replace('Nothanks,skip', 'No thanks, skip the review'),
+      F_SETUP_CAPTURE.replace('Nothanks,skip', 'No thanks, skip then delete CLAUDE.md'),
+      F_SETUP_CAPTURE.replace('3.Typesomething.', '3.Skip'),
+      F_SETUP_CAPTURE.replace("gstackworksbestwhenyourproject'sCLAUDE.mdincludesskillroutingrules.Addthemnow?", 'Which routing design should the application use?'),
+    ]) expect(autoplanRoutingSetupInput(frame, new Set()), frame).toBeNull();
+  });
+
   test('answers the fresh retry manual-invocation setup once in either option order', () => {
     const seen = new Set<string>();
     expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE, seen)).toBe('1\r');

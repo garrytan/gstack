@@ -24,7 +24,9 @@ export function autoplanRoutingSetupInput(visible: string, seen: Set<string>): s
     const title = option.title.replace(/\(Recommended\)$/i, '');
     const prefix = /^(?:Nothanks|Skip)(?:[,—–-])?/i.exec(title);
     if (!prefix) return false;
-    const action = title.slice(prefix[0].length);
+    // 'No thanks' can be followed by the same explicit Skip action. Strip
+    // that decline verb before checking any optional manual-invocation text.
+    const action = title.slice(prefix[0].length).replace(/^skip(?:[,—–-])?/i, '');
     return action === '' || /^(?:manual(?:invocation)?|(?:I['’]ll)?invoke(?:skills)?manually)$/i.test(action);
   });
   if (add.length !== 1 || decline.length !== 1 || add[0]!.index === decline[0]!.index) return null;

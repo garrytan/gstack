@@ -268,12 +268,11 @@ let cachedSkillsConfigDir: string | null = null;
  * cover it. Ends in `/.claude` for the same plan-path anchoring reason as
  * HermeticDirs.configDir.
  *
- * Two intentional non-hermetic edges:
- * - Seeding reads the LIVE repo tree BY DESIGN — the skills ARE the subject
- *   under test; a snapshot would measure stale copies.
- * - HOME is not hermeticized, so the ~64 absolute
- *   `~/.claude/skills/gstack/...` preamble references inside each SKILL.md
- *   still resolve to the operator install (same limitation as CI).
+ * Seeding reads the live repo tree: the skills are the subject under test.
+ * For default seeded PTY sessions, launchClaudePty also supplies an owned HOME
+ * via hermetic-skill-runtime so literal runtime and lazy-section paths reach
+ * this same checkout. Explicit HOME/config overrides remain caller-owned;
+ * this registration helper itself does not change their environment.
  */
 export function hermeticSkillsConfigDir(): string {
   if (cachedSkillsConfigDir) return cachedSkillsConfigDir;

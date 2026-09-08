@@ -27,6 +27,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { stripVTControlCharacters } from 'node:util';
 import { hermeticChildEnv, hermeticSkillsConfigDir, isHermeticEnabled } from './hermetic-env';
+import { withHermeticSkillRuntime } from './hermetic-skill-runtime';
 import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
@@ -1600,9 +1601,16 @@ export async function launchClaudePty(
 
   // Hermetic by default (test/helpers/hermetic-env.ts): operator session
   // context never reaches the child; per-test opts.env merges last.
-  const childEnv = hermeticChildEnv(opts.env);
+  let childEnv = hermeticChildEnv(opts.env);
   if (opts.seedSkills && hermetic && !opts.env?.CLAUDE_CONFIG_DIR) {
     childEnv.CLAUDE_CONFIG_DIR = hermeticSkillsConfigDir();
+    if (opts.env?.HOME === undefined) {
+      const runtime = withHermeticSkillRuntime(childEnv);
+      childEnv = runtime.env;
+      // Lazy sections are installed runtime inputs outside the fixture cwd.
+      // Grant this known directory, preserving all other permission decisions.
+      args.push('--add-dir', runtime.root);
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
