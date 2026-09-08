@@ -321,6 +321,59 @@ describe('test-free-shards: strict shard execution', () => {
       fs.rmSync(captureDir, { recursive: true, force: true });
     }
   });
+
+  test('concurrent shards isolate browser state and remove it on success or failure', async () => {
+    const captureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'free-shard-browse-'));
+    const inheritedState = path.join(captureDir, 'host-browse.json');
+    const parentState = process.env.BROWSE_STATE_FILE;
+    fs.writeFileSync(inheritedState, 'host daemon state');
+    try {
+      const outcomes = await Promise.all([0, 3].map((exitCode, index) => {
+        const dump = path.join(captureDir, `shard-${index}.json`);
+        const script = `
+          const fs = require('fs');
+          const path = require('path');
+          const { resolveConfig } = require(${JSON.stringify(path.join(ROOT, 'browse/src/config.ts'))});
+          const config = resolveConfig();
+          fs.mkdirSync(config.stateDir, { recursive: true });
+          fs.writeFileSync(config.stateFile, ${JSON.stringify(String(index))});
+          fs.writeFileSync(${JSON.stringify(dump)}, JSON.stringify({
+            state: process.env.BROWSE_STATE_FILE,
+            resolvedState: config.stateFile,
+            tmp: process.env.TMPDIR,
+            profile: process.env.CHROMIUM_PROFILE,
+            written: fs.readFileSync(config.stateFile, 'utf8'),
+          }));
+          console.log(${JSON.stringify(SUMMARY_1)});
+          process.exit(${exitCode});
+        `;
+        return runFreeShard(['browser-state'], index + 1, 2, {
+          env: { ...process.env, BROWSE_STATE_FILE: inheritedState },
+          commandFor: () => ({ command: process.execPath, args: ['-e', script] }),
+          quiet: true,
+          log: () => {},
+        });
+      }));
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(['passed', 'failed']);
+      const seen = [0, 1].map((index) => JSON.parse(fs.readFileSync(path.join(captureDir, `shard-${index}.json`), 'utf8')));
+      expect(seen[0].state).not.toBe(seen[1].state);
+      expect(seen[0].profile).not.toBe(seen[1].profile);
+      for (const [index, shard] of seen.entries()) {
+        expect(shard.state).not.toBe(inheritedState);
+        expect(shard.resolvedState).toBe(shard.state);
+        expect(shard.written).toBe(String(index));
+        const ownedRoot = path.dirname(shard.tmp);
+        expect(path.relative(ownedRoot, shard.state)).toBe(path.join('.gstack', 'browse.json'));
+        expect(path.dirname(shard.profile)).toBe(ownedRoot);
+        expect(fs.existsSync(ownedRoot)).toBe(false);
+        expect(fs.existsSync(shard.state)).toBe(false);
+      }
+      expect(fs.readFileSync(inheritedState, 'utf8')).toBe('host daemon state');
+      expect(process.env.BROWSE_STATE_FILE).toBe(parentState);
+    } finally {
+      fs.rmSync(captureDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('test-free-shards: output contract (log capture, quiet console, failure epilogue)', () => {

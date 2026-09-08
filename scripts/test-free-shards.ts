@@ -1223,6 +1223,11 @@ export async function runFreeShard(
   env.TMPDIR = childTmp;
   env.TEMP = childTmp;
   env.TMP = childTmp;
+  // CLI renders otherwise attach to the repo's shared .gstack/browse.json,
+  // even with distinct Chromium profiles. Concurrent shards and surviving
+  // daemons from prior runs can then replace or remove each other's state.
+  // Override inherited state too; the shard owns this directory's cleanup.
+  env.BROWSE_STATE_FILE = path.join(stateDir, '.gstack', 'browse.json');
   // Per-shard Chromium profile (same isolation idea as TMPDIR): nine test
   // files launch in-process persistent contexts or daemons that default to
   // the SHARED ~/.gstack/chromium-profile, and two concurrent shards on one
