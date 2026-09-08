@@ -253,6 +253,15 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       // guard is present.
       rankEntry({ key: 'bared-answer', insight: 'the min heap ordering is what fixes it', confidence: 1 }),
       rankEntry({ key: 'bared-decoy', insight: 'keep this in mind when reviewing', confidence: 10 }),
+      // Stem-rewrite probes. Both keys carry the token so RECALL (substring)
+      // returns both and the naming tier ties -- 'cache' is not a substring of
+      // 'caching', so an e-dropped form is only ever reached on a row some other
+      // field already recalled. The insight tier is what these isolate, and the
+      // decoy holds the better confidence so the rewrite must fire to win.
+      rankEntry({ key: 'edrop-cache-hit', insight: 'the caching layer stayed warm', confidence: 2 }),
+      rankEntry({ key: 'edrop-cache-decoy', insight: 'a cachet of unrelated notes', confidence: 10 }),
+      rankEntry({ key: 'double-ship-hit', insight: 'shipping the binary took a while', confidence: 2 }),
+      rankEntry({ key: 'double-ship-decoy', insight: 'shipment tracking is elsewhere', confidence: 10 }),
     ];
     fs.writeFileSync(path.join(rankProjDir, 'learnings.jsonl'), rows.map(e => JSON.stringify(e)).join('\n') + '\n');
   });
@@ -447,6 +456,18 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       'current-tied-hit',  // 1 hit, confidence 5
       'decayed-tied-hit',  // 1 hit, decayed to 0
     ]);
+  });
+
+  // An e-final base drops the e before -ing, so 'cache' has to see 'caching'.
+  test('an e-final base scores against its -ing form', () => {
+    expect(rankedPair(['--query', 'cache'], 'edrop-cache-hit', 'edrop-cache-decoy'))
+      .toEqual(['edrop-cache-hit', 'edrop-cache-decoy']);
+  });
+
+  // A consonant-vowel-consonant base doubles before -ed/-ing: ship -> shipping.
+  test('a doubling base scores against its -ing form', () => {
+    expect(rankedPair(['--query', 'ship'], 'double-ship-hit', 'double-ship-decoy'))
+      .toEqual(['double-ship-hit', 'double-ship-decoy']);
   });
 
   test('bare -d does not invent a hit on a consonant-final token', () => {

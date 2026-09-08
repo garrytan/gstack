@@ -95,23 +95,49 @@ function isWordChar(c) {
 // rewriting, and adding them as bare suffixes would widen the false-positive
 // surface while matching neither. Irregulars are out of scope for the same reason.
 const INFLECTIONS = ['', 's', 'es', 'd', 'ed', 'ing'];
+// The list above only holds suffixes that attach to an UNMODIFIED base. English
+// has two regular rewrites that change the stem first, and without them most of
+// this codebase's own vocabulary scores zero -- caching, merging, parsing,
+// shipped, running, logged, stopped, planned. Each rewrite is generated as an
+// extra stem rather than as a longer suffix list, because the rewrite is a
+// property of the base form, not of the ending.
+const VOWELS = 'aeiou';
+function stemVariants(tok) {
+  const out = [tok];
+  // cache -> cach, so cach + ing matches 'caching'.
+  if (tok.length > 3 && tok.charAt(tok.length - 1) === 'e') out.push(tok.slice(0, -1));
+  // ship -> shipp, so shipp + ed/ing matches 'shipped'/'shipping'. Consonant-
+  // vowel-consonant only, and never w/x/y, which do not double in English.
+  const last = tok.charAt(tok.length - 1), prev = tok.charAt(tok.length - 2);
+  if (tok.length >= 3 && VOWELS.indexOf(last) < 0 && VOWELS.indexOf(prev) >= 0
+    && last !== 'w' && last !== 'x' && last !== 'y') out.push(tok + last);
+  return out;
+}
 function hasWholeWord(hay, tok) {
-  let i = hay.indexOf(tok);
-  while (i !== -1) {
-    const before = i === 0 ? '' : hay.charAt(i - 1);
-    if (!isWordChar(before)) {
-      const j = i + tok.length;
-      for (const suf of INFLECTIONS) {
-        // Bare -d is the past tense of an e-final base only. Applied to every
-        // token it invents whole-word hits -- car/card, min/mind, war/ward --
-        // and because relevance sorts ahead of confidence a false hit now
-        // actively demotes the right answer instead of costing nothing.
-        if (suf === 'd' && tok.charAt(tok.length - 1) !== 'e') continue;
-        const k = j + suf.length;
-        if (hay.slice(j, k) === suf && !isWordChar(k >= hay.length ? '' : hay.charAt(k))) return true;
+  const variants = stemVariants(tok);
+  for (let v = 0; v < variants.length; v++) {
+    const stem = variants[v];
+    // A rewritten stem is only ever a verb stem, so it takes only the two
+    // vowel-initial endings. Giving it the whole list would let a bare 'shipp'
+    // or 'cach' match on its own.
+    const suffixes = v === 0 ? INFLECTIONS : ['ed', 'ing'];
+    let i = hay.indexOf(stem);
+    while (i !== -1) {
+      const before = i === 0 ? '' : hay.charAt(i - 1);
+      if (!isWordChar(before)) {
+        const j = i + stem.length;
+        for (const suf of suffixes) {
+          // Bare -d is the past tense of an e-final base only. Applied to every
+          // token it invents whole-word hits -- car/card, min/mind, war/ward --
+          // and because relevance sorts ahead of confidence a false hit now
+          // actively demotes the right answer instead of costing nothing.
+          if (v === 0 && suf === 'd' && stem.charAt(stem.length - 1) !== 'e') continue;
+          const k = j + suf.length;
+          if (hay.slice(j, k) === suf && !isWordChar(k >= hay.length ? '' : hay.charAt(k))) return true;
+        }
       }
+      i = hay.indexOf(stem, i + 1);
     }
-    i = hay.indexOf(tok, i + 1);
   }
   return false;
 }
