@@ -92,7 +92,7 @@ For this phase (eng), retain the historical review-log skill identifier. Add `"h
 
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
-- Architecture choices: explicit over clever (P5). If codex disagrees with valid reason → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
+- Architecture choices: explicit over clever (P5). If Codex disagrees with valid reason → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
 - Evals: always include all relevant suites (P1)
 - Test plan: generate artifact at `~/.gstack/projects/$SLUG/{user}-{branch}-test-plan-{datetime}.md`
 - TODOS.md: collect all deferred scope expansions from every prior phase (Eng runs last), auto-write

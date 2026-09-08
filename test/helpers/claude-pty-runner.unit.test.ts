@@ -2683,3 +2683,508 @@ describe('native question identity outranks permission wording', () => {
     expect(capturePlanCountQuestion(frame, new Set(), 0, false)).toBeNull();
   });
 });
+
+
+describe('native file/class complexity gate classification', () => {
+  const rows = [
+  {
+    "id": "toolu_01HJHA5nCKyCAEPRVnm84udk",
+    "header": "Prerequisite",
+    "question": "D1 — No design doc found for this branch. Run /office-hours first? <gstack-qid:plan-eng-review-office-hours-prereq>",
+    "labels": [
+      "Skip — proceed with review (Recommended)",
+      "Run /office-hours first"
+    ],
+    "answer": "Skip — proceed with review (Recommended)"
+  },
+  {
+    "id": "toolu_01BF2LE9pqkt3Cs8PxC1uPaA",
+    "header": "Scope",
+    "question": "D2 — Complexity check triggered: 12 files, 4+ new classes. Reduce scope or proceed as-is? <gstack-qid:plan-eng-review-complexity-check>",
+    "labels": [
+      "Proceed as-is",
+      "Reduce scope (Recommended)"
+    ],
+    "answer": "Proceed as-is"
+  },
+  {
+    "id": "toolu_01J9SZHLFAuHjn19o9XFJvHo",
+    "header": "Learnings",
+    "question": "D3 — Cross-project learnings: search past sessions from other projects on this machine? <gstack-qid:plan-eng-review-cross-project-learnings>",
+    "labels": [
+      "Enable cross-project (Recommended)",
+      "Project-scoped only"
+    ],
+    "answer": "Enable cross-project (Recommended)"
+  },
+  {
+    "id": "toolu_01CRbNCM44doMT1ubMAtcuBp",
+    "header": "Architecture",
+    "question": "D4 — Architecture A1: Two services mutate a shared AuthCache with no mutation serialization. How should this be resolved? <gstack-qid:plan-eng-review-arch-shared-mutable-cache>",
+    "labels": [
+      "Single write-coordinator (Recommended)",
+      "Serialize via mutex/queue",
+      "Accept the risk, add monitoring"
+    ],
+    "answer": "Single write-coordinator (Recommended)"
+  },
+  {
+    "id": "toolu_01UwpB3rC52W99ZB6g6FMV6K",
+    "header": "Architecture",
+    "question": "D5 — Architecture A2: legacyAuthFlow() gets rewritten with no regression tests capturing prior behavior. Approach? <gstack-qid:plan-eng-review-arch-legacy-rewrite>",
+    "labels": [
+      "Regression tests first (Recommended)",
+      "Strangler fig",
+      "Big-bang rewrite as planned"
+    ],
+    "answer": "Regression tests first (Recommended)"
+  },
+  {
+    "id": "toolu_011biwzYyT1qCzVL8rn8gmTe",
+    "header": "Code Quality",
+    "question": "D6 — Code Quality CQ1: validateAndDispatch() has 3 nested try/catch blocks that each swallow a different error class. Fix? <gstack-qid:plan-eng-review-cq-validate-dispatch>",
+    "labels": [
+      "Decompose + surface errors (Recommended)",
+      "Flatten catch hierarchy only",
+      "Leave as-is"
+    ],
+    "answer": "Decompose + surface errors (Recommended)"
+  },
+  {
+    "id": "toolu_01HbUJX6fD6CN3obeoyh8S5Z",
+    "header": "Code Quality",
+    "question": "D7 — Code Quality CQ2: AuthCache shared via module-level export (implicit global). Switch to dependency injection? <gstack-qid:plan-eng-review-cq-module-export>",
+    "labels": [
+      "Dependency injection (Recommended)",
+      "Keep module export"
+    ],
+    "answer": "Dependency injection (Recommended)"
+  },
+  {
+    "id": "toolu_019jNc2fhvrJhHkNZKTdztUm",
+    "header": "Tests",
+    "question": "D8 — Tests T1: No described test for coordinator ordering under concurrent mutations. Add concurrency tests to the plan? <gstack-qid:plan-eng-review-test-concurrency>",
+    "labels": [
+      "Add concurrency tests (Recommended)",
+      "Defer to code review"
+    ],
+    "answer": "Add concurrency tests (Recommended)"
+  },
+  {
+    "id": "toolu_0132EDXRcCffruHaV1E4kKRH",
+    "header": "Tests",
+    "question": "D9 — Tests T2: No E2E tests planned for core auth flows (cross-tenant validation, suspension, logout, revocation). Add them? <gstack-qid:plan-eng-review-test-e2e-auth>",
+    "labels": [
+      "Add E2E tests for auth flows (Recommended)",
+      "Unit/integration only as planned"
+    ],
+    "answer": "Add E2E tests for auth flows (Recommended)"
+  },
+  {
+    "id": "toolu_01C2sC9k9YbvAvgyWHGZUTyb",
+    "header": "Performance",
+    "question": "D10 — Performance P1: 5 sequential IDP calls per token validation. Parallelize or eliminate? <gstack-qid:plan-eng-review-perf-idp-calls>",
+    "labels": [
+      "Local JWT validation (Recommended)",
+      "Promise.all parallelization",
+      "Leave sequential as-is"
+    ],
+    "answer": "Local JWT validation (Recommended)"
+  }
+];
+
+  function callAt(index: number) {
+    const row = rows[index]!;
+    return {
+      sessionId: '122ddb02-2346-4a38-9824-f04f9d5d8cae',
+      toolUseId: row.id,
+      answered: true,
+      failed: false,
+      questions: [{
+        header: row.header,
+        question: row.question,
+        options: row.labels.map(label => ({ label })),
+        multiSelect: false,
+      }],
+      answers: { [row.question]: row.answer },
+      unansweredQuestionIndices: [],
+    };
+  }
+
+  test('actual ten calls remain three setup and seven independent review decisions in either setup order', () => {
+    for (const order of [[0, 1, 2], [0, 2, 1]]) {
+      let started = false;
+      const phases = [...order, 3, 4, 5, 6, 7, 8, 9].map(index => {
+        const phase = planCountQuestionPhase(nativePlanCallFingerprint(callAt(index), 0, !started),
+          started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+        started = phase.reviewStarted;
+        return phase;
+      });
+      expect(phases.map(p => p.preReview)).toEqual([true, true, true, false, false, false, false, false, false, false]);
+      expect(phases.filter(p => !p.preReview)).toHaveLength(7);
+    }
+  });
+
+  test('the answered numeric complexity gate does not depend on qid or action order', () => {
+    for (const qid of ['plan-eng-review-complexity-check', 'model-chosen-size-gate']) {
+      const call = callAt(1);
+      const q = call.questions[0]!;
+      q.question = q.question.replace('plan-eng-review-complexity-check', qid);
+      for (const reverse of [false, true]) {
+        if (reverse) q.options.reverse();
+        call.answers = { [q.question]: q.options[0]!.label };
+        expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(true);
+      }
+    }
+  });
+
+  test('a component finding, TODO, missing count, or missing whole-scope opposition stays substantive', () => {
+    for (const mutate of [
+      (call: ReturnType<typeof callAt>) => { call.questions[0]!.header = 'Architecture issue'; },
+      (call: ReturnType<typeof callAt>) => { call.questions[0]!.header = 'TODO: scope'; },
+      (call: ReturnType<typeof callAt>) => { call.questions[0]!.question = call.questions[0]!.question.replace('Complexity check triggered:', 'AuthCache complexity issue:'); },
+      (call: ReturnType<typeof callAt>) => { call.questions[0]!.question = call.questions[0]!.question.replace('12 files, 4+ new classes', '12 cache entries'); },
+      (call: ReturnType<typeof callAt>) => { call.questions[0]!.options[1]!.label = 'Reduce cache lock scope'; },
+      (call: ReturnType<typeof callAt>) => { call.questions[0]!.options[0]!.label = 'Investigate the cache'; },
+    ]) {
+      const call = callAt(1);
+      mutate(call);
+      call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+    }
+  });
+
+  test('failed, pending, unoffered and mixed answered calls cannot be discarded as setup', () => {
+    for (const mutate of [
+      (call: ReturnType<typeof callAt>) => { call.answered = false; },
+      (call: ReturnType<typeof callAt>) => { call.failed = true; },
+      (call: ReturnType<typeof callAt>) => { call.answers = {}; },
+      (call: ReturnType<typeof callAt>) => { call.answers = { [call.questions[0]!.question]: 'Add a new cache repair instead' }; },
+      (call: ReturnType<typeof callAt>) => {
+        const issue = callAt(3);
+        call.questions.push(issue.questions[0]!);
+        Object.assign(call.answers, issue.answers);
+      },
+    ]) {
+      const call = callAt(1);
+      mutate(call);
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+    }
+  });
+});
+
+
+describe('explicit whole-plan scope complexity premise', () => {
+ const calls = [
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_01RY4Ec4BVKuX7JRycy5Y7zB",
+    "questions": [
+      {
+        "question": "D1 — The plan's scope (12 files, 4 new classes) triggers the complexity smell check. Proceed as-is or reduce scope first? <gstack-qid:plan-eng-complexity-check>",
+        "header": "Scope",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Proceed as-is (recommended)",
+            "description": "Review all 4 planned classes (TokenStore, SessionMint, AuthCache, RequestPolicy) across 12 files. The plan already flags this as a smell worth investigating — we'll scrutinize every class boundary during the Architecture section and call out anything that should be merged or deferred. Completeness: 10/10"
+          },
+          {
+            "label": "Reduce scope first",
+            "description": "Propose a minimal-surface version before reviewing: collapse TokenStore into the existing cache adapter extension and defer RequestPolicy extraction (it's just a slice of validateAndDispatch()). This yields ~2 new classes and ~6-8 files. The Architecture section would then review the leaner design. Completeness: 7/10 — defers policy extraction"
+          },
+          {
+            "label": "Skip complexity and go straight to issues",
+            "description": "Treat scope as fixed, skip the scope challenge, and dive directly into the 4 review sections (Architecture, Code Quality, Tests, Performance). Fastest path but misses the structural smell the plan itself flagged. Completeness: 7/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 — The plan's scope (12 files, 4 new classes) triggers the complexity smell check. Proceed as-is or reduce scope first? <gstack-qid:plan-eng-complexity-check>": "Proceed as-is (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T20:58:36.032Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_01Vz57KiddxkZg3v4NiWKzsC",
+    "questions": [
+      {
+        "question": "D2 — Architecture: shared global mutable AuthCache between AuthBroker and SessionMint, with no serialization, in a multi-tenant system. <gstack-qid:plan-eng-arch-shared-cache>",
+        "header": "Architecture",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Inject via constructor (recommended)",
+            "description": "[P1] (confidence: 9/10) Plan says: 'Two new services share a global mutable AuthCache instance via module-level export. Both services mutate it' and 'they do not serialize mutations.' In a multi-tenant system, concurrent mutations from AuthBroker (e.g., evict-on-logout) and SessionMint (e.g., write-on-mint) to the same cache can corrupt tenant isolation boundaries without any test catching it. Fix: pass AuthCache as a constructor argument to both services. Each test provides a fresh instance; production wires it once at startup. Zero mutations to the existing adapter. Effort: human ~1h / CC ~5min. Completeness: 10/10"
+          },
+          {
+            "label": "Add a mutation coordinator",
+            "description": "Keep the module-level export but wrap all mutating calls in a queue or lock. Protects against races but does not fix the coupling (tests still share state, import side-effects are still global). Higher complexity than DI. Effort: human ~2h / CC ~10min. Completeness: 8/10 — misses the testability problem"
+          },
+          {
+            "label": "Accept as-is",
+            "description": "Trust the underlying adapter's existing invalidation hooks to prevent cross-tenant reads. This works only if the adapter already serializes all writes — the plan does not state this, and 'they do not serialize mutations' explicitly says it does not. Accepted risk of cross-tenant cache corruption on concurrent requests. Completeness: 5/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 — Architecture: shared global mutable AuthCache between AuthBroker and SessionMint, with no serialization, in a multi-tenant system. <gstack-qid:plan-eng-arch-shared-cache>": "Inject via constructor (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T20:59:24.191Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_01MpiyqoPfnhoFmN1hBtNHdu",
+    "questions": [
+      {
+        "question": "D3 — Architecture: the plan describes 5 IDP API calls for token validation but says nothing about partial failure semantics. <gstack-qid:plan-eng-arch-idp-partial-failure>",
+        "header": "Architecture",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add explicit failure semantics to the plan (recommended)",
+            "description": "[P1] (confidence: 9/10) Plan: 'Token validation issues 5 sequential API calls to the IDP.' No text covers what happens when call 3 of 5 returns a 503. In an auth system, the fail-open vs fail-closed decision is load-bearing for security. Recommendation: add a plan section stating the rule explicitly — 'on any IDP call failure, token validation fails closed (reject the token, return 401, do not cache a partial result).' Effort: human ~30min / CC ~3min. Completeness: 10/10"
+          },
+          {
+            "label": "Defer to implementation",
+            "description": "Leave the failure semantics undecided in the plan; let implementers decide per-call. Risk: two developers make different assumptions and one path fails open (accepts a partially-validated token). In auth systems, a silent fail-open is a security hole, not just a bug. Completeness: 5/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 — Architecture: the plan describes 5 IDP API calls for token validation but says nothing about partial failure semantics. <gstack-qid:plan-eng-arch-idp-partial-failure>": "Add explicit failure semantics to the plan (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T20:59:52.277Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_019eGcLXXteu52dC67WNtJyL",
+    "questions": [
+      {
+        "question": "D4 — Architecture: TokenStore is listed as one of 4 new classes but the plan never describes its responsibility. The existing cache adapter already stores tokens keyed by tenant/issuer/audience/policy. <gstack-qid:plan-eng-arch-tokenstore-purpose>",
+        "header": "Architecture",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Define TokenStore's boundary in the plan (recommended)",
+            "description": "[P2] (confidence: 8/10) Without a description, implementers may duplicate the existing adapter's logic inside TokenStore, producing two storage layers for the same data. The plan should state: what TokenStore does that the existing adapter does not, whether it holds in-memory tokens separately from the cache adapter, and how AuthCache (the facade) relates to TokenStore vs the adapter. Effort: human ~20min / CC ~2min. Completeness: 10/10"
+          },
+          {
+            "label": "Keep it implicit",
+            "description": "Accept that TokenStore's boundary will be defined during implementation. Risk: two interpretations surface mid-sprint — one where TokenStore wraps the adapter (double indirection) and one where it holds state independently (split storage, double-write bugs). Completeness: 5/10"
+          },
+          {
+            "label": "Merge TokenStore into AuthCache",
+            "description": "If TokenStore is just a typed wrapper around what AuthCache already exposes, drop it and let AuthCache handle all token storage concerns. Reduces new-class count from 4 to 3 without losing capability. Completeness: 9/10 — assumes they genuinely overlap"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 — Architecture: TokenStore is listed as one of 4 new classes but the plan never describes its responsibility. The existing cache adapter already stores tokens keyed by tenant/issuer/audience/policy. <gstack-qid:plan-eng-arch-tokenstore-purpose>": "Define TokenStore's boundary in the plan (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:00:16.358Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_01WXRQF8z4JKkKvnwH7h6U6Z",
+    "questions": [
+      {
+        "question": "D5 — Code Quality: validateAndDispatch() is 60 lines with 3 nested try/catch blocks, each swallowing a different error class. <gstack-qid:plan-eng-cq-validate-dispatch>",
+        "header": "Code Quality",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Refactor as part of this PR (recommended)",
+            "description": "[P1] (confidence: 9/10) Plan: 'each catch swallows a different error class.' In auth code, a swallowed error is a silent failure — a rejection that should surface as a 401 becomes invisible, or a partial validation looks like success. Since this PR already touches the function (RequestPolicy extraction), refactoring it is a same-diff change. Fix: extract each catch branch into a named handler, propagate errors explicitly via throw or typed Result<T,E>; add one log line per catch so failures appear in traces. Effort: human ~2h / CC ~10min. Completeness: 10/10"
+          },
+          {
+            "label": "Add logging, keep structure",
+            "description": "Add a structured log at each catch site so failures are at least visible, but leave the nesting and swallowing in place. Reduces debuggability debt without restructuring. Still leaves the logical errors silently absorbed — a 401 that should have been thrown may still become a phantom pass. Effort: human ~30min / CC ~5min. Completeness: 7/10 — errors are visible but not propagated"
+          },
+          {
+            "label": "Defer to follow-up",
+            "description": "Capture as a TODO and address in a later PR. Risk: the refactor grows harder once 4 new classes depend on the current swallowing behavior. The 'right behavior' becomes ambiguous when callers have already been written against the current (broken) semantics. Completeness: 3/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — Code Quality: validateAndDispatch() is 60 lines with 3 nested try/catch blocks, each swallowing a different error class. <gstack-qid:plan-eng-cq-validate-dispatch>": "Refactor as part of this PR (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:00:40.446Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_01UwMPiH1hZutbzPCGGQ3sUZ",
+    "questions": [
+      {
+        "question": "D6 — Tests: IDP partial failure (calls 1-4 of 5 succeed, call 5 fails) has no test coverage in the plan. We just added the fail-closed semantic in D3. <gstack-qid:plan-eng-test-idp-partial>",
+        "header": "Tests",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to plan as required test (recommended)",
+            "description": "[P1] (confidence: 9/10) We added 'fail closed on any IDP error' as explicit plan language in D3. That semantic needs a test that stubs each IDP call position as the one that fails (5 separate test cases, or one parametrized one) and asserts the validator returns 401 and writes nothing to cache. Without this, the fail-closed rule is a comment in a doc, not a contract in code. Effort: human ~1h / CC ~8min. Completeness: 10/10"
+          },
+          {
+            "label": "Cover only all-pass and all-fail",
+            "description": "Test the two extreme cases (all 5 calls succeed, all fail) and skip partial-failure positions. Simpler, but misses the case where calls 1-4 succeeded and call 5 fails — the most likely real-world scenario when an IDP endpoint degrades under load. Completeness: 6/10"
+          },
+          {
+            "label": "Defer",
+            "description": "Capture as TODO and address post-merge. Risk: the fail-closed rule we just added has no verification path; a future refactor could silently revert it and no test would catch it. Completeness: 3/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 — Tests: IDP partial failure (calls 1-4 of 5 succeed, call 5 fails) has no test coverage in the plan. We just added the fail-closed semantic in D3. <gstack-qid:plan-eng-test-idp-partial>": "Add to plan as required test (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:02:00.740Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_0152qGvSSuBnRkqTe8ix2WTj",
+    "questions": [
+      {
+        "question": "D7 — Tests: the plan says coverage for 'new components and their success/error paths' is planned, but validateAndDispatch() is an existing function being refactored. Its 3 catch blocks that currently swallow errors need explicit tests for each error branch. <gstack-qid:plan-eng-test-validate-dispatch-errors>",
+        "header": "Tests",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add 3 explicit error-path tests to the plan (recommended)",
+            "description": "[P2] (confidence: 8/10) After the refactor from D5, each of the 3 catch blocks becomes a named handler. Each named handler needs a test: trigger error class A/B/C, assert the function returns the expected error response (not silently succeeds). Without these tests, the refactor from D5 has no verification that the new explicit error handling is correct. Effort: human ~1h / CC ~8min. Completeness: 10/10"
+          },
+          {
+            "label": "Cover in integration tests only",
+            "description": "Rely on integration tests that exercise validateAndDispatch() indirectly through AuthBroker. Lower signal — integration tests that cover error paths often don't isolate which branch triggered, making regressions hard to pinpoint. Completeness: 6/10"
+          },
+          {
+            "label": "Defer",
+            "description": "Leave error-path test coverage for a follow-up. Risk: the refactored function's error behavior is unverified until the next sprint. Completeness: 3/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 — Tests: the plan says coverage for 'new components and their success/error paths' is planned, but validateAndDispatch() is an existing function being refactored. Its 3 catch blocks that currently swallow errors need explicit tests for each error branch. <gstack-qid:plan-eng-test-validate-dispatch-errors>": "Add 3 explicit error-path tests to the plan (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:02:10.780Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_0194VcsnAMMDRFEafkx4dEsQ",
+    "questions": [
+      {
+        "question": "D8 — Performance: token validation makes 5 sequential IDP API calls that the plan itself identifies as trivially parallelizable. <gstack-qid:plan-eng-perf-idp-parallel>",
+        "header": "Performance",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Parallelize as part of this PR (recommended)",
+            "description": "[P2] (confidence: 9/10) Plan: 'Token validation issues 5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially (calls are independent).' The plan identifies the fix itself. In a multi-tenant system, token validation is on the hot path for every authenticated request. Sequential IDP calls multiply latency by 5x unnecessarily. Fix: wrap the 5 calls in Promise.all(); the refactor from D5 (validateAndDispatch extraction) is the natural point to do this. Effort: human ~30min / CC ~5min. Completeness: 10/10"
+          },
+          {
+            "label": "Defer to performance pass",
+            "description": "Merge first, profile in production, then optimize. Risk: the plan already identifies this as trivial to fix. Deferring a known, safe, low-effort improvement costs real latency on every auth request from day 1 of deployment. Completeness: 6/10"
+          },
+          {
+            "label": "Add to TODOS.md only",
+            "description": "Capture in TODOS.md and address when performance metrics confirm it matters. Lowest risk of introducing a bug, but leaves 5x unnecessary serial latency in prod indefinitely. Completeness: 4/10"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 — Performance: token validation makes 5 sequential IDP API calls that the plan itself identifies as trivially parallelizable. <gstack-qid:plan-eng-perf-idp-parallel>": "Parallelize as part of this PR (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:02:26.856Z"
+  },
+  {
+    "sessionId": "3326e31d-a9e2-41ea-9489-f99013a81de8",
+    "toolUseId": "toolu_01AHbQGxj8dc6F4MPYhsPo2q",
+    "questions": [
+      {
+        "question": "D9 — TODOS: the plan has no mention of IDP circuit breaker or timeout per call. With 5 calls now running in parallel (D8 decision), an IDP outage generates 5 concurrent timeouts per request. <gstack-qid:plan-eng-todo-idp-circuit-breaker>",
+        "header": "TODO",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md (recommended)",
+            "description": "Capture as a deferred item: add per-call timeout + a circuit breaker so that IDP degradation fails fast instead of hanging. Not blocking this PR, but the parallelization we added in D8 increases the concurrent timeout surface. Concrete TODO: implement exponential backoff + circuit breaker with configurable open/half-open thresholds."
+          },
+          {
+            "label": "Skip — not valuable enough",
+            "description": "Accept that IDP timeout handling is the IDP library's responsibility, or that network timeouts are set at the HTTP client level. No additional app-level circuit breaker needed."
+          },
+          {
+            "label": "Build it now in this PR",
+            "description": "Add circuit breaker logic as part of the validateAndDispatch refactor (D5). The refactor is already touching that function; adding a circuit breaker is incremental. Effort: human ~4h / CC ~20min. Higher complexity, but IDP outages in auth systems have severe user impact."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D9 — TODOS: the plan has no mention of IDP circuit breaker or timeout per call. With 5 calls now running in parallel (D8 decision), an IDP outage generates 5 concurrent timeouts per request. <gstack-qid:plan-eng-todo-idp-circuit-breaker>": "Add to TODOS.md (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:03:23.081Z"
+  }
+];
+
+  test('captured retry counts its scope as setup but keeps all eight substantive decisions above the original ceiling', () => {
+    let started = false;
+    const phases = calls.map(call => {
+      const phase = planCountQuestionPhase(nativePlanCallFingerprint(call, 0, !started),
+        started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+      started = phase.reviewStarted;
+      return phase;
+    });
+    expect(phases.map(p => p.preReview)).toEqual([true, false, false, false, false, false, false, false, false]);
+    expect(phases.filter(p => !p.preReview)).toHaveLength(8);
+  });
+
+  test('an individual component, missing numeric premise, or a finding cannot borrow a scope label', () => {
+    for (const mutate of [
+      (call: typeof calls[number]) => { call.questions[0]!.question = call.questions[0]!.question.replace("The plan's scope", "The cache's scope"); },
+      (call: typeof calls[number]) => { call.questions[0]!.question = call.questions[0]!.question.replace('12 files, 4 new classes', '12 cached tokens'); },
+      (call: typeof calls[number]) => { call.questions[0]!.question = call.questions[0]!.question.replace('triggers the complexity smell check', 'has a race in AuthCache'); },
+      (call: typeof calls[number]) => { call.questions[0]!.header = 'Architecture finding'; },
+    ]) {
+      const call = structuredClone(calls[0]!);
+      mutate(call);
+      call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+    }
+  });
+});

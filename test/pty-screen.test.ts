@@ -72,7 +72,11 @@ describe('owned PTY viewport', () => {
 
   test('clipped native handoff preserves its bound manual choice in either option order', async () => {
     for (const contextLines of [36, 41]) for (const reverse of [false, true]) {
-      const options = [{ label: 'Run /plan-eng-review next' }, { label: "Done — I'll handle reviews manually" }];
+      // The captured CEO handoff explains the required gate in this choice.
+      // Keep that native evidence even when the viewport clips its heading.
+      const options = [{ label: 'Run /plan-eng-review next',
+        description: 'Eng Review is the only required gate before shipping. Covers architecture, code quality, tests, and performance at the diff level. Run it now to clear the shipping gate.',
+      }, { label: "Done — I'll handle reviews manually" }];
       if (reverse) options.reverse();
       const call: NativePlanQuestionCall = { sessionId: 'long-handoff', toolUseId: 'pending', answered: false,
         questions: [{ header: 'Next review',

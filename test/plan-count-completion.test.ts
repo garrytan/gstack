@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { hasNativePlanCompletion, hasNativePlanTerminal, classifyPlanCountFrame } from './helpers/claude-pty-runner';
+import { hasNativePlanCompletion, hasNativePlanTerminal, isPlanReadyVisible, classifyPlanCountFrame } from './helpers/claude-pty-runner';
 import type { PlanCountTranscript } from './helpers/plan-count-transcript';
 
 const CAPTURED_CALL = {
@@ -391,7 +391,7 @@ describe('guarded native terminal and report lifecycle', () => {
 });
 
 test.skipIf(process.platform === 'win32')('real PTY waits through streamed summary, another question and partial report writes', async () => {
-  await Promise.all(['completion_summary', 'plan_ready'].map(async (terminal) => {
+  await Promise.all(['completion_summary', 'plan_ready', 'compact_plan_ready', 'ready_with_unsanctioned_write'].map(async (terminal) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guarded-terminal-pty-'));
     const fake = path.join(dir, 'fake-claude');
     const worker = path.join(dir, 'worker.ts');
@@ -411,11 +411,16 @@ const native = (role, content, extra = {}) => fs.appendFileSync(file, JSON.strin
   cwd: process.cwd(), sessionId, isSidechain: false, timestamp: new Date().toISOString(), message: { role, content }, ...extra,
 }) + '\n');
 const event = name => fs.appendFileSync(process.env.PROBE_EVENTS, JSON.stringify({ name, at: Date.now() }) + '\n');
-const q = { header: 'Tests', question: 'D2 — Test finding: add the missing retry assertion? <gstack-qid:plan-eng-test-missing-retry>', options: [{ label: 'Add retry assertion' }, { label: 'Leave untested' }] };
+const q = { header: 'Tests', question: 'D2 — Test “Would you like to proceed?” <gstack-qid:plan-eng-test-retry>', options: [{ label: 'Add retry assertion' }, { label: 'Leave untested' }] };
 const ask = id => native('assistant', [{ type: 'tool_use', id, name: 'AskUserQuestion', input: { questions: [q] } }]);
 const answer = id => native('user', [{ type: 'tool_result', tool_use_id: id, content: 'Answered.' }], { toolUseResult: { answers: { [q.question]: q.options[0].label } } });
 const summary = 'Completion Summary:\n- Architecture Review: 1 issue resolved\n- Test Review: 1 missing test resolved\n';
-const ready = () => process.stdout.write('\nClaude has written up a plan and is ready to execute. Would you like to proceed?\n❯ 1. Yes, and use auto mode\n  2. Yes, manually approve edits\n  3. Tell Claude what to change\n');
+const compact = process.env.PROBE_TERMINAL === 'compact_plan_ready';
+const ready = () => process.stdout.write(process.env.PROBE_TERMINAL === 'ready_with_unsanctioned_write'
+  ? '\x1b[2J\x1b[H⏺ Write(src/unreviewed.ts)\nClaude has written up a plan and is ready to execute.\n'
+  : compact
+  ? '\x1b[2J\x1b[HExit plan mode?\n\nClaude wants to exit plan mode\n\n❯ 1. Yes, and switch to default (ask each time) for this session\n  2. No\n'
+  : '\nClaude has written up a plan and is ready to execute. Would you like to proceed?\n❯ 1. Yes, and use auto mode\n  2. Yes, manually approve edits\n  3. Tell Claude what to change\n');
 let stage = 0;
 process.stdin.setRawMode?.(true);
 process.stdin.on('data', data => {
@@ -423,9 +428,16 @@ process.stdin.on('data', data => {
   if (stage === 0) {
     stage = 1; ask('first'); answer('first');
     event('streamed-heading'); process.stdout.write('● Completion Summary:\n- Architecture Review: 1 issue resolved\n');
+    if (compact) {
+      // Native metadata for an unrelated question and a prior permission
+      // cannot authorize this ExitPlanMode menu. No report exists yet.
+      ask('second');
+      process.stdout.write('Do you want to make this edit to plan.md?\n❯ 1. Yes\n  2. Yes, and allow all edits\n  3. No\nEsc to cancel · Tab to amend\n⎿ Added 1 line\n');
+      event('unverified-compact-gate'); ready();
+    }
     setTimeout(() => {
-      ask('second'); event('pending-question');
-      process.stdout.write('\n← ☐ Tests ✔ Submit →\n' + q.question + '\n❯ 1. Add retry assertion\n  2. Leave untested\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n');
+      if (!compact) ask('second'); event('pending-question');
+      process.stdout.write('\n☐ Tests\n' + q.question + '\n❯ 1. Add retry assertion\n  2. Leave untested\nEnter to select · ↑/↓ to navigate · Esc to cancel\n');
     }, 3500);
     return;
   }
@@ -434,12 +446,13 @@ process.stdin.on('data', data => {
     fs.writeFileSync(process.env.PROBE_PLAN, '# Draft\n');
     native('assistant', [{ type: 'text', text: summary }], { timestamp: new Date(Date.now() + 1).toISOString() });
     process.stdout.write('\n● ' + summary);
+    if (compact) ready();
     setTimeout(() => {
       event('partial-report'); fs.writeFileSync(process.env.PROBE_PLAN, process.env.PROBE_REPORT.split('VERDICT:')[0]);
     }, 3000);
     setTimeout(() => {
       event('complete-report'); fs.writeFileSync(process.env.PROBE_PLAN, process.env.PROBE_REPORT);
-      if (process.env.PROBE_TERMINAL === 'plan_ready') {
+      if (process.env.PROBE_TERMINAL !== 'completion_summary') {
         native('assistant', [{ type: 'tool_use', id: 'rejected-ready', name: 'ExitPlanMode', input: {} }]);
         native('user', [{ type: 'tool_result', tool_use_id: 'rejected-ready', is_error: true, content: 'Gate not ready' }]);
         ready();
@@ -464,13 +477,16 @@ process.stdin.resume();
       expect(code, stdout + stderr).toBe(0);
       const observation = JSON.parse(fs.readFileSync(result, 'utf8'));
       expect(fs.existsSync(output), `D19: report must exist before stopping; ${observation.summary}`).toBe(true);
-      expect(observation.outcome, JSON.stringify(observation)).toBe(terminal);
+      expect(observation.outcome, JSON.stringify(observation)).toBe(
+        terminal === 'ready_with_unsanctioned_write' ? 'silent_write' :
+        terminal === 'compact_plan_ready' ? 'plan_ready' : terminal,
+      );
       expect(observation.reviewCount).toBe(2);
       expect(fs.readFileSync(output, 'utf8')).toBe(REPORT);
       const recorded = fs.readFileSync(events, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-      expect(recorded.map(e => e.name)).toEqual(['streamed-heading', 'pending-question', 'answered-second', 'partial-report', 'complete-report', ...(terminal === 'plan_ready' ? ['valid-native-ready'] : [])]);
+      expect(recorded.map(e => e.name)).toEqual(['streamed-heading', ...(terminal === 'compact_plan_ready' ? ['unverified-compact-gate'] : []), 'pending-question', 'answered-second', 'partial-report', 'complete-report', ...(terminal !== 'completion_summary' ? ['valid-native-ready'] : [])]);
       expect(fs.readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))).toEqual(['/plan-eng-review\r', '1']);
-      if (terminal === 'plan_ready') expect(observation.transcript.planReadyRequests.map(r => r.failed)).toEqual([true, false]);
+      if (terminal !== 'completion_summary') expect(observation.transcript.planReadyRequests.map(r => r.failed)).toEqual([true, false]);
     } finally { clearTimeout(timer); child.kill('SIGKILL'); await child.exited; fs.rmSync(dir, { recursive: true, force: true }); }
   }));
 }, 50000);
@@ -490,4 +506,143 @@ test('captured completed CEO prose supports the ordinary summary path', () => {
     f.transcript.calls = [];
     expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(false);
   } finally { f.cleanup(); }
+});
+
+
+const CAPTURED_NUMBERED_DX_HANDOFF = {
+  "sessionId": "0b7d664e-8d15-4c0e-8be2-d03a833d5d33",
+  "toolUseId": "toolu_01RgoUjV9vFRaSFoySjm5QqY",
+  "questions": [
+    {
+      "question": "D8 — DX review complete. 5 friction points resolved, DX score 4/10 → 8/10, TTHW target achievable. What’s next? <gstack-qid:devex-next-steps>",
+      "header": "Next steps",
+      "options": [
+        {
+          "label": "Run /plan-eng-review next (recommended)",
+          "description": "Three of the five fixes (CI skip flag, auth error upgrade, deprecated alias) have architectural implications. Eng review validates the contracts before implementation."
+        },
+        {
+          "label": "Ready to implement — run /devex-review after shipping",
+          "description": "Skip eng review for now. Implement the five recommendations, then run /devex-review on the live beta to verify TTHW <2 min is achieved."
+        },
+        {
+          "label": "Skip — I'll handle next steps manually",
+          "description": "No further review automation. You have the five recommendations; implementation is up to you."
+        }
+      ],
+      "multiSelect": false
+    }
+  ],
+  "answered": true,
+  "failed": false,
+  "answers": {
+    "D8 — DX review complete. 5 friction points resolved, DX score 4/10 → 8/10, TTHW target achievable. What’s next? <gstack-qid:devex-next-steps>": "Run /plan-eng-review next (recommended)"
+  },
+  "unansweredQuestionIndices": [],
+  "answeredAt": "2026-09-08T20:49:56.950Z"
+};
+
+
+describe('numbered completed DX handoff preserves native report freshness', () => {
+  function completedHandoffTranscript(f: ReturnType<typeof fixture>): PlanCountTranscript {
+    const transcript = structuredClone(f.transcript);
+    const sessionId = transcript.calls[0]!.sessionId;
+    transcript.calls.push({ ...structuredClone(CAPTURED_NUMBERED_DX_HANDOFF), sessionId });
+    transcript.planReadyRequests = [{
+      sessionId,
+      toolUseId: 'toolu_01QwXDuSELZNrgexVf88bQxG',
+      timestamp: '2026-09-08T20:50:30.273Z',
+      failed: false,
+    }];
+    return transcript;
+  }
+
+  test('the captured three-choice handoff changes orchestration without requiring another report write', () => {
+    const f = fixture();
+    try {
+      const transcript = completedHandoffTranscript(f);
+      expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(true);
+      transcript.planReadyRequests![0]!.failed = true;
+      expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      transcript.planReadyRequests = [];
+      expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('substantive, incomplete, unanswered and mixed menus remain report freshness boundaries', () => {
+    const f = fixture();
+    try {
+      for (const mutate of [
+        (call: any) => { call.questions[0].question = call.questions[0].question.replace('review complete.', 'review still has unresolved auth behavior.'); },
+        (call: any) => { call.questions[0].question = call.questions[0].question.replace('devex-next-steps', 'devex-auth-finding'); },
+        (call: any) => { call.questions[0].header = 'Auth policy'; },
+        (call: any) => { call.questions[0].options.push({ label: 'Add retry support to the SDK now' }); },
+        (call: any) => { call.questions[0].options[1].label = 'Ready to implement — change authentication first'; },
+        (call: any) => { call.questions[0].options[2].label = 'Skip — keep the broken authentication'; },
+        (call: any) => { call.answers[call.questions[0].question] = 'First implement the missing retry fix'; },
+        (call: any) => { call.unansweredQuestionIndices = [0]; },
+        (call: any) => { call.questions.push(structuredClone(CAPTURED_CALL.questions[0])); },
+      ]) {
+        const transcript = completedHandoffTranscript(f);
+        mutate(transcript.calls[1]);
+        expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      }
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('a later actual review answer still requires a fresh complete report', () => {
+    const f = fixture();
+    try {
+      const transcript = completedHandoffTranscript(f);
+      transcript.calls.splice(1, 0, {
+        ...structuredClone(CAPTURED_CALL),
+        toolUseId: 'later-review-decision',
+        answeredAt: '2026-09-08T20:49:00.000Z',
+      });
+      expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      fs.utimesSync(f.file, Date.parse('2026-09-08T20:49:20Z') / 1000, Date.parse('2026-09-08T20:49:20Z') / 1000);
+      expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(true);
+      fs.writeFileSync(f.file, '## GSTACK REVIEW REPORT\n');
+      expect(hasNativePlanTerminal(transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+    } finally {
+      f.cleanup();
+    }
+  });
+});
+
+
+// Source-I Eng displayed this compact native approval after ExitPlanMode.
+// Its classification must not itself claim a completed review/report.
+const CAPTURED_COMPACT_PLAN_GATE = `Exit plan mode?
+
+Claude wants to exit plan mode
+
+❯ 1. Yes, and switch to default (ask each time) for this session
+  2. No`;
+
+test('the captured compact ExitPlanMode menu is an approval gate, not an ordinary answer', () => {
+  expect(isPlanReadyVisible(CAPTURED_COMPACT_PLAN_GATE)).toBe(true);
+  expect(classifyPlanCountFrame(CAPTURED_COMPACT_PLAN_GATE)).toBe('plan_ready');
+  const f = fixture();
+  try {
+    expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+    f.transcript.planReadyRequests = [{ sessionId: f.transcript.calls[0]!.sessionId,
+      toolUseId: 'exit', timestamp: CAPTURED_FINAL.timestamp, failed: false }];
+    fs.writeFileSync(f.file, '# Draft\n');
+    expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+  } finally { f.cleanup(); }
+});
+
+test('compact approval recognition rejects quoted, incomplete and superseded menus', () => {
+  for (const visible of [
+    'Should the application show an Exit plan mode? confirmation?',
+    '> ' + CAPTURED_COMPACT_PLAN_GATE.replaceAll('\n', '\n> '),
+    CAPTURED_COMPACT_PLAN_GATE.replace('Claude wants to exit plan mode', 'The documentation mentions exiting plan mode'),
+    CAPTURED_COMPACT_PLAN_GATE.replace('  2. No', ''),
+    CAPTURED_COMPACT_PLAN_GATE + '\nTests\nAdd retry coverage?\n❯ 1. Add test\n  2. Skip\nEnter to select · Esc to cancel',
+  ]) expect(isPlanReadyVisible(visible), visible).toBe(false);
 });

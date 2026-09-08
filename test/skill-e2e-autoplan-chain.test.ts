@@ -1,26 +1,17 @@
 /**
- * /autoplan cross-skill chain (periodic, paid, real-PTY).
+ * /autoplan native chain sequencing (periodic, paid, real PTY).
  *
- * Asserts: when /autoplan runs against a plan fixture, the phase markers
- * the autoplan template emits appear in the correct order:
+ * The calibrated UI/API fixture requires full CEO → Design → DX → Eng review.
+ * This test disables only the outside CLI through codex_reviews; the native
+ * subagents and every applicable phase still run. Require real native phase
+ * completion announcements in order, with Eng last. Completion order does not
+ * establish phase start times or prove non-overlap.
  *
- *   "**Phase 1 complete." (CEO)        →
- *   "**Phase 2 complete." (Design — only if UI scope detected) →
- *   "**Phase 2.5 complete." (DX — optional, skipped if no DX scope) →
- *   "**Phase 3 complete." (Eng — always runs, always LAST: the required
- *     gate reviews the final amended plan)
+ * Outside coverage here is disabled, never completed. The separate dual-voice
+ * and cross-harness evals exercise provider dispatch; this test does not replace
+ * those or establish per-phase Autoplan outside completion coverage.
  *
- * Why this exists: each individual phase has its own plan-mode smoke
- * test. This checks cross-phase completion order, including the conditional
- * Design/DX phases when they run. Completion markers do not establish phase
- * start times or prove that no work overlapped between phases.
- *
- * Approach: read standalone phase-completion announcements and their native
- * assistant timestamps from the isolated transcript. Assert observed ordering. Phase 2 is
- * optional — UI-heavy fixture should make it run; backend-only fixtures
- * should make it skip.
- *
- * Cost: ~$5-8/run, 10-15 min wall clock. Periodic — runs weekly.
+ * Existing budget: 15 min work, 20 min absolute test ceiling.
  */
 
 import { test, expect } from 'bun:test';
@@ -42,6 +33,7 @@ import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript } from './helpers/plan-count-transcript';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
+import { createNativeReviewState } from './helpers/plan-count-fixture';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -54,13 +46,14 @@ function diagnosticTail(text: string): string {
     .slice(-3000);
 }
 
-describeE2E('/autoplan chain ordering (periodic)', () => {
+describeE2E('/autoplan native chain ordering (periodic)', () => {
   test(
-    'phase completions are ordered: Phase 1 (CEO) before Phase 3 (Eng), Phase 2 (Design) between when present',
+    'full native phase completions are ordered: CEO before Design before DX before Eng',
     async () => {
       // Chain-only fixture retains all new UI/API work and supplies existing
       // application contracts; the shared design-scope fixture stays unchanged.
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-autoplan-chain-'));
+      let nativeState: ReturnType<typeof createNativeReviewState> | undefined;
       try {
         const gitRun = (args: string[]) =>
           spawnSync('git', args, { cwd: tempDir, stdio: 'pipe', timeout: 5000 });
@@ -75,7 +68,9 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
         gitRun(['add', '.']);
         gitRun(['commit', '-m', 'init UI-heavy fixture']);
 
+        nativeState = createNativeReviewState();
         const session = await launchClaudePty({
+          env: nativeState.env,
           permissionMode: 'plan',
           cwd: tempDir,
           timeoutMs: 1_080_000, // 18 min, slightly above test budget
@@ -198,8 +193,9 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
         // Phase 3 (Eng) MUST have been seen.
         const ceo = hits.find(h => h.phase === 1);
         const design = hits.find(h => h.phase === 2);
+        const dx = hits.find(h => h.phase === 2.5);
         const eng = hits.find(h => h.phase === 3);
-        if (!ceo || !eng) {
+        if (!ceo || !design || !dx || !eng) {
           throw new Error(
             `Required phase markers missing. Saw: ${JSON.stringify(hits)}\n` +
               `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
@@ -207,24 +203,16 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           );
         }
 
-        // Sequencing: CEO must end before Eng ends — and Eng is the terminal
-        // phase (the required gate reviews the final amended plan). Design and
-        // DX (if observed) must end after CEO and before Eng.
-        expect(ceo.ts).toBeLessThan(eng.ts);
-        if (design) {
-          expect(design.ts).toBeGreaterThan(ceo.ts);
-          expect(design.ts).toBeLessThan(eng.ts);
-        }
-        const dx = hits.find(h => h.phase === 2.5);
-        if (dx) {
-          expect(dx.ts).toBeGreaterThan(ceo.ts);
-          expect(dx.ts).toBeLessThan(eng.ts);
-        }
+        // This fixture has UI and API scope: all four phases are required.
+        expect(ceo.ts).toBeLessThan(design.ts);
+        expect(design.ts).toBeLessThan(dx.ts);
+        expect(dx.ts).toBeLessThan(eng.ts);
         // No phase marker may appear after Eng's (Eng-last invariant).
         const maxTs = Math.max(...hits.map(h => h.ts));
         expect(eng.ts).toBe(maxTs);
       } finally {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        finally { nativeState?.cleanup(); }
       }
     },
     PTY_LONG_MS, // 20 min absolute test ceiling

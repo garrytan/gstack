@@ -34,15 +34,61 @@ const PATH_ADJACENT = /\/\$\{?_BRANCH|\$\{_BRANCH\}\/|\$_BRANCH\//;
 // Raw $_BRANCH as a filename prefix (…-reviews.jsonl and friends).
 const FILENAME_PREFIX = /\$\{?_BRANCH\}?[A-Za-z0-9._-]*\.(?:jsonl|json|md|txt|log)/;
 
-function renderedSkillFiles(): string[] {
-  const out = execSync(
-    `find "${ROOT}" -name 'SKILL.md' -not -path '*/node_modules/*' -not -path '*/.claude/*' ; find "${ROOT}" -path '*/sections/*.md' -not -path '*/node_modules/*' -not -path '*/.claude/*'`,
-    { encoding: 'utf-8', timeout: 30_000 },
-  );
-  return out.split('\n').filter(Boolean);
+function renderedSkillFiles(root = ROOT): string[] {
+  // Enumerate managed render trees without buffering a shell's file census.
+  // .context holds archived/experimental copies, not shipped skill output.
+  const excluded = new Set(['node_modules', '.claude', '.context', '.git']);
+  const files: string[] = [];
+  function visit(dir: string, inSections = false) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!excluded.has(entry.name)) visit(file, inSections || entry.name === 'sections');
+      } else if (entry.name === 'SKILL.md' || (inSections && entry.name.endsWith('.md'))) {
+        files.push(file);
+      }
+    }
+  }
+  visit(root);
+  return files;
 }
 
 describe('branch slug hygiene (#2550, #1851)', () => {
+  test('render discovery excludes scratch copies and retains every managed host without a pipe-size limit', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-render-census-'));
+    const add = (relative: string) => {
+      const file = path.join(root, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '# Render fixture\n');
+      return file;
+    };
+    try {
+      const expected = [
+        add('review/SKILL.md'), add('review/sections/analysis.md'),
+        add('.agents/skills/gstack-review/SKILL.md'),
+        add('.kiro/skills/gstack-review/sections/nested/analysis.md'),
+        add('skill with $quotes/sections/line\nbreak.md'),
+      ];
+      for (const excluded of ['.context', '.claude', '.git', 'node_modules']) {
+        add(`${excluded}/old-render/review/SKILL.md`);
+        add(`${excluded}/old-render/review/sections/analysis.md`);
+      }
+      // The old execSync census failed at its 1 MiB stdout default once
+      // enough isolated host renders existed in a workspace.
+      for (let i = 0; i < 4500; i++) {
+        expected.push(add(`host-output/skill-${i}-${'x'.repeat(210)}/SKILL.md`));
+      }
+      expect(Buffer.byteLength(expected.join('\n'))).toBeGreaterThan(1024 * 1024);
+      const actual = renderedSkillFiles(root);
+      const expectedSet = new Set(expected);
+      expect(actual).toHaveLength(expected.length);
+      expect(new Set(actual).size).toBe(expected.length);
+      expect(actual.every(file => expectedSet.has(file))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('no generated SKILL.md or section interpolates raw $_BRANCH in a path position', () => {
     const offenders: string[] = [];
     for (const file of renderedSkillFiles()) {

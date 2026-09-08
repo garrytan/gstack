@@ -15,6 +15,43 @@ import {
 } from './helpers/ceo-mode-option';
 import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
 
+const designOutsideQuestions = [
+  {
+    "question": "D3 (Step 0D) — I've rated this plan 5/10 on design completeness. The three biggest gaps are: (1) the 5 identified implementation gaps describe the problem but not the solution, (2) no explicit state coverage table, (3) no user journey emotional arc. I'll skip mockups and review all 7 dimensions as you requested. Any specific areas to prioritize, or cover all 7 equally? <gstack-qid:plan-design-focus>",
+    "header": "Focus areas",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "Cover all 7 equally (Recommended)",
+        "description": "Standard review: all 7 design dimensions get full treatment. Takes longer but produces a complete plan."
+      },
+      {
+        "label": "Focus on the 5 identified gaps first",
+        "description": "Prioritize Pass 5 (Design System Alignment) to close the gap descriptions into actionable specs, then cover remaining passes more quickly."
+      },
+      {
+        "label": "Prioritize accessibility and states",
+        "description": "Focus on Pass 2 (Interaction States) and Pass 6 (Responsive/A11y), since the form has sensitive UX requirements (ARIA, contrast, keyboard)."
+      }
+    ]
+  },
+  {
+    "question": "D4 — Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; a Claude subagent does an independent completeness review. (Requires Codex CLI to be installed.) <gstack-qid:outside-voices-design>",
+    "header": "Outside voices",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "Yes, run outside design voices",
+        "description": "Launches Codex design critique + Claude subagent completeness review in parallel before the 7 passes. Adds 1–2 minutes."
+      },
+      {
+        "label": "No, proceed without (Recommended)",
+        "description": "Skip outside voices and go straight to the 7 review passes. Faster; sufficient for most plans."
+      }
+    ]
+  }
+];
+
 const questions = [
   {
     header: 'Routing rules',
@@ -261,6 +298,8 @@ describe('native AUQ accepts one action per displayed question', () => {
           long: true,
         },
         { name: 'late-packet', count: 2, late: true, permission: false },
+        { name: 'design-outside-tab', count: 2, late: false, permission: false, designQuestions: designOutsideQuestions },
+        { name: 'design-outside-late', count: 2, late: true, permission: false, designQuestions: designOutsideQuestions },
       ].map((item) => ({
         ...item,
         record: path.join(dir, item.name + '.jsonl'),
@@ -290,7 +329,7 @@ const native = (role, content, extra = {}) =>
   );
 native('assistant', [{ type: 'text', text: 'Fixture started.' }]);
 record({ type: 'startup', pid: process.pid, cwd: process.cwd() });
-const questions = Array.from({ length: item.count }, (_, i) => ({
+const questions = item.designQuestions ?? Array.from({ length: item.count }, (_, i) => ({
   header: 'Decision ' + i,
   question:
     (item.long && i === 0
@@ -330,7 +369,8 @@ const render = () => {
         .join(' ') +
       ' ✔ Submit →\n│ ' +
       questions[index].question +
-      '\n❯1.First remedy\n2.Second remedy\n3.Type something.\n4.Chat about this\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n';
+      '\n' + questions[index].options.map((option, i) => (i === 0 ? '❯' : '') + (i + 1) + '.' + option.label).join('\n') +
+      '\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n';
   else if (index === questions.length)
     screen =
       '← ' +
@@ -385,6 +425,7 @@ process.stdin.on('data', (data) => {
       { toolUseResult: { answers } },
     );
     record({ type: 'submitted', answers });
+    if (item.designQuestions && Object.values(answers)[1] === item.designQuestions[1].options[0].label) record({ type: 'outside-dispatched' });
     done = true;
     process.stdout.write('\x1b[2J\x1b[HGSTACK REVIEW REPORT\r\n');
     return;
@@ -410,6 +451,7 @@ process.stdin.resume();
       fs.writeFileSync(
         worker,
         `import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dir, 'helpers/claude-pty-runner.ts')).href)};
+import {pickDesignCountOutsideVoices} from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dir, 'helpers/design-count-outside.ts')).href)};
 const cases=${JSON.stringify(cases)};
 const results = await Promise.all(cases.map(async item => ({
   name: item.name,
@@ -419,7 +461,8 @@ const results = await Promise.all(cases.map(async item => ({
     followUpPrompt: 'Review only this fixture.',
     isLastStep0AUQ: () => false,
     isReviewAUQ: () => true,
-    firstAUQPick: () => 2,
+    firstAUQPick: item.designQuestions ? undefined : () => 2,
+    pickAUQ: item.designQuestions ? pickDesignCountOutsideVoices : undefined,
     reviewCountCeiling: 8,
     timeoutMs: 22000,
     env: { NATIVE_INPUT_CASE: JSON.stringify(item) },
@@ -465,8 +508,7 @@ await Bun.write(${JSON.stringify(results)},JSON.stringify(results));`,
           ).toEqual([
             '/plan-eng-review\r',
             ...(item.permission ? ['1\r'] : []),
-            '2',
-            ...Array(item.count - 1).fill('1'),
+            ...(item.designQuestions ? ['1', '2'] : ['2', ...Array(item.count - 1).fill('1')]),
             '\r',
           ]);
           expect(events.filter((e) => e.type === 'screen' && e.blank)).toEqual(
@@ -477,10 +519,10 @@ await Bun.write(${JSON.stringify(results)},JSON.stringify(results));`,
           ).toEqual([]);
           const submitted = events.filter((e) => e.type === 'submitted');
           expect(submitted).toHaveLength(1);
-          expect(Object.values(submitted[0].answers)).toEqual([
-            'Second remedy',
-            ...Array(item.count - 1).fill('First remedy'),
-          ]);
+          expect(Object.values(submitted[0].answers)).toEqual(item.designQuestions
+            ? [item.designQuestions[0].options[0].label, item.designQuestions[1].options[1].label]
+            : ['Second remedy', ...Array(item.count - 1).fill('First remedy')]);
+          expect(events.filter(e => e.type === 'outside-dispatched')).toEqual([]);
           expect(() => process.kill(events[0].pid, 0)).toThrow();
           expect(fs.existsSync(events[0].cwd)).toBe(false);
         }

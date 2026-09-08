@@ -189,7 +189,11 @@ export function isTrustDialogVisible(visible: string): boolean {
 export function isPlanReadyVisible(visible: string): boolean {
   if (/ready to execute|Would you like to proceed/i.test(visible)) return true;
   const collapsed = visible.replace(/\s+/g, '');
-  return /readytoexecute|Wouldyouliketoproceed/i.test(collapsed);
+  if (/readytoexecute|Wouldyouliketoproceed/i.test(collapsed)) return true;
+  // Claude also renders a compact ExitPlanMode approval, without a plan
+  // preview. Recognize its complete active menu, not prose mentioning exit.
+  // This identifies an input gate only; native/report evidence is separate.
+  return /(?:^|\n)\s*Exit plan mode\?\s*\n\s*Claude wants to exit plan mode\s*\n\s*❯\s*1\.\s*Yes, and switch to default \(ask each time\) for this session\s*\n\s*2\.\s*No\s*$/i.test(visible);
 }
 
 /**
@@ -1712,11 +1716,14 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
   if (q.multiSelect || !/^next\s+steps?$/i.test(q.header.trim()) ||
-      !/^DX review (?:done|complete)[.!]/i.test(q.question) ||
+      !/^DX review (?:done|complete)[.!]/i.test(q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')) ||
       !/<gstack-qid:devex-next-steps>/.test(q.question)) return false;
   const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
-  const allowed = (label: string) => /^(?:Run \/plan-eng-review|Ready to implement|Skip, handle manually)$/.test(label);
-  return labels.every(allowed) && labels.includes('Run /plan-eng-review') && labels.includes('Skip, handle manually') &&
+  const runEng = (label: string) => /^Run \/plan-eng-review(?: next)?$/i.test(label);
+  const ready = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/devex-review after shipping)?$/i.test(label);
+  const manual = (label: string) => /^Skip(?:, handle manually|\s*[—–-]\s*I['’]ll handle next steps manually)$/i.test(label);
+  return labels.every(label => runEng(label) || ready(label) || manual(label)) &&
+    labels.filter(runEng).length === 1 && labels.filter(manual).length === 1 &&
     q.options.some(o => o.label === call.answers?.[q.question]);
 }
 
@@ -1830,7 +1837,16 @@ export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
     const wholePlanStatement = /(?:^|\n)(?:ELI10:\s*)?(?:this|the|whole|entire)\s+plan\s+(?:touches|spans|covers|changes|introduces|involves)\b/i.test(body);
     const wholePlanScope = (/^(?:(?:scope(?:\s+(?:challenge|reduction|complexity))?|complexity\s+check)\s*:\s*)?(?:this|the|whole|entire)\s+plan\s+(?:touches|spans|covers|changes|introduces|involves)\b/i.test(body) ||
         (scopeHeading && wholePlanStatement)) && /\b\d+\s+(?:new\s+)?(?:files|classes|services)\b/i.test(body);
-    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' || wholePlanScope;
+    // The native complexity gate may give the plan's file/class counts
+    // directly, without spelling out "this plan touches". Keep that shape
+    // tied to a Scope header and the explicit whole-scope opposed action.
+    const countedComplexityGate = /^scope$/i.test(q.header.trim()) &&
+      (/^complexity\s+check(?:\s+triggered)?\s*:\s*\d+\s+files\b/i.test(body) ||
+        /^(?:the\s+)?plan['’]s\s+scope\b[^.!?]{0,180}\bcomplexity(?:\s+smell)?\s+check\b/i.test(body)) &&
+      /\b\d+\s+files\b/i.test(body) &&
+      /\b\d+\+?\s+(?:new\s+)?(?:classes|services)\b/i.test(body) &&
+      actions.some(action => /^reduce\s+scope\b/i.test(action));
+    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' || wholePlanScope || countedComplexityGate;
     return scopeComplexity &&
       actions.some((proceed, i) =>
         (/^proceed\s+as[- ]is\b/i.test(proceed) || /^accept\b.*\bdesign\b.*\bfocus\b.*\bquality\b/i.test(proceed)) &&
@@ -2839,7 +2855,13 @@ export async function runPlanSkillCounting(opts: {
       let frame = terminalHint;
       // Clear unverified hints before routing active permissions and Submit.
       if (opts.expectedPlanPath && isTerminalHint && !verifiedTerminal) frame = null;
-      const permission = nativeQuestionVisible ? null : filePermission(visible, session.visibleText());
+      // A real approval gate is never an AUQ or a file permission. Wait for
+      // its report/native evidence before input routing; verified gates still
+      // pass the existing silent-write check below. A positively matched
+      // native question above takes precedence over gate text.
+      if (opts.expectedPlanPath && terminalHint === 'plan_ready' && !verifiedTerminal) continue;
+      const permission = nativeQuestionVisible || terminalHint === 'plan_ready'
+        ? null : filePermission(visible, session.visibleText());
       if (frame === 'permission' || (permission === 'grant' && frame === null)) {
         if (permission !== 'handled') session.send(`${defaultPick}\r`);
         await Bun.sleep(1500);
@@ -2905,10 +2927,6 @@ export async function runPlanSkillCounting(opts: {
           `native review completion and final report verified (step0=${step0Count}, review=${reviewCount})`, visible);
       }
 
-      // Never submit a plan-approval menu while its final report/native gate
-      // is unverified: choosing option 1 would enter implementation.
-      if (opts.expectedPlanPath && terminalHint === 'plan_ready') continue;
-
       // A dismissed or repainted permission is never a native question.
       if (permission === 'handled') continue;
 
@@ -2921,10 +2939,13 @@ export async function runPlanSkillCounting(opts: {
         ? nativePlanCallFingerprint(pending, fp.observedAtMs, fp.preReview) : fp;
       const prerequisitePick = planCountPrerequisitePick(routing);
       // Native tool records may flush only after the answer. Let a guarded
-      // caller recognize that visible menu, but never override a known packet.
+      // caller recognize that visible menu. A known packet needs a positively
+      // matched active tab before a caller can change that tab's choice.
       // The captured fingerprint alone proves whether native metadata matched
       // this active UI; an unrelated pending record is not a routing identity.
-      const callerPick = !pending || pending.questions.length === 1 ? opts.pickAUQ?.(routing, fp) ?? null : null;
+      const boundNativeTab = pending && fp.nativeCall === pending && fp.nativeQuestionIndex !== undefined;
+      const callerPick = !pending || pending.questions.length === 1 || boundNativeTab
+        ? opts.pickAUQ?.(routing, fp) ?? null : null;
       const pickIdx = prerequisitePick ?? callerPick ??
         (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(routing) : defaultPick);
       isFirstAUQ = false;

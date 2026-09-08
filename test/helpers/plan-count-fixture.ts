@@ -4,6 +4,34 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getHermeticDirs } from './hermetic-env';
 
+/** Disposable config for evals that explicitly cover native review only. */
+export function createNativeReviewState(): {
+  env: Record<string, string>;
+  cleanup(): void;
+} {
+  const sharedState = getHermeticDirs().gstackHome;
+  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-native-review-state-'));
+  const cleanup = () => fs.rmSync(stateRoot, { recursive: true, force: true });
+  try {
+    for (const entry of fs.readdirSync(sharedState, { withFileTypes: true })) {
+      // Keep onboarding seeds; never copy sibling review logs/artifacts.
+      if (entry.isFile() && (entry.name === '.activated' ||
+          /^\..*(?:-seen|-prompted|-shown)$/.test(entry.name) ||
+          entry.name.startsWith('.feature-prompted-'))) {
+        fs.copyFileSync(path.join(sharedState, entry.name), path.join(stateRoot, entry.name));
+      }
+    }
+    const config = fs.readFileSync(path.join(sharedState, 'config.yaml'), 'utf8')
+      .replace(/^codex_reviews:.*(?:\r?\n|$)/gm, '');
+    fs.writeFileSync(path.join(stateRoot, 'config.yaml'), config + '\ncodex_reviews: disabled\n');
+    // Readers and onboarding writers must agree on the owned state.
+    return { env: { GSTACK_HOME: stateRoot, GSTACK_STATE_ROOT: stateRoot }, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+}
+
 /**
  * Count evals review a seeded plan, never the checkout that supplies skills.
  * Put the complete request in Claude's initial project context before the
@@ -16,13 +44,13 @@ export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?
   cleanup(): void;
 } {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-plan-count-'));
-  let stateRoot: string | undefined;
+  let nativeState: ReturnType<typeof createNativeReviewState> | undefined;
   const env: Record<string, string> = {};
   const cleanup = () => {
     try {
       fs.rmSync(cwd, { recursive: true, force: true });
     } finally {
-      if (stateRoot) fs.rmSync(stateRoot, { recursive: true, force: true });
+      nativeState?.cleanup();
     }
   };
   try {
@@ -38,28 +66,9 @@ export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?
       }
     }
     if (opts.nativeReviewOnly) {
-      // Seeded-N count bands measure the main review's finding cadence.
-      // An outside review can legitimately add findings beyond that band;
-      // these fixtures do not cover its separate approval-question cadence.
-      // Opt in only from runPlanSkillCounting: mode fixtures keep defaults.
-      const sharedState = getHermeticDirs().gstackHome;
-      stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-plan-count-state-'));
-      for (const entry of fs.readdirSync(sharedState, { withFileTypes: true })) {
-        // Preserve onboarding seeds, without copying sibling review logs or
-        // artifacts from the per-process shared hermetic state directory.
-        if (entry.isFile() && (entry.name === '.activated' ||
-            /^\..*(?:-seen|-prompted|-shown)$/.test(entry.name) ||
-            entry.name.startsWith('.feature-prompted-'))) {
-          fs.copyFileSync(path.join(sharedState, entry.name), path.join(stateRoot, entry.name));
-        }
-      }
-      const config = fs.readFileSync(path.join(sharedState, 'config.yaml'), 'utf8')
-        .replace(/^codex_reviews:.*(?:\r?\n|$)/gm, '');
-      fs.writeFileSync(path.join(stateRoot, 'config.yaml'), config + '\ncodex_reviews: disabled\n');
-      // Config readers prefer STATE_ROOT, while onboarding writers use HOME.
-      // Both must resolve to owned state, even with explicit caller overrides.
-      env.GSTACK_HOME = stateRoot;
-      env.GSTACK_STATE_ROOT = stateRoot;
+      // Seeded-N bands cover native finding cadence; mode fixtures keep defaults.
+      nativeState = createNativeReviewState();
+      Object.assign(env, nativeState.env);
     }
     fs.writeFileSync(path.join(cwd, 'PLAN.md'), prompt);
     fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), [

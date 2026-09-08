@@ -10,6 +10,7 @@
 
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
+import { pickDesignCountOutsideVoices } from './helpers/design-count-outside';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -175,6 +176,9 @@ describeE2E('/plan-design-review per-finding AskUserQuestion count (periodic)', 
           isLastStep0AUQ: designStep0Boundary,
           isFirstReviewAUQ: designFirstReviewAUQ,
           fixtureFiles: { 'DESIGN.md': designSystem },
+          // Design's explicit opt-in is separate from codex_reviews. Keep
+          // this native-cadence fixture within its declared review scope.
+          pickAUQ: pickDesignCountOutsideVoices,
           reviewCountCeiling: CEILING + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
