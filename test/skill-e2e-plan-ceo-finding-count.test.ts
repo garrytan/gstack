@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   ceoStep0Boundary,
+  ceoFirstReviewAUQ,
   assertReviewReportAtBottom,
   type AskUserQuestionFingerprint,
 } from './helpers/claude-pty-runner';
@@ -65,8 +66,8 @@ const FLOOR_PAIRED = 2;
 const CEILING_PAIRED = 4;
 
 // Keep the five seeded defects distinct from already-satisfied surrounding
-// contracts. The live control correctly found extra signature, deduplication,
-// concurrency, and naming gaps when those baseline facts were unspecified.
+// contracts. Live controls correctly found extra ingress, missing-user,
+// observability, and rollout gaps when those baseline facts were unspecified.
 const planCeo5Findings = (planPath: string) => [
   `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
   '',
@@ -79,6 +80,12 @@ const planCeo5Findings = (planPath: string) => [
   'and an existing per-user transaction lock serializes payment updates.',
   'The new handler runs inside those unchanged guards; this plan does not',
   'replace signature verification, event deduplication, or update locking.',
+  'The existing lookup-result guard acknowledges unknown/deleted users with',
+  'HTTP 200, logs the event, and stops before user updates or email fan-out.',
+  'The ingress wrapper already logs event IDs, outcomes, and durations, with',
+  'alerts for failed webhook processing. Those controls remain in place.',
+  'The deployment already has a handler feature flag and a documented, tested',
+  'rollback to the prior handler; this change uses that existing rollout path.',
   '',
   '## Architecture',
   "We're adding a new `StripePaymentWebhookHandler` class that will handle Stripe webhooks.",
@@ -106,10 +113,20 @@ const planCeo2PairedFindings = (planPath: string) => [
   '',
   '# Plan: Payment Processing — Test Coverage',
   '',
+  '## Existing coverage and test infrastructure retained',
+  'This changes unit tests only; processPayment() production behavior stays as-is.',
+  'The Stripe adapter suite already covers network timeouts, card declines (402),',
+  'rate limits (429), and recovery when an initial 502 is followed by a successful',
+  'charge. Receipt-builder failure behavior has its own passing regression tests.',
+  'The payment test factory explicitly configures max_retries=1 and exposes the',
+  'Stripe mock call history. Its injected virtual sleeper records backoff without',
+  'real delays, so an exhausted 502 operation makes exactly two charge attempts.',
+  'These existing helpers and regression suites remain in use for this change.',
+  '',
   '## Tests',
   'We need test coverage for `processPayment()`. Specifically:',
   '1. The happy path (successful Stripe charge — assert correct receipt is generated).',
-  '2. The error/timeout path (Stripe returns 502 — assert retry-with-backoff fires once, then fails clean).',
+  '2. The 502 error path (Stripe returns 502 — assert retry-with-backoff fires once, then fails clean).',
   '',
   'Currently neither has a unit test. These are deliberately separate concerns:',
   'the success path is correctness, the failure path is graceful degradation.',
@@ -131,6 +148,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           slashCommand: '/plan-ceo-review',
           followUpPrompt: planCeo5Findings(planPath),
           isLastStep0AUQ: ceoStep0Boundary,
+          isFirstReviewAUQ: ceoFirstReviewAUQ,
           reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
           firstAUQPick: pickSkipInterview, // bypass scope-selection, route to review
           timeoutMs: 1_500_000, // 25 min
@@ -214,6 +232,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           slashCommand: '/plan-ceo-review',
           followUpPrompt: planCeo2PairedFindings(planPath),
           isLastStep0AUQ: ceoStep0Boundary,
+          isFirstReviewAUQ: ceoFirstReviewAUQ,
           reviewCountCeiling: CEILING_PAIRED + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

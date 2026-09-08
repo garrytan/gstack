@@ -28,6 +28,8 @@ import * as path from 'path';
 import { stripVTControlCharacters } from 'node:util';
 import { hermeticChildEnv, hermeticSkillsConfigDir, isHermeticEnabled } from './hermetic-env';
 import { createPlanCountFixture } from './plan-count-fixture';
+import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
+import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
 import { trustDialogInput } from './pty-trust-dialog';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
@@ -1058,6 +1060,22 @@ export interface AskUserQuestionFingerprint {
   observedAtMs: number;
   /** True if observed BEFORE the Step-0 boundary fired. */
   preReview: boolean;
+  /** Lossless source metadata for counted calls; UI-only fingerprints omit it. */
+  nativeCall?: NativePlanQuestionCall;
+}
+
+/** Full question text feeds routing/phase predicates before diagnostics truncate it. */
+export function nativePlanCallFingerprint(call: NativePlanQuestionCall, observedAtMs: number, preReview: boolean): AskUserQuestionFingerprint {
+  // An unanswered mode tab cannot establish the selected review mode. Keep
+  // every question in nativeCall, but classify and summarize only the
+  // actually answered questions once a native call has completed.
+  const questions = call.answered ? call.questions.filter(q => call.answers?.[q.question]) : call.questions;
+  return {
+    signature: `${call.sessionId}:${call.toolUseId}`,
+    promptSnippet: questions.map(q => `${q.header} ${q.question}`).join('\n\n'),
+    options: questions.flatMap(q => q.options.map((o, i) => ({ index: i + 1, label: o.label }))),
+    observedAtMs, preReview, nativeCall: call,
+  };
 }
 
 /**
@@ -1074,10 +1092,21 @@ export type Step0BoundaryPredicate = (
   answeredFingerprint: AskUserQuestionFingerprint,
 ) => boolean;
 
+/** A first finding starts review immediately; a final setup question does not count as a finding. */
+export function planCountQuestionPhase(
+  fp: AskUserQuestionFingerprint,
+  reviewStarted: boolean,
+  isLastStep0AUQ: Step0BoundaryPredicate,
+  isFirstReviewAUQ?: Step0BoundaryPredicate,
+): { preReview: boolean; reviewStarted: boolean } {
+  const inReview = reviewStarted || Boolean(isFirstReviewAUQ?.(fp));
+  return { preReview: !inReview, reviewStarted: inReview || isLastStep0AUQ(fp) };
+}
+
 /**
  * Parse the rendered question prompt out of a visible TTY buffer. The prompt
- * is the 1–3 lines of text immediately ABOVE the latest `❯ 1.` cursor line —
- * not part of the option list, not the permission-dialog header.
+ * starts at the active boxed question header when available, otherwise at
+ * the lines immediately ABOVE the latest `❯ 1.` cursor line.
  *
  * Returns the prompt normalized to a single-spaced 240-char snippet (strip
  * ANSI residue, collapse internal whitespace, trim) — short enough to use as
@@ -1121,6 +1150,23 @@ export function parseQuestionPrompt(visible: string): string {
     // Including them can consume all 240 chars before the question starts.
     if (boxStart >= 0 && inlinePrompt.length > 0) {
       return inlinePrompt.replace(/\s+/g, ' ').slice(0, 240);
+    }
+  }
+
+  // Native boxed AUQs can contain many paragraphs separated by a lone │.
+  // Walking upward from the options stops at that border (or the six-line
+  // limit) and loses the question's identity. Start at the latest header
+  // inside the same fixed, cursor-anchored context window instead. Reject
+  // earlier menus / Planning chrome so an old header cannot label a new
+  // unboxed dialog after its question has been dismissed.
+  const questionStart = [...tail.matchAll(/(?:^|\n)[\t │┃]*[☐□][\t ]*(?=\S)/g)].at(-1);
+  if (questionStart) {
+    const question = tail.slice(questionStart.index, tail.length - cursor[0].length);
+    if (!/❯\s*[1-9]\./.test(question) && !/(?:^|\n)\s*Plan+ing\s*:/i.test(question)) {
+      const prompt = question
+        .replace(/^[\t ─━┄┅┈┉┌┐└┘├┤┬┴┼│┃☐□■]+/gm, '')
+        .replace(/\s+/g, ' ').trim();
+      if (prompt) return prompt.slice(0, 240);
     }
   }
 
@@ -1246,9 +1292,11 @@ export function planCountSubmissionInput(visible: string): string | null {
   const bar = bars.at(-1);
   if (!bar) return null;
   const panel = visible.slice(bar.index + bar[0].length).replace(/\s+/g, '');
-  const cursor = [...panel.matchAll(/❯1\./g)].at(-1);
-  if (!/Reviewyouranswers/i.test(panel) || !cursor ||
-      !/^❯1\.Submit/i.test(panel.slice(cursor.index))) return null;
+  // Captured cursor redraws can omit the dot after 1 and the e in answers.
+  // The native tab bar and explicit Submit label still identify this control.
+  const cursor = [...panel.matchAll(/❯1\.?/g)].at(-1);
+  if (!/Reviewyouranswe?rs/i.test(panel) || !cursor ||
+      !/^❯1\.?Submit/i.test(panel.slice(cursor.index))) return null;
   const tabs = [...bar[0].matchAll(/[☐☒]/g)].map((match) => match[0]);
   const unanswered = tabs.indexOf('☐');
   // At the Submit tab, move back to the first unanswered question. Only
@@ -1368,6 +1416,17 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
   // directly to review-phase. Boundary fires on the scope AUQ itself.
   fp.options.some((o) => /skip\s+interview|plan\s+immediately/i.test(o.label));
 
+/** Native finding evidence when CEO mode selection is omitted or left unanswered. */
+export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
+  fp.nativeCall?.questions.some(q => {
+    if (fp.nativeCall?.answered && !fp.nativeCall.answers?.[q.question]) return false;
+    const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
+    if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
+    const title = q.question.split('\n')[0];
+    return /^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title) &&
+      /\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title);
+  }) ?? false;
+
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /scope\s*reduction\s*recommendation|cross[\s-]*project\s*learnings/i.test(
     fp.promptSnippet,
@@ -1385,6 +1444,19 @@ export const designStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /design\s*(?:system|posture|score|completeness)|first\s*dimension/i.test(
     fp.promptSnippet,
   );
+
+/** Positive review identity when a design run goes directly to findings without a focus AUQ. */
+export const designFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
+  // A numbered setup decision is not sufficient. Require the design review's
+  // question ID as well, and exclude its scope/focus/onboarding identities.
+  const id = /<gstack-qid:\s*plan-design-review-([a-z0-9-]+)/i.exec(fp.promptSnippet)?.[1];
+  if (id && /(?:^|[│\s])D\s*\d+\s*[—–-]/i.test(fp.promptSnippet) &&
+      !/(?:^|-)(?:scope|focus|setup|routing|onboarding|posture|mockups?|target)(?:-|$)/i.test(id) &&
+      !designStep0Boundary(fp)) return true;
+  // Explicit pass headings are also review evidence; an initial assessment
+  // that merely mentions reviewing seven passes does not match this shape.
+  return /(?:^|│)\s*Pass\s*[1-7]\s*(?:\([^)]*\)\s*)?[—–:]/i.test(fp.promptSnippet);
+};
 
 export const devexStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /developer\s*persona|target\s*persona|persona\s*selection|TTHW\s*target/i.test(
@@ -2018,7 +2090,7 @@ export async function runPlanSkillObservation(opts: {
 
 // ────────────────────────────────────────────────────────────────────────────
 // runPlanSkillCounting — drives a plan-* skill end-to-end through Step 0 then
-// counts distinct review-phase AskUserQuestion fingerprints. The actual
+// counts completed review-phase AskUserQuestion calls. The actual
 // product asserted by the per-finding-count tests.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -2028,11 +2100,15 @@ export async function runPlanSkillObservation(opts: {
  * dumps when an assertion fails.
  */
 export interface PlanSkillCountObservation {
+  /** Durable full raw/visible PTY output plus JSON observation, when EVALS_RUN_ID is set. */
+  artifactDir?: string;
+  artifactError?: string;
   outcome:
     | 'plan_ready'
     | 'completion_summary'
     | 'ceiling_reached'
     | 'silent_write'
+    | 'transcript_unavailable'
     | 'exited'
     | 'timeout';
   summary: string;
@@ -2042,6 +2118,8 @@ export interface PlanSkillCountObservation {
   elapsedMs: number;
   /** All distinct AskUserQuestions observed, in observation order. */
   fingerprints: AskUserQuestionFingerprint[];
+  /** Actual native calls, including unanswered/failed ones that add no coverage. */
+  transcript: PlanCountTranscript;
   /** Count of fingerprints with `preReview === true`. */
   step0Count: number;
   /** Count of fingerprints with `preReview === false`. */
@@ -2065,16 +2143,15 @@ export interface PlanSkillCountObservation {
  *      review incorrectly starts against the operator's live branch.
  *   3. Poll loop:
  *      - Skip permission dialogs (auto-grant with `defaultPick`).
- *      - On a new numbered-option list, parse prompt + options, build
- *        fingerprint via `auqFingerprint`. Empty-prompt parses are skipped
- *        and re-polled (avoids the empty-prompt collision documented in
- *        the auqFingerprint contract).
- *      - First time we see a fingerprint: push it, classify as Step 0 or
- *        review-phase based on `boundaryFired`, press `defaultPick` to
- *        advance. Decline only the recognized optional office-hours
+ *      - Read fixture-scoped native JSONL. Count each AskUserQuestion call
+ *        once after its matching successful answer record, regardless of
+ *        how many questions the call batches. Full native metadata feeds
+ *        phase predicates; ANSI redraws and permissions cannot add counts.
+ *      - On a new numbered-option list, keep the existing PTY answer driver.
+ *        Decline only the recognized optional office-hours
  *        prerequisite by label so a different skill does not rewrite the
  *        seeded plan before this review begins.
- *      - After pressing, evaluate `isLastStep0AUQ(fingerprint)`. If true,
+ *      - After the native answer, evaluate `isLastStep0AUQ(fingerprint)`. If true,
  *        all subsequent AUQs are review-phase.
  *      - Hard ceiling: if `reviewCount >= reviewCountCeiling`, return
  *        `ceiling_reached`. This bounds runaway counts; tests should set
@@ -2089,10 +2166,9 @@ export interface PlanSkillCountObservation {
  * where Step-0-final and Section-1-first AUQs straddle a section header
  * regex match.
  *
- * Fingerprint composition (D9): `auqFingerprint(prompt, options)` mixes
- * normalized prompt text with the options signature so distinct findings
- * with shared menu structure (the generic A/B/C TODO menu) get distinct
- * fingerprints.
+ * UI fingerprints still dedupe redraws. Counted fingerprints use the
+ * native session/tool call IDs, so shared answer labels never collapse
+ * different calls and one multi-question call remains one finding.
  */
 export async function runPlanSkillCounting(opts: {
   /** Skill name, e.g. 'plan-ceo-review'. Used for diagnostic strings only. */
@@ -2103,6 +2179,14 @@ export async function runPlanSkillCounting(opts: {
   followUpPrompt: string;
   /** Per-skill predicate: which answered AUQ is the last Step-0 question. */
   isLastStep0AUQ: Step0BoundaryPredicate;
+  /** Optional positive identity for a first finding when no final setup AUQ was emitted. */
+  isFirstReviewAUQ?: Step0BoundaryPredicate;
+  /** Optional issue classifier across phases; receives full native call metadata. */
+  isReviewAUQ?: (fp: AskUserQuestionFingerprint) => boolean;
+  /** Narrow caller-specific selection; null retains the normal answer policy. */
+  pickAUQ?: (fp: AskUserQuestionFingerprint) => number | null;
+  /** Additional versioned files available in the isolated fixture before the skill starts. */
+  fixtureFiles?: Record<string, string>;
   /** Hard cap on review-phase count; helper returns when reached. Should be
    *  set ABOVE the test's assertion ceiling so the test sees the cap as a
    *  failure rather than a silent stop. */
@@ -2133,7 +2217,7 @@ export async function runPlanSkillCounting(opts: {
   const defaultPick = opts.defaultPick ?? 1;
   const timeoutMs = opts.timeoutMs ?? 1_500_000;
 
-  const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true });
+  const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true, files: opts.fixtureFiles });
   let session: ClaudePtySession;
   try {
     session = await launchClaudePty({
@@ -2151,10 +2235,19 @@ export async function runPlanSkillCounting(opts: {
 
   const fingerprints: AskUserQuestionFingerprint[] = [];
   const seen = new Set<string>();
+  const countedCalls = new Set<string>();
+  let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
   let boundaryFired = false;
   let step0Count = 0;
   let reviewCount = 0;
   let isFirstAUQ = true;
+  const saveSnapshot = createPlanCountSnapshotWriter();
+  let lastCheckpointAt = Date.now();
+
+  const capture = (observation: object) => saveSnapshot({
+    skillName: opts.skillName, observation, raw: session.rawOutput(), visible: session.visibleText(),
+    cwd: fixture.cwd, claudeConfigDir: session.hermeticConfigDir,
+  });
 
   function snapshot(
     outcome: PlanSkillCountObservation['outcome'],
@@ -2164,7 +2257,7 @@ export async function runPlanSkillCounting(opts: {
     const clean = (text: string) => stripVTControlCharacters(text)
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
     const failed = outcome === 'exited' || outcome === 'timeout';
-    return {
+    const observation: PlanSkillCountObservation = {
       outcome,
       summary,
       evidence: failed
@@ -2173,9 +2266,15 @@ export async function runPlanSkillCounting(opts: {
         : visible.slice(-3000),
       elapsedMs: Date.now() - startedAt,
       fingerprints,
+      transcript,
       step0Count,
       reviewCount,
     };
+    const artifacts = capture(observation);
+    Object.assign(observation, artifacts);
+    if (artifacts.artifactDir) observation.evidence += `\nFull PTY artifacts: ${artifacts.artifactDir}`;
+    if (artifacts.artifactError) observation.evidence += `\nPTY artifact write failed: ${artifacts.artifactError}`;
+    return observation;
   }
 
   try {
@@ -2187,6 +2286,39 @@ export async function runPlanSkillCounting(opts: {
     while (Date.now() - budgetStart < timeoutMs) {
       await Bun.sleep(2000);
       const visible = session.visibleSince(since);
+      transcript = session.hermeticConfigDir
+        ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd)
+        : { status: 'error', calls: [], assistantMessages: [], error: 'Claude count session has no isolated transcript directory' };
+      if (transcript.status === 'error') {
+        return snapshot('transcript_unavailable', transcript.error!, visible);
+      }
+      for (const call of transcript.calls) {
+        const signature = `${call.sessionId}:${call.toolUseId}`;
+        if (!call.answered || countedCalls.has(signature)) continue;
+        const fp = nativePlanCallFingerprint(call, Date.now() - startedAt, !boundaryFired);
+        const phase = planCountQuestionPhase(fp, boundaryFired, opts.isLastStep0AUQ, opts.isFirstReviewAUQ);
+        fp.preReview = opts.isReviewAUQ ? !opts.isReviewAUQ(fp) : phase.preReview;
+        fp.promptSnippet = fp.promptSnippet.replace(/\s+/g, ' ').slice(0, 240);
+        fingerprints.push(fp);
+        countedCalls.add(signature);
+        if (fp.preReview) step0Count += 1;
+        else reviewCount += 1;
+        boundaryFired = phase.reviewStarted;
+      }
+      if (reviewCount >= opts.reviewCountCeiling) {
+        if (unresolvedPlanQuestionCalls(transcript.calls).length) {
+          return snapshot('transcript_unavailable', 'Question count reached its ceiling with unresolved failed native calls', visible);
+        }
+        return snapshot('ceiling_reached', `review-phase AUQ count reached ceiling (${opts.reviewCountCeiling})`, visible);
+      }
+      // An outer test timeout/cancellation may prevent a terminal snapshot.
+      // Keep bounded-cadence evidence without adding a timer to clean up.
+      if (Date.now() - lastCheckpointAt >= 30_000) {
+        lastCheckpointAt = Date.now();
+        const saved = capture({ state: 'in_progress', elapsedMs: Date.now() - startedAt,
+          fingerprints, step0Count, reviewCount, transcript });
+        if (saved.artifactError) console.error(`PTY artifact write failed: ${saved.artifactError}`);
+      }
 
       // Process exited?
       if (session.exited()) {
@@ -2240,6 +2372,10 @@ export async function runPlanSkillCounting(opts: {
       // Soft terminal signals — check before AUQ processing so a final
       // completion-summary doesn't get misclassified as a bonus AUQ.
       if (frame === 'completion_summary') {
+        if (transcript.status !== 'ready' || transcript.calls.some(c => !c.answered && !c.failed) ||
+            unresolvedPlanQuestionCalls(transcript.calls).length) {
+          return snapshot('transcript_unavailable', 'Completion has no complete native question transcript', visible);
+        }
         return snapshot(
           'completion_summary',
           `skill emitted completion summary / verdict / status line (step0=${step0Count}, review=${reviewCount})`,
@@ -2247,6 +2383,10 @@ export async function runPlanSkillCounting(opts: {
         );
       }
       if (frame === 'plan_ready') {
+        if (transcript.status !== 'ready' || transcript.calls.some(c => !c.answered && !c.failed) ||
+            unresolvedPlanQuestionCalls(transcript.calls).length) {
+          return snapshot('transcript_unavailable', 'Plan-ready gate has no complete native question transcript', visible);
+        }
         return snapshot(
           'plan_ready',
           `skill emitted plan-mode "Ready to execute" confirmation (step0=${step0Count}, review=${reviewCount})`,
@@ -2261,32 +2401,19 @@ export async function runPlanSkillCounting(opts: {
       // findings often reuse the same Add to plan / Defer / Skip menu.
       const fp = capturePlanCountQuestion(visible, seen, Date.now() - startedAt, !boundaryFired);
       if (!fp) continue;
-      fingerprints.push(fp);
-      if (boundaryFired) reviewCount += 1;
-      else step0Count += 1;
-
       // Press to advance — first AUQ may use the override pick.
-      const prerequisitePick = planCountPrerequisitePick(fp);
-      const pickIdx = prerequisitePick ??
-        (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(fp) : defaultPick);
+      const pending = transcript.calls.find(c => !c.answered && !c.failed);
+      const routing = pending?.questions.length === 1
+        ? nativePlanCallFingerprint(pending, fp.observedAtMs, fp.preReview) : fp;
+      const prerequisitePick = planCountPrerequisitePick(routing);
+      // Native tool records may flush only after the answer. Let a guarded
+      // caller recognize that visible menu, but never override a known packet.
+      const callerPick = !pending || pending.questions.length === 1 ? opts.pickAUQ?.(routing) ?? null : null;
+      const pickIdx = prerequisitePick ?? callerPick ??
+        (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(routing) : defaultPick);
       isFirstAUQ = false;
-      if (prerequisitePick !== null) await selectPtyNumberedOption(session, pickIdx);
+      if (prerequisitePick !== null || callerPick !== null) await selectPtyNumberedOption(session, pickIdx);
       else session.send(`${pickIdx}\r`);
-
-      // Evaluate boundary AFTER pressing — if THIS AUQ was the last Step 0
-      // question, all subsequent AUQs go to reviewCount.
-      if (!boundaryFired && opts.isLastStep0AUQ(fp)) {
-        boundaryFired = true;
-      }
-
-      // Hard ceiling — runaway protection.
-      if (reviewCount >= opts.reviewCountCeiling) {
-        return snapshot(
-          'ceiling_reached',
-          `review-phase AUQ count reached ceiling (${opts.reviewCountCeiling})`,
-          session.visibleSince(since),
-        );
-      }
 
       // Give the agent a beat to advance to the next state.
       await Bun.sleep(2000);

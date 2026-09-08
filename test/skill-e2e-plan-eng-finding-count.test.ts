@@ -25,10 +25,22 @@ const N = 5;
 const FLOOR = N - 1; // 4
 const CEILING = N + 2; // 7
 
+// Native controls found separate cache-validity, tenant-key, and new-code
+// coverage gaps when these surrounding contracts were omitted. The shared
+// mutable state and missing legacy regression below remain deliberate defects.
 const planEng5Findings = (planPath: string) => [
   `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
   '',
   '# Plan: Multi-tenant Auth Refactor',
+  '',
+  '## Existing contracts retained',
+  'The existing cache adapter keys entries by tenant ID, issuer, audience,',
+  'and policy version. It evicts expired tokens and invalidates entries on',
+  'logout, token revocation, or tenant suspension. AuthCache retains these',
+  'unchanged validity and tenant-key rules; they do not serialize mutations.',
+  'Unit and integration coverage is planned for the new components and their',
+  'success/error paths. That coverage does not exercise legacyAuthFlow() or',
+  'assert compatibility with its prior behavior.',
   '',
   '## Architecture',
   'Two new services (`AuthBroker` and `SessionMint`) share a global mutable',

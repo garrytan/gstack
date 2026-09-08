@@ -10,7 +10,7 @@ import { getHermeticDirs } from './hermetic-env';
  * bare slash command starts: a later message can remain queued behind the
  * skill's first AskUserQuestion and leave it reviewing the live branch.
  */
-export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?: boolean } = {}): {
+export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?: boolean; files?: Record<string, string> } = {}): {
   cwd: string;
   env: Record<string, string>;
   cleanup(): void;
@@ -26,6 +26,17 @@ export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?
     }
   };
   try {
+    const files = Object.entries(opts.files ?? {});
+    for (const [name] of files) {
+      const parts = name.split(/[\\/]/);
+      // The fixture owns its seed plan, instructions and Git metadata. Extra
+      // context must be an ordinary relative file, never an overwrite/escape.
+      if (path.isAbsolute(name) || path.win32.isAbsolute(name) || parts.some(part =>
+        part === '' || part === '.' || part === '..' || part.toLowerCase() === '.git') ||
+        /^(?:plan|claude)\.md$/i.test(name)) {
+        throw new Error(`Invalid plan-count fixture file: ${name}`);
+      }
+    }
     if (opts.nativeReviewOnly) {
       // Seeded-N count bands measure the main review's finding cadence.
       // An outside review can legitimately add findings beyond that band;
@@ -63,6 +74,11 @@ export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?
       prompt,
       '',
     ].join('\n'));
+    for (const [name, content] of files) {
+      const target = path.join(cwd, name);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content);
+    }
 
     const git = (args: string[]) => {
       const result = spawnSync('git', args, {
@@ -75,7 +91,7 @@ export function createPlanCountFixture(prompt: string, opts: { nativeReviewOnly?
       }
     };
     git(['init', '-b', 'main']);
-    git(['add', 'PLAN.md', 'CLAUDE.md']);
+    git(['add', '--', 'PLAN.md', 'CLAUDE.md', ...files.map(([name]) => name)]);
     git(['-c', 'user.name=Plan Count Fixture', '-c', 'user.email=plan-count@example.test',
       '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', 'Seed review plan']);
     git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);

@@ -83,6 +83,37 @@ describe('plan-count fixtures', () => {
     expect(fs.existsSync(second.cwd)).toBe(false);
   });
 
+  test('additional design context exists in the initial clean fixture commit', () => {
+    const design = '# Approved design system\nUse the existing components.\n' + PROMPT;
+    const fixture = createPlanCountFixture(PROMPT, { files: { 'DESIGN.md': design, 'docs/accepted behavior.md': 'Save is atomic.\n' } });
+    try {
+      const committed = spawnSync('git', ['show', 'HEAD:DESIGN.md'], { cwd: fixture.cwd, encoding: 'utf8', timeout: 10_000 });
+      expect(committed.status, committed.stderr).toBe(0);
+      expect(committed.stdout).toBe(design);
+      expect(fs.readFileSync(path.join(fixture.cwd, 'docs/accepted behavior.md'), 'utf8')).toBe('Save is atomic.\n');
+      expect(spawnSync('git', ['status', '--porcelain'], { cwd: fixture.cwd, encoding: 'utf8', timeout: 10_000 }).stdout).toBe('');
+    } finally {
+      fixture.cleanup();
+    }
+    expect(fs.existsSync(fixture.cwd)).toBe(false);
+  });
+
+  test('additional context cannot escape the fixture or replace its instructions and Git metadata', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-count-outside-'));
+    const sentinel = path.join(outside, 'untouched.md');
+    fs.writeFileSync(sentinel, 'user-owned');
+    try {
+      for (const name of [sentinel, '../escape.md', 'nested/../escape.md', '..\\escape.md',
+        'C:\\escape.md', '/escape.md', '.git/config', 'nested/.git/config', 'PLAN.md', 'CLAUDE.md']) {
+        expect(() => createPlanCountFixture(PROMPT, { files: { [name]: 'overwrite' } }))
+          .toThrow('Invalid plan-count fixture file:');
+      }
+      expect(fs.readFileSync(sentinel, 'utf8')).toBe('user-owned');
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   test.skipIf(process.platform === 'win32')('cleans the fixture when the PTY executable cannot launch', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-count-launch-failure-'));
     const fixtureTmp = path.join(dir, 'fixtures');
@@ -133,11 +164,19 @@ try {
       fs.mkdirSync(hostState);
       fs.writeFileSync(path.join(hostState, 'config.yaml'), hostConfig);
       const cases = [
-        { name: 'design', skillName: 'plan-design-review', prompt: PROMPT, mode: 'complete' },
+        { name: 'design', skillName: 'plan-design-review', prompt: PROMPT, mode: 'complete', files: { 'DESIGN.md': '# Approved design\nKeep the existing layout.\n' } },
+        { name: 'design-direct', skillName: 'plan-design-review', prompt: PROMPT, mode: 'direct-finding' },
+        { name: 'design-batched', skillName: 'plan-design-review', prompt: PROMPT, mode: 'batched-finding' },
+        { name: 'failed-native', skillName: 'plan-design-review', prompt: PROMPT, mode: 'failed-call' },
+        { name: 'permission', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission' },
+        { name: 'missing-transcript', skillName: 'plan-design-review', prompt: PROMPT, mode: 'missing-transcript' },
         { name: 'ceo', skillName: 'plan-ceo-review', prompt: '# Independent CEO plan\nUnique product context.', mode: 'complete' },
         { name: 'exited', skillName: 'plan-eng-review', prompt: '# Early-exit plan\nStill clean up.', mode: 'exit' },
         { name: 'skip-first', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 1 },
         { name: 'skip-second', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 2 },
+        { name: 'caller-policy', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 2, custom: true },
+        { name: 'late-mode', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'late-mode' },
+        { name: 'batched-mode', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'batched-mode' },
       ].map((item) => ({ ...item, record: path.join(dir, `${item.name}.jsonl`) }));
 
       // The fake snapshots its environment BEFORE installing the first stdin
@@ -147,6 +186,26 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 const record = (event) => fs.appendFileSync(process.env.FIXTURE_RECORD, JSON.stringify(event) + '\n');
+const sessionId = 'fixture-' + process.pid;
+const project = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', sessionId);
+fs.mkdirSync(project, { recursive: true });
+const native = (role, content, extra = {}) => {
+  if (process.env.FIXTURE_MODE === 'missing-transcript') return;
+  fs.appendFileSync(path.join(project, sessionId + '.jsonl'), JSON.stringify({
+    cwd: process.cwd(), sessionId, isSidechain: false, message: { role, content }, ...extra,
+  }) + '\n');
+};
+native('assistant', [{ type: 'text', text: 'Fixture CLI started.' }]);
+let callId = 0;
+let nativeQuestions = [];
+const ask = (questions) => {
+  nativeQuestions = questions;
+  native('assistant', [{ type: 'tool_use', id: 'question-' + (++callId), name: 'AskUserQuestion', input: { questions } }]);
+};
+const answer = () => native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Your questions have been answered.' }],
+  { toolUseResult: { answers: Object.fromEntries(nativeQuestions.map(q => [q.question, q.options[0].label])) } });
+const questionMetadata = (header, question, labels) => ({ header, question, options: labels.map(label => ({ label })) });
+const modeQuestion = questionMetadata('Review mode', 'How deep should this DX review go? <gstack-qid:plan-devex-review-mode>', ['DX EXPANSION', 'DX POLISH', 'DX TRIAGE']);
 const skillDir = path.join(process.env.CLAUDE_CONFIG_DIR, 'skills', process.env.FIXTURE_SKILL);
 const planPath = path.join(process.cwd(), 'PLAN.md');
 const contextPath = path.join(process.cwd(), 'CLAUDE.md');
@@ -164,6 +223,7 @@ record({
   plan: fs.existsSync(planPath) ? fs.readFileSync(planPath, 'utf8') : null,
   context: fs.existsSync(contextPath) ? fs.readFileSync(contextPath, 'utf8') : null,
   inheritedDesign: fs.existsSync('DESIGN.md'), inheritedTodos: fs.existsSync('TODOS.md'),
+  design: fs.existsSync('DESIGN.md') ? fs.readFileSync('DESIGN.md', 'utf8') : null,
   skill: fs.existsSync(path.join(skillDir, 'SKILL.md')) ? fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8') : null,
   sections: fs.existsSync(path.join(skillDir, 'sections', 'review-sections.md'))
     ? fs.readFileSync(path.join(skillDir, 'sections', 'review-sections.md'), 'utf8') : null,
@@ -179,17 +239,54 @@ process.stdin.on('data', (data) => {
   const input = data.toString('utf8');
   record({ type: 'input', data: input });
   if (!firstInput) {
+    if (['late-mode', 'batched-mode'].includes(process.env.FIXTURE_MODE)) {
+      selected += input.replace(/\r/g, '');
+      if (input.includes('\r')) {
+        // The real CLI can defer its native call record until after the UI
+        // answer. A known multi-question call must still block the override.
+        if (process.env.FIXTURE_MODE === 'late-mode') ask([modeQuestion]);
+        const label = modeQuestion.options[Number(selected) - 1]?.label;
+        record({ type: 'mode-answer', selected, label });
+        native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Your questions have been answered.' }],
+          { toolUseResult: { answers: { [modeQuestion.question]: label } } });
+        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      }
+      return;
+    }
+    if (['direct-finding', 'failed-call'].includes(process.env.FIXTURE_MODE) && input.includes('\r')) {
+      answer();
+      process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      return;
+    }
+    if (process.env.FIXTURE_MODE === 'batched-finding' && input.includes('\r')) {
+      if (question === 1) {
+        question = 2;
+        process.stdout.write('\r☐Loading\rD2 — Define the loading state <gstack-qid:plan-design-review-loading>\r❯1.Add spinner\r2.Keep blank\r');
+      } else {
+        answer();
+        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      }
+      return;
+    }
+    if (process.env.FIXTURE_MODE === 'permission' && input.includes('\r')) {
+      process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      return;
+    }
     if (process.env.FIXTURE_MODE !== 'prerequisite') return;
     if (question === 1 && input.includes('\r')) {
+      answer();
       record({ type: 'generic-answer', input });
       question = 2;
+      selected = '';
       const labels = ['Run /office-hours now', 'Skip — proceed with standard review'];
       if (process.env.FIXTURE_SKIP_INDEX === '1') labels.reverse();
+      ask([questionMetadata('Prerequisite', 'No design doc found. Run /office-hours first?', labels)]);
       process.stdout.write('\r☐ Prerequisite\rNo design doc found. Run /office-hours first?\r❯1.' + labels[0] + '\r2.' + labels[1] + '\r');
       return;
     }
     selected += input.replace(/\r/g, '');
     if (input.includes('\r')) {
+      answer();
       record({ type: 'prerequisite-answer', selected });
       process.stdout.write(selected === process.env.FIXTURE_SKIP_INDEX ? '\nGSTACK REVIEW REPORT\n' : '\nWRONG_PREREQUISITE_CHOICE\n');
     }
@@ -197,9 +294,33 @@ process.stdin.on('data', (data) => {
   }
   firstInput = false;
   if (process.env.FIXTURE_MODE === 'exit') process.exit(7);
+  if (['late-mode', 'batched-mode'].includes(process.env.FIXTURE_MODE)) {
+    if (process.env.FIXTURE_MODE === 'batched-mode') ask([modeQuestion,
+      questionMetadata('Separate decision', 'Which fixture target should be used?', ['First target', 'Second target'])]);
+    process.stdout.write('\r☐ Review mode\r' + modeQuestion.question + '\r❯1.DX EXPANSION\r2.DX POLISH\r3.DX TRIAGE\r');
+    return;
+  }
+  if (['direct-finding', 'batched-finding', 'failed-call'].includes(process.env.FIXTURE_MODE)) {
+    question = 1;
+    if (process.env.FIXTURE_MODE === 'failed-call') {
+      ask([questionMetadata('Missing answer', 'Should the save retry be idempotent?', ['Yes', 'No'])]);
+      native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, is_error: true, content: 'Question rejected' }]);
+    }
+    const questions = [questionMetadata('Button style', 'D1 — How should the four header buttons differ? <gstack-qid:plan-design-review-button-hierarchy>', ['Filled primary', 'Ghost buttons'])];
+    if (process.env.FIXTURE_MODE === 'batched-finding') questions.push(questionMetadata('Loading', 'D2 — Define the loading state <gstack-qid:plan-design-review-loading>', ['Add spinner', 'Keep blank']));
+    ask(questions);
+    process.stdout.write('\r☐Buttonstyle\r│D1—Howshouldthe4headerbuttonsbedifferentiated?<gstack-qid:plan-design-review-butn-hierarchy>\r❯1.Filledprimary\r2.Ghostbuttons\r');
+    return;
+  }
   if (process.env.FIXTURE_MODE === 'prerequisite') {
     question = 1;
+    const suffix = process.env.FIXTURE_CUSTOM === 'true' ? ' Context '.repeat(50) + 'routing-proof-after-240' : '';
+    ask([questionMetadata('Setup', 'Which fixture setup should be used?' + suffix, ['First setup', 'Second setup'])]);
     process.stdout.write('\r☐ Setup\rWhich fixture setup should be used?\r❯1.First setup\r2.Second setup\r');
+    return;
+  }
+  if (process.env.FIXTURE_MODE === 'permission') {
+    process.stdout.write('\rDo you want to create PLAN.md?\r❯1.Yes\r2.Yes, and switch to accept edits\r3.No\r');
     return;
   }
   // Longer than the old 3 s delayed fixture send: record that regression
@@ -216,9 +337,11 @@ process.stdin.resume();
       fs.chmodSync(fakePath, 0o755);
       const runnerUrl = pathToFileURL(path.join(ROOT, 'test/helpers/claude-pty-runner.ts')).href;
       const hermeticUrl = pathToFileURL(path.join(ROOT, 'test/helpers/hermetic-env.ts')).href;
+      const devexUrl = pathToFileURL(path.join(ROOT, 'test/helpers/devex-count-fixture.ts')).href;
       fs.writeFileSync(workerPath, `
-import { runPlanSkillCounting } from ${JSON.stringify(runnerUrl)};
+import { runPlanSkillCounting, designFirstReviewAUQ } from ${JSON.stringify(runnerUrl)};
 import { getHermeticDirs } from ${JSON.stringify(hermeticUrl)};
+import { devexReviewModePick } from ${JSON.stringify(devexUrl)};
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 const shared = getHermeticDirs().gstackHome;
@@ -232,12 +355,18 @@ const results = await Promise.all(cases.map(async (item) => ({
     skillName: item.skillName,
     slashCommand: '/' + item.skillName,
     followUpPrompt: item.prompt,
+    fixtureFiles: item.files,
     isLastStep0AUQ: () => false,
+    isFirstReviewAUQ: ['direct-finding', 'batched-finding', 'failed-call'].includes(item.mode) ? designFirstReviewAUQ : undefined,
+    isReviewAUQ: item.custom ? fp => fp.promptSnippet.includes('routing-proof-after-240') : undefined,
+    pickAUQ: ['late-mode', 'batched-mode'].includes(item.mode) ? devexReviewModePick
+      : item.custom ? fp => fp.promptSnippet.includes('routing-proof-after-240') ? 1 : null : undefined,
     reviewCountCeiling: 8,
     timeoutMs: 15000,
-    firstAUQPick: () => 2,
+    firstAUQPick: () => ['late-mode', 'batched-mode'].includes(item.mode) ? 1 : 2,
     env: {
       FIXTURE_RECORD: item.record, FIXTURE_SKILL: item.skillName, FIXTURE_MODE: item.mode,
+      FIXTURE_CUSTOM: String(item.custom ?? false),
       FIXTURE_SKIP_INDEX: String(item.skipIndex ?? ''), FIXTURE_CONFIG_BIN: ${JSON.stringify(path.join(ROOT, 'bin/gstack-config'))},
       GSTACK_HOME: ${JSON.stringify(hostState)}, GSTACK_STATE_ROOT: ${JSON.stringify(hostState)},
     },
@@ -252,7 +381,8 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
       const startedAt = Date.now();
       const child = Bun.spawn([process.execPath, workerPath], {
         cwd: ROOT,
-        env: { ...process.env, BROWSE_TERMINAL_BINARY: fakePath, EVALS_HERMETIC: '1', GSTACK_HOME: hostState, GSTACK_STATE_ROOT: hostState },
+        env: { ...process.env, BROWSE_TERMINAL_BINARY: fakePath, EVALS_HERMETIC: '1', GSTACK_HOME: hostState, GSTACK_STATE_ROOT: hostState,
+          EVALS_RUN_ID: 'fixture-integration', GSTACK_EVAL_DIR: path.join(dir, 'eval-artifacts') },
         stdout: 'pipe',
         stderr: 'pipe',
       });
@@ -288,17 +418,43 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           expect(startup.context).toContain('PLAN.md');
           expect(startup.context).toContain(item.prompt);
           expect(startup.argv[startup.argv.indexOf('--permission-mode') + 1]).toBe('plan');
-          expect(startup.inheritedDesign).toBe(false);
+          expect(startup.inheritedDesign).toBe(Boolean(item.files?.['DESIGN.md']));
+          expect(startup.design).toBe(item.files?.['DESIGN.md'] ?? null);
           expect(startup.inheritedTodos).toBe(false);
           expect(startup.skill).toContain(`name: ${item.skillName}`);
           expect(startup.sections).toBe(fs.readFileSync(path.join(ROOT, item.skillName, 'sections/review-sections.md'), 'utf8'));
           expect(events.filter((event) => event.type === 'input').map((event) => event.data).join(''))
-            .toBe(`/${item.skillName}\r` + (item.mode === 'prerequisite' ? `2\r${item.skipIndex}\r` : ''));
+            .toBe(`/${item.skillName}\r` + (item.mode === 'prerequisite' ? `${item.custom ? 1 : 2}\r${item.skipIndex}\r`
+              : item.mode === 'batched-finding' ? '2\r1\r' : item.mode === 'batched-mode' ? '1\r'
+              : ['direct-finding', 'failed-call', 'permission', 'late-mode'].includes(item.mode) ? '2\r' : ''));
           expect(fs.existsSync(startup.cwd)).toBe(false);
           expect(fs.existsSync(startup.stateRoot)).toBe(false);
           expect(() => process.kill(startup.pid, 0)).toThrow();
           const result = results.find((result) => result.name === item.name);
-          expect(result.observation.outcome).toBe(item.mode === 'exit' ? 'exited' : 'completion_summary');
+          expect(result.observation.outcome, `${item.name}: ${JSON.stringify(result.observation)}`).toBe(item.mode === 'exit' ? 'exited'
+            : ['missing-transcript', 'failed-call'].includes(item.mode) ? 'transcript_unavailable' : 'completion_summary');
+          const artifacts = result.observation.artifactDir;
+          expect(result.observation.artifactError).toBeUndefined();
+          expect(fs.existsSync(artifacts)).toBe(true); // Survives the temporary fixture's cleanup.
+          const captured = JSON.parse(fs.readFileSync(path.join(artifacts, 'observation.json'), 'utf8'));
+          expect(captured.outcome).toBe(result.observation.outcome);
+          expect(captured.capture.cwd).toBe(startup.cwd);
+          expect(fs.readFileSync(path.join(artifacts, 'terminal.raw.log'), 'utf8')).toContain(item.mode === 'exit' ? 'STARTUP_DIAGNOSTIC' : 'GSTACK REVIEW REPORT');
+          expect(fs.readFileSync(path.join(artifacts, 'terminal.visible.log'), 'utf8')).toContain(item.mode === 'exit' ? 'STARTUP_DIAGNOSTIC' : 'GSTACK REVIEW REPORT');
+          if (['direct-finding', 'batched-finding', 'failed-call'].includes(item.mode)) {
+            expect(result.observation.reviewCount).toBe(1);
+            expect(result.observation.step0Count).toBe(0);
+            expect(result.observation.fingerprints).toHaveLength(1);
+            expect(result.observation.fingerprints[0].nativeCall.questions).toHaveLength(item.mode === 'batched-finding' ? 2 : 1);
+          }
+          if (item.mode === 'failed-call') {
+            expect(result.observation.transcript.calls[0].failure).toContain('is_error');
+            expect(result.observation.transcript.calls[0].answered).toBe(false);
+          }
+          if (['permission', 'missing-transcript'].includes(item.mode)) {
+            expect(result.observation.reviewCount).toBe(0);
+            expect(result.observation.step0Count).toBe(0);
+          }
           if (item.mode === 'exit') {
             expect(result.observation.evidence).toContain('exitCode=7');
             expect(result.observation.evidence).toContain('STARTUP_DIAGNOSTIC fixture CLI booted');
@@ -307,8 +463,19 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           if (item.mode === 'complete') expect(events.at(-1).type).toBe('closed');
           if (item.mode === 'prerequisite') {
             expect(events.find(event => event.type === 'prerequisite-answer').selected).toBe(String(item.skipIndex));
-            expect(result.observation.step0Count).toBe(2);
+            expect(result.observation.step0Count).toBe(item.custom ? 1 : 2);
+            expect(result.observation.reviewCount).toBe(item.custom ? 1 : 0);
+          }
+          if (['late-mode', 'batched-mode'].includes(item.mode)) {
+            const expectedLabel = item.mode === 'late-mode' ? 'DX POLISH' : 'DX EXPANSION';
+            expect(events.find(event => event.type === 'mode-answer').label).toBe(expectedLabel);
+            expect(result.observation.step0Count).toBe(1);
             expect(result.observation.reviewCount).toBe(0);
+            expect(result.observation.transcript.calls).toHaveLength(1);
+            const call = result.observation.transcript.calls[0];
+            expect(call.answers[call.questions[0].question]).toBe(expectedLabel);
+            expect(call.questions).toHaveLength(item.mode === 'late-mode' ? 1 : 2);
+            expect(call.unansweredQuestionIndices).toEqual(item.mode === 'late-mode' ? [] : [1]);
           }
           cwds.add(startup.cwd);
           stateRoots.add(startup.stateRoot);

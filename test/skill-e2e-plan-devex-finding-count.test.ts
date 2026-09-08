@@ -2,7 +2,9 @@
  * /plan-devex-review per-finding AskUserQuestion count (periodic, paid, real-PTY).
  *
  * Same shape as skill-e2e-plan-ceo-finding-count: drives /plan-devex-review
- * against a 5-finding seeded plan and asserts review-phase AUQ count ∈ [N-1, N+2].
+ * against a 5-finding seeded plan and asserts substantive issue AUQ count ∈ [N-1, N+2].
+ * DevEx deliberately resolves friction during Step 0, before scoring passes;
+ * count those decisions too, while excluding administrative confirmations.
  * Plus D19: review report at bottom of produced plan file.
  *
  * Tier: periodic (~25 min, ~$5/run). Sequential by default per plan §D15.
@@ -18,6 +20,12 @@ import {
   devexStep0Boundary,
   assertReviewReportAtBottom,
 } from './helpers/claude-pty-runner';
+import {
+  DEVEX_COUNT_FILES,
+  planDevexCountFixture,
+  isDevexReviewIssue,
+  devexReviewModePick,
+} from './helpers/devex-count-fixture';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -25,36 +33,9 @@ const N = 5;
 const FLOOR = N - 1;
 const CEILING = N + 2;
 
-const planDevex5Findings = (planPath: string) => [
-  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
-  '',
-  '# Plan: Public SDK Beta Launch',
-  '',
-  '## Persona',
-  "The plan doesn't specify which developer persona is the target — we're",
-  "shipping for \"everyone,\" which means we tune for nobody.",
-  '',
-  '## TTHW (time to hello world)',
-  'Time-to-hello-world is not measured. No benchmark data referenced. We',
-  "don't know if first-run takes 5 minutes or 50.",
-  '',
-  '## Friction Point',
-  'First-run currently requires a 5-minute mandatory CI step before the',
-  'developer can run their first eval. There is no way to skip it.',
-  '',
-  '## Magical Moment',
-  'Getting-started flow has no delight beat. Pure documentation, no',
-  'interactive demo, no "ah-ha" moment that makes the developer trust us.',
-  '',
-  '## Competitive Blind Spot',
-  "The plan doesn't reference how peer SDKs (LangChain, Semantic Kernel,",
-  'OpenAI) handle this DX surface. We may be reinventing worse versions',
-  'of solved problems.',
-].join('\n');
-
 describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', () => {
   test(
-    `5-finding plan emits ${FLOOR}-${CEILING} review-phase AskUserQuestions`,
+    `5-finding plan emits ${FLOOR}-${CEILING} substantive issue AskUserQuestions`,
     async () => {
       // Per-run artifact dir: a hardcoded shared /tmp path collides under
       // --retry, EVALS_JOBS>1, or concurrent worktrees (a sibling's finally-
@@ -66,8 +47,11 @@ describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', (
         const obs = await runPlanSkillCounting({
           skillName: 'plan-devex-review',
           slashCommand: '/plan-devex-review',
-          followUpPrompt: planDevex5Findings(planPath),
+          followUpPrompt: planDevexCountFixture(planPath),
+          fixtureFiles: DEVEX_COUNT_FILES,
           isLastStep0AUQ: devexStep0Boundary,
+          isReviewAUQ: isDevexReviewIssue,
+          pickAUQ: devexReviewModePick,
           reviewCountCeiling: CEILING + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

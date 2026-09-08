@@ -36,6 +36,7 @@ import {
   TAIL_SCAN_BYTES,
   optionsSignature,
   parseQuestionPrompt,
+  stripAnsi,
   auqFingerprint,
   COMPLETION_SUMMARY_RE,
   classifyPlanCountFrame,
@@ -46,6 +47,8 @@ import {
   ceoStep0Boundary,
   engStep0Boundary,
   designStep0Boundary,
+  designFirstReviewAUQ,
+  planCountQuestionPhase,
   devexStep0Boundary,
   type ClaudePtyOptions,
   type AskUserQuestionFingerprint,
@@ -112,6 +115,18 @@ describe('isPermissionDialogVisible', () => {
     ].join('\n');
     expect(isPermissionDialogVisible(sample)).toBe(true);
     expect(isPermissionDialogVisible(sample.replace('Esctocancel·Tabtoamend', 'Enter to select'))).toBe(false);
+  });
+
+  test('the captured paired-CEO Edit grant is permission, not another review finding', () => {
+    const sample = [
+      'Do youwt to makehis dittogstack-test-plan-ceo-paired.md?',
+      '❯1.Yes',
+      '2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)forthissession;Yes,and',
+      'alwaysallowaccessto/tmp/gstack-paid-shard-EbUl9j/tmp/gstack-e2e-plan-ceo-paired-gkjAd5forthissession',
+      '(shift+tab)', '3.No', 'Esctocancel·Tabtoamend',
+    ].join('\r');
+    expect(isPermissionDialogVisible(sample)).toBe(true);
+    expect(classifyPlanCountFrame(sample)).toBe('permission');
   });
 
   test('recognizes permission labels whose cursor-positioning spaces disappeared', () => {
@@ -866,6 +881,58 @@ describe('optionsSignature', () => {
 });
 
 describe('parseQuestionPrompt', () => {
+  test('keeps the captured boxed learnings header across native CR and blank borders', () => {
+    // Exact active-menu bytes from the targeted-a engineering batching run.
+    // Its answered setup AUQ lost the title at the standalone box border,
+    // leaving every later finding classified as preReview.
+    const raw = "☐ Learnings\u001b[K\r\u001b[1B\u001b[K\r\u001b[1B│ D1 — Cross-project learnings scope <gstack-qid:learnings-cross-project>\u001b[K\r\u001b[1B│\u001b[3G\u001b[K\r\r\n│\u001b[3Ggstack\u001b[10Gcan\u001b[14Gsearch\u001b[21Glearnings\u001b[31Gfrom\u001b[36Gyour\u001b[41Gother\u001b[47Gprojects\u001b[56Gon\u001b[59Gthis\u001b[64Gmachine\u001b[72Gto\u001b[75Gfind\u001b[80Gpatterns\u001b[89Gthat\u001b[94Gmight\u001b[100Gapply\u001b[106Ghere.\u001b[112GThis\r\r\n│\u001b[3Gstays\u001b[9Glocal\u001b[15G—\u001b[17Gno\u001b[20Gdata\u001b[25Gleaves\u001b[32Gyour\u001b[37Gmachine.\u001b[46GRecommended\u001b[58Gfor\u001b[62Gsolo\u001b[67Gdevelopers.\u001b[79GSkip\u001b[84Gif\u001b[87Gyou\u001b[91Gwork\u001b[96Gon\u001b[99Gmultiple\u001b[108Gclient\r\r\n│\u001b[3Gcodebases\u001b[13Gwhere\u001b[19Gcross-contamination\u001b[39Gwould\u001b[45Gbe\u001b[48Ga\u001b[50Gconcern.\r\r\n\r\r\n❯\u001b[3G1.\u001b[6GEnable\u001b[13Gcross-project\u001b[27Glearnings\u001b[37G(Recommended)\r\r\n\u001b[6GSearch\u001b[13Glearnings\u001b[23Gfrom\u001b[28Gall\u001b[32Gprojects\u001b[41Gon\u001b[44Gthis\u001b[49Gmachine\u001b[57G—\u001b[59Gsurfaces\u001b[68Gpatterns\u001b[77Gand\u001b[81Gpitfalls\u001b[90Gfrom\u001b[95Gprior\u001b[101Gsessions.\r\r\n\u001b[3G2.\u001b[6GKeep\u001b[11Glearnings\u001b[21Gproject-scoped\u001b[36Gonly\r\r\n\u001b[6GOnly\u001b[11Guse\u001b[15Glearnings\u001b[25Gfrom\u001b[30Gthis\u001b[35Gproject.\u001b[44GSafe\u001b[49Gfor\u001b[53Gmulti-client\u001b[66Genvironments.\r\r\n\u001b[3G3.\u001b[6GType\u001b[11Gsomething.\r\r\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r\r\n\u001b[3G4.\u001b[6GChat\u001b[11Gabout\u001b[17Gthis\r\r\n\r\r\nEnter\u001b[7Gto\u001b[10Gselect\u001b[17G·\u001b[19G↑/↓\u001b[23Gto\u001b[26Gnavigate\u001b[35G·\u001b[37GEsc\u001b[41Gto\u001b[44Gcancel";
+    const visible = stripAnsi(raw);
+    const question = capturePlanCountQuestion(visible, new Set(), 0, true)!;
+    expect(question.promptSnippet).toStartWith('Learnings D1 — Cross-project learnings scope');
+    expect(question.promptSnippet).toContain('<gstack-qid:learnings-cross-project>');
+    expect(engStep0Boundary(question)).toBe(true);
+    const phase = planCountQuestionPhase(question, false, engStep0Boundary);
+    expect(phase).toEqual({ preReview: true, reviewStarted: true });
+  });
+
+  test('keeps a long boxed question identity instead of its closing recommendation', () => {
+    const frame = [
+      'Planning: /tmp/hermetic/.claude/plans/review.md',
+      '─'.repeat(120),
+      '☐ Architecture',
+      '│ D2 — Architecture: custom retry scheduler vs library built-in <gstack-qid:arch-custom-retry-vs-library>',
+      '│',
+      ...Array.from({ length: 12 }, (_, i) => `│ Review context line ${i}: the proposed retry behavior and its tradeoffs.`),
+      '│',
+      '│ Net: If the library hook is configurable, use the existing implementation.',
+      '❯1.Use library built-in (Recommended)',
+      '2.Extract shared retry envelope',
+    ].join('\r\r\n');
+    const seen = new Set<string>();
+    const question = capturePlanCountQuestion(frame, seen, 0, false)!;
+    expect(question.promptSnippet).toStartWith('Architecture D2 — Architecture: custom retry scheduler');
+    expect(question.promptSnippet).toContain('<gstack-qid:arch-custom-retry-vs-library>');
+    expect(question.promptSnippet).not.toContain('Planning:');
+    expect(question.promptSnippet.length).toBeLessThanOrEqual(240);
+    expect(capturePlanCountQuestion(frame + '\n' + '·'.repeat(6000), seen, 1, false)).toBeNull();
+  });
+
+  test('does not reuse an old boxed header for a later unboxed menu', () => {
+    const visible = [
+      '☐ Old setup',
+      'D1 — Cross-project learnings scope',
+      '❯1.Enable',
+      '2.Skip',
+      'Planning: /tmp/hermetic/.claude/plans/review.md',
+      'D2 — Choose the retry behavior',
+      '❯1.Use library built-in',
+      '2.Extract shared retry envelope',
+    ].join('\n');
+    const prompt = parseQuestionPrompt(visible);
+    expect(prompt).toBe('D2 — Choose the retry behavior');
+    expect(prompt).not.toContain('Old setup');
+  });
+
   test('captures 1-line prompt above the cursor', () => {
     const visible = `
       D1 — Pick a mode
@@ -1290,6 +1357,27 @@ describe('classifyPlanCountFrame replay', () => {
 });
 
 describe('planCountSubmissionInput replay', () => {
+  test('the captured mode Submit panel with a damaged caption and dotless cursor returns to its unanswered tab', () => {
+    // Exact final active panel from targeted-a's SCOPE EXPANSION retry.
+    const captured = [
+      '←  ☒ Routing rule  ☐ Design doc  ✔ Submit  →',
+      '',
+      'Review your answrs',
+      '⚠ You hvenot answered all questions',
+      " ● Add gstack skill routing rules tothisproject'sCLAUDE.md?",
+      '→dd routing rues (Recommnded)',
+      '',
+      'Ready to submit your answers?',
+      '',
+      '❯1Submit answers',
+      '  2. Cancel',
+    ].join('\r');
+    expect(planCountSubmissionInput(captured)).toBe('\x1b[Z');
+    const answered = captured.replace('☐ Design doc', '☒ Design doc').replace('⚠ You hvenot answered all questions', '');
+    expect(planCountSubmissionInput(answered)).toBe('\r');
+    expect(planCountSubmissionInput(captured + '\r☐ Design doc\rRun office hours?\r❯1Run now\r2.Skip')).toBeNull();
+  });
+
   const incomplete = [
     '←  ☒ Learnings scope  ☐ Approach  ✔ Submit  →',
     'Review your answers',
@@ -1504,6 +1592,54 @@ describe('Step0BoundaryPredicate per-skill', () => {
     test('does NOT fire on later dimension AUQs', () => {
       const f = fp('Spacing dimension score?', ['7', '8', '9']);
       expect(designStep0Boundary(f)).toBe(false);
+    });
+  });
+
+  describe('design review begins without an optional focus question', () => {
+    // Captured in the second07:53 paid attempt: real D1-D7 questions were
+    // all incorrectly marked preReview, producing reviewCount=0 at completion.
+    const questions = [
+      '☐Buttonstyle │D1—Howshouldthe4headerbuttons(Save,Reset,Cancel,Export)bevisuallydifferentiated? │<gstack-qid:plan-design-review-butn-hierarchy>',
+      '☐ Loading UX │D2—Whatloadingindicatorshouldappearduringthe2-5secondSaveoperation? │<gtack-qid:plan-esign-review-loadig-indicator>',
+      '☐ Spacing │D3—Whichspacingscaleshouldthesettingspagestandardizeon?<gstack-qid:plan-design-review-spacing-scale>',
+      '☐Typography │D4—Which2-sizetypographysystemshouldthesettingspageuse?<gstack-qid:plan-design-review-type-system>',
+      '☐Mobile layout │D5 — On obile (<768px), how should the4-buton header behave?<gstack-qid:plan-design-review-mobile-header>',
+      '☐DEIGN.md TODO │D6 — TODO: Create a DESIGN.md file codifying the5 decisions mdein this revew <gstack-qid:plan-design-review-todo-designmd>',
+      '☐PartialfailTODO │D7—TODO:Specifythepartial-failurestate—whatdoestheuserseeifSavesucceedsforsomefieldsbutfailsfor others? <gstack-qid:plan-design-review-todo-partialfail>',
+    ];
+
+    test('counts the first captured finding and every subsequent finding', () => {
+      let reviewStarted = false;
+      const phases = questions.map(question => {
+        const phase = planCountQuestionPhase(fp(question, ['Apply', 'Defer']), reviewStarted,
+          designStep0Boundary, designFirstReviewAUQ);
+        reviewStarted = phase.reviewStarted;
+        return phase.preReview;
+      });
+      expect(phases).toEqual([false, false, false, false, false, false, false]);
+    });
+
+    test('keeps the observed focus gate separate when it is emitted', () => {
+      const focus = fp("☐ Focus areas │ I've rated this plan2/10 on design completeness. Review all7 dimensions?", ['All7dimensions', 'Priority gaps']);
+      const setup = planCountQuestionPhase(focus, false, designStep0Boundary, designFirstReviewAUQ);
+      expect(setup).toEqual({ preReview: true, reviewStarted: true });
+      expect(planCountQuestionPhase(fp(questions[0], ['Apply', 'Defer']), setup.reviewStarted,
+        designStep0Boundary, designFirstReviewAUQ)).toEqual({ preReview: false, reviewStarted: true });
+    });
+
+    test('requires review identity, not just a D1 label or setup question ID', () => {
+      for (const question of [
+        '☐ Setup │D1—Enable cross-project learnings?',
+        '☐ Review target │D1—Which plan should I review?<gstack-qid:plan-design-review-scope>',
+        '☐ Focus │D1—What should this design review focus on?<gstack-qid:plan-design-review-focus-areas>',
+        '☐ Scope │I will review Pass1 through Pass7 after setup. Proceed?',
+      ]) expect(designFirstReviewAUQ(fp(question, ['Yes', 'No']))).toBe(false);
+      expect(designFirstReviewAUQ(fp('☐ Page structure │ Pass1 — Information Architecture: what page structure should this use?', ['Standard', 'Sidebar']))).toBe(true);
+    });
+
+    test('leaves callers without a first-review predicate unchanged', () => {
+      expect(planCountQuestionPhase(fp(questions[0], ['Apply', 'Defer']), false, designStep0Boundary))
+        .toEqual({ preReview: true, reviewStarted: false });
     });
   });
 
