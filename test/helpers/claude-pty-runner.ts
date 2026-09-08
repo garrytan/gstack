@@ -817,16 +817,17 @@ export function parseNumberedOptions(
 }
 
 /**
- * The four /plan-ceo-review modes. Used by `skill-e2e-plan-ceo-mode-routing`
- * to detect Step 0F mode-selection AskUserQuestions, and by the upcoming
- * finding-count tests as a Step-0 boundary signal: an AUQ whose options
+ * The four /plan-ceo-review modes, used by the finding-count tests as a
+ * Step-0 boundary signal: an AUQ whose options
  * match this regex IS the mode pick (the last Step-0 question for plan-ceo).
  *
  * Lifted out of the mode-routing test so multiple PTY tests can share one
  * source of truth — when /plan-ceo-review adds a fifth mode, one regex updates
  * everywhere instead of drifting per-test.
  */
-export const MODE_RE = /HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION/i;
+// Cursor-positioning escapes render inter-word spaces that stripAnsi removes.
+// Recognize both the spaced labels and their captured HOLDSCOPE-style forms.
+export const MODE_RE = /HOLD\s*SCOPE|SCOPE\s*EXPANSION|SELECTIVE\s*EXPANSION|SCOPE\s*REDUCTION/i;
 
 /**
  * Stable signature for a parsed numbered-option list — used by tests to detect

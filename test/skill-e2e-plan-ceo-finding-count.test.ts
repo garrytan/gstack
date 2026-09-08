@@ -64,13 +64,24 @@ const N_PAIRED = 2;
 const FLOOR_PAIRED = 2;
 const CEILING_PAIRED = 4;
 
+// Keep the five seeded defects distinct from already-satisfied surrounding
+// contracts. The live control correctly found extra signature, deduplication,
+// concurrency, and naming gaps when those baseline facts were unspecified.
 const planCeo5Findings = (planPath: string) => [
   `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
   '',
   '# Plan: Payment Processing Integration',
   '',
+  '## Existing contracts retained',
+  'The existing ingress middleware verifies the Stripe signature against the',
+  'raw request body and rejects invalid signatures before invoking handlers.',
+  'The existing webhook event guard deduplicates deliveries by Stripe event ID,',
+  'and an existing per-user transaction lock serializes payment updates.',
+  'The new handler runs inside those unchanged guards; this plan does not',
+  'replace signature verification, event deduplication, or update locking.',
+  '',
   '## Architecture',
-  "We're adding a new `PaymentService` class that will handle Stripe webhooks.",
+  "We're adding a new `StripePaymentWebhookHandler` class that will handle Stripe webhooks.",
   'This bypasses the existing `WebhookDispatcher` module — we want a clean',
   'namespace separation.',
   '',

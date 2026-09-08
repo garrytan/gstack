@@ -1089,6 +1089,20 @@ describe('Step0BoundaryPredicate per-skill', () => {
       expect(ceoStep0Boundary(f)).toBe(true);
     });
 
+    test('FIRES on collapsed mode labels captured from the 2026-09-08 paid controls', () => {
+      // Test each captured label independently: a spaced sibling option can
+      // otherwise conceal the mismatch and leave every review AUQ in Step 0.
+      const labels = [
+        'HOLDSCOPE—makeitbulletproof(Recommended)',
+        'SELECTIVEEXPANSION┌────────────────────────────────────────────────────────────────────────────────────┐\r    (ecommnded)                │SELECTIVEEXPANSION│',
+        'SCOPEEXPANSION│Neutralposture:presentopportunities,stateeffort,youdecide.│\r                           │  Good for: substantialfeaturewithsolidfoundation,shippedbeforescopelock.│\r└────────────────────────────────────────────────────────────────────┘',
+        'SCOPEREDUCTION—findtheminimalversion',
+      ];
+      for (const label of labels) {
+        expect(ceoStep0Boundary(fp('Pick a mode', [label, 'Type something.']))).toBe(true);
+      }
+    });
+
     test('FIRES on scope-selection AUQ with "Skip interview" option (skip-interview path)', () => {
       // After calibration run 1: plan-ceo's first AUQ is scope-selection,
       // and we route via "Skip interview and plan immediately" to bypass
