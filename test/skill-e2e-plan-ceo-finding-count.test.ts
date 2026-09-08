@@ -38,8 +38,8 @@ import {
  * The default pick (1) routes to "branch diff vs main" — the wrong target
  * for our seeded fixture (the agent would review the gstack PR itself,
  * recursively). Picking "Skip interview and plan immediately" bypasses
- * Step 0 and routes the agent to review the chat context (where our
- * follow-up plan was pasted).
+ * Step 0 and routes the agent to review the fixture request, which is
+ * already present in its initial project context.
  */
 function pickSkipInterview(fp: AskUserQuestionFingerprint): number {
   const skipOpt = fp.options.find((o) =>
@@ -122,9 +122,6 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           isLastStep0AUQ: ceoStep0Boundary,
           reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
           firstAUQPick: pickSkipInterview, // bypass scope-selection, route to review
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000, // 25 min
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });
@@ -211,9 +208,6 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           followUpPrompt: planCeo2PairedFindings(planPath),
           isLastStep0AUQ: ceoStep0Boundary,
           reviewCountCeiling: CEILING_PAIRED + 1,
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });

@@ -32,6 +32,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { stripVTControlCharacters } from 'node:util';
 import {
   launchClaudePty,
   isPlanReadyVisible,
@@ -47,6 +48,12 @@ const UI_FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-featur
 interface PhaseHit {
   phase: number;
   ts: number;
+}
+
+function diagnosticTail(text: string): string {
+  return stripVTControlCharacters(text)
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+    .slice(-3000);
 }
 
 describeE2E('/autoplan chain ordering (periodic)', () => {
@@ -79,6 +86,8 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
         const hits: PhaseHit[] = [];
         let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' = 'timeout';
         let evidence = '';
+        let fullSessionEvidence = '';
+        let exitCode: number | null = null;
 
         try {
           await Bun.sleep(8000);
@@ -144,13 +153,18 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
             }
           }
         } finally {
+          // Preserve boot failures omitted by mark(), and observe the real exit
+          // status before close() deliberately terminates a live session.
+          exitCode = session.exitCode();
+          fullSessionEvidence = diagnosticTail(session.visibleText());
           await session.close();
         }
 
         if (outcome === 'exited' || outcome === 'timeout') {
           throw new Error(
-            `autoplan chain test FAILED: outcome=${outcome}, hits=${JSON.stringify(hits)}\n` +
-              `--- evidence (last 3KB) ---\n${evidence}`,
+            `autoplan chain test FAILED: outcome=${outcome}, exitCode=${exitCode}, hits=${JSON.stringify(hits)}\n` +
+              `--- post-command evidence (last 3KB) ---\n${diagnosticTail(evidence)}\n` +
+              `--- full-session visible tail, including startup (last 3KB) ---\n${fullSessionEvidence}`,
           );
         }
 

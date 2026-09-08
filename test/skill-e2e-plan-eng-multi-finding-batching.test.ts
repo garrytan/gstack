@@ -65,9 +65,6 @@ describeE2E('/plan-eng-review multi-finding batching regression (periodic)', () 
           followUpPrompt,
           isLastStep0AUQ: engStep0Boundary,
           reviewCountCeiling: N + 3, // hard cap above floor + tolerance
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000, // 25 min
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });

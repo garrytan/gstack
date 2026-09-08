@@ -69,9 +69,6 @@ describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', (
           followUpPrompt: planDevex5Findings(planPath),
           isLastStep0AUQ: devexStep0Boundary,
           reviewCountCeiling: CEILING + 1,
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });

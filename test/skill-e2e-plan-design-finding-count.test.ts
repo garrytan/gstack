@@ -69,9 +69,6 @@ describeE2E('/plan-design-review per-finding AskUserQuestion count (periodic)', 
           followUpPrompt: planDesign5Findings(planPath),
           isLastStep0AUQ: designStep0Boundary,
           reviewCountCeiling: CEILING + 1,
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });
@@ -94,11 +91,16 @@ describeE2E('/plan-design-review per-finding AskUserQuestion count (periodic)', 
         if (obs.reviewCount < FLOOR) {
           throw new Error(
             `BAND FAIL (below floor): reviewCount=${obs.reviewCount} < FLOOR=${FLOOR}.\n` +
-              `Likely batching regression. Review-phase fingerprints:\n` +
+              `outcome=${obs.outcome} step0=${obs.step0Count} elapsed=${obs.elapsedMs}ms\n` +
+              `summary: ${obs.summary}\n` +
+              `All captured fingerprints (including Step 0):\n` +
               obs.fingerprints
-                .filter((f) => !f.preReview)
-                .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
-                .join('\n'),
+                .map(
+                  (f) =>
+                    `  - preReview=${f.preReview} sig=${f.signature.slice(0, 12)} prompt="${f.promptSnippet}"`,
+                )
+                .join('\n') +
+              `\n--- evidence (last 3KB) ---\n${obs.evidence}`,
           );
         }
         if (obs.reviewCount > CEILING) {

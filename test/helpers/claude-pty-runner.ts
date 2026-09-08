@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { hermeticChildEnv, hermeticSkillsConfigDir, isHermeticEnabled } from './hermetic-env';
+import { createPlanCountFixture } from './plan-count-fixture';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -1929,14 +1930,13 @@ export interface PlanSkillCountObservation {
  * AskUserQuestions until a terminal signal fires.
  *
  * Flow:
- *   1. Boot PTY in plan mode (8s grace + auto-trust dialog).
- *   2. Send `slashCommand` alone. Sleep ~3s.
- *   3. Send `followUpPrompt` as a chat message — this is the plan content
- *      the skill reviews. Slash commands with trailing args are rejected by
- *      Claude Code unless the skill defines them, so the plan goes as a
- *      follow-up message (the proven pattern at
- *      skill-e2e-plan-design-with-ui.test.ts:57-71).
- *   4. Poll loop:
+ *   1. Seed the complete fixture request in an isolated git repository's
+ *      PLAN.md and initial CLAUDE.md context, then boot the PTY in that cwd
+ *      (8s grace + auto-trust dialog). Skills remain registered in user scope.
+ *   2. Send `slashCommand` alone. The fixture is already in context; sending
+ *      it later can queue it behind the skill's first question while the
+ *      review incorrectly starts against the operator's live branch.
+ *   3. Poll loop:
  *      - Skip permission dialogs (auto-grant with `defaultPick`).
  *      - On a new numbered-option list, parse prompt + options, build
  *        fingerprint via `auqFingerprint`. Empty-prompt parses are skipped
@@ -1970,7 +1970,7 @@ export async function runPlanSkillCounting(opts: {
   skillName: string;
   /** Slash command to send alone, e.g. '/plan-ceo-review'. No trailing args. */
   slashCommand: string;
-  /** Plan content sent as a follow-up message ~3s after the slash command. */
+  /** Fixture request seeded in initial project context before the slash command. */
   followUpPrompt: string;
   /** Per-skill predicate: which answered AUQ is the last Step-0 question. */
   isLastStep0AUQ: Step0BoundaryPredicate;
@@ -1989,11 +1989,9 @@ export async function runPlanSkillCounting(opts: {
    * interview". Pressing the default 1 routes to "branch diff" (the wrong
    * review target for a seeded fixture). firstAUQPick lets the test pick
    * "Skip interview" or "describe inline" so the agent reviews the
-   * follow-up plan content the test sent, not the git diff.
+   * fixture plan content, not the git diff.
    */
   firstAUQPick?: (fp: AskUserQuestionFingerprint) => number;
-  /** Working directory. Default process.cwd() (repo cwd holds skill registry). */
-  cwd?: string;
   /** Total budget for skill to reach a terminal outcome. Default 1_500_000 (25 min). */
   timeoutMs?: number;
   /** Extra env merged into the spawned `claude` process. */
@@ -2005,14 +2003,21 @@ export async function runPlanSkillCounting(opts: {
   const defaultPick = opts.defaultPick ?? 1;
   const timeoutMs = opts.timeoutMs ?? 1_500_000;
 
-  const session = await launchClaudePty({
-    permissionMode: 'plan',
-    cwd: opts.cwd,
-    timeoutMs: timeoutMs + 60_000,
-    env: opts.env,
-    model: opts.model,
-    seedSkills: true,
-  });
+  const fixture = createPlanCountFixture(opts.followUpPrompt);
+  let session: ClaudePtySession;
+  try {
+    session = await launchClaudePty({
+      permissionMode: 'plan',
+      cwd: fixture.cwd,
+      timeoutMs: timeoutMs + 60_000,
+      env: opts.env,
+      model: opts.model,
+      seedSkills: true,
+    });
+  } catch (error) {
+    fixture.cleanup();
+    throw error;
+  }
 
   const fingerprints: AskUserQuestionFingerprint[] = [];
   const seen = new Set<string>();
@@ -2042,8 +2047,6 @@ export async function runPlanSkillCounting(opts: {
     await Bun.sleep(8000); // boot grace + auto-trust handler window
     const since = session.mark();
     session.send(`${opts.slashCommand}\r`);
-    await Bun.sleep(3000);
-    session.send(`${opts.followUpPrompt}\r`);
 
     const budgetStart = Date.now();
     while (Date.now() - budgetStart < timeoutMs) {
@@ -2170,7 +2173,11 @@ export async function runPlanSkillCounting(opts: {
       session.visibleSince(since),
     );
   } finally {
-    await session.close();
+    try {
+      await session.close();
+    } finally {
+      fixture.cleanup();
+    }
   }
 }
 
