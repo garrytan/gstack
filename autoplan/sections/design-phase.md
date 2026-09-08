@@ -1,7 +1,6 @@
 <!-- AUTO-GENERATED from design-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list and auto-decisions; run all other work in full.
+Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
@@ -9,6 +8,9 @@ Apply /autoplan's skip list and auto-decisions; run all other work in full.
 - Aesthetic/taste issues: mark TASTE DECISION
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+
+  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
+  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
 
   **Claude design subagent** (native tool, foreground):
   Claude Code Agent argument (other harnesses: native dispatch/wait):
@@ -27,9 +29,8 @@ Apply /autoplan's skip list and auto-decisions; run all other work in full.
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
   NO prior-phase context — subagent must be truly independent.
 
-
-  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/failure before outside dispatch or parent review.
+  **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
+  wait for that same agent's result/failure before outside dispatch or parent review.
   No inline substitute; apply failure policy.
 
   **Codex design voice** (via Bash):
@@ -96,7 +97,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
 - Design choices: if the outside reviewer disagrees with a design decision with valid UX reasoning
@@ -106,18 +106,19 @@ For this phase (design), retain the historical review-log skill identifier. Add 
 
 1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present under
-   Codex SAYS (design — UX challenge) and Claude SUBAGENT (design — independent review)
-   headers. Produce design litmus scorecard (consensus table). Use the litmus scorecard
-   format from plan-design-review. Include CEO phase findings in Codex prompt ONLY
-   (not Claude subagent — stays independent).
+2. Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS (design — UX challenge)
+   and Claude SUBAGENT (design — independent review).
+   Produce the design litmus scorecard from plan-design-review. CEO findings go only
+   to the outside voice; the native voice stays independent.
 
 3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
 
-**Close this phase before continuing:** Check successful Write/Edit results for
-all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
-Emit this filled-in summary as an actual assistant message:
+**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
+Read back against decisions. Mark taste pending final approval; preserve original
+direction for unresolved User Challenges. Check successful Write/Edit results for
+all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+Only then emit this actual assistant message:
 
 **Phase 2 complete.**
 Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].

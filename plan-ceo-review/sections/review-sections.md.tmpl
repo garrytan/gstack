@@ -108,6 +108,12 @@ This section traces data through the system and interactions through the UI with
 ```
 For each node: what happens on each shadow path? Is it tested?
 
+**Async ordering:** At each suspension point (`await`, callback, or job handoff),
+trace an adversarial interleaving with another operation before resuming. Which
+assumptions still hold? A single-threaded event loop and atomic individual calls
+do not make the whole flow atomic. For an ordering guarantee, specify a test
+that pauses and releases operations at those boundaries, not only sequential calls.
+
 **Interaction Edge Cases:** For every new user-visible interaction, evaluate:
 ```
   INTERACTION          | EDGE CASE              | HANDLED? | HOW?
@@ -318,6 +324,14 @@ Complete table of every method that can fail, every exception class, rescued sta
 Any row with RESCUED=N, TEST=N, USER SEES=Silent → **CRITICAL GAP**.
 
 ### TODOS.md updates
+**Keep the selected mode.** In HOLD SCOPE, a potential TODO must address an
+evidenced gap in the accepted scope or its required correctness and operability.
+Hypothetical future capacity, optional features, and alternatives to an adequate
+approved remedy are expansions even when labeled TODOs; do not surface them in
+HOLD SCOPE. Still audit observability and performance against the requirements,
+and approve each real deferred gap individually. Expansion modes retain their
+expansion scan and opt-in ceremony.
+
 Present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `~/.claude/skills/gstack/review/TODOS-format.md`.
 
 For each TODO, describe:

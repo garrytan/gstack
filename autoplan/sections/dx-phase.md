@@ -1,7 +1,6 @@
 <!-- AUTO-GENERATED from dx-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-devex-review/SKILL.md` in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list and auto-decisions; run all other work in full.
+Read `~/.claude/skills/gstack/plan-devex-review/SKILL.md` in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
 
 **Override rules:**
 - Mode selection: DX POLISH
@@ -13,6 +12,9 @@ Apply /autoplan's skip list and auto-decisions; run all other work in full.
 - API/CLI naming: consistency wins over cleverness (P5)
 - DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+
+  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
+  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
 
   **Claude DX subagent** (native tool, foreground):
   Claude Code Agent argument (other harnesses: native dispatch/wait):
@@ -31,9 +33,8 @@ Apply /autoplan's skip list and auto-decisions; run all other work in full.
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
   NO prior-phase context — subagent must be truly independent.
 
-
-  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/failure before outside dispatch or parent review.
+  **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
+  wait for that same agent's result/failure before outside dispatch or parent review.
   No inline substitute; apply failure policy.
 
   **Codex DX voice** (via Bash):
@@ -100,7 +101,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (dx), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"dx"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
 - DX choices: if the outside reviewer disagrees with a DX decision with valid developer empathy reasoning
@@ -111,9 +111,9 @@ For this phase (dx), retain the historical review-log skill identifier. Add `"ho
 1. Step 0 (DX Scope Assessment): Auto-detect product type. Map the developer journey.
    Rate initial DX completeness 0-10. Assess TTHW.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present
-   under Codex SAYS (DX — developer experience challenge) and Claude SUBAGENT
-   (DX — independent review) headers. Produce DX consensus table:
+2. Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS
+   (DX — developer experience challenge) and Claude SUBAGENT (DX — independent review).
+   Produce DX consensus table:
 
 ```
 DX DUAL VOICES — CONSENSUS TABLE:
@@ -143,9 +143,11 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - DX Implementation Checklist
 - TTHW assessment with target
 
-**Close this phase before continuing:** Check successful Write/Edit results for
-all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
-Emit this filled-in summary as an actual assistant message:
+**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
+Read back against decisions. Mark taste pending final approval; preserve original
+direction for unresolved User Challenges. Check successful Write/Edit results for
+all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+Only then emit this actual assistant message:
 
 **Phase 2.5 complete.**
 DX overall: [N]/10. TTHW: [N] min → [target] min.

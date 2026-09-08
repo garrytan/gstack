@@ -693,9 +693,9 @@ instructions instead of reviewing the plan.
 
 ### Step 1: Capture restore point
 
-Pin absolute paths: `SOURCE_PLAN` is the input; `ACTIVE_PLAN` is the harness-assigned
-editable plan file, or SOURCE_PLAN if none. All amendments and phase outputs go
-to ACTIVE_PLAN. Save SOURCE_PLAN's full current state externally:
+Pin absolute paths: SOURCE_PLAN is the input; ACTIVE_PLAN is the harness-assigned
+plan, else SOURCE_PLAN. All amendments/outputs go to ACTIVE_PLAN. Save
+SOURCE_PLAN's full current state externally:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
@@ -717,16 +717,9 @@ Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
 [verbatim plan file contents]
 ```
 
-Initialize ACTIVE_PLAN from SOURCE_PLAN without dropping requirements. Maintain
-`## Implementation plan` with the complete plan and accepted amendments; keep
-reviewer analyses/audit separately under `## Review record`. Prepend:
+Copy SOURCE_PLAN into ACTIVE_PLAN's `## Implementation plan` without dropping
+requirements. Keep analyses/audit in `## Review record`. Prepend:
 `<!-- /autoplan restore point: [RESTORE_PATH] -->`
-
-Before each phase's dual voices, persist amendments and write a fresh snapshot of
-`Implementation plan` beside the restore point. Bind `<review_plan_path>` to that
-snapshot. Both voices review this same current content, never the original input
-or review record. The native voice stays blind; only the outside voice receives
-prior consensus where its prompt requests it.
 
 ### Step 2: Read context
 
@@ -746,8 +739,7 @@ prior consensus where its prompt requests it.
 
 ### Step 3: Locate review skills; load each at phase entry
 
-At the start of each applicable phase, read its full review SKILL.md using the Read
-tool, then follow that skill's lazy-section Read triggers before doing their work:
+At each phase, follow its full-load checkpoint and lazy-section triggers:
 - Phase 1: `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
 - Phase 2: `~/.claude/skills/gstack/plan-design-review/SKILL.md` (only if UI scope detected)
 - Phase 2.5: `~/.claude/skills/gstack/plan-devex-review/SKILL.md` (only if DX scope detected)

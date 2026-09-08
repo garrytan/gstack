@@ -1,7 +1,6 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list and auto-decisions; run all other work in full.
+Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
@@ -19,6 +18,9 @@ Apply /autoplan's skip list and auto-decisions; run all other work in full.
   Run Claude first, then Codex, sequentially in foreground;
   both must complete before consensus.
 
+  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
+  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
+
   **Claude CEO subagent** (via Agent tool):
   Claude Code Agent argument (other harnesses: native dispatch/wait):
   ```json
@@ -35,9 +37,8 @@ Apply /autoplan's skip list and auto-decisions; run all other work in full.
   5. What's the competitive risk — could someone else solve this first/better?
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
-
-  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/failure before outside dispatch or parent review.
+  **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
+  wait for that same agent's result/failure before outside dispatch or parent review.
   No inline substitute; apply failure policy.
 
   **Codex CEO voice** (via Bash):
@@ -98,7 +99,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (ceo), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-
   **Error handling:** Both calls block in foreground. Codex auth/timeout/empty → proceed with
   Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
   "Outside voices unavailable — continuing with primary review."
@@ -121,10 +121,9 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0E: Temporal interrogation (HOUR 1 → HOUR 6+)
 - 0F: Mode selection confirmation
 
-Step 0.5 (Dual Voices): Run Claude subagent (foreground Agent tool) first, then
-Codex (Bash). Present Codex output under Codex SAYS (CEO — strategy challenge)
-header. Present subagent output under Claude SUBAGENT (CEO — strategic independence)
-header. Produce CEO consensus table:
+Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS
+(CEO — strategy challenge) and Claude SUBAGENT (CEO — strategic independence).
+Produce CEO consensus table:
 
 ```
 CEO DUAL VOICES — CONSENSUS TABLE:
@@ -156,9 +155,11 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Dream state delta (where this plan leaves us vs 12-month ideal)
 - Completion Summary (the full summary table from the CEO skill)
 
-**Close this phase before continuing:** Check successful Write/Edit results for
-all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
-Emit this filled-in summary as an actual assistant message:
+**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
+Read back against decisions. Mark taste pending final approval; preserve original
+direction for unresolved User Challenges. Check successful Write/Edit results for
+all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+Only then emit this actual assistant message:
 
 **Phase 1 complete.**
 Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].

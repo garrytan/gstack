@@ -44,6 +44,14 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+**Present complete remedies.** Before asking about one issue, include the
+validation and failure handling needed to make that remedy work in its options.
+Record the individually approved remedy in the plan. Later sections verify and
+reference that decision; they do not ask again for work already included in it.
+A new failure mode or tradeoff still requires its own decision. Scope approval
+alone does not approve individual findings, and approving one remedy does not
+approve independent issues or new TODOs. Keep those approvals separate.
+
 ### 1. Architecture review
 Evaluate:
 * Overall system design and component boundaries.
