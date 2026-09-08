@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { findCeoModeOption, hasPostAnswerCeoPosture, nextCeoModeNavigation } from './helpers/ceo-mode-option';
+import { findCeoModeOption, hasPostAnswerCeoPosture, hasNativePostAnswerCeoPosture, nativeCeoModeAnswer, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
 import { parseNumberedOptions, stripAnsi } from './helpers/claude-pty-runner';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
+import type { PlanCountTranscript } from './helpers/plan-count-transcript';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 describe('CEO mode option matching', () => {
   test('selects option 4 from the failed Claude Code 2.1.257 menu capture', () => {
@@ -152,4 +157,144 @@ describe('CEO posture evidence after mode selection', () => {
     const expansion = /\b(expansion|10x|delight|dream|cathedral|opt[\s-]?in)\b/i;
     expect(hasPostAnswerCeoPosture(`${answer}\r● I will explore expansion opportunities that improve the saved-view workflow.`, expansion)).toBe(true);
   });
+});
+
+describe('native CEO mode posture evidence', () => {
+  const selectedAt = Date.parse('2026-09-08T15:43:28.000Z');
+  const posture = /\b(rigor|bulletproof|hold\s*scope|maximum\s+rigor)\b/i;
+  function transcript(text: string, answer = 'HOLD SCOPE'): PlanCountTranscript {
+    // Actual question/options/answer shape from targeted-a's false-negative
+    // HOLD SCOPE run. The native answer selected option3 correctly.
+    const question = 'Which review mode should I use for this plan? <gstack-qid:plan-ceo-review-mode-selection>';
+    return { status: 'ready', calls: [{
+      sessionId: 'mode-session', toolUseId: 'mode-call', answered: true,
+      answeredAt: '2026-09-08T15:43:30.405Z', answers: { [question]: answer },
+      questions: [{ header: 'Review mode', question, options: [
+        { label: 'SELECTIVE EXPANSION (Recommended)' }, { label: 'SCOPE EXPANSION' },
+        { label: 'HOLD SCOPE' }, { label: 'SCOPE REDUCTION' },
+      ] }],
+    }], assistantMessages: [{ sessionId: 'mode-session', timestamp: '2026-09-08T15:44:01.150Z', text }] };
+  }
+
+  test('recognizes the retained native answer followed by actual HOLD SCOPE analysis', () => {
+    const captured = 'HOLD SCOPE mode confirmed. Running Step 0D analysis, then reading the review sections file.\n\n**0D — HOLD SCOPE Analysis**\n\n**Complexity check:**\nThe plan introduces: 1 DB migration, 1 SavedView model, 1 CRUD API module (~4 endpoints), 1 view picker UI component, and integration into the existing filter UI.';
+    expect(hasNativePostAnswerCeoPosture(transcript(captured), 'HOLD SCOPE', posture, selectedAt)).toBe(true);
+  });
+
+  test('wrong, missing, failed, or earlier mode answers cannot establish target routing', () => {
+    const text = 'I will apply maximum rigor to the existing plan.';
+    expect(hasNativePostAnswerCeoPosture(transcript(text, 'SCOPE EXPANSION'), 'HOLD SCOPE', posture, selectedAt)).toBe(false);
+    for (const change of [{ answered: false }, { failed: true }, { answers: {} }, { answeredAt: undefined }]) {
+      const t = transcript(text); Object.assign(t.calls[0]!, change);
+      expect(hasNativePostAnswerCeoPosture(t, 'HOLD SCOPE', posture, selectedAt)).toBe(false);
+    }
+    expect(hasNativePostAnswerCeoPosture(transcript(text), 'HOLD SCOPE', posture, selectedAt + 10000)).toBe(false);
+  });
+
+  test('prior or foreign assistant prose, a menu, source quotation, and bare confirmation remain insufficient', () => {
+    for (const text of [
+      '', 'HOLD SCOPE', '**HOLD SCOPE mode confirmed.**',
+      'Which mode?\n1. SELECTIVE EXPANSION\n2. HOLD SCOPE\n3. SCOPE EXPANSION',
+      '```markdown\nReview with maximum rigor.\n```',
+      '> Review with maximum rigor.',
+      'Read(SKILL.md)\nReview with maximum rigor.',
+    ]) expect(hasNativePostAnswerCeoPosture(transcript(text), 'HOLD SCOPE', posture, selectedAt)).toBe(false);
+    for (const change of [{ timestamp: '2026-09-08T15:43:29.000Z' }, { sessionId: 'other-session' }]) {
+      const t = transcript('I will apply maximum rigor.'); Object.assign(t.assistantMessages[0]!, change);
+      expect(hasNativePostAnswerCeoPosture(t, 'HOLD SCOPE', posture, selectedAt)).toBe(false);
+    }
+    expect(hasNativePostAnswerCeoPosture({ status: 'missing', calls: [], assistantMessages: [] }, 'HOLD SCOPE', posture, selectedAt)).toBe(false);
+  });
+
+  test('continuation requires the confirmed target and permits at most one fresh downstream question', () => {
+    const t = transcript('');
+    const fresh = '☐ Architecture\nD4 — Guard the member-scoped lookup?\n❯1.Add the guard\n2.Defer';
+    const mode = '☐ Review mode\nWhich review mode?\n❯1.HOLD SCOPE\n2.SCOPE EXPANSION';
+    const seen = new Set<string>();
+    expect(nextCeoPostureContinuation(mode, t, 'HOLD SCOPE', selectedAt, seen, false)).toBeNull();
+    expect(nextCeoPostureContinuation(fresh, transcript('', 'SCOPE EXPANSION'), 'HOLD SCOPE', selectedAt, seen, false)).toBeNull();
+    expect(nextCeoPostureContinuation(fresh, t, 'HOLD SCOPE', selectedAt, seen, false)).toBe('question');
+    expect(nextCeoPostureContinuation(fresh, t, 'HOLD SCOPE', selectedAt, seen, false)).toBeNull();
+    expect(nextCeoPostureContinuation(fresh.replace('member-scoped', 'project-scoped'), t, 'HOLD SCOPE', selectedAt, seen, true)).toBeNull();
+    expect(nativeCeoModeAnswer(t, 'HOLD SCOPE', selectedAt)?.toolUseId).toBe('mode-call');
+    const permission = 'DoyouwanttooverwriteCLAUDE.md?\n❯1.Yes\n2.No\nEsctocancel·Tabtoamend';
+    expect(nextCeoPostureContinuation(permission, t, 'HOLD SCOPE', selectedAt, seen, false)).toBe('permission');
+    expect(nextCeoPostureContinuation(permission, t, 'HOLD SCOPE', selectedAt, seen, false)).toBeNull();
+  });
+
+  test.skipIf(process.platform === 'win32')('one downstream answer releases delayed native prose without passing on the streamed menu', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-posture-flush-'));
+    const fake = path.join(dir, 'fake-claude');
+    const worker = path.join(dir, 'worker.ts');
+    const recordFile = path.join(dir, 'events.jsonl');
+    const resultFile = path.join(dir, 'result.json');
+    fs.writeFileSync(fake, `#!${process.execPath}\n` + String.raw`
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+const record = event => fs.appendFileSync(process.env.POSTURE_RECORD, JSON.stringify(event) + '\n');
+record({type:'startup', pid:process.pid});
+const sessionId = 'fake-mode-session';
+const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'fixture');
+fs.mkdirSync(dir, {recursive:true});
+const write = (role, content, extra = {}) => fs.appendFileSync(path.join(dir, sessionId + '.jsonl'), JSON.stringify({
+  sessionId, cwd:process.cwd(), isSidechain:false, timestamp:new Date().toISOString(), message:{role,content}, ...extra,
+}) + '\n');
+const question = 'Which mode?';
+write('assistant', [{type:'tool_use', id:'mode', name:'AskUserQuestion', input:{questions:[{header:'Mode', question,
+  options:[{label:'HOLD SCOPE'},{label:'SCOPE EXPANSION'}]}]}}]);
+write('user', [{type:'tool_result', tool_use_id:'mode', content:'Answered.'}], {toolUseResult:{answers:{[question]:'SCOPE EXPANSION'}}});
+process.stdin.setRawMode?.(true);
+let answered = false;
+process.stdin.on('data', data => {
+  record({type:'input', data:data.toString()});
+  if (data.toString().includes('\r') && !answered) {
+    answered = true;
+    write('assistant', [{type:'text', text:'I will explore expansion opportunities that improve saved project views.'}]);
+    process.stdout.write('\nPOSTURE_FLUSHED\n');
+  }
+});
+process.stdout.write('POSTURE_READY\n● I will explore expansion opportunities.\n☐ Expansion 1\nD4 — Add shared project views?\n❯1.Add to scope\n2.Defer\n');
+process.on('SIGINT', () => process.exit(0));
+process.stdin.resume();
+`);
+    fs.chmodSync(fake, 0o755);
+    const moduleUrl = (name: string) => pathToFileURL(path.resolve(import.meta.dir, 'helpers', name)).href;
+    fs.writeFileSync(worker, `
+import { launchClaudePty, selectPtyNumberedOption } from ${JSON.stringify(moduleUrl('claude-pty-runner.ts'))};
+import { readPlanCountTranscript } from ${JSON.stringify(moduleUrl('plan-count-transcript.ts'))};
+import { hasNativePostAnswerCeoPosture, nextCeoPostureContinuation } from ${JSON.stringify(moduleUrl('ceo-mode-option.ts'))};
+const started = Date.now();
+const session = await launchClaudePty({cwd:${JSON.stringify(dir)}, timeoutMs:5000, env:{POSTURE_RECORD:${JSON.stringify(recordFile)}}});
+try {
+  await session.waitFor('POSTURE_READY', {timeoutMs:2000, pollMs:20});
+  const read = () => readPlanCountTranscript(session.hermeticConfigDir, ${JSON.stringify(dir)});
+  const posture = /\\b(expansion|10x|delight|dream|cathedral|opt[\\s-]?in)\\b/i;
+  const before = hasNativePostAnswerCeoPosture(read(), 'SCOPE EXPANSION', posture, started);
+  const action = nextCeoPostureContinuation(session.visibleText(), read(), 'SCOPE EXPANSION', started, new Set(), false);
+  if (action === 'question') await selectPtyNumberedOption(session, 1);
+  await session.waitFor('POSTURE_FLUSHED', {timeoutMs:2000, pollMs:20});
+  const after = hasNativePostAnswerCeoPosture(read(), 'SCOPE EXPANSION', posture, started);
+  await Bun.write(${JSON.stringify(resultFile)}, JSON.stringify({before, action, after}));
+} finally { await session.close(); }
+`);
+    const child = Bun.spawn([process.execPath, worker], {
+      env: { ...process.env, BROWSE_TERMINAL_BINARY: fake, EVALS_HERMETIC: '1' }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 8000);
+    try {
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, stdout + stderr).toBe(0);
+      expect(JSON.parse(fs.readFileSync(resultFile, 'utf8'))).toEqual({before:false, action:'question', after:true});
+      const events = fs.readFileSync(recordFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      expect(events.filter(e => e.type === 'input').map(e => e.data).join('')).toBe('1\r');
+      expect(() => process.kill(events[0].pid, 0)).toThrow();
+    } finally {
+      clearTimeout(timer); child.kill('SIGKILL');
+      if (fs.existsSync(recordFile)) {
+        const first = JSON.parse(fs.readFileSync(recordFile, 'utf8').split('\n')[0]!);
+        try { process.kill(first.pid, 'SIGKILL'); } catch { /* already reaped */ }
+      }
+      fs.rmSync(dir, {recursive:true, force:true});
+    }
+  }, 10_000);
 });

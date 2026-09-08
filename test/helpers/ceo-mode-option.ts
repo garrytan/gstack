@@ -6,8 +6,14 @@ import {
   planCountSubmissionInput,
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
+import type { NativePlanQuestionCall, PlanCountTranscript } from './plan-count-transcript';
 
 type CeoMode = 'HOLD SCOPE' | 'SCOPE EXPANSION' | 'SELECTIVE EXPANSION' | 'SCOPE REDUCTION';
+
+function modeTitle(label: string): string | undefined {
+  const title = label.split(/[│┌\r\n]/, 1)[0]!.replace(/\s+/g, '').toUpperCase();
+  return /^(HOLDSCOPE|SCOPEEXPANSION|SELECTIVEEXPANSION|SCOPEREDUCTION)(?:$|[^A-Z])/.exec(title)?.[1];
+}
 
 export function findCeoModeOption(
   options: ReadonlyArray<{ index: number; label: string }>,
@@ -16,10 +22,7 @@ export function findCeoModeOption(
   const modes = options.map(option => {
     // The CLI renders a description pane beside the options. Its text may
     // mention a different mode, so match only the leading option title.
-    const title = option.label.split(/[│┌\r\n]/, 1)[0]!
-      .replace(/\s+/g, '').toUpperCase();
-    const mode = /^(HOLDSCOPE|SCOPEEXPANSION|SELECTIVEEXPANSION|SCOPEREDUCTION)(?:$|[^A-Z])/.exec(title)?.[1];
-    return { index: option.index, mode };
+    return { index: option.index, mode: modeTitle(option.label) };
   });
   if (!modes.some(option => option.mode)) return null;
 
@@ -88,4 +91,69 @@ export function hasPostAnswerCeoPosture(visible: string, posture: RegExp): boole
     }
   }
   return matches();
+}
+
+/** A native successful answer, not the key we intended to send to the menu. */
+export function nativeCeoModeAnswer(
+  transcript: PlanCountTranscript,
+  targetMode: CeoMode,
+  selectionStartedAt: number,
+): NativePlanQuestionCall | null {
+  if (transcript.status !== 'ready') return null;
+  const choices = transcript.calls.flatMap(call => {
+    const at = Date.parse(call.answeredAt ?? '');
+    if (!call.answered || call.failed || !Number.isFinite(at) || at < selectionStartedAt) return [];
+    return call.questions.flatMap(question => {
+      const modes = new Set(question.options.map(option => modeTitle(option.label)).filter(Boolean));
+      const answer = call.answers?.[question.question];
+      return modes.size >= 2 && typeof answer === 'string'
+        ? [{ call, at, mode: modeTitle(answer) }] : [];
+    });
+  }).sort((a, b) => b.at - a.at);
+  const latest = choices[0];
+  return latest?.mode === targetMode.replace(/\s+/g, '') ? latest.call : null;
+}
+
+/** Match only finalized assistant prose after the actual mode answer. */
+export function hasNativePostAnswerCeoPosture(
+  transcript: PlanCountTranscript,
+  targetMode: CeoMode,
+  posture: RegExp,
+  selectionStartedAt: number,
+): boolean {
+  const selected = nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt);
+  if (!selected) return false;
+  const answeredAt = Date.parse(selected.answeredAt!);
+  return transcript.assistantMessages.some(message => {
+    if (message.sessionId !== selected.sessionId || Date.parse(message.timestamp) <= answeredAt) return false;
+    const prose = message.text.replace(/```[\s\S]*?```/g, '').split('\n').filter(line => {
+      if (/^\s*>/.test(line)) return false;
+      const plain = line.replace(/[*_`]/g, '').trim().replace(/^#+\s*/, '');
+      // A repeated menu or bare confirmation is still only an answer echo.
+      if (/^(?:[-+]|\d+[.)]|[A-D][.)])\s*(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)\b/i.test(plain)) return false;
+      return !/^(?:(?:You\s+)?selected(?:\s+(?:option|mode))?\s*[:：]?\s*)?(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)(?:\s+mode)?(?:\s+confirmed)?(?:\s*\(recommended\))?[.!]?$/i.test(plain);
+    }).join('\n');
+    return hasPostAnswerCeoPosture(`● ${prose}`, posture);
+  });
+}
+
+/**
+ * Claude can defer persisting assistant prose until the next AUQ resolves.
+ * Permit one fresh downstream question to finish that turn, after the native
+ * mode answer is confirmed. A mode redraw or permission is never that question.
+ */
+export function nextCeoPostureContinuation(
+  visible: string,
+  transcript: PlanCountTranscript,
+  targetMode: CeoMode,
+  selectionStartedAt: number,
+  seenQuestions: Set<string>,
+  alreadyContinued: boolean,
+): 'permission' | 'question' | null {
+  if (classifyPlanCountFrame(visible) === 'permission') {
+    return capturePlanCountQuestion(visible, seenQuestions, 0, true) ? 'permission' : null;
+  }
+  if (alreadyContinued || !nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt)) return null;
+  const action = nextCeoModeNavigation(visible, targetMode, seenQuestions);
+  return action.kind === 'question' ? 'question' : null;
 }

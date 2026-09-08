@@ -40,8 +40,9 @@ import {
   selectPtyNumberedOption,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
-import { hasPostAnswerCeoPosture, nextCeoModeNavigation } from './helpers/ceo-mode-option';
+import { hasNativePostAnswerCeoPosture, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
 import { createPlanCountFixture } from './helpers/plan-count-fixture';
+import { readPlanCountTranscript, type PlanCountTranscript } from './helpers/plan-count-transcript';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -163,6 +164,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
 
           // The digit redraws the menu before Enter confirms it. Start after
           // confirmation so its mode names cannot count as assistant posture.
+          const selectionStartedAt = Date.now();
           await selectPtyNumberedOption(session, modeIndex);
           const sincePick = session.mark();
 
@@ -172,6 +174,9 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
           const start = Date.now();
           let postureMatched = false;
           let downstreamSnapshot = '';
+          let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
+          let continuedQuestion = false;
+          const seenDownstream = new Set<string>();
           while (Date.now() - start < budgetMs) {
             await Bun.sleep(2500);
             if (session.exited()) {
@@ -181,9 +186,19 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
               );
             }
             downstreamSnapshot = session.visibleSince(sincePick);
-            if (hasPostAnswerCeoPosture(downstreamSnapshot, c.postureRe)) {
+            transcript = session.hermeticConfigDir
+              ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd)
+              : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated mode transcript directory' };
+            if (hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt)) {
               postureMatched = true;
               break;
+            }
+            const continuation = nextCeoPostureContinuation(downstreamSnapshot, transcript,
+              c.mode, selectionStartedAt, seenDownstream, continuedQuestion);
+            if (continuation !== null) {
+              if (continuation === 'question') continuedQuestion = true;
+              await selectPtyNumberedOption(session, 1);
+              continue;
             }
             // Don't bail early on plan_ready alone — the posture text may
             // arrive as the agent finishes writing the plan. Only break
@@ -191,7 +206,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             if (
               isPlanReadyVisible(downstreamSnapshot) &&
               isNumberedOptionListVisible(downstreamSnapshot) &&
-              !hasPostAnswerCeoPosture(downstreamSnapshot, c.postureRe)
+              !hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt)
             ) {
               // Plan-ready AND a follow-up AskUserQuestion are both visible but
               // posture text has not appeared yet. Keep polling for a bit.
@@ -200,6 +215,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
           if (!postureMatched) {
             throw new Error(
               `Mode "${c.mode}" routing FAILED after sending option ${modeIndex}: no posture match for ${c.postureRe.source}.\n` +
+              `Native transcript: ${transcript.status}; ${transcript.calls.length} calls, ${transcript.assistantMessages.length} assistant messages; continuedQuestion=${continuedQuestion}.\n` +
               `--- observed mode menu (last 3KB) ---\n${visibleAtMode.slice(-3000)}\n` +
               `--- downstream visible since mode pick (last 3KB) ---\n` +
               downstreamSnapshot.slice(-3000),

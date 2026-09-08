@@ -21,6 +21,28 @@ const CAPTURE = [
   'Entertoselect·↑/↓tonavigate·Esctocancel',
 ].join('\r\r');
 
+// Targeted-a stalled on this complete menu for the full test budget. Parsing
+// retained its identity and choices; the setup helper rejected their wording.
+const CURRENT_CAPTURE = [
+  ' ☐ Routing rules',
+  '',
+  'Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>',
+  '',
+  '❯1.AddtoCLAUDE.md(recommended)',
+  '',
+  'Appendsa##SkillroutingsectiontoCLAUDE.mdandcommitsit.Futuresessionswillauto-invoketherightskill',
+  '(/investigateforbugs,/shipforPRs,/qafortesting,etc.)withoutmanualinvocation.',
+  '',
+  '2.Skip—invokemanually',
+  '',
+  "Nofilechanges.You'llcontinuecallingskillsbyname.Canaddroutingruleslater.",
+  '',
+  '3.Typesomething.',
+  '─'.repeat(120),
+  '4.Chataboutthis',
+  'Entertoselect·↑/↓tonavigate·Esctocancel',
+].join('\n');
+
 describe('autoplan routing setup handling', () => {
   test('answers the captured setup once, using the full question identity', () => {
     const seen = new Set<string>();
@@ -41,6 +63,33 @@ describe('autoplan routing setup handling', () => {
     expect(autoplanRoutingSetupInput(fullLabels, new Set())).toBe('1\r');
     expect(autoplanRoutingSetupInput(fullLabels.replace('CLAUDE.md (Recommended)', 'product routes (Recommended)'), new Set())).toBeNull();
     expect(autoplanRoutingSetupInput(fullLabels.replace("I'll invoke skills manually", 'delete the existing rules'), new Set())).toBeNull();
+  });
+
+  test('answers the current captured CLAUDE.md setup, including reordered choices, once', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE, seen)).toBeNull();
+    const reordered = CURRENT_CAPTURE.replace('❯1.AddtoCLAUDE.md(recommended)', '❯1.Skip—invokemanually')
+      .replace('2.Skip—invokemanually', '2.AddtoCLAUDE.md(recommended)');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE.replace('to CLAUDE.md?', "to this project's CLAUDE.md?"), new Set())).toBe('1\r');
+  });
+
+  test('the current wording still requires both explicit setup choices and the CLAUDE.md target', () => {
+    for (const frame of [
+      CURRENT_CAPTURE.replace('to CLAUDE.md?', 'to the application API?'),
+      CURRENT_CAPTURE.replace('AddtoCLAUDE.md(recommended)', 'Acceptrecommendation'),
+      CURRENT_CAPTURE.replace('Skip—invokemanually', 'Deferthisfinding'),
+      CURRENT_CAPTURE.replace('AddtoCLAUDE.md(recommended)', 'Deletetheexistingroutingrules'),
+      CURRENT_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md?', 'Should we expand the current feature?'),
+    ]) expect(autoplanRoutingSetupInput(frame, new Set())).toBeNull();
+  });
+
+  test('recognizes the native A retry packet with its abbreviated manual-decline label', () => {
+    const retry = CAPTURE.replace('Addroutingrules(Recommended)', 'Add to CLAUDE.md (Recommended)')
+      .replace('2.Nothanks', '2.No thanks, manual');
+    expect(autoplanRoutingSetupInput(retry, new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(retry.replace('No thanks, manual', 'No thanks, delete it'), new Set())).toBeNull();
   });
 
   test('waits for complete recognized choices rather than guessing a default', () => {
