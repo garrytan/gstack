@@ -280,6 +280,17 @@ const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
     reason: 'bin/ hit is a bash-spawned script path; #2563 real-dir uninstall coverage must run on windows-latest',
   },
   {
+    file: 'test/gstack-learnings-search.test.ts',
+    // Trips the "spawns bin/ shebang script" pattern via the
+    // path.join(ROOT, 'bin', 'gstack-learnings-search') constant, but every
+    // spawn goes through execFileSync('bash', [BIN, ...]) / spawnSync('bash',
+    // [BIN, ...]) — Git Bash runs it fine on windows-latest. The scan reads the
+    // bin/ path constant, not the invocation, so it cannot see that. Without
+    // this entry the #2762 relevance-ranking coverage never runs on Windows and
+    // the explicit bash prefix can silently rot back out.
+    reason: 'bin/ hit is a bash-spawned script path; #2762 ranking coverage must run on windows-latest',
+  },
+  {
     file: 'browse/test/file-permissions.test.ts',
     // Trips the POSIX-mode-bitmask pattern, but every `mode & 0o777` assertion
     // is platform-guarded: win32-only tests return early, POSIX-only tests
