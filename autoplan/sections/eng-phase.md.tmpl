@@ -3,12 +3,12 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
 
-  **Codex eng voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  **{{OUTSIDE_LABEL}} eng voice** (via Bash):
+  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+
+IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Review this plan for architectural issues, missing edge cases,
   and hidden complexity. Be adversarial.
@@ -18,17 +18,15 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
   DX: <insert DX consensus table summary, or 'skipped, no developer-facing scope'>
 
-  File: <plan_path>" -C "$_REPO_ROOT" -s read-only {{CODEX_WEB_SEARCH_FLAG}} < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
-  fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  File: <plan_path>
 
-  **Claude eng subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
+{{OUTSIDE_INVOCATION:autoplan}}
+
+Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+
+{{OUTSIDE_PROVENANCE:eng}}
+
+  **{{NATIVE_LABEL}} eng subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
   "Read the plan file at <plan_path>. You are an independent senior engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Architecture: Is the component structure sound? Coupling concerns?
@@ -51,15 +49,15 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 1. Step 0 (Scope Challenge): Read actual code referenced by the plan. Map each
    sub-problem to existing code. Run the complexity check. Produce concrete findings.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present
-   Codex output under CODEX SAYS (eng — architecture challenge) header. Present subagent
-   output under CLAUDE SUBAGENT (eng — independent review) header. Produce eng consensus
+2. Step 0.5 (Dual Voices): Run {{NATIVE_LABEL}} subagent (foreground) first, then {{OUTSIDE_LABEL}}. Present
+   {{OUTSIDE_LABEL}} output under {{OUTSIDE_LABEL}} SAYS (eng — architecture challenge) header. Present subagent
+   output under {{NATIVE_LABEL}} SUBAGENT (eng — independent review) header. Produce eng consensus
    table:
 
 ```
 ENG DUAL VOICES — CONSENSUS TABLE:
 ═══════════════════════════════════════════════════════════════
-  Dimension                           Claude  Codex  Consensus
+  Dimension                           {{NATIVE_LABEL}}  {{OUTSIDE_LABEL}}  Consensus
   ──────────────────────────────────── ─────── ─────── ─────────
   1. Architecture sound?               —       —      —
   2. Test coverage sufficient?         —       —      —
@@ -102,6 +100,6 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - TODOS.md updates (collected from all phases)
 
 **PHASE 3 COMPLETE.** Emit phase-transition summary:
-> **Phase 3 complete.** Codex: [N concerns]. Claude subagent: [N issues].
+> **Phase 3 complete.** {{OUTSIDE_LABEL}}: [N concerns]. {{NATIVE_LABEL}} subagent: [N issues].
 > Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
 > Passing to Phase 4 (Final Gate).

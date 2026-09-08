@@ -14,18 +14,18 @@
 
 import { describe, it, expect } from "bun:test";
 import { execFileSync } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 const ROOT = join(import.meta.dir, "..");
 
 function trackedTmplFiles(): string[] {
-  const out = execFileSync("git", ["ls-files", "*.tmpl", "**/*.tmpl"], {
+  const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "*.tmpl", "**/*.tmpl"], {
     cwd: ROOT,
     encoding: "utf-8",
     timeout: 30_000,
   });
-  return out.split("\n").filter(Boolean);
+  return [...new Set(out.split("\n").filter(Boolean))].filter(rel => existsSync(join(ROOT, rel)));
 }
 
 describe("mktemp portability (#2091)", () => {

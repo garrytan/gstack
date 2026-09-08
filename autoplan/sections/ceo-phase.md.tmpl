@@ -13,16 +13,16 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Scope expansion: in blast radius + <1d CC → approve (P2). Outside → defer to TODOS.md (P3).
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
 - All 10 review sections: run fully, auto-decide each issue, log every decision.
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run them sequentially in foreground. First the Claude subagent (Agent tool
+- Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
+  Run them sequentially in foreground. First the {{NATIVE_LABEL}} subagent (Agent tool
   with run_in_background: false — subagents default to BACKGROUND since
-  Claude Code v2.1.198, so the flag must be explicitly false), then Codex
+  Claude Code v2.1.198, so the flag must be explicitly false), then {{OUTSIDE_LABEL}}
   (Bash). Both must complete before building the consensus table.
 
-  **Codex CEO voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  **{{OUTSIDE_LABEL}} CEO voice** (via Bash):
+  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+
+IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   You are a CEO/founder advisor reviewing a development plan.
   Challenge the strategic foundations: Are the premises valid or assumed? Is this the
@@ -30,17 +30,15 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   What alternatives were dismissed too quickly? What competitive or market risks are
   unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
   No compliments. Just the strategic blind spots.
-  File: <plan_path>" -C "$_REPO_ROOT" -s read-only {{CODEX_WEB_SEARCH_FLAG}} < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
-  fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  File: <plan_path>
 
-  **Claude CEO subagent** (via Agent tool):
+{{OUTSIDE_INVOCATION:autoplan}}
+
+Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+
+{{OUTSIDE_PROVENANCE:ceo}}
+
+  **{{NATIVE_LABEL}} CEO subagent** (via Agent tool):
   "Read the plan file at <plan_path>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Is this the right problem to solve? Could a reframing yield 10x impact?
@@ -50,14 +48,14 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   5. What's the competitive risk — could someone else solve this first/better?
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
-  **Error handling:** Both calls block in foreground. Codex auth/timeout/empty → proceed with
-  Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
+  **Error handling:** Both calls block in foreground. {{OUTSIDE_LABEL}} auth/timeout/empty → proceed with
+  {{NATIVE_LABEL}} subagent only, tagged `[single-model]`. If {{NATIVE_LABEL}} subagent also fails →
   "Outside voices unavailable — continuing with primary review."
 
-  **Degradation matrix:** Both fail → "single-reviewer mode". Codex only →
-  tag `[codex-only]`. Subagent only → tag `[subagent-only]`.
+  **Degradation matrix:** Both fail → "single-reviewer mode". {{OUTSIDE_LABEL}} only →
+  tag `[{{OUTSIDE_PROVIDER}}-only]`. Subagent only → tag `[subagent-only]`.
 
-- Strategy choices: if codex disagrees with a premise or scope decision with valid
+- Strategy choices: if the outside reviewer disagrees with a premise or scope decision with valid
   strategic reason → TASTE DECISION. If both models agree the user's stated structure
   should change (merge, split, add, remove) → USER CHALLENGE (never auto-decided).
 
@@ -72,15 +70,15 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0E: Temporal interrogation (HOUR 1 → HOUR 6+)
 - 0F: Mode selection confirmation
 
-Step 0.5 (Dual Voices): Run Claude subagent (foreground Agent tool) first, then
-Codex (Bash). Present Codex output under CODEX SAYS (CEO — strategy challenge)
-header. Present subagent output under CLAUDE SUBAGENT (CEO — strategic independence)
+Step 0.5 (Dual Voices): Run {{NATIVE_LABEL}} subagent (foreground Agent tool) first, then
+{{OUTSIDE_LABEL}} (Bash). Present {{OUTSIDE_LABEL}} output under {{OUTSIDE_LABEL}} SAYS (CEO — strategy challenge)
+header. Present subagent output under {{NATIVE_LABEL}} SUBAGENT (CEO — strategic independence)
 header. Produce CEO consensus table:
 
 ```
 CEO DUAL VOICES — CONSENSUS TABLE:
 ═══════════════════════════════════════════════════════════════
-  Dimension                           Claude  Codex  Consensus
+  Dimension                           {{NATIVE_LABEL}}  {{OUTSIDE_LABEL}}  Consensus
   ──────────────────────────────────── ─────── ─────── ─────────
   1. Premises valid?                   —       —      —
   2. Right problem to solve?           —       —      —
@@ -108,7 +106,7 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Completion Summary (the full summary table from the CEO skill)
 
 **PHASE 1 COMPLETE.** Emit phase-transition summary:
-> **Phase 1 complete.** Codex: [N concerns]. Claude subagent: [N issues].
+> **Phase 1 complete.** {{OUTSIDE_LABEL}}: [N concerns]. {{NATIVE_LABEL}} subagent: [N issues].
 > Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
 > Passing to Phase 2.
 

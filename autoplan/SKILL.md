@@ -24,7 +24,7 @@ allowed-tools:
 ## When to invoke this skill
 
 Surfaces
-taste decisions (close approaches, borderline scope, codex disagreements) at a final
+taste decisions (close approaches, borderline scope, outside-review disagreements) at a final
 approval gate. One command, fully reviewed plan out.
 Use when asked to "auto review", "autoplan", "run all reviews", "review this plan
 automatically", or "make the decisions for me".
@@ -590,12 +590,12 @@ These rules auto-answer every intermediate question:
 Every auto-decision is classified:
 
 **Mechanical** — one clearly right answer. Auto-decide silently.
-Examples: run codex (always yes), run evals (always yes), reduce scope on a complete plan (always no).
+Examples: run the outside reviewer when enabled (always yes), run evals (always yes), reduce scope on a complete plan (always no).
 
 **Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface at the final gate. Three natural sources:
 1. **Close approaches** — top two are both viable with different tradeoffs.
 2. **Borderline scope** — in blast radius but 3-5 files, or ambiguous radius.
-3. **Codex disagreements** — codex recommends differently and has a valid point.
+3. **Codex disagreements** — the outside reviewer recommends differently and has a valid point.
 
 **User Challenge** — both models agree the user's stated direction should change.
 This is qualitatively different from taste decisions. When Claude and Codex both
@@ -677,7 +677,7 @@ State what you examined and why nothing was flagged (1-2 sentences minimum).
 
 ## Filesystem Boundary — Codex Prompts
 
-All prompts sent to Codex (via `codex exec` or `codex review`) MUST be prefixed with
+All prompts sent to Codex (through the shared outside invocation) MUST be prefixed with
 this boundary instruction:
 
 > IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.
@@ -763,59 +763,56 @@ Loaded review skills from disk. Starting full review pipeline with auto-decision
 
 ---
 
-## Phase 0.5: Codex auth + version preflight
-
-Before invoking any Codex voice, preflight the CLI: verify auth (multi-signal) and
-warn on known-bad CLI versions. This is infrastructure for all 4 phases below —
-source it once here and the helper functions stay in scope for the rest of the
-workflow.
+## Phase 0.5: Outside reviewer preflight
 
 ```bash
+
+# Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
-
-# Master switch first: codex_reviews=disabled turns off ALL Codex work globally,
-# including autoplan's own dual-voice orchestration. Honor it before probing.
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
-  echo "[codex disabled by config — Claude-only voices] Re-enable: gstack-config set codex_reviews enabled"
-  _CODEX_AVAILABLE=false
-# Check Codex binary. If missing, tag the degradation matrix and continue
-# with Claude subagent only (autoplan's existing degradation fallback).
+  _CODEX_MODE="disabled"
+# Running-under-Codex presence probe (#2519): a live Codex session exports
+# CODEX_THREAD_ID / CODEX_SANDBOX into every shell it spawns (verified
+# against a live `codex exec 'env | grep -i codex'` capture, codex 0.147.0).
+# Nested codex spawns from inside a Codex host multiply token burn
+# (observed: one /review = 15M tokens). A stale own-harness artifact must stop.
+elif { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  _CODEX_MODE="under_codex"
 elif ! command -v codex >/dev/null 2>&1; then
-  _gstack_codex_log_event "codex_cli_missing"
-  echo "[codex-unavailable: binary not found] — proceeding with Claude subagent only"
-  _CODEX_AVAILABLE=false
-elif ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
-  echo "[codex-unavailable: auth missing] — proceeding with Claude subagent only. Run \`codex login\` or set \$CODEX_API_KEY to enable dual-voice review."
-  _CODEX_AVAILABLE=false
-# Round-trip model probe (#2477): auth can pass while the account's configured
-# model is rejected with an HTTP 400 (stale `model =` pin in ~/.codex/config.toml).
-# ~10s on first run, cached 1h; timeouts fail open (probe returns 0).
-# Exit 2 = broken install (#2742: spawn ENOENT / non-executable binary /
-# missing vendor payload) — a different problem with a different fix, so
-# capture the code instead of testing truthiness.
+  _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
+  _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
 else
+  # Capture the probe's code: 2 means the CLI cannot execute at all, which is a
+  # different problem (and a different fix) from a model the account can't use.
   _gstack_codex_model_probe; _CODEX_MP=$?
   if [ "$_CODEX_MP" -eq 2 ]; then
-    echo "[codex-unavailable: binary cannot run] — proceeding with Claude subagent only. Reinstall: \`npm install -g @openai/codex\` (#2742)."
-    _CODEX_AVAILABLE=false
+    _CODEX_MODE="broken_install"
   elif [ "$_CODEX_MP" -ne 0 ]; then
-    echo "[codex-unavailable: configured model rejected] — proceeding with Claude subagent only. Fix the \`model =\` pin in ~/.codex/config.toml (see [notice.model_migrations] there for the replacement)."
-    _CODEX_AVAILABLE=false
+    _CODEX_MODE="model_unusable"
   else
-    _gstack_codex_version_check   # non-blocking warn if known-bad
-    _CODEX_AVAILABLE=true
+    _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
   fi
 fi
+echo "CODEX_MODE: $_CODEX_MODE"
 ```
 
-If `_CODEX_AVAILABLE=false`, all Phase 1-3 Codex voices below degrade to
-`[codex-unavailable]` in the degradation matrix. /autoplan completes with
-Claude subagent only — saves token spend on Codex prompts we can't use.
+Branch on the echoed `CODEX_MODE`:
+- **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed — falling back to a Claude subagent (fresh context, but the same harness; model identity is unknown). Install Codex for an actual outside-model read: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
+- **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation; retain the section's native pass if defined. Conflicting inherited harness markers are not grounds to guess another provider.
+- **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — falling back to a Claude subagent (same harness; model identity is unknown). Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
+- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines and fall back to the Claude subagent path. This state exists because a missing binary used to land in the model probe's fail-open bucket and report `ready`, so every Codex pass was skipped silently (#2742).
+- **`model_unusable`** — authed but the account cannot use its configured model (#2477: HTTP 400 on every call, usually a stale `model =` pin in `~/.codex/config.toml`). Relay the probe's HINT lines, tell the user the one-line fix (update the pin; `[notice.model_migrations]` names the replacement), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to `ready`.
+- **`ready`** — run the Codex pass below.
 
----
+A stale artifact selecting its own harness must report missing coverage and run no outside CLI. Repair: `setup --host codex`. Never infer a replacement provider from inherited environment markers. The invocation below repeats this guard.
+
+
+If disabled or unavailable, preserve the native pass in every applicable phase. Recheck before each outside dispatch. A completed CEO phase never establishes design, DX, or engineering coverage. For every phase, track provider and completed/unavailable/disabled/skipped independently. Missing voices appear as N/A, never CONFIRMED. A skipped scope phase remains skipped.
+
 
 ## Phase 1: CEO Review (Strategy & Scope)
 
@@ -1051,24 +1048,28 @@ If Phase 2.5 ran (DX scope):
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW","tthw_target":"TARGET","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
-Dual voice logs (one per phase that ran):
+Dual voice logs (always write all four phase records, sharing this run’s TIMESTAMP; never carry a prior run’s completion forward):
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"ceo","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"ceo","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"eng","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"eng","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-If Phase 2 ran (UI scope), also log:
+Always log the design phase. If it had no UI scope, use status and outside_status "skipped", source "none", and zero consensus counts:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"design","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-If Phase 2.5 ran (DX scope), also log:
+Always log the DX phase. If it had no developer-facing scope, use status and outside_status "skipped", source "none", and zero consensus counts:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"dx","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"dx","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-SOURCE = "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Generate one unique AUTOPLAN_RUN_ID at run start and substitute the same value in all four records. SOURCE = "codex" only for completed external output; use separate "in-host" records for native results. OUTSIDE_STATUS is phase-specific: completed, unavailable, disabled, or skipped. Never reuse one phase's success for another phase. Keep unknown model identity unknown; preserve multi-model usage when reported.
+
+For this phase (autoplan), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"autoplan"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
+
+Present a phase-by-phase coverage table (CEO, design, DX, eng) with host, outside provider, outside status, native completion, and findings. Report partial coverage explicitly.
 Replace N values with actual consensus counts from the tables.
 
 Suggest next step: `/ship` when ready to create the PR.

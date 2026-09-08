@@ -11,9 +11,9 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
   **Codex design voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+
+IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Read the plan file at <plan_path>. Evaluate this plan's
   UI/UX design decisions.
@@ -27,15 +27,52 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   accessibility requirements (keyboard nav, contrast, touch targets) specified or
   aspirational? Does the plan describe specific UI decisions or generic patterns?
   What design decisions will haunt the implementer if left ambiguous?
-  Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only -c 'web_search="cached"' < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
+  Be opinionated. No hedging.
+
+Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+
+```bash
+# GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if [ -n "${CLAUDECODE:-}" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
   fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  exit 78
+fi
+
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
+_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
+trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+_OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
+cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
+
+source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
+_gstack_codex_timeout_wrapper 600 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_OUTSIDE_EXIT=$?
+# Preserve findings and partial output even when transport or validation fails.
+cat "$_OUTSIDE_TMP/text"
+if [ "$_OUTSIDE_EXIT" -eq 124 ]; then
+  _gstack_codex_log_event "codex_timeout" "600"
+  _gstack_codex_log_hang "autoplan" "0"
+fi
+cat "$_OUTSIDE_TMP/stderr" >&2
+if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
+  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
+  exit "$_OUTSIDE_EXIT"
+fi
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
+
+echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
+```
+
+Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+
+Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+
+For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
   **Claude design subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
   "Read the plan file at <plan_path>. You are an independent senior product designer
@@ -50,7 +87,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
-- Design choices: if codex disagrees with a design decision with valid UX reasoning
+- Design choices: if the outside reviewer disagrees with a design decision with valid UX reasoning
   → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
 
 **Required execution checklist (Design):**
@@ -58,7 +95,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
 
 2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present under
-   CODEX SAYS (design — UX challenge) and CLAUDE SUBAGENT (design — independent review)
+   Codex SAYS (design — UX challenge) and Claude SUBAGENT (design — independent review)
    headers. Produce design litmus scorecard (consensus table). Use the litmus scorecard
    format from plan-design-review. Include CEO phase findings in Codex prompt ONLY
    (not Claude subagent — stays independent).

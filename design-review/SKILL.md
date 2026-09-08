@@ -1466,16 +1466,35 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 **Check Codex availability:**
 ```bash
-command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+
+_OUTSIDE_CFG=enabled # This caller has its own opt-in/skip control.
+if [ "$_OUTSIDE_CFG" = disabled ]; then
+  echo 'CODEX_MODE: disabled'
+elif ( # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if [ -n "${CLAUDECODE:-}" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+); then
+  if command -v codex >/dev/null 2>&1; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
+else
+  echo 'CODEX_MODE: under_current_harness'
+fi
 ```
+
+The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
 
 **If Codex is available**, launch both voices simultaneously:
 
 1. **Codex design voice** (via Bash):
-```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+Prompt (include the actual plan/product/frontend source context, not only file paths):
+
+"Review the frontend source code in this repo. Evaluate against these design hard rules:
 - Spacing: systematic (design tokens / CSS variables) or magic numbers?
 - Typography: expressive purposeful fonts or default stacks?
 - Color: CSS variables with defined system, or hardcoded hex scattered?
@@ -1504,12 +1523,45 @@ HARD REJECTION — flag if ANY apply:
 6. Carousel with no narrative purpose
 7. App UI made of stacked cards instead of layout
 
-Be specific. Reference file:line for every finding." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR_DESIGN"
-```
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+Be specific. Reference file:line for every finding."
+
+Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+
 ```bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+# GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if [ -n "${CLAUDECODE:-}" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
+_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
+trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+_OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
+cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
+
+source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
+_gstack_codex_timeout_wrapper 300 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_OUTSIDE_EXIT=$?
+# Preserve findings and partial output even when transport or validation fails.
+cat "$_OUTSIDE_TMP/text"
+
+cat "$_OUTSIDE_TMP/stderr" >&2
+if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
+  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
+  exit "$_OUTSIDE_EXIT"
+fi
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
+
+echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
+
+Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
 
 2. **Claude design subagent** (via Agent tool, `run_in_background: false` — subagents default to background since Claude Code v2.1.198):
 Dispatch a subagent with this prompt:
@@ -1538,9 +1590,11 @@ Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` t
 
 **Log the result:**
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Replace STATUS with "clean" only if a reviewer completed with no findings, "issues_found" for findings, or "unavailable" if neither reviewer completed, SOURCE with the completed provider or in-host.
+
+For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
 ## Phase 7: Triage
 

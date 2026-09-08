@@ -112,16 +112,13 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
 #
 # ─── Advanced ────────────────────────────────────────────────────────
-# codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
-#                           #   Codex runs as a standard step in /review, /ship,
-#                           #   /document-release, plan reviews, and /autoplan (auto
-#                           #   falls back to a Claude subagent if Codex is missing or
-#                           #   not authenticated). disabled = skip all Codex passes.
-#                           #   Asymmetry on disabled: diff-review (/review, /ship) still
-#                           #   runs the free Claude adversarial subagent; plan-review and
-#                           #   /document-release skip the outside-voice step entirely.
-#                           #   An invalid value is REJECTED (existing value preserved) so
-#                           #   a typo cannot silently turn paid Codex calls on or off.
+# codex_reviews: enabled    # Workflow outside review (Codex or Claude Code by harness).
+#                           #   enabled: /review, /ship, /document-release, plan reviews,
+#                           #   and /autoplan use their existing external + fallback rules.
+#                           #   disabled: /review, /ship, /autoplan keep native passes;
+#                           #   plan/document reviews skip the entire extra review step.
+#                           #   Office hours/design/spec/manual wrappers keep their own
+#                           #   opt-in/skip controls. Invalid values preserve the old value.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -409,7 +406,7 @@ case "${1:-}" in
       echo "Warning: timeline_stop_hook '$VALUE' not recognized. Valid values: yes, no. Using yes." >&2
       VALUE="yes"
     fi
-    # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
+    # codex_reviews controls workflow outside CLI calls. Unlike the warn-and-default keys above,
     # an invalid value is REJECTED and the existing setting is left unchanged — a typo
     # must never silently flip the switch and turn paid Codex calls on or off.
     if [ "$KEY" = "codex_reviews" ] && [ "$VALUE" != "enabled" ] && [ "$VALUE" != "disabled" ]; then

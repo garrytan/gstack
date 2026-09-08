@@ -62,33 +62,26 @@ describe('setup Codex model activation', () => {
     expect(setup).toContain('model profile: $CODEX_GENERATION_MODEL');
   });
 
-  test('Kiro copies a claude-profile render, then restores the Codex profile', () => {
-    // Kiro fronts Claude-family models (hosts/kiro.ts defaultModel: 'claude')
-    // but builds from the codex-shaped .agents render — the copy must happen
-    // against a claude-overlay render, and the resolved Codex profile must be
-    // restored afterward so ~/.codex/skills symlinks stay correct.
+  test('Kiro uses its own host render without rewriting the Codex profile', () => {
     const kiroStart = setup.indexOf('# 6. Install for Kiro CLI');
     const kiroEnd = setup.indexOf('# 6b.', kiroStart);
     expect(kiroStart).toBeGreaterThan(-1);
     const block = setup.slice(kiroStart, kiroEnd);
-    const claudeRenderAt = block.indexOf('gen:skill-docs --host codex --model claude');
-    const restoreAt = block.indexOf('gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL"');
-    expect(claudeRenderAt).toBeGreaterThan(-1);
-    expect(restoreAt).toBeGreaterThan(claudeRenderAt);
+    expect(block).toContain('gen:skill-docs --host kiro');
+    expect(block).toContain('KIRO_DIR="$SOURCE_GSTACK_DIR/.kiro/skills"');
+    expect(block).not.toContain('gen:skill-docs --host codex');
+    expect(block).not.toContain('CODEX_GENERATION_MODEL');
   });
 
-  test('Kiro rewrites the codex-rendered SETUP_COMMAND and never symlinks gstack-upgrade', () => {
-    // The artifact Kiro copies was rendered for the codex host, so its
-    // gstack-upgrade skill bakes in './setup --host codex'. Every copy path
-    // must rewrite it to '--host kiro', and the KIRO_GSTACK gstack-upgrade
-    // file must be a sed COPY (a symlink would track .agents after the
-    // Codex-profile restore — wrong overlay AND wrong reinstall host).
+  test('Kiro installs its native root, upgrade skill, and bin/lib runtime assets', () => {
     const kiroStart = setup.indexOf('# 6. Install for Kiro CLI');
     const kiroEnd = setup.indexOf('# 6b.', kiroStart);
     const block = setup.slice(kiroStart, kiroEnd);
-    const rewrites = block.split('\\./setup --host codex|./setup --host kiro').length - 1;
-    expect(rewrites).toBeGreaterThanOrEqual(3);
-    expect(block).not.toContain('_link_or_copy "$AGENTS_DIR/gstack-upgrade/SKILL.md"');
+    expect(block).toContain('_link_or_copy "$KIRO_DIR/gstack-upgrade/SKILL.md"');
+    expect(block).toContain('_link_or_copy "$KIRO_DIR/gstack/SKILL.md"');
+    expect(block).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"');
+    expect(block).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/lib" "$KIRO_GSTACK/lib"');
+    expect(block).not.toContain('$AGENTS_DIR');
   });
 
   test('Codex skills path honors CODEX_HOME', () => {

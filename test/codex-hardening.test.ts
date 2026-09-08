@@ -1,3 +1,6 @@
+import { generateAdversarialStep } from '../scripts/resolvers/review';
+import { RESOLVERS } from '../scripts/resolvers';
+import { HOST_PATHS } from '../scripts/resolvers/types';
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as path from 'path';
@@ -475,7 +478,9 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
   const BASH_GATE_MS = 600000;
 
   for (const relPath of WRAPPED_SITES) {
-    const read = () => fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+    const read = () => relPath === 'scripts/resolvers/review.ts'
+      ? generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl' })
+      : fs.readFileSync(path.join(ROOT, relPath), 'utf8');
 
     test(`${relPath}: both diff-review Codex calls run under the wrapper`, () => {
       const wrapped =
@@ -748,7 +753,8 @@ describe('codex broken-install detection (#2742)', () => {
   // prints the wrong remedy for a broken binary.
   test('autoplan preflight (tmpl + rendered) captures the probe exit and routes 2 to broken-install', () => {
     for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
-      const src = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      const raw = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      const src = rel.endsWith('.tmpl') ? raw.replace('{{OUTSIDE_PREFLIGHT:autoplan}}', RESOLVERS.OUTSIDE_PREFLIGHT({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'autoplan', tmplPath: rel }, ['autoplan'])) : raw;
       expect(src).toContain('_gstack_codex_model_probe; _CODEX_MP=$?');
       expect(src).toMatch(/_CODEX_MP" -eq 2/);
       expect(src).toContain('binary cannot run');

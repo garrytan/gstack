@@ -49,6 +49,16 @@ function readShipUnion(): string {
   return readSkillUnion('ship');
 }
 
+function readCodexSkillUnion(skill: string): string {
+  const dir = path.join(CODEX_OUT, '.agents', 'skills', `gstack-${skill}`);
+  const sections = path.join(dir, 'sections');
+  return fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8')
+    + (fs.existsSync(sections) ? fs.readdirSync(sections).sort()
+      .filter(file => file.endsWith('.md'))
+      .map(file => '\n' + fs.readFileSync(path.join(sections, file), 'utf-8')).join('') : '');
+}
+
+
 describe('SKILL.md command validation', () => {
   // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
   // skill. The browse body lives only in browse/SKILL.md now. This regression
@@ -1587,18 +1597,15 @@ describe('Codex skill', () => {
     }
   });
 
-  test('codex-host ship/review do NOT contain adversarial review step', () => {
-    // Codex artifacts come from the module-level out-dir render (CODEX_OUT).
-    const shipContent = fs.readFileSync(path.join(CODEX_OUT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(shipContent).not.toContain('codex review --base');
-    expect(shipContent).not.toContain('CODEX_REVIEWS');
-
-    const reviewContent = fs.readFileSync(path.join(CODEX_OUT, '.agents', 'skills', 'gstack-review', 'SKILL.md'), 'utf-8');
-    expect(reviewContent).not.toContain('codex review --base');
-    expect(reviewContent).not.toContain('codex_reviews');
-    expect(reviewContent).not.toContain('CODEX_REVIEWS');
-    expect(reviewContent).not.toContain('adversarial-review');
-    expect(reviewContent).not.toContain('Investigate and fix');
+  test('codex-host ship/review preserve adversarial review with a Claude outside voice', () => {
+    for (const skill of ['ship', 'review']) {
+      const content = readCodexSkillUnion(skill);
+      expect(content).not.toMatch(/codex\s+(?:exec|review)\s/);
+      expect(content).toContain('gstack-claude-code');
+      expect(content).toContain('codex_reviews');
+      expect(content).toContain('adversarial-review');
+      expect(content).toContain('Investigate and fix');
+    }
   });
 
   test('codex integration in /plan-eng-review offers plan critique', () => {
@@ -1637,12 +1644,12 @@ describe('Codex skill', () => {
     expect(content).toContain('codex-doc-review');
   });
 
-  test('codex-host document-release does NOT contain the Codex doc review', () => {
-    // Codex never invokes itself; artifacts come from the CODEX_OUT render.
-    const content = fs.readFileSync(
-      path.join(CODEX_OUT, '.agents', 'skills', 'gstack-document-release', 'SKILL.md'), 'utf-8');
-    expect(content).not.toContain('Codex Documentation Review');
-    expect(content).not.toContain('codex-doc-review');
+  test('codex-host document-release runs Claude Code and keeps the historical log identifier', () => {
+    const content = readCodexSkillUnion('document-release');
+    expect(content).toContain('Claude Code');
+    expect(content).toContain('gstack-claude-code');
+    expect(content).toContain('codex-doc-review');
+    expect(content).not.toMatch(/codex\s+(?:exec|review)\s/);
   });
 
   test('codex review invocations avoid the prompt plus --base argument shape', () => {
@@ -1828,7 +1835,7 @@ describe('Doc inventory cross-check', () => {
   //   hosts) that don't show up in the user-facing skill table.
   const DOC_INVENTORY_EXCLUDE = new Set([
     // Infra / non-skills
-    'agents', 'claude', 'connect-chrome', 'contrib', 'hosts',
+    'agents', 'connect-chrome', 'contrib', 'hosts',
     'lib', 'model-overlays', 'openclaw', 'supabase', 'scripts', 'test',
   ]);
 
@@ -1873,14 +1880,14 @@ describe('Codex skill validation', () => {
 
   // Discover all shared skills with templates.
   // Host-exclusive outside-voice skills are intentionally omitted here:
-  // - /codex is Claude-only
-  // - /claude is external-host-only
+  // - /codex is unavailable on Codex
+  // - /claude-code is unavailable on Claude Code
   const CLAUDE_SKILLS_WITH_TEMPLATES = (() => {
     const skills: string[] = [];
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue; // Claude-only skill
-      if (entry.name === 'claude') continue; // External-host-only skill
+      if (entry.name === 'codex') continue; // Unavailable on Codex
+      if (entry.name === 'claude-code') continue; // Unavailable on Claude Code
       if (fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) {
         skills.push(entry.name);
       }
@@ -1888,7 +1895,7 @@ describe('Codex skill validation', () => {
     return skills;
   })();
 
-  test('all skills (except /codex) have both Claude and Codex variants', () => {
+  test('shared skills have both Claude and Codex variants', () => {
     for (const skillDir of CLAUDE_SKILLS_WITH_TEMPLATES) {
       // Claude variant
       const claudeMd = path.join(ROOT, skillDir, 'SKILL.md');
@@ -1904,7 +1911,7 @@ describe('Codex skill validation', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'))).toBe(true);
   });
 
-  test('/codex skill is Claude-only — no Codex variant', () => {
+  test('/codex skill has a Claude variant and no Codex variant', () => {
     // Claude variant should exist
     expect(fs.existsSync(path.join(ROOT, 'codex', 'SKILL.md'))).toBe(true);
     // Codex variant must NOT exist

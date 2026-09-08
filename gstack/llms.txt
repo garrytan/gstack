@@ -16,7 +16,7 @@ Conventions:
 - [/browse](browse/SKILL.md): Drive a real browser through Aside: open a page, read it, click through a flow, take screenshots, check console errors.
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
-- [/claude](claude/SKILL.md): Claude Code CLI wrapper for non-Claude hosts - three modes.
+- [/claude-code](claude-code/SKILL.md): Claude Code CLI second opinion for non-Claude Code hosts.
 - [/codex](codex/SKILL.md): OpenAI Codex CLI wrapper — three modes.
 - [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
 - [/context-save](context-save/SKILL.md): Save working context.

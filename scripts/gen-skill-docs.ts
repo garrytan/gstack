@@ -1191,6 +1191,9 @@ if (!DRY_RUN) {
     try { entries = fs.readdirSync(skillsRoot, { withFileTypes: true }); } catch { continue; }
     for (const e of entries) {
       if (e.isSymbolicLink() || !e.isDirectory() || !e.name.startsWith('gstack-') || names.has(e.name)) continue;
+      // setup migrates installed links/copies before retiring this renamed render.
+      // A failed migration must remain usable through later build/generation passes.
+      if (e.name === 'gstack-claude' && process.env.GSTACK_DEFER_CLAUDE_RENAME_PRUNE === '1') continue;
       // Only a directory we provably rendered (the generated banner in its
       // SKILL.md) may be deleted whole — a hand-authored gstack-* dir is kept.
       let generated = false;
@@ -1198,6 +1201,9 @@ if (!DRY_RUN) {
       if (!generated) { console.log(`  kept ${host} skills/${e.name}: not a gstack render (no generated banner)`); continue; }
       fs.rmSync(path.join(skillsRoot, e.name), { recursive: true, force: true });
       console.log(`  pruned stale ${host} render: ${e.name}`);
+      if (e.name === 'gstack-claude') {
+        console.log('  /claude is now /claude-code. Run ./setup to migrate installed skill links; generation only updates render files.');
+      }
     }
   }
 }

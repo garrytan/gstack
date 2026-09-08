@@ -72,11 +72,8 @@ known-bad list. Sourcing `gstack-codex-probe` loads the shared helpers that both
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
-# Running-under-Codex presence probe (#2519): a live Codex session exports
-# CODEX_THREAD_ID / CODEX_SANDBOX into every shell it spawns.
-if [ "${GSTACK_FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
-  echo "UNDER_CODEX"
-elif ! _gstack_codex_auth_probe >/dev/null; then
+{{OUTSIDE_SELF_GUARD:codex}}
+if ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
   echo "AUTH_FAILED"
 else
@@ -85,12 +82,7 @@ fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking
 ```
 
-If the output contains `UNDER_CODEX`, stop with exactly one line:
-"[running under Codex — /codex would nest the same model at multiplied token
-cost; skipped. Set `GSTACK_FORCE_CODEX_REVIEW=1` to force.]" The whole value
-of this skill is a SECOND model's opinion; inside a Codex host it is the same
-model reviewing itself, and nested spawns have burned 15M tokens in one
-/review (#2519).
+If the runtime guard reports a harness mismatch, stop. Outside coverage is unavailable. Repair with `./setup --host codex`; do not silently substitute another provider or force a same-harness invocation.
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."

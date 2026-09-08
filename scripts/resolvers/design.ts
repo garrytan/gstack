@@ -1,34 +1,28 @@
+import { outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance } from './outside-voice';
 import { type TemplateContext, toShellPath } from './types';
-import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS, CODEX_WEB_SEARCH_FLAG, CC_BACKGROUND_DEFAULT_SINCE } from './constants';
+import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS, CC_BACKGROUND_DEFAULT_SINCE } from './constants';
 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  // Codex block only for Claude host
-  const codexBlock = ctx.host === 'codex' ? '' : `
+  // Each supported host uses its selected outside reviewer.
+  const codexBlock = `
 
-7. **Codex design voice** (optional, automatic if available):
+7. **${outsideVoiceFor(ctx).label} design voice** (optional, automatic if available):
 
-\`\`\`bash
-command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
+${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
-If Codex is available, run a lightweight design check on the diff:
+If ${outsideVoiceFor(ctx).label} is available, run a lightweight design check on the diff:
 
-\`\`\`bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR_DRL"
-\`\`\`
+Prompt: "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line."
 
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-\`\`\`
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' })}
+
+${outsideVoiceProvenance(ctx, 'design-lite')}
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
+Present ${outsideVoiceFor(ctx).label} output under a \`${outsideVoiceFor(ctx).label.toUpperCase()} (design):\` header, merged with the checklist findings above.`;
 
   return `## Design Review (conditional, diff-scoped)
 
@@ -55,10 +49,10 @@ source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
 
 5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.
 
-6. **Log the result** for the Review Readiness Dashboard:
+6. **Log the result** for the Review Readiness Dashboard after the optional outside step; record its actual status independently of native findings:
 
 \`\`\`bash
-${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
+${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"commit":"COMMIT"}'
 \`\`\`
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
@@ -571,37 +565,31 @@ The screenshot file at \`<sketch-dir>/sketch.png\` (name the full path in the do
 
 After the wireframe is approved, offer outside design perspectives:
 
-\`\`\`bash
-command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
+${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
-If Codex is available, use AskUserQuestion:
-> "Want outside design perspectives on the chosen approach? Codex proposes a visual thesis, content plan, and interaction ideas. A Claude subagent proposes an alternative aesthetic direction."
+If ${outsideVoiceFor(ctx).label} is available, use AskUserQuestion:
+> "Want outside design perspectives on the chosen approach? ${outsideVoiceFor(ctx).label} proposes a visual thesis, content plan, and interaction ideas. A ${outsideVoiceFor(ctx).nativeLabel} subagent proposes an alternative aesthetic direction."
 >
 > A) Yes — get outside design voices
 > B) No — proceed without
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
-\`\`\`bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR_SKETCH"
-\`\`\`
-Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
+1. **${outsideVoiceFor(ctx).label}** (via Bash, \`model_reasoning_effort="medium"\`):
+Prompt: "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." Include the approved product approach and wireframe source in the prepared prompt.
 
-2. **Claude subagent** (via Agent tool, \`run_in_background: false\` — subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}):
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort: 'medium' })}
+
+${outsideVoiceProvenance(ctx, 'design-sketch')}
+
+2. **${outsideVoiceFor(ctx).nativeLabel} subagent** (via Agent tool, \`run_in_background: false\` — subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
-Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
+Present ${outsideVoiceFor(ctx).label} output under \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design sketch):\` and subagent output under \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design direction):\`.
 Error handling: all non-blocking. On failure, skip and continue.`;
 }
 
 export function generateDesignOutsideVoices(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
-
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');
 
@@ -614,7 +602,7 @@ export function generateDesignOutsideVoices(ctx: TemplateContext): string {
   const isAutomatic = isDesignReview; // design-review runs automatically
   const reasoningEffort = isDesignConsultation ? 'medium' : 'high'; // creative vs analytical
 
-  // Build skill-specific Codex prompt
+  // Build the skill-specific outside-review prompt.
   let codexPrompt: string;
   let subagentPrompt: string;
 
@@ -694,9 +682,9 @@ Be bold. Be specific. No hedging.`;
 
   // Build the opt-in section
   const optInSection = isAutomatic ? `
-**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.` : `
+**Automatic:** Outside voices run automatically when ${outsideVoiceFor(ctx).label} is available. No opt-in needed.` : `
 Use AskUserQuestion:
-> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
+> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? ${outsideVoiceFor(ctx).label} evaluates against OpenAI's design hard rules + litmus checks; ${outsideVoiceFor(ctx).nativeLabel} subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
@@ -710,7 +698,7 @@ If user chooses B, skip this step and continue.`;
 \`\`\`
 DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
 ═══════════════════════════════════════════════════════════════
-  Check                                    Claude  Codex  Consensus
+  Check                                    ${outsideVoiceFor(ctx).nativeLabel}  ${outsideVoiceFor(ctx).label}  Consensus
   ─────────────────────────────────────── ─────── ─────── ─────────
   1. Brand unmistakable in first screen?   —       —      —
   2. One strong visual anchor?             —       —      —
@@ -724,7 +712,7 @@ DESIGN OUTSIDE VOICES — LITMUS SCORECARD:
 ═══════════════════════════════════════════════════════════════
 \`\`\`
 
-Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
+Fill in each cell from the ${outsideVoiceFor(ctx).label} and subagent outputs. CONFIRMED = both agree. DISAGREE = models differ. NOT SPEC'D = not enough info to evaluate.
 
 **Pass integration (respects existing 7-pass contract):**
 - Hard rejections → raised as the FIRST items in Pass 1, tagged \`[HARD REJECTION]\`
@@ -732,58 +720,53 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
-**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (Claude main + Codex + subagent)
+**Synthesis:** ${outsideVoiceFor(ctx).nativeLabel} main references both ${outsideVoiceFor(ctx).label} and subagent proposals in the Phase 3 proposal. Present:
+- Areas of agreement between all three voices (${outsideVoiceFor(ctx).nativeLabel} main + ${outsideVoiceFor(ctx).label} + subagent)
 - Genuine divergences as creative alternatives for the user to choose from
-- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."` : `
+- "${outsideVoiceFor(ctx).label} and I agree on X. ${outsideVoiceFor(ctx).label} suggested Y where I'm proposing Z — here's why..."` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
-Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
+Merge findings into the triage with \`[${outsideVoiceFor(ctx).id}]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
 
-  const escapedCodexPrompt = codexPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
 
   return `## Design Outside Voices (parallel)
 ${optInSection}
 
-**Check Codex availability:**
-\`\`\`bash
-command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
+**Check ${outsideVoiceFor(ctx).label} availability:**
+${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
-**If Codex is available**, launch both voices simultaneously:
+**If ${outsideVoiceFor(ctx).label} is available**, launch both voices simultaneously:
 
-1. **Codex design voice** (via Bash):
-\`\`\`bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${escapedCodexPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR_DESIGN"
-\`\`\`
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-\`\`\`
+1. **${outsideVoiceFor(ctx).label} design voice** (via Bash):
+Prompt (include the actual plan/product/frontend source context, not only file paths):
 
-2. **Claude design subagent** (via Agent tool, \`run_in_background: false\` — subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}):
+"${codexPrompt}"
+
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort })}
+
+2. **${outsideVoiceFor(ctx).nativeLabel} design subagent** (via Agent tool, \`run_in_background: false\` — subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}):
 Dispatch a subagent with this prompt:
 "${subagentPrompt}"
 
 **Error handling (all non-blocking):**
-- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
-- **Timeout:** "Codex timed out after 5 minutes."
-- **Empty response:** "Codex returned no response."
-- On any Codex error: proceed with Claude subagent output only, tagged \`[single-model]\`.
-- If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${outsideVoiceFor(ctx).label} authentication failed. Run \`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\` to authenticate."
+- **Timeout:** "${outsideVoiceFor(ctx).label} timed out after 5 minutes."
+- **Empty response:** "${outsideVoiceFor(ctx).label} returned no response."
+- On any ${outsideVoiceFor(ctx).label} error: proceed with ${outsideVoiceFor(ctx).nativeLabel} subagent output only, tagged \`[single-model]\`.
+- If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a \`CODEX SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
-Present subagent output under a \`CLAUDE SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
+Present ${outsideVoiceFor(ctx).label} output under a \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
+Present subagent output under a \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
 ${synthesisSection}
 
 **Log the result:**
 \`\`\`bash
-${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".`;
+Replace STATUS with "clean" only if a reviewer completed with no findings, "issues_found" for findings, or "unavailable" if neither reviewer completed, SOURCE with the completed provider or in-host.
+
+${outsideVoiceProvenance(ctx, 'design')}`;
 }
 
 // ─── Design Hard Rules (OpenAI framework + gstack slop blacklist) ───
@@ -1206,4 +1189,3 @@ Flat design can strip away useful visual information that signals interactivity.
 Prioritize ruthlessly: things needed in a hurry go close at hand, everything
 else a few taps away with an obvious path to get there.`;
 }
-

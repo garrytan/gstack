@@ -5,7 +5,7 @@ version: 1.0.0
 description: |
   Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk
   and runs them sequentially with auto-decisions using 6 decision principles. Surfaces
-  taste decisions (close approaches, borderline scope, codex disagreements) at a final
+  taste decisions (close approaches, borderline scope, outside-review disagreements) at a final
   approval gate. One command, fully reviewed plan out.
   Use when asked to "auto review", "autoplan", "run all reviews", "review this plan
   automatically", or "make the decisions for me".
@@ -75,15 +75,15 @@ These rules auto-answer every intermediate question:
 Every auto-decision is classified:
 
 **Mechanical** — one clearly right answer. Auto-decide silently.
-Examples: run codex (always yes), run evals (always yes), reduce scope on a complete plan (always no).
+Examples: run the outside reviewer when enabled (always yes), run evals (always yes), reduce scope on a complete plan (always no).
 
 **Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface at the final gate. Three natural sources:
 1. **Close approaches** — top two are both viable with different tradeoffs.
 2. **Borderline scope** — in blast radius but 3-5 files, or ambiguous radius.
-3. **Codex disagreements** — codex recommends differently and has a valid point.
+3. **{{OUTSIDE_LABEL}} disagreements** — the outside reviewer recommends differently and has a valid point.
 
 **User Challenge** — both models agree the user's stated direction should change.
-This is qualitatively different from taste decisions. When Claude and Codex both
+This is qualitatively different from taste decisions. When {{NATIVE_LABEL}} and {{OUTSIDE_LABEL}} both
 recommend merging, splitting, adding, or removing features/skills/workflows that
 the user specified, this is a User Challenge. It is NEVER auto-decided.
 
@@ -160,14 +160,14 @@ State what you examined and why nothing was flagged (1-2 sentences minimum).
 
 ---
 
-## Filesystem Boundary — Codex Prompts
+## Filesystem Boundary — {{OUTSIDE_LABEL}} Prompts
 
-All prompts sent to Codex (via `codex exec` or `codex review`) MUST be prefixed with
+All prompts sent to {{OUTSIDE_LABEL}} (through the shared outside invocation) MUST be prefixed with
 this boundary instruction:
 
 > IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.
 
-This prevents Codex from discovering gstack skill files on disk and following their
+This prevents {{OUTSIDE_LABEL}} from discovering gstack skill files on disk and following their
 instructions instead of reviewing the plan.
 
 ---
@@ -248,59 +248,12 @@ Loaded review skills from disk. Starting full review pipeline with auto-decision
 
 ---
 
-## Phase 0.5: Codex auth + version preflight
+## Phase 0.5: Outside reviewer preflight
 
-Before invoking any Codex voice, preflight the CLI: verify auth (multi-signal) and
-warn on known-bad CLI versions. This is infrastructure for all 4 phases below —
-source it once here and the helper functions stay in scope for the rest of the
-workflow.
+{{OUTSIDE_PREFLIGHT:autoplan}}
 
-```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
+If disabled or unavailable, preserve the native pass in every applicable phase. Recheck before each outside dispatch. A completed CEO phase never establishes design, DX, or engineering coverage. For every phase, track provider and completed/unavailable/disabled/skipped independently. Missing voices appear as N/A, never CONFIRMED. A skipped scope phase remains skipped.
 
-# Master switch first: codex_reviews=disabled turns off ALL Codex work globally,
-# including autoplan's own dual-voice orchestration. Honor it before probing.
-if [ "$_CODEX_CFG" = "disabled" ]; then
-  echo "[codex disabled by config — Claude-only voices] Re-enable: gstack-config set codex_reviews enabled"
-  _CODEX_AVAILABLE=false
-# Check Codex binary. If missing, tag the degradation matrix and continue
-# with Claude subagent only (autoplan's existing degradation fallback).
-elif ! command -v codex >/dev/null 2>&1; then
-  _gstack_codex_log_event "codex_cli_missing"
-  echo "[codex-unavailable: binary not found] — proceeding with Claude subagent only"
-  _CODEX_AVAILABLE=false
-elif ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
-  echo "[codex-unavailable: auth missing] — proceeding with Claude subagent only. Run \`codex login\` or set \$CODEX_API_KEY to enable dual-voice review."
-  _CODEX_AVAILABLE=false
-# Round-trip model probe (#2477): auth can pass while the account's configured
-# model is rejected with an HTTP 400 (stale `model =` pin in ~/.codex/config.toml).
-# ~10s on first run, cached 1h; timeouts fail open (probe returns 0).
-# Exit 2 = broken install (#2742: spawn ENOENT / non-executable binary /
-# missing vendor payload) — a different problem with a different fix, so
-# capture the code instead of testing truthiness.
-else
-  _gstack_codex_model_probe; _CODEX_MP=$?
-  if [ "$_CODEX_MP" -eq 2 ]; then
-    echo "[codex-unavailable: binary cannot run] — proceeding with Claude subagent only. Reinstall: \`npm install -g @openai/codex\` (#2742)."
-    _CODEX_AVAILABLE=false
-  elif [ "$_CODEX_MP" -ne 0 ]; then
-    echo "[codex-unavailable: configured model rejected] — proceeding with Claude subagent only. Fix the \`model =\` pin in ~/.codex/config.toml (see [notice.model_migrations] there for the replacement)."
-    _CODEX_AVAILABLE=false
-  else
-    _gstack_codex_version_check   # non-blocking warn if known-bad
-    _CODEX_AVAILABLE=true
-  fi
-fi
-```
-
-If `_CODEX_AVAILABLE=false`, all Phase 1-3 Codex voices below degrade to
-`[codex-unavailable]` in the degradation matrix. /autoplan completes with
-Claude subagent only — saves token spend on Codex prompts we can't use.
-
----
 
 ## Phase 1: CEO Review (Strategy & Scope)
 
@@ -310,7 +263,7 @@ Claude subagent only — saves token spend on Codex prompts we can't use.
 
 **Pre-Phase 2 checklist (verify before starting):**
 - [ ] CEO completion summary written to plan file
-- [ ] CEO dual voices ran (Codex + Claude subagent, or noted unavailable)
+- [ ] CEO dual voices ran ({{OUTSIDE_LABEL}} + {{NATIVE_LABEL}} subagent, or noted unavailable)
 - [ ] CEO consensus table produced
 - [ ] Premises assessed (clearly-wrong ones queued as Final Gate items — no mid-run stop)
 - [ ] Phase-transition summary emitted
@@ -380,7 +333,7 @@ produced. Check the plan file and conversation for each item.
 - [ ] "What already exists" section written
 - [ ] Dream state delta written
 - [ ] Completion Summary produced
-- [ ] Dual voices ran (Codex + Claude subagent, or noted unavailable)
+- [ ] Dual voices ran ({{OUTSIDE_LABEL}} + {{NATIVE_LABEL}} subagent, or noted unavailable)
 - [ ] CEO consensus table produced
 
 **Phase 2 (Design) outputs — only if UI scope detected:**
@@ -407,7 +360,7 @@ produced. Check the plan file and conversation for each item.
 - [ ] "What already exists" section written
 - [ ] Failure modes registry with critical gap assessment
 - [ ] Completion Summary produced
-- [ ] Dual voices ran (Codex + Claude subagent, or noted unavailable)
+- [ ] Dual voices ran ({{OUTSIDE_LABEL}} + {{NATIVE_LABEL}} subagent, or noted unavailable)
 - [ ] Eng consensus table produced
 
 **Cross-phase:**
@@ -461,13 +414,13 @@ I recommend [X] — [principle]. But [Y] is also viable:
 
 ### Review Scores
 - CEO: [summary]
-- CEO Voices: Codex [summary], Claude subagent [summary], Consensus [X/6 confirmed]
+- CEO Voices: {{OUTSIDE_LABEL}} [summary], {{NATIVE_LABEL}} subagent [summary], Consensus [X/6 confirmed]
 - Design: [summary or "skipped, no UI scope"]
-- Design Voices: Codex [summary], Claude subagent [summary], Consensus [X/7 confirmed] (or "skipped")
+- Design Voices: {{OUTSIDE_LABEL}} [summary], {{NATIVE_LABEL}} subagent [summary], Consensus [X/7 confirmed] (or "skipped")
 - Eng: [summary]
-- Eng Voices: Codex [summary], Claude subagent [summary], Consensus [X/6 confirmed]
+- Eng Voices: {{OUTSIDE_LABEL}} [summary], {{NATIVE_LABEL}} subagent [summary], Consensus [X/6 confirmed]
 - DX: [summary or "skipped, no developer-facing scope"]
-- DX Voices: Codex [summary], Claude subagent [summary], Consensus [X/6 confirmed] (or "skipped")
+- DX Voices: {{OUTSIDE_LABEL}} [summary], {{NATIVE_LABEL}} subagent [summary], Consensus [X/6 confirmed] (or "skipped")
 
 ### Cross-Phase Themes
 [For any concern that appeared in 2+ phases' dual voices independently:]
@@ -531,24 +484,28 @@ If Phase 2.5 ran (DX scope):
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW","tthw_target":"TARGET","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
-Dual voice logs (one per phase that ran):
+Dual voice logs (always write all four phase records, sharing this run’s TIMESTAMP; never carry a prior run’s completion forward):
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"ceo","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"{{HOST_ID}}","outside_provider":"{{OUTSIDE_PROVIDER}}","outside_status":"OUTSIDE_STATUS","phase":"ceo","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"eng","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"{{HOST_ID}}","outside_provider":"{{OUTSIDE_PROVIDER}}","outside_status":"OUTSIDE_STATUS","phase":"eng","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-If Phase 2 ran (UI scope), also log:
+Always log the design phase. If it had no UI scope, use status and outside_status "skipped", source "none", and zero consensus counts:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"design","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"{{HOST_ID}}","outside_provider":"{{OUTSIDE_PROVIDER}}","outside_status":"OUTSIDE_STATUS","phase":"design","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-If Phase 2.5 ran (DX scope), also log:
+Always log the DX phase. If it had no developer-facing scope, use status and outside_status "skipped", source "none", and zero consensus counts:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"dx","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","run_id":"AUTOPLAN_RUN_ID","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","host":"{{HOST_ID}}","outside_provider":"{{OUTSIDE_PROVIDER}}","outside_status":"OUTSIDE_STATUS","phase":"dx","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
-SOURCE = "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+Generate one unique AUTOPLAN_RUN_ID at run start and substitute the same value in all four records. SOURCE = "{{OUTSIDE_PROVIDER}}" only for completed external output; use separate "in-host" records for native results. OUTSIDE_STATUS is phase-specific: completed, unavailable, disabled, or skipped. Never reuse one phase's success for another phase. Keep unknown model identity unknown; preserve multi-model usage when reported.
+
+{{OUTSIDE_PROVENANCE:autoplan}}
+
+Present a phase-by-phase coverage table (CEO, design, DX, eng) with host, outside provider, outside status, native completion, and findings. Report partial coverage explicitly.
 Replace N values with actual consensus counts from the tables.
 
 Suggest next step: `/ship` when ready to create the PR.

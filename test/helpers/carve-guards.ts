@@ -163,7 +163,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // wave's headline capability) grows the union to 1.195x. Deliberate:
     // the section is on-demand (loads only for Apple store targets), so
     // per-invocation cost for non-iOS ships is one manifest line.
-    maxSizeRatio: 1.22,
+    maxSizeRatio: 1.28, // Harness-aware dispatch adds validated commands and per-pass provenance (~1.25x).
   },
   'plan-ceo-review': {
     skill: 'plan-ceo-review',
@@ -240,7 +240,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // tier-2+ skeleton (measured 89,184). Main's v1.64.0.0 adds ~340 B more
     // (telemetry --error-message/--failed-step preamble prose, PR #769).
     // Budget covers the sum of both waves.
-    maxSkeletonBytes: 73_800, // + v1.78 AUQ objectivity + v1.79 foreground-dispatch sweep (merged); measured 73_398
+    maxSkeletonBytes: 79_500, // Harness-aware outside voice: validated dispatch and provenance.
     minUnionBytes: 99_200, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,293
     mustContain: ['design', 'visual'],
     maxSizeRatio: 1.12, // D1 1.104 + main's ~0.008
@@ -295,7 +295,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 76_800, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 75_804
+    maxSkeletonBytes: 87_500, // Office-hours + sketch outside voices include host guards and completion checks.
     minUnionBytes: 115_800, // Phase 4 wave 4; measured union 118,175
     mustContain: ['design doc', 'problem statement'],
     maxSizeRatio: 1.12,
@@ -347,7 +347,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
     // v1.64.1.0: shared-preamble prose from the two parallel v1.64 waves lands
     // the skeleton at 69,022 B; +~1 KB headroom.
-    maxSkeletonBytes: 66_500, // + v2.0 {{ASIDE_SETUP}}/{{BROWSE_FALLBACK}} for the research phase; measured 65_506
+    maxSkeletonBytes: 72_000, // Validated outside design dispatch and provider provenance.
     minUnionBytes: 65_000, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 72,252
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
@@ -440,7 +440,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
         '## Filesystem Boundary',
         'Synthesis recommendation (REQUIRED)',
         'Recommendation: <action> because',
-        'UNDER_CODEX',
+        'If the runtime guard reports a harness mismatch, stop.',
       ],
       mustPrecedeStop: ['## Step 1: Detect mode', '## Filesystem Boundary'],
       mustMoveToSection: [
@@ -495,7 +495,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
         '## Sequential Execution — MANDATORY',
         '## Decision Classification',
         '## Filesystem Boundary — Codex Prompts',
-        '## Phase 0.5: Codex auth + version preflight',
+        '## Phase 0.5: Outside reviewer preflight',
         '## Pre-Gate Verification',
         '## Phase 2: Design Review (conditional — skip if no UI scope)',
         '## Phase 2.5: DX Review (conditional — skip if no developer-facing scope)',
@@ -504,7 +504,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       mustPrecedeStop: ['## The 6 Decision Principles', '## Sequential Execution — MANDATORY', '## Decision Classification'],
       mustMoveToSection: [
         'CEO DUAL VOICES — CONSENSUS TABLE:',
-        'CODEX SAYS (design — UX challenge)',
+        'Codex SAYS (design — UX challenge)',
         'ENG DUAL VOICES — CONSENSUS TABLE:',
         'DX DUAL VOICES — CONSENSUS TABLE:',
         '## Implementation Tasks aggregator',
@@ -513,9 +513,10 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-autoplan-chain.test.ts', // phase-complete markers live ONLY in sections — its assertions ARE section-read proof
-    maxSkeletonBytes: 65_100, // + v1.78 AUQ objectivity + #2745 broken-install preflight arm + outside-voice honest labeling; measured 64_668
+    maxSkeletonBytes: 70_000, // Phase-specific outside coverage, native fallback, and harness guard.
     minUnionBytes: 85_000, // measured union 86,926
     mustContain: ['6 Decision Principles', 'TASTE DECISION', 'USER CHALLENGE', 'consensus', 'Restore Point'],
+    maxSizeRatio: 1.12, // Four validated outside invocations replace raw CLI calls; phases keep independent coverage.
   },
   spec: {
     skill: 'spec',

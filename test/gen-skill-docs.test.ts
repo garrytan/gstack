@@ -28,6 +28,16 @@ function readShipUnion(): string {
   return readSkillUnion('ship');
 }
 
+function readExternalSkillUnion(output: string, hostSubdir: string, skill: string): string {
+  const dir = path.join(output, hostSubdir, 'skills', `gstack-${skill}`);
+  const sections = path.join(dir, 'sections');
+  return fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8')
+    + (fs.existsSync(sections) ? fs.readdirSync(sections).sort()
+      .filter(file => file.endsWith('.md'))
+      .map(file => '\n' + fs.readFileSync(path.join(sections, file), 'utf-8')).join('') : '');
+}
+
+
 // Token-reduction Phase 1: the preamble's inline bash (session bookkeeping,
 // config echoes, telemetry producers, artifacts sync) moved into
 // bin/gstack-skill-start / bin/gstack-skill-end. The render carries a one-line
@@ -114,10 +124,8 @@ const ALL_SKILLS = (() => {
   return skills;
 })();
 
-// hosts/claude.ts generation.skipSkills entries would filter here; the set is
-// currently empty (the /claude outside-voice template was removed).
 // The claude host deliberately skips some skills (skipSkills — e.g. the
-// /claude outside-voice skill exists only for non-Claude hosts), so those
+// /claude-code outside-voice skill exists only for non-Claude hosts), so those
 // dirs have a SKILL.md.tmpl but no generated claude-host SKILL.md on a fresh
 // checkout. Every generated-file assertion must exclude them or it is red on
 // every clean clone (it was, invisibly, until the free suite ran in CI).
@@ -1410,7 +1418,7 @@ describe('DESIGN_SKETCH resolver', () => {
 
 describe('CODEX_SECOND_OPINION resolver', () => {
   const content = readSkillUnion('office-hours'); // carved: Phase 5/6 prose moved to section
-  const codexContent = fs.readFileSync(path.join(EXTERNAL_OUT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+  const codexContent = readExternalSkillUnion(EXTERNAL_OUT, '.agents', 'office-hours');
 
   test('Phase 3.5 section appears in office-hours SKILL.md', () => {
     expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
@@ -1430,7 +1438,8 @@ describe('CODEX_SECOND_OPINION resolver', () => {
   });
 
   test('contains Claude subagent fallback', () => {
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
+    expect(content).toContain('CODEX_MODE: not_installed');
+    expect(content).toContain('If preflight is not ready');
     expect(content).toContain('Agent tool');
     expect(content).toContain('SECOND OPINION (Claude subagent)');
   });
@@ -1445,14 +1454,11 @@ describe('CODEX_SECOND_OPINION resolver', () => {
     expect(content).toMatch(/[Ee]mpty response/);
   });
 
-  test('Codex host variant does NOT contain the Phase 3.5 resolver output', () => {
-    // The resolver returns '' for codex host, so the interactive section is stripped.
-    // Static template references to "Phase 3.5" in prose/conditionals are fine.
-    // Other resolvers (design review lite) may contain CODEX_NOT_AVAILABLE, so we
-    // check for Phase 3.5-specific markers only.
-    expect(codexContent).not.toContain('Phase 3.5: Cross-Model Second Opinion');
-    expect(codexContent).not.toContain('TMPERR_OH');
-    expect(codexContent).not.toContain('gstack-codex-oh-');
+  test('Codex host runs Phase 3.5 through Claude Code', () => {
+    expect(codexContent).toContain('Phase 3.5: Cross-Model Second Opinion');
+    expect(codexContent).toContain('gstack-claude-code');
+    expect(codexContent).toContain('Claude Code');
+    expect(codexContent).not.toMatch(/codex\s+(?:exec|review)\s/);
   });
 });
 
@@ -1740,7 +1746,7 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('plan-design-review contains outside voices section', () => {
     const content = readSkillUnion('plan-design-review');
     expect(content).toContain('Design Outside Voices');
-    expect(content).toContain('CODEX_AVAILABLE');
+    expect(content).toContain('CODEX_MODE: ready');
     expect(content).toContain('LITMUS SCORECARD');
   });
 
@@ -1943,10 +1949,13 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('no ~/.claude/ paths in Codex output', () => {
+  test('no ~/.claude/ runtime paths in Codex output', () => {
     for (const skill of CODEX_SKILLS) {
       const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
-      expect(content).not.toContain('~/.claude/');
+      // Outside prompts may explicitly forbid reading Claude's skill directory.
+      // Every executable/runtime path must still use the selected host root.
+      const withoutBoundary = content.replace(/^.*IMPORTANT: Do NOT read or execute[^\n]*$/gm, '');
+      expect(withoutBoundary).not.toContain('~/.claude/');
     }
   });
 
@@ -1955,51 +1964,26 @@ describe('Codex generation (--host codex)', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);
   });
 
-  test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
-    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('claude -p');
-    expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
-    expect(content).toContain('mktemp /tmp/gstack-claude-response-XXXXXX');
-    expect(content).toContain('mktemp /tmp/gstack-claude-error-XXXXXX');
-    expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
-    expect(content).not.toMatch(/gstack-claude-(?:prompt|response|error|diff)-X{6,}\.\w+/);
-    expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
-    expect(content).toContain('cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p');
-    expect(content).toContain('Resolve the binary and invoke it in the same host execution context');
-    expect(content).toContain('--disable-slash-commands');
-    expect(content).toContain('--tools ""');
-    expect(content).toContain('--allowedTools Read,Grep,Glob');
-    expect(content).toContain('--disallowedTools Bash,Edit,Write');
-    expect(content).toContain('Do not infer authentication state from credential files');
-    expect(content).toContain('run the actual `claude -p`');
-    expect(content).not.toContain('AUTH_MISSING');
+  test('Codex output includes the renamed Claude Code skill and restricted runner', () => {
+    const content = readExternalSkillUnion(EXTERNAL_OUT, '.agents', 'claude-code');
+    expect(content).toContain('name: claude-code');
+    expect(content).toContain('gstack-claude-code');
+    expect(content).toContain('--access none');
+    expect(content).toContain('--access read-only');
+    expect(content).toContain('--timeout-ms');
+    expect(content).toContain('claude-session-id');
     expect(content).not.toContain('$HOME/.claude/.credentials.json');
-    expect(content).toContain('is_error');
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-claude'))).toBe(false);
   });
 
-  test('Claude temp file templates are accepted by host mktemp', () => {
-    for (const template of [
-      '/tmp/gstack-claude-prompt-XXXXXX',
-      '/tmp/gstack-claude-response-XXXXXX',
-      '/tmp/gstack-claude-error-XXXXXX',
-      '/tmp/gstack-claude-diff-XXXXXX',
-    ]) {
-      const result = spawnSync('mktemp', [template], { encoding: 'utf-8', timeout: 30_000 });
-      expect(result.status).toBe(0);
-      const created = result.stdout.trim();
-      expect(created.startsWith(template.replace('XXXXXX', ''))).toBe(true);
-      fs.unlinkSync(created);
+  test('Codex ship and review preserve outside review through Claude Code', () => {
+    for (const skill of ['ship', 'review']) {
+      const content = readExternalSkillUnion(EXTERNAL_OUT, '.agents', skill);
+      expect(content).not.toMatch(/codex\s+(?:exec|review)\s/);
+      expect(content).toContain('gstack-claude-code');
+      expect(content).toContain('codex_reviews');
+      expect(content).toContain('adversarial-review');
     }
-  });
-
-  test('Codex review step stripped from Codex-host ship and review', () => {
-    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    expect(shipContent).not.toContain('codex review --base');
-    expect(shipContent).not.toContain('CODEX_REVIEWS');
-
-    const reviewContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    expect(reviewContent).not.toContain('codex review --base');
-    expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
   test('--host codex --dry-run freshness', () => {
@@ -2223,9 +2207,10 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Design outside voices: Codex host guard ─────────────────
 
-  test('codex host produces empty outside voices in design-review', () => {
-    const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-review', 'SKILL.md'), 'utf-8');
-    expect(codexContent).not.toContain('Design Outside Voices');
+  test('codex host retains design outside voices through Claude Code', () => {
+    const codexContent = readExternalSkillUnion(EXTERNAL_OUT, '.agents', 'design-review');
+    expect(codexContent).toContain('Design Outside Voices');
+    expect(codexContent).toContain('gstack-claude-code');
   });
 
   test('codex host does not include Codex design block in ship', () => {
@@ -2345,9 +2330,10 @@ describe('Factory generation (--host factory)', () => {
     }
   });
 
-  test('/codex skill excluded from Factory output', () => {
-    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
-    expect(fs.existsSync(path.join(FACTORY_DIR, 'gstack-codex'))).toBe(false);
+  test('Factory installs both outside-review wrapper skills', () => {
+    for (const skill of ['gstack-codex', 'gstack-claude-code']) {
+      expect(fs.existsSync(path.join(FACTORY_DIR, skill, 'SKILL.md'))).toBe(true);
+    }
   });
 
   test('Factory keeps Codex integration blocks', () => {
@@ -2654,11 +2640,13 @@ describe('setup script validation', () => {
     expect(content).toContain('$GSTACK_BIN/');
   });
 
-  test('setup supports --host kiro with install section and sed rewrites', () => {
+  test('setup installs Kiro-native output and runtime assets', () => {
     expect(setupContent).toContain('INSTALL_KIRO=');
     expect(setupContent).toContain('kiro-cli');
     expect(setupContent).toContain('KIRO_SKILLS=');
-    expect(setupContent).toContain('~/.kiro/skills/gstack');
+    expect(setupContent).toContain('KIRO_SKILLS="$HOME/.kiro/skills"');
+    expect(setupContent).toContain('KIRO_DIR="$SOURCE_GSTACK_DIR/.kiro/skills"');
+    expect(setupContent).toContain('gen:skill-docs --host kiro');
     expect(setupContent).toContain('$KIRO_GSTACK/lib');
   });
 

@@ -153,7 +153,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // devex, office-hours + future PR2 carves). One file iterating CARVE_GUARDS;
   // the selector sets GSTACK_CARVE_SKILL=<name> to scope cost to the changed
   // skill (D-CODEX A). Touching the registry/helper or sections.ts runs all.
-  'carve-section-loading':       ['design-html/**', 'design-shotgun/**', 'qa/**', 'browse/**', 'retro/**', 'autoplan/**', 'spec/**', 'setup-gbrain/**', 'review/**', 'codex/**', 'land-and-deploy/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'office-hours/**', 'document-release/**', 'design-consultation/**', 'cso/**', 'test/helpers/carve-guards.ts', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/carve-section-loading.test.ts'],
+  'carve-section-loading':       ['design-html/**', 'design-shotgun/**', 'qa/**', 'browse/**', 'retro/**', 'autoplan/**', 'spec/**', 'setup-gbrain/**', 'review/**', 'codex/**', 'land-and-deploy/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'office-hours/**', 'document-release/**', 'design-consultation/**', 'cso/**', 'test/helpers/carve-guards.ts', 'scripts/resolvers/sections.ts', 'scripts/resolvers/redact-doc.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/carve-section-loading.test.ts'],
   'autoplan-chain-pty':          ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-autoplan-chain.test.ts'],
 
   // Per-finding AskUserQuestion count + review-report-at-bottom assertion.
@@ -274,6 +274,22 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Codex E2E (tests skills via Codex CLI + worktree)
   'codex-discover-skill':  ['codex/**', 'scripts/gen-skill-docs.ts', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts', 'test/codex-e2e.test.ts'],
   'codex-review-findings': ['review/**', 'scripts/gen-skill-docs.ts', 'codex/**', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts', 'test/codex-e2e.test.ts'],
+
+  // Real cross-harness workflow dispatch and independent seeded-defect detection.
+  'outside-voice-codex-to-claude-code': [
+    'review/**', 'claude-code/**', 'hosts/codex.ts', 'hosts/define-host.ts',
+    'scripts/gen-skill-docs.ts', 'scripts/resolvers/index.ts', 'scripts/resolvers/outside-voice.ts',
+    'scripts/resolvers/constants.ts', 'scripts/resolvers/review.ts',
+    'bin/gstack-claude-code', 'lib/claude-code.ts', 'lib/claude-code-windows-job.ts', 'lib/claude-bin.ts', 'lib/outside-review-result.ts', 'test/helpers/codex-session-runner.ts',
+    'test/helpers/skill-fixture.ts', 'test/helpers/outside-voice-fixture.ts', 'test/helpers/outside-voice-evidence.ts', 'test/skill-e2e-outside-voice.test.ts',
+  ],
+  'outside-voice-claude-code-to-codex': [
+    'review/**', 'codex/**', 'hosts/claude.ts', 'hosts/define-host.ts',
+    'scripts/gen-skill-docs.ts', 'scripts/resolvers/index.ts', 'scripts/resolvers/outside-voice.ts',
+    'scripts/resolvers/constants.ts', 'scripts/resolvers/review.ts',
+    'bin/gstack-codex-probe', 'lib/outside-review-result.ts', 'test/helpers/session-runner.ts',
+    'test/helpers/skill-fixture.ts', 'test/helpers/outside-voice-fixture.ts', 'test/helpers/outside-voice-evidence.ts', 'test/skill-e2e-outside-voice.test.ts',
+  ],
 
   // GPT-5.6 Sol scope-termination E2E (Codex CLI, full generated investigate skill)
   'codex-sol-scope-termination': ['model-overlays/gpt-5.6-sol.md', 'scripts/models.ts', 'scripts/resolvers/model-overlay.ts', 'scripts/resolvers/preamble/**', 'investigate/**', 'test/helpers/codex-session-runner.ts', 'test/codex-e2e-sol-scope.test.ts'],
@@ -423,7 +439,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // /spec end-to-end via PTY — exercises the full Phase 1→5 pipeline
   // including --execute spawn. Periodic-tier — paid + non-deterministic.
-  'spec-execute':     ['spec/**', 'test/skill-e2e-spec-execute.test.ts'],
+  'spec-execute':     ['spec/**', 'scripts/resolvers/redact-doc.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/constants.ts', 'lib/outside-review-result.ts', 'bin/gstack-redact', 'lib/redact-engine.ts', 'test/skill-e2e-spec-execute.test.ts'],
 
   // /office-hours brain-writeback path under fake gbrain CLI (v1.50.0.0
   // T7). Drives /office-hours with a regenerated SKILL.md that has the
@@ -728,6 +744,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Multi-AI — periodic (require external CLIs)
   'codex-discover-skill': 'periodic',
   'codex-review-findings': 'periodic',
+  'outside-voice-codex-to-claude-code': 'periodic',
+  'outside-voice-claude-code-to-codex': 'periodic',
   'codex-sol-scope-termination': 'periodic',
   'gemini-smoke': 'periodic',
 

@@ -540,11 +540,11 @@ describe('host config correctness', () => {
     expect(factory.frontmatter.conditionalFields![0].add).toEqual({ 'disable-model-invocation': true });
   });
 
-  test('codex has suppressedResolvers for self-invocation prevention', () => {
-    expect(codex.suppressedResolvers).toBeDefined();
-    expect(codex.suppressedResolvers).toContain('CODEX_SECOND_OPINION');
-    expect(codex.suppressedResolvers).toContain('ADVERSARIAL_STEP');
+  test('codex restores outside-review resolvers while retaining the Review Army restriction', () => {
     expect(codex.suppressedResolvers).toContain('REVIEW_ARMY');
+    for (const resolver of ['CODEX_SECOND_OPINION', 'ADVERSARIAL_STEP', 'CODEX_PLAN_REVIEW', 'CODEX_DOC_REVIEW', 'DESIGN_OUTSIDE_VOICES']) {
+      expect(codex.suppressedResolvers).not.toContain(resolver);
+    }
   });
 
   test('codex has boundary instruction', () => {
@@ -579,9 +579,12 @@ describe('host config correctness', () => {
     expect(openclaw.coAuthorTrailer).toContain('OpenClaw');
   });
 
-  test('every external host skips the codex skill', () => {
-    for (const config of getExternalHosts()) {
-      expect(config.generation.skipSkills).toContain('codex');
+  test('outside reviewer skills are omitted only from their own harness', () => {
+    for (const config of ALL_HOST_CONFIGS) {
+      const skipped = config.generation.skipSkills ?? [];
+      expect(skipped.includes('codex')).toBe(config.name === 'codex');
+      expect(skipped.includes('claude-code')).toBe(config.name === 'claude');
+      expect(skipped).not.toContain('claude');
     }
   });
 

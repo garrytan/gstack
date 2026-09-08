@@ -204,7 +204,7 @@ quality gates that produce better results than answering inline.
 - User asks to update docs after shipping → invoke `/document-release`
 - User asks to write docs from scratch, generate documentation, "document this feature/module" → invoke `/document-generate`
 - User asks for a weekly retro, what did we ship, "how'd we do" → invoke `/retro`
-- User asks for a second opinion, codex review → invoke `/codex`
+Generic “second opinion”, “outside review”, or “cross-model review” requests use `/codex` (namespaced: `/gstack-codex`). This selection follows the **claude harness**, independently of model configuration. Explicit provider requests take precedence: Codex means `/codex`; Claude Code means `/claude-code`. Never silently substitute another provider. If that provider is the current harness, report that no outside invocation ran and suggest the other wrapper only as a separate user choice. Wrapper availability: Claude Code installs only /codex; Codex installs only /claude-code; other harnesses install both. Repair stale installations with `setup --host claude`. There is no /claude compatibility alias.
 - User asks for safety mode, careful mode → invoke `/careful` or `/guard`
 - User asks to restrict edits to a directory → invoke `/freeze` or `/unfreeze`
 - User asks to upgrade gstack → invoke `/gstack-upgrade`

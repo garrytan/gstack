@@ -22,9 +22,9 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   (Bash). Both must complete before building the consensus table.
 
   **Codex CEO voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+
+IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   You are a CEO/founder advisor reviewing a development plan.
   Challenge the strategic foundations: Are the premises valid or assumed? Is this the
@@ -32,15 +32,52 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   What alternatives were dismissed too quickly? What competitive or market risks are
   unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
   No compliments. Just the strategic blind spots.
-  File: <plan_path>" -C "$_REPO_ROOT" -s read-only -c 'web_search="cached"' < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
+  File: <plan_path>
+
+Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+
+```bash
+# GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if [ -n "${CLAUDECODE:-}" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
   fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  exit 78
+fi
+
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
+_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
+trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+_OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
+cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
+
+source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
+_gstack_codex_timeout_wrapper 600 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_OUTSIDE_EXIT=$?
+# Preserve findings and partial output even when transport or validation fails.
+cat "$_OUTSIDE_TMP/text"
+if [ "$_OUTSIDE_EXIT" -eq 124 ]; then
+  _gstack_codex_log_event "codex_timeout" "600"
+  _gstack_codex_log_hang "autoplan" "0"
+fi
+cat "$_OUTSIDE_TMP/stderr" >&2
+if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
+  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
+  exit "$_OUTSIDE_EXIT"
+fi
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
+
+echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
+```
+
+Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+
+Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+
+For this phase (ceo), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
   **Claude CEO subagent** (via Agent tool):
   "Read the plan file at <plan_path>. You are an independent CEO/strategist
@@ -59,7 +96,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Degradation matrix:** Both fail → "single-reviewer mode". Codex only →
   tag `[codex-only]`. Subagent only → tag `[subagent-only]`.
 
-- Strategy choices: if codex disagrees with a premise or scope decision with valid
+- Strategy choices: if the outside reviewer disagrees with a premise or scope decision with valid
   strategic reason → TASTE DECISION. If both models agree the user's stated structure
   should change (merge, split, add, remove) → USER CHALLENGE (never auto-decided).
 
@@ -75,8 +112,8 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0F: Mode selection confirmation
 
 Step 0.5 (Dual Voices): Run Claude subagent (foreground Agent tool) first, then
-Codex (Bash). Present Codex output under CODEX SAYS (CEO — strategy challenge)
-header. Present subagent output under CLAUDE SUBAGENT (CEO — strategic independence)
+Codex (Bash). Present Codex output under Codex SAYS (CEO — strategy challenge)
+header. Present subagent output under Claude SUBAGENT (CEO — strategic independence)
 header. Produce CEO consensus table:
 
 ```

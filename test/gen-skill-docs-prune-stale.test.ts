@@ -25,7 +25,10 @@ function staleRender(name: string, body: string): string {
 }
 
 function gen(out: string, ...extra: string[]) {
-  return spawnSync('bun', ['run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--out-dir', out, ...extra], { cwd: ROOT, encoding: 'utf-8', timeout: 180_000 });
+  return spawnSync('bun', ['run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--out-dir', out, ...extra], {
+    cwd: ROOT, encoding: 'utf-8', timeout: 180_000,
+    env: { ...process.env, GSTACK_DEFER_CLAUDE_RENAME_PRUNE: '0' },
+  });
 }
 
 describe('gen-skill-docs stale-render prune', () => {
@@ -97,5 +100,38 @@ describe('gen-skill-docs stale-render prune', () => {
     } finally {
       fs.rmSync(out, { recursive: true, force: true });
     }
+  }, 200_000);
+
+  test('setup can defer the renamed render only; standalone generation retires it without changing installed links', () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-rename-prune-'));
+    const skills = path.join(out, '.agents', 'skills');
+    const old = path.join(skills, 'gstack-claude');
+    const stale = path.join(skills, 'gstack-retired-zzz');
+    const home = path.join(out, 'home');
+    const installed = path.join(home, '.codex', 'skills', 'gstack-claude');
+    for (const dir of [old, stale]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), staleRender(path.basename(dir), 'old output'));
+    }
+    fs.mkdirSync(path.dirname(installed), { recursive: true });
+    fs.symlinkSync(old, installed);
+    try {
+      const deferred = spawnSync('bun', ['run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--out-dir', out], {
+        cwd: ROOT, encoding: 'utf8', timeout: 180_000,
+        env: { ...process.env, HOME: home, GSTACK_DEFER_CLAUDE_RENAME_PRUNE: '1' },
+      });
+      expect(deferred.status).toBe(0);
+      expect(fs.existsSync(path.join(old, 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(stale)).toBe(false);
+      expect(fs.existsSync(path.join(skills, 'gstack-claude-code', 'SKILL.md'))).toBe(true);
+      expect(fs.readlinkSync(installed)).toBe(old);
+      const standalone = gen(out);
+      expect(standalone.status).toBe(0);
+      expect(fs.existsSync(old)).toBe(false);
+      expect(standalone.stdout).toContain('Run ./setup to migrate installed skill links');
+      // Rendering has no authority to rewrite any user's installed skill tree.
+      expect(fs.lstatSync(installed).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(installed)).toBe(old);
+    } finally { fs.rmSync(out, { recursive: true, force: true }); }
   }, 200_000);
 });

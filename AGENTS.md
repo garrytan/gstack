@@ -28,7 +28,8 @@ Invoke them by name (e.g., `/office-hours`).
 | Skill | What it does |
 |-------|-------------|
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
-| `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. |
+| `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. Available outside the Codex harness. |
+| `/claude-code` | Second opinion via Claude Code. Review, challenge, or consult modes. Available outside the Claude Code harness. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
