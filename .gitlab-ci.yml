@@ -6,7 +6,7 @@ stages:
   - check
 
 variables:
-  BUN_VERSION: "1.3.13"
+  BUN_VERSION: "1.4.0"
 
 .setup-bun: &setup-bun
   - apt-get update -qq && apt-get install -qq -y curl jq git

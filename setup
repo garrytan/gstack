@@ -675,9 +675,9 @@ fi
 # potentially leaving Playwright cache locks held. macOS ships no setsid
 # binary, so a portable group-kill isn't available; walk `pgrep -P` children
 # depth-first instead (pgrep exists on macOS and Linux). Falls back to a
-# plain kill of the root pid when pgrep is unavailable.
+# /proc walk where available, otherwise a plain kill of the root pid.
 _kill_tree() {
-  local pid="$1" child
+  local pid="$1" child stat_file stat_line proc_state proc_parent proc_rest
   if command -v pgrep >/dev/null 2>&1; then
     for child in $(pgrep -P "$pid" 2>/dev/null); do
       _kill_tree "$child"
@@ -686,8 +686,15 @@ _kill_tree() {
     # debian-slim and git-bash ship no pgrep: walk /proc for children. The
     # comm field "(name)" may contain spaces and parens, so strip through the
     # LAST closing paren (proc(5)) before reading the ppid (second field after it).
-    for child in $(awk -v p="$pid" '{ s=$0; sub(/^.*\) /, "", s); split(s, f, " "); if (f[2]==p) print $1 }' /proc/[0-9]*/stat 2>/dev/null); do
-      _kill_tree "$child"
+    # A process may exit after glob expansion. One awk over every stat file
+    # aborts at that missing entry and never visits the remaining live children.
+    for stat_file in /proc/[0-9]*/stat; do
+      IFS= read -r stat_line 2>/dev/null < "$stat_file" || continue
+      child="${stat_line%% *}"
+      IFS=' ' read -r proc_state proc_parent proc_rest <<< "${stat_line##*) }"
+      if [ "$proc_parent" = "$pid" ]; then
+        _kill_tree "$child"
+      fi
     done
   fi
   kill -9 "$pid" 2>/dev/null || true

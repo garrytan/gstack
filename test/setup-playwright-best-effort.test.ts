@@ -180,6 +180,62 @@ function runBlock(opts: {
   return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status ?? -1, elapsedMs: Date.now() - t0, tmp };
 }
 
+/** Run the real fallback against a child that reports readiness over a pipe. */
+function runKillTreeFallback(disappearingEntry = false): { status: number | null; stdout: string; stderr: string } {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-killtree-'));
+  try {
+    const bin = path.join(tmp, 'bin');
+    fs.mkdirSync(bin);
+    for (const name of ['bash', 'sleep', 'awk', 'mkdir']) {
+      const real = (spawnSync('which', [name], { encoding: 'utf-8', timeout: 10_000 }).stdout ?? '').trim();
+      if (!real) throw new Error(`kill-tree fixture needs ${name}`);
+      fs.symlinkSync(real, path.join(bin, name));
+    }
+    const procRoot = path.join(tmp, 'proc');
+    if (disappearingEntry) {
+      fs.mkdirSync(path.join(procRoot, '0'), { recursive: true });
+      // Glob expansion still includes this symlink, but opening it fails just
+      // like /proc/<pid>/stat when that process exits before the reader opens it.
+      fs.symlinkSync(path.join(tmp, 'exited-process'), path.join(procRoot, '0', 'stat'));
+    }
+    const killTree = disappearingEntry
+      ? extractFn('_kill_tree').replace('/proc/[0-9]*/stat', `"${procRoot}"/[0-9]*/stat`)
+      : extractFn('_kill_tree');
+    const script = [
+      `export PATH="${bin}"`,
+      'hash -r',
+      'command -v pgrep >/dev/null 2>&1 && { echo "PGREP_PRESENT"; exit 1; }',
+      killTree,
+      // The intermediate shell reports the real grandchild PID after fork.
+      // Both processes hold the output pipe open until they are terminated.
+      'coproc TREE { sleep 30 & printf "%s\\n" "$!"; wait; }',
+      'pid=$TREE_PID; child=',
+      'trap \'kill -9 "${child:-}" "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true\' EXIT',
+      'exec {reader}<&"${TREE[0]}"',
+      'IFS= read -r -t 5 child <&"$reader" || { echo "CHILD_NOT_READY"; exit 1; }',
+      '[[ "$child" =~ ^[1-9][0-9]*$ ]] || { echo "INVALID_CHILD_PID"; exit 1; }',
+      'kill -0 "$child" 2>/dev/null || { echo "CHILD_EXITED_BEFORE_KILL"; exit 1; }',
+      ...(disappearingEntry ? [
+        `mkdir "${procRoot}/$child"`,
+        'IFS= read -r stat_line < "/proc/$child/stat"',
+        // Keep the real pid/ppid and remaining fields. A comm containing both
+        // spaces and parentheses must not shift the parser's parent PID field.
+        `printf '%s (fixture child ) with (parens)) %s\\n' "$child" "${'$'}{stat_line##*) }" > "${procRoot}/$child/stat"`,
+      ] : []),
+      '_kill_tree "$pid"',
+      // EOF witnesses termination even if init has not yet reaped the child.
+      // A missed descendant still holds the pipe, causing a bounded failure.
+      'if IFS= read -r -t 5 remaining <&"$reader"; then echo "UNEXPECTED_CHILD_OUTPUT"; exit 1; else read_code=$?; fi',
+      '[ "$read_code" -eq 1 ] || { echo "CHILD_ALIVE"; exit 1; }',
+      'echo "CHILD_DEAD"',
+    ].join('\n');
+    const r = spawnSync('/bin/bash', ['-c', script], { encoding: 'utf-8', timeout: 20_000 });
+    return { status: r.status, stdout: r.stdout ?? '', stderr: (r.stderr ?? '') + (r.error ? `\n${r.error.message}` : '') };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 describe('setup: Chromium bootstrap block executes best-effort', () => {
   test('probe ok: no reason recorded, no install attempted', () => {
     const r = runBlock({ probe: 'ok', bunx: 'exit 0' });
@@ -263,35 +319,18 @@ describe('setup: Chromium bootstrap block executes best-effort', () => {
 
   test('_kill_tree without pgrep on PATH still kills the grandchild (walks /proc)', () => {
     if (!fs.existsSync('/proc')) return;
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-killtree-'));
-    try {
-      const bin = path.join(tmp, 'bin');
-      fs.mkdirSync(bin);
-      for (const name of ['bash', 'sleep', 'awk']) {
-        const real = (spawnSync('which', [name], { encoding: 'utf-8', timeout: 10_000 }).stdout ?? '').trim();
-        if (real) fs.symlinkSync(real, path.join(bin, name));
-      }
-      const script = [
-        `export PATH="${bin}"`,
-        'hash -r',
-        'command -v pgrep >/dev/null 2>&1 && { echo "PGREP_PRESENT"; exit 0; }',
-        extractFn('_kill_tree'),
-        // two commands so bash forks a real subshell instead of exec-ing sleep directly
-        '( sleep 30; true ) & pid=$!',
-        'sleep 0.3',
-        // find the sleep grandchild via /proc, the same way the fallback does
-        'child=$(awk -v p="$pid" \'{ s=$0; sub(/^[^)]*\\) /, "", s); split(s, f, " "); if (f[2]==p) { print $1; exit } }\' /proc/[0-9]*/stat 2>/dev/null)',
-        '[ -n "$child" ] || { echo "NO_CHILD"; exit 0; }',
-        '_kill_tree "$pid"',
-        'sleep 0.3',
-        'if kill -0 "$child" 2>/dev/null; then echo "CHILD_ALIVE"; else echo "CHILD_DEAD"; fi',
-      ].join('\n');
-      const r = spawnSync('/bin/bash', ['-c', script], { encoding: 'utf-8', timeout: 20_000 });
-      expect(r.stdout).toContain('CHILD_DEAD');
-      expect(r.stdout).not.toContain('PGREP_PRESENT');
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
+    const r = runKillTreeFallback();
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(r.stdout).toContain('CHILD_DEAD');
+    expect(r.stdout).not.toContain('PGREP_PRESENT');
+  }, 30_000);
+
+  test('_kill_tree skips vanished /proc entries and parses a child comm with spaces and parentheses', () => {
+    if (!fs.existsSync('/proc')) return;
+    const r = runKillTreeFallback(true);
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(r.stdout).toContain('CHILD_DEAD');
+    expect(r.stdout).not.toContain('PGREP_PRESENT');
   }, 30_000);
 
   test('install succeeds but the post-install probe fails: reason post-install-launch with the userns hint', () => {

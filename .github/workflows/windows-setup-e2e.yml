@@ -45,7 +45,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version: 1.4.0
 
       # Same lockfile-keyed install cache as windows-free-tests.yml (install
       # was 45s of a 64s job, all network).

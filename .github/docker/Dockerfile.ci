@@ -69,10 +69,10 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL "https://nodejs.org
 # The version MUST be passed as a positional arg — bun.sh/install ignores a
 # BUN_VERSION env var, so the old `| BUN_VERSION=x.y.z bash` form silently
 # installed latest on every image rebuild (observed: 1.3.13/1.3.14 drift vs
-# the 1.3.10 devs run locally).
+# the 1.3.10 devs ran locally).
 ENV BUN_INSTALL="/usr/local"
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://bun.sh/install \
-    | bash -s "bun-v1.3.13"
+    | bash -s "bun-v1.4.0"
 
 # Claude CLI — pinned to an EXACT version, same discipline as the bun pin
 # above. The PTY harness (test/helpers/claude-pty-runner.ts) screen-scrapes

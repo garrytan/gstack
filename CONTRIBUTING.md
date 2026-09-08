@@ -138,6 +138,11 @@ never touches a symlinked or non-gstack directory.
 
 ### Setup
 
+Development and tests require Bun 1.4.0 or newer; CI pins and tests 1.4.0.
+Earlier Linux versions can close unrelated live file descriptors during
+subprocess garbage collection, causing intermittent browser and HTTP fixture
+failures ([upstream diagnosis](https://github.com/oven-sh/bun/issues/34785#issuecomment-5020318035)).
+
 ```bash
 # 1. Copy .env.example and add your API key
 cp .env.example .env
