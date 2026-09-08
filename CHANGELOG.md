@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.82.0.0] - 2026-09-08
+
+### Added
+
+- **Get an independent Claude Code review from Codex.** Planning, review, shipping, design, documentation, and spec workflows select their outside reviewer from the running harness. Codex calls Claude Code; Claude Code calls Codex. Other supported harnesses expose both review skills.
+- **Review, challenge, or consult with `/claude-code`.** Reviews use only the context supplied by the parent. Consultations can read repository files and resume the previous conversation, using your configured Claude authentication and model.
+
+### Changed
+
+- **`/claude` is now `/claude-code`.** Run setup to migrate existing installations, including shared and copied installs. Each wrapper is available outside its own harness, and Kiro receives its native skills. Successful migration removes the old name without an alias; failed repairs preserve the working entry and user files.
+- **See which outside reviews actually completed.** Reports retain the provider and phase for each pass, including partial `/autoplan` coverage. Disabled, skipped, unavailable, and completed reviews stay distinct; historical records keep their original attribution.
+
+### Fixed
+
+- Failed, refused, empty, or malformed outside reviews can no longer count as a clean pass. Claude runner failures include authentication, timeout, and output overflow diagnoses, and stale skills stop before invoking their own harness.
+- Spec review stops when redaction fails, before sending the spec to a reviewer or saving it downstream.
+
 ## [1.81.0.0] - 2026-09-06
 
 **Aside is the browser gstack drives first. Every browsing skill, the PDF and diagram renderer, and web research go through it.**

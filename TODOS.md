@@ -2977,20 +2977,6 @@ with diff selection specifically to avoid consuming the last free slot.
 **Depends on:** gstack-diff-scope (shipped)
 
 
-## Codex
-
-### Codex→Claude reverse buddy check skill
-
-**What:** A Codex-native skill (`.agents/skills/gstack-claude/SKILL.md`) that runs `claude -p` to get an independent second opinion from Claude — the reverse of what `/codex` does today from Claude Code.
-
-**Why:** Codex users deserve the same cross-model challenge that Claude users get via `/codex`. Currently the flow is one-way (Claude→Codex). Codex users have no way to get a Claude second opinion.
-
-**Context:** The `/codex` skill template (`codex/SKILL.md.tmpl`) shows the pattern — it wraps `codex exec` with JSONL parsing, timeout handling, and structured output. The reverse skill would wrap `claude -p` with similar infrastructure. Would be generated into `.agents/skills/gstack-claude/` by `gen-skill-docs --host codex`.
-
-**Effort:** M (human: ~2 weeks / CC: ~30 min)
-**Priority:** P1
-**Depends on:** None
-
 ## Completeness
 
 ### Completeness metrics dashboard
@@ -3424,6 +3410,20 @@ needs one paid run to validate, so it didn't ride the ship.
 **Effort:** S (human ~2h, CC ~15min + one paid run).
 
 ## Completed
+
+### Codex→Claude reverse buddy check skill
+
+**What:** A Codex-native skill (`.agents/skills/gstack-claude/SKILL.md`) that runs `claude -p` to get an independent second opinion from Claude — the reverse of what `/codex` does today from Claude Code.
+
+**Why:** Codex users deserve the same cross-model challenge that Claude users get via `/codex`. Currently the flow is one-way (Claude→Codex). Codex users have no way to get a Claude second opinion.
+
+**Context:** The `/codex` skill template (`codex/SKILL.md.tmpl`) shows the pattern — it wraps `codex exec` with JSONL parsing, timeout handling, and structured output. The reverse skill would wrap `claude -p` with similar infrastructure. Would be generated into `.agents/skills/gstack-claude/` by `gen-skill-docs --host codex`.
+
+**Effort:** M (human: ~2 weeks / CC: ~30 min)
+**Priority:** P1
+**Depends on:** None
+
+**Completed:** v1.82.0.0 (2026-09-08). Shipped as `/claude-code`, with automatic outside-review routing and safe installation migration.
 
 ### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
 
