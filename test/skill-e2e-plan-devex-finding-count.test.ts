@@ -100,7 +100,8 @@ describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', (
         }
         if (obs.reviewCount > CEILING) {
           throw new Error(
-            `BAND FAIL (above ceiling): reviewCount=${obs.reviewCount} > CEILING=${CEILING}.`,
+            `BAND FAIL (above ceiling): reviewCount=${obs.reviewCount} > CEILING=${CEILING}.\n` +
+              `Captured observation:\n${JSON.stringify(obs, null, 2)}`,
           );
         }
 

@@ -36,14 +36,11 @@ import { describeE2ETier } from './helpers/e2e-gate';
 import {
   launchClaudePty,
   isNumberedOptionListVisible,
-  isPermissionDialogVisible,
-  parseNumberedOptions,
   isPlanReadyVisible,
-  optionsSignature,
-  TAIL_SCAN_BYTES,
+  selectPtyNumberedOption,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
-import { findCeoModeOption } from './helpers/ceo-mode-option';
+import { hasPostAnswerCeoPosture, nextCeoModeNavigation } from './helpers/ceo-mode-option';
 import { createPlanCountFixture } from './helpers/plan-count-fixture';
 
 const describeE2E = describeE2ETier('periodic');
@@ -101,7 +98,7 @@ async function navigateToModeAskUserQuestion(
   const budgetMs = opts.budgetMs ?? 420_000;
   const start = Date.now();
   let priorAnswered = 0;
-  let lastSeenList: Array<{ index: number; label: string }> = [];
+  const seenQuestions = new Set<string>();
 
   while (Date.now() - start < budgetMs) {
     if (session.exited()) {
@@ -112,44 +109,25 @@ async function navigateToModeAskUserQuestion(
     }
     await Bun.sleep(2000);
     const visible = session.visibleSince(since);
-    if (!isNumberedOptionListVisible(visible)) continue;
-    const opts = parseNumberedOptions(visible);
-    if (opts.length < 2) continue;
-
-    // Has the rendered list changed since last poll? If not, we're seeing
-    // the same prompt and shouldn't double-press.
-    const sig = optionsSignature(opts);
-    const lastSig = optionsSignature(lastSeenList);
-    if (sig === lastSig) continue;
-    lastSeenList = opts;
-
-    // Is THIS the mode AskUserQuestion?
-    const modeIndex = findCeoModeOption(opts, targetMode);
-    if (modeIndex !== null) {
-      return { modeIndex, visibleAtMode: visible };
-    }
-
-    // Permission dialog? Grant with "1" but don't count it against nav budget.
-    // Classify on the recent tail only — old permission text persists in
-    // visibleSince and would re-trigger forever.
-    //
-    // Note: runPlanSkillObservation has its own permission-dialog filter that
-    // simply skips classification (since it observes, doesn't drive). This nav
-    // loop drives the PTY directly via launchClaudePty and so owns its own
-    // dialog handling — granting with "1" so the workflow advances. Both
-    // paths share TAIL_SCAN_BYTES as the recent-tail window so tuning stays
-    // in sync.
-    if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
-      session.send('1\r');
+    const action = nextCeoModeNavigation(visible, targetMode, seenQuestions);
+    if (action.kind === 'wait') continue;
+    // Native permission and multi-question Submit menus are controls, not
+    // review questions, so neither consumes the navigation question budget.
+    if (action.kind === 'permission' || action.kind === 'submission') {
+      session.send(action.input);
       await Bun.sleep(1500);
       continue;
+    }
+    if (action.kind === 'mode') {
+      return { modeIndex: action.index, visibleAtMode: visible };
     }
 
     // Not the mode AskUserQuestion — answer with option 1 (recommended) and continue.
     if (priorAnswered >= maxNav) {
       throw new Error(
         `Navigated ${maxNav} prior AskUserQuestions without reaching the mode AskUserQuestion. ` +
-        `Last list:\n${opts.map(o => `  ${o.index}. ${o.label}`).join('\n')}`,
+        `Target: ${targetMode}. Last question: ${action.question.promptSnippet}\n` +
+        `Last list:\n${action.question.options.map(o => `  ${o.index}. ${o.label}`).join('\n')}`,
       );
     }
     priorAnswered++;
@@ -157,7 +135,10 @@ async function navigateToModeAskUserQuestion(
     // Give the agent a beat to advance before re-polling.
     await Bun.sleep(2000);
   }
-  throw new Error(`Mode AskUserQuestion not reached within ${budgetMs}ms`);
+  throw new Error(
+    `Mode AskUserQuestion for "${targetMode}" not reached within ${budgetMs}ms; priorAnswered=${priorAnswered}.\n` +
+    `--- latest visible navigation (last 3KB) ---\n${session.visibleSince(since).slice(-3000)}`,
+  );
 }
 
 describeE2E('/plan-ceo-review mode routing (gate)', () => {
@@ -178,11 +159,12 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
           const since = session.mark();
           session.send('/plan-ceo-review\r');
 
-          const { modeIndex } = await navigateToModeAskUserQuestion(session, since, c.mode);
+          const { modeIndex, visibleAtMode } = await navigateToModeAskUserQuestion(session, since, c.mode);
 
-          // Snapshot the visible buffer at mode-pick time, then send the index.
-          const sincePick = session.rawOutput().length;
-          session.send(`${modeIndex}\r`);
+          // The digit redraws the menu before Enter confirms it. Start after
+          // confirmation so its mode names cannot count as assistant posture.
+          await selectPtyNumberedOption(session, modeIndex);
+          const sincePick = session.mark();
 
           // Wait for downstream evidence: either next AskUserQuestion or plan_ready or
           // a posture-distinctive substring shows up.
@@ -194,12 +176,12 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             await Bun.sleep(2500);
             if (session.exited()) {
               throw new Error(
-                `claude exited (code=${session.exitCode()}) after mode pick.\n` +
+                `claude exited (code=${session.exitCode()}) after mode "${c.mode}" option ${modeIndex}.\n` +
                 `Downstream:\n${session.visibleSince(sincePick).slice(-2000)}`,
               );
             }
             downstreamSnapshot = session.visibleSince(sincePick);
-            if (c.postureRe.test(downstreamSnapshot)) {
+            if (hasPostAnswerCeoPosture(downstreamSnapshot, c.postureRe)) {
               postureMatched = true;
               break;
             }
@@ -209,7 +191,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             if (
               isPlanReadyVisible(downstreamSnapshot) &&
               isNumberedOptionListVisible(downstreamSnapshot) &&
-              !c.postureRe.test(downstreamSnapshot)
+              !hasPostAnswerCeoPosture(downstreamSnapshot, c.postureRe)
             ) {
               // Plan-ready AND a follow-up AskUserQuestion are both visible but
               // posture text has not appeared yet. Keep polling for a bit.
@@ -217,7 +199,8 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
           }
           if (!postureMatched) {
             throw new Error(
-              `Mode "${c.mode}" routing FAILED: no posture match for ${c.postureRe.source}.\n` +
+              `Mode "${c.mode}" routing FAILED after sending option ${modeIndex}: no posture match for ${c.postureRe.source}.\n` +
+              `--- observed mode menu (last 3KB) ---\n${visibleAtMode.slice(-3000)}\n` +
               `--- downstream visible since mode pick (last 3KB) ---\n` +
               downstreamSnapshot.slice(-3000),
             );

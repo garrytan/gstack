@@ -38,6 +38,10 @@ import {
   parseQuestionPrompt,
   auqFingerprint,
   COMPLETION_SUMMARY_RE,
+  classifyPlanCountFrame,
+  capturePlanCountQuestion,
+  planCountPrerequisitePick,
+  planCountSubmissionInput,
   assertReviewReportAtBottom,
   ceoStep0Boundary,
   engStep0Boundary,
@@ -96,6 +100,24 @@ describe('isPermissionDialogVisible', () => {
         3. No, exit
     `;
     expect(isPermissionDialogVisible(sample)).toBe(true);
+  });
+
+  test('recognizes the captured collapsed native overwrite confirmation', () => {
+    const sample = [
+      'Doyouwanttooverwritegstack-test-plan-design.md?',
+      '❯1.Yes',
+      '2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)forthissession',
+      '3.No',
+      'Esctocancel·Tabtoamend',
+    ].join('\n');
+    expect(isPermissionDialogVisible(sample)).toBe(true);
+    expect(isPermissionDialogVisible(sample.replace('Esctocancel·Tabtoamend', 'Enter to select'))).toBe(false);
+  });
+
+  test('recognizes permission labels whose cursor-positioning spaces disappeared', () => {
+    expect(isPermissionDialogVisible('Yes,andalwaysallowaccessto/tmp/fixtureforthissession')).toBe(true);
+    expect(isPermissionDialogVisible('Yes,allowalleditsduringthissession')).toBe(true);
+    expect(isPermissionDialogVisible('Bashcommandrequirespermission')).toBe(true);
   });
 
   test('does NOT match a skill AskUserQuestion list', () => {
@@ -921,6 +943,57 @@ describe('parseQuestionPrompt', () => {
     expect(prompt).not.toContain('❯');
     expect(prompt).not.toMatch(/^☐/);
   });
+
+  test('keeps the captured design scope prompt ahead of long Planning chrome', () => {
+    // The first failed live attempt fingerprinted only the divider/Planning
+    // path. Its actual AUQ was later on the active cursor line.
+    const visible = [
+      '─'.repeat(120),
+      `Planning: /tmp/hermetic/.claude/plans/${'long-path-'.repeat(24)}plan.md`,
+      '─'.repeat(120),
+      "☐Reviewfocus I've rated this Settings Page UI redesign plan 2/10 on design completeness. Want me to focus on specific areas? ❯1.All7passes(Recommended)",
+      '2.All7passesbutskipmockups',
+    ].join('\n');
+    const prompt = parseQuestionPrompt(visible);
+    expect(prompt).toStartWith('Reviewfocus');
+    expect(prompt).toContain('design completeness');
+    expect(prompt).not.toContain('Planning:');
+    expect(designStep0Boundary({
+      signature: 'captured-design-scope', promptSnippet: prompt,
+      options: parseNumberedOptions(visible), observedAtMs: 0, preReview: true,
+    })).toBe(true);
+  });
+
+  test('keeps the captured devex persona header when cursor spacing collapses', () => {
+    const visible = [
+      `Planning: /tmp/hermetic/.claude/plans/${'long-path-'.repeat(24)}plan.md`,
+      '─'.repeat(120),
+      '☐Targetpersona D2—WhoistheprimarydeveloperthisSDKtargets? ❯1.AIappbuilder/startupfounder(Recommended)',
+      '2.Backend/platformengineer',
+    ].join('\n');
+    const prompt = parseQuestionPrompt(visible);
+    expect(prompt).toStartWith('Targetpersona');
+    expect(devexStep0Boundary({
+      signature: 'captured-devex-persona', promptSnippet: prompt,
+      options: parseNumberedOptions(visible), observedAtMs: 0, preReview: true,
+    })).toBe(true);
+  });
+
+  test('retains a multiline question while excluding the preceding CLI divider', () => {
+    const visible = [
+      'Planning: /tmp/hermetic/.claude/plans/plan.md',
+      '─'.repeat(120),
+      '☐ Review focus',
+      'This plan is 2/10 on design completeness.',
+      'Want me to focus on specific areas? ❯1.All 7 passes',
+      '2.Skip mockups',
+    ].join('\n');
+    const prompt = parseQuestionPrompt(visible);
+    expect(prompt).toContain('Review focus');
+    expect(prompt).toContain('design completeness');
+    expect(prompt).toContain('specific areas?');
+    expect(prompt).not.toContain('Planning:');
+  });
 });
 
 describe('auqFingerprint', () => {
@@ -976,6 +1049,156 @@ describe('auqFingerprint', () => {
   });
 });
 
+describe('capturePlanCountQuestion replay', () => {
+  test('keeps captured CEO/eng fingerprints stable as later output trims the trailing window', () => {
+    // Exact prompt/option fields from the 07:30 corrected paid attempts.
+    // Both counted an answered Step0 question again as a review finding
+    // once the moving tail omitted the beginning of its prompt.
+    const captures = [
+      {
+        prompt: '☐ RevewMode Which review mode should I use for the remaining sections?',
+        labels: [
+          'HOLD SCOPE — make it         ┌┐',
+          'SELECTIVEEXPANSION—│Focus:catcheverylandmineinApproachA│',
+          'SCOPEREDUCTION—strip│Tests:whatmustbecovered│',
+          'SCOPEEXPANSION—think│Observability:whatlogs/metricsareneeded│',
+        ],
+      },
+      {
+        prompt: '☐ Scope cut │ D2 — Scope reduction proposal: drop TokenStore and RequestPolicy as standalone classes, inject AuthCache rather than │ exportitglobally.Acceptthisreductionbeforethesection-by-sectionreviewbegins? │ <gstack-qid:plan-eng-review-',
+        labels: [
+          'Acceptscopereduction┌───────────────────────────────────────────────────┐',
+          'Proceedfullscopeas-is│AuthBroker│',
+        ],
+      },
+    ];
+    for (const capture of captures) {
+      const options = capture.labels.map((label, i) => `${i === 0 ? '❯' : ''}${i + 1}.${label}`).join('\n');
+      const frame = `${capture.prompt}\n${options}`;
+      const seen = new Set<string>();
+      const first = capturePlanCountQuestion(frame, seen, 0, true)!;
+      expect(first).not.toBeNull();
+      // Leave the original menu within the trailing4KB, but move the
+      // start of that window into its question text, twice in succession.
+      const paddingLength = 4096 - options.length - 30;
+      for (const extra of [0, 15]) {
+        const advanced = frame + '\n' + '·'.repeat(paddingLength + extra - 1);
+        expect(advanced.slice(-4096)).not.toContain(capture.prompt);
+        expect(parseNumberedOptions(advanced)).toEqual(first.options);
+        expect(parseQuestionPrompt(advanced)).toBe(first.promptSnippet);
+        expect(auqFingerprint(parseQuestionPrompt(advanced), parseNumberedOptions(advanced))).toBe(first.signature);
+        expect(capturePlanCountQuestion(advanced, seen, extra + 1, false)).toBeNull();
+      }
+      const next = `${frame}\n${'·'.repeat(paddingLength)}\n☐ Next decision Should the revised plan use these same choices?\n${options}`;
+      const distinct = capturePlanCountQuestion(next, seen, 20, false)!;
+      expect(distinct).not.toBeNull();
+      expect(distinct.signature).not.toBe(first.signature);
+      expect(distinct.preReview).toBe(false);
+      expect(seen.size).toBe(2);
+    }
+  });
+
+  test('counts consecutive findings with identical choices and ignores redraws', () => {
+    const options = '\n❯1.Add to plan\n2.Defer\n3.Skip';
+    const seen = new Set<string>();
+    const frames = [
+      `D5 — SQL: interpolate the request parameter?${options}`,
+      `D5  —   SQL: interpolate the request parameter?${options}`,
+      `D6 — Tests: no coverage for the webhook?${options}`,
+      `D6 — Tests: no coverage for the webhook?${options}`,
+    ];
+    const captured = frames.map((frame, i) => capturePlanCountQuestion(frame, seen, i, false));
+    expect(captured.map((question) => question !== null)).toEqual([true, false, true, false]);
+    expect(captured[0]?.signature).not.toBe(captured[2]?.signature);
+    expect(captured[2]?.promptSnippet).toContain('Tests: no coverage');
+  });
+
+  test('does not consume an incomplete frame before its prompt arrives', () => {
+    const seen = new Set<string>();
+    const options = '❯1.Add to plan\n2.Defer';
+    expect(capturePlanCountQuestion(options, seen, 0, true)).toBeNull();
+    expect(capturePlanCountQuestion(`D1 — Pick an approach\n${options}`, seen, 1, true)).not.toBeNull();
+  });
+
+  test('answers the captured CEO retry question with a numeric-leading first label', () => {
+    // The live timeout sat on this question because the first label begins
+    // with "1retryattempt"; it was incorrectly rejected as a decimal token.
+    const frame = [
+      ' ☐ Retry spec',
+      "│ Section 5/6 finding: 'retry-with-backoff fires once, then fails clean' is ambiguous.",
+      "│ What does 'fires once' mean?",
+      '❯1.1retryattempt—Stripecalledexactly2timestotal(Recommended)',
+      'Themostnaturalreading:1originalattempt+1retry=2totalStripecalls.',
+      '2.Addaclarifyingcommenttotheplan—lettheimplementerdecide',
+      '3.Theretrymechanismhandlesit—justassertfailureisreturned',
+      '4.Typesomething.',
+      '5.Chataboutthis',
+      'Entertoselect·↑/↓tonavigate·Esctocancel',
+    ].join('\r\r');
+    const question = capturePlanCountQuestion(frame, new Set(), 0, false);
+    expect(question?.options.map(({ index }) => index)).toEqual([1, 2, 3, 4, 5]);
+    expect(question?.options[0]?.label).toBe('1retryattempt—Stripecalledexactly2timestotal(Recommended)');
+    expect(question?.promptSnippet).toContain('Section 5/6 finding');
+    expect(question?.promptSnippet).not.toContain('Planning:');
+  });
+
+  test('still ignores decimal numbers inside option labels', () => {
+    const frame = 'Choose the retry delay\r❯1.1.5 seconds\r2.Wait 2.5 seconds\r3.No retry';
+    expect(parseNumberedOptions(frame)).toEqual([
+      { index: 1, label: '1.5 seconds' },
+      { index: 2, label: 'Wait 2.5 seconds' },
+      { index: 3, label: 'No retry' },
+    ]);
+  });
+});
+
+describe('planCountPrerequisitePick replay', () => {
+  test('declines captured office-hours prerequisite menus by label in either order', () => {
+    // Captured 2026-09-08 CEO/Devex prerequisite surfaces: the default index
+    // sometimes starts office-hours, changing the seeded review's input.
+    const captures = [
+      {
+        prompt: 'No design doc found for this branch. `/office-hours` produces a structured problem statement, premise challenge, and explored alternatives — it gives this review much sharper input. Run it now, or skip and proceed with standard review?',
+        labels: ['Skip — proceed with standard review (Recommended)', 'Run /office-hours first'],
+      },
+      {
+        prompt: 'D2 — No design doc found. Run /office-hours first? <gstack-qid:plan-ceo-prereq-office-hours>',
+        labels: ['Skip — standard review (recommended)', 'Run /office-hours now'],
+      },
+      {
+        prompt: 'D3 — Run /office-hours first to produce a design doc for sharper input?',
+        labels: ['Skip — proceed with standard review (recommended)', 'Run /office-hours now'],
+      },
+    ];
+    for (const { prompt, labels } of captures) {
+      for (const reversed of [false, true]) {
+        for (const collapsed of [false, true]) {
+          const ordered = reversed ? [...labels].reverse() : labels;
+          const text = ['☐ Prerequisite', prompt, `❯1.${ordered[0]}`, `2.${ordered[1]}`, '3.Type something.', '4.Chat about this'].join('\r');
+          const frame = collapsed ? text.replace(/ /g, '') : text;
+          const fp = capturePlanCountQuestion(frame, new Set(), 0, true)!;
+          expect(fp).not.toBeNull();
+          expect(planCountPrerequisitePick(fp)).toBe(reversed ? 2 : 1);
+          expect(planCountPrerequisitePick({ ...fp, preReview: false })).toBeNull();
+        }
+      }
+    }
+  });
+
+  test('keeps existing answers for incomplete, unrelated, and ambiguous menus', () => {
+    const fp = capturePlanCountQuestion(
+      '☐ Prerequisite\rNo design doc found. Run /office-hours first?\r❯1.Run /office-hours now\r2.Skip — proceed with standard review',
+      new Set(), 0, true,
+    )!;
+    expect(planCountPrerequisitePick({ ...fp, promptSnippet: 'No design doc found.' })).toBeNull();
+    expect(planCountPrerequisitePick({ ...fp, promptSnippet: 'Should /office-hours skip the required SDK validation finding?' })).toBeNull();
+    expect(planCountPrerequisitePick({ ...fp, promptSnippet: 'Want a second opinion from /office-hours?' })).toBeNull();
+    expect(planCountPrerequisitePick({ ...fp, options: [{ index: 1, label: 'Run /office-hours now' }, { index: 2, label: 'Skip' }] })).toBeNull();
+    expect(planCountPrerequisitePick({ ...fp, options: [{ index: 1, label: 'Add to plan' }, fp.options[1]] })).toBeNull();
+    expect(planCountPrerequisitePick({ ...fp, options: [...fp.options, { index: 3, label: 'Skip — standard review' }] })).toBeNull();
+  });
+});
+
 describe('COMPLETION_SUMMARY_RE', () => {
   test('matches GSTACK REVIEW REPORT heading', () => {
     expect(COMPLETION_SUMMARY_RE.test('## GSTACK REVIEW REPORT')).toBe(true);
@@ -998,6 +1221,110 @@ describe('COMPLETION_SUMMARY_RE', () => {
   test('does NOT match prose mentions of "verdict" mid-line', () => {
     // VERDICT must be at the start of a line to count.
     expect(COMPLETION_SUMMARY_RE.test('the final verdict: undecided')).toBe(false);
+  });
+
+  test('does NOT treat source or proposed diff rows as assistant completion', () => {
+    for (const line of [
+      '409 +## GSTACK REVIEW REPORT',
+      '419 +**VERDICT:** Design Review complete — 8 decisions made.',
+      '+## GSTACK REVIEW REPORT',
+      '409→## GSTACK REVIEW REPORT',
+      'The plan must end with ## GSTACK REVIEW REPORT.',
+    ]) expect(COMPLETION_SUMMARY_RE.test(line)).toBe(false);
+  });
+});
+
+describe('classifyPlanCountFrame replay', () => {
+  test('waits through proposed Write approval and tool output, then accepts the actual report', () => {
+    // Sanitized rows and native prompt from the failed design-count attempt.
+    const proposedDiff = [
+      '409 +## GSTACK REVIEW REPORT',
+      '416 +| Design Review | 1 | issues_open | score: 2/10 → 8/10, 8 decisions |',
+      '419 +**VERDICT:** Design Review complete — 8 decisions made.',
+    ].join('\n');
+    const permission = [
+      'Doyouwanttooverwritegstack-test-plan-design.md?',
+      '❯1.Yes',
+      '2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)forthissession;Yes,and',
+      'alwaysallowaccessto/tmp/fixtureforthissession',
+      '3.No',
+      'Esctocancel·Tabtoamend',
+    ].join('\n');
+    const frames = [
+      `${proposedDiff}\n${permission}`,
+      `${proposedDiff}\n⏺ Updated gstack-test-plan-design.md`,
+      `${proposedDiff}\n⏺ ## GSTACK REVIEW REPORT\nDesign Review complete — 8 decisions made.`,
+    ];
+    expect(frames.map(classifyPlanCountFrame)).toEqual(['permission', null, 'completion_summary']);
+  });
+
+  test('a pending native permission beats even an unnumbered report heading', () => {
+    const visible = '## GSTACK REVIEW REPORT\nDoyouwanttooverwriteplan.md?\n❯1.Yes\n2.No\nEsctocancel·Tabtoamend';
+    expect(classifyPlanCountFrame(visible)).toBe('permission');
+  });
+
+  test('a later report supersedes the granted menu still in short scrollback', () => {
+    const permission = 'Doyouwanttooverwriteplan.md?\n❯1.Yes\n2.No\nEsctocancel·Tabtoamend';
+    expect(classifyPlanCountFrame(permission)).toBe('permission');
+    expect(classifyPlanCountFrame(`${permission}\n● ## GSTACK REVIEW REPORT`)).toBe('completion_summary');
+  });
+
+  test('an active question after a prior report keeps the counter running', () => {
+    expect(classifyPlanCountFrame('## GSTACK REVIEW REPORT\nOne more choice\n❯1.Add to plan\n2.Defer')).toBeNull();
+  });
+
+  test('an active AUQ supersedes a granted permission menu in short scrollback', () => {
+    const permission = 'Doyouwanttooverwriteplan.md?\n❯1.Yes\n2.No\nEsctocancel·Tabtoamend';
+    const question = '☐ Error handling\nWhich failure path should we test?\n❯1.Timeout\n2.Refusal';
+    expect(classifyPlanCountFrame(`${permission}\n${question}`)).toBeNull();
+  });
+
+  test('preserves actual report variants and the native plan-ready terminal', () => {
+    for (const report of [
+      '## GSTACK REVIEW REPORT', '⏺##GSTACKREVIEWREPORT', '●GSTACKREVIEWREPORT',
+      '## Completion Summary', '● ## Completion Summary', 'Status: clean', 'Status: issues_open',
+      'VERDICT: CLEARED — Eng Review passed', '**VERDICT:** Design Review complete.',
+    ]) expect(classifyPlanCountFrame(report)).toBe('completion_summary');
+    expect(classifyPlanCountFrame('Ready to execute the plan?\n❯1.Yes\n2.No, keep planning')).toBe('plan_ready');
+  });
+});
+
+describe('planCountSubmissionInput replay', () => {
+  const incomplete = [
+    '←  ☒ Learnings scope  ☐ Approach  ✔ Submit  →',
+    'Review your answers',
+    '⚠You have not answered all questions',
+    ' │ ●D1 — Cross-project learnings: Enable searching learnings from your other local projects?',
+    '→Enable cross-project (Recommended)',
+    'Ready t submit your answers?',
+    '❯1.Submit aswers',
+    '2Cancel',
+  ].join('\r\r');
+
+  test('returns to the unanswered tab, then submits only after both answers', () => {
+    expect(planCountSubmissionInput(incomplete)).toBe('\x1b[Z');
+    const nextQuestion = [
+      '←  ☒ Learnings scope  ☐ Approach  ✔ Submit  →',
+      '│ Which approach should this plan use?',
+      '❯1.Extend the existing dispatcher',
+      '2.Add a separate handler',
+    ].join('\r\r');
+    expect(planCountSubmissionInput(`${incomplete}\r${nextQuestion}`)).toBeNull();
+    const question = capturePlanCountQuestion(nextQuestion, new Set(), 0, true);
+    expect(question?.promptSnippet).toContain('Which approach');
+    expect(question?.options).toHaveLength(2);
+    const answered = incomplete.replace('☐ Approach', '☒ Approach').replace('⚠You have not answered all questions', '');
+    expect(planCountSubmissionInput(answered)).toBe('\r');
+  });
+
+  test('navigates to the first unanswered tab when more than one remains', () => {
+    const frame = incomplete.replace('☒ Learnings scope  ☐ Approach', '☐ Learnings scope  ☐ Approach  ☒ Mode');
+    expect(planCountSubmissionInput(frame)).toBe('\x1b[Z\x1b[Z\x1b[Z');
+  });
+
+  test('does not revisit a stale submit panel when a later single question is active', () => {
+    expect(planCountSubmissionInput(`${incomplete}\r☐ Retry spec\rRetry once?\r❯1.Yes\r2.No`)).toBeNull();
+    expect(planCountSubmissionInput('Ready to submit the plan?\n❯1.Submit\n2.Cancel')).toBeNull();
   });
 });
 
@@ -1138,6 +1465,18 @@ describe('Step0BoundaryPredicate per-skill', () => {
     test('FIRES on cross-project learnings prompt', () => {
       const f = fp('Enable cross-project learnings on this machine?', ['Yes', 'No']);
       expect(engStep0Boundary(f)).toBe(true);
+    });
+
+    test('recognizes the captured cross-project gate after cursor spacing collapses', () => {
+      const frame = [
+        '☐Cross-project gstackcansearchlearningsfromyourotherprojectsonthismachinetofindpatternsthatmightapplytothisreview.Enablecross-projectlearnings?',
+        '❯1.Enablecross-projectlearnings(Recommended)',
+        '2.Keeplearningsproject-scopedonly',
+      ].join('\r\r');
+      const question = capturePlanCountQuestion(frame, new Set(), 0, true)!;
+      expect(question).not.toBeNull();
+      expect(engStep0Boundary(question)).toBe(true);
+      expect(engStep0Boundary(fp('Scopereductionrecommendation:cuttoMVP?', ['Reduce', 'Proceed']))).toBe(true);
     });
 
     test('FIRES on scope reduction recommendation', () => {

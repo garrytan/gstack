@@ -38,7 +38,9 @@ import {
   isPlanReadyVisible,
   isPermissionDialogVisible,
   isNumberedOptionListVisible,
+  selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
+import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -103,6 +105,7 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           const phasePattern = /\*\*Phase\s+(\d+(?:\.\d+)?)\s+complete\.?\*\*/g;
 
           let lastPermSig = '';
+          const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
             await Bun.sleep(5000);
             if (session.exited()) {
@@ -113,9 +116,8 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
             const visible = session.visibleSince(since);
 
             // Auto-grant any permission dialog so autoplan can keep moving
-            // through its phases. The autoplan template auto-decides AskUserQuestions
-            // it owns; only permission prompts (file/tool grants) need our
-            // hand-pressing. Classify on tail to avoid stale matches.
+            // through its phases. The autoplan template auto-decides review
+            // questions it owns. Classify on tail to avoid stale matches.
             const recentTail = visible.slice(-1500);
             if (isNumberedOptionListVisible(recentTail) && isPermissionDialogVisible(recentTail)) {
               const sig = visible.slice(-500);
@@ -125,6 +127,17 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
                 await Bun.sleep(2000);
                 continue;
               }
+            }
+
+            // This new repository also asks once to add gstack routing to
+            // CLAUDE.md. Answer only that recognized setup prompt; review and
+            // taste decisions remain autoplan's responsibility. The helper
+            // deduplicates the complete question before returning an input.
+            const setupInput = autoplanRoutingSetupInput(visible, seenSetupQuestions);
+            if (setupInput !== null) {
+              await selectPtyNumberedOption(session, Number(setupInput.trim()));
+              await Bun.sleep(2000);
+              continue;
             }
 
             // Re-scan for any phase markers we haven't yet recorded.

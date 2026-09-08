@@ -153,6 +153,19 @@ export interface ClaudePtySession {
   close(): Promise<void>;
 }
 
+/** Let a numbered menu apply its selection before confirming it. */
+export async function selectPtyNumberedOption(
+  session: Pick<ClaudePtySession, 'send'>,
+  index: number,
+): Promise<void> {
+  if (!Number.isInteger(index) || index < 1 || index > 9) {
+    throw new RangeError(`Invalid numbered option: ${index}`);
+  }
+  session.send(String(index));
+  await Bun.sleep(500);
+  session.send('\r');
+}
+
 /** Detect a complete, recognized workspace-trust menu. */
 export function isTrustDialogVisible(visible: string): boolean {
   return trustDialogInput(visible) !== null;
@@ -288,6 +301,19 @@ export const TAIL_SCAN_BYTES = 1500;
  * remain unconditional.
  */
 export function isPermissionDialogVisible(visible: string): boolean {
+  // Cursor-positioning escapes supply spaces visually, but stripping those
+  // escapes leaves labels such as "alwaysallowaccessto" in captured frames.
+  const compact = visible.replace(/\s+/g, '');
+  if (/requestedpermissions?to|allowalledits|alwaysallowaccessto|Bashcommand.*requirespermission/i.test(compact)) {
+    return true;
+  }
+  // Native Write/Edit confirmation captured during the design-count eval.
+  // Require the native footer as well as the file question so an AUQ about
+  // whether the plan should overwrite a file remains a real skill question.
+  if (/Doyouwantto(?:overwrite|create|edit)\S+\?/i.test(compact) &&
+      /Esctocancel[·•]Tabtoamend/i.test(compact)) {
+    return true;
+  }
   // Standalone signatures — high specificity, never appear in skill questions.
   if (/requested\s+permissions?\s+to/i.test(visible)) return true;
   // "Yes / Yes, allow all edits / No" shape — file-edit permission grants.
@@ -710,7 +736,7 @@ export function isScopeGateAutoSelectVisible(visible: string): boolean {
 export function parseNumberedOptions(
   visible: string,
 ): Array<{ index: number; label: string }> {
-  visible = stripPtyResidue(visible);
+  visible = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
   const tail = visible.length > 4096 ? visible.slice(-4096) : visible;
   // Split on lines, look for `❯ N.` or `  N.` patterns. Up to N=9.
   // The `\s*` after `.` (not `\s+`) is required because stripAnsi removes
@@ -765,6 +791,14 @@ export function parseNumberedOptions(
   const cursorSegment = cursorStart >= 0 ? cursorLine.slice(cursorStart) : cursorLine;
   const tokenRe = /(?:^|[^0-9])([1-9])\.(?!\d)\s*/g;
   const tokens: Array<{ idx: number; labelStart: number; matchStart: number }> = [];
+  // The known cursor anchor is unambiguously an option, even when its label
+  // starts with a digit (captured: "❯1.1retryattempt..."). Keep the decimal
+  // guard for number-like text inside the remaining labels.
+  const firstToken = /^[\s❯]*1\.\s*/.exec(cursorSegment);
+  if (firstToken) {
+    tokens.push({ idx: 1, labelStart: firstToken[0].length, matchStart: 0 });
+    tokenRe.lastIndex = firstToken[0].length;
+  }
   for (let m = tokenRe.exec(cursorSegment); m !== null; m = tokenRe.exec(cursorSegment)) {
     tokens.push({
       idx: Number(m[1]),
@@ -1056,21 +1090,16 @@ export type Step0BoundaryPredicate = (
  * the same options + empty prompt across two distinct questions collide.
  */
 export function parseQuestionPrompt(visible: string): string {
-  // Tail-only — older prompts higher in the buffer are stale.
-  const tail = visible.length > 4096 ? visible.slice(-4096) : visible;
+  visible = visible.replace(/\r+\n?/g, '\n');
+  // Anchor context to the latest menu, not the moving end of output. After
+  // an answer, spinner/prose output can push just the prompt's beginning
+  // out of a trailing 4KB window while leaving its options visible. That
+  // shortened same prompt must not acquire a new finding fingerprint.
+  const cursor = [...visible.matchAll(/❯\s*1\./g)].at(-1);
+  if (!cursor) return '';
+  const tail = visible.slice(Math.max(0, cursor.index - 4096), cursor.index + cursor[0].length);
   const lines = tail.split('\n');
-
-  // Find the latest line containing `❯<spaces>1.` (matching parseNumberedOptions —
-  // unanchored to handle the box-layout case where cursor is mid-line after
-  // divider + header + prompt text on the same logical line).
-  let cursorLineIdx = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (/❯\s*1\./.test(lines[i] ?? '')) {
-      cursorLineIdx = i;
-      break;
-    }
-  }
-  if (cursorLineIdx < 0) return '';
+  const cursorLineIdx = lines.length - 1;
 
   // Box-layout case: prompt text may be ON the cursor line, BEFORE `❯1.`.
   // Extract that prefix (after stripping leading box-drawing characters and
@@ -1080,11 +1109,19 @@ export function parseQuestionPrompt(visible: string): string {
   let inlinePrompt = '';
   const cursorPos = cursorLine.search(/❯\s*1\./);
   if (cursorPos > 0) {
-    inlinePrompt = cursorLine
-      .slice(0, cursorPos)
+    const prefix = cursorLine.slice(0, cursorPos);
+    const boxStart = Math.max(prefix.lastIndexOf('☐'), prefix.lastIndexOf('□'));
+    inlinePrompt = prefix
+      .slice(boxStart >= 0 ? boxStart : 0)
       // Strip box-drawing chars + dividers + leading checkbox sigil.
       .replace(/^[─━┄┅┈┉─┌┐└┘├┤┬┴┼│┃☐□■\s]+/, '')
       .trim();
+    // A complete inline AUQ starts at its checkbox/header. Earlier lines
+    // belong to the CLI's Planning chrome or prior output, not this prompt.
+    // Including them can consume all 240 chars before the question starts.
+    if (boxStart >= 0 && inlinePrompt.length > 0) {
+      return inlinePrompt.replace(/\s+/g, ' ').slice(0, 240);
+    }
   }
 
   // Walk up at most 6 lines collecting prompt text. Stop at:
@@ -1102,9 +1139,12 @@ export function parseQuestionPrompt(visible: string): string {
       continue;
     }
     blankRun = 0;
+    if (/^[─━┄┅┈┉╌┌┐└┘├┤┬┴┼│┃]+$/.test(trimmed) ||
+        /^Plan+ing\s*:/i.test(trimmed)) break;
     // Stop if we hit what looks like a previous numbered list.
     if (/^[\s❯]*[1-9]\.\s+\S/.test(raw)) break;
     promptLines.unshift(trimmed);
+    if (/[☐□]/.test(trimmed)) break;
   }
 
   const all = inlinePrompt.length > 0 ? [...promptLines, inlinePrompt] : promptLines;
@@ -1132,6 +1172,36 @@ export function auqFingerprint(
   return (Bun as any).hash(normalized + '||' + sig).toString(16);
 }
 
+/** Capture each distinct question once, including questions sharing a menu. */
+export function capturePlanCountQuestion(
+  visible: string,
+  seen: Set<string>,
+  observedAtMs: number,
+  preReview: boolean,
+): AskUserQuestionFingerprint | null {
+  const options = parseNumberedOptions(visible);
+  if (options.length < 2) return null;
+  const promptSnippet = parseQuestionPrompt(visible);
+  if (promptSnippet === '') return null;
+  const signature = auqFingerprint(promptSnippet, options);
+  if (seen.has(signature)) return null;
+  seen.add(signature);
+  return { signature, promptSnippet, options, observedAtMs, preReview };
+}
+
+/** Keep a seeded count plan intact by declining its optional prerequisite. */
+export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint): number | null {
+  // Require the recognized prerequisite body AND both opposed labels. A
+  // generic Skip, an outside-review offer, or a review finding keeps its
+  // existing answer policy. Collapsed whitespace occurs in captured PTYs.
+  if (!fp.preReview || !/\/office-hours/i.test(fp.promptSnippet) ||
+      !/(?:no\s*design\s*doc|produce\s*a\s*design\s*doc)/i.test(fp.promptSnippet)) return null;
+  const run = fp.options.filter(({ label }) => /^Run\s*\/office-hours\s*(?:now|first)/i.test(label));
+  const skip = fp.options.filter(({ label }) =>
+    /^Skip\s*[—–-]\s*(?:proceed\s*with\s*)?standard\s*review(?:\s*\(recommended\))?$/i.test(label));
+  return run.length === 1 && skip.length === 1 ? skip[0].index : null;
+}
+
 /**
  * Detects when a plan-* skill has reached its Completion Summary / Review
  * Report — a terminal signal complementary to plan-mode's "Ready to execute"
@@ -1143,7 +1213,48 @@ export function auqFingerprint(
  * stop signal; this regex is the "we're done, go gracefully" hint.
  */
 export const COMPLETION_SUMMARY_RE =
-  /(GSTACK REVIEW REPORT|## Completion [Ss]ummary|Status:\s*(clean|issues_open)|^VERDICT:)/m;
+  /^[\t ]*(?:[⏺●][\t ]*)?(?:#{1,6}[\t ]*)?(?:GSTACK[\t ]*REVIEW[\t ]*REPORT|Completion[\t ]*[Ss]ummary|Status:[\t ]*(?:clean|issues_open)|(?:\*\*)?VERDICT:)/m;
+
+/** Classify a counting frame before treating numbered native dialogs as AUQs. */
+export function classifyPlanCountFrame(
+  visible: string,
+): 'permission' | 'completion_summary' | 'plan_ready' | null {
+  const report = [...visible.matchAll(new RegExp(COMPLETION_SUMMARY_RE.source, 'gm'))].at(-1);
+  const menuCursor = [...visible.matchAll(/❯\s*[1-9]\./g)].at(-1)?.index ?? -1;
+  const activeQuestionStart = Math.max(
+    visible.lastIndexOf('☐', menuCursor), visible.lastIndexOf('☒', menuCursor),
+  );
+  const permissionTail = visible.slice(Math.max(visible.length - TAIL_SCAN_BYTES, activeQuestionStart, 0));
+  if (isNumberedOptionListVisible(visible) &&
+      isPermissionDialogVisible(permissionTail) &&
+      (!report || report.index <= menuCursor)) {
+    return 'permission';
+  }
+  // Headings must be assistant output, not numbered Read/Write diff rows
+  // such as "409 +## GSTACK REVIEW REPORT". The anchored matcher also
+  // leaves a completed tool's diff in scrollback without ending the review.
+  // A later assistant report supersedes a dismissed permission menu still
+  // present in short scrollback; a pending menu below the report does not.
+  if (report && report.index > menuCursor) return 'completion_summary';
+  if (isPlanReadyVisible(visible)) return 'plan_ready';
+  return null;
+}
+
+/** Navigate native multi-question review without counting Submit as a finding. */
+export function planCountSubmissionInput(visible: string): string | null {
+  const bars = [...visible.matchAll(/←[^\r\n]*[☐☒][^\r\n]*✔\s*Submit\s*→/g)];
+  const bar = bars.at(-1);
+  if (!bar) return null;
+  const panel = visible.slice(bar.index + bar[0].length).replace(/\s+/g, '');
+  const cursor = [...panel.matchAll(/❯1\./g)].at(-1);
+  if (!/Reviewyouranswers/i.test(panel) || !cursor ||
+      !/^❯1\.Submit/i.test(panel.slice(cursor.index))) return null;
+  const tabs = [...bar[0].matchAll(/[☐☒]/g)].map((match) => match[0]);
+  const unanswered = tabs.indexOf('☐');
+  // At the Submit tab, move back to the first unanswered question. Only
+  // submit after every question tab carries the native answered marker.
+  return unanswered >= 0 ? '\x1b[Z'.repeat(tabs.length - unanswered) : '\r';
+}
 
 /**
  * Result of asserting that a plan file ends with `## GSTACK REVIEW REPORT`
@@ -1258,7 +1369,7 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
   fp.options.some((o) => /skip\s+interview|plan\s+immediately/i.test(o.label));
 
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
-  /scope reduction recommendation|cross[\s-]?project learnings/i.test(
+  /scope\s*reduction\s*recommendation|cross[\s-]*project\s*learnings/i.test(
     fp.promptSnippet,
   ) ||
   // plan-eng-review's Step 0 may legitimately end with NO scope-reduction /
@@ -1271,12 +1382,12 @@ export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /gstack-qid:\s*(?:plan-)?eng-review-/i.test(fp.promptSnippet);
 
 export const designStep0Boundary: Step0BoundaryPredicate = (fp) =>
-  /design system|design posture|design score|first dimension/i.test(
+  /design\s*(?:system|posture|score|completeness)|first\s*dimension/i.test(
     fp.promptSnippet,
   );
 
 export const devexStep0Boundary: Step0BoundaryPredicate = (fp) =>
-  /developer persona|target persona|persona selection|TTHW target/i.test(
+  /developer\s*persona|target\s*persona|persona\s*selection|TTHW\s*target/i.test(
     fp.promptSnippet,
   );
 
@@ -1938,12 +2049,16 @@ export interface PlanSkillCountObservation {
 }
 
 /**
- * Drive a plan-* skill in plan mode and count distinct review-phase
- * AskUserQuestions until a terminal signal fires.
+ * Drive a plan-* skill in plan mode and count distinct native review-phase
+ * AskUserQuestions until a terminal signal fires. Each run disables the
+ * extra outside review in its own gstack config: independent reviewers can
+ * add valid findings unrelated to the seeded-N cadence band. These counts
+ * do not assert outside-review dispatch or its approval-question cadence.
  *
  * Flow:
  *   1. Seed the complete fixture request in an isolated git repository's
- *      PLAN.md and initial CLAUDE.md context, then boot the PTY in that cwd
+ *      PLAN.md and initial CLAUDE.md context, with owned native-only config,
+ *      then boot the PTY in that cwd
  *      (8s grace + auto-trust dialog). Skills remain registered in user scope.
  *   2. Send `slashCommand` alone. The fixture is already in context; sending
  *      it later can queue it behind the skill's first question while the
@@ -1956,7 +2071,9 @@ export interface PlanSkillCountObservation {
  *        the auqFingerprint contract).
  *      - First time we see a fingerprint: push it, classify as Step 0 or
  *        review-phase based on `boundaryFired`, press `defaultPick` to
- *        advance.
+ *        advance. Decline only the recognized optional office-hours
+ *        prerequisite by label so a different skill does not rewrite the
+ *        seeded plan before this review begins.
  *      - After pressing, evaluate `isLastStep0AUQ(fingerprint)`. If true,
  *        all subsequent AUQs are review-phase.
  *      - Hard ceiling: if `reviewCount >= reviewCountCeiling`, return
@@ -1994,7 +2111,8 @@ export async function runPlanSkillCounting(opts: {
   defaultPick?: number;
   /**
    * Optional override for the FIRST AUQ observed. Receives the fingerprint;
-   * returns the option index to press. Subsequent AUQs always use defaultPick.
+   * returns the option index to press. Subsequent review AUQs use defaultPick;
+   * only the recognized optional office-hours prerequisite is declined by label.
    *
    * Skill-specific routing helper: /plan-ceo-review's first AUQ asks "what
    * scope?" with options like "branch diff" / "describe inline" / "skip
@@ -2015,14 +2133,14 @@ export async function runPlanSkillCounting(opts: {
   const defaultPick = opts.defaultPick ?? 1;
   const timeoutMs = opts.timeoutMs ?? 1_500_000;
 
-  const fixture = createPlanCountFixture(opts.followUpPrompt);
+  const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true });
   let session: ClaudePtySession;
   try {
     session = await launchClaudePty({
       permissionMode: 'plan',
       cwd: fixture.cwd,
       timeoutMs: timeoutMs + 60_000,
-      env: opts.env,
+      env: { ...opts.env, ...fixture.env },
       model: opts.model,
       seedSkills: true,
     });
@@ -2037,7 +2155,6 @@ export async function runPlanSkillCounting(opts: {
   let step0Count = 0;
   let reviewCount = 0;
   let isFirstAUQ = true;
-  let lastSig = '';
 
   function snapshot(
     outcome: PlanSkillCountObservation['outcome'],
@@ -2079,12 +2196,27 @@ export async function runPlanSkillCounting(opts: {
           visible,
         );
       }
+
       if (visible.includes('Unknown command:')) {
         return snapshot(
           'exited',
           `claude rejected ${opts.slashCommand} as unknown command (skill not registered in this cwd)`,
           visible,
         );
+      }
+
+      const frame = classifyPlanCountFrame(visible);
+      if (frame === 'permission') {
+        session.send(`${defaultPick}\r`);
+        await Bun.sleep(1500);
+        continue;
+      }
+
+      const submissionInput = frame === null ? planCountSubmissionInput(visible) : null;
+      if (submissionInput !== null) {
+        session.send(submissionInput);
+        await Bun.sleep(1500);
+        continue;
       }
 
       // Silent write detection — only fires if no numbered prompt is on
@@ -2107,14 +2239,14 @@ export async function runPlanSkillCounting(opts: {
 
       // Soft terminal signals — check before AUQ processing so a final
       // completion-summary doesn't get misclassified as a bonus AUQ.
-      if (COMPLETION_SUMMARY_RE.test(visible)) {
+      if (frame === 'completion_summary') {
         return snapshot(
           'completion_summary',
           `skill emitted completion summary / verdict / status line (step0=${step0Count}, review=${reviewCount})`,
           visible,
         );
       }
-      if (isPlanReadyVisible(visible)) {
+      if (frame === 'plan_ready') {
         return snapshot(
           'plan_ready',
           `skill emitted plan-mode "Ready to execute" confirmation (step0=${step0Count}, review=${reviewCount})`,
@@ -2125,46 +2257,21 @@ export async function runPlanSkillCounting(opts: {
       // Numbered option list?
       if (!isNumberedOptionListVisible(visible)) continue;
 
-      // Permission dialog? Auto-grant with defaultPick. Only act on the
-      // recent tail to avoid re-triggering on stale dialogs in scrollback.
-      if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
-        session.send(`${defaultPick}\r`);
-        await Bun.sleep(1500);
-        continue;
-      }
-
-      // Parse the active AUQ. Skip same-redraw and empty-prompt cases.
-      const options = parseNumberedOptions(visible);
-      if (options.length < 2) continue;
-      const sig = optionsSignature(options);
-      if (sig === lastSig) continue;
-      const promptSnippet = parseQuestionPrompt(visible);
-      if (promptSnippet === '') continue; // not yet rendered, poll again
-      lastSig = sig;
-
-      const fingerprintHash = auqFingerprint(promptSnippet, options);
-      if (seen.has(fingerprintHash)) {
-        // Same content, already counted (TTY redrew with whitespace diff).
-        continue;
-      }
-      seen.add(fingerprintHash);
-
-      const fp: AskUserQuestionFingerprint = {
-        signature: fingerprintHash,
-        promptSnippet,
-        options,
-        observedAtMs: Date.now() - startedAt,
-        preReview: !boundaryFired,
-      };
+      // Dedupe the complete question, not just its answer labels: separate
+      // findings often reuse the same Add to plan / Defer / Skip menu.
+      const fp = capturePlanCountQuestion(visible, seen, Date.now() - startedAt, !boundaryFired);
+      if (!fp) continue;
       fingerprints.push(fp);
       if (boundaryFired) reviewCount += 1;
       else step0Count += 1;
 
       // Press to advance — first AUQ may use the override pick.
-      const pickIdx =
-        isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(fp) : defaultPick;
+      const prerequisitePick = planCountPrerequisitePick(fp);
+      const pickIdx = prerequisitePick ??
+        (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(fp) : defaultPick);
       isFirstAUQ = false;
-      session.send(`${pickIdx}\r`);
+      if (prerequisitePick !== null) await selectPtyNumberedOption(session, pickIdx);
+      else session.send(`${pickIdx}\r`);
 
       // Evaluate boundary AFTER pressing — if THIS AUQ was the last Step 0
       // question, all subsequent AUQs go to reviewCount.

@@ -166,11 +166,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
         if (obs.reviewCount > CEILING_DISTINCT) {
           throw new Error(
             `BAND FAIL (above ceiling): reviewCount=${obs.reviewCount} > CEILING=${CEILING_DISTINCT}.\n` +
-              `Possible over-asking regression. Review-phase fingerprints:\n` +
-              obs.fingerprints
-                .filter((f) => !f.preReview)
-                .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
-                .join('\n'),
+              `Captured observation:\n${JSON.stringify(obs, null, 2)}`,
           );
         }
 
@@ -243,7 +239,8 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
         }
         if (obs.reviewCount > CEILING_PAIRED) {
           throw new Error(
-            `PAIRED CONTROL FAIL: reviewCount=${obs.reviewCount} > CEILING=${CEILING_PAIRED} (over-asking on a 2-finding fixture).`,
+            `PAIRED CONTROL FAIL: reviewCount=${obs.reviewCount} > CEILING=${CEILING_PAIRED} (over-asking on a 2-finding fixture).\n` +
+              `Captured observation:\n${JSON.stringify(obs, null, 2)}`,
           );
         }
       } finally {
