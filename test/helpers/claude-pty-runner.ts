@@ -1224,7 +1224,45 @@ export function capturePlanCountQuestion(
   seen: Set<string>,
   observedAtMs: number,
   preReview: boolean,
+  pending?: NativePlanQuestionCall,
 ): AskUserQuestionFingerprint | null {
+  const tail = stripPtyResidue(visible).replace(/\r+\n?/g, '\n').slice(-4096);
+  const cursor = [...tail.matchAll(/❯\s*1\./g)].at(-1);
+  // The options parser can fall back to ordinary numbered prose when an
+  // old cursor leaves its window. Do not pair that prose with the prompt
+  // parser's still-visible historical question and queue spurious input.
+  if (!cursor) return null;
+
+  if (pending && !pending.answered && !pending.failed && pending.questions.length === 1) {
+    const beforeCursor = tail.slice(0, cursor.index);
+    const header = [...beforeCursor.matchAll(/(?:^|\n)[\t │┃]*[☐□]([^\n│]*)/g)].at(-1);
+    const compact = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+    const question = pending.questions[0]!;
+    const questionId = question.question.match(/<gstack-qid:[^>]+>/i)?.[0];
+    const identity = questionId ?? question.question;
+    const footer = /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i;
+    // A captured B menu lost the dot in option 2. The native call supplies
+    // its actual choices, but only after the matching boxed question,
+    // cursor, and complete navigation footer establish the active UI.
+    if (header && compact(header[1]!) === compact(question.header) &&
+        !/❯\s*[1-9]\./.test(beforeCursor.slice(header.index)) &&
+        compact(beforeCursor.slice(header.index)).includes(compact(identity)) &&
+        footer.test(tail.slice(cursor.index))) {
+      const fp = nativePlanCallFingerprint(pending, observedAtMs, preReview);
+      const renderedOptions = parseNumberedOptions(visible);
+      const renderedPrompt = parseQuestionPrompt(visible);
+      const renderedSignature = renderedOptions.length >= 2 && renderedPrompt
+        ? auqFingerprint(renderedPrompt, renderedOptions) : null;
+      const alreadyHandled = seen.has(fp.signature) || Boolean(renderedSignature && seen.has(renderedSignature));
+      // Once answered, the same menu may linger while the native call is
+      // no longer pending, or the native record may arrive after the UI
+      // answer. Bind both identities before testing either direction.
+      if (renderedSignature) seen.add(renderedSignature);
+      seen.add(fp.signature);
+      if (alreadyHandled) return null;
+      return fp;
+    }
+  }
   const options = parseNumberedOptions(visible);
   if (options.length < 2) return null;
   const promptSnippet = parseQuestionPrompt(visible);
@@ -1292,11 +1330,17 @@ export function planCountSubmissionInput(visible: string): string | null {
   const bar = bars.at(-1);
   if (!bar) return null;
   const panel = visible.slice(bar.index + bar[0].length).replace(/\s+/g, '');
-  // Captured cursor redraws can omit the dot after 1 and the e in answers.
-  // The native tab bar and explicit Submit label still identify this control.
-  const cursor = [...panel.matchAll(/❯1\.?/g)].at(-1);
-  if (!/Reviewyouranswe?rs/i.test(panel) || !cursor ||
-      !/^❯1\.?Submit/i.test(panel.slice(cursor.index))) return null;
+  const cursor = [...panel.matchAll(/❯([1-9])\.?/g)].at(-1);
+  if (!/^Reviewyouranswe?rs/i.test(panel) || !cursor || cursor[1] !== '1') return null;
+  const beforeCursor = panel.slice(0, cursor.index);
+  // The native tab bar, review heading and immediately preceding question
+  // identify Submit even when its button caption loses letters in a redraw.
+  const readyPrompt = /Readytosubmityouranswers\?$/i.test(beforeCursor);
+  // Older captures lack an intact Ready prompt. Keep their exact Submit
+  // caption path only while no later question/menu has entered scrollback.
+  const legacyCaption = /^❯1\.?Submit/i.test(panel.slice(cursor.index)) &&
+    !/❯[1-9]|[☐☒]/.test(beforeCursor);
+  if (!readyPrompt && !legacyCaption) return null;
   const tabs = [...bar[0].matchAll(/[☐☒]/g)].map((match) => match[0]);
   const unanswered = tabs.indexOf('☐');
   // At the Submit tab, move back to the first unanswered question. Only
@@ -1428,6 +1472,15 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
   }) ?? false;
 
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  // The native complexity gate can say "Reduce scope or proceed as-is"
+  // without the historical "scope reduction recommendation" wording.
+  // It closes setup only once that exact scope question has an answer.
+  (fp.nativeCall?.answered === true && fp.nativeCall.questions.some(q =>
+    Boolean(fp.nativeCall?.answers?.[q.question]) && /^scope$/i.test(q.header.trim()) &&
+    /<gstack-qid:\s*plan-eng-scope-complexity\s*>/i.test(q.question) &&
+    /\bcomplexity\s+check\b/i.test(q.question) &&
+    q.options.some(o => /^proceed\s+as[- ]is\b/i.test(o.label)) &&
+    q.options.some(o => /^reduce\b/i.test(o.label)))) ||
   /scope\s*reduction\s*recommendation|cross[\s-]*project\s*learnings/i.test(
     fp.promptSnippet,
   ) ||
@@ -2394,15 +2447,12 @@ export async function runPlanSkillCounting(opts: {
         );
       }
 
-      // Numbered option list?
-      if (!isNumberedOptionListVisible(visible)) continue;
-
       // Dedupe the complete question, not just its answer labels: separate
       // findings often reuse the same Add to plan / Defer / Skip menu.
-      const fp = capturePlanCountQuestion(visible, seen, Date.now() - startedAt, !boundaryFired);
+      const pending = transcript.calls.find(c => !c.answered && !c.failed);
+      const fp = capturePlanCountQuestion(visible, seen, Date.now() - startedAt, !boundaryFired, pending);
       if (!fp) continue;
       // Press to advance — first AUQ may use the override pick.
-      const pending = transcript.calls.find(c => !c.answered && !c.failed);
       const routing = pending?.questions.length === 1
         ? nativePlanCallFingerprint(pending, fp.observedAtMs, fp.preReview) : fp;
       const prerequisitePick = planCountPrerequisitePick(routing);

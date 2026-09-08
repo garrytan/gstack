@@ -49,6 +49,7 @@ import {
   designStep0Boundary,
   designFirstReviewAUQ,
   planCountQuestionPhase,
+  nativePlanCallFingerprint,
   devexStep0Boundary,
   type ClaudePtyOptions,
   type AskUserQuestionFingerprint,
@@ -720,6 +721,23 @@ describe('classifyVisible (runtime path through the runner classifier)', () => {
 });
 
 describe('parseNumberedOptions', () => {
+  test('does not combine an old AUQ prompt with the later ordinary test-case list', () => {
+    // B CEO retry, 2026-09-08: the old prompt cursor slid outside the
+    // option parser's 4KB window. Its prose fallback then supplied a new
+    // five-item test list while the prompt parser retained the old AUQ.
+    const visible = '☐Stripe event types\nWhich event should the handler accept?\n' +
+      '❯1.Specify one canonical event\n2.Accept all events\n' + '·'.repeat(4200) + '\n' +
+      'Minimum required test cases (all must be specified in the plan):\n' +
+      '1.Happypath:validcanonicalevent,knownuser→userupdated,emailsent\n' +
+      '2.Email failure:emailthrows→userupdated,errorlogged,HTTP200\n' +
+      '3.DB timeout: DB throws onuser update →exceptin ropagates, non-200\n' +
+      '4.Unkown event typ: non-canonical event→ HTTP200,nouserupdate\n' +
+      '5.Unknown user: valid event, usernotinDB→existingguard→HTTP200\n❯1\n';
+    const seen = new Set<string>();
+    expect(capturePlanCountQuestion(visible, seen, 0, false)).toBeNull();
+    expect(seen.size).toBe(0);
+  });
+
   test('extracts options from a clean cursor list', () => {
     const visible = `
       ❯ 1. HOLD SCOPE
@@ -784,6 +802,67 @@ describe('parseNumberedOptions', () => {
       { index: 2, label: 'second' },
       { index: 3, label: 'third' },
     ]);
+  });
+});
+
+describe('pending native question on a damaged option render', () => {
+  // Exact final B CEO Test scope shape. The native call had been read in
+  // an in-progress snapshot, but option 2's missing dot prevented input.
+  const frame = [
+    '☐Test scope',
+    '│Section 6 (Tests) — Theplanhasnotestsforanewpaymentprocessingcodepath.Theexistingintegrationsuitehas',
+    '│never seen this handlerand cannotcatchregressionsinit.Minimumviabletestplanforminimalpatch:5unittests',
+    '│(happy path, mal failur, DB timeout, unknowneventtype,unknownuser).Shouldtheplanalsoincludeanintegration',
+    '│testhittingthefullwebhookstack?<gstack-qid:plan-ceo-test-scope>',
+    '❯1.Unittestsonlyfornow(recommended)',
+    '5 unit tests covering the criticalpaths. No integration stin v1.',
+    '2Uni tsts + one integration test',
+    '5 uit tsts + on ed-to-end integrationtestsendiga signe Stripeevent.',
+    '3.Integrationtestonly',
+    '4.Typesomething.',
+    '5. Chataboutthis',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+    '❯1',
+  ].join('\n');
+  const pending = {
+    sessionId: '66fb6218-4a68-4f1a-a729-6407f14fd6b8',
+    toolUseId: 'toolu_017DicePqWNVyDsLCd2Y2MCi', answered: false,
+    questions: [{ header: 'Test scope', question: 'Should the plan also include an integration test hitting the full webhook stack? <gstack-qid:plan-ceo-test-scope>',
+      options: ['Unit tests only for now (recommended)', 'Unit tests + one integration test', 'Integration test only'].map(label => ({ label })) }],
+  };
+
+  test('uses lossless pending options after a positively matched native question has rendered', () => {
+    const seen = new Set<string>();
+    const captured = capturePlanCountQuestion(frame, seen, 0, false, pending);
+    expect(captured?.nativeCall).toBe(pending);
+    expect(captured?.options).toEqual(pending.questions[0].options.map((o, i) => ({ index: i + 1, label: o.label })));
+    expect(capturePlanCountQuestion(frame, seen, 1, false, pending)).toBeNull();
+    // A corrected redraw is still the same pending native question.
+    expect(capturePlanCountQuestion(frame.replace('2Uni tsts', '2.Unit tests'), seen, 2, false, pending)).toBeNull();
+    expect(capturePlanCountQuestion(frame.replace('2Uni tsts', '2.Unit tests'), seen, 3, false)).toBeNull();
+    expect(seen.has(captured!.signature)).toBe(true);
+  });
+
+  test('binds delayed native metadata to the already-answered visible question', () => {
+    const seen = new Set<string>();
+    const clean = frame.replace('2Uni tsts', '2.Unit tests');
+    expect(capturePlanCountQuestion(clean, seen, 0, false)).not.toBeNull();
+    expect(capturePlanCountQuestion(clean, seen, 1, false, pending)).toBeNull();
+    expect(capturePlanCountQuestion(frame, seen, 2, false, pending)).toBeNull();
+  });
+
+  test('requires pending single-question metadata, matching current header, cursor, and navigation footer', () => {
+    for (const call of [undefined, { ...pending, answered: true }, { ...pending, failed: true },
+      { ...pending, questions: [...pending.questions, ...pending.questions] },
+      { ...pending, questions: [{ ...pending.questions[0], header: 'Prior decision' }] },
+      { ...pending, questions: [{ ...pending.questions[0], question: 'Different issue <gstack-qid:plan-ceo-different-test-scope>' }] }]) {
+      expect(capturePlanCountQuestion(frame, new Set(), 0, false, call)).toBeNull();
+    }
+    for (const altered of [frame.replace('☐Test scope', 'Test scope'), frame.replace('❯1.', '1.'),
+      frame.replace('Enter to select · ↑/↓ to navigate · Esc to cancel', ''),
+      frame + '\n☐Different question\n❯1.Waiting for its choices']) {
+      expect(capturePlanCountQuestion(altered, new Set(), 0, false, pending)).toBeNull();
+    }
   });
 });
 
@@ -1357,6 +1436,26 @@ describe('classifyPlanCountFrame replay', () => {
 });
 
 describe('planCountSubmissionInput replay', () => {
+  test('uses the captured DevEx panel anchors when the Submit button label is damaged', () => {
+    const captured = [
+      '←  ☒ Routing setup  ☐ Cross-project  ✔ Submit  →',
+      'Review your answers',
+      '⚠You have not answere all questions',
+      ' │ ●D1 — Shouldgstack add skill routingrulestothisproject\'sCLAUDE.md?<gstack-qid:routing-injection>',
+      '→dd routing rules (Recmmeded)',
+      'Ready to submit your answers?',
+      '❯1.Sbmi answers',
+      '2Cancel',
+    ].join('\r\r');
+    expect(planCountSubmissionInput(captured)).toBe('\x1b[Z');
+    expect(planCountSubmissionInput(captured.replace('☐ Cross-project', '☒ Cross-project'))).toBe('\r');
+    expect(planCountSubmissionInput(captured + '\r☐ Retry spec\rRetry once?\r❯1.Yes\r2.No')).toBeNull();
+    expect(planCountSubmissionInput(captured + '\r☐ Proposal\rSend this proposal?\r❯1.Submit proposal\r2.Keep editing')).toBeNull();
+    expect(planCountSubmissionInput(captured + '\r☐ Retry spec\rRetry once?\r❯2.No\r3.Other')).toBeNull();
+    expect(planCountSubmissionInput(captured.replace('Review your answers', 'Review context'))).toBeNull();
+    expect(planCountSubmissionInput(captured.replace('Ready to submit your answers?', 'Read the proposed answers.'))).toBeNull();
+  });
+
   test('the captured mode Submit panel with a damaged caption and dotless cursor returns to its unanswered tab', () => {
     // Exact final active panel from targeted-a's SCOPE EXPANSION retry.
     const captured = [
@@ -1550,6 +1649,136 @@ describe('Step0BoundaryPredicate per-skill', () => {
   });
 
   describe('engStep0Boundary', () => {
+    // Captured native question text, labels and answers from targeted-b's
+    // engineering retry. Descriptions are immaterial to the phase boundary.
+    const captured = [
+      {
+        "header": "Scope",
+        "question": "D1 — Multi-tenant Auth Refactor complexity check: 12 files + 4 new classes. Reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-complexity>",
+        "options": [
+          "Proceed as-is",
+          "Reduce: cut TokenStore + RequestPolicy",
+          "Reduce: single-pass strangler"
+        ],
+        "answer": "Proceed as-is"
+      },
+      {
+        "header": "Shared Cache",
+        "question": "D2 — Arch issue 1: AuthBroker and SessionMint both mutate a global shared AuthCache via module-level export. How should this be fixed? <gstack-qid:plan-eng-shared-mutable-cache>",
+        "options": [
+          "Inject AuthCache as a dependency (recommended)",
+          "Make mutations go through a single owner",
+          "Accept the risk for now, document it"
+        ],
+        "answer": "Inject AuthCache as a dependency (recommended)"
+      },
+      {
+        "header": "TOCTOU",
+        "question": "D3 — Arch issue 2: TOCTOU window during tenant suspension. The plan says AuthCache invalidates entries on tenant suspension, but with two services mutating the cache, a token validation begun before suspension completes may still succeed after the tenant is suspended. How should this be addressed? <gstack-qid:plan-eng-toctou-suspension>",
+        "options": [
+          "Add suspension check at session issuance boundary (recommended)",
+          "Add invalidation ordering guarantee to the plan",
+          "Accept the window, note it as an edge case"
+        ],
+        "answer": "Add suspension check at session issuance boundary (recommended)"
+      },
+      {
+        "header": "Error handling",
+        "question": "D4 — Code quality issue 1: validateAndDispatch() swallows three distinct error classes in nested catch blocks with no re-throw, logging, or metrics. Errors disappear silently. How should this be handled? <gstack-qid:plan-eng-error-swallowing>",
+        "options": [
+          "Refactor to flat error handling with explicit re-throw or typed result (recommended)",
+          "Add logging inside each catch, keep structure",
+          "Leave it, add a lint rule to catch new instances"
+        ],
+        "answer": "Refactor to flat error handling with explicit re-throw or typed result (recommended)"
+      },
+      {
+        "header": "Test coverage",
+        "question": "D5 — Test issue 1: 0/18 code paths covered in the plan. The plan scopes tests to 'new components and their success/error paths' but omits: cache invalidation edge cases, all three catch blocks in validateAndDispatch(), and the 5 IDP call failure modes. Should the test scope be expanded? <gstack-qid:plan-eng-test-coverage>",
+        "options": [
+          "Expand test scope to cover all 18 paths (recommended)",
+          "Cover new paths only, defer legacy and edge cases",
+          "Accept current test scope as stated in the plan"
+        ],
+        "answer": "Expand test scope to cover all 18 paths (recommended)"
+      },
+      {
+        "header": "IDP calls",
+        "question": "D6 — Performance issue 1: token validation makes 5 sequential IDP API calls. The plan acknowledges they are independent and could be parallelized via Promise.all. Should this be fixed in this PR or deferred? <gstack-qid:plan-eng-idp-sequential-calls>",
+        "options": [
+          "Parallelize now with Promise.all (recommended)",
+          "Defer to a follow-up PR, add a TODO",
+          "Add a concurrency cap via Promise.all with limit"
+        ],
+        "answer": "Parallelize now with Promise.all (recommended)"
+      },
+      {
+        "header": "Cache bounds",
+        "question": "D7 — Performance issue 2 (medium confidence): AuthCache evicts on token expiry but the plan doesn't mention a max-size bound. In a high-tenant deployment, long-lived non-expiring tokens could grow the cache without bound. Is there already a size cap, or should one be added? <gstack-qid:plan-eng-cache-unbounded>",
+        "options": [
+          "Verify existing cap exists and document it in the plan",
+          "Add explicit max-size eviction policy to AuthCache (recommended)",
+          "Defer, this is a scaling concern not a correctness one"
+        ],
+        "answer": "Verify existing cap exists and document it in the plan"
+      },
+      {
+        "header": "TODO",
+        "question": "D8 — TODO candidate: Auth failure observability. The plan replaces silently-swallowed errors with typed errors, but adds no metrics, logs, or alerts for auth failure patterns. This gap won't surface until production incidents occur. Add a TODO? <gstack-qid:plan-eng-todo-observability>",
+        "options": [
+          "Add to TODOS.md (recommended)",
+          "Build it now in this PR instead of deferring",
+          "Skip — not valuable enough"
+        ],
+        "answer": "Add to TODOS.md (recommended)"
+      }
+    ];
+    function nativeScopeFingerprint(index = 0): AskUserQuestionFingerprint {
+      const row = captured[index];
+      return nativePlanCallFingerprint({
+        sessionId: 'captured-eng-retry', toolUseId: `call-${index}`, answered: true,
+        questions: [{ header: row.header, question: row.question, options: row.options.map(label => ({ label })) }],
+        answers: { [row.question]: row.answer },
+      }, index, true);
+    }
+
+    test('keeps captured scope-complexity setup and counts the six following findings', () => {
+      let started = false;
+      const phases = captured.map((_, index) => {
+        const question = nativeScopeFingerprint(index);
+        const phase = planCountQuestionPhase(question, started, engStep0Boundary);
+        started = phase.reviewStarted;
+        return phase;
+      });
+      expect(phases[0]).toEqual({ preReview: true, reviewStarted: true });
+      expect(phases.slice(1, 7).filter(phase => !phase.preReview)).toHaveLength(6);
+      // The later answered observability TODO retains the existing phase policy.
+      expect(phases.filter(phase => !phase.preReview)).toHaveLength(7);
+    });
+
+    test('requires an answered native scope decision with its opposed scope choices', () => {
+      const original = nativeScopeFingerprint();
+      expect(engStep0Boundary(original)).toBe(true);
+      expect(engStep0Boundary({ ...original, nativeCall: undefined })).toBe(false);
+      const pending = structuredClone(original);
+      pending.nativeCall!.answered = false;
+      delete pending.nativeCall!.answers;
+      expect(engStep0Boundary(pending)).toBe(false);
+      const unansweredScope = structuredClone(original);
+      unansweredScope.nativeCall!.answers = { 'Separate answered setup question': 'Continue' };
+      expect(engStep0Boundary(unansweredScope)).toBe(false);
+      for (const alter of [
+        (q: any) => { q.header = 'Architecture'; },
+        (q: any) => { q.question = q.question.replace('plan-eng-scope-complexity', 'plan-eng-cache-complexity'); },
+        (q: any) => { q.options = [{ label: 'Change cache size' }, { label: 'Keep cache size' }]; },
+      ]) {
+        const unrelated = structuredClone(original);
+        alter(unrelated.nativeCall!.questions[0]);
+        unrelated.nativeCall!.answers = { [unrelated.nativeCall!.questions[0].question]: captured[0].answer };
+        expect(engStep0Boundary(unrelated)).toBe(false);
+      }
+    });
+
     test('FIRES on cross-project learnings prompt', () => {
       const f = fp('Enable cross-project learnings on this machine?', ['Yes', 'No']);
       expect(engStep0Boundary(f)).toBe(true);

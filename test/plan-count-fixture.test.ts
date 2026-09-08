@@ -177,6 +177,8 @@ try {
         { name: 'caller-policy', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 2, custom: true },
         { name: 'late-mode', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'late-mode' },
         { name: 'batched-mode', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'batched-mode' },
+        { name: 'damaged-submit', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'damaged-submit' },
+        { name: 'damaged-menu', skillName: 'plan-ceo-review', prompt: '# Native CEO plan', mode: 'damaged-menu' },
       ].map((item) => ({ ...item, record: path.join(dir, `${item.name}.jsonl`) }));
 
       // The fake snapshots its environment BEFORE installing the first stdin
@@ -206,6 +208,14 @@ const answer = () => native('user', [{ type: 'tool_result', tool_use_id: 'questi
   { toolUseResult: { answers: Object.fromEntries(nativeQuestions.map(q => [q.question, q.options[0].label])) } });
 const questionMetadata = (header, question, labels) => ({ header, question, options: labels.map(label => ({ label })) });
 const modeQuestion = questionMetadata('Review mode', 'How deep should this DX review go? <gstack-qid:plan-devex-review-mode>', ['DX EXPANSION', 'DX POLISH', 'DX TRIAGE']);
+const submitQuestions = [
+  questionMetadata('Routing setup', 'Should gstack add skill routing rules? <gstack-qid:routing-injection>', ['Add routing rules', 'Skip']),
+  questionMetadata('Cross-project', 'Enable cross-project learnings?', ['Enable cross-project', 'Keep project-scoped']),
+];
+const submitPanel = (answered) => '\r← ☒ Routing setup ' + (answered ? '☒' : '☐') + ' Cross-project ✔ Submit →\r' +
+  'Review your answers\r' + (answered ? '' : '⚠You have not answere all questions\r') +
+  '│ ●D1 — Should gstack add skill routing rules?\r→Add routing rules\r' +
+  'Ready to submit your answers?\r❯1.Sbmi answers\r2Cancel\r';
 const skillDir = path.join(process.env.CLAUDE_CONFIG_DIR, 'skills', process.env.FIXTURE_SKILL);
 const planPath = path.join(process.cwd(), 'PLAN.md');
 const contextPath = path.join(process.cwd(), 'CLAUDE.md');
@@ -239,6 +249,41 @@ process.stdin.on('data', (data) => {
   const input = data.toString('utf8');
   record({ type: 'input', data: input });
   if (!firstInput) {
+    if (process.env.FIXTURE_MODE === 'damaged-menu') {
+      if (question === 0) record({ type: 'input-during-prose', input });
+      else if (input.includes('\r')) {
+        record({ type: 'damaged-menu-answer', input });
+        answer();
+        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      }
+      return;
+    }
+    if (process.env.FIXTURE_MODE === 'damaged-submit') {
+      if (question === 0 && input === '\x1b[Z') {
+        question = 1;
+        record({ type: 'returned-to-unanswered' });
+        process.stdout.write('\r← ☒ Routing setup ☐ Cross-project ✔ Submit →\r' +
+          '│ Enable cross-project learnings?\r❯1.Enable cross-project\r2.Keep project-scoped\r');
+      } else if (question === 1) {
+        selected += input.replace(/\r/g, '');
+        if (input.includes('\r')) {
+          question = 2;
+          record({ type: 'answered-remaining-tab', selected });
+          process.stdout.write(submitPanel(true));
+        }
+      } else if (question === 2 && input === '\r') {
+        // Native JSONL can arrive only after the whole packet is submitted.
+        ask(submitQuestions);
+        native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Your questions have been answered.' }],
+          { toolUseResult: { answers: {
+            [submitQuestions[0].question]: submitQuestions[0].options[0].label,
+            [submitQuestions[1].question]: submitQuestions[1].options[Number(selected) - 1]?.label,
+          } } });
+        record({ type: 'submitted-both-answers' });
+        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      } else record({ type: 'unexpected-submit-input', question, input });
+      return;
+    }
     if (['late-mode', 'batched-mode'].includes(process.env.FIXTURE_MODE)) {
       selected += input.replace(/\r/g, '');
       if (input.includes('\r')) {
@@ -294,6 +339,23 @@ process.stdin.on('data', (data) => {
   }
   firstInput = false;
   if (process.env.FIXTURE_MODE === 'exit') process.exit(7);
+  if (process.env.FIXTURE_MODE === 'damaged-menu') {
+    process.stdout.write('☐Stripe event types\nWhich event should the handler accept?\n❯1.Specify one canonical event\n2.Accept all events\n' +
+      '·'.repeat(4200) + '\nMinimum required test cases:\n1.Happy path\n2.Email failure\n3.DB timeout\n4.Unknown event\n5.Unknown user\n❯1\n');
+    completion = setTimeout(() => {
+      question = 1;
+      ask([questionMetadata('Test scope', 'Should the plan include an integration test? <gstack-qid:plan-ceo-test-scope>',
+        ['Unit tests only for now (recommended)', 'Unit tests + one integration test', 'Integration test only'])]);
+      process.stdout.write('\n☐Test scope\nShould the plan include an integration test? <gstack-qid:plan-ceo-test-scope>\n' +
+        '❯1.Unittestsonlyfornow(recommended)\n2Uni tsts + one integration test\n3.Integrationtestonly\n' +
+        'Enter to select · ↑/↓ to navigate · Esc to cancel\n');
+    }, 4100);
+    return;
+  }
+  if (process.env.FIXTURE_MODE === 'damaged-submit') {
+    process.stdout.write(submitPanel(false));
+    return;
+  }
   if (['late-mode', 'batched-mode'].includes(process.env.FIXTURE_MODE)) {
     if (process.env.FIXTURE_MODE === 'batched-mode') ask([modeQuestion,
       questionMetadata('Separate decision', 'Which fixture target should be used?', ['First target', 'Second target'])]);
@@ -425,8 +487,9 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           expect(startup.sections).toBe(fs.readFileSync(path.join(ROOT, item.skillName, 'sections/review-sections.md'), 'utf8'));
           expect(events.filter((event) => event.type === 'input').map((event) => event.data).join(''))
             .toBe(`/${item.skillName}\r` + (item.mode === 'prerequisite' ? `${item.custom ? 1 : 2}\r${item.skipIndex}\r`
+              : item.mode === 'damaged-submit' ? '\x1b[Z2\r\r'
               : item.mode === 'batched-finding' ? '2\r1\r' : item.mode === 'batched-mode' ? '1\r'
-              : ['direct-finding', 'failed-call', 'permission', 'late-mode'].includes(item.mode) ? '2\r' : ''));
+              : ['direct-finding', 'failed-call', 'permission', 'late-mode', 'damaged-menu'].includes(item.mode) ? '2\r' : ''));
           expect(fs.existsSync(startup.cwd)).toBe(false);
           expect(fs.existsSync(startup.stateRoot)).toBe(false);
           expect(() => process.kill(startup.pid, 0)).toThrow();
@@ -446,6 +509,12 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
             expect(result.observation.step0Count).toBe(0);
             expect(result.observation.fingerprints).toHaveLength(1);
             expect(result.observation.fingerprints[0].nativeCall.questions).toHaveLength(item.mode === 'batched-finding' ? 2 : 1);
+          }
+          if (item.mode === 'damaged-menu') {
+            expect(events.filter(event => event.type === 'input-during-prose')).toEqual([]);
+            expect(events.filter(event => event.type === 'damaged-menu-answer').map(event => event.input)).toEqual(['2\r']);
+            expect(result.observation.fingerprints).toHaveLength(1);
+            expect(result.observation.fingerprints[0].nativeCall.questions[0].header).toBe('Test scope');
           }
           if (item.mode === 'failed-call') {
             expect(result.observation.transcript.calls[0].failure).toContain('is_error');
@@ -476,6 +545,15 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
             expect(call.answers[call.questions[0].question]).toBe(expectedLabel);
             expect(call.questions).toHaveLength(item.mode === 'late-mode' ? 1 : 2);
             expect(call.unansweredQuestionIndices).toEqual(item.mode === 'late-mode' ? [] : [1]);
+          }
+          if (item.mode === 'damaged-submit') {
+            expect(events.filter(event => ['returned-to-unanswered', 'answered-remaining-tab', 'submitted-both-answers', 'unexpected-submit-input'].includes(event.type)))
+              .toEqual([{ type: 'returned-to-unanswered' }, { type: 'answered-remaining-tab', selected: '2' }, { type: 'submitted-both-answers' }]);
+            expect(result.observation.step0Count).toBe(1);
+            expect(result.observation.reviewCount).toBe(0);
+            expect(result.observation.transcript.calls).toHaveLength(1);
+            expect(result.observation.transcript.calls[0].unansweredQuestionIndices).toEqual([]);
+            expect(result.observation.transcript.calls[0].questions).toHaveLength(2);
           }
           cwds.add(startup.cwd);
           stateRoots.add(startup.stateRoot);
