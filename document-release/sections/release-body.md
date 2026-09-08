@@ -484,6 +484,27 @@ Branch on the echoed `CODEX_MODE`:
 A stale artifact selecting its own harness must report missing coverage and run no outside CLI. Repair: `setup --host codex`. Never infer a replacement provider from inherited environment markers. The invocation below repeats this guard.
 
 
+**Disabled is a terminal branch for this section.** If the preflight prints
+`CODEX_MODE: disabled`, persist `outside_status: disabled` with the guarded
+command below, then finish the documentation workflow. Do not construct a review prompt, invoke an outside CLI,
+dispatch an Agent/Task fallback, or ask the apply question below. A disabled review
+is an intentional opt-out, not a provider failure that needs a replacement reviewer.
+
+Run this guarded command before leaving the disabled branch. It starts a fresh
+shell and re-reads the control; enabled workflows never append a disabled record.
+If logging fails, report the persistence failure and retain the disabled opt-out.
+
+```bash
+
+_DISABLED_REVIEW_MODE=$("$HOME/.claude/skills/gstack/bin/gstack-config" get codex_reviews 2>/dev/null) || {
+  echo 'Cannot read codex_reviews; disabled outside coverage was not recorded.' >&2
+  exit 1
+}
+if [ "$_DISABLED_REVIEW_MODE" = disabled ]; then
+  "$HOME/.claude/skills/gstack/bin/gstack-review-log" '{"skill":"codex-doc-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"skipped","source":"none","host":"claude","outside_provider":"codex","outside_status":"disabled","phase":"documentation","commit":"'"$(git rev-parse --short HEAD 2>/dev/null || true)"'"}'
+fi
+```
+
 When the mode is anything except `disabled`, print one line so the off-switch
 stays discoverable: "Running the Codex doc review automatically (standard step). Disable: `gstack-config set codex_reviews disabled`."
 
@@ -558,7 +579,13 @@ Present the full output verbatim under `CODEX SAYS (documentation review):`.
 
 Provider failures are informational; report the named provider, diagnosis, and missing coverage, then use the native fallback below.
 
-**If preflight is unavailable for any reason (or Codex errored at runtime):**
+**Native fallback — provider unavailable or execution failed, with reviews enabled:**
+
+Immediately before dispatching, check the preflight result again. On
+`CODEX_MODE: disabled`, finish this section with `outside_status: disabled`;
+do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
+authentication/model selection, a failed preflight, or a failed outside invocation.
+The disabled branch never reaches this fallback.
 
 Dispatch via the Agent tool with the same prompt, passing `run_in_background: false` (subagents default to background since Claude Code v2.1.198). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under `DOCUMENTATION REVIEW (Claude subagent):`. If it fails: "Doc review unavailable. Continuing."

@@ -12,10 +12,10 @@
  * Review logs are stored locally at ~/.gstack/reviews/review-log.jsonl.
  * Outside CLI prompts are written to temp files to prevent shell injection.
  */
-import type { TemplateContext } from './types';
+import { toShellPath, type TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
 import { CC_BACKGROUND_DEFAULT_SINCE } from './constants';
-import { outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance } from './outside-voice';
+import { outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance, outsideVoiceRuntime } from './outside-voice';
 import { DESIGN_DOC_DISCOVERY_BLOCK } from './design-doc-discovery';
 import { getHostConfig } from '../../hosts/index';
 
@@ -602,6 +602,25 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 ---`;
 }
 
+/** A disabled pass must supersede earlier completed coverage before the section exits. */
+function generateDisabledOutsideRecord(ctx: TemplateContext, skill: string, phase: string): string {
+  const bin = toShellPath(ctx.paths.binDir);
+  return `Run this guarded command before leaving the disabled branch. It starts a fresh
+shell and re-reads the control; enabled workflows never append a disabled record.
+If logging fails, report the persistence failure and retain the disabled opt-out.
+
+\`\`\`bash
+${outsideVoiceRuntime(ctx)}
+_DISABLED_REVIEW_MODE=$("${bin}/gstack-config" get codex_reviews 2>/dev/null) || {
+  echo 'Cannot read codex_reviews; disabled outside coverage was not recorded.' >&2
+  exit 1
+}
+if [ "$_DISABLED_REVIEW_MODE" = disabled ]; then
+  "${bin}/gstack-review-log" '{"skill":"${skill}","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"skipped","source":"none","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"disabled","phase":"${phase}","commit":"'"$(git rev-parse --short HEAD 2>/dev/null || true)"'"}'
+fi
+\`\`\``;
+}
+
 export function generateCodexPlanReview(ctx: TemplateContext): string {
 
   return `## Outside Voice — Independent Plan Challenge (default-on)
@@ -615,6 +634,15 @@ review. The user turns this off only by asking explicitly
 **Preflight — decide whether and how the outside voice runs:**
 
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all' })}
+
+**Disabled is a terminal branch for this section.** If the preflight prints
+\`CODEX_MODE: disabled\`, persist \`outside_status: disabled\` with the guarded
+command below, then continue directly to the workflow's required outputs after this section. Do not construct a challenge,
+invoke an outside CLI, dispatch an Agent/Task fallback, or ask about outside findings.
+The native plan review is already complete. A disabled review is an intentional
+opt-out, not a provider failure that needs a replacement reviewer.
+
+${generateDisabledOutsideRecord(ctx, 'codex-plan-review', 'plan-review')}
 
 When the mode is anything except \`disabled\`, print one line so the off-switch
 stays discoverable: "Running the outside voice automatically (standard step). Disable: \`gstack-config set codex_reviews disabled\`."
@@ -658,7 +686,13 @@ ${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (plan review — outside voice)
 - Timeout: "${outsideVoiceFor(ctx).label} timed out after 5 minutes." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
 - Empty response: "${outsideVoiceFor(ctx).label} returned no response." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
 
-**If preflight is unavailable for any reason (or ${outsideVoiceFor(ctx).label} errored at runtime):**
+**Native fallback — provider unavailable or execution failed, with reviews enabled:**
+
+Immediately before dispatching, check the preflight result again. On
+\`CODEX_MODE: disabled\`, finish this section with \`outside_status: disabled\`;
+do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
+authentication/model selection, a failed preflight, or a failed outside invocation.
+The disabled branch never reaches this fallback.
 
 Dispatch via the Agent tool with \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 Bound it the same way as ${outsideVoiceFor(ctx).label}: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -739,6 +773,14 @@ Step 9 doc health summary you already produced) and finish the workflow.
 
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all' })}
 
+**Disabled is a terminal branch for this section.** If the preflight prints
+\`CODEX_MODE: disabled\`, persist \`outside_status: disabled\` with the guarded
+command below, then finish the documentation workflow. Do not construct a review prompt, invoke an outside CLI,
+dispatch an Agent/Task fallback, or ask the apply question below. A disabled review
+is an intentional opt-out, not a provider failure that needs a replacement reviewer.
+
+${generateDisabledOutsideRecord(ctx, 'codex-doc-review', 'documentation')}
+
 When the mode is anything except \`disabled\`, print one line so the off-switch
 stays discoverable: "Running the ${outsideVoiceFor(ctx).label} doc review automatically (standard step). Disable: \`gstack-config set codex_reviews disabled\`."
 
@@ -777,7 +819,13 @@ Present the full output verbatim under \`${outsideVoiceFor(ctx).label.toUpperCas
 
 Provider failures are informational; report the named provider, diagnosis, and missing coverage, then use the native fallback below.
 
-**If preflight is unavailable for any reason (or ${outsideVoiceFor(ctx).label} errored at runtime):**
+**Native fallback — provider unavailable or execution failed, with reviews enabled:**
+
+Immediately before dispatching, check the preflight result again. On
+\`CODEX_MODE: disabled\`, finish this section with \`outside_status: disabled\`;
+do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
+authentication/model selection, a failed preflight, or a failed outside invocation.
+The disabled branch never reaches this fallback.
 
 Dispatch via the Agent tool with the same prompt, passing \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under \`DOCUMENTATION REVIEW (${outsideVoiceFor(ctx).nativeLabel} subagent):\`. If it fails: "Doc review unavailable. Continuing."

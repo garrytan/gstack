@@ -291,6 +291,17 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/skill-fixture.ts', 'test/helpers/outside-voice-fixture.ts', 'test/helpers/outside-voice-evidence.ts', 'test/skill-e2e-outside-voice.test.ts',
   ],
 
+  // Disabled means no extra plan review, including a native Agent fallback.
+  'outside-plan-disabled-no-fallback': [
+    'plan-eng-review/**', 'plan-ceo-review/**', 'hosts/claude.ts', 'hosts/define-host.ts',
+    'scripts/gen-skill-docs.ts', 'scripts/resolvers/index.ts', 'scripts/resolvers/sections.ts',
+    'scripts/resolvers/review.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/constants.ts',
+    'bin/gstack-config', 'bin/gstack-codex-probe', 'bin/gstack-review-log', 'bin/gstack-slug', 'bin/gstack-wtree', 'bin/gstack-brain-enqueue', 'test/helpers/session-runner.ts',
+    'test/helpers/hermetic-env.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/outside-voice-evidence.ts',
+    'test/helpers/disabled-plan-review-fixture.ts', 'test/disabled-plan-review-evidence.test.ts',
+    'test/skill-e2e-outside-plan-disabled.test.ts',
+  ],
+
   // GPT-5.6 Sol scope-termination E2E (Codex CLI, full generated investigate skill)
   'codex-sol-scope-termination': ['model-overlays/gpt-5.6-sol.md', 'scripts/models.ts', 'scripts/resolvers/model-overlay.ts', 'scripts/resolvers/preamble/**', 'investigate/**', 'test/helpers/codex-session-runner.ts', 'test/codex-e2e-sol-scope.test.ts'],
 
@@ -746,6 +757,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'codex-review-findings': 'periodic',
   'outside-voice-codex-to-claude-code': 'periodic',
   'outside-voice-claude-code-to-codex': 'periodic',
+  'outside-plan-disabled-no-fallback': 'periodic',
   'codex-sol-scope-termination': 'periodic',
   'gemini-smoke': 'periodic',
 
