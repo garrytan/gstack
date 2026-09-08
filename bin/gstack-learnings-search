@@ -81,9 +81,7 @@ const scoreTokens = Array.from(new Set(queryTokens));
 function isWordChar(c) {
   // Case-folding identifies letters without a character-class escape: a letter
   // has distinct cases, so accented Latin and Cyrillic count as word characters
-  // and 'caf' stops matching inside 'cafe' with an accent. Scripts without case
-  // (CJK) stay separators, which is what keeps an embedded Latin term findable
-  // in text that has no spaces around it.
+  // and 'caf' stops matching inside 'cafe' with an accent.
   return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
     || c.toLowerCase() !== c.toUpperCase();
 }
@@ -94,6 +92,36 @@ function isWordChar(c) {
 // not flake+y and 'policies' is not policy+ies, so reaching those would take stem
 // rewriting, and adding them as bare suffixes would widen the false-positive
 // surface while matching neither. Irregulars are out of scope for the same reason.
+// #2762: a caseless script (CJK, Thai, Hebrew, Arabic) has no cased letters, so
+// every one of its characters looks like a separator to isWordChar and every
+// substring of it looks like a whole word. That is the opposite of what this
+// function is for, and since relevance sorts ahead of confidence it lets
+// substring noise outrank a trusted row. Segmentation is the only rule that gets
+// both halves right: it refuses a substring of a caseless word AND still splits
+// an embedded Latin term out of text that has no spaces around it. Treating the
+// characters as word characters instead would fix the first and break the second.
+// The character path is kept for the overwhelmingly common all-Latin token, so
+// the segmenter is only built when a query token is itself caseless.
+function isCaseless(s) {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (c.charCodeAt(0) > 127 && c.toLowerCase() === c.toUpperCase()) return true;
+  }
+  return false;
+}
+let segmenter = null;
+const boundaryCache = new Map();
+function wordBoundaries(hay) {
+  let set = boundaryCache.get(hay);
+  if (set) return set;
+  if (!segmenter) segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+  set = new Set([0]);
+  let at = 0;
+  for (const part of segmenter.segment(hay)) { at += part.segment.length; set.add(at); }
+  boundaryCache.set(hay, set);
+  return set;
+}
+
 const INFLECTIONS = ['', 's', 'es', 'd', 'ed', 'ing'];
 // The list above only holds suffixes that attach to an UNMODIFIED base. English
 // has two regular rewrites that change the stem first, and without them most of
@@ -114,6 +142,10 @@ function stemVariants(tok) {
   return out;
 }
 function hasWholeWord(hay, tok) {
+  // A caseless token is boundary-checked by segmentation; everything else keeps
+  // the character test, so a Latin query never pays for the segmenter.
+  const segmented = isCaseless(tok);
+  const bounds = segmented ? wordBoundaries(hay) : null;
   const variants = stemVariants(tok);
   for (let v = 0; v < variants.length; v++) {
     const stem = variants[v];
@@ -123,8 +155,9 @@ function hasWholeWord(hay, tok) {
     const suffixes = v === 0 ? INFLECTIONS : ['ed', 'ing'];
     let i = hay.indexOf(stem);
     while (i !== -1) {
-      const before = i === 0 ? '' : hay.charAt(i - 1);
-      if (!isWordChar(before)) {
+      const startsWord = segmented ? bounds.has(i)
+        : !isWordChar(i === 0 ? '' : hay.charAt(i - 1));
+      if (startsWord) {
         const j = i + stem.length;
         for (const suf of suffixes) {
           // Bare -d is the past tense of an e-final base only. Applied to every
@@ -133,7 +166,11 @@ function hasWholeWord(hay, tok) {
           // actively demotes the right answer instead of costing nothing.
           if (v === 0 && suf === 'd' && stem.charAt(stem.length - 1) !== 'e') continue;
           const k = j + suf.length;
-          if (hay.slice(j, k) === suf && !isWordChar(k >= hay.length ? '' : hay.charAt(k))) return true;
+          if (hay.slice(j, k) === suf) {
+            const endsWord = segmented ? bounds.has(k)
+              : !isWordChar(k >= hay.length ? '' : hay.charAt(k));
+            if (endsWord) return true;
+          }
         }
       }
       i = hay.indexOf(stem, i + 1);

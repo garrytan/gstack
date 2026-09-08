@@ -262,6 +262,17 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       rankEntry({ key: 'edrop-cache-decoy', insight: 'a cachet of unrelated notes', confidence: 10 }),
       rankEntry({ key: 'double-ship-hit', insight: 'shipping the binary took a while', confidence: 2 }),
       rankEntry({ key: 'double-ship-decoy', insight: 'shipment tracking is elsewhere', confidence: 10 }),
+      // Caseless-script probes. Every CJK character looks like a separator to the
+      // character test, so without segmentation a substring of a caseless word
+      // scores as a whole word -- and now outranks confidence. Confidence is
+      // inverted against the asserted order so the pair only sorts this way if
+      // the substring genuinely scored nothing.
+      rankEntry({ key: 'cjk-word', insight: 'バッグの原因を調べた', confidence: 1 }),
+      rankEntry({ key: 'cjk-substring', insight: 'デバッグのログを読む', confidence: 10 }),
+      // ...and the other half of the same tradeoff: a Latin term embedded in text
+      // with no spaces around it must stay findable.
+      rankEntry({ key: 'cjk-latin', insight: 'これはreconcileです', confidence: 1 }),
+      rankEntry({ key: 'cjk-latin-decoy', insight: 'prereconcilement notes', confidence: 10 }),
     ];
     fs.writeFileSync(path.join(rankProjDir, 'learnings.jsonl'), rows.map(e => JSON.stringify(e)).join('\n') + '\n');
   });
@@ -468,6 +479,14 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
   test('a doubling base scores against its -ing form', () => {
     expect(rankedPair(['--query', 'ship'], 'double-ship-hit', 'double-ship-decoy'))
       .toEqual(['double-ship-hit', 'double-ship-decoy']);
+  });
+
+  test('a substring of a caseless word does not score as a whole word', () => {
+    expect(rankedPair(['--query', 'バッグ'], 'cjk-word', 'cjk-substring')).toEqual(['cjk-word', 'cjk-substring']);
+  });
+
+  test('a Latin term embedded in caseless text is still findable', () => {
+    expect(rankedPair(['--query', 'reconcile'], 'cjk-latin', 'cjk-latin-decoy')).toEqual(['cjk-latin', 'cjk-latin-decoy']);
   });
 
   test('bare -d does not invent a hit on a consonant-final token', () => {
