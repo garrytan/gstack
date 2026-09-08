@@ -127,6 +127,18 @@ const DECOY_WORDS = [
   'outline', 'airline', 'lifeline', 'sideline', 'streamline', 'underline',
 ];
 
+// One probe per suffix in INFLECTIONS. `decoy` must contain `tok` as a substring
+// (so the recall filter returns it) while NOT being tok + any listed suffix.
+const SUFFIX_PROBES = [
+  { suffix: 's', tok: 'lepton', inflected: 'leptons', decoy: 'leptonic' },
+  { suffix: 'es', tok: 'helix', inflected: 'helixes', decoy: 'helixware' },
+  // Deliberately a SHORT e-final token: for anything longer the e-drop stem plus
+  // -ed produces the same string, so bare -d is only load-bearing here.
+  { suffix: 'd', tok: 'use', inflected: 'used', decoy: 'useless' },
+  { suffix: 'ed', tok: 'align', inflected: 'aligned', decoy: 'alignment' },
+  { suffix: 'ing', tok: 'scatter', inflected: 'scattering', decoy: 'scattershot' },
+];
+
 function rankEntry(over: Record<string, unknown>): Record<string, unknown> {
   return { ts: '2026-05-01T00:00:00Z', skill: 'test', type: 'pattern', confidence: 8, source: 'user-stated', trusted: false, files: [], ...over };
 }
@@ -273,6 +285,30 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       // with no spaces around it must stay findable.
       rankEntry({ key: 'cjk-latin', insight: 'これはreconcileです', confidence: 1 }),
       rankEntry({ key: 'cjk-latin-decoy', insight: 'prereconcilement notes', confidence: 10 }),
+      // Per-suffix probes. The multi-token inflection fixture asserts order only,
+      // and its row carries all five forms at once -- so dropping one suffix takes
+      // it from 5 hits to 4 and it still leads every 0-hit row it is compared
+      // against. Each suffix therefore needs its own single-token probe, against a
+      // decoy the substring filter RECALLS but that scores nothing, holding the
+      // better confidence so the assertion can only pass if the suffix scored.
+      ...SUFFIX_PROBES.flatMap(pr => [
+        rankEntry({ key: 'sfx-' + pr.suffix + '-hit', insight: 'the ' + pr.inflected + ' were noted', confidence: 2 }),
+        rankEntry({ key: 'sfx-' + pr.suffix + '-decoy', insight: 'only ' + pr.decoy + ' here', confidence: 10 }),
+      ]),
+      // Case folding. Nothing else in this fixture has an uppercase character, so
+      // all four .toLowerCase() sites are otherwise unguarded -- and losing the
+      // query fold removes rows from RECALL, not just from the ranking.
+      rankEntry({ key: 'case-probe', insight: 'The LEDGER step is still done by hand', confidence: 5 }),
+      // Rescan probe: the token appears inside a longer word BEFORE it appears as
+      // a word, so a matcher that stops at the first occurrence scores zero.
+      rankEntry({ key: 'rescan-hit', insight: 'sublattice notes, then the lattice failed', confidence: 1 }),
+      rankEntry({ key: 'rescan-decoy', insight: 'sublattice behaviour only', confidence: 10 }),
+      // The naming tier must actually read `files`.
+      rankEntry({ key: 'files-hit', insight: 'nothing relevant here', confidence: 2, files: ['src/tessera.ts'] }),
+      rankEntry({ key: 'files-decoy', insight: 'tesserae are unrelated', confidence: 10 }),
+      // A digit is a word character, so a token followed by one is not a whole word.
+      rankEntry({ key: 'digit-word', insight: 'the api call failed twice', confidence: 1 }),
+      rankEntry({ key: 'digit-embedded', insight: 'api13 endpoint notes', confidence: 10 }),
     ];
     fs.writeFileSync(path.join(rankProjDir, 'learnings.jsonl'), rows.map(e => JSON.stringify(e)).join('\n') + '\n');
   });
@@ -479,6 +515,30 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
   test('a doubling base scores against its -ing form', () => {
     expect(rankedPair(['--query', 'ship'], 'double-ship-hit', 'double-ship-decoy'))
       .toEqual(['double-ship-hit', 'double-ship-decoy']);
+  });
+
+  for (const pr of SUFFIX_PROBES) {
+    test('the -' + pr.suffix + ' inflection scores on its own (' + pr.tok + ' -> ' + pr.inflected + ')', () => {
+      expect(rankedPair(['--query', pr.tok], 'sfx-' + pr.suffix + '-hit', 'sfx-' + pr.suffix + '-decoy'))
+        .toEqual(['sfx-' + pr.suffix + '-hit', 'sfx-' + pr.suffix + '-decoy']);
+    });
+  }
+
+  // Recall, not ranking: losing the query fold returns nothing at all.
+  test('an uppercase query still matches lowercase content', () => {
+    expect(rankedKeys(['--query', 'LEDGER'])).toEqual(['case-probe']);
+  });
+
+  test('a token embedded before it is used as a word still scores', () => {
+    expect(rankedPair(['--query', 'lattice'], 'rescan-hit', 'rescan-decoy')).toEqual(['rescan-hit', 'rescan-decoy']);
+  });
+
+  test('a file path contributes a naming hit', () => {
+    expect(rankedPair(['--query', 'tessera'], 'files-hit', 'files-decoy')).toEqual(['files-hit', 'files-decoy']);
+  });
+
+  test('a digit is a word character, so a token followed by one is not a whole word', () => {
+    expect(rankedPair(['--query', 'api'], 'digit-word', 'digit-embedded')).toEqual(['digit-word', 'digit-embedded']);
   });
 
   test('a substring of a caseless word does not score as a whole word', () => {
