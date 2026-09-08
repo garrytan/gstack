@@ -10,14 +10,13 @@
 
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
-import { pickDesignCountOutsideVoices } from './helpers/design-count-outside';
+import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   designStep0Boundary,
-  designFirstReviewAUQ,
   assertReviewReportAtBottom,
 } from './helpers/claude-pty-runner';
 
@@ -174,11 +173,12 @@ describeE2E('/plan-design-review per-finding AskUserQuestion count (periodic)', 
           followUpPrompt: planDesign5Findings(planPath),
           expectedPlanPath: planPath,
           isLastStep0AUQ: designStep0Boundary,
-          isFirstReviewAUQ: designFirstReviewAUQ,
+          isFirstReviewAUQ: isDesignCountFirstReview,
+          isCompletionHandoffAUQ: isDesignCompletionHandoff,
           fixtureFiles: { 'DESIGN.md': designSystem },
           // Design's explicit opt-in is separate from codex_reviews. Keep
           // this native-cadence fixture within its declared review scope.
-          pickAUQ: pickDesignCountOutsideVoices,
+          pickAUQ: pickDesignCountQuestion,
           reviewCountCeiling: CEILING + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

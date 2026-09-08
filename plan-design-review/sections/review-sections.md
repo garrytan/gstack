@@ -51,8 +51,11 @@ approved fix to all affected plan references and matching established tokens;
 reference that decision in later passes instead of asking for it again.
 
 Create required review artifacts, such as the journey storyboard, from accepted
-design requirements without asking about their format. Restating an inherited requirement
-(such as an accepted contrast standard) also needs no new design decision. If
+design requirements without asking about their format. Copying an inherited
+requirement unchanged needs no new design decision. Changing a documented
+violation to conform to that requirement is a fix: offer the remedy and obtain
+its first individual approval, even when DESIGN.md prescribes the exact token.
+Until then, keep the gap and proposed remedy pending in the plan. If
 that work exposes a missing design requirement, conflicting requirements, or a new
 tradeoff,
 raise that unresolved issue individually and wait for approval. A gap explicitly
@@ -632,4 +635,3 @@ Use AskUserQuestion to present the next step. Include only applicable options:
 * One sentence max per option.
 * After each pass, pause and wait for feedback.
 * Rate before and after each pass for scannability.
-

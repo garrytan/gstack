@@ -13,18 +13,15 @@ Read {{AUTOPLAN_REVIEW_FILE:plan-ceo-review}} in full. Verify successful Read ra
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
 - All 10 review sections: run fully, auto-decide each issue, log every decision.
 - Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
-  Run {{NATIVE_LABEL}} first, then {{OUTSIDE_LABEL}}, sequentially in foreground;
+  Run {{NATIVE_LABEL}} first, then {{OUTSIDE_LABEL}}, sequentially;
   both must complete before consensus.
 
   **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
   full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
 
   **{{NATIVE_LABEL}} CEO subagent** (via Agent tool):
-  Claude Code Agent argument (other harnesses: native dispatch/wait):
-  ```json
-  { "run_in_background": false }
-  ```
-  Set on the call, not in prompt text.
+  Claude Code: set Agent `run_in_background: false` if its schema exposes it.
+  Other hosts: native dispatch/wait.
 
   "Read the plan file at <review_plan_path>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
@@ -36,7 +33,8 @@ Read {{AUTOPLAN_REVIEW_FILE:plan-ceo-review}} in full. Verify successful Read ra
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
   **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
-  wait for that same agent's result/failure before outside dispatch or parent review.
+  Claude Code: end response; resume only on same-agent terminal notification.
+  Other hosts: await that ID. Then outside → this phase's review ONLY.
   No inline substitute; apply failure policy.
 
   **{{OUTSIDE_LABEL}} CEO voice** (via Bash):
@@ -58,7 +56,7 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 {{OUTSIDE_PROVENANCE:ceo}}
 
-  **Error handling:** Both calls block in foreground. {{OUTSIDE_LABEL}} auth/timeout/empty → proceed with
+  **Error handling:** {{OUTSIDE_LABEL}} auth/timeout/empty → proceed with
   {{NATIVE_LABEL}} subagent only, tagged `[single-model]`. If {{NATIVE_LABEL}} subagent also fails →
   "Outside voices unavailable — continuing with primary review."
 

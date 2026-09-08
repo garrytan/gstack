@@ -1846,10 +1846,19 @@ export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
       /\b\d+\s+files\b/i.test(body) &&
       /\b\d+\+?\s+(?:new\s+)?(?:classes|services)\b/i.test(body) &&
       actions.some(action => /^reduce\s+scope\b/i.test(action));
-    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' || wholePlanScope || countedComplexityGate;
+    // An explicit Step 0 gate may put the whole-plan size in the native
+    // full-scope option instead of repeating it in the question. Keep the
+    // step, whole-plan premise and both numeric dimensions bound together.
+    const explicitStep0Gate = /^step\s*0\s+scope$/i.test(q.header.trim()) &&
+      /^step\s*0\s+scope\s+challenge:\s*(?:this|the)\s+plan\s+triggers\s+(?:the\s+)?complexity\s+gate\b/i.test(body) &&
+      q.options.some((option, i) => /^proceed\s+at\s+full\s+scope\b/i.test(actions[i] ?? '') &&
+        /\b(?:review|implement)\b[^.!?]{0,60}\bas\s+written\b/i.test(option.description ?? '') &&
+        /\b\d+\s+files\b/i.test(option.description ?? '') &&
+        /\b\d+\+?\s+(?:new\s+)?(?:classes|services)\b/i.test(option.description ?? ''));
+    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' || wholePlanScope || countedComplexityGate || explicitStep0Gate;
     return scopeComplexity &&
       actions.some((proceed, i) =>
-        (/^proceed\s+as[- ]is\b/i.test(proceed) || /^accept\b.*\bdesign\b.*\bfocus\b.*\bquality\b/i.test(proceed)) &&
+        (/^proceed\s+(?:as[- ]is|at\s+full\s+scope)\b/i.test(proceed) || /^accept\b.*\bdesign\b.*\bfocus\b.*\bquality\b/i.test(proceed)) &&
         actions.some((reduce, j) => j !== i && /^(?:reduce\b|flag\s+scope\s+reduction\b)/i.test(reduce)));
   });
 };

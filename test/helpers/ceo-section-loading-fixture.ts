@@ -77,17 +77,61 @@ semantics, or adding new product surfaces. The repository interface preserves a
 future replacement path without introducing a general cache framework now.
 `;
 
-/** Recognize the seeded concurrency finding across ordinary report wording. */
+/** Require an unresolved late-fill defect, not a keyword-bearing dismissal. */
 export function hasStaleFillRaceFinding(report: string): boolean {
-  // Ignore quoted source: a copied plan or code sketch is not a finding.
+  // Copied source, diagrams and quoted examples cannot supply a finding.
   const prose = report.replace(/```[\s\S]*?```/g, '').replace(/^\s*>.*$/gm, '');
-  const blocks = prose.split(/\n\s*\n|\n(?=\s*\|)/);
-  return blocks.some((block) => {
-    const text = block.replace(/[*_`]/g, '').replace(/\s+/g, ' ')
-      .replace(/\bno\s+(?:stale|outdated)\b[^.!?]*(?:[.!?]|$)/gi, '');
-    return /\b(?:stale|outdated)\b|\bold(?:er)?\s+(?:value|data|result|version)\b/i.test(text)
-      && /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text)
-      && /\b(?:read|fetch|fill|refill|repopulat|insert|store|set)\w*\b/i.test(text)
-      && /\b(?:invalidat|evict|write|commit)\w*\b/i.test(text);
+  // Independent list items and table rows cannot borrow each other's words.
+  const blocks = prose.split(/\n\s*\n|\n(?=\s*(?:\||\d+\.\s|[-*]\s))/).map(block => block.trim());
+  const normalize = (text: string) => text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+  return blocks.some((block, index) => {
+    const text = normalize(block);
+    const stale = /\b(?:stale|outdated)\b|\bold(?:er)?\s+(?:value|data|result|version|snapshot)\b/i.test(text);
+    const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text);
+    const read = /\b(?:read|fetch)\w*\b/i.test(text);
+    const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
+    const fill = fillPattern.test(text);
+    const invalidation = /\b(?:invalidat|evict|write|commit|delet)\w*\b/i.test(text);
+    const ordering = /\b(?:after|later|resum\w*)\b|out[- ]of[- ]order/i.test(text);
+    if (!stale || !inFlight || !read || !fill || !invalidation || !ordering) return false;
+
+    // A neighboring explanation/remedy belongs to this paragraph only until
+    // another named finding/section/table row begins. In particular, a
+    // following dismissal cannot turn a traced race into positive coverage.
+    const next = blocks[index + 1] ?? '';
+    const independent = /^(?:#{1,6}(?:\s|\d)|\d+\.\s|[-*]\s|\||(?:[*_]+)?(?:Finding\b|Section\s|P[0-3]\b))/i.test(next);
+    const context = text + (independent ? '' : ' ' + normalize(next));
+
+    const finding = /\b(?:P[0-3]|missing|gap|bug|defect|violat\w*|unsafe|incorrect)\b|\bno\s+mention\s+of\s+(?:this|the)\s+race\b/i.test(context);
+    const subsequentRead = /\b(?:next|later|subsequent|new|fresh)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(context);
+    const remedy = context.split(/[.!?]\s+/).some(sentence =>
+      (/\b(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\w*\b/i.test(sentence) &&
+        /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(sentence)) ||
+      /\bper[- ]key\s+(?:epoch|generation|version)\b/i.test(sentence));
+    const claims = context.split(/(?:[.!?]\s+|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i);
+    const violation = claims.some(claim => /\b(?:violat\w*|break\w*)\b[^.!?]*\b(?:contract|guarantee|consistency|rule)\b/i.test(claim)
+      && !/\b(?:not|no|never)\b/i.test(claim));
+    for (const claim of claims) {
+      // "Not permitted" is a violation assertion, not permission. Scope a
+      // permitted old result to its original caller; it cannot justify a
+      // cache fill or a later reader observing that same old version.
+      const allowanceText = claim.replace(/\b(?:not|never)\s+(?:an?\s+)?(?:permitted|allowed|acceptable|accepted)\b/gi, 'forbidden');
+      // An imperative's purpose clause describes the proposed guard's goal,
+      // not a claim that the current implementation already prevents the race.
+      const proposedPrevention = /^(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\b/i.test(claim.trim())
+        && /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(claim)
+        && /\b(?:so(?:\s+that)?|to\s+ensure)\b/i.test(claim);
+      const dismissal = /\b(?:not|isn't)\s+(?:a\s+|an\s+)?(?:gap|bug|defect|issue|violation|problem)\b|\bno\s+(?:gap|bug|defect|issue|violation|race)\b/i.test(claim)
+        || /\b(?:accepted|expected|intentional|documented)\s+(?:invariant|behavior|trade[- ]off|stale[- ]read\s+window)\b|\b(?:allowed|permitted|acceptable)\b/i.test(allowanceText)
+        || (!proposedPrevention && /\b(?:cannot|can't|never|does not|will not)\s+(?:\w+\s+){0,3}(?:refill|repopulate|populate|insert|store|cache|set|violate)\b/i.test(claim))
+        || /\bno\s+(?:fix|change|coordination|guard)\s+(?:is\s+)?(?:needed|required)\b/i.test(claim);
+      if (!dismissal) continue;
+      const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);
+      const onlyEarlierReturn = originalCaller && /\b(?:return|receiv|observ)\w*\b/i.test(claim)
+        && /\b(?:old|earlier|previous)\s+(?:snapshot|value|result|version)\b/i.test(claim)
+        && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
+      if (!(onlyEarlierReturn && subsequentRead && (violation || remedy))) return false;
+    }
+    return finding || subsequentRead || remedy;
   });
 }

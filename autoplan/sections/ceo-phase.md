@@ -15,18 +15,15 @@ Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full. Verify successf
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
 - All 10 review sections: run fully, auto-decide each issue, log every decision.
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run Claude first, then Codex, sequentially in foreground;
+  Run Claude first, then Codex, sequentially;
   both must complete before consensus.
 
   **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
   full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
 
   **Claude CEO subagent** (via Agent tool):
-  Claude Code Agent argument (other harnesses: native dispatch/wait):
-  ```json
-  { "run_in_background": false }
-  ```
-  Set on the call, not in prompt text.
+  Claude Code: set Agent `run_in_background: false` if its schema exposes it.
+  Other hosts: native dispatch/wait.
 
   "Read the plan file at <review_plan_path>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
@@ -38,7 +35,8 @@ Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full. Verify successf
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
   **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
-  wait for that same agent's result/failure before outside dispatch or parent review.
+  Claude Code: end response; resume only on same-agent terminal notification.
+  Other hosts: await that ID. Then outside → this phase's review ONLY.
   No inline substitute; apply failure policy.
 
   **Codex CEO voice** (via Bash):
@@ -99,7 +97,7 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (ceo), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-  **Error handling:** Both calls block in foreground. Codex auth/timeout/empty → proceed with
+  **Error handling:** Codex auth/timeout/empty → proceed with
   Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
   "Outside voices unavailable — continuing with primary review."
 

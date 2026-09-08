@@ -9,12 +9,9 @@ Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` in full. Verify successf
   **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
   full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
 
-  **Claude eng subagent** (native tool, foreground):
-  Claude Code Agent argument (other harnesses: native dispatch/wait):
-  ```json
-  { "run_in_background": false }
-  ```
-  Set on the call, not in prompt text.
+  **Claude eng subagent** (native tool):
+  Claude Code: set Agent `run_in_background: false` if its schema exposes it.
+  Other hosts: native dispatch/wait.
 
   "Read the plan file at <review_plan_path>. You are an independent senior engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
@@ -27,7 +24,8 @@ Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` in full. Verify successf
   NO prior-phase context — subagent must be truly independent.
 
   **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
-  wait for that same agent's result/failure before outside dispatch or parent review.
+  Claude Code: end response; resume only on same-agent terminal notification.
+  Other hosts: await that ID. Then outside → this phase's review ONLY.
   No inline substitute; apply failure policy.
 
   **Codex eng voice** (via Bash):
@@ -90,7 +88,7 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (eng), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"eng"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-  Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
+  Error handling: Phase 1 failure/degradation policy applies.
 
 - Architecture choices: explicit over clever (P5). If Codex disagrees with valid reason → TASTE DECISION. Scope changes both models agree on → USER CHALLENGE.
 - Evals: always include all relevant suites (P1)

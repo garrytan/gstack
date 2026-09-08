@@ -6,6 +6,7 @@ import { capturePlanCountQuestion, ceoStep0Boundary, hasNativePlanTerminal, nati
 import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captures from './fixtures/ceo-completion-handoff-calls.json';
+import currentHandoffs from './fixtures/ceo-completion-handoff-j-calls.json';
 
 type CapturedCall = typeof captures.cases[number]['calls'][number];
 function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativePlanQuestionCall {
@@ -381,6 +382,58 @@ describe('completed CEO next-review declaration and final report order', () => {
       expect(hasNativePlanTerminal(transcript, file, startedAt, 'plan_ready', admin)).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+
+describe('captured CEO next-step prefixes and immediate review menus', () => {
+  test('next-step prefixes and a CLEAN declaration still identify only the completed handoff', () => {
+    for (const scenario of currentHandoffs.cases) {
+      const call = structuredClone(scenario.nativeCall) as NativePlanQuestionCall;
+      const before = structuredClone(call);
+      expect(replay([call])).toMatchObject({ reviewCount: 0, administrativeCount: 1, step0Count: 0 });
+      expect(call).toEqual(before);
+    }
+  });
+
+  test('the bound pending menu selects the offered manual action in either order', () => {
+    for (const scenario of currentHandoffs.cases) for (const reverse of [false, true]) {
+      const call = structuredClone(scenario.nativeCall) as NativePlanQuestionCall;
+      call.answered = false; delete call.answers; delete call.unansweredQuestionIndices;
+      if (reverse) call.questions[0]!.options.reverse();
+      const q = call.questions[0]!;
+      const active = `☐ ${q.header}\n${q.question}\n❯ 1. ${q.options[0]!.label}\n  2. ${q.options[1]!.label}\nEnter to select · ↑/↓ to navigate · Esc to cancel`;
+      const bound = capturePlanCountQuestion(active, new Set(), 0, false, call)!;
+      expect(bound.nativeCall?.toolUseId).toBe(call.toolUseId);
+      expect(pickCeoCompletionHandoff(fingerprint(call), bound)).toBe(reverse ? 1 : 2);
+      expect(isCeoCompletionHandoff(bound)).toBe(false);
+      const uiOnly = capturePlanCountQuestion(active, new Set(), 0, false)!;
+      expect(pickCeoCompletionHandoff(uiOnly)).toBeNull();
+    }
+  });
+
+  test('conditional completion, substantive actions, and mismatched identities still cannot authorize a handoff', () => {
+    for (const scenario of currentHandoffs.cases) for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = 'Next steps: If the CEO review is complete, should we run the next review? Eng review is the required shipping gate.'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = 'Next steps: The CEO review is not complete. Eng review is the required shipping gate.'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = 'Next steps: CEO review is CLEAN only after fixing this security gap. Eng review is the required shipping gate.'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'Security finding'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.label += ' and implement the fixes'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options.push({ label: 'Add missing retry coverage to TODOS.md' }); },
+    ]) {
+      const call = structuredClone(scenario.nativeCall) as NativePlanQuestionCall;
+      mutate(call);
+      call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+      expect(replay([call]).reviewCount).toBe(1);
+      call.answered = false; delete call.answers;
+      expect(pickCeoCompletionHandoff(fingerprint(call))).toBeNull();
+    }
+    for (const scenario of currentHandoffs.cases) {
+      const call = structuredClone(scenario.nativeCall) as NativePlanQuestionCall;
+      call.answered = false;
+      expect(pickCeoCompletionHandoff({ ...fingerprint(call), signature: 'other-session:other-call' })).toBeNull();
     }
   });
 });

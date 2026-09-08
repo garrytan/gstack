@@ -504,6 +504,11 @@ every gap, explain why it matters, recommend a concrete fix, and get a decision
 on each unresolved issue before editing the plan. An obvious fix still needs its
 own decision; DESIGN.md supplies the recommendation, not the user's approval.
 
+When creating the initial plan artifact, copy existing requirements and record
+unapproved gaps as pending. A gap-to-token mapping is a proposed fix, not a
+completed decision. Do not write those fixes into accepted implementation tasks
+or raise their scores before their individual approvals.
+
 Do NOT make any code changes. Do NOT start implementation. Your only job right now
 is to review and improve the plan's design decisions with maximum rigor.
 

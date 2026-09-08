@@ -624,15 +624,15 @@ preference." The user still decides, but the framing is appropriately urgent.
 ## Sequential Execution — MANDATORY
 
 Phases MUST execute in strict order: CEO → Design (if UI scope) → DX (if
-developer-facing scope) → Eng. Eng runs LAST, always: it is the required
-shipping gate, so it must review the FINAL amended plan — every other phase's
-amendments land before it. Each phase MUST complete fully before the next
-begins. NEVER run phases in parallel — each builds on the previous.
+developer-facing scope) → Eng. Eng runs LAST, always, reviewing all prior amendments.
+Keep ONE phase active: load its phase instructions and full skill/sections; consume
+native and enabled outside results; do its full primary review; persist outputs
+and amendments; emit an actual assistant completion; only then load the next phase.
+Never draft future-phase reviews or outputs. Headings/promises are not completion.
 
-End each phase by verifying all required writes and reviewer outcomes, then emit
-its completion announcement as an actual assistant message before the next phase.
-Plan headings and promises are not announcements. Missing outside coverage does
-not block native completion; report its status accurately.
+Pending is not unavailable. Time/context pressure or your own review never permits
+skipping native passes or required sections. Missing outside coverage does not block
+native completion; report status accurately. Never read raw agent transcripts.
 
 ---
 

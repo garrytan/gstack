@@ -109,10 +109,12 @@ This section traces data through the system and interactions through the UI with
 For each node: what happens on each shadow path? Is it tested?
 
 **Async ordering:** At each suspension point (`await`, callback, or job handoff),
-trace an adversarial interleaving with another operation before resuming. Which
-assumptions still hold? A single-threaded event loop and atomic individual calls
-do not make the whole flow atomic. For an ordering guarantee, specify a test
-that pauses and releases operations at those boundaries, not only sequential calls.
+trace another operation running before resumption. Follow shared-state effects
+through the next consumer, not just the original caller's return. Compare each
+result with the exact caller/time boundary of the stated invariant; cite the
+clause before calling an exception accepted. Bounded damage does not establish a
+stricter guarantee. Single-threaded execution and atomic calls do not make the
+whole flow atomic. Test the interleaving with controlled pause/release points.
 
 **Interaction Edge Cases:** For every new user-visible interaction, evaluate:
 ```
@@ -176,6 +178,12 @@ For each item in the diagram:
 * What is the happy path test?
 * What is the failure path test? (Be specific — which failure?)
 * What is the edge case test? (nil, empty, boundary values, concurrent access)
+
+For each behavior, name its observable assertion and a wrong result it must reject.
+Helper coverage alone does not prove the caller's path. Deferring assertion syntax
+does not waive a missing behavioral check. Raise each independent missing check
+under the per-issue rule below; do not invent one when equivalent caller coverage
+exists or the user explicitly accepted that particular risk.
 
 Test ambition check (all modes): For each new feature, answer:
 * What's the test that would make you confident shipping at 2am on a Friday?

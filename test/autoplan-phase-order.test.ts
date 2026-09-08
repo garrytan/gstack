@@ -88,23 +88,38 @@ describe('autoplan phase execution checkpoints', () => {
   });
 
   for (const phase of phases) {
-    test(`${phase} places explicit foreground dispatch and its completion barrier before the outside invocation`, () => {
+    test(`${phase} places schema-aware dispatch and the actual completion wait before outside review`, () => {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
       const native = section.indexOf(`**{{NATIVE_LABEL}} ${phase === 'design' ? 'design' : phase === 'dx' ? 'DX' : phase === 'ceo' ? 'CEO' : 'eng'} subagent**`);
       const outside = section.indexOf('{{OUTSIDE_INVOCATION:autoplan}}');
       expect(native).toBeGreaterThan(-1);
       expect(native).toBeLessThan(outside);
       const dispatch = section.slice(native, outside);
-      expect(dispatch).toContain('"run_in_background": false');
+      expect(dispatch).toContain('run_in_background: false');
+      expect(dispatch).toContain('if its schema exposes it');
       expect(dispatch).toContain('isAsync: true');
-      expect(dispatch).toContain('wait for that same agent');
-      expect(dispatch).toContain('before outside dispatch or parent review');
+      expect(dispatch).toContain('Claude Code: end response; resume only on same-agent terminal notification');
+      expect(dispatch).toContain('Other hosts: await that ID');
+      expect(dispatch).toContain("Then outside → this phase's review ONLY");
+      expect(dispatch).toContain('No inline substitute; apply failure policy');
       // Provider preflight, timeout and native fallback remain at every call.
       expect(section).toContain('Outer tool timeout: 720000ms');
       expect(section).toContain('Disabled skips the outside invocation; it retains the native pass.');
       expect(section).toContain(`{{OUTSIDE_PROVENANCE:${phase}}}`);
     });
   }
+
+  test('the parent completes only the current phase and cannot waive native work for context pressure', () => {
+    const contract = tmpl.split('## Sequential Execution')[1]?.split('---')[0] ?? '';
+    expect(contract).toContain('Keep ONE phase active');
+    expect(contract).toContain('Never draft future-phase reviews or outputs');
+    expect(contract).toContain('load its phase instructions and full skill/sections');
+    expect(contract).toContain('consume\nnative and enabled outside results; do its full primary review; persist outputs');
+    expect(contract).toContain('emit an actual assistant completion; only then load the next phase');
+    expect(contract).toContain('Pending is not unavailable');
+    expect(contract).toContain('Time/context pressure or your own review never permits\nskipping native passes or required sections');
+    expect(contract).toContain('Never read raw agent transcripts');
+  });
 
   test('each completed phase announces only after persisted full outputs and settled reviewers', () => {
     for (const [phase, number] of [['ceo', '1'], ['design', '2'], ['dx', '2.5'], ['eng', '3']]) {

@@ -3188,3 +3188,343 @@ describe('explicit whole-plan scope complexity premise', () => {
     }
   });
 });
+
+
+describe('explicit Step 0 complexity gate with size in native choices', () => {
+  const calls = [
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01UbyixE6kojrR1enUcpg1bT",
+    "questions": [
+      {
+        "question": "D1 — Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>",
+        "header": "Routing setup",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add routing rules (recommended)"
+          },
+          {
+            "label": "Skip — invoke manually"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 — Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>": "Add routing rules (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:51:39.918Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01JswH5HdmeQvdAGx8P6tApN",
+    "questions": [
+      {
+        "question": "D2 — Should gstack search learnings from your other projects on this machine? <gstack-qid:cross-project-learnings>",
+        "header": "Learnings scope",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Enable cross-project learnings (recommended)"
+          },
+          {
+            "label": "Keep learnings project-scoped"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 — Should gstack search learnings from your other projects on this machine? <gstack-qid:cross-project-learnings>": "Enable cross-project learnings (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:51:59.954Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01Hqr5i8DN2iukjCGmj1DQro",
+    "questions": [
+      {
+        "question": "D3 — Step 0 Scope Challenge: This plan triggers the complexity gate. Proceed at full scope or reduce? <gstack-qid:plan-eng-step0-complexity>",
+        "header": "Step 0 scope",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Proceed at full scope (recommended)",
+            "description": "Review and implement as written: 4 new classes (TokenStore, SessionMint, AuthCache, RequestPolicy) across 12 files in one pass. The plan already self-flags this as a scope smell, and the reviewer will dig into the specific overbuilt pieces in the Architecture section.",
+            "preview": "Scope: 4 classes, 12 files, 2 new services\nRisk: larger blast radius; harder to roll back\nENG REVIEW will call out any specific over-abstractions"
+          },
+          {
+            "label": "Reduce to two phases",
+            "description": "Split into Phase 1 (core auth services: AuthBroker + SessionMint with direct adapter calls) and Phase 2 (TokenStore + RequestPolicy as follow-up). AuthCache facade may be mergeable into the existing adapter. Smaller blast radius, easier review. (human: +1 day planning / CC: ~10 min)",
+            "preview": "Phase 1: AuthBroker + SessionMint (core flow)\nPhase 2: TokenStore + RequestPolicy\nRisk: sequencing overhead; Phase 2 may stall"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 — Step 0 Scope Challenge: This plan triggers the complexity gate. Proceed at full scope or reduce? <gstack-qid:plan-eng-step0-complexity>": "Proceed at full scope (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:52:54.081Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01LT7ctyJNE1UqyTvLdQkULD",
+    "questions": [
+      {
+        "question": "D4 — Architecture A1: Global mutable AuthCache shared via module-level export, no mutation serialization. How should this be fixed? <gstack-qid:plan-eng-arch-global-cache>",
+        "header": "Arch: global cache",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Inject AuthCache as constructor dependency (recommended)"
+          },
+          {
+            "label": "Keep global export, add write serialization"
+          },
+          {
+            "label": "Accept as-is — verify adapter serializes internally"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 — Architecture A1: Global mutable AuthCache shared via module-level export, no mutation serialization. How should this be fixed? <gstack-qid:plan-eng-arch-global-cache>": "Inject AuthCache as constructor dependency (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:53:50.210Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01LTXTWs6w4qhdo7FVRXFKdZ",
+    "questions": [
+      {
+        "question": "D5 — Architecture A2: Cache adapter failure posture is unstated. What should happen when the cache adapter is unavailable? <gstack-qid:plan-eng-arch-cache-failure>",
+        "header": "Arch: cache failmode",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fail closed (recommended) — state this explicitly in the plan"
+          },
+          {
+            "label": "Fail open with logging — state this explicitly in the plan"
+          },
+          {
+            "label": "Accept as-is — inherited from existing adapter"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — Architecture A2: Cache adapter failure posture is unstated. What should happen when the cache adapter is unavailable? <gstack-qid:plan-eng-arch-cache-failure>": "Fail closed (recommended) — state this explicitly in the plan"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:54:24.301Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01MCM7KMWBJyKPBeD5D5xQXE",
+    "questions": [
+      {
+        "question": "D6 — Code Quality Q1: validateAndDispatch() — 60 lines, 3 nested try/catch blocks each swallowing a different error class. How do you want to address this? <gstack-qid:plan-eng-cq-validate-dispatch>",
+        "header": "CQ: swallowed errors",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Refactor — split function + typed error returns (recommended)"
+          },
+          {
+            "label": "Keep structure, convert to catch-and-log"
+          },
+          {
+            "label": "Defer — leave for follow-up PR"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 — Code Quality Q1: validateAndDispatch() — 60 lines, 3 nested try/catch blocks each swallowing a different error class. How do you want to address this? <gstack-qid:plan-eng-cq-validate-dispatch>": "Refactor — split function + typed error returns (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:55:06.409Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01THi9A5uG6H6YGD4FQgL6vJ",
+    "questions": [
+      {
+        "question": "D7 — Tests T1: The plan says success/error paths will be covered, but doesn't include a test for the fail-closed cache behavior (cache adapter unavailable → auth rejected). Add it? <gstack-qid:plan-eng-test-fail-closed>",
+        "header": "Tests: fail-closed",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add explicit fail-closed test (recommended)"
+          },
+          {
+            "label": "Note as TODO — rely on adapter's existing coverage"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 — Tests T1: The plan says success/error paths will be covered, but doesn't include a test for the fail-closed cache behavior (cache adapter unavailable → auth rejected). Add it? <gstack-qid:plan-eng-test-fail-closed>": "Add explicit fail-closed test (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:56:50.701Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01379PhfvZ4iX43gReT87gob",
+    "questions": [
+      {
+        "question": "D8 — Tests T2: Concurrent mint + revoke for the same tenant has no planned test. AuthBroker and SessionMint both write to the shared AuthCache instance. Add a concurrency test? <gstack-qid:plan-eng-test-concurrent>",
+        "header": "Tests: concurrency",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add concurrent access test (recommended)"
+          },
+          {
+            "label": "Defer — note in TODOS.md"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 — Tests T2: Concurrent mint + revoke for the same tenant has no planned test. AuthBroker and SessionMint both write to the shared AuthCache instance. Add a concurrency test? <gstack-qid:plan-eng-test-concurrent>": "Add concurrent access test (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:57:14.766Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_0112YwENaKQsigFNvBDmZiUa",
+    "questions": [
+      {
+        "question": "D9 — Performance P1: 5 sequential IDP calls during token validation — the plan identifies this as trivially parallelizable. Address it in this PR? <gstack-qid:plan-eng-perf-idp-calls>",
+        "header": "Perf: IDP calls",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Parallelize in this PR with Promise.all (recommended)"
+          },
+          {
+            "label": "Defer to a follow-up PR"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D9 — Performance P1: 5 sequential IDP calls during token validation — the plan identifies this as trivially parallelizable. Address it in this PR? <gstack-qid:plan-eng-perf-idp-calls>": "Parallelize in this PR with Promise.all (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:57:34.827Z"
+  },
+  {
+    "sessionId": "bb1c2502-5944-4872-aab4-0cc8a34296b2",
+    "toolUseId": "toolu_01YFVEdfATVrYA8LbWUmzN72",
+    "questions": [
+      {
+        "question": "D10 — TODO: Add p99 latency metric for IDP calls before/after Promise.all parallelization. Add to TODOS.md? <gstack-qid:plan-eng-todo-idp-metrics>",
+        "header": "TODO: IDP metrics",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md (recommended)"
+          },
+          {
+            "label": "Skip — not valuable enough"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D10 — TODO: Add p99 latency metric for IDP calls before/after Promise.all parallelization. Add to TODOS.md? <gstack-qid:plan-eng-todo-idp-metrics>": "Add to TODOS.md (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-08T21:58:35.032Z"
+  }
+];
+  const scopeCall = () => structuredClone(calls[2]!);
+
+  test('captured sequence keeps three setup calls and all seven substantive decisions', () => {
+    let started = false;
+    const phases = calls.map(call => {
+      const phase = planCountQuestionPhase(nativePlanCallFingerprint(call, 0, !started),
+        started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+      started = phase.reviewStarted;
+      return phase;
+    });
+    expect(phases.map(phase => phase.preReview)).toEqual([true, true, true, false, false, false, false, false, false, false]);
+    expect(phases.filter(phase => !phase.preReview)).toHaveLength(7);
+    expect(calls.at(-1)!.questions[0]!.header).toBe('TODO: IDP metrics');
+  });
+
+  test('native offered-answer binding does not depend on model qid or option order', () => {
+    for (const reverse of [false, true]) {
+      const call = scopeCall();
+      const question = call.questions[0]!;
+      question.question = question.question.replace('plan-eng-step0-complexity', 'different-model-id');
+      if (reverse) question.options.reverse();
+      call.answers = { [question.question]: question.options[0]!.label };
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(true);
+    }
+  });
+
+  test('component findings, TODOs and incomplete scope evidence remain review decisions', () => {
+    for (const mutate of [
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.header = 'Architecture finding'; },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.header = 'TODO: scope'; },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.question = call.questions[0]!.question.replace('This plan triggers the complexity gate', 'This cache triggers the complexity gate'); },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.question = call.questions[0]!.question.replace('Step 0 Scope Challenge:', 'Architecture issue:'); },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.options[0]!.description = 'Inspect 12 files for a cache race.'; },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.options[0]!.description = 'Implement as written: 4 new classes for token validation.'; },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.options[0]!.label = 'Proceed with a cache lock'; },
+      (call: ReturnType<typeof scopeCall>) => { call.questions[0]!.options[1]!.label = 'Investigate cache failures'; },
+    ]) {
+      const call = scopeCall();
+      mutate(call);
+      call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+    }
+  });
+
+  test('pending, failed, unoffered and mixed answered packets cannot be discarded as setup', () => {
+    for (const mutate of [
+      (call: ReturnType<typeof scopeCall>) => { call.answered = false; },
+      (call: ReturnType<typeof scopeCall>) => { call.failed = true; },
+      (call: ReturnType<typeof scopeCall>) => { call.answers = {}; },
+      (call: ReturnType<typeof scopeCall>) => { call.answers = { [call.questions[0]!.question]: 'Add a new cache repair' }; },
+      (call: ReturnType<typeof scopeCall>) => {
+        const finding = structuredClone(calls[3]!);
+        call.questions.push(finding.questions[0]!);
+        Object.assign(call.answers, finding.answers);
+      },
+    ]) {
+      const call = scopeCall();
+      mutate(call);
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+    }
+  });
+});
