@@ -211,8 +211,12 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       rankEntry({ key: 'nested-whole-word-match', insight: 'form a root cause hypothesis first', confidence: 2 }),
       // Key-verbosity probes. The verbose key carries four query tokens; its
       // content carries none. The plain key carries none; its content carries one.
-      rankEntry({ key: 'kappa-lambda-sigma-omega-verbose-key', insight: 'unrelated content', confidence: 4 }),
-      rankEntry({ key: 'plain-key', insight: 'kappa appears here', confidence: 10 }),
+      // Confidences are deliberately INVERTED against the asserted order: the
+      // verbose key is the confident row, so ranking on confidence alone -- the
+      // pre-#2762 behaviour -- puts it first and the test fails. With the previous
+      // favourable confidence the assertion passed with no scoring at all.
+      rankEntry({ key: 'kappa-lambda-sigma-omega-verbose-key', insight: 'unrelated content', confidence: 10 }),
+      rankEntry({ key: 'plain-key', insight: 'kappa appears here', confidence: 4 }),
       // Naming-tier probes: identical insight relevance (both score 1 on "sigma"),
       // so the key/file tier has to break the tie -- and it must beat confidence.
       rankEntry({ key: 'tau-rho-xi-named', insight: 'tau noted', confidence: 2 }),
@@ -398,8 +402,16 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
   // the underscore-namespace strip rather than a list of known fields.
   test('a stored internal field cannot hijack the no-query preamble ranking', () => {
     const ranked = rankedKeys(['--limit', '3']);
+    // Anchored positively. Two negative assertions are both satisfied by an empty
+    // result, and 'the binary printed nothing at exit 0' is this script's most
+    // common failure mode -- so a negative-only guard cannot tell 'the poison row
+    // lost' from 'nothing came back'. This is the SOLE guard on the underscore
+    // strip for the no-query path gstack-skill-start runs every session, and the
+    // comment at the top of this file rejects exactly this shape. The no-query
+    // order is fully determined by confidence then recency, so the page is
+    // assertable.
+    expect(ranked).toHaveLength(3);
     expect(ranked).not.toContain('planted-token-hits');
-    expect(ranked[0]).not.toBe('planted-token-hits');
   });
 
   // Relevance counts whole words, not substrings. Under /investigate's shipped
@@ -560,7 +572,14 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
 // `2>/dev/null || exit 0`, which converts the throw into empty stdout at exit 0 --
 // indistinguishable from "this project has no learnings". Ranking is what makes it
 // reachable: it promotes the malformed row past the --limit cut that used to hide it.
-describe('gstack-learnings-search malformed row containment', () => {
+// Scope of this block, stated so the name does not promise more than it covers:
+// it pins ONLY the case where a row's `type` names a property every object
+// inherits. gstack-learnings-log rejects all five of those on write, so they
+// arrive by hand-edit, an older writer, another tool, or a foreign store. Row
+// shapes the supported writer ACCEPTS that also blank the store -- a non-array
+// `files`, a non-string `insight` or `key` -- throw inside the query filter, are
+// byte-identical on the merge-base, and are NOT covered here.
+describe('gstack-learnings-search inherited-property type containment', () => {
   const POISON_TYPES = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'];
 
   beforeAll(() => {
