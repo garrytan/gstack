@@ -17,6 +17,7 @@
 
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
+import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -153,6 +154,8 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           followUpPrompt: planCeo5Findings(planPath),
           isLastStep0AUQ: ceoStep0Boundary,
           isFirstReviewAUQ: ceoFirstReviewAUQ,
+          isCompletionHandoffAUQ: isCeoCompletionHandoff,
+          pickAUQ: pickCeoCompletionHandoff,
           reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
           firstAUQPick: pickSkipInterview, // bypass scope-selection, route to review
           timeoutMs: 1_500_000, // 25 min
@@ -180,7 +183,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
               `Likely batching regression — agent collapsed multiple findings into fewer questions.\n` +
               `Fingerprints (review-phase only):\n` +
               obs.fingerprints
-                .filter((f) => !f.preReview)
+                .filter((f) => !f.preReview && !f.administrative)
                 .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
                 .join('\n'),
           );
@@ -237,6 +240,8 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           followUpPrompt: planCeo2PairedFindings(planPath),
           isLastStep0AUQ: ceoStep0Boundary,
           isFirstReviewAUQ: ceoFirstReviewAUQ,
+          isCompletionHandoffAUQ: isCeoCompletionHandoff,
+          pickAUQ: pickCeoCompletionHandoff,
           reviewCountCeiling: CEILING_PAIRED + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
@@ -255,7 +260,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
               `Two deliberately related findings were batched into <2 questions — the rule failed under D12.\n` +
               `Review-phase fingerprints:\n` +
               obs.fingerprints
-                .filter((f) => !f.preReview)
+                .filter((f) => !f.preReview && !f.administrative)
                 .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
                 .join('\n'),
           );

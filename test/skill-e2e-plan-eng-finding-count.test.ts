@@ -16,6 +16,8 @@ import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   engStep0Boundary,
+  engSetupAUQ,
+  engFirstReviewAUQ,
   assertReviewReportAtBottom,
 } from './helpers/claude-pty-runner';
 
@@ -82,6 +84,8 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
           slashCommand: '/plan-eng-review',
           followUpPrompt: planEng5Findings(planPath),
           isLastStep0AUQ: engStep0Boundary,
+          isSetupAUQ: engSetupAUQ,
+          isFirstReviewAUQ: engFirstReviewAUQ,
           reviewCountCeiling: CEILING + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

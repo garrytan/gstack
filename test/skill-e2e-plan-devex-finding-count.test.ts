@@ -48,6 +48,7 @@ describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', (
           skillName: 'plan-devex-review',
           slashCommand: '/plan-devex-review',
           followUpPrompt: planDevexCountFixture(planPath),
+          expectedPlanPath: planPath,
           fixtureFiles: DEVEX_COUNT_FILES,
           isLastStep0AUQ: devexStep0Boundary,
           isReviewAUQ: isDevexReviewIssue,

@@ -47,6 +47,8 @@ import {
   assertReviewReportAtBottom,
   ceoStep0Boundary,
   engStep0Boundary,
+  engSetupAUQ,
+  engFirstReviewAUQ,
   designStep0Boundary,
   designFirstReviewAUQ,
   planCountQuestionPhase,
@@ -1693,13 +1695,34 @@ describe('Step0BoundaryPredicate per-skill', () => {
     test('keeps D3 as setup and counts each following actual review call', () => {
       let started = false;
       const phases = captured.map((_, i) => {
-        const phase = planCountQuestionPhase(fingerprint(i), started, engStep0Boundary);
+        const phase = planCountQuestionPhase(fingerprint(i), started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
         started = phase.reviewStarted;
         return phase;
       });
       expect(phases.slice(0, 3).map(p => p.preReview)).toEqual([true, true, true]);
       expect(phases[2].reviewStarted).toBe(true);
       expect(phases.slice(3).map(p => p.preReview)).toEqual([false, false, false, false, false]);
+    });
+
+    test('the captured no-qid scope decision stays setup after Learnings scope', () => {
+      let started = false;
+      const phases = [0, 2, 1, 3, 4, 5, 6, 7].map(i => {
+        const phase = planCountQuestionPhase(fingerprint(i), started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+        started = phase.reviewStarted;
+        return phase;
+      });
+      expect(phases.slice(0, 3).map(p => p.preReview)).toEqual([true, true, true]);
+      expect(phases.slice(3).map(p => p.preReview)).toEqual([false, false, false, false, false]);
+      const call = structuredClone(fingerprint(1).nativeCall!);
+      call.questions[0].header = 'Scope complexity';
+      call.questions[0].options.reverse();
+      call.answers = { [call.questions[0].question]: call.questions[0].options[0].label };
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(true);
+      // Even with opposed scope labels, an ordinary per-issue finding lacks
+      // the captured whole-plan classes/files identity.
+      call.questions[0].question = 'How should we reduce shared mutable cache complexity?';
+      call.answers = { [call.questions[0].question]: call.questions[0].options[0].label };
+      expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
     });
 
     test('uses the native opposed scope choices without depending on a prompt suffix', () => {
@@ -1913,7 +1936,6 @@ describe('Step0BoundaryPredicate per-skill', () => {
       unansweredScope.nativeCall!.answers = { 'Separate answered setup question': 'Continue' };
       expect(engStep0Boundary(unansweredScope)).toBe(false);
       for (const alter of [
-        (q: any) => { q.header = 'Architecture'; },
         (q: any) => { q.question = q.question.replace('plan-eng-scope-complexity', 'plan-eng-cache-complexity'); },
         (q: any) => { q.options = [{ label: 'Change cache size' }, { label: 'Keep cache size' }]; },
       ]) {
@@ -2106,5 +2128,263 @@ describe('file permission lifecycle replay', () => {
       'Enter to select · ↑/↓ to navigate · Esc to cancel';
     expect(guard(first + question)).toBeNull();
     expect(capturePlanCountQuestion(first + question, new Set(), 0, true)?.promptSnippet).toContain('File policy');
+  });
+});
+
+
+describe('native Eng setup ordering (captured F)', () => {
+  // Exact native question stems and choice labels: two setup calls followed
+  // by five real findings. Descriptions do not establish phase identity.
+  const rows = [
+  {
+    "header": "Learnings scope",
+    "question": "D1 \u2014 Should gstack search learnings from your other projects on this machine? <gstack-qid:cross-project-learnings>",
+    "options": [
+      "Enable cross-project (Recommended)",
+      "Project-scoped only"
+    ],
+    "answer": "Enable cross-project (Recommended)"
+  },
+  {
+    "header": "Scope complexity",
+    "question": "D2 \u2014 The plan introduces 4 new classes across 12 files. That's above the complexity threshold (>2 classes / >8 files). Should we reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-complexity>",
+    "options": [
+      "Reduce: merge to 2 classes (Recommended)",
+      "Proceed as-is \u2014 4 classes, 12 files",
+      "Reduce further: 1 new class only"
+    ],
+    "answer": "Reduce: merge to 2 classes (Recommended)"
+  },
+  {
+    "header": "Arch: shared state",
+    "question": "D3 \u2014 Architecture Issue 1: AuthCache is a global mutable singleton exported at module level; both AuthBroker and (previously) SessionMint mutate it. This creates concurrent-mutation risk across tenant requests and makes the services untestable in isolation. <gstack-qid:plan-eng-arch-global-cache>",
+    "options": [
+      "Inject AuthCache via constructor (Recommended)",
+      "Keep global, add locking",
+      "Proceed as-is"
+    ],
+    "answer": "Inject AuthCache via constructor (Recommended)"
+  },
+  {
+    "header": "Code quality",
+    "question": "D4 \u2014 Code Quality Issue 1: validateAndDispatch() is 60 lines with three nested try/catch blocks, each swallowing a different error class. Swallowed errors mean callers can't distinguish an IDP timeout from a policy rejection from a token parse failure \u2014 all three silently return the same result. <gstack-qid:plan-eng-quality-error-handling>",
+    "options": [
+      "Extract + typed error union (Recommended)",
+      "Add logging to each catch, keep structure",
+      "Proceed as-is"
+    ],
+    "answer": "Extract + typed error union (Recommended)"
+  },
+  {
+    "header": "Test: regression",
+    "question": "D5 \u2014 Test Issue 1 (IRON RULE): legacyAuthFlow() is being rewritten with no regression test for its prior behavior. The plan explicitly says coverage 'does not exercise legacyAuthFlow() or assert compatibility with its prior behavior.' A rewrite without a behavioral snapshot means any regression is invisible until production. <gstack-qid:plan-eng-test-legacy-regression>",
+    "options": [
+      "Add characterization tests before rewrite (Recommended)",
+      "Document expected behavior, manual verify",
+      "Skip regression coverage"
+    ],
+    "answer": "Add characterization tests before rewrite (Recommended)"
+  },
+  {
+    "header": "Test: isolation",
+    "question": "D6 \u2014 Test Issue 2: The plan says 'unit and integration coverage is planned for success/error paths' but makes no mention of cross-tenant isolation tests. The AuthCache key includes tenant ID, issuer, audience, and policy version \u2014 a key-construction bug would let Tenant A read Tenant B's cached tokens. This is the highest-severity failure mode in a multi-tenant auth system. <gstack-qid:plan-eng-test-tenant-isolation>",
+    "options": [
+      "Add explicit cross-tenant isolation tests (Recommended)",
+      "Cover via integration tests only",
+      "Proceed with existing test plan"
+    ],
+    "answer": "Add explicit cross-tenant isolation tests (Recommended)"
+  },
+  {
+    "header": "Perf: IDP calls",
+    "question": "D7 \u2014 Performance Issue 1: Token validation makes 5 sequential API calls to the IDP. The plan itself notes they are independent and could be parallelized via Promise.all 'trivially.' Sequential calls add latency proportional to IDP round-trip time x5 on every auth request. At p99 IDP latency of 100ms, that's 500ms of unnecessary serialization per login. <gstack-qid:plan-eng-perf-parallel-idp>",
+    "options": [
+      "Parallelize with Promise.all in this PR (Recommended)",
+      "Defer to follow-up ticket",
+      "Defer with in-code TODO comment"
+    ],
+    "answer": "Parallelize with Promise.all in this PR (Recommended)"
+  }
+];
+  const fingerprint = (index: number): AskUserQuestionFingerprint => {
+    const row = rows[index]!;
+    return nativePlanCallFingerprint({
+      sessionId: 'captured-f-eng', toolUseId: `f-${index}`, answered: true, failed: false,
+      questions: [{ header: row.header, question: row.question, options: row.options.map(label => ({ label })) }],
+      answers: { [row.question]: row.answer },
+    }, index, true);
+  };
+  const phasesFor = (indices: number[]) => {
+    let started = false;
+    return indices.map(index => {
+      const phase = planCountQuestionPhase(fingerprint(index), started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+      started = phase.reviewStarted;
+      return phase;
+    });
+  };
+
+  test('both setup orders exclude setup and include the first of five actual findings', () => {
+    for (const order of [[0, 1], [1, 0]]) {
+      const phases = phasesFor([...order, 2, 3, 4, 5, 6]);
+      expect(phases.slice(0, 2).map(p => p.preReview)).toEqual([true, true]);
+      expect(phases[1]!.reviewStarted).toBe(true);
+      expect(phases[2]!.preReview).toBe(false);
+      expect(phases.filter(p => !p.preReview)).toHaveLength(5);
+    }
+  });
+
+  test('setup IDs plus opposed answered choices survive header and question-body variants', () => {
+    for (const index of [0, 1]) {
+      const original = fingerprint(index).nativeCall!;
+      const id = index === 0 ? 'cross-project-learnings' : 'plan-eng-scope-complexity';
+      for (const header of ['Learnings scope', 'Scope complexity', 'Architecture', '']) {
+        const call = structuredClone(original);
+        const q = call.questions[0]!;
+        q.header = header;
+        q.question = `Choose the setup scope. <gstack-qid:${id}>`;
+        q.options.reverse();
+        call.answers = { [q.question]: q.options[0]!.label };
+        const fp = nativePlanCallFingerprint(call, 0, true);
+        expect(engSetupAUQ(fp)).toBe(true);
+        expect(engStep0Boundary(fp)).toBe(true);
+      }
+    }
+  });
+
+  test('repeated setup does not become a finding after the boundary opens', () => {
+    const phases = phasesFor([0, 0, 1, 1, 2, 3, 4, 5, 6]);
+    expect(phases.slice(0, 4).every(p => p.preReview)).toBe(true);
+    expect(phases.filter(p => !p.preReview)).toHaveLength(5);
+  });
+
+  test('only successful answered setup metadata can exclude a call', () => {
+    for (const index of [0, 1]) {
+      const fp = fingerprint(index);
+      expect(engSetupAUQ({ ...fp, nativeCall: undefined })).toBe(false);
+      for (const alter of [
+        (call: any) => { call.answered = false; },
+        (call: any) => { call.failed = true; },
+        (call: any) => { call.answers = {}; },
+        (call: any) => { call.questions[0].question = 'Review cache isolation. <gstack-qid:plan-eng-cache-complexity>'; },
+        (call: any) => { call.questions[0].options = [{ label: 'Apply fix' }, { label: 'Defer finding' }]; },
+        (call: any) => { call.questions[0].options = [{ label: 'Enable cross-project with project-scoped storage; proceed as-is or reduce' }, { label: 'Discuss' }]; },
+      ]) {
+        const call = structuredClone(fp.nativeCall!);
+        alter(call);
+        // Keep a successful answer after question/option mutations, so those
+        // controls exercise identity/actions rather than an absent answer key.
+        if (Object.keys(call.answers ?? {}).length) {
+          call.answers = { [call.questions[0].question]: call.questions[0].options[0].label };
+        }
+        expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+      }
+    }
+  });
+
+  test('an answered sibling cannot turn an unanswered setup tab or mixed finding packet into setup', () => {
+    const call = structuredClone(fingerprint(0).nativeCall!);
+    const issue = fingerprint(2).nativeCall!.questions[0]!;
+    call.questions.push(issue);
+    call.answers = { [issue.question]: issue.options[0]!.label };
+    expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, false))).toBe(false);
+    call.answers[call.questions[0]!.question] = call.questions[0]!.options[0]!.label;
+    const fp = nativePlanCallFingerprint(call, 0, false);
+    expect(engSetupAUQ(fp)).toBe(false);
+    expect(planCountQuestionPhase(fp, true, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ).preReview).toBe(false);
+  });
+
+  test('the optional predicate leaves other callers and substantive Eng qids unchanged', () => {
+    const fp = fingerprint(2);
+    expect(engSetupAUQ(fp)).toBe(false);
+    expect(planCountQuestionPhase(fp, true, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ).preReview).toBe(false);
+    // Historical boundary detection can also fire on actual review qids;
+    // those must never be reused as the late-setup exclusion predicate.
+    fp.promptSnippet += ' <gstack-qid:plan-eng-review-global-cache>';
+    expect(engStep0Boundary(fp)).toBe(true);
+    expect(planCountQuestionPhase(fp, true, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ).preReview).toBe(false);
+    const setup = fingerprint(0);
+    expect(planCountQuestionPhase(setup, true, engStep0Boundary).preReview).toBe(false);
+  });
+});
+
+
+describe('native Eng first packet and registry identities', () => {
+  const scope = {
+    header: 'Scope complexity',
+    question: 'D1 — Choose the whole-plan scope. <gstack-qid:plan-eng-review-scope-reduce>',
+    options: [{ label: 'Reduce: merge two classes (Recommended)' }, { label: 'Proceed as-is: four classes' }],
+  };
+  const finding = {
+    header: 'Arch: shared state',
+    question: 'D3 — Architecture Issue 1: AuthCache is a global mutable singleton exported at module level. <gstack-qid:plan-eng-arch-global-cache>',
+    options: [{ label: 'Inject an owned cache' }, { label: 'Keep the global cache' }],
+  };
+  const callWith = (questions: typeof scope[], answers: Record<string, string>) => ({
+    sessionId: 'eng-first-packet', toolUseId: 'mixed-call', answered: true, failed: false,
+    questions, answers,
+  });
+  const phase = (call: ReturnType<typeof callWith>) => planCountQuestionPhase(
+    nativePlanCallFingerprint(call, 0, true), false, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ,
+  );
+
+  test('registry setup qids stay setup and require opposed scope actions', () => {
+    const call = callWith([scope], { [scope.question]: scope.options[0]!.label });
+    const fp = nativePlanCallFingerprint(call, 0, true);
+    expect(engSetupAUQ(fp)).toBe(true);
+    expect(engFirstReviewAUQ(fp)).toBe(false);
+    expect(phase(call)).toEqual({ preReview: true, reviewStarted: true });
+    call.questions = [{ ...scope, options: [{ label: 'Change cache size' }, { label: 'Keep cache size' }] }];
+    call.answers = { [scope.question]: 'Change cache size' };
+    expect(engSetupAUQ(nativePlanCallFingerprint(call, 0, true))).toBe(false);
+    const learnings = {
+      header: 'Learnings scope', question: 'Choose local learning scope. <gstack-qid:preamble-cross-project-learnings>',
+      options: [{ label: 'Enable cross-project learnings' }, { label: 'Keep project-scoped only' }],
+    };
+    expect(engSetupAUQ(nativePlanCallFingerprint(callWith([learnings], {
+      [learnings.question]: learnings.options[0]!.label,
+    }), 0, true))).toBe(true);
+  });
+
+  test('a first packet with answered setup and a real finding counts as one review call', () => {
+    const call = callWith([scope, finding], {
+      [scope.question]: scope.options[0]!.label,
+      [finding.question]: finding.options[0]!.label,
+    });
+    expect(phase(call)).toEqual({ preReview: false, reviewStarted: true });
+    // The packet is one call even with two answered tabs; the reader/counter
+    // dedups the unchanged session/tool-use ID rather than counting each tab.
+    expect(nativePlanCallFingerprint(call, 0, true).signature).toBe('eng-first-packet:mixed-call');
+    for (const questions of [[scope, finding], [finding, scope]]) {
+      expect(phase({ ...call, questions }).preReview).toBe(false);
+    }
+  });
+
+  test('an unanswered or failed finding cannot start review from a setup packet', () => {
+    const call = callWith([scope, finding], { [scope.question]: scope.options[0]!.label });
+    expect(phase(call)).toEqual({ preReview: true, reviewStarted: true });
+    call.answers = { [finding.question]: finding.options[0]!.label };
+    expect(phase(call).preReview).toBe(false);
+    for (const invalid of [{ ...call, answered: false }, { ...call, failed: true }, { ...call, answers: {} }]) {
+      expect(engFirstReviewAUQ(nativePlanCallFingerprint(invalid, 0, true))).toBe(false);
+    }
+  });
+
+  test('only positive substantive native question identity starts review', () => {
+    for (const qid of ['plan-eng-review-scope-reduce', 'plan-eng-scope-complexity', 'cross-project-learnings', 'plan-eng-review-next-steps']) {
+      const q = { ...finding, question: finding.question.replace('plan-eng-arch-global-cache', qid) };
+      expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([q], { [q.question]: q.options[0]!.label }), 0, true))).toBe(false);
+    }
+    for (const qid of ['plan-eng-review-arch-finding', 'plan-eng-review-test-gap']) {
+      const q = { ...finding, question: finding.question.replace('plan-eng-arch-global-cache', qid) };
+      expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([q], { [q.question]: q.options[0]!.label }), 0, true))).toBe(true);
+    }
+    for (const qid of ['plan-eng-arch-focus', 'plan-eng-test-focus', 'plan-eng-quality-mode', 'plan-eng-perf-next-steps']) {
+      const q = { ...finding, header: 'Review setup', question: `Choose which issue to review first. <gstack-qid:${qid}>` };
+      expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([q], { [q.question]: q.options[0]!.label }), 0, true))).toBe(false);
+    }
+    const testScope = { ...finding, header: 'Test scope', question: 'D3 — Test Issue: no coverage of the rewritten legacy flow is specified. <gstack-qid:plan-eng-test-scope>' };
+    expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([testScope], { [testScope.question]: testScope.options[0]!.label }), 0, true))).toBe(true);
+    const q = { ...finding, header: 'Architecture', question: 'Choose a review focus. <gstack-qid:plan-eng-review-arch-finding>' };
+    expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([q], { [q.question]: q.options[0]!.label }), 0, true))).toBe(false);
   });
 });

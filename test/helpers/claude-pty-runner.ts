@@ -1059,9 +1059,11 @@ export interface AskUserQuestionFingerprint {
   options: Array<{ index: number; label: string }>;
   /** Wall-clock when first observed (ms since the helper started polling). */
   observedAtMs: number;
-  /** True if observed BEFORE the Step-0 boundary fired. */
+  /** True for setup classification; completed administrative handoffs are false plus their marker. */
   preReview: boolean;
-  /** Lossless source metadata for counted calls; UI-only fingerprints omit it. */
+  /** A completed handoff is preserved but adds neither setup nor finding coverage. */
+  administrative?: 'completion-handoff';
+  /** Lossless source metadata for observed calls; UI-only fingerprints omit it. */
   nativeCall?: NativePlanQuestionCall;
 }
 
@@ -1093,15 +1095,20 @@ export type Step0BoundaryPredicate = (
   answeredFingerprint: AskUserQuestionFingerprint,
 ) => boolean;
 
-/** A first finding starts review immediately; a final setup question does not count as a finding. */
+/** First findings start review immediately; recognized setup stays setup even when its order varies. */
 export function planCountQuestionPhase(
   fp: AskUserQuestionFingerprint,
   reviewStarted: boolean,
   isLastStep0AUQ: Step0BoundaryPredicate,
   isFirstReviewAUQ?: Step0BoundaryPredicate,
-): { preReview: boolean; reviewStarted: boolean } {
+  isSetupAUQ?: Step0BoundaryPredicate,
+  isCompletionHandoffAUQ?: Step0BoundaryPredicate,
+): { preReview: boolean; reviewStarted: boolean; administrative?: 'completion-handoff' } {
+  // A completion menu cannot start review or satisfy a finding floor, even
+  // if its summary mentions defects that a first-finding predicate recognizes.
+  if (isCompletionHandoffAUQ?.(fp)) return { preReview: false, reviewStarted, administrative: 'completion-handoff' };
   const inReview = reviewStarted || Boolean(isFirstReviewAUQ?.(fp));
-  return { preReview: !inReview, reviewStarted: inReview || isLastStep0AUQ(fp) };
+  return { preReview: Boolean(isSetupAUQ?.(fp)) || !inReview, reviewStarted: inReview || isLastStep0AUQ(fp) };
 }
 
 /**
@@ -1425,6 +1432,71 @@ export function assertReviewReportAtBottom(
 }
 
 /**
+ * A final native completion can replace a lost terminal heading, but never
+ * an unanswered question, an old report, or a quoted completion example.
+ * The expected path is supplied by the caller, not extracted for filesystem
+ * access from model output. This does not add any question-count coverage.
+ */
+export function hasNativePlanCompletion(
+  transcript: PlanCountTranscript,
+  expectedPlanPath: string,
+  startedAt: number,
+): boolean {
+  if (transcript.status !== 'ready' || !path.isAbsolute(expectedPlanPath) ||
+      !transcript.calls.length || transcript.calls.some(c => !c.answered || c.failed) ||
+      !transcript.assistantMessages.length) return false;
+  const sessions = new Set([...transcript.calls.map(c => c.sessionId),
+    ...transcript.assistantMessages.map(m => m.sessionId)]);
+  if (sessions.size !== 1) return false;
+  const messages = [...transcript.assistantMessages].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const final = messages.at(-1)!;
+  const finishedAt = Date.parse(final.timestamp);
+  const answerTimes = transcript.calls.map(c => Date.parse(c.answeredAt ?? ''));
+  if (!Number.isFinite(finishedAt) || !answerTimes.every(t => Number.isFinite(t) && t < finishedAt)) return false;
+  const text = final.text.trim();
+  // Actual native prose, not ANSI aliases: the final announcement must say
+  // the review is complete and identify the exact caller-owned deliverable.
+  if (!/^(?:DX|Design|Eng(?:ineering)?|CEO) review complete[.!](?:\s|$)/i.test(text)) return false;
+  const lastLine = text.split('\n').at(-1)!.trim();
+  if (lastLine !== `Plan written to: \`${expectedPlanPath}\`` &&
+      lastLine !== `Plan written to: ${expectedPlanPath}`) return false;
+  const prose = text.replace(/```[\s\S]*?```|`[^`]*`/g, '');
+  if (/\?|\b(?:awaiting|waiting for|please (?:choose|answer|confirm))\b/i.test(prose)) return false;
+  try {
+    const stat = fs.lstatSync(expectedPlanPath);
+    if (!stat.isFile() || stat.size > 2 * 1024 * 1024 ||
+        stat.mtimeMs < Math.max(startedAt, ...answerTimes) || stat.mtimeMs > finishedAt) return false;
+    // A template/example inside Markdown code is not the completed report.
+    // Fences open with 3+ identical backticks or tildes, indented at most
+    // three spaces. A close uses the same marker, at least the opening
+    // length, and only horizontal whitespace after it.
+    const reportLines: string[] = [];
+    let fence: { marker: string; length: number } | undefined;
+    for (const line of fs.readFileSync(expectedPlanPath, 'utf8').split(/\r?\n/)) {
+      if (fence) {
+        const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+        if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.length) fence = undefined;
+        continue;
+      }
+      const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      // Backticks are forbidden in a backtick fence's info string.
+      if (open && (open[1]![0] !== '`' || !open[2]!.includes('`'))) {
+        fence = { marker: open[1]![0]!, length: open[1]!.length };
+        continue;
+      }
+      reportLines.push(line);
+    }
+    if (fence) return false;
+    const content = reportLines.join('\n');
+    if (!assertReviewReportAtBottom(content).ok) return false;
+    const report = content.slice(content.indexOf('## GSTACK REVIEW REPORT'));
+    // Reject a provisional heading; retain both clean and issues-open reports.
+    return /^\|[^\n]*Review[^\n]*\|/m.test(report) &&
+      /^(?:\*\*)?VERDICT:/m.test(report) && /(?:NO )?UNRESOLVED DECISIONS/.test(report);
+  } catch { return false; }
+}
+
+/**
  * Test helper: if `obs.planFile` was set, read it and assert
  * `## GSTACK REVIEW REPORT` is the last `## ` section. Throws on
  * violation with a diagnostic message including the plan path,
@@ -1501,23 +1573,49 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
       /\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title);
   }) ?? false;
 
+/** Native setup identity comes from answered question IDs/actions, not display wording. */
+export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
+  const call = fp.nativeCall;
+  if (!call?.answered || call.failed) return false;
+  const answered = call.questions.filter(q => Boolean(call.answers?.[q.question]));
+  // A mixed packet containing an answered finding is not wholly setup.
+  return answered.length > 0 && answered.every(q => {
+    const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1]?.toLowerCase();
+    const crossProject = id === 'cross-project-learnings' || id === 'preamble-cross-project-learnings' ||
+      (!id && /^cross[- ]project$/i.test(q.header.trim()));
+    if (crossProject) {
+      return q.options.some((enabled, i) => /^enable\s+cross[- ]project\b/i.test(enabled.label.trim()) &&
+        q.options.some((scoped, j) => j !== i && /\bproject[- ]scoped\b/i.test(scoped.label)));
+    }
+    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' ||
+      // Older native captures omitted qids. Require whole-plan class/file scope
+      // and its opposed scope actions, never an individual implementation issue.
+      (!id && /\bplan\b/i.test(q.question) && /\bclasses\b/i.test(q.question) && /\bfiles\b/i.test(q.question));
+    return scopeComplexity &&
+      q.options.some((proceed, i) =>
+        (/^proceed\s+as[- ]is\b/i.test(proceed.label.trim()) || /^accept\b.*\bdesign\b.*\bfocus\b.*\bquality\b/i.test(proceed.label.trim())) &&
+        q.options.some((reduce, j) => j !== i && /^(?:reduce\b|flag\s+scope\s+reduction\b)/i.test(reduce.label.trim())));
+  });
+};
+
+/** An answered substantive finding can start review even in a mixed setup packet. */
+export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
+  const call = fp.nativeCall;
+  if (!call?.answered || call.failed) return false;
+  return call.questions.some(q => {
+    if (!call.answers?.[q.question]) return false;
+    // These are review section identities, including the registry's
+    // arch-finding/test-gap IDs. Scope and onboarding IDs cannot qualify.
+    const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1] ?? '';
+    if (/^plan-eng-(?:review-)?(?:arch(?:itecture)?|quality|test|perf(?:ormance)?)-(?:focus|mode|setup|routing|learnings|prerequisite|onboarding|next-steps?)(?:-|$)/i.test(id)) return false;
+    const title = `${q.header} ${q.question.split('\n')[0]}`.replace(/<gstack-qid:[^>]*>/gi, '');
+    return /^plan-eng-(?:review-)?(?:arch(?:itecture)?|quality|test|perf(?:ormance)?)-/i.test(id) &&
+      /\b(?:issue|finding|gap)\b/i.test(title);
+  });
+};
+
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
-  // Native onboarding identifies this choice by its header and opposed
-  // scopes; the question body can paraphrase "cross-project learnings".
-  // An answered sibling tab cannot close setup for this unanswered choice.
-  (fp.nativeCall?.answered === true && !fp.nativeCall.failed && fp.nativeCall.questions.some(q =>
-    Boolean(fp.nativeCall?.answers?.[q.question]) && /^cross[- ]project$/i.test(q.header.trim()) &&
-    q.options.some((enabled, i) => /^enable\s+cross[- ]project\b/i.test(enabled.label.trim()) &&
-      q.options.some((scoped, j) => j !== i && /\bproject[- ]scoped\b/i.test(scoped.label))))) ||
-  // The native complexity gate can say "Reduce scope or proceed as-is"
-  // without the historical "scope reduction recommendation" wording.
-  // It closes setup only once that exact scope question has an answer.
-  (fp.nativeCall?.answered === true && fp.nativeCall.questions.some(q =>
-    Boolean(fp.nativeCall?.answers?.[q.question]) && /^scope$/i.test(q.header.trim()) &&
-    /<gstack-qid:\s*plan-eng-scope-complexity\s*>/i.test(q.question) &&
-    /\bcomplexity\s+check\b/i.test(q.question) &&
-    q.options.some(o => /^proceed\s+as[- ]is\b/i.test(o.label)) &&
-    q.options.some(o => /^reduce\b/i.test(o.label)))) ||
+  engSetupAUQ(fp) ||
   /scope\s*reduction\s*recommendation|cross[\s-]*project\s*learnings/i.test(
     fp.promptSnippet,
   ) ||
@@ -2193,7 +2291,7 @@ export async function runPlanSkillObservation(opts: {
 
 /**
  * Result of a `runPlanSkillCounting` run. Includes both the count summary
- * (`step0Count`, `reviewCount`) and the full fingerprint list for diagnostic
+ * (`step0Count`, `reviewCount`, `administrativeCount`) and the full fingerprint list for diagnostic
  * dumps when an assertion fails.
  */
 export interface PlanSkillCountObservation {
@@ -2217,10 +2315,12 @@ export interface PlanSkillCountObservation {
   fingerprints: AskUserQuestionFingerprint[];
   /** Actual native calls, including unanswered/failed ones that add no coverage. */
   transcript: PlanCountTranscript;
-  /** Count of fingerprints with `preReview === true`. */
+  /** Setup questions; administrative completion handoffs are excluded. */
   step0Count: number;
-  /** Count of fingerprints with `preReview === false`. */
+  /** Review questions; administrative completion handoffs are excluded. */
   reviewCount: number;
+  /** Answered administrative completion handoffs, preserved separately. */
+  administrativeCount: number;
 }
 
 /**
@@ -2249,7 +2349,7 @@ export interface PlanSkillCountObservation {
  *        prerequisite by label so a different skill does not rewrite the
  *        seeded plan before this review begins.
  *      - After the native answer, evaluate `isLastStep0AUQ(fingerprint)`. If true,
- *        all subsequent AUQs are review-phase.
+ *        subsequent AUQs are review-phase unless the caller positively identifies native setup.
  *      - Hard ceiling: if `reviewCount >= reviewCountCeiling`, return
  *        `ceiling_reached`. This bounds runaway counts; tests should set
  *        the ceiling above their assertion CEILING.
@@ -2278,10 +2378,19 @@ export async function runPlanSkillCounting(opts: {
   isLastStep0AUQ: Step0BoundaryPredicate;
   /** Optional positive identity for a first finding when no final setup AUQ was emitted. */
   isFirstReviewAUQ?: Step0BoundaryPredicate;
+  /** Optional native setup classifier; late/reordered setup must not become a finding. */
+  isSetupAUQ?: Step0BoundaryPredicate;
+  /** Optional native completed-review handoff identity, excluded from both count bands. */
+  isCompletionHandoffAUQ?: Step0BoundaryPredicate;
   /** Optional issue classifier across phases; receives full native call metadata. */
   isReviewAUQ?: (fp: AskUserQuestionFingerprint) => boolean;
-  /** Narrow caller-specific selection; null retains the normal answer policy. */
-  pickAUQ?: (fp: AskUserQuestionFingerprint) => number | null;
+  /** Narrow caller-specific selection; null retains the normal answer policy.
+   * The first argument retains full pending metadata for existing callers.
+   * Native-bound selection uses activeCapture, whose metadata is present only
+   * when capturePlanCountQuestion matched the currently visible native question. */
+  pickAUQ?: (fp: AskUserQuestionFingerprint, activeCapture: AskUserQuestionFingerprint) => number | null;
+  /** Opt-in native completion fallback, validated against this caller-owned report path. */
+  expectedPlanPath?: string;
   /** Additional versioned files available in the isolated fixture before the skill starts. */
   fixtureFiles?: Record<string, string>;
   /** Hard cap on review-phase count; helper returns when reached. Should be
@@ -2338,6 +2447,7 @@ export async function runPlanSkillCounting(opts: {
   let boundaryFired = false;
   let step0Count = 0;
   let reviewCount = 0;
+  let administrativeCount = 0;
   let isFirstAUQ = true;
   const saveSnapshot = createPlanCountSnapshotWriter();
   let lastCheckpointAt = Date.now();
@@ -2367,6 +2477,7 @@ export async function runPlanSkillCounting(opts: {
       transcript,
       step0Count,
       reviewCount,
+      administrativeCount,
     };
     const artifacts = capture(observation);
     Object.assign(observation, artifacts);
@@ -2394,13 +2505,19 @@ export async function runPlanSkillCounting(opts: {
         const signature = `${call.sessionId}:${call.toolUseId}`;
         if (!call.answered || countedCalls.has(signature)) continue;
         const fp = nativePlanCallFingerprint(call, Date.now() - startedAt, !boundaryFired);
-        const phase = planCountQuestionPhase(fp, boundaryFired, opts.isLastStep0AUQ, opts.isFirstReviewAUQ);
-        fp.preReview = opts.isReviewAUQ ? !opts.isReviewAUQ(fp) : phase.preReview;
+        const phase = planCountQuestionPhase(fp, boundaryFired, opts.isLastStep0AUQ, opts.isFirstReviewAUQ, opts.isSetupAUQ, opts.isCompletionHandoffAUQ);
+        if (phase.administrative) {
+          fp.preReview = false;
+          fp.administrative = phase.administrative;
+          administrativeCount += 1;
+        } else {
+          fp.preReview = opts.isReviewAUQ ? !opts.isReviewAUQ(fp) : phase.preReview;
+          if (fp.preReview) step0Count += 1;
+          else reviewCount += 1;
+        }
         fp.promptSnippet = fp.promptSnippet.replace(/\s+/g, ' ').slice(0, 240);
         fingerprints.push(fp);
         countedCalls.add(signature);
-        if (fp.preReview) step0Count += 1;
-        else reviewCount += 1;
         boundaryFired = phase.reviewStarted;
       }
       if (reviewCount >= opts.reviewCountCeiling) {
@@ -2414,7 +2531,7 @@ export async function runPlanSkillCounting(opts: {
       if (Date.now() - lastCheckpointAt >= 30_000) {
         lastCheckpointAt = Date.now();
         const saved = capture({ state: 'in_progress', elapsedMs: Date.now() - startedAt,
-          fingerprints, step0Count, reviewCount, transcript });
+          fingerprints, step0Count, reviewCount, administrativeCount, transcript });
         if (saved.artifactError) console.error(`PTY artifact write failed: ${saved.artifactError}`);
       }
 
@@ -2493,6 +2610,11 @@ export async function runPlanSkillCounting(opts: {
         );
       }
 
+      if (opts.expectedPlanPath && hasNativePlanCompletion(transcript, opts.expectedPlanPath, startedAt)) {
+        return snapshot('completion_summary',
+          `native review completion and final report verified (step0=${step0Count}, review=${reviewCount})`, visible);
+      }
+
       // A dismissed or repainted permission is never a native question.
       if (permission === 'handled') continue;
 
@@ -2507,7 +2629,9 @@ export async function runPlanSkillCounting(opts: {
       const prerequisitePick = planCountPrerequisitePick(routing);
       // Native tool records may flush only after the answer. Let a guarded
       // caller recognize that visible menu, but never override a known packet.
-      const callerPick = !pending || pending.questions.length === 1 ? opts.pickAUQ?.(routing) ?? null : null;
+      // The captured fingerprint alone proves whether native metadata matched
+      // this active UI; an unrelated pending record is not a routing identity.
+      const callerPick = !pending || pending.questions.length === 1 ? opts.pickAUQ?.(routing, fp) ?? null : null;
       const pickIdx = prerequisitePick ?? callerPick ??
         (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(routing) : defaultPick);
       isFirstAUQ = false;

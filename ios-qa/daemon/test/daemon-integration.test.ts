@@ -24,7 +24,7 @@ const STATE_SERVER_TOKEN = 'rotated-mock-token-XXXXXXXX';
 
 // Stub iOS StateServer running on loopback. Mimics the real Swift server's
 // behavior for the integration test.
-function startStubStateServer(): Promise<{ server: Server; port: number; receivedRequests: Array<{ method: string; path: string; headers: Record<string, string | string[] | undefined>; body: string }> }> {
+function startStubStateServer(opts: { onUnauthorized?: (reply: () => void) => void } = {}): Promise<{ server: Server; port: number; receivedRequests: Array<{ method: string; path: string; headers: Record<string, string | string[] | undefined>; body: string }> }> {
   return new Promise((resolve) => {
     const received: Array<{ method: string; path: string; headers: Record<string, string | string[] | undefined>; body: string }> = [];
     const server = createServer((req, res) => {
@@ -37,8 +37,12 @@ function startStubStateServer(): Promise<{ server: Server; port: number; receive
         const auth = req.headers['authorization'];
         // Validate the bearer is our rotated token.
         if (!auth || auth !== `Bearer ${STATE_SERVER_TOKEN}`) {
-          res.writeHead(401, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unauthorized' }));
+          const reply = () => {
+            res.writeHead(401, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized' }));
+          };
+          if (opts.onUnauthorized) opts.onUnauthorized(reply);
+          else reply();
           return;
         }
 
@@ -296,49 +300,69 @@ describe('daemon — loopback listener', () => {
     let releaseRefresh!: () => void;
     const refreshStarted = new Promise<void>((resolve) => { markRefreshStarted = resolve; });
     const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    // Hold the actual 401 responses until all three stale attempts arrive.
+    // Otherwise a later request can correctly join the refresh without ever
+    // using the expired token, so elapsed time cannot establish concurrency.
+    let markFirstStale!: () => void;
+    let markAllStale!: () => void;
+    const firstStale = new Promise<void>((resolve) => { markFirstStale = resolve; });
+    const allStale = new Promise<void>((resolve) => { markAllStale = resolve; });
+    const staleReplies: Array<() => void> = [];
+    const releaseStale = () => { for (const reply of staleReplies.splice(0)) reply(); };
+    const relaunchStub = await startStubStateServer({
+      onUnauthorized: (reply) => {
+        staleReplies.push(reply);
+        if (staleReplies.length === 1) markFirstStale();
+        if (staleReplies.length === 3) markAllStale();
+      },
+    });
     const staleTunnel: DeviceTunnel = {
       udid: 'STUB-UDID',
       ipv6Addr: '127.0.0.1',
-      port: stub.port,
+      port: relaunchStub.port,
       bootTokenRotated: 'expired-after-relaunch',
     };
     const refreshedTunnel: DeviceTunnel = {
       ...staleTunnel,
       bootTokenRotated: STATE_SERVER_TOKEN,
     };
-    const d = await startDaemon({
-      loopbackPort: 0,
-      tailnetEnabled: false,
-      pidfilePath: join(workDir, 'daemon-relaunch-refresh.pid'),
-      tunnelProvider: async () => {
-        bootstraps++;
-        if (bootstraps === 1) return staleTunnel;
-        if (bootstraps === 2) {
-          markRefreshStarted();
-          await refreshGate;
-          return refreshedTunnel;
-        }
-        throw new Error('concurrent 401s caused duplicate bootstraps');
-      },
-    });
-    if ('error' in d) throw new Error(d.error);
-
-    const requestStart = stub.receivedRequests.length;
+    let d: RunningDaemon | undefined;
     try {
+      const started = await startDaemon({
+        loopbackPort: 0,
+        tailnetEnabled: false,
+        pidfilePath: join(workDir, 'daemon-relaunch-refresh.pid'),
+        tunnelProvider: async () => {
+          bootstraps++;
+          if (bootstraps === 1) return staleTunnel;
+          if (bootstraps === 2) {
+            markRefreshStarted();
+            await refreshGate;
+            return refreshedTunnel;
+          }
+          throw new Error('concurrent 401s caused duplicate bootstraps');
+        },
+      });
+      if ('error' in started) throw new Error(started.error);
+      d = started;
       const base = `http://127.0.0.1:${d.loopbackPort}`;
+      const first = fetchWith('GET', `${base}/screenshot`);
+      await firstStale;
       const requests = [
-        fetchWith('GET', `${base}/screenshot`),
+        first,
         fetchWith('GET', `${base}/screenshot`),
         fetchWith('GET', `${base}/screenshot`),
       ];
+      await allStale;
+      expect(bootstraps).toBe(1);
+      releaseStale();
       await refreshStarted;
-      await new Promise((resolve) => setTimeout(resolve, 25));
       expect(bootstraps).toBe(2);
       releaseRefresh();
 
       const responses = await Promise.all(requests);
       expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
-      const attempts = stub.receivedRequests.slice(requestStart);
+      const attempts = relaunchStub.receivedRequests;
       expect(attempts.filter((request) => request.headers.authorization === 'Bearer expired-after-relaunch')).toHaveLength(3);
       expect(attempts.filter((request) => request.headers.authorization === `Bearer ${STATE_SERVER_TOKEN}`)).toHaveLength(3);
 
@@ -346,8 +370,10 @@ describe('daemon — loopback listener', () => {
       expect(healthyReuse.status).toBe(200);
       expect(bootstraps).toBe(2);
     } finally {
+      releaseStale();
       releaseRefresh();
-      await d.close();
+      try { await d?.close(); }
+      finally { await new Promise<void>((resolve, reject) => relaunchStub.server.close((error) => error ? reject(error) : resolve())); }
     }
   });
 
