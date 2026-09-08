@@ -143,6 +143,13 @@ function rankedKeys(args: string[]): string[] {
     .map(m => m[1]);
 }
 
+// Assert on the relative order of exactly two keys. Filtering keeps the assertion
+// robust to unrelated rows the substring filter also recalls, while still failing
+// on absence: a missing key shortens the array and toEqual rejects it.
+function rankedPair(args: string[], first: string, second: string): string[] {
+  return rankedKeys(args).filter(k => k === first || k === second);
+}
+
 function runRank(args: string[]): string {
   return execFileSync('bash', [BIN, ...args], {
     timeout: 30_000,
@@ -240,6 +247,12 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       rankEntry({ key: 'current-one-hit', insight: 'quasar alone here', confidence: 10 }),
       rankEntry({ key: 'decayed-tied-hit', insight: 'pulsar mentioned', confidence: 9, source: 'observed', ts: '2019-01-01T00:00:00Z' }),
       rankEntry({ key: 'current-tied-hit', insight: 'pulsar mentioned too', confidence: 5 }),
+      // Bare -d must not invent a hit. Confidence is inverted against the asserted
+      // order, so if 'mind' scores for the query 'min' both rows hold one hit and
+      // the decoy takes the lead on confidence -- the test can only pass if the
+      // guard is present.
+      rankEntry({ key: 'bared-answer', insight: 'the min heap ordering is what fixes it', confidence: 1 }),
+      rankEntry({ key: 'bared-decoy', insight: 'keep this in mind when reviewing', confidence: 10 }),
     ];
     fs.writeFileSync(path.join(rankProjDir, 'learnings.jsonl'), rows.map(e => JSON.stringify(e)).join('\n') + '\n');
   });
@@ -434,6 +447,10 @@ describe('gstack-learnings-search relevance ranking (#2762)', () => {
       'current-tied-hit',  // 1 hit, confidence 5
       'decayed-tied-hit',  // 1 hit, decayed to 0
     ]);
+  });
+
+  test('bare -d does not invent a hit on a consonant-final token', () => {
+    expect(rankedPair(['--query', 'min'], 'bared-answer', 'bared-decoy')).toEqual(['bared-answer', 'bared-decoy']);
   });
 });
 

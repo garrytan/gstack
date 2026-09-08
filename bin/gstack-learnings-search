@@ -102,6 +102,11 @@ function hasWholeWord(hay, tok) {
     if (!isWordChar(before)) {
       const j = i + tok.length;
       for (const suf of INFLECTIONS) {
+        // Bare -d is the past tense of an e-final base only. Applied to every
+        // token it invents whole-word hits -- car/card, min/mind, war/ward --
+        // and because relevance sorts ahead of confidence a false hit now
+        // actively demotes the right answer instead of costing nothing.
+        if (suf === 'd' && tok.charAt(tok.length - 1) !== 'e') continue;
         const k = j + suf.length;
         if (hay.slice(j, k) === suf && !isWordChar(k >= hay.length ? '' : hay.charAt(k))) return true;
       }
