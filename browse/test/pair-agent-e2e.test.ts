@@ -34,36 +34,46 @@ interface DaemonHandle {
   stateFile: string;
   tempDir: string;
   baseUrl: string;
+  output: Promise<[string, string]>;
 }
 
-async function waitForReady(baseUrl: string, timeoutMs = 15_000): Promise<void> {
+async function waitForReady(
+  proc: ReturnType<typeof Bun.spawn>, stateFile: string, timeoutMs = 15_000,
+): Promise<{ port: number; token: string }> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  let lastError = '';
+  while (Date.now() < deadline && proc.exitCode === null) {
     try {
-      const resp = await fetch(`${baseUrl}/health`, {
+      // Only this daemon's published state can identify its selected port.
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+      if (state.pid !== proc.pid || !Number.isInteger(state.port) || state.port < 1 || state.port > 65535 ||
+          typeof state.token !== 'string' || !state.token) {
+        throw new Error('State does not identify this test daemon');
+      }
+      const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
         signal: AbortSignal.timeout(1000),
       });
-      if (resp.ok) return;
-    } catch {
-      // not ready yet
+      await resp.arrayBuffer();
+      if (resp.ok) return state;
+      lastError = `Health returned HTTP ${resp.status}`;
+    } catch (error) {
+      lastError = String(error);
     }
     await new Promise(r => setTimeout(r, 200));
   }
-  throw new Error(`Daemon did not become ready within ${timeoutMs}ms`);
+  throw new Error(`Daemon did not become ready within ${timeoutMs}ms (exit=${proc.exitCode}): ${lastError}`);
 }
 
 async function spawnDaemon(): Promise<DaemonHandle> {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pair-agent-e2e-'));
   const stateFile = path.join(tempDir, 'browse.json');
-  // Pick a high ephemeral port
-  const port = 20000 + Math.floor(Math.random() * 20000);
 
   const proc = Bun.spawn(['bun', 'run', SERVER_ENTRY], {
     cwd: ROOT,
     env: {
       ...process.env,
       BROWSE_HEADLESS_SKIP: '1',
-      BROWSE_PORT: String(port),
+      BROWSE_PORT: '0', // Use the daemon's checked allocator and discover its port from state.
       BROWSE_STATE_FILE: stateFile,
       BROWSE_PARENT_PID: '0',
       BROWSE_IDLE_TIMEOUT: '600000',
@@ -71,17 +81,35 @@ async function spawnDaemon(): Promise<DaemonHandle> {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForReady(baseUrl);
-
-  // Read the token from the state file that the daemon wrote
-  const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-  return { proc, port, token: state.token, stateFile, tempDir, baseUrl };
+  const output = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  try {
+    const state = await waitForReady(proc, stateFile);
+    const port = state.port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    return { proc, port, token: state.token, stateFile, tempDir, baseUrl, output };
+  } catch (error) {
+    // beforeAll cannot pass a handle to afterAll when startup fails.
+    try { proc.kill('SIGKILL'); } catch {}
+    try {
+      await proc.exited;
+      const [stdout, stderr] = await output;
+      const errorFile = path.join(tempDir, 'browse-startup-error.log');
+      const startupError = fs.existsSync(errorFile) ? fs.readFileSync(errorFile, 'utf-8') : '';
+      throw new Error(`${error}\n${startupError}\n${stderr}\n${stdout}`);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
 }
 
-function killDaemon(handle: DaemonHandle): void {
+async function killDaemon(handle: DaemonHandle): Promise<void> {
   try { handle.proc.kill('SIGKILL'); } catch {}
-  try { fs.rmSync(handle.tempDir, { recursive: true, force: true }); } catch {}
+  try {
+    await handle.proc.exited;
+    await handle.output;
+  } finally {
+    fs.rmSync(handle.tempDir, { recursive: true, force: true });
+  }
 }
 
 describe('pair-agent flow end-to-end (HTTP only, no ngrok)', () => {
@@ -91,8 +119,8 @@ describe('pair-agent flow end-to-end (HTTP only, no ngrok)', () => {
     daemon = await spawnDaemon();
   }, 20_000);
 
-  afterAll(() => {
-    if (daemon) killDaemon(daemon);
+  afterAll(async () => {
+    if (daemon) await killDaemon(daemon);
   });
 
   test('GET /health returns daemon status and NEVER includes a token (even for chrome-extension origins)', async () => {

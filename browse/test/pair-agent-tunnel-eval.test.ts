@@ -39,36 +39,51 @@ interface DaemonHandle {
   localUrl: string;
   tunnelUrl: string;
   attemptsLogPath: string;
+  output: Promise<[string, string]>;
 }
 
-async function waitForReady(baseUrl: string, timeoutMs = 20_000): Promise<void> {
+async function waitForReady(
+  proc: ReturnType<typeof Bun.spawn>, stateFile: string, timeoutMs = 20_000,
+): Promise<{ port: number; token: string }> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  let lastError = '';
+  while (Date.now() < deadline && proc.exitCode === null) {
     try {
-      const resp = await fetch(`${baseUrl}/health`, {
+      // Only this daemon's published state identifies its bound listener.
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+      if (state.pid !== proc.pid || !Number.isInteger(state.port) || state.port < 1 || state.port > 65535 ||
+          typeof state.token !== 'string' || !state.token) {
+        throw new Error('State does not identify this test daemon');
+      }
+      const resp = await fetch(`http://127.0.0.1:${state.port}/health`, {
         signal: AbortSignal.timeout(1000),
       });
-      if (resp.ok) return;
-    } catch {
-      // not ready yet
+      await resp.arrayBuffer();
+      if (resp.ok) return state;
+      lastError = `Health returned HTTP ${resp.status}`;
+    } catch (error) {
+      lastError = String(error);
     }
     await new Promise(r => setTimeout(r, 200));
   }
-  throw new Error(`Daemon did not become ready within ${timeoutMs}ms at ${baseUrl}`);
+  throw new Error(`Daemon did not become ready within ${timeoutMs}ms (exit=${proc.exitCode}): ${lastError}`);
 }
 
-async function waitForTunnelPort(stateFile: string, timeoutMs = 20_000): Promise<number> {
+async function waitForTunnelPort(
+  proc: ReturnType<typeof Bun.spawn>, stateFile: string, timeoutMs = 20_000,
+): Promise<number> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && proc.exitCode === null) {
     try {
       const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-      if (typeof state.tunnelLocalPort === 'number') return state.tunnelLocalPort;
+      if (state.pid === proc.pid && Number.isInteger(state.tunnelLocalPort) &&
+          state.tunnelLocalPort > 0 && state.tunnelLocalPort <= 65535) return state.tunnelLocalPort;
     } catch {
       // state file not written yet
     }
     await new Promise(r => setTimeout(r, 200));
   }
-  throw new Error(`Tunnel local port did not appear in ${stateFile} within ${timeoutMs}ms`);
+  throw new Error(`Tunnel local port did not appear in ${stateFile} within ${timeoutMs}ms (exit=${proc.exitCode})`);
 }
 
 async function spawnDaemonWithTunnel(): Promise<DaemonHandle> {
@@ -78,7 +93,6 @@ async function spawnDaemonWithTunnel(): Promise<DaemonHandle> {
   const stateFile = path.join(tempDir, 'browse.json');
   const fakeHome = path.join(tempDir, 'home');
   fs.mkdirSync(fakeHome, { recursive: true });
-  const localPort = 30000 + Math.floor(Math.random() * 30000);
   const attemptsLogPath = path.join(fakeHome, '.gstack', 'security', 'attempts.jsonl');
 
   const proc = Bun.spawn(['bun', 'run', SERVER_ENTRY], {
@@ -88,7 +102,7 @@ async function spawnDaemonWithTunnel(): Promise<DaemonHandle> {
       HOME: fakeHome,
       BROWSE_HEADLESS_SKIP: '1',
       BROWSE_TUNNEL_LOCAL_ONLY: '1',
-      BROWSE_PORT: String(localPort),
+      BROWSE_PORT: '0', // Use the daemon's checked allocator, then discover its actual port.
       BROWSE_STATE_FILE: stateFile,
       BROWSE_PARENT_PID: '0',
       BROWSE_IDLE_TIMEOUT: '600000',
@@ -96,37 +110,56 @@ async function spawnDaemonWithTunnel(): Promise<DaemonHandle> {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const localUrl = `http://127.0.0.1:${localPort}`;
-  await waitForReady(localUrl);
-  const tunnelPort = await waitForTunnelPort(stateFile);
-  const tunnelUrl = `http://127.0.0.1:${tunnelPort}`;
+  const output = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  try {
+    const state = await waitForReady(proc, stateFile);
+    const localPort = state.port;
+    const localUrl = `http://127.0.0.1:${localPort}`;
+    const tunnelPort = await waitForTunnelPort(proc, stateFile);
+    const tunnelUrl = `http://127.0.0.1:${tunnelPort}`;
 
-  // Read the root token, then exchange it for a scoped token via /pair → /connect.
-  const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-  const rootToken = state.token;
+    // Exchange this daemon's root token for a scoped token via /pair → /connect.
+    const rootToken = state.token;
+    const pairResp = await fetch(`${localUrl}/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${rootToken}` },
+      body: JSON.stringify({ clientId: 'tunnel-eval' }),
+    });
+    if (!pairResp.ok) throw new Error(`/pair failed: ${pairResp.status}`);
+    const { setup_key } = await pairResp.json() as any;
 
-  const pairResp = await fetch(`${localUrl}/pair`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${rootToken}` },
-    body: JSON.stringify({ clientId: 'tunnel-eval' }),
-  });
-  if (!pairResp.ok) throw new Error(`/pair failed: ${pairResp.status}`);
-  const { setup_key } = await pairResp.json() as any;
+    const connectResp = await fetch(`${localUrl}/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setup_key }),
+    });
+    if (!connectResp.ok) throw new Error(`/connect failed: ${connectResp.status}`);
+    const { token: scopedToken } = await connectResp.json() as any;
 
-  const connectResp = await fetch(`${localUrl}/connect`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ setup_key }),
-  });
-  if (!connectResp.ok) throw new Error(`/connect failed: ${connectResp.status}`);
-  const { token: scopedToken } = await connectResp.json() as any;
-
-  return { proc, localPort, tunnelPort, rootToken, scopedToken, stateFile, tempDir, localUrl, tunnelUrl, attemptsLogPath };
+    return { proc, localPort, tunnelPort, rootToken, scopedToken, stateFile, tempDir, localUrl, tunnelUrl, attemptsLogPath, output };
+  } catch (error) {
+    // A failed beforeAll never hands its daemon to afterAll for cleanup.
+    try {
+      try { proc.kill('SIGKILL'); } catch {}
+      await proc.exited;
+      const [stdout, stderr] = await output;
+      const errorFile = path.join(tempDir, 'browse-startup-error.log');
+      const startupError = fs.existsSync(errorFile) ? fs.readFileSync(errorFile, 'utf-8') : '';
+      throw new Error(`${error}\n${startupError}\n${stderr}\n${stdout}`);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
 }
 
-function killDaemon(handle: DaemonHandle): void {
+async function killDaemon(handle: DaemonHandle): Promise<void> {
   try { handle.proc.kill('SIGKILL'); } catch {}
-  try { fs.rmSync(handle.tempDir, { recursive: true, force: true }); } catch {}
+  try {
+    await handle.proc.exited;
+    await handle.output;
+  } finally {
+    fs.rmSync(handle.tempDir, { recursive: true, force: true });
+  }
 }
 
 async function postCommand(baseUrl: string, token: string, body: any): Promise<{ status: number; bodyText: string }> {
@@ -145,8 +178,8 @@ describe('pair-agent over tunnel surface — gate fires on the right surface onl
     daemon = await spawnDaemonWithTunnel();
   }, 30_000);
 
-  afterAll(() => {
-    if (daemon) killDaemon(daemon);
+  afterAll(async () => {
+    if (daemon) await killDaemon(daemon);
   });
 
   test('newtab on tunnel surface passes the allowlist gate (not 403 disallowed_command)', async () => {

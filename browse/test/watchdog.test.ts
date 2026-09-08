@@ -50,13 +50,13 @@ afterEach(async () => {
   serverProc = null;
 });
 
-function spawnServer(env: Record<string, string>, port: number): Subprocess {
+function spawnServer(env: Record<string, string>): Subprocess {
   const stateFile = path.join(tmpDir, 'browse-state.json');
   return spawn(['bun', 'run', SERVER_SCRIPT], {
     env: {
       ...process.env,
       BROWSE_STATE_FILE: stateFile,
-      BROWSE_PORT: String(port),
+      BROWSE_PORT: '0', // Use the existing available-port allocator; fixed ports can collide across shards.
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -101,7 +101,7 @@ async function readStdoutUntil(
 describe('parent-process watchdog (v0.18.1.0)', () => {
   test('BROWSE_PARENT_PID=0 disables the watchdog', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'watchdog-pid0-'));
-    serverProc = spawnServer({ BROWSE_PARENT_PID: '0' }, 34901);
+    serverProc = spawnServer({ BROWSE_PARENT_PID: '0' });
 
     const out = await readStdoutUntil(
       serverProc,
@@ -121,7 +121,6 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     // this PID and eventually fire on the "dead parent."
     serverProc = spawnServer(
       { BROWSE_HEADED: '1', BROWSE_PARENT_PID: '999999' },
-      34902,
     );
 
     const out = await readStdoutUntil(
@@ -146,7 +145,7 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     serverProc = spawnServer({
       BROWSE_PARENT_PID: String(parentPid),
       BROWSE_PARENT_WATCHDOG_INTERVAL_MS: '250',
-    }, 34903);
+    });
     const serverPid = serverProc.pid!;
 
     // Startup barrier: poll stdout for the listen line instead of a fixed 2s
