@@ -39,11 +39,11 @@ import {
   isPermissionDialogVisible,
   parseNumberedOptions,
   isPlanReadyVisible,
-  MODE_RE,
   optionsSignature,
   TAIL_SCAN_BYTES,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
+import { findCeoModeOption } from './helpers/ceo-mode-option';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -103,15 +103,9 @@ async function navigateToModeAskUserQuestion(
     lastSeenList = opts;
 
     // Is THIS the mode AskUserQuestion?
-    if (opts.some(o => MODE_RE.test(o.label))) {
-      const target = opts.find(o => o.label.toUpperCase().includes(targetMode));
-      if (!target) {
-        throw new Error(
-          `Mode AskUserQuestion rendered but target "${targetMode}" not in option labels:\n` +
-          opts.map(o => `  ${o.index}. ${o.label}`).join('\n'),
-        );
-      }
-      return { modeIndex: target.index, visibleAtMode: visible };
+    const modeIndex = findCeoModeOption(opts, targetMode);
+    if (modeIndex !== null) {
+      return { modeIndex, visibleAtMode: visible };
     }
 
     // Permission dialog? Grant with "1" but don't count it against nav budget.
