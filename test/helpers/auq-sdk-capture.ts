@@ -20,6 +20,14 @@ import { runSkillTest, type SkillTestResult } from './session-runner';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
+/**
+ * Existing long section-loader work budget (v1.71): complete workflows can
+ * load their sections quickly, then need 300–450s to generate the full report.
+ * Keep 120s of the CAPTURE_LONG_MS outer budget for setup and reporting.
+ * Ordinary captureSectionReads callers retain the 300s default below.
+ */
+export const LONG_SECTION_CAPTURE_MS = 480_000;
+
 /** The 7 decision-brief format elements graded on the captured AUQ text. */
 export const AUQ_FORMAT_ELEMENTS: Array<{ field: string; re: RegExp }> = [
   { field: 'ELI10:', re: /ELI10\s*:/i },
@@ -217,6 +225,22 @@ This is a capture test, not an interactive session. Skip any system-audit / envi
  * resolves to, so Read/Grep/Glob/Write is all the agent needs (no Bash → it cannot
  * `find /` its way out, nor run git/gh mutations).
  */
+export function hasDisabledOutsideReview(output: string): boolean {
+  const headings = [...output.matchAll(/^## GSTACK REVIEW REPORT[ \t]*\r?$/gm)];
+  const heading = headings.at(-1);
+  if (!heading) return false;
+  const section = output.slice(heading.index! + heading[0].length).split(/^##[ \t]+/m, 1)[0];
+  const plain = (cell: string) => cell.replace(/[*_`]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
+  for (const line of section.split('\n')) {
+    if (!line.trimStart().startsWith('|')) continue;
+    const cells = line.split('|').map(plain);
+    if (cells[1] === 'outside review') {
+      return /^disabled(?:$|\s|[(:—–-])/.test(cells[5] ?? '');
+    }
+  }
+  return false;
+}
+
 export async function captureSectionReads(opts: {
   planDir: string;
   skillName: string;
@@ -230,9 +254,19 @@ export async function captureSectionReads(opts: {
   model?: string;
   maxTurns?: number;
   timeout?: number;
+  /** Measure native section loading with the documented extra-review opt-out. */
+  nativeReviewOnly?: boolean;
 }): Promise<{ readSections: Set<string>; reportProduced: boolean; toolCalls: SkillTestResult['toolCalls']; output: string }> {
   const outFile = path.join(opts.planDir, opts.reportFile ?? 'REPORT.md');
   const skillPath = path.join(opts.planDir, opts.skillName, 'SKILL.md');
+  // Outside-review dispatch has separate behavioral coverage. Native-only
+  // captures use the real supported control in state owned by this call;
+  // never mutate the operator's or another capture's gstack configuration.
+  const stateDir = opts.nativeReviewOnly
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-section-state-')) : null;
+  const nativeReviewRule = stateDir
+    ? `\n- Read ${path.join(stateDir, 'config.yaml')}, the isolated gstack configuration for this capture. It sets codex_reviews: disabled. Follow that documented control: skip the entire extra outside-review step, including its native fallback, and report outside coverage as disabled. Complete all native review sections and the full required report.`
+    : '';
   const prompt = `You are running an automated skill-execution test. No human is present, so AskUserQuestion is unavailable. The ONLY skill file you may read is this absolute path: ${skillPath}. Do NOT Glob/find/search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users.
 
 Read ${skillPath} and EXECUTE its workflow for this scenario:
@@ -244,18 +278,26 @@ Rules for this run:
 - At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask.
 - This skill's body has been carved into on-demand sections/. When the skill gives a STOP-Read directive (for example "Read \`.../sections/<file>\` and execute it in full"), you MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers. Do not work from memory.
 - Do NOT run git, gh, commit, push, or any mutating command.
-- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.`;
+- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.${nativeReviewRule}`;
 
-  const result = await runSkillTest({
-    prompt,
-    workingDirectory: opts.planDir,
-    allowedTools: ['Read', 'Grep', 'Glob', 'Write'],
-    maxTurns: opts.maxTurns ?? 25,
-    timeout: opts.timeout ?? 300_000,
-    testName: opts.testName,
-    runId: opts.runId,
-    model: resolveEvalModel('capture', opts.model),
-  });
+  let result: SkillTestResult;
+  try {
+    if (stateDir) fs.writeFileSync(path.join(stateDir, 'config.yaml'), 'codex_reviews: disabled\n');
+    result = await runSkillTest({
+      prompt,
+      workingDirectory: opts.planDir,
+      allowedTools: ['Read', 'Grep', 'Glob', 'Write'],
+      tools: ['Read', 'Grep', 'Glob', 'Write'],
+      maxTurns: opts.maxTurns ?? 25,
+      timeout: opts.timeout ?? 300_000,
+      testName: opts.testName,
+      runId: opts.runId,
+      model: resolveEvalModel('capture', opts.model),
+      ...(stateDir ? { env: { GSTACK_HOME: stateDir, GSTACK_STATE_ROOT: stateDir } } : {}),
+    });
+  } finally {
+    if (stateDir) fs.rmSync(stateDir, { recursive: true, force: true });
+  }
 
   const readSections = new Set<string>();
   for (const c of result.toolCalls) {
@@ -267,7 +309,8 @@ Rules for this run:
 
   let output = '';
   try { output = fs.readFileSync(outFile, 'utf-8'); } catch { output = result.output ?? ''; }
-  const reportProduced = opts.reportMarker ? opts.reportMarker.test(output) : output.trim().length > 0;
+  const reportProduced = result.exitReason === 'success'
+    && (opts.reportMarker ? opts.reportMarker.test(output) : output.trim().length > 0);
 
   return { readSections, reportProduced, toolCalls: result.toolCalls, output };
 }

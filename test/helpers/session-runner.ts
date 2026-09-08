@@ -132,7 +132,10 @@ export async function runSkillTest(options: {
   prompt: string;
   workingDirectory: string;
   maxTurns?: number;
+  /** Approval allowlist; does not restrict which tools the model can see. */
   allowedTools?: string[];
+  /** Optional built-in tool availability. Omit to preserve the CLI defaults. */
+  tools?: string[];
   timeout?: number;
   testName?: string;
   runId?: string;
@@ -197,6 +200,10 @@ export async function runSkillTest(options: {
     '--max-turns', String(maxTurns),
     '--allowed-tools', ...allowedTools,
   ];
+  // --allowed-tools controls approval, including when permissions are skipped;
+  // only --tools removes unrelated built-ins such as Agent, Bash, and Skill.
+  // Keep this opt-in: existing workflow evals intentionally use CLI defaults.
+  if (options.tools !== undefined) args.push('--tools', options.tools.join(','));
   // Hermetic children get zero MCP servers (no --mcp-config is passed).
   // Gated on the same call-time check as the env scrub so EVALS_HERMETIC=0
   // restores operator MCP along with the operator env.
@@ -426,9 +433,9 @@ export async function runSkillTest(options: {
     if (resultLine.subtype === 'success' && resultLine.is_error) {
       // claude -p can return subtype=success with is_error=true (e.g. API connection failure)
       exitReason = 'error_api';
-    } else if (resultLine.subtype === 'success') {
+    } else if (resultLine.subtype === 'success' && exitCode === 0 && !timedOut) {
       exitReason = 'success';
-    } else if (resultLine.subtype) {
+    } else if (resultLine.subtype && resultLine.subtype !== 'success') {
       // Preserve known subtypes like error_max_turns even if is_error is set
       exitReason = resultLine.subtype;
     }

@@ -132,6 +132,14 @@ describe('selectTests', () => {
     expect(result.reason).toContain('global');
   });
 
+  test('section-capture tool isolation regression selects only its three capture workflows', () => {
+    const result = selectTests(['test/session-runner-tools.test.ts'], E2E_TOUCHFILES);
+    expect(result.selected.sort()).toEqual([
+      'carve-section-loading', 'plan-ceo-section-loading', 'ship-section-loading',
+    ]);
+    expect(result.reason).toBe('diff');
+  });
+
   test('gen-skill-docs.ts is a scoped touchfile, not global', () => {
     const result = selectTests(['scripts/gen-skill-docs.ts'], E2E_TOUCHFILES);
     // Should select tests that list gen-skill-docs.ts in their touchfiles, not ALL tests
