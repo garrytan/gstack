@@ -124,6 +124,7 @@ record({
   sections: fs.existsSync(path.join(skillDir, 'sections', 'review-sections.md'))
     ? fs.readFileSync(path.join(skillDir, 'sections', 'review-sections.md'), 'utf8') : null,
 });
+if (process.env.FIXTURE_MODE === 'exit') process.stdout.write('\x1b[?25lSTARTUP_DIAGNOSTIC fixture CLI booted\x1b[?25h\n');
 process.stdin.setRawMode?.(true);
 let firstInput = true;
 let completion;
@@ -201,6 +202,11 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify(results));
           expect(() => process.kill(startup.pid, 0)).toThrow();
           const result = results.find((result) => result.name === item.name);
           expect(result.observation.outcome).toBe(item.mode === 'exit' ? 'exited' : 'completion_summary');
+          if (item.mode === 'exit') {
+            expect(result.observation.evidence).toContain('exitCode=7');
+            expect(result.observation.evidence).toContain('STARTUP_DIAGNOSTIC fixture CLI booted');
+            expect(result.observation.evidence).not.toContain('\x1b');
+          }
           if (item.mode === 'complete') expect(events.at(-1).type).toBe('closed');
           cwds.add(startup.cwd);
         }

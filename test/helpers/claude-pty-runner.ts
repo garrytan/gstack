@@ -25,8 +25,10 @@ import { resolveEvalModel } from '../../lib/eval-model';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { stripVTControlCharacters } from 'node:util';
 import { hermeticChildEnv, hermeticSkillsConfigDir, isHermeticEnabled } from './hermetic-env';
 import { createPlanCountFixture } from './plan-count-fixture';
+import { trustDialogInput } from './pty-trust-dialog';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -151,10 +153,9 @@ export interface ClaudePtySession {
   close(): Promise<void>;
 }
 
-/** Detect the workspace-trust dialog rendering. */
+/** Detect a complete, recognized workspace-trust menu. */
 export function isTrustDialogVisible(visible: string): boolean {
-  // Phrase Claude Code prints. Stable across versions in this branch's range.
-  return visible.includes('trust this folder');
+  return trustDialogInput(visible) !== null;
 }
 
 /**
@@ -1283,8 +1284,8 @@ export const devexStep0Boundary: Step0BoundaryPredicate = (fp) =>
  * handle. Caller is responsible for `await session.close()` to release the
  * subprocess and any timers.
  *
- * Auto-handles the workspace-trust dialog (presses "1\r" if it appears
- * during the boot window). Tests should NOT have to handle it themselves.
+ * Auto-handles the workspace-trust dialog by selecting its explicit
+ * affirmative option. Tests should NOT have to handle it themselves.
  */
 export async function launchClaudePty(
   opts: ClaudePtyOptions = {},
@@ -1367,17 +1368,26 @@ export async function launchClaudePty(
   }, timeoutMs);
 
   // Auto-handle the workspace-trust dialog. Runs once during the boot
-  // window; idempotent (only fires if the phrase is still on screen).
+  // window, after both choices and the selected cursor are visible. Newer
+  // unnumbered menus default to "No, exit", so "1\r" would reject trust.
+  // The first paint can precede the input handler's readiness. Let startup
+  // settle, then deliver navigation and confirmation as separate events.
   let trustHandled = false;
+  let trustVisibleAt: number | undefined;
+  const trustInputTimers: ReturnType<typeof setTimeout>[] = [];
   const trustWatcher = setInterval(() => {
     if (trustHandled || exited) return;
-    const visible = stripAnsi(buffer);
-    if (isTrustDialogVisible(visible)) {
+    const input = trustDialogInput(buffer);
+    if (input !== null) {
+      trustVisibleAt ??= Date.now();
+      if (Date.now() - trustVisibleAt < 1_500) return;
       trustHandled = true;
-      try {
-        proc.terminal?.write?.('1\r');
-      } catch {
-        /* ignore */
+      const keys = input.match(/\x1b\[[AB]|\r/g) ?? [];
+      for (const [i, key] of keys.entries()) {
+        trustInputTimers.push(setTimeout(() => {
+          if (exited) return;
+          try { proc.terminal?.write?.(key); } catch { /* ignore */ }
+        }, i * 500));
       }
     }
   }, 200);
@@ -1463,6 +1473,7 @@ export async function launchClaudePty(
     clearTimeout(wallTimer);
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
+    for (const timer of trustInputTimers) clearTimeout(timer);
     if (exited) return;
     try {
       proc.kill?.('SIGINT');
@@ -2032,10 +2043,16 @@ export async function runPlanSkillCounting(opts: {
     summary: string,
     visible: string,
   ): PlanSkillCountObservation {
+    const clean = (text: string) => stripVTControlCharacters(text)
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    const failed = outcome === 'exited' || outcome === 'timeout';
     return {
       outcome,
       summary,
-      evidence: visible.slice(-3000),
+      evidence: failed
+        ? `exitCode=${session.exitCode()}\n--- post-command evidence (last 3KB) ---\n${clean(visible).slice(-3000)}` +
+          `\n--- full-session evidence, including startup (last 6KB) ---\n${clean(session.visibleText()).slice(-6000)}`
+        : visible.slice(-3000),
       elapsedMs: Date.now() - startedAt,
       fingerprints,
       step0Count,

@@ -44,6 +44,7 @@ import {
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
 import { findCeoModeOption } from './helpers/ceo-mode-option';
+import { createPlanCountFixture } from './helpers/plan-count-fixture';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -57,6 +58,26 @@ const CASES: ModeCase[] = [
   { mode: 'HOLD SCOPE',      postureRe: /\b(rigor|bulletproof|hold\s*scope|maximum\s+rigor)\b/i },
   { mode: 'SCOPE EXPANSION', postureRe: /\b(expansion|10x|delight|dream|cathedral|opt[\s-]?in)\b/i },
 ];
+
+// Both cases review the same plan, available before the slash command starts.
+// The checkout supplying skills must not become the implicit review target.
+const PLAN = [
+  '# Plan: Add saved project views',
+  '',
+  '## Goal',
+  'Team members repeatedly recreate filters on a project task list. Let each',
+  'member save a named combination of filters and sort order and reopen it later.',
+  '',
+  '## Approach',
+  '- Add a saved_views table scoped to the project and member.',
+  '- Provide authenticated create, list, update, and delete endpoints.',
+  '- Add a view picker and a save action beside the existing task filters.',
+  '- Keep existing task access rules when applying a saved view.',
+  '',
+  '## Validation',
+  '- Test persistence, project access, and reopening a view after task changes.',
+  '- Measure whether members reuse saved views during a two-week pilot.',
+].join('\n');
 
 /**
  * Navigate prior AskUserQuestions by picking option 1 until we hit an AskUserQuestion whose
@@ -144,12 +165,15 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
     test(
       `mode "${c.mode}" routes to its distinctive posture`,
       async () => {
-        const session = await launchClaudePty({
-          permissionMode: 'plan',
-          timeoutMs: CAPTURE_LONG_MS,
-          seedSkills: true,
-        });
+        const fixture = createPlanCountFixture(PLAN);
+        let session: ClaudePtySession | undefined;
         try {
+          session = await launchClaudePty({
+            cwd: fixture.cwd,
+            permissionMode: 'plan',
+            timeoutMs: CAPTURE_LONG_MS,
+            seedSkills: true,
+          });
           await Bun.sleep(8000);
           const since = session.mark();
           session.send('/plan-ceo-review\r');
@@ -199,7 +223,11 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             );
           }
         } finally {
-          await session.close();
+          try {
+            await session?.close();
+          } finally {
+            fixture.cleanup();
+          }
         }
       },
       CAPTURE_LONG_MS,
