@@ -123,7 +123,7 @@ describe('owned PTY viewport', () => {
         expect(current.split('\n').map(line => line.trimEnd())).toEqual(frame.expected.map((line: string) => line.trimEnd()));
         expect(current).toContain("2. No thanks, I'll invoke skills manually");
         expect(stripAnsi(frame.update)).toContain("2. N thanks, I'll invokeskillsmanually");
-        expect(autoplanRoutingSetupInput(current, new Set())).toBe('1\r');
+        expect(autoplanRoutingSetupInput(current, new Set())).toBe('1');
       } finally { await screen.dispose(); }
     });
   }

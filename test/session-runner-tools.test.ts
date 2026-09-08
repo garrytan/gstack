@@ -52,11 +52,12 @@ const FAKE_CLAUDE = String.raw`
     outsideDisabled: /^codex_reviews:\s*disabled\s*$/m.test(config),
   };
   fs.writeFileSync('observed.json', JSON.stringify(observed));
+  const outputFile = fs.existsSync('active-plan-output') ? 'PLAN.md' : 'REPORT.md';
   console.log(JSON.stringify({ type: 'system', subtype: 'init' }));
   if (fs.existsSync('fail-cli')) {
     const failure = fs.readFileSync('fail-cli', 'utf8');
     const report = '## GSTACK REVIEW REPORT\nA report written before the run failed.\n';
-    fs.writeFileSync('REPORT.md', report);
+    fs.writeFileSync(outputFile, report);
     console.log(JSON.stringify({ type: 'result',
       subtype: failure === 'error' ? 'error_during_execution' : 'success',
       is_error: failure !== 'nonzero', result: report,
@@ -71,7 +72,7 @@ const FAKE_CLAUDE = String.raw`
       fs.writeFileSync('work-ready', '');
       while (!fs.existsSync('release-report')) await Bun.sleep(5);
     }
-    fs.writeFileSync('REPORT.md', '## GSTACK REVIEW REPORT\nFull native review fixture.\nOutside review: '
+    fs.writeFileSync(outputFile, '## GSTACK REVIEW REPORT\nFull native review fixture.\nOutside review: '
       + (observed.outsideDisabled ? 'disabled' : 'default') + '\n');
     console.log(JSON.stringify({ type: 'result', subtype: 'success', result: JSON.stringify(observed) }));
   }
@@ -238,6 +239,24 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
       expect(observed().prompt).not.toContain('codex_reviews: disabled');
       expect(result.readSections.has('review-sections.md')).toBe(true);
       expect(result.reportProduced).toBe(true);
+    });
+  });
+
+  test('the active plan can hold the final report without a second output file', async () => {
+    await withFakeClaude(async (dir, observed) => {
+      fs.writeFileSync(path.join(dir, 'PLAN.md'), '# Original plan\nA seeded defect.\n');
+      fs.writeFileSync(path.join(dir, 'active-plan-output'), '');
+      const result = await captureSectionReads({
+        planDir: dir, skillName: 'plan-ceo-review', scenario: 'Review PLAN.md in full',
+        reportFile: 'PLAN.md', reportMarker: /^## GSTACK REVIEW REPORT\s*$/m,
+        testName: 'section-active-plan', nativeReviewOnly: true, timeout: 5_000,
+      });
+      expect(result.reportProduced).toBe(true);
+      expect(result.output).toBe(fs.readFileSync(path.join(dir, 'PLAN.md'), 'utf8'));
+      expect(fs.existsSync(path.join(dir, 'REPORT.md'))).toBe(false);
+      expect(observed().prompt).toContain('to ' + path.join(dir, 'PLAN.md') + '.');
+      expect(observed().prompt).toContain('After all required writes are complete');
+      expect(result.readSections.has('review-sections.md')).toBe(true);
     });
   });
 

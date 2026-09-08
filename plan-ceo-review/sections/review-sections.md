@@ -511,6 +511,11 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * Describe the problem concretely, with file and line references.
 * Present 2-3 options, including "do nothing" where reasonable.
 * For each option: effort, risk, and maintenance burden in one line.
+* Before calling AskUserQuestion, draft the recommended option as a complete remedy
+  for this one issue. Its offered description must state the rescue behavior,
+  verification, and failure visibility needed for that fix. Include those details
+  in the option itself. Omit irrelevant work, and keep independent findings and
+  new TODOs in their own questions.
 * **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference.
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
 * **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each finding — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan.

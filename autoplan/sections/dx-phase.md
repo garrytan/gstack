@@ -1,8 +1,7 @@
 <!-- AUTO-GENERATED from dx-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 Read `~/.claude/skills/gstack/plan-devex-review/SKILL.md` in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list; all other work runs in full.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Apply /autoplan's skip list and auto-decisions; run all other work in full.
 
 **Override rules:**
 - Mode selection: DX POLISH
@@ -15,14 +14,14 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
-  **Claude DX subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
-  Native subagent tool; Claude Code Agent arguments:
+  **Claude DX subagent** (native tool, foreground):
+  Claude Code Agent argument (other harnesses: native dispatch/wait):
   ```json
   { "run_in_background": false }
   ```
-  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+  Set on the call, not in prompt text.
 
-  "Read the plan file at <plan_path>. You are an independent DX engineer
+  "Read the plan file at <review_plan_path>. You are an independent DX engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Getting started: how many steps from zero to hello world? What's the TTHW?
   2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
@@ -34,15 +33,15 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 
   **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
-  No inline substitute; apply the existing failure policy.
+  wait for that same agent's final result/failure before outside dispatch or parent review.
+  No inline substitute; apply failure policy.
 
   **Codex DX voice** (via Bash):
-  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
 
 IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
-  Read the plan file at <plan_path>. Evaluate this plan's developer experience.
+  Read the plan file at <review_plan_path>. Evaluate this plan's developer experience.
 
   Also consider these findings from prior review phases:
   CEO: <insert CEO consensus summary>
@@ -145,8 +144,7 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - TTHW assessment with target
 
 **Close this phase before continuing:** Check successful Write/Edit results for
-all required plan/artifact outputs and both reviewers' terminal status (including
-unavailable/disabled coverage). Do not announce completion while required work remains.
+all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
 Emit this filled-in summary as an actual assistant message:
 
 **Phase 2.5 complete.**

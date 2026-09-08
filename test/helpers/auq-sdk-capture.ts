@@ -278,7 +278,8 @@ Rules for this run:
 - At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask.
 - This skill's body has been carved into on-demand sections/. When the skill gives a STOP-Read directive (for example "Read \`.../sections/<file>\` and execute it in full"), you MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers. Do not work from memory.
 - Do NOT run git, gh, commit, push, or any mutating command.
-- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.${nativeReviewRule}`;
+- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.${nativeReviewRule}
+- After all required writes are complete, return a brief completion message and STOP. Do not reproduce the full report in the final response.`;
 
   let result: SkillTestResult;
   try {

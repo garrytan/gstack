@@ -46,7 +46,7 @@ import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
 const describeE2E = describeE2ETier('periodic');
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const UI_FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
+const UI_FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'autoplan-dashboard.md');
 
 function diagnosticTail(text: string): string {
   return stripVTControlCharacters(text)
@@ -58,7 +58,8 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
   test(
     'phase completions are ordered: Phase 1 (CEO) before Phase 3 (Eng), Phase 2 (Design) between when present',
     async () => {
-      // UI-heavy fixture so Phase 2 runs.
+      // Chain-only fixture retains all new UI/API work and supplies existing
+      // application contracts; the shared design-scope fixture stays unchanged.
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-autoplan-chain-'));
       try {
         const gitRun = (args: string[]) =>
@@ -150,9 +151,10 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
             // CLAUDE.md. Answer only that recognized setup prompt; review and
             // taste decisions remain autoplan's responsibility. The helper
             // deduplicates the complete question before returning an input.
-            const setupInput = autoplanRoutingSetupInput(visible, seenSetupQuestions);
+            const setupInput = autoplanRoutingSetupInput(visible, seenSetupQuestions, transcript.calls.find(call => !call.answered && !call.failed));
             if (setupInput !== null) {
-              await selectPtyNumberedOption(session, Number(setupInput.trim()));
+              if (setupInput.includes('\r')) await selectPtyNumberedOption(session, Number(setupInput.trim()));
+              else session.send(setupInput);
               await Bun.sleep(2000);
               continue;
             }

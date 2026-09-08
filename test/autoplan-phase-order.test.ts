@@ -126,3 +126,33 @@ describe('autoplan phase execution checkpoints', () => {
     expect(dx).not.toContain('Eng: <insert Eng consensus summary>');
   });
 });
+
+
+describe('autoplan current implementation-plan identity', () => {
+  test('pins the assigned active plan and keeps accepted amendments separate from review analyses', () => {
+    const intake = read('autoplan/SKILL.md.tmpl').split('## Phase 0: Intake')[1]?.split('### Step 2:')[0] ?? '';
+    expect(intake).toContain('`ACTIVE_PLAN` is the harness-assigned');
+    expect(intake).toContain('All amendments and phase outputs go\nto ACTIVE_PLAN');
+    expect(intake).toContain("Save SOURCE_PLAN's full current state");
+    expect(intake).toContain('without dropping requirements');
+    expect(intake).toContain('complete plan and accepted amendments');
+    expect(intake).toContain('reviewer analyses/audit separately');
+    expect(intake).toContain("Before each phase's dual voices, persist amendments");
+    expect(intake).toContain('Both voices review this same current content');
+    expect(intake).toContain('never the original input\nor review record');
+    expect(intake).toContain('The native voice stays blind');
+  });
+
+  test('every native and outside call site binds the fresh snapshot, retaining requested outside consensus', () => {
+    for (const phase of ['ceo', 'design', 'dx', 'eng']) {
+      const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
+      expect(section).toContain('Read the plan file at <review_plan_path>');
+      expect(section).toContain('Outside prompt: inline the full contents of <review_plan_path>');
+      expect(section).not.toContain('<plan_path>');
+      expect(section).toContain('You have NOT seen any prior review');
+    }
+    const eng = read('autoplan/sections/eng-phase.md.tmpl');
+    expect(eng).toContain('NO prior-phase context — subagent must be truly independent');
+    expect(eng).toContain('DX: <insert DX consensus table summary');
+  });
+});

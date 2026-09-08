@@ -1070,6 +1070,8 @@ export interface AskUserQuestionFingerprint {
   administrative?: 'completion-handoff';
   /** Lossless source metadata for observed calls; UI-only fingerprints omit it. */
   nativeCall?: NativePlanQuestionCall;
+  /** Active tab for UI answering; completed coverage still counts the whole call once. */
+  nativeQuestionIndex?: number;
 }
 
 /** Full question text feeds routing/phase predicates before diagnostics truncate it. */
@@ -1274,16 +1276,61 @@ function matchesClippedNativeQuestion(visible: string, call: NativePlanQuestionC
   if (suffix.split('\n').filter(line => line.trim()).length < 2 || displayed.length < 160 ||
       displayed.length > native.length || !native.endsWith(displayed)) return false;
   const menu = visible.slice(cursor.index);
-  const footer = /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.exec(menu);
+  const footer = /Enter\s*to\s*select\s*·\s*(?:↑\/↓\s*to\s*navigate|Tab\/Arrow\s*keys\s*to\s*navigate)\s*·\s*Esc\s*to\s*cancel/i.exec(menu);
   if (!footer || !/^[\s│┃─━└┘]*$/.test(menu.slice(footer.index + footer[0].length))) return false;
   const options = parseNumberedOptions(visible);
-  return options.length === question.options.length && options.every((option, index) =>
-    option.index === index + 1 && exact(option.label) === exact(question.options[index]!.label));
+  const offered = options.slice(0, question.options.length);
+  const controls = options.slice(question.options.length);
+  return offered.length === question.options.length && offered.every((option, index) =>
+    option.index === index + 1 && exact(option.label) === exact(question.options[index]!.label)) &&
+    controls.length <= 2 && controls.every((option, index) => option.index === question.options.length + index + 1 &&
+      (index === 0 ? /^Typesomething\.?$/ : /^Chataboutthis$/).test(exact(option.label)));
+}
+
+/** Match a pending packet's displayed tab by its full question and offered choices. */
+function nativePacketQuestionIndex(visible: string, call: NativePlanQuestionCall): number | null {
+  if (call.failed || call.questions.length < 2) return null;
+  const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+  const cursor = [...normalized.matchAll(/❯\s*1\./g)].at(-1);
+  if (!cursor) return null;
+  const before = normalized.slice(0, cursor.index);
+  const bar = [...before.matchAll(/←[^\n]*[☐☒][^\n]*✔\s*Submit\s*→/g)].at(-1);
+  if (!bar) {
+    const clipped = call.questions.flatMap((question, index) =>
+      matchesClippedNativeQuestion(normalized, {...call, questions: [question]}) ? [index] : []);
+    return clipped.length === 1 ? clipped[0]! : null;
+  }
+  if (!/Enter\s*to\s*select\s*·\s*Tab\/Arrow\s*keys\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(normalized.slice(cursor.index))) return null;
+  const compact = (value: string) => value.replace(/^[\t │┃]+/gm, '').replace(/\s+/g, '');
+  const body = compact(before.slice(bar.index + bar[0].length));
+  const options = parseNumberedOptions(normalized);
+  const matched = call.questions.flatMap((q, index) => body === compact(q.question) &&
+    q.options.every((option, i) => options[i]?.index === i + 1 && compact(options[i]!.label) === compact(option.label)) ? [index] : []);
+  return matched.length === 1 ? matched[0]! : null;
+}
+
+/** A native numeric shortcut accepts immediately; never queue Enter on the next tab. */
+export function planCountQuestionInput(visible: string, fp: AskUserQuestionFingerprint, index: number): string {
+  if (!Number.isInteger(index) || index < 1 || index > 9) throw new RangeError(`Invalid numbered option: ${index}`);
+  const native = fp.nativeCall?.questions[fp.nativeQuestionIndex ?? 0];
+  if (native) return native.multiSelect === true ? `${index}\r` : String(index);
+  // The native multi-select renderer uses the same footer, but marks rows
+  // with [ ]/[✓]. Without metadata, preserve that existing protocol.
+  if (/❯?\s*[1-9]\.\s*\[[ ✓✔xX]\]/m.test(visible)) return `${index}\r`;
+  // Native JSONL may flush only after submission. Its complete tab bar and
+  // navigation footer establish the input protocol without counting coverage.
+  const packet = /←[^\r\n]*[☐☒][^\r\n]*✔\s*Submit\s*→[\s\S]*❯\s*1\./.test(visible) &&
+    /Enter\s*to\s*select\s*·\s*Tab\/Arrow\s*keys\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(visible);
+  const single = /(?:^|[\r\n])[\t │┃]*[☐□][^\r\n]+[\s\S]*❯\s*1\./.test(visible) &&
+    /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(visible);
+  const panel = packet || single;
+  return panel ? String(index) : `${index}\r`;
 }
 
 /** Match native question identity before permission text can choose an answer. */
 export function matchesNativePlanQuestion(visible: string, call: NativePlanQuestionCall): boolean {
-  if (call.failed || call.questions.length !== 1) return false;
+  if (call.failed) return false;
+  if (call.questions.length !== 1) return nativePacketQuestionIndex(visible, call) !== null;
   const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
   const tail = normalized.slice(-4096);
   const cursor = [...tail.matchAll(/❯\s*1\./g)].at(-1);
@@ -1323,7 +1370,15 @@ export function capturePlanCountQuestion(
   if (!cursor) return null;
 
   if (pending && !pending.answered && !pending.failed && matchesNativePlanQuestion(visible, pending)) {
+    const activeIndex = pending.questions.length === 1 ? 0 : nativePacketQuestionIndex(visible, pending)!;
     const fp = nativePlanCallFingerprint(pending, observedAtMs, preReview);
+    fp.nativeQuestionIndex = activeIndex;
+    if (pending.questions.length > 1) {
+      const question = pending.questions[activeIndex]!;
+      fp.signature += `:question:${activeIndex}`;
+      fp.promptSnippet = `${question.header} ${question.question}`;
+      fp.options = question.options.map((option, i) => ({index: i + 1, label: option.label}));
+    }
     const renderedOptions = parseNumberedOptions(visible);
     const renderedPrompt = parseQuestionPrompt(visible);
     const renderedSignature = renderedOptions.length >= 2 && renderedPrompt
@@ -2873,8 +2928,9 @@ export async function runPlanSkillCounting(opts: {
       const pickIdx = prerequisitePick ?? callerPick ??
         (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(routing) : defaultPick);
       isFirstAUQ = false;
-      if (prerequisitePick !== null || callerPick !== null) await selectPtyNumberedOption(session, pickIdx);
-      else session.send(`${pickIdx}\r`);
+      const questionInput = planCountQuestionInput(visible, fp, pickIdx);
+      if (questionInput.includes('\r') && (prerequisitePick !== null || callerPick !== null)) await selectPtyNumberedOption(session, pickIdx);
+      else session.send(questionInput);
 
       // Give the agent a beat to advance to the next state.
       await Bun.sleep(2000);

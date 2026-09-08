@@ -469,7 +469,7 @@ process.stdin.resume();
       expect(fs.readFileSync(output, 'utf8')).toBe(REPORT);
       const recorded = fs.readFileSync(events, 'utf8').trim().split('\n').map(line => JSON.parse(line));
       expect(recorded.map(e => e.name)).toEqual(['streamed-heading', 'pending-question', 'answered-second', 'partial-report', 'complete-report', ...(terminal === 'plan_ready' ? ['valid-native-ready'] : [])]);
-      expect(fs.readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))).toEqual(['/plan-eng-review\r', '1\r']);
+      expect(fs.readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))).toEqual(['/plan-eng-review\r', '1']);
       if (terminal === 'plan_ready') expect(observation.transcript.planReadyRequests.map(r => r.failed)).toEqual([true, false]);
     } finally { clearTimeout(timer); child.kill('SIGKILL'); await child.exited; fs.rmSync(dir, { recursive: true, force: true }); }
   }));

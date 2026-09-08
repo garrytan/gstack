@@ -1,21 +1,20 @@
 <!-- AUTO-GENERATED from eng-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list; all other work runs in full.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Apply /autoplan's skip list and auto-decisions; run all other work in full.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
-  **Claude eng subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
-  Native subagent tool; Claude Code Agent arguments:
+  **Claude eng subagent** (native tool, foreground):
+  Claude Code Agent argument (other harnesses: native dispatch/wait):
   ```json
   { "run_in_background": false }
   ```
-  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+  Set on the call, not in prompt text.
 
-  "Read the plan file at <plan_path>. You are an independent senior engineer
+  "Read the plan file at <review_plan_path>. You are an independent senior engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Architecture: Is the component structure sound? Coupling concerns?
   2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
@@ -27,11 +26,11 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 
   **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
-  No inline substitute; apply the existing failure policy.
+  wait for that same agent's final result/failure before outside dispatch or parent review.
+  No inline substitute; apply failure policy.
 
   **Codex eng voice** (via Bash):
-  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
 
 IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
@@ -43,7 +42,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definitio
   Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
   DX: <insert DX consensus table summary, or 'skipped, no developer-facing scope'>
 
-  File: <plan_path>
+  File: <review_plan_path>
 
 Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
@@ -154,8 +153,7 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - TODOS.md updates (collected from all phases)
 
 **Close this phase before continuing:** Check successful Write/Edit results for
-all required plan/artifact outputs and both reviewers' terminal status (including
-unavailable/disabled coverage). Do not announce completion while required work remains.
+all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
 Emit this filled-in summary as an actual assistant message:
 
 **Phase 3 complete.**

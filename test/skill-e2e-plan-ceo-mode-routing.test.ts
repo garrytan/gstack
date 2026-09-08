@@ -38,6 +38,9 @@ import {
   isNumberedOptionListVisible,
   isPlanReadyVisible,
   selectPtyNumberedOption,
+  planCountQuestionInput,
+  capturePlanCountQuestion,
+  type AskUserQuestionFingerprint,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
 import { hasNativePostAnswerCeoPosture, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
@@ -89,8 +92,9 @@ async function navigateToModeAskUserQuestion(
   session: ClaudePtySession,
   since: number,
   targetMode: ModeCase['mode'],
+  cwd: string,
   opts: { maxNav?: number; budgetMs?: number } = {},
-): Promise<{ modeIndex: number; visibleAtMode: string }> {
+): Promise<{ modeIndex: number; visibleAtMode: string; question: AskUserQuestionFingerprint }> {
   // /plan-ceo-review's mode AskUserQuestion (Step 0F) sits behind several preamble
   // and Step 0A-0C-bis gates: telemetry, proactive, routing, vendoring,
   // brain privacy, office-hours offer, premise challenge (3 questions),
@@ -109,8 +113,10 @@ async function navigateToModeAskUserQuestion(
       );
     }
     await Bun.sleep(2000);
-    const visible = session.visibleSince(since);
-    const action = nextCeoModeNavigation(visible, targetMode, seenQuestions);
+    const visible = await session.currentScreen();
+    const transcript = session.hermeticConfigDir ? readPlanCountTranscript(session.hermeticConfigDir, cwd) : null;
+    const pending = transcript?.calls.find(call => !call.answered && !call.failed);
+    const action = nextCeoModeNavigation(visible, targetMode, seenQuestions, pending, session.visibleText());
     if (action.kind === 'wait') continue;
     // Native permission and multi-question Submit menus are controls, not
     // review questions, so neither consumes the navigation question budget.
@@ -120,7 +126,7 @@ async function navigateToModeAskUserQuestion(
       continue;
     }
     if (action.kind === 'mode') {
-      return { modeIndex: action.index, visibleAtMode: visible };
+      return { modeIndex: action.index, visibleAtMode: visible, question: action.question };
     }
 
     // Not the mode AskUserQuestion — answer with option 1 (recommended) and continue.
@@ -132,7 +138,7 @@ async function navigateToModeAskUserQuestion(
       );
     }
     priorAnswered++;
-    session.send('1\r');
+    session.send(planCountQuestionInput(visible, action.question, 1));
     // Give the agent a beat to advance before re-polling.
     await Bun.sleep(2000);
   }
@@ -155,17 +161,20 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             permissionMode: 'plan',
             timeoutMs: CAPTURE_LONG_MS,
             seedSkills: true,
+            observeScreen: true,
           });
           await Bun.sleep(8000);
           const since = session.mark();
           session.send('/plan-ceo-review\r');
 
-          const { modeIndex, visibleAtMode } = await navigateToModeAskUserQuestion(session, since, c.mode);
+          const { modeIndex, visibleAtMode, question } = await navigateToModeAskUserQuestion(session, since, c.mode, fixture.cwd);
 
-          // The digit redraws the menu before Enter confirms it. Start after
-          // confirmation so its mode names cannot count as assistant posture.
+          // Native shortcuts accept immediately. Preserve the captured question
+          // identity; only the legacy prose-menu protocol needs Enter.
           const selectionStartedAt = Date.now();
-          await selectPtyNumberedOption(session, modeIndex);
+          const modeInput = planCountQuestionInput(visibleAtMode, question, modeIndex);
+          if (modeInput.includes('\r')) await selectPtyNumberedOption(session, modeIndex);
+          else session.send(modeInput);
           const sincePick = session.mark();
 
           // Wait for downstream evidence: either next AskUserQuestion or plan_ready or
@@ -193,11 +202,19 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
               postureMatched = true;
               break;
             }
-            const continuation = nextCeoPostureContinuation(downstreamSnapshot, transcript,
-              c.mode, selectionStartedAt, seenDownstream, continuedQuestion);
+            const currentInput = await session.currentScreen();
+            const continuation = nextCeoPostureContinuation(currentInput, transcript,
+              c.mode, selectionStartedAt, seenDownstream, continuedQuestion, session.visibleText());
             if (continuation !== null) {
               if (continuation === 'question') continuedQuestion = true;
-              await selectPtyNumberedOption(session, 1);
+              if (continuation === 'permission') await selectPtyNumberedOption(session, 1);
+              else {
+                const pending = transcript.calls.find(call => !call.answered && !call.failed);
+                const question = capturePlanCountQuestion(currentInput, new Set(), 0, false, pending)!;
+                const input = planCountQuestionInput(currentInput, question, 1);
+                if (input.includes('\r')) await selectPtyNumberedOption(session, 1);
+                else session.send(input);
+              }
               continue;
             }
             // Don't bail early on plan_ready alone — the posture text may

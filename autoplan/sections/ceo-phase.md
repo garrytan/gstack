@@ -1,8 +1,7 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list; all other work runs in full.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Apply /autoplan's skip list and auto-decisions; run all other work in full.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
@@ -17,19 +16,17 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
 - All 10 review sections: run fully, auto-decide each issue, log every decision.
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run them sequentially in foreground. First the Claude subagent (Agent tool
-  with run_in_background: false — subagents default to BACKGROUND since
-  Claude Code v2.1.198, so the flag must be explicitly false), then Codex
-  (Bash). Both must complete before building the consensus table.
+  Run Claude first, then Codex, sequentially in foreground;
+  both must complete before consensus.
 
   **Claude CEO subagent** (via Agent tool):
-  Native subagent tool; Claude Code Agent arguments:
+  Claude Code Agent argument (other harnesses: native dispatch/wait):
   ```json
   { "run_in_background": false }
   ```
-  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+  Set on the call, not in prompt text.
 
-  "Read the plan file at <plan_path>. You are an independent CEO/strategist
+  "Read the plan file at <review_plan_path>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Is this the right problem to solve? Could a reframing yield 10x impact?
   2. Are the premises stated or just assumed? Which ones could be wrong?
@@ -40,11 +37,11 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 
   **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
-  No inline substitute; apply the existing failure policy.
+  wait for that same agent's final result/failure before outside dispatch or parent review.
+  No inline substitute; apply failure policy.
 
   **Codex CEO voice** (via Bash):
-  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
 
 IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
@@ -54,7 +51,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definitio
   What alternatives were dismissed too quickly? What competitive or market risks are
   unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
   No compliments. Just the strategic blind spots.
-  File: <plan_path>
+  File: <review_plan_path>
 
 Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
@@ -160,8 +157,7 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Completion Summary (the full summary table from the CEO skill)
 
 **Close this phase before continuing:** Check successful Write/Edit results for
-all required plan/artifact outputs and both reviewers' terminal status (including
-unavailable/disabled coverage). Do not announce completion while required work remains.
+all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
 Emit this filled-in summary as an actual assistant message:
 
 **Phase 1 complete.**

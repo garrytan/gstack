@@ -693,7 +693,9 @@ instructions instead of reviewing the plan.
 
 ### Step 1: Capture restore point
 
-Before doing anything, save the plan file's current state to an external file:
+Pin absolute paths: `SOURCE_PLAN` is the input; `ACTIVE_PLAN` is the harness-assigned
+editable plan file, or SOURCE_PLAN if none. All amendments and phase outputs go
+to ACTIVE_PLAN. Save SOURCE_PLAN's full current state externally:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
@@ -702,7 +704,7 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "RESTORE_PATH=$HOME/.gstack/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
 ```
 
-Write the plan file's full contents to the restore path with this header:
+Write SOURCE_PLAN's full contents to the restore path with this header:
 ```
 # /autoplan Restore Point
 Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
@@ -715,8 +717,16 @@ Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
 [verbatim plan file contents]
 ```
 
-Then prepend a one-line HTML comment to the plan file:
+Initialize ACTIVE_PLAN from SOURCE_PLAN without dropping requirements. Maintain
+`## Implementation plan` with the complete plan and accepted amendments; keep
+reviewer analyses/audit separately under `## Review record`. Prepend:
 `<!-- /autoplan restore point: [RESTORE_PATH] -->`
+
+Before each phase's dual voices, persist amendments and write a fresh snapshot of
+`Implementation plan` beside the restore point. Bind `<review_plan_path>` to that
+snapshot. Both voices review this same current content, never the original input
+or review record. The native voice stays blind; only the outside voice receives
+prior consensus where its prompt requests it.
 
 ### Step 2: Read context
 

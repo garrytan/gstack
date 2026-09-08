@@ -9,7 +9,8 @@ import * as path from 'path';
 // producing a foreground run — the review army and autoplan dual-voice
 // steps silently launched specialists in the background and merged before
 // they completed. The only guidance that works post-2.1.198 is an explicit
-// `run_in_background: false` on the Agent call.
+// `run_in_background: false` (prose) or `"run_in_background": false` (JSON)
+// on the Agent call.
 //
 // This tripwire pins the corrected phrasing in the generated skill output
 // and fails if the inverted form ever comes back through a template or
@@ -59,6 +60,14 @@ const GENERATED_WITH_GUIDANCE = [
 // SKILL.md so the regression can't migrate to another skill unnoticed.
 const INVERTED = /do not use\s+`?run_in_background`?/i;
 
+// Both spellings describe the same boolean Agent argument. Keep the key and
+// false token bounded so an unrelated key or quoted/string value cannot pass.
+const EXPLICIT_FOREGROUND = /(?:\brun_in_background\b|"run_in_background")\s*:\s*false\b/;
+function hasForegroundGuidance(content: string): boolean {
+  return EXPLICIT_FOREGROUND.test(content) && !INVERTED.test(content);
+}
+
+
 function allGeneratedSkillFiles(): string[] {
   const out: string[] = [];
   for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
@@ -80,10 +89,30 @@ function allGeneratedSkillFiles(): string[] {
 }
 
 describe('run_in_background guidance (#2440)', () => {
+  test('recognizes prose and actual JSON false without accepting missing, true, or inverted guidance', () => {
+    for (const guidance of [
+      'Pass `run_in_background: false` on the Agent call.',
+      'Native subagent tool; Claude Code Agent arguments:\n```json\n{ "run_in_background": false }\n```\nSet on the call, not in prompt text.',
+      '{\n  "run_in_background" :\n  false\n}',
+    ]) expect(hasForegroundGuidance(guidance), guidance).toBe(true);
+    for (const guidance of [
+      'Dispatch via the Agent tool (foreground).',
+      'run_in_background: true',
+      '{ "run_in_background": true }',
+      '{ "run_in_background": "false" }',
+      '{ "run_in_background": null }',
+      'other_run_in_background: false',
+      'run_in_background: falsehood',
+      'Do NOT use `run_in_background`.',
+      'Do NOT use run_in_background: false.',
+      'Do NOT use `run_in_background`. { "run_in_background": false }',
+    ]) expect(hasForegroundGuidance(guidance), guidance).toBe(false);
+  });
+
   test('foreground-required skills instruct run_in_background: false explicitly', () => {
     for (const rel of GENERATED_WITH_GUIDANCE) {
       const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).toContain('run_in_background: false');
+      expect(hasForegroundGuidance(content), rel).toBe(true);
     }
   });
 
@@ -147,7 +176,7 @@ describe('run_in_background guidance (#2440)', () => {
       const rel = path.relative(ROOT, file).split(path.sep).join('/');
       if (BACKGROUND_OK[rel]) continue;
       const content = fs.readFileSync(file, 'utf-8');
-      if (DISPATCH_IMPERATIVE.test(content) && !content.includes('run_in_background: false')) {
+      if (DISPATCH_IMPERATIVE.test(content) && !hasForegroundGuidance(content)) {
         throw new Error(
           `${rel} contains an Agent-dispatch imperative (or bare "foreground" prose) but never states ` +
           '`run_in_background: false` — pin the flag at the dispatch site or add a reasoned BACKGROUND_OK ' +

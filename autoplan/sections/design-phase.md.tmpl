@@ -1,6 +1,5 @@
 Read {{AUTOPLAN_REVIEW_FILE:plan-design-review}} in full now; follow its lazy-section triggers.
-Apply /autoplan's skip list; all other work runs in full.
-Override: every AskUserQuestion → auto-decide using the 6 principles.
+Apply /autoplan's skip list and auto-decisions; run all other work in full.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
@@ -9,14 +8,14 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
 
-  **{{NATIVE_LABEL}} design subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
-  Native subagent tool; Claude Code Agent arguments:
+  **{{NATIVE_LABEL}} design subagent** (native tool, foreground):
+  Claude Code Agent argument (other harnesses: native dispatch/wait):
   ```json
   { "run_in_background": false }
   ```
-  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+  Set on the call, not in prompt text.
 
-  "Read the plan file at <plan_path>. You are an independent senior product designer
+  "Read the plan file at <review_plan_path>. You are an independent senior product designer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Information hierarchy: what does the user see first, second, third? Is it right?
   2. Missing states: loading, empty, error, success, partial — which are unspecified?
@@ -28,15 +27,15 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 
   **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
-  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
-  No inline substitute; apply the existing failure policy.
+  wait for that same agent's final result/failure before outside dispatch or parent review.
+  No inline substitute; apply failure policy.
 
   **{{OUTSIDE_LABEL}} design voice** (via Bash):
-  Outside prompt (include the full current plan content and the context requested below, using the Write tool):
+  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
 
 IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
-  Read the plan file at <plan_path>. Evaluate this plan's
+  Read the plan file at <review_plan_path>. Evaluate this plan's
   UI/UX design decisions.
 
   Also consider these findings from the CEO review phase:
@@ -76,8 +75,7 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
 
 **Close this phase before continuing:** Check successful Write/Edit results for
-all required plan/artifact outputs and both reviewers' terminal status (including
-unavailable/disabled coverage). Do not announce completion while required work remains.
+all required outputs and both reviewers' terminal status (including unavailable/disabled). Do not announce completion while required work remains.
 Emit this filled-in summary as an actual assistant message:
 
 **Phase 2 complete.**

@@ -104,12 +104,12 @@ describe('autoplan routing setup handling', () => {
 
   test('answers the captured combined decline action once, regardless of option order', () => {
     const seen = new Set<string>();
-    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE, seen)).toBe('1');
     expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE, seen)).toBeNull();
     const reordered = F_SETUP_CAPTURE.replace('❯1.AddroutingrulestoCLAUDE.md', '❯1.Nothanks,skip')
       .replace('2.Nothanks,skip', '2.AddroutingrulestoCLAUDE.md');
-    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
-    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE.replace('Nothanks,skip', 'No thanks, skip—invoke skills manually'), new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2');
+    expect(autoplanRoutingSetupInput(F_SETUP_CAPTURE.replace('Nothanks,skip', 'No thanks, skip—invoke skills manually'), new Set())).toBe('1');
   });
 
   test('does not infer a routing answer from damaged, ambiguous, or unrelated setup choices', () => {
@@ -125,11 +125,11 @@ describe('autoplan routing setup handling', () => {
 
   test('answers the fresh retry manual-invocation setup once in either option order', () => {
     const seen = new Set<string>();
-    expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE, seen)).toBe('1');
     expect(autoplanRoutingSetupInput(FRESH_RETRY_CAPTURE, seen)).toBeNull();
     const reordered = FRESH_RETRY_CAPTURE.replace('❯1.Addroutingrules(Recommended)', '❯1.Nothanks,manualinvocation')
       .replace('2.Nothanks,manualinvocation', '2.Addroutingrules(Recommended)');
-    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2');
   });
 
   test('requires opposed manual setup actions and rejects ambiguous or unrelated choices', () => {
@@ -155,7 +155,7 @@ describe('autoplan routing setup handling', () => {
 
   test('answers the captured setup once, using the full question identity', () => {
     const seen = new Set<string>();
-    expect(autoplanRoutingSetupInput(CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(CAPTURE, seen)).toBe('1');
     expect(autoplanRoutingSetupInput(CAPTURE, seen)).toBeNull();
     expect(autoplanRoutingSetupInput(CAPTURE.replace('works best', 'works   best'), seen)).toBeNull();
   });
@@ -163,25 +163,25 @@ describe('autoplan routing setup handling', () => {
   test('chooses Add routing rules by label when option order changes', () => {
     const reordered = CAPTURE.replace('❯1.Addroutingrules(Recommended)', '❯1.Nothanks')
       .replace('2.Nothanks', '2.Add routing rules (Recommended)');
-    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2');
   });
 
   test('accepts the full option labels captured from the subsequent live setup prompt', () => {
     const fullLabels = CAPTURE.replace('Addroutingrules(Recommended)', 'Add routing rules to CLAUDE.md (Recommended)')
       .replace('2.Nothanks', "2.No thanks, I'll invoke skills manually");
-    expect(autoplanRoutingSetupInput(fullLabels, new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(fullLabels, new Set())).toBe('1');
     expect(autoplanRoutingSetupInput(fullLabels.replace('CLAUDE.md (Recommended)', 'product routes (Recommended)'), new Set())).toBeNull();
     expect(autoplanRoutingSetupInput(fullLabels.replace("I'll invoke skills manually", 'delete the existing rules'), new Set())).toBeNull();
   });
 
   test('answers the current captured CLAUDE.md setup, including reordered choices, once', () => {
     const seen = new Set<string>();
-    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE, seen)).toBe('1');
     expect(autoplanRoutingSetupInput(CURRENT_CAPTURE, seen)).toBeNull();
     const reordered = CURRENT_CAPTURE.replace('❯1.AddtoCLAUDE.md(recommended)', '❯1.Skip—invokemanually')
       .replace('2.Skip—invokemanually', '2.AddtoCLAUDE.md(recommended)');
-    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
-    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE.replace('to CLAUDE.md?', "to this project's CLAUDE.md?"), new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2');
+    expect(autoplanRoutingSetupInput(CURRENT_CAPTURE.replace('to CLAUDE.md?', "to this project's CLAUDE.md?"), new Set())).toBe('1');
   });
 
   test('the current wording still requires both explicit setup choices and the CLAUDE.md target', () => {
@@ -197,17 +197,17 @@ describe('autoplan routing setup handling', () => {
   test('recognizes the native A retry packet with its abbreviated manual-decline label', () => {
     const retry = CAPTURE.replace('Addroutingrules(Recommended)', 'Add to CLAUDE.md (Recommended)')
       .replace('2.Nothanks', '2.No thanks, manual');
-    expect(autoplanRoutingSetupInput(retry, new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(retry, new Set())).toBe('1');
     expect(autoplanRoutingSetupInput(retry.replace('No thanks, manual', 'No thanks, delete it'), new Set())).toBeNull();
   });
 
   test('answers the exact B timeout menu by its routing label, in either order', () => {
     const seen = new Set<string>();
-    expect(autoplanRoutingSetupInput(B_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(B_CAPTURE, seen)).toBe('1');
     expect(autoplanRoutingSetupInput(B_CAPTURE, seen)).toBeNull();
     const reordered = B_CAPTURE.replace('❯1.AddroutingrulestoCLAUDE.md(Recommended)', '❯1.Nothanks,invokemanually')
       .replace('2.Nothanks,invokemanually', '2.AddroutingrulestoCLAUDE.md(Recommended)');
-    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(reordered, new Set())).toBe('2');
     expect(autoplanRoutingSetupInput(B_CAPTURE.replace('Nothanks,invokemanually', 'Nothanks,deletethefilemanually'), new Set())).toBeNull();
     expect(autoplanRoutingSetupInput(B_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md?', 'Which routing design should the application use?'), new Set())).toBeNull();
   });
@@ -221,13 +221,13 @@ describe('autoplan routing setup handling', () => {
     ];
     for (const opening of openings) {
       const frame = CURRENT_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>', opening);
-      expect(autoplanRoutingSetupInput(frame, new Set()), opening).toBe('1\r');
+      expect(autoplanRoutingSetupInput(frame, new Set()), opening).toBe('1');
     }
   });
 
   test('recognizes an intact setup qid with an explicit CLAUDE.md action and opposed manual decline', () => {
     const frame = CURRENT_CAPTURE.replace('Add gstack skill routing rules to CLAUDE.md?', 'Configure this project’s CLAUDE.md?');
-    expect(autoplanRoutingSetupInput(frame, new Set())).toBe('1\r');
+    expect(autoplanRoutingSetupInput(frame, new Set())).toBe('1');
     expect(autoplanRoutingSetupInput(frame.replace('gstack-qid:routing-injection', 'gstack-qid:product-routing'), new Set())).toBeNull();
     expect(autoplanRoutingSetupInput(frame.replace('AddtoCLAUDE.md(recommended)', 'Acceptrecommendation'), new Set())).toBeNull();
     expect(autoplanRoutingSetupInput(frame.replace('Skip—invokemanually', 'Deferthisfinding'), new Set())).toBeNull();
@@ -290,16 +290,16 @@ const G_ROUTING_CAPTURE = [
 describe('autoplan routing action survives courtesy repaint', () => {
   test('selects the explicit Add action once in the captured G menu, in both orders', () => {
     const seen = new Set<string>();
-    expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE, seen)).toBe('1');
     expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE, seen)).toBeNull();
     const reversed = G_ROUTING_CAPTURE.replace('❯1.AddroutingrulestoCLAUDE.md', "❯1.N thanks, I'll invokeskillsmanually")
       .replace("2. N thanks, I'll invokeskillsmanually", '2.AddroutingrulestoCLAUDE.md');
-    expect(autoplanRoutingSetupInput(reversed, new Set())).toBe('2\r');
+    expect(autoplanRoutingSetupInput(reversed, new Set())).toBe('2');
   });
 
   test('the actual manual-invocation action needs no courtesy formula', () => {
     for (const action of ['Manual invocation', 'Invoke skills manually', "I'll invoke skills manually", 'Thanks, invoke manually']) {
-      expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE.replace("N thanks, I'll invokeskillsmanually", action), new Set()), action).toBe('1\r');
+      expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE.replace("N thanks, I'll invokeskillsmanually", action), new Set()), action).toBe('1');
     }
   });
 

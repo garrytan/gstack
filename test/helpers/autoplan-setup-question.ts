@@ -1,8 +1,10 @@
-import { capturePlanCountQuestion } from './claude-pty-runner';
+import { capturePlanCountQuestion, planCountQuestionInput } from './claude-pty-runner';
+
+import type { NativePlanQuestionCall } from './plan-count-transcript';
 
 /** Answer only gstack's routing setup prompt in the isolated autoplan fixture. */
-export function autoplanRoutingSetupInput(visible: string, seen: Set<string>): string | null {
-  const question = capturePlanCountQuestion(visible, seen, 0, true);
+export function autoplanRoutingSetupInput(visible: string, seen: Set<string>, pending?: NativePlanQuestionCall): string | null {
+  const question = capturePlanCountQuestion(visible, seen, 0, true, pending);
   if (!question) return null;
 
   // The model rephrases the setup question's closing sentence. Its routing
@@ -44,5 +46,5 @@ export function autoplanRoutingSetupInput(visible: string, seen: Set<string>): s
   const claudeTarget = /CLAUDE\.md/i.test(prompt);
   const quotedPremise = /\b(?:plan|spec|document)\s+(?:quotes?|cites?|references?)\b/i.test(primary);
   if (!claudeTarget || quotedPremise || (!routingId && !routingPremise)) return null;
-  return `${add[0]!.index}\r`;
+  return planCountQuestionInput(visible, question, add[0]!.index);
 }

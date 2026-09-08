@@ -172,3 +172,43 @@ describe('DevEx calibrated fixture instructions', () => {
     expect(suppliedContext).not.toMatch(/(?:exactly|at least|at most)\s+(?:five|5)|(?:five|5)[- ]findings?|4[-–]7|reviewCount|CEILING|FLOOR/i);
   });
 });
+
+
+describe('native first-local-run CI decisions', () => {
+  const question =
+    'D3 \u2014 Journey Stage: FIRST RESULT \u2014 5-minute CI gate makes the <2min TTHW target mathematically unreachable\n\nELI10: On every first local run, the SDK blocks for 5 minutes waiting for a remote CI check (docs/current-contracts.md). There is no skip flag. The TTHW study measured EvalKit at 6 minutes total (docs/benchmarks.md). The agreed target is under 2 minutes. With a mandatory 5-minute wait baked in, you cannot reach that target \u2014 the CI gate alone exceeds it. Competitors: A=2min, B=4min, C=3min. EvalKit currently loses on TTHW.\n\nStakes if we pick wrong: If the target stays <2min but the gate stays too, the benchmark is aspirational theatre. If the gate stays and the target is adjusted, the competitive position is weaker.\n\nRecommendation: A \u2014 add a local skip path. The CI gate adds real value in production CI, but blocking local first-runs is the wrong tradeoff for an SDK that wants sub-2min TTHW.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-devex-review-ci-gate>';
+  test('the answered first-local-run CI gate is substantive, including its plural variant', () => {
+    for (const text of [
+      question,
+      question.replace('first local run', 'first local runs'),
+    ]) {
+      const fp = call(text);
+      fp.nativeCall!.questions[0]!.header = 'CI gate TTHW';
+      expect(isDevexReviewIssue(fp)).toBe(true);
+    }
+  });
+  test('an unanswered CI tab and an administrative recap never create coverage', () => {
+    const fp = call('Does the empathy narrative match reality?');
+    fp.nativeCall!.questions[0]!.header = 'Empathy check';
+    fp.nativeCall!.questions.push({
+      header: 'CI gate TTHW',
+      question,
+      options: [{ label: 'Skip CI' }, { label: 'Keep CI' }],
+    });
+    fp.nativeCall!.unansweredQuestionIndices = [1];
+    expect(isDevexReviewIssue(fp)).toBe(false);
+    fp.nativeCall!.answers![question] = 'Skip CI';
+    fp.nativeCall!.unansweredQuestionIndices = [];
+    expect(isDevexReviewIssue(fp)).toBe(true);
+    const recap = call(question);
+    recap.nativeCall!.questions[0]!.header = 'Empathy check';
+    expect(isDevexReviewIssue(recap)).toBe(false);
+    expect(
+      isDevexReviewIssue(
+        call(
+          'The production CI gate waits five minutes. Change the release check?',
+        ),
+      ),
+    ).toBe(false);
+  });
+});

@@ -148,6 +148,10 @@ The core principle: **gather evidence and force decisions BEFORE scoring, not du
 scoring.** Steps 0A through 0G build the evidence base. Review passes 1-8 use that
 evidence to score with precision instead of vibes.
 
+**Decision cadence, including Step 0:** One unresolved DX issue per AskUserQuestion
+call. Never batch issues into a call's `questions` array. Wait for each answer.
+Keep persona, empathy, and mode confirmations in separate calls from issue approvals.
+
 ### 0A. Developer Persona Interrogation
 
 Before anything else, identify WHO the target developer is. Different developers have
@@ -355,8 +359,8 @@ For each stage (Discover, Install, Hello World, Real Usage, Debug, Upgrade):
    or tells the developer to install it. A [persona] without Docker will see [specific
    error or nothing]."
 
-3. **AskUserQuestion per friction point.** One question per friction point found.
-   Do NOT batch multiple friction points into one question.
+3. **AskUserQuestion per friction point.** One separate tool call per friction point.
+   Do NOT batch friction points into one question or into different questions in one call.
 
    > "Journey Stage: INSTALL
    >

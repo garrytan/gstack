@@ -59,7 +59,10 @@ describeE2E('/plan-ceo-review section-loading E2E (periodic, SDK capture)', () =
         planDir,
         skillName: 'plan-ceo-review',
         scenario:
-          'Review the plan in PLAN.md. Hold the current scope (HOLD SCOPE mode) — do not challenge or expand scope. Run the full CEO review and produce the review report.',
+          'Review the plan in PLAN.md. Hold the current scope (HOLD SCOPE mode) — do not challenge or expand scope. Run the full CEO review. PLAN.md is both the active plan and final output: preserve and amend its plan content, then include the full review report there.',
+        // The skill appends its report to the active plan. Use that same
+        // artifact so the capture does not request a second report write.
+        reportFile: 'PLAN.md',
         requiredSections: REQUIRED_SECTIONS,
         reportMarker: /^## GSTACK REVIEW REPORT\s*$/m,
         testName: 'plan-ceo-section-loading',

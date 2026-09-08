@@ -7,6 +7,7 @@ import {
   auqFingerprint,
   classifyPlanCountFrame,
   isNumberedOptionListVisible,
+  matchesNativePlanQuestion,
   planCountSubmissionInput,
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
@@ -52,13 +53,13 @@ const permissionStates = new WeakMap<Set<string>, {
   file: ReturnType<typeof createPlanCountPermissionGuard>;
   other: Set<string>;
 }>();
-function ceoPermissionAction(visible: string, seenQuestions: Set<string>): 'grant' | 'handled' | null {
+function ceoPermissionAction(visible: string, seenQuestions: Set<string>, completionHistory = visible): 'grant' | 'handled' | null {
   let state = permissionStates.get(seenQuestions);
   if (!state) {
     state = { file: createPlanCountPermissionGuard(), other: new Set() };
     permissionStates.set(seenQuestions, state);
   }
-  const file = state.file(visible);
+  const file = state.file(visible, completionHistory);
   if (file !== null) return file;
   if (classifyPlanCountFrame(visible) !== 'permission') return null;
   const signature = auqFingerprint(parseQuestionPrompt(visible), parseNumberedOptions(visible));
@@ -72,15 +73,17 @@ export function nextCeoModeNavigation(
   visible: string,
   targetMode: CeoMode,
   seenQuestions: Set<string>,
+  pending?: NativePlanQuestionCall,
+  completionHistory = visible,
 ): ModeNavigationAction {
-  const permission = ceoPermissionAction(visible, seenQuestions);
+  const permission = pending && matchesNativePlanQuestion(visible, pending) ? null : ceoPermissionAction(visible, seenQuestions, completionHistory);
   if (permission !== null) return permission === 'grant'
     ? { kind: 'permission', input: '1\r' } : { kind: 'wait' };
   const frame = classifyPlanCountFrame(visible);
   const submission = frame === null ? planCountSubmissionInput(visible) : null;
   if (submission !== null) return { kind: 'submission', input: submission };
   if (!isNumberedOptionListVisible(visible)) return { kind: 'wait' };
-  const question = capturePlanCountQuestion(visible, seenQuestions, 0, true);
+  const question = capturePlanCountQuestion(visible, seenQuestions, 0, true, pending);
   if (!question) return { kind: 'wait' };
   const index = findCeoModeOption(question.options, targetMode);
   return index === null ? { kind: 'question', question } : { kind: 'mode', index, question };
@@ -176,10 +179,12 @@ export function nextCeoPostureContinuation(
   selectionStartedAt: number,
   seenQuestions: Set<string>,
   alreadyContinued: boolean,
+  completionHistory = visible,
 ): 'permission' | 'question' | null {
-  const permission = ceoPermissionAction(visible, seenQuestions);
+  const pending = transcript.calls.find(call => !call.answered && !call.failed);
+  const permission = pending && matchesNativePlanQuestion(visible, pending) ? null : ceoPermissionAction(visible, seenQuestions, completionHistory);
   if (permission !== null) return permission === 'grant' ? 'permission' : null;
   if (alreadyContinued || !nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt)) return null;
-  const action = nextCeoModeNavigation(visible, targetMode, seenQuestions);
+  const action = nextCeoModeNavigation(visible, targetMode, seenQuestions, pending, completionHistory);
   return action.kind === 'question' ? 'question' : null;
 }

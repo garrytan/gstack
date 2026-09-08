@@ -256,8 +256,15 @@ const filePermission = () => '\nDo you want to make this edit to gstack-test-pla
   '❯1.Yes\n2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)forthissession;Yes,and\n' +
   'alwaysallowaccessto/tmp/fixtureforthissession\n3.No\nEsctocancel·Tabtoamend\n';
 process.stdin.on('data', (data) => {
-  const input = data.toString('utf8');
-  record({ type: 'input', data: input });
+  const rawInput = data.toString('utf8');
+  record({ type: 'input', data: rawInput });
+  // These complete native panels accept a numeric shortcut immediately.
+  // Keep the fixture's existing answer handler sentinel internal; assertions
+  // below still check the exact bytes the real driver sent.
+  const instantNative = ['native-permission-policy', 'damaged-menu'].includes(process.env.FIXTURE_MODE)
+    || (process.env.FIXTURE_MODE === 'permission-lifecycle' && permissionStage === 'question')
+    || (process.env.FIXTURE_MODE === 'prerequisite' && (question === 2 || process.env.FIXTURE_CUSTOM !== 'true'));
+  const input = instantNative && /^[1-9]$/.test(rawInput) ? rawInput + '\r' : rawInput;
   if (!firstInput) {
     if (process.env.FIXTURE_MODE === 'native-permission-policy') {
       if (permissionStage === 'done') { record({ type: 'unexpected-policy-input', input }); return; }
@@ -566,11 +573,12 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           expect(startup.skill).toContain(`name: ${item.skillName}`);
           expect(startup.sections).toBe(fs.readFileSync(path.join(ROOT, item.skillName, 'sections/review-sections.md'), 'utf8'));
           expect(events.filter((event) => event.type === 'input').map((event) => event.data).join(''))
-            .toBe(`/${item.skillName}\r` + (item.mode === 'prerequisite' ? `${item.custom ? 1 : 2}\r${item.skipIndex}\r`
-              : item.mode === 'permission-lifecycle' ? '1\r1\r2\r'
+            .toBe(`/${item.skillName}\r` + (item.mode === 'prerequisite' ? `${item.custom ? '1\r' : '2'}${item.skipIndex}`
+              : item.mode === 'permission-lifecycle' ? '1\r1\r2'
               : item.mode === 'damaged-submit' ? '\x1b[Z2\r\r'
               : item.mode === 'batched-finding' ? '2\r1\r' : item.mode === 'batched-mode' ? '1\r'
-              : ['direct-finding', 'failed-call', 'permission', 'late-mode', 'damaged-menu', 'native-permission-policy'].includes(item.mode) ? '2\r' : ''));
+              : ['damaged-menu', 'native-permission-policy'].includes(item.mode) ? '2'
+              : ['direct-finding', 'failed-call', 'permission', 'late-mode'].includes(item.mode) ? '2\r' : ''));
           expect(fs.existsSync(startup.cwd)).toBe(false);
           expect(fs.existsSync(startup.stateRoot)).toBe(false);
           expect(() => process.kill(startup.pid, 0)).toThrow();

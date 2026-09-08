@@ -131,7 +131,7 @@ function substantiveIssue({ header, question }: { header: string; question: stri
   if (administrativeQuestion(header, question)) return false;
   const normalized = `${header} ${question}`.replace(/\s+/g, ' ');
   const ciGate = /\b(?:CI|continuous integration)\b/i.test(normalized)
-    && /\b(?:first[- ]run|first eval(?:uation)?|local eval(?:uation)?|hello world)\b/i.test(normalized)
+    && /\b(?:first[- ](?:local[- ])?runs?|first eval(?:uation)?|local eval(?:uation)?|hello world)\b/i.test(normalized)
     && /\b(?:mandatory|required|blocks?|five[- ]minute|5[- ]min(?:ute)?|wait|gate)\b/i.test(normalized);
   const argumentsReversed = /\brun_eval\b/i.test(normalized) && /\brun_batch\b/i.test(normalized)
     && /\b(?:revers\w*|inconsisten\w*|swapp\w*|different|order|positional)\b/i.test(normalized);
