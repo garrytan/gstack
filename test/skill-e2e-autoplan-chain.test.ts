@@ -142,9 +142,9 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               }
             }
 
-            // This new repository also asks once to add gstack routing to
-            // CLAUDE.md. Answer only that recognized setup prompt; review and
-            // taste decisions remain autoplan's responsibility. The helper
+            // This new repository offers routing and an optional design-doc
+            // prerequisite. Keep the supplied plan and continue its full
+            // review; taste decisions remain autoplan's responsibility. The helper
             // deduplicates the complete question before returning an input.
             const setupInput = autoplanRoutingSetupInput(visible, seenSetupQuestions, transcript.calls.find(call => !call.answered && !call.failed));
             if (setupInput !== null) {

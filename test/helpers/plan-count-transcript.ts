@@ -26,7 +26,7 @@ export interface PlanCountTranscript {
   calls: NativePlanQuestionCall[];
   assistantMessages: Array<{ sessionId: string; text: string; timestamp: string }>;
   /** Actual native plan-mode approval requests; pending is the UI gate, never an AUQ. */
-  planReadyRequests?: Array<{ sessionId: string; toolUseId: string; timestamp: string; failed: boolean }>;
+  planReadyRequests?: Array<{ sessionId: string; toolUseId: string; timestamp: string; failed: boolean; source?: 'pre_tool_use' }>;
   error?: string;
 }
 

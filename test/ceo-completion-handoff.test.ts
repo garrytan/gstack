@@ -2,11 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { capturePlanCountQuestion, ceoStep0Boundary, hasNativePlanTerminal, nativePlanCallFingerprint, planCountQuestionPhase } from './helpers/claude-pty-runner';
+import { capturePlanCountQuestion, ceoFirstReviewAUQ, ceoStep0Boundary, hasNativePlanTerminal, nativePlanCallFingerprint, planCountQuestionPhase } from './helpers/claude-pty-runner';
 import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captures from './fixtures/ceo-completion-handoff-calls.json';
 import currentHandoffs from './fixtures/ceo-completion-handoff-j-calls.json';
+import kHandoffs from './fixtures/ceo-completion-handoff-k-calls.json';
 
 type CapturedCall = typeof captures.cases[number]['calls'][number];
 function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativePlanQuestionCall {
@@ -20,7 +21,7 @@ function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativeP
 const handoff = () => nativeCall(captures.cases[0]!.calls.at(-1)!);
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, false);
 
-function replay(calls: NativePlanQuestionCall[], reviewStarted = true) {
+function replay(calls: NativePlanQuestionCall[], reviewStarted = true, firstReview = (_fp: ReturnType<typeof fingerprint>) => true) {
   const counts = { step0Count: 0, reviewCount: 0, administrativeCount: 0 };
   const classifications = [];
   for (const call of calls) {
@@ -28,7 +29,7 @@ function replay(calls: NativePlanQuestionCall[], reviewStarted = true) {
     const phase = planCountQuestionPhase(fp, reviewStarted, ceoStep0Boundary,
       // A completion summary can mention defects; even a broad positive
       // first-finding predicate must not promote a handoff into coverage.
-      () => true, undefined, isCeoCompletionHandoff);
+      firstReview, undefined, isCeoCompletionHandoff);
     if (phase.administrative) counts.administrativeCount++;
     else if (phase.preReview) counts.step0Count++;
     else counts.reviewCount++;
@@ -435,5 +436,91 @@ describe('captured CEO next-step prefixes and immediate review menus', () => {
       call.answered = false;
       expect(pickCeoCompletionHandoff({ ...fingerprint(call), signature: 'other-session:other-call' })).toBeNull();
     }
+  });
+});
+
+
+describe('native CEO completed handoffs with deferred implementation', () => {
+  test('captured full sessions keep all substantive questions and classify only the final handoff', () => {
+    for (const scenario of kHandoffs.cases) {
+      const calls = structuredClone(scenario.calls) as NativePlanQuestionCall[];
+      const original = structuredClone(calls);
+      const result = replay(calls, false, ceoFirstReviewAUQ);
+      expect(result).toMatchObject({ step0Count: scenario.expectedSetupCount,
+        reviewCount: scenario.expectedReviewCount, administrativeCount: 1 });
+      expect(result.classifications.slice(0, -1).every(p => !p.administrative)).toBe(true);
+      expect(calls).toEqual(original);
+    }
+  });
+
+  test('active native handoffs choose manual in either order, never implementation or another review', () => {
+    for (const scenario of kHandoffs.cases) for (const reverse of [false, true]) {
+      const call = structuredClone(scenario.calls.at(-1)!) as NativePlanQuestionCall;
+      call.answered = false; delete call.answers; delete call.unansweredQuestionIndices;
+      const q = call.questions[0]!;
+      if (reverse) q.options.reverse();
+      const options = q.options.map((option, i) => `${i === 0 ? '❯' : ' '} ${i + 1}. ${option.label}`).join('\n');
+      const screen = `☐ ${q.header}\n${q.question}\n${options}\nEnter to select · ↑/↓ to navigate · Esc to cancel`;
+      const bound = capturePlanCountQuestion(screen, new Set(), 0, false, call)!;
+      expect(bound.nativeCall?.toolUseId).toBe(call.toolUseId);
+      expect(pickCeoCompletionHandoff(fingerprint(call), bound)).toBe(q.options.findIndex(o => /handle.*manually/i.test(o.label)) + 1);
+      expect(isCeoCompletionHandoff(bound)).toBe(false);
+      const uiOnly = capturePlanCountQuestion(screen, new Set(), 0, false)!;
+      expect(pickCeoCompletionHandoff(uiOnly)).toBeNull();
+    }
+  });
+
+  test('conditional declarations and new implementation obligations remain substantive', () => {
+    for (const scenario of kHandoffs.cases) for (const question of [
+      'ELI10: If the CEO review is done and the plan is cleared, choose the next step.',
+      'ELI10: The CEO review is done only after resolving the test gap.',
+      'ELI10: The CEO review is done and the plan is cleared after you add retry tests.',
+      'ELI10: The CEO review is not done and the plan is not cleared.',
+    ]) {
+      const call = structuredClone(scenario.calls.at(-1)!) as NativePlanQuestionCall;
+      call.questions[0]!.question = question + ' The required shipping gate is an Eng Review.';
+      call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+    }
+    for (const option of [
+      { label: 'Implement now, eng review later', description: 'Add the missing receipt test, then implement.' },
+      { label: 'Implement now, eng review later', description: 'Implement the approved tasks and add a new receipt assertion before the next review.' },
+      { label: 'Implement now, eng review later', description: 'The plan has no approved tasks; decide the missing error contract during implementation.' },
+      { label: 'Implement new retry behavior now, eng review later', description: 'The plan already has approved tasks.' },
+      { label: 'Add another TODO before implementing', description: 'Use the approved plan.' },
+    ]) {
+      const call = structuredClone(kHandoffs.cases[0]!.calls.at(-1)!) as NativePlanQuestionCall;
+      call.questions[0]!.options[1] = option;
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+      call.answered = false;
+      expect(pickCeoCompletionHandoff(fingerprint(call))).toBeNull();
+    }
+  });
+
+  test('a real native approval after the completed report still requires all substantive answers in that report', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-k-handoff-'));
+    const file = path.join(dir, 'plan.md');
+    try {
+      for (const scenario of kHandoffs.cases) {
+        fs.writeFileSync(file, '# Plan\n\n## GSTACK REVIEW REPORT\n\n' +
+          '| Review | Runs | Status | Findings |\n|---|---|---|---|\n| CEO | 1 | COMPLETE | 4 |\n\n' +
+          'VERDICT: CEO CLEARED\n\nNO UNRESOLVED DECISIONS\n');
+        fs.utimesSync(file, scenario.reportAtMs / 1000, scenario.reportAtMs / 1000);
+        const calls = structuredClone(scenario.calls) as NativePlanQuestionCall[];
+        const transcript = { status: 'ready' as const, calls, assistantMessages: [],
+          planReadyRequests: structuredClone(scenario.planReadyRequests) };
+        const admin = new Set(calls.filter(c => isCeoCompletionHandoff(fingerprint(c))).map(c => `${c.sessionId}:${c.toolUseId}`));
+        const startedAt = Date.parse('2026-09-08T22:17:54Z');
+        expect(admin.size).toBe(1);
+        expect(hasNativePlanTerminal(transcript, file, startedAt, 'plan_ready')).toBe(false);
+        expect(hasNativePlanTerminal(transcript, file, startedAt, 'plan_ready', admin)).toBe(true);
+        transcript.planReadyRequests[0]!.failed = true;
+        expect(hasNativePlanTerminal(transcript, file, startedAt, 'plan_ready', admin)).toBe(false);
+        transcript.planReadyRequests[0]!.failed = false;
+        calls.splice(-1, 0, { ...structuredClone(calls[2]!), toolUseId: 'new-substantive-answer',
+          answeredAt: new Date(scenario.reportAtMs + 1000).toISOString() });
+        expect(hasNativePlanTerminal(transcript, file, startedAt, 'plan_ready', admin)).toBe(false);
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });

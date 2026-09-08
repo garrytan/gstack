@@ -1,0 +1,422 @@
+{
+  "provenance": "Native source-K diagnostic calls; historical outcomes are unchanged by replay.",
+  "cases": [
+    {
+      "name": "plan-ceo-review-1788905904650-1fnva5",
+      "calls": [
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_01K5chLBCqTL9PaEi8H3AZhK",
+          "questions": [
+            {
+              "question": "D1 \u2014 Which implementation approach for the payment webhook handler? <gstack-qid:plan-ceo-review-approach>",
+              "header": "Approach",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "B: Correct implementation (Recommended)",
+                  "description": "Parameterized queries (fixes SQL injection), try/catch on email with structured logging, batch order fetch (kills N+1), full unit + integration tests. Effort: human ~4\u20136h / CC ~20min. Completeness: 9/10.",
+                  "preview": "// Approach B shape\nconst user = await db.query(\n  'SELECT * FROM users WHERE id = $1',\n  [userId]  // parameterized \u2014 injection impossible\n);\nconst orders = await db.query(\n  'SELECT * FROM orders WHERE user_id = $1',\n  [userId]  // single batch, not N+1 loop\n);\nawait db.updateUser(userId, { status: 'paid' });\ntry {\n  await email.send(user.email, 'Payment confirmed');\n} catch (err) {\n  logger.error({ err, userId, eventId }, 'email send failed');\n  // webhook still returns 200; email failure is logged, not fatal\n}"
+                },
+                {
+                  "label": "A: Minimal patch",
+                  "description": "Fix only the SQL injection (parameterized query) and add a try/catch on email. Keep N+1 loop and add 2 smoke tests. Faster but leaves performance debt. Effort: human ~2h / CC ~10min. Completeness: 6/10.",
+                  "preview": "// Approach A shape \u2014 fix injection, add catch, skip N+1\nconst user = await db.query(\n  'SELECT * FROM users WHERE id = $1',\n  [userId]  // parameterized\n);\nfor (const orderId of orderIds) {\n  const order = await db.query(  // N+1 still here\n    'SELECT * FROM orders WHERE id = $1', [orderId]\n  );\n}\ntry {\n  await email.send(user.email, 'Payment confirmed');\n} catch (err) {\n  logger.warn('email failed');  // logged but thin\n}"
+                },
+                {
+                  "label": "C: WebhookDispatcher integration",
+                  "description": "Route through the existing WebhookDispatcher module instead of bypassing it. Includes all of B's security and test fixes. Keeps one webhook-handling surface. Effort: human ~1d / CC ~30min. Completeness: 10/10.",
+                  "preview": "// Approach C shape \u2014 extend existing dispatcher\n// In WebhookDispatcher:\nregister('payment_intent.succeeded', StripePaymentHandler);\n\n// StripePaymentHandler reuses dispatcher's\n// routing, logging, and error contract \u2014\n// plus all Approach B fixes."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 \u2014 Which implementation approach for the payment webhook handler? <gstack-qid:plan-ceo-review-approach>": "B: Correct implementation (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:26:07.550Z"
+        },
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_017YoVavTgiZtN5Lb1LLJuMY",
+          "questions": [
+            {
+              "question": "D2 \u2014 Which review mode for this payment webhook plan? <gstack-qid:plan-ceo-review-mode>",
+              "header": "Review mode",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "HOLD SCOPE (Recommended)",
+                  "description": "The plan has 2 critical gaps (SQL injection, email failures). Hold scope exactly as stated; make it bulletproof. No expansions surfaced. Best for a plan with known critical defects to fix first.",
+                  "preview": "HOLD SCOPE:\n- Fix SQL injection (parameterized query)\n- Fix email error handling (try/catch + logging)\n- Fix N+1 (batch query)\n- Add full test suite\n- Document WebhookDispatcher bypass rationale\nNo scope additions."
+                },
+                {
+                  "label": "SELECTIVE EXPANSION",
+                  "description": "Hold the current scope as baseline, but also surface expansion opportunities (async email via job queue, WebhookDispatcher integration, payment audit log) as individual cherry-picks. Effort adds ~30\u201360min CC per cherry-pick.",
+                  "preview": "SELECTIVE EXPANSION:\n- All HOLD SCOPE fixes (required)\n- OPTIONAL cherry-picks:\n  \u2022 Async email via job queue (resilient)\n  \u2022 WebhookDispatcher integration (clean arch)\n  \u2022 Payment audit log (compliance)\n  \u2022 Payment success metric/dashboard (observability)"
+                },
+                {
+                  "label": "SCOPE REDUCTION",
+                  "description": "Strip to the absolute minimum: just the user record update on payment success, no email, no order fetch. Defer everything else. Useful if timeline is critical and email can ship later.",
+                  "preview": "SCOPE REDUCTION:\n- User record update only on payment success\n- No email (deferred to follow-up PR)\n- No order fetch loop (deferred)\n- Parameterized query (still required)\n- Minimal smoke test"
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D2 \u2014 Which review mode for this payment webhook plan? <gstack-qid:plan-ceo-review-mode>": "HOLD SCOPE (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:26:23.611Z"
+        },
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_01LPiLGS6RKcERL9KmQ6dXpH",
+          "questions": [
+            {
+              "question": "D3 \u2014 SQL injection in user lookup: the plan uses request.params.userId directly in a raw SQL fragment. The plan itself notes this string is not sanitized. How should the plan be fixed? <gstack-qid:plan-ceo-review-sql-injection>",
+              "header": "SQL injection",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "3A: Parameterized query (Recommended)",
+                  "description": "Replace the raw SQL fragment with a parameterized query binding userId to a $1 placeholder. Eliminates SQL injection entirely. The plan's 'existing contracts retained' section already acknowledges the string is unsafe for SQL \u2014 the fix is a one-liner. Verify: unit test with userId = '1 OR 1=1' asserts the handler rejects/escapes it, not executes it. Completeness: 10/10.",
+                  "preview": "// BEFORE (SQL injection):\ndb.query(`SELECT * FROM users WHERE id = ${userId}`);\n\n// AFTER (parameterized \u2014 injection impossible):\ndb.query('SELECT * FROM users WHERE id = $1', [userId]);\n\n// Test:\ntest('rejects injected userId', async () => {\n  const result = await handler({ userId: '1 OR 1=1' });\n  expect(result.status).not.toBe(200); // or assert no SQL exec\n});"
+                },
+                {
+                  "label": "3B: Input validation before SQL",
+                  "description": "Validate userId is a positive integer before the DB call; reject the webhook with HTTP 400 if invalid. Adds defense-in-depth but is not sufficient alone (validation can be bypassed; parameterized queries cannot). Use alongside 3A, not instead of it. Completeness: 7/10 if standalone.",
+                  "preview": "// Input validation (good, but not a substitute for parameterized queries)\nconst numericId = parseInt(userId, 10);\nif (isNaN(numericId) || numericId <= 0) {\n  logger.warn({ userId }, 'invalid userId in webhook');\n  return { status: 400 };\n}\n// Then STILL use parameterized query below"
+                },
+                {
+                  "label": "3C: Do nothing \u2014 accept the risk",
+                  "description": "Leave the raw SQL as-is. The Stripe signature verification reduces (but does not eliminate) the attack surface. Not recommended: any actor who can craft a Stripe payment intent with a malicious metadata.user_id can trigger this, including test-mode API keys or compromised merchant accounts. Completeness: 3/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 \u2014 SQL injection in user lookup: the plan uses request.params.userId directly in a raw SQL fragment. The plan itself notes this string is not sanitized. How should the plan be fixed? <gstack-qid:plan-ceo-review-sql-injection>": "3A: Parameterized query (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:26:41.687Z"
+        },
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_01VaDTCokqQ8ioX2rGHPGqwm",
+          "questions": [
+            {
+              "question": "D4 \u2014 The plan has zero tests for a payment-critical handler. How should this be addressed? <gstack-qid:plan-ceo-review-tests>",
+              "header": "Tests",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "4A: Full test suite (Recommended)",
+                  "description": "Add unit tests for the handler (happy path, missing user, injected userId, email failure) AND one integration test that replays a real Stripe payload through the full stack and asserts user record updated + email logged. With CC this takes ~15 minutes to implement. This is the test you'd need to ship at 2am on a Friday. Completeness: 10/10.",
+                  "preview": "// Unit: happy path\ntest('updates user record on payment success', ...);\n// Unit: SQL injection guard\ntest('rejects injected userId', ...);\n// Unit: missing user\ntest('returns 200 and logs when user not found', ...);\n// Unit: email failure is non-fatal\ntest('returns 200 even when email send throws', ...);\n// Integration: full Stripe payload replay\ntest('processes payment_intent.succeeded end-to-end', ...);"
+                },
+                {
+                  "label": "4B: Smoke tests only",
+                  "description": "Add 2 smoke tests: one happy-path integration test, one for the SQL injection guard. Skips edge cases (email failure, missing user, N+1 regression). Faster but leaves gaps. Completeness: 6/10."
+                },
+                {
+                  "label": "4C: Defer to existing integration suite",
+                  "description": "Keep the plan as-is: rely on the existing integration suite to catch regressions. The plan states this explicitly. Risk: the existing suite likely doesn\u2019t know about this new handler\u2019s specific failure modes (SQL injection, email failure cascade, N+1). Not recommended. Completeness: 3/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 \u2014 The plan has zero tests for a payment-critical handler. How should this be addressed? <gstack-qid:plan-ceo-review-tests>": "4A: Full test suite (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:26:55.745Z"
+        },
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_01APtZYudKo1F7n3o9cvZxxx",
+          "questions": [
+            {
+              "question": "D5 \u2014 Email send fires inline with no error handling. A provider timeout holds the transaction lock and returns 500 to Stripe (triggering retries). How should this be fixed? <gstack-qid:plan-ceo-review-email-error>",
+              "header": "Email errors",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "5A: Try/catch with structured logging (Recommended)",
+                  "description": "Wrap the email call in try/catch. On failure: log structured error (userId, eventId, error class), and return 200 \u2014 the payment succeeded; the email is non-fatal. Add an explicit timeout to the email call (e.g., 5s) so provider slowness doesn\u2019t hold the transaction lock. Verify: unit test asserts handler returns 200 when email throws. Completeness: 9/10.",
+                  "preview": "try {\n  await email.sendWithTimeout(\n    user.email,\n    'Payment confirmed',\n    { timeoutMs: 5000 }  // explicit timeout\n  );\n} catch (err) {\n  logger.error(\n    { err, userId, eventId, errorClass: err.constructor.name },\n    'notification email failed \u2014 payment succeeded'\n  );\n  // return 200 below; payment is confirmed, email is non-fatal\n}"
+                },
+                {
+                  "label": "5B: Async email via job queue",
+                  "description": "Enqueue an email job instead of sending inline. The webhook returns 200 immediately after the DB update; email delivery is decoupled and retried independently. Fully resilient but adds a job queue dependency (may already exist). Completeness: 10/10, but larger scope change."
+                },
+                {
+                  "label": "5C: Leave inline, no error handling",
+                  "description": "Keep email send inline with no catch. Accept that email provider failures will cause 500s and Stripe retries. The dedup guard should prevent duplicate DB updates on retry (if transaction scope is correct). Not recommended: silent email failures are never acceptable in a payment flow. Completeness: 3/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 \u2014 Email send fires inline with no error handling. A provider timeout holds the transaction lock and returns 500 to Stripe (triggering retries). How should this be fixed? <gstack-qid:plan-ceo-review-email-error>": "5A: Try/catch with structured logging (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:27:09.805Z"
+        },
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_012zc42MrWewJHLB6yMzzbcx",
+          "questions": [
+            {
+              "question": "D6 \u2014 The plan fetches orders in a per-order loop (N+1 queries). Under concurrent webhook volume this exhausts DB connections. How should this be fixed? <gstack-qid:plan-ceo-review-n1-query>",
+              "header": "N+1 queries",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "6A: Single batch query (Recommended)",
+                  "description": "Replace the per-order loop with one parameterized batch query: SELECT * FROM orders WHERE user_id = $1. Reduces O(N) queries to O(1). Verify: confirm an index exists on orders.user_id; if not, add one in the same migration. Assert in tests that only 3 DB queries fire per webhook (lookup, batch orders, update). Completeness: 10/10.",
+                  "preview": "// BEFORE (N+1):\nfor (const orderId of orderIds) {\n  const order = await db.query(\n    'SELECT * FROM orders WHERE id = $1', [orderId]\n  );\n}\n\n// AFTER (1 batch query):\nconst orders = await db.query(\n  'SELECT * FROM orders WHERE user_id = $1',\n  [userId]  // parameterized\n);\n// + confirm index: CREATE INDEX IF NOT EXISTS\n//   idx_orders_user_id ON orders(user_id);"
+                },
+                {
+                  "label": "6B: Keep the loop, add a DB index",
+                  "description": "Keep the per-order fetch loop but ensure an index exists on orders.user_id. Reduces full-table scans but doesn\u2019t eliminate the N+1 round-trips. Still O(N) queries. Completeness: 6/10."
+                },
+                {
+                  "label": "6C: Accept as-is, defer optimization",
+                  "description": "Leave the N+1 loop and note it as a known performance issue for later. Acceptable only if order counts per user are guaranteed to be very low (e.g., \u22645) AND webhook volume is low. The plan gives no such guarantee. Completeness: 3/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D6 \u2014 The plan fetches orders in a per-order loop (N+1 queries). Under concurrent webhook volume this exhausts DB connections. How should this be fixed? <gstack-qid:plan-ceo-review-n1-query>": "6A: Single batch query (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:27:21.854Z"
+        },
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_015BU81bzFBuuDhD1uQu3pN2",
+          "questions": [
+            {
+              "question": "D7 \u2014 CEO review complete. Eng review is the required shipping gate \u2014 what next? <gstack-qid:plan-ceo-review-next-step>",
+              "header": "Next step",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Run /plan-eng-review (Recommended)",
+                  "description": "This CEO review found 2 critical gaps (SQL injection, N+1) that directly affect architecture, security, and performance. Eng review goes deeper on implementation correctness, test coverage, and DB safety. Required gate before shipping.",
+                  "preview": "Findings from this CEO review that eng review will verify:\n- T1: Parameterized query (SQL injection fix)\n- T2: Full test suite (5 cases)\n- T3: Email try/catch with timeout\n- T4: Batch orders query + index\n- T5: WebhookDispatcher doc/resolve\n\nEng review gates: architecture, security,\ntests, performance, observability."
+                },
+                {
+                  "label": "Implement now, eng review later",
+                  "description": "Proceed to implementation with the 5 approved tasks (T1-T5). Run /plan-eng-review before the PR is merged. Acceptable if implementation is expected to be fast with CC.",
+                  "preview": "Implement in order:\n1. T1: Parameterized query (blocks everything)\n2. T3: Email try/catch\n3. T4: Batch orders query + index\n4. T2: Full test suite\n5. T5: WebhookDispatcher doc\nThen run /plan-eng-review on the diff."
+                },
+                {
+                  "label": "Skip \u2014 handle manually",
+                  "description": "No further automated reviews. The 5 tasks are documented; the team will implement and review manually."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D7 \u2014 CEO review complete. Eng review is the required shipping gate \u2014 what next? <gstack-qid:plan-ceo-review-next-step>": "Run /plan-eng-review (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:30:12.250Z"
+        }
+      ],
+      "expectedSetupCount": 2,
+      "expectedReviewCount": 4,
+      "reportAtMs": 1788906562505.1587,
+      "planReadyRequests": [
+        {
+          "sessionId": "4cd0a135-d63c-488a-ae90-e0f2f4128675",
+          "toolUseId": "toolu_01S23dJSitXZPX79TyzcZCBV",
+          "timestamp": "2026-09-08T22:30:26.736Z",
+          "failed": false
+        }
+      ]
+    },
+    {
+      "name": "plan-ceo-review-1788905904654-k2LGUy",
+      "calls": [
+        {
+          "sessionId": "eb433057-4f1e-447c-8393-6484749cc3d1",
+          "toolUseId": "toolu_014ZdrCijtgGzSGYMbZaFRCo",
+          "questions": [
+            {
+              "question": "D1 \u2014 Which implementation approach for processPayment() test coverage?\n\nELI10: The plan specifies exactly 2 unit tests: happy path (Stripe succeeds \u2192 receipt generated) and 502-exhaustion (Stripe 502 \u2192 retry once \u2192 clean failure). A third natural scenario exists \u2014 retry-then-success (Stripe 502 \u2192 retry \u2192 Stripe succeeds \u2192 correct receipt) \u2014 which the adapter suite already models but processPayment() has no unit test for. The question is how much test coverage to write while you're in the code.\n\nStakes if we pick wrong: Too narrow leaves the retry-then-success orchestration untested, risking silent regressions on the recovery path. Too wide duplicates adapter-suite coverage without adding new signal.\n\nRecommendation: B because it closes the one genuinely missing orchestration scenario for ~10 extra lines, without duplicating adapter-boundary tests.\n\nCompleteness: A=7/10, B=9/10, C=10/10 (C has diminishing returns due to 402/429 adapter overlap)\n\n<gstack-qid:plan-ceo-review-approach>",
+              "header": "Approach",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "B) Standard \u2014 3 tests (Recommended)",
+                  "description": "Add the 2 specified tests plus a third: retry-then-success (502 \u2192 retry \u2192 charge succeeds \u2192 correct receipt). Uses the same infrastructure the adapter suite already uses for this scenario. Effort: human ~40 min / CC ~3 min. Completeness: 9/10."
+                },
+                {
+                  "label": "A) Minimal \u2014 exactly 2 tests as specified",
+                  "description": "Happy path + 502-exhaustion only. Smallest possible diff, zero scope creep, uses existing factory/sleeper. The retry-then-success path remains untested at processPayment() level. Effort: human ~30 min / CC ~2 min. Completeness: 7/10."
+                },
+                {
+                  "label": "C) Full \u2014 5 tests (all Stripe outcomes)",
+                  "description": "Happy path, 502-exhaust, retry-then-success, 402 decline, 429 rate-limit \u2014 all tested at the processPayment() level. Maximum confidence; eliminates all coverage questions permanently. Risk: 402/429 may duplicate adapter-suite tests without new signal. Effort: human ~75 min / CC ~5 min. Completeness: 10/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 \u2014 Which implementation approach for processPayment() test coverage?\n\nELI10: The plan specifies exactly 2 unit tests: happy path (Stripe succeeds \u2192 receipt generated) and 502-exhaustion (Stripe 502 \u2192 retry once \u2192 clean failure). A third natural scenario exists \u2014 retry-then-success (Stripe 502 \u2192 retry \u2192 Stripe succeeds \u2192 correct receipt) \u2014 which the adapter suite already models but processPayment() has no unit test for. The question is how much test coverage to write while you're in the code.\n\nStakes if we pick wrong: Too narrow leaves the retry-then-success orchestration untested, risking silent regressions on the recovery path. Too wide duplicates adapter-suite coverage without adding new signal.\n\nRecommendation: B because it closes the one genuinely missing orchestration scenario for ~10 extra lines, without duplicating adapter-boundary tests.\n\nCompleteness: A=7/10, B=9/10, C=10/10 (C has diminishing returns due to 402/429 adapter overlap)\n\n<gstack-qid:plan-ceo-review-approach>": "B) Standard \u2014 3 tests (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:22:14.665Z"
+        },
+        {
+          "sessionId": "eb433057-4f1e-447c-8393-6484749cc3d1",
+          "toolUseId": "toolu_0178W4ZyWc5QA9ioQqRfiAcN",
+          "questions": [
+            {
+              "question": "D2 \u2014 Which review mode for this test coverage plan?\n\nELI10: Approach B is locked in (3 tests: happy path, 502-exhaust, retry-then-success). The review mode decides HOW rigorously I examine that scope. HOLD SCOPE means I focus entirely on making those 3 tests bulletproof \u2014 catching every ambiguity about what to assert, how to name tests, what 'fails clean' means, edge cases in the retry path. SELECTIVE EXPANSION means I do that rigorous review AND surface cherry-pick opportunities like additional structural improvements or assertion depth upgrades.\n\nStakes if we pick wrong: Too expansive turns a simple 3-test addition into a bigger refactor. Too narrow misses critical specification gaps (what exactly should be asserted in each test).\n\nRecommendation: HOLD SCOPE because the plan is already well-scoped at 3 tests; the highest value is making those tests precise \u2014 specifying exact assertions, defining 'fails clean', confirming backoff is asserted and not just recorded.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-mode>",
+              "header": "Review Mode",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "HOLD SCOPE (Recommended)",
+                  "description": "Take the 3-test scope as final. Review with maximum rigor: catch every assertion gap, specify what 'fails clean' means, validate the backoff assertion, define the receipt fields under test. Make each test bulletproof before implementation starts."
+                },
+                {
+                  "label": "SELECTIVE EXPANSION",
+                  "description": "Hold the 3-test baseline AND surface cherry-pick opportunities: e.g., test naming conventions, shared setup helpers, assertion libraries, or a 4th edge case. Each expansion is individually opt-in. More expansive but still user-controlled."
+                },
+                {
+                  "label": "SCOPE REDUCTION",
+                  "description": "Pull back to the original 2 tests (drop retry-then-success). Strictest possible minimum. Only if you feel approach B overshot."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D2 \u2014 Which review mode for this test coverage plan?\n\nELI10: Approach B is locked in (3 tests: happy path, 502-exhaust, retry-then-success). The review mode decides HOW rigorously I examine that scope. HOLD SCOPE means I focus entirely on making those 3 tests bulletproof \u2014 catching every ambiguity about what to assert, how to name tests, what 'fails clean' means, edge cases in the retry path. SELECTIVE EXPANSION means I do that rigorous review AND surface cherry-pick opportunities like additional structural improvements or assertion depth upgrades.\n\nStakes if we pick wrong: Too expansive turns a simple 3-test addition into a bigger refactor. Too narrow misses critical specification gaps (what exactly should be asserted in each test).\n\nRecommendation: HOLD SCOPE because the plan is already well-scoped at 3 tests; the highest value is making those tests precise \u2014 specifying exact assertions, defining 'fails clean', confirming backoff is asserted and not just recorded.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-mode>": "HOLD SCOPE (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:22:44.754Z"
+        },
+        {
+          "sessionId": "eb433057-4f1e-447c-8393-6484749cc3d1",
+          "toolUseId": "toolu_018Whc7SViMfHtat7rdpPLFu",
+          "questions": [
+            {
+              "question": "D3 \u2014 Section 2: Should the plan specify the error contract for \"fails clean\"?\n\nELI10: The 502-exhaustion test needs to assert something specific when processPayment() gives up after one retry. The plan says it should \"fail clean\" but doesn't say what that means in code: does processPayment() raise a named exception (e.g. PaymentGatewayError), return nil, or return an error result object? Without this, the implementer might write an assertion that passes trivially \u2014 for instance, asserting that the return value is nil when the function actually raises, meaning the rescue path is never exercised.\n\nStakes if we pick wrong: An underspecified assertion could let a broken retry path pass the test silently.\n\nRecommendation: A \u2014 add a one-line note to the plan naming the error contract (\"processPayment() raises X\" or \"returns nil\"), so the test asserts the right thing. This is one sentence of spec, not implementation work.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-fails-clean>",
+              "header": "Error contract",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Add spec: name the error contract (Recommended)",
+                  "description": "Add a brief note to the plan specifying what processPayment() does on retry exhaustion (raises SpecificError / returns nil / returns error object). Implementer then asserts the correct thing. One sentence."
+                },
+                {
+                  "label": "B) Leave as-is: implementer reads the source",
+                  "description": "The production code already has a defined behavior. The implementer will look at processPayment() and write the correct assertion without the plan needing to spell it out."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 \u2014 Section 2: Should the plan specify the error contract for \"fails clean\"?\n\nELI10: The 502-exhaustion test needs to assert something specific when processPayment() gives up after one retry. The plan says it should \"fail clean\" but doesn't say what that means in code: does processPayment() raise a named exception (e.g. PaymentGatewayError), return nil, or return an error result object? Without this, the implementer might write an assertion that passes trivially \u2014 for instance, asserting that the return value is nil when the function actually raises, meaning the rescue path is never exercised.\n\nStakes if we pick wrong: An underspecified assertion could let a broken retry path pass the test silently.\n\nRecommendation: A \u2014 add a one-line note to the plan naming the error contract (\"processPayment() raises X\" or \"returns nil\"), so the test asserts the right thing. This is one sentence of spec, not implementation work.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-fails-clean>": "A) Add spec: name the error contract (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:25:13.296Z"
+        },
+        {
+          "sessionId": "eb433057-4f1e-447c-8393-6484749cc3d1",
+          "toolUseId": "toolu_017ijdwbrLBaXiy7rsoKC3vm",
+          "questions": [
+            {
+              "question": "D4 \u2014 Section 6: Should the plan explicitly require asserting Stripe call count for retry tests?\n\nELI10: The 502-exhaustion test and the retry-then-success test both involve a retry. The plan says the test should \"assert retry-with-backoff fires once\" \u2014 but without explicitly asserting the Stripe call count (expect 2 calls via mock call history), a broken implementation that skips the retry entirely would still pass if it produces the right final outcome. The factory already exposes the mock call history, so this assertion costs one line per test.\n\nStakes if we pick wrong: Skip it \u2014 a future refactor that accidentally removes the retry logic could pass both tests if it happens to produce the same final failure/receipt. Add it \u2014 the tests are more brittle (they now break if retry count changes) but correctly verify the retry behavior.\n\nRecommendation: A \u2014 the plan explicitly states \"retry-with-backoff fires once,\" which implies the retry count IS the behavior under test. Asserting it makes that intent machine-verifiable. One line per test, already free via factory.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-retry-count>",
+              "header": "Retry assertion",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Add to plan: assert Stripe call count in both retry tests (Recommended)",
+                  "description": "The 502-exhaustion and retry-then-success tests should each assert the exact Stripe call count (2) via the mock call history. One line per test. Verifies the retry actually executed, not just the final outcome."
+                },
+                {
+                  "label": "B) Leave as-is: assert outcome only",
+                  "description": "Tests assert the final state (failure/receipt) only. Retry behavior is tested at the adapter suite level. Simpler tests, but a retry regression could pass silently."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 \u2014 Section 6: Should the plan explicitly require asserting Stripe call count for retry tests?\n\nELI10: The 502-exhaustion test and the retry-then-success test both involve a retry. The plan says the test should \"assert retry-with-backoff fires once\" \u2014 but without explicitly asserting the Stripe call count (expect 2 calls via mock call history), a broken implementation that skips the retry entirely would still pass if it produces the right final outcome. The factory already exposes the mock call history, so this assertion costs one line per test.\n\nStakes if we pick wrong: Skip it \u2014 a future refactor that accidentally removes the retry logic could pass both tests if it happens to produce the same final failure/receipt. Add it \u2014 the tests are more brittle (they now break if retry count changes) but correctly verify the retry behavior.\n\nRecommendation: A \u2014 the plan explicitly states \"retry-with-backoff fires once,\" which implies the retry count IS the behavior under test. Asserting it makes that intent machine-verifiable. One line per test, already free via factory.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-retry-count>": "A) Add to plan: assert Stripe call count in both retry tests (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:25:55.466Z"
+        },
+        {
+          "sessionId": "eb433057-4f1e-447c-8393-6484749cc3d1",
+          "toolUseId": "toolu_015gSYhTd9gkZe3N4gSMFAmx",
+          "questions": [
+            {
+              "question": "D5 \u2014 Next step: which review runs after this CEO review?\n\nELI10: The CEO review is done and the plan is cleared. The required shipping gate is an Eng Review (/plan-eng-review), which checks architecture, test structure, and deployment safety at a deeper technical level. No eng review has been run yet for this plan. No UI scope was detected, so a design review is not applicable.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-next-step>",
+              "header": "Next review",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Run /plan-eng-review next (Recommended)",
+                  "description": "Required shipping gate. Covers architecture, test coverage gaps, performance, and deployment safety at a technical depth beyond this CEO review. Not run yet."
+                },
+                {
+                  "label": "Skip \u2014 I'll handle reviews manually",
+                  "description": "Proceed without running /plan-eng-review now. Note: eng review is required before shipping; it can be run separately at any time."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 \u2014 Next step: which review runs after this CEO review?\n\nELI10: The CEO review is done and the plan is cleared. The required shipping gate is an Eng Review (/plan-eng-review), which checks architecture, test structure, and deployment safety at a deeper technical level. No eng review has been run yet for this plan. No UI scope was detected, so a design review is not applicable.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:plan-ceo-review-next-step>": "Run /plan-eng-review next (Recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-08T22:30:38.373Z"
+        }
+      ],
+      "expectedSetupCount": 2,
+      "expectedReviewCount": 2,
+      "reportAtMs": 1788906596661.16,
+      "planReadyRequests": [
+        {
+          "sessionId": "eb433057-4f1e-447c-8393-6484749cc3d1",
+          "toolUseId": "toolu_01RKhgxR5f4pxachRK972M3t",
+          "timestamp": "2026-09-08T22:30:44.782Z",
+          "failed": false
+        }
+      ]
+    }
+  ]
+}

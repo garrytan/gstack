@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // Sanitized terminal frame from the 2026-09-08 autoplan timeout. The qid is
 // visibly incomplete; the prompt body and explicit choices remain intact.
@@ -317,3 +321,182 @@ describe('autoplan routing action survives courtesy repaint', () => {
     ]) expect(autoplanRoutingSetupInput(frame, new Set()), frame).toBeNull();
   });
 });
+
+
+const PREREQUISITE_CAPTURE = " ☐ Design doc\n\n│ No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and\n│ explored alternatives — it gives this review much sharper input to work with. Takes about 10 minutes. The design doc\n│ is per-feature, not per-product — it captures the thinking behind this specific change. Run /office-hours first?\n\n❯ 1. Run /office-hours now\n     Runs /office-hours to produce a design doc first, then picks up the full autoplan review right after. (~10 min)\n  2. Skip — proceed with standard review\n     Skips /office-hours and runs the autoplan review pipeline now using the existing plan file as input.\n  3. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n";
+const prerequisiteQuestion = {
+  header: 'Design doc',
+  question: "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives — it gives this review much sharper input to work with. Takes about 10 minutes. The design doc is per-feature, not per-product — it captures the thinking behind this specific change. Run /office-hours first?",
+  options: [{ label: 'Run /office-hours now' }, { label: 'Skip — proceed with standard review' }],
+};
+const prerequisiteCall = () => ({
+  sessionId: 'prerequisite-session', toolUseId: 'prerequisite-call',
+  answered: false, failed: false, questions: [structuredClone(prerequisiteQuestion)],
+});
+function prerequisiteMenu(reverse = false) {
+  if (!reverse) return PREREQUISITE_CAPTURE;
+  return PREREQUISITE_CAPTURE
+    .replace('1. Run /office-hours now', '1. Skip — proceed with standard review')
+    .replace('2. Skip — proceed with standard review', '2. Run /office-hours now');
+}
+
+describe('autoplan optional design-doc prerequisite', () => {
+  test('the exact K native screen declines the optional prerequisite by label', () => {
+    for (const reverse of [false, true]) {
+      const frame = prerequisiteMenu(reverse);
+      expect(autoplanRoutingSetupInput(frame, new Set())).toBe(reverse ? '1' : '2');
+      const native = prerequisiteCall(); if (reverse) native.questions[0]!.options.reverse();
+      expect(autoplanRoutingSetupInput(frame, new Set(), native)).toBe(reverse ? '1' : '2');
+    }
+  });
+
+  test('quoted panels and menus followed by new output are not active input', () => {
+    for (const frame of [
+      'Example panel:\n```text\n' + PREREQUISITE_CAPTURE + '\n```\n',
+      'Example panel:\n~~~text\n' + PREREQUISITE_CAPTURE,
+      'Example panel:\n' + PREREQUISITE_CAPTURE,
+      PREREQUISITE_CAPTURE.split('\n').map(line => '    ' + line).join('\n'),
+      'The document quotes this panel:\n────────────────────\n' + PREREQUISITE_CAPTURE,
+      PREREQUISITE_CAPTURE + '\n⏺ Continuing the review without office hours.\n',
+      PREREQUISITE_CAPTURE + '\n❯ 1. A new menu\n  2. Another choice\n',
+    ]) for (const native of [undefined, prerequisiteCall()]) {
+      expect(autoplanRoutingSetupInput(frame, new Set(), native)).toBeNull();
+    }
+    expect(autoplanRoutingSetupInput('```text\nearlier real code\n```\n────────────────────\n' + PREREQUISITE_CAPTURE, new Set())).toBe('2');
+  });
+
+  test('late native identity does not re-answer the retained menu', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(PREREQUISITE_CAPTURE, seen)).toBe('2');
+    expect(autoplanRoutingSetupInput(PREREQUISITE_CAPTURE, seen, prerequisiteCall())).toBeNull();
+    expect(autoplanRoutingSetupInput(PREREQUISITE_CAPTURE, seen)).toBeNull();
+  });
+
+  test('unrelated, failed, mixed and checkbox native calls do not borrow the setup menu', () => {
+    for (const mutate of [
+      (call: ReturnType<typeof prerequisiteCall>) => { call.questions[0]!.question = 'Should we change the dashboard design?'; },
+      (call: ReturnType<typeof prerequisiteCall>) => { call.failed = true; },
+      (call: ReturnType<typeof prerequisiteCall>) => { call.answered = true; },
+      (call: ReturnType<typeof prerequisiteCall>) => { call.questions.push({ header:'Finding', question:'Fix missing auth?', options:[{label:'Fix it'},{label:'Defer'}] }); },
+      (call: ReturnType<typeof prerequisiteCall>) => { Object.assign(call.questions[0]!, {multiSelect:true}); },
+    ]) {
+      const native = prerequisiteCall(); mutate(native);
+      const seen = new Set<string>();
+      expect(autoplanRoutingSetupInput(PREREQUISITE_CAPTURE, seen, native)).toBeNull();
+      // Waiting for correct metadata must not mark an unanswered UI as sent.
+      expect(autoplanRoutingSetupInput(PREREQUISITE_CAPTURE, seen, prerequisiteCall())).toBe('2');
+    }
+  });
+
+  test('arbitrary skip, outside offers, mixed actions and prose examples remain unanswered', () => {
+    for (const frame of [
+      PREREQUISITE_CAPTURE.replace('Skip — proceed with standard review', 'Skip this security check'),
+      PREREQUISITE_CAPTURE.replaceAll('/office-hours', '/codex'),
+      PREREQUISITE_CAPTURE.replace('3. Type something.', '3. Fix the missing authorization check'),
+      PREREQUISITE_CAPTURE.replace('No design doc found for this branch.', 'A dashboard design issue was found.'),
+      PREREQUISITE_CAPTURE.replace(' ☐ Design doc', 'Example choices:').replace('Enter to select · ↑/↓ to navigate · Esc to cancel', ''),
+    ]) expect(autoplanRoutingSetupInput(frame, new Set())).toBeNull();
+  });
+});
+
+test.skipIf(process.platform === 'win32')('real PTY prerequisite answer survives early and deferred native records without a second key', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-autoplan-prereq-'));
+  const fake = path.join(dir, 'fake-claude');
+  const worker = path.join(dir, 'worker.ts');
+  const resultFile = path.join(dir, 'result.json');
+  const cases = [false, true].flatMap(early => [false, true].map(reverse => {
+    const name = `${early ? 'early' : 'deferred'}-${reverse ? 'reversed' : 'original'}`;
+    const q = structuredClone(prerequisiteQuestion); if (reverse) q.options.reverse();
+    return { name, early, cwd: path.join(dir, name), record: path.join(dir, name + '.jsonl'),
+      question: q, frame: prerequisiteMenu(reverse), expected: reverse ? '1' : '2' };
+  }));
+  for (const item of cases) fs.mkdirSync(item.cwd);
+  fs.writeFileSync(fake, `#!${process.execPath}\n` + String.raw`
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+const item = JSON.parse(process.env.PREREQUISITE_REPLAY);
+const record = event => fs.appendFileSync(item.record, JSON.stringify(event) + '\n');
+record({type:'startup',pid:process.pid});
+const folder = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'fixture');
+fs.mkdirSync(folder, {recursive:true});
+const transcript = path.join(folder, item.name + '.jsonl');
+let logged = false;
+function writeCall() {
+  if (logged) return; logged = true;
+  fs.appendFileSync(transcript, JSON.stringify({type:'assistant',sessionId:item.name,isSidechain:false,cwd:process.cwd(),timestamp:new Date().toISOString(),
+    message:{role:'assistant',content:[{type:'tool_use',id:'prerequisite',name:'AskUserQuestion',input:{questions:[item.question]}}]}})+'\n');
+}
+if (item.early) writeCall();
+process.stdin.setRawMode?.(true);
+let answered = false;
+process.stdin.on('data', data => {
+  record({type:'input',data:data.toString()});
+  for (const key of data.toString()) if (/^[12]$/.test(key) && !answered) {
+    answered = true; writeCall();
+    const label = item.question.options[Number(key)-1].label;
+    fs.appendFileSync(transcript, JSON.stringify({type:'user',sessionId:item.name,isSidechain:false,cwd:process.cwd(),timestamp:new Date().toISOString(),
+      toolUseResult:{answers:{[item.question.question]:label}},
+      message:{role:'user',content:[{type:'tool_result',tool_use_id:'prerequisite',content:'answered'}]}})+'\n');
+    process.stdout.write('\x1b[2J\x1b[H'+item.frame+'\nSETUP_ANSWERED\n');
+  }
+});
+process.stdout.write('\x1b[2J\x1b[H'+item.frame);
+process.on('SIGINT', () => process.exit(0));
+process.stdin.resume();
+`);
+  fs.chmodSync(fake, 0o755);
+  const moduleUrl = (name: string) => pathToFileURL(path.resolve(import.meta.dir, 'helpers', name)).href;
+  fs.writeFileSync(worker, `
+import {launchClaudePty} from ${JSON.stringify(moduleUrl('claude-pty-runner.ts'))};
+import {autoplanRoutingSetupInput} from ${JSON.stringify(moduleUrl('autoplan-setup-question.ts'))};
+import {readPlanCountTranscript} from ${JSON.stringify(moduleUrl('plan-count-transcript.ts'))};
+const results = await Promise.all(${JSON.stringify(cases)}.map(async item => {
+  const session = await launchClaudePty({cwd:item.cwd,observeScreen:true,timeoutMs:20000,env:{PREREQUISITE_REPLAY:JSON.stringify(item)}});
+  try {
+    await session.waitFor('Enter to select', {timeoutMs:10000,pollMs:20});
+    const screen = await session.currentScreen();
+    const before = readPlanCountTranscript(session.hermeticConfigDir,item.cwd);
+    const pending = before.calls.find(call => !call.answered && !call.failed);
+    if (Boolean(pending) !== item.early) throw Error('Wrong initial native persistence state');
+    const seen = new Set();
+    const input = autoplanRoutingSetupInput(screen,seen,pending);
+    if (input !== item.expected) throw Error('Expected skip input '+item.expected+', got '+JSON.stringify(input));
+    session.send(input);
+    await session.waitFor('SETUP_ANSWERED', {timeoutMs:10000,pollMs:20});
+    const after = readPlanCountTranscript(session.hermeticConfigDir,item.cwd);
+    const call = after.calls[0];
+    if (after.calls.length !== 1 || !call.answered) throw Error('Native answer was not persisted');
+    const retained = await session.currentScreen();
+    return {name:item.name,input,answer:call.answers[item.question.question],
+      redraw:autoplanRoutingSetupInput(retained,seen),
+      delayedIdentity:autoplanRoutingSetupInput(screen,seen,{...call,answered:false})};
+  } finally {await session.close();}
+}));
+await Bun.write(${JSON.stringify(resultFile)},JSON.stringify(results));
+`);
+  const child = Bun.spawn([process.execPath, worker], {
+    env: { ...process.env, BROWSE_TERMINAL_BINARY: fake, EVALS_HERMETIC: '1' },
+    stdout: 'pipe', stderr: 'pipe',
+  });
+  const killer = setTimeout(() => child.kill('SIGKILL'), 25000);
+  try {
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stdout + stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(resultFile, 'utf8'))).toEqual(cases.map(item => ({
+      name:item.name,input:item.expected,answer:'Skip — proceed with standard review',redraw:null,delayedIdentity:null,
+    })));
+    for (const item of cases) {
+      const events = fs.readFileSync(item.record, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      expect(events.filter(event => event.type === 'input').map(event => event.data).join('')).toBe(item.expected);
+      expect(() => process.kill(events[0].pid, 0)).toThrow();
+    }
+  } finally {
+    clearTimeout(killer); child.kill('SIGKILL');
+    for (const item of cases) {
+      if (!fs.existsSync(item.record)) continue;
+      const first = JSON.parse(fs.readFileSync(item.record, 'utf8').split('\n')[0]!);
+      try { process.kill(first.pid, 'SIGKILL'); } catch { /* already reaped */ }
+    }
+    fs.rmSync(dir, {recursive:true,force:true});
+  }
+}, 30000);

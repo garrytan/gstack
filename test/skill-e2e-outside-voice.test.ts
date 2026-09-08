@@ -8,7 +8,7 @@ import { runSkillTest } from './helpers/session-runner';
 import { runCodexSkill } from './helpers/codex-session-runner';
 import { EvalCollector } from './helpers/eval-store';
 import { installOutsideReviewFixture } from './helpers/outside-voice-fixture';
-import { claudeOutsideExecutions, codexOutsideExecutions, foundInvoiceAuthorizationDefect } from './helpers/outside-voice-evidence';
+import { claudeOutsideExecutions, codexOutsideExecutions, foundInvoiceAuthorizationDefect, outsideExecutionTranscript } from './helpers/outside-voice-evidence';
 import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -82,10 +82,12 @@ describeLive('Installed workflows dispatch outside their host harness', () => {
       // disposable fixture, and the prompt keeps repository source unchanged.
       sandbox: 'danger-full-access', timeoutMs: CAPTURE_LONG_MS,
     });
-    const dispatched = foundInvoiceAuthorizationDefect(codexOutsideExecutions(result.rawLines), 'claude-code');
+    const executions = codexOutsideExecutions(result.rawLines);
+    const dispatched = foundInvoiceAuthorizationDefect(executions, 'claude-code');
     const passed = result.exitCode === 0 && dispatched;
     collector?.addTest({ name: 'outside-voice-codex-to-claude-code', suite: 'outside-voice', tier: 'e2e', passed,
       duration_ms: result.durationMs, cost_usd: 0, output: result.output.slice(0, 2000),
+      transcript: outsideExecutionTranscript(executions, 'claude-code'),
       turns_used: result.toolCalls.length, exit_reason: result.exitCode === 0 ? 'success' : `exit_${result.exitCode}` });
     expect(result.exitCode).toBe(0);
     expect(dispatched).toBe(true);
@@ -104,10 +106,12 @@ describeLive('Installed workflows dispatch outside their host harness', () => {
       allowedTools: ['Bash', 'Read', 'Write', 'Grep', 'Glob', 'Agent', 'Skill'], env,
       testName: 'outside-voice-claude-code-to-codex',
     });
-    const dispatched = foundInvoiceAuthorizationDefect(claudeOutsideExecutions(result.transcript), 'codex');
+    const executions = claudeOutsideExecutions(result.transcript);
+    const dispatched = foundInvoiceAuthorizationDefect(executions, 'codex');
     const passed = result.exitReason === 'success' && dispatched;
     collector?.addTest({ name: 'outside-voice-claude-code-to-codex', suite: 'outside-voice', tier: 'e2e', passed,
       duration_ms: result.duration, cost_usd: result.costEstimate.estimatedCost, output: result.output.slice(0, 2000),
+      transcript: outsideExecutionTranscript(executions, 'codex'),
       turns_used: result.costEstimate.turnsUsed, exit_reason: result.exitReason });
     expect(result.exitReason).toBe('success');
     expect(dispatched).toBe(true);

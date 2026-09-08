@@ -38,11 +38,22 @@ export function codexOutsideExecutions(lines: string[]): OutsideExecution[] {
   });
 }
 
-export function foundInvoiceAuthorizationDefect(executions: OutsideExecution[], provider: 'codex' | 'claude-code'): boolean {
-  const invocation = provider === 'codex' ? /\bcodex\s+(?:exec|review)\b/
+function outsideInvocation(provider: 'codex' | 'claude-code'): RegExp {
+  return provider === 'codex' ? /\bcodex\s+(?:exec|review)\b/
     : /\bgstack-claude-code(?:['"])?\s+--/;
+}
+
+/** Preserve provider results, including failures, without unrelated shell/config events. */
+export function outsideExecutionTranscript(executions: OutsideExecution[], provider: 'codex' | 'claude-code') {
+  return executions.filter(({ command }) => outsideInvocation(provider).test(command))
+    .map(({ command, output, succeeded }) => ({
+      type: 'outside_execution' as const, provider, command, output, succeeded,
+    }));
+}
+
+export function foundInvoiceAuthorizationDefect(executions: OutsideExecution[], provider: 'codex' | 'claude-code'): boolean {
   return executions.some(({ command, output, succeeded }) => succeeded
-    && invocation.test(command)
+    && outsideInvocation(provider).test(command)
     && /invoice/i.test(output)
     && /owner|ownership|unauthori[sz]ed|another user|cross[- ](?:tenant|user)|access control|authorization/i.test(output)
     && !/OUTSIDE_STATUS:\s*(?:unavailable|disabled|skipped)/.test(output));

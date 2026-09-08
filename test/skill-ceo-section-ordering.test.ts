@@ -76,6 +76,21 @@ describe('plan-ceo-review carve — static ordering', () => {
     expect(gate).toBeGreaterThan(stop);
   });
 
+  test('the loaded test-review section preserves mandatory behaviors and individual assertion decisions', () => {
+    const template = fs.readFileSync(`${SECTION}.tmpl`, 'utf-8');
+    for (const document of [template, section]) {
+      const testReview = document.split('### Section 6: Test Review')[1]?.split('### Section 7:')[0];
+      expect(testReview).toBeDefined();
+      const instructions = testReview!.replace(/\s+/g, ' ');
+      expect(instructions).toContain('Keep user-required behaviors and assertions mandatory unless the user explicitly approves changing them.');
+      expect(instructions).toContain('Never fill a missing behavioral assertion silently in the final report: obtain its own AskUserQuestion decision first.');
+      expect(instructions).toContain('Scope/approach approval is not approval of individual assertion gaps.');
+      expect(instructions).toContain("Helper coverage alone does not prove the caller's path");
+      expect(instructions).toContain('equivalent caller coverage exists or the user explicitly accepted that particular risk.');
+      expect(instructions).toContain('AskUserQuestion once per issue. Do NOT batch.');
+    }
+  });
+
   test('the section is generated, not hand-edited', () => {
     expect(section.slice(0, 120)).toContain('AUTO-GENERATED');
   });

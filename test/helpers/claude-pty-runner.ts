@@ -31,6 +31,7 @@ import { withHermeticSkillRuntime } from './hermetic-skill-runtime';
 import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
+import { createPendingExitRecorder, withPendingExit } from './plan-count-pending-exit';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 
@@ -98,6 +99,8 @@ export interface ClaudePtyOptions {
   rows?: number;
   /** Opt in only when input targeting needs the actual VT viewport. */
   observeScreen?: boolean;
+  /** Count-only pending identity; the hook never approves or changes native tools. */
+  observePlanReady?: boolean;
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -154,6 +157,8 @@ export interface ClaudePtySession {
    * the dir name ends in `/.claude` by contract).
    */
   hermeticConfigDir: string | null;
+  /** Owned pre-tool identity record, removed by close(). */
+  pendingPlanReadyFile?: string;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
    * Awaits process exit before resolving.
@@ -1984,7 +1989,13 @@ export async function launchClaudePty(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let proc: any;
-  try { proc = (Bun as any).spawn([claudePath, ...args], {
+  let pendingExit: ReturnType<typeof createPendingExitRecorder> | undefined;
+  try {
+    if (opts.observePlanReady && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
+      pendingExit = createPendingExitRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
+      args.push('--settings', pendingExit.settings);
+    }
+    proc = (Bun as any).spawn([claudePath, ...args], {
     terminal: {
       cols,
       rows,
@@ -1996,7 +2007,7 @@ export async function launchClaudePty(
     },
     cwd,
     env: childEnv,
-  }); } catch (error) { await disposeScreen(); throw error; }
+  }); } catch (error) { pendingExit?.dispose(); await disposeScreen(); throw error; }
 
   // Track exit so waitForAny can fail fast if claude crashes.
   let exitedPromise: Promise<void> = Promise.resolve();
@@ -2129,7 +2140,7 @@ export async function launchClaudePty(
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
     for (const timer of trustInputTimers) clearTimeout(timer);
-    if (exited) { await disposeScreen(); return; }
+    if (exited) { pendingExit?.dispose(); await disposeScreen(); return; }
     try {
       proc.kill?.('SIGINT');
     } catch {
@@ -2145,6 +2156,7 @@ export async function launchClaudePty(
       }
       await Promise.race([exitedPromise, Bun.sleep(1000)]);
     }
+    pendingExit?.dispose();
     await disposeScreen();
   }
 
@@ -2167,6 +2179,7 @@ export async function launchClaudePty(
     exited: () => exited,
     exitCode: () => exitCodeCaptured,
     hermeticConfigDir: hermetic ? childEnv.CLAUDE_CONFIG_DIR ?? null : null,
+    pendingPlanReadyFile: pendingExit?.file,
     close,
   };
 }
@@ -2717,6 +2730,7 @@ export async function runPlanSkillCounting(opts: {
       model: opts.model,
       seedSkills: true,
       observeScreen: true,
+      observePlanReady: true,
     });
   } catch (error) {
     fixture.cleanup();
@@ -2784,6 +2798,8 @@ export async function runPlanSkillCounting(opts: {
       transcript = session.hermeticConfigDir
         ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd)
         : { status: 'error', calls: [], assistantMessages: [], error: 'Claude count session has no isolated transcript directory' };
+      transcript = withPendingExit(transcript, session.pendingPlanReadyFile, fixture.cwd,
+        session.hermeticConfigDir, startedAt, visible);
       if (transcript.status === 'error') {
         return snapshot('transcript_unavailable', transcript.error!, visible);
       }

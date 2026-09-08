@@ -182,10 +182,13 @@ For each item in the diagram:
 * What is the edge case test? (nil, empty, boundary values, concurrent access)
 
 For each behavior, name its observable assertion and a wrong result it must reject.
-Helper coverage alone does not prove the caller's path. Deferring assertion syntax
-does not waive a missing behavioral check. Raise each independent missing check
-under the per-issue rule below; do not invent one when equivalent caller coverage
-exists or the user explicitly accepted that particular risk.
+Keep user-required behaviors and assertions mandatory unless the user explicitly
+approves changing them. Never fill a missing behavioral assertion silently in the
+final report: obtain its own AskUserQuestion decision first. Scope/approach approval
+is not approval of individual assertion gaps. Helper coverage alone does not prove
+the caller's path; deferring syntax does not waive a missing check. Raise each
+independent missing check separately; do not invent one where equivalent caller
+coverage exists or the user explicitly accepted that particular risk.
 
 Test ambition check (all modes): For each new feature, answer:
 * What's the test that would make you confident shipping at 2am on a Friday?
