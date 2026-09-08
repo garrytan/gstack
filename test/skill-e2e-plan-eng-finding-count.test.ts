@@ -83,6 +83,7 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
           skillName: 'plan-eng-review',
           slashCommand: '/plan-eng-review',
           followUpPrompt: planEng5Findings(planPath),
+          expectedPlanPath: planPath,
           isLastStep0AUQ: engStep0Boundary,
           isSetupAUQ: engSetupAUQ,
           isFirstReviewAUQ: engFirstReviewAUQ,

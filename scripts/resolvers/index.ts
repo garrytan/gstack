@@ -26,7 +26,7 @@ import { generateReviewDashboard, generatePlanFileReviewReport, generateExitPlan
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow, generateCodexWebSearchFlag, generateSetupCommand } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
-import { generateInvokeSkill } from './composition';
+import { generateInvokeSkill, generateAutoplanReviewFile } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
 import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPreflight, generateBrainCacheRefresh, generateBrainWriteBack } from './gbrain';
@@ -101,6 +101,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   LEARNINGS_LOG: generateLearningsLog,
   CONFIDENCE_CALIBRATION: generateConfidenceCalibration,
   INVOKE_SKILL: generateInvokeSkill,
+  AUTOPLAN_REVIEW_FILE: generateAutoplanReviewFile,
   CHANGELOG_WORKFLOW: generateChangelogWorkflow,
   REVIEW_ARMY: generateReviewArmy,
   CROSS_REVIEW_DEDUP: generateCrossReviewDedup,

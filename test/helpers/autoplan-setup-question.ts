@@ -22,6 +22,12 @@ export function autoplanRoutingSetupInput(visible: string, seen: Set<string>): s
   // migration, deletion, or unrelated workflow is not the opposed action.
   const decline = options.filter(option => {
     const title = option.title.replace(/\(Recommended\)$/i, '');
+    // The action can stand alone or follow a short courtesy ('No thanks').
+    // Cursor redraws can damage that courtesy while leaving 'invoke skills
+    // manually' intact. Match the complete action, not the spelling of No;
+    // arbitrary preceding instructions and extra trailing actions still fail.
+    const manual = title.replace(/^[a-z]{0,3}thanks[,—–-]/i, '');
+    if (/^(?:manualinvocation|(?:I['’]ll)?invoke(?:skills)?manually)$/i.test(manual)) return true;
     const prefix = /^(?:Nothanks|Skip)(?:[,—–-])?/i.exec(title);
     if (!prefix) return false;
     // 'No thanks' can be followed by the same explicit Skip action. Strip

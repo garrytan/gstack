@@ -281,7 +281,10 @@ A gap already listed in the input plan is still an unresolved review finding.
 Knowing its cause or the matching DESIGN.md token does not approve the change.
 Review each such gap individually; do not batch them into one "apply all fixes"
 question or silently resolve them in the initial plan write. Honor an explicit
-user decision already made for that exact change; do not ask for it again.
+user decision already made for that exact change across all passes. Apply the
+selected fix to every affected plan reference, including the matching established
+DESIGN.md tokens, without asking again. Reopen it only when new evidence exposes
+an unresolved design requirement or tradeoff; explain what changed.
 
 Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get a quick pass, sections below 8 get full treatment.
 

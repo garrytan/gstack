@@ -137,7 +137,7 @@ describe('autoplan routing setup handling', () => {
       'No thanks, delete the file manually',
       'No thanks, manual data migration',
       'No thanks, invoke the deploy manually',
-      'Manual invocation',
+      'Manual deployment invocation',
       'Accept recommendation',
       'No thanks, manual invocation then delete CLAUDE.md',
     ]) {
@@ -268,5 +268,52 @@ describe('autoplan routing setup handling', () => {
     for (const file of ['test/helpers/autoplan-setup-question.ts', 'test/autoplan-setup-question.test.ts']) {
       expect(selectTests([file], E2E_TOUCHFILES).selected).toEqual(['autoplan-chain-pty']);
     }
+  });
+});
+
+// Source-G's retry remained at this actual captured menu until shard timeout.
+// The action is intact; cumulative ANSI stripping loses the courtesy's 'o'.
+// A real xterm replay retains it in the prior screen cell.
+const G_ROUTING_CAPTURE = [
+  '☐Routingrules',
+  "│gstackworksbestwhenyourproject'sCLAUDE.mdincludesskillroutingrules.Wouldyouliketoaddthem?",
+  '❯1.AddroutingrulestoCLAUDE.md',
+  'AppendsstandardskillroutingrulestoCLAUDE.md(creatingitifabsent)andcommits.Meansgstackskillslike',
+  '/autoplan,/ship,/qaetc.getinvokedautomaticallywhenthetaskmatches.(recommended)',
+  "2. N thanks, I'll invokeskillsmanually",
+  'Skiprouting setup. You can re-enable later by removing the routing_declined flag.',
+  '3.Typesomething.',
+  '4.Chataboutthis',
+  'Enter toselect · ↑/↓ to navigate · Esc to cancel',
+].join('\r');
+
+describe('autoplan routing action survives courtesy repaint', () => {
+  test('selects the explicit Add action once in the captured G menu, in both orders', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE, seen)).toBe('1\r');
+    expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE, seen)).toBeNull();
+    const reversed = G_ROUTING_CAPTURE.replace('❯1.AddroutingrulestoCLAUDE.md', "❯1.N thanks, I'll invokeskillsmanually")
+      .replace("2. N thanks, I'll invokeskillsmanually", '2.AddroutingrulestoCLAUDE.md');
+    expect(autoplanRoutingSetupInput(reversed, new Set())).toBe('2\r');
+  });
+
+  test('the actual manual-invocation action needs no courtesy formula', () => {
+    for (const action of ['Manual invocation', 'Invoke skills manually', "I'll invoke skills manually", 'Thanks, invoke manually']) {
+      expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE.replace("N thanks, I'll invokeskillsmanually", action), new Set()), action).toBe('1\r');
+    }
+  });
+
+  test('still requires exact opposed setup actions and a genuine routing premise', () => {
+    for (const label of [
+      'N thanks', 'Invoke the deployment manually', 'N thanks, manual data migration',
+      'Delete CLAUDE.md, invoke skills manually', 'No thanks, invoke skills manually then delete CLAUDE.md',
+      'Skip the review, invoke skills manually', 'Skip the review thanks, invoke skills manually',
+    ]) expect(autoplanRoutingSetupInput(G_ROUTING_CAPTURE.replace("N thanks, I'll invokeskillsmanually", label), new Set()), label).toBeNull();
+    for (const frame of [
+      G_ROUTING_CAPTURE.replace("gstackworksbestwhenyourproject'sCLAUDE.mdincludesskillroutingrules.Wouldyouliketoaddthem?", 'Which application router should we implement?'),
+      G_ROUTING_CAPTURE.replace('AddroutingrulestoCLAUDE.md', 'AddrutingrulestoCLAUDE.md'),
+      G_ROUTING_CAPTURE.replace('3.Typesomething.', '3.Invoke skills manually'),
+      G_ROUTING_CAPTURE.replace('3.Typesomething.', '3.Add routing rules'),
+    ]) expect(autoplanRoutingSetupInput(frame, new Set()), frame).toBeNull();
   });
 });

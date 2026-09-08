@@ -168,6 +168,7 @@ try {
         { name: 'design-direct', skillName: 'plan-design-review', prompt: PROMPT, mode: 'direct-finding' },
         { name: 'design-batched', skillName: 'plan-design-review', prompt: PROMPT, mode: 'batched-finding' },
         { name: 'failed-native', skillName: 'plan-design-review', prompt: PROMPT, mode: 'failed-call' },
+        { name: 'native-permission-policy', skillName: 'plan-eng-review', prompt: PROMPT, mode: 'native-permission-policy', report: path.join(dir, 'native-policy-report.md') },
         { name: 'permission-lifecycle', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission-lifecycle' },
         { name: 'permission', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission' },
         { name: 'missing-transcript', skillName: 'plan-design-review', prompt: PROMPT, mode: 'missing-transcript' },
@@ -189,13 +190,17 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 const record = (event) => fs.appendFileSync(process.env.FIXTURE_RECORD, JSON.stringify(event) + '\n');
+// Older fake menus used CR as a line separator. Emit actual terminal newlines;
+// real cursor/erase behavior is exercised separately in pty-screen-session.test.ts.
+const render = text => process.stdout.write(text.replace(/\r(?!\n)/g, '\r\n'));
 const sessionId = 'fixture-' + process.pid;
 const project = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', sessionId);
 fs.mkdirSync(project, { recursive: true });
 const native = (role, content, extra = {}) => {
   if (process.env.FIXTURE_MODE === 'missing-transcript') return;
   fs.appendFileSync(path.join(project, sessionId + '.jsonl'), JSON.stringify({
-    cwd: process.cwd(), sessionId, isSidechain: false, message: { role, content }, ...extra,
+    cwd: process.cwd(), sessionId, isSidechain: false, message: { role, content },
+    ...(process.env.FIXTURE_MODE === 'native-permission-policy' ? { timestamp: new Date().toISOString() } : {}), ...extra,
   }) + '\n');
 };
 native('assistant', [{ type: 'text', text: 'Fixture CLI started.' }]);
@@ -240,7 +245,7 @@ record({
     ? fs.readFileSync(path.join(skillDir, 'sections', 'review-sections.md'), 'utf8') : null,
 });
 fs.writeFileSync(path.join(process.env.GSTACK_HOME, 'child-owned'), 'isolated');
-if (process.env.FIXTURE_MODE === 'exit') process.stdout.write('\x1b[?25lSTARTUP_DIAGNOSTIC fixture CLI booted\x1b[?25h\n');
+if (process.env.FIXTURE_MODE === 'exit') render('\x1b[?25lSTARTUP_DIAGNOSTIC fixture CLI booted\x1b[?25h\n');
 process.stdin.setRawMode?.(true);
 let firstInput = true;
 let completion;
@@ -254,12 +259,40 @@ process.stdin.on('data', (data) => {
   const input = data.toString('utf8');
   record({ type: 'input', data: input });
   if (!firstInput) {
+    if (process.env.FIXTURE_MODE === 'native-permission-policy') {
+      if (permissionStage === 'done') { record({ type: 'unexpected-policy-input', input }); return; }
+      selected += input.replace(/\r/g, '');
+      if (input.includes('\r')) {
+        permissionStage = 'done';
+        const label = nativeQuestions[0].options[Number(selected) - 1]?.label;
+        record({ type: 'native-policy-answer', selected, label });
+        native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Answered.' }],
+          { toolUseResult: { answers: { [nativeQuestions[0].question]: label } } });
+        // The answered menu survives a provisional heading and partial report.
+        // Neither may turn its permission wording into a fresh default1.
+        const summary = 'Completion Summary:\n- Architecture Review: file policy issue resolved\n';
+        render('\n● ' + summary);
+        native('assistant', [{ type: 'text', text: summary }], { timestamp: new Date(Date.now() + 1).toISOString() });
+        setTimeout(() => {
+          fs.writeFileSync(process.env.FIXTURE_EXPECTED_REPORT, '## GSTACK REVIEW REPORT\n');
+          record({ type: 'partial-policy-report' });
+        }, 3000);
+        completion = setTimeout(() => {
+          fs.writeFileSync(process.env.FIXTURE_EXPECTED_REPORT, '# Reviewed plan\n\n## GSTACK REVIEW REPORT\n\n' +
+            '| Review | Status | Findings |\n|---|---|---|\n| Eng Review | clean | policy resolved |\n\n' +
+            'VERDICT: ENG CLEARED\n\nNO UNRESOLVED DECISIONS\n');
+          record({ type: 'complete-policy-report' });
+          render('\nGSTACK REVIEW REPORT\n');
+        }, 6500);
+      }
+      return;
+    }
     if (process.env.FIXTURE_MODE === 'damaged-menu') {
       if (question === 0) record({ type: 'input-during-prose', input });
       else if (input.includes('\r')) {
         record({ type: 'damaged-menu-answer', input });
         answer();
-        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+        render('\nGSTACK REVIEW REPORT\n');
       }
       return;
     }
@@ -267,14 +300,14 @@ process.stdin.on('data', (data) => {
       if (question === 0 && input === '\x1b[Z') {
         question = 1;
         record({ type: 'returned-to-unanswered' });
-        process.stdout.write('\r← ☒ Routing setup ☐ Cross-project ✔ Submit →\r' +
+        render('\r← ☒ Routing setup ☐ Cross-project ✔ Submit →\r' +
           '│ Enable cross-project learnings?\r❯1.Enable cross-project\r2.Keep project-scoped\r');
       } else if (question === 1) {
         selected += input.replace(/\r/g, '');
         if (input.includes('\r')) {
           question = 2;
           record({ type: 'answered-remaining-tab', selected });
-          process.stdout.write(submitPanel(true));
+          render(submitPanel(true));
         }
       } else if (question === 2 && input === '\r') {
         // Native JSONL can arrive only after the whole packet is submitted.
@@ -285,7 +318,7 @@ process.stdin.on('data', (data) => {
             [submitQuestions[1].question]: submitQuestions[1].options[Number(selected) - 1]?.label,
           } } });
         record({ type: 'submitted-both-answers' });
-        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+        render('\nGSTACK REVIEW REPORT\n');
       } else record({ type: 'unexpected-submit-input', question, input });
       return;
     }
@@ -299,22 +332,22 @@ process.stdin.on('data', (data) => {
         record({ type: 'mode-answer', selected, label });
         native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Your questions have been answered.' }],
           { toolUseResult: { answers: { [modeQuestion.question]: label } } });
-        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+        render('\nGSTACK REVIEW REPORT\n');
       }
       return;
     }
     if (['direct-finding', 'failed-call'].includes(process.env.FIXTURE_MODE) && input.includes('\r')) {
       answer();
-      process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      render('\nGSTACK REVIEW REPORT\n');
       return;
     }
     if (process.env.FIXTURE_MODE === 'batched-finding' && input.includes('\r')) {
       if (question === 1) {
         question = 2;
-        process.stdout.write('\r☐Loading\rD2 — Define the loading state <gstack-qid:plan-design-review-loading>\r❯1.Add spinner\r2.Keep blank\r');
+        render('\r☐Loading\rD2 — Define the loading state <gstack-qid:plan-design-review-loading>\r❯1.Add spinner\r2.Keep blank\r');
       } else {
         answer();
-        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+        render('\nGSTACK REVIEW REPORT\n');
       }
       return;
     }
@@ -322,33 +355,33 @@ process.stdin.on('data', (data) => {
       if (permissionStage === 'first') {
         record({ type: 'permission-grant', number: 1, input });
         permissionStage = 'pending';
-        process.stdout.write(filePermission()); // Same pending menu, appended redraw.
+        render(filePermission()); // Same pending menu, appended redraw.
         completion = setTimeout(() => {
           permissionStage = 'completed';
-          process.stdout.write('\n⎿ Wrote320linesto../fixture/gstack-test-plan-design.md\n' + '·'.repeat(1600));
+          render('\n⎿ Wrote320linesto../fixture/gstack-test-plan-design.md\n' + '·'.repeat(1600));
           completion = setTimeout(() => {
             permissionStage = 'second';
-            process.stdout.write(filePermission()); // New request, identical file/text.
+            render(filePermission()); // New request, identical file/text.
           }, 4500);
         }, 4500);
       } else if (permissionStage === 'second') {
         record({ type: 'permission-grant', number: 2, input });
         permissionStage = 'question';
-        process.stdout.write('\n⎿ Added2lines\n');
+        render('\n⎿ Added2lines\n');
         ask([questionMetadata('File policy', 'Do you want to create gstack-test-plan-design.md?', ['Yes', 'No'])]);
-        process.stdout.write('\n☐ File policy\nDo you want to create gstack-test-plan-design.md?\n❯1.Yes\n2.No\n' +
+        render('\n☐ File policy\nDo you want to create gstack-test-plan-design.md?\n❯1.Yes\n2.No\n' +
           'Enter to select · ↑/↓ to navigate · Esc to cancel\n');
       } else if (permissionStage === 'question') {
         record({ type: 'file-policy-answer', input });
         native('user', [{ type: 'tool_result', tool_use_id: 'question-' + callId, content: 'Your question has been answered.' }],
           { toolUseResult: { answers: { [nativeQuestions[0].question]: input.startsWith('2') ? 'No' : 'Yes' } } });
         permissionStage = 'done';
-        process.stdout.write('\nGSTACK REVIEW REPORT\n');
+        render('\nGSTACK REVIEW REPORT\n');
       } else record({ type: 'unexpected-permission-input', stage: permissionStage, input });
       return;
     }
     if (process.env.FIXTURE_MODE === 'permission' && input.includes('\r')) {
-      process.stdout.write('\nGSTACK REVIEW REPORT\n');
+      render('\nGSTACK REVIEW REPORT\n');
       return;
     }
     if (process.env.FIXTURE_MODE !== 'prerequisite') return;
@@ -360,40 +393,40 @@ process.stdin.on('data', (data) => {
       const labels = ['Run /office-hours now', 'Skip — proceed with standard review'];
       if (process.env.FIXTURE_SKIP_INDEX === '1') labels.reverse();
       ask([questionMetadata('Prerequisite', 'No design doc found. Run /office-hours first?', labels)]);
-      process.stdout.write('\r☐ Prerequisite\rNo design doc found. Run /office-hours first?\r❯1.' + labels[0] + '\r2.' + labels[1] + '\r');
+      render('\r☐ Prerequisite\rNo design doc found. Run /office-hours first?\r❯1.' + labels[0] + '\r2.' + labels[1] + '\r');
       return;
     }
     selected += input.replace(/\r/g, '');
     if (input.includes('\r')) {
       answer();
       record({ type: 'prerequisite-answer', selected });
-      process.stdout.write(selected === process.env.FIXTURE_SKIP_INDEX ? '\nGSTACK REVIEW REPORT\n' : '\nWRONG_PREREQUISITE_CHOICE\n');
+      render(selected === process.env.FIXTURE_SKIP_INDEX ? '\nGSTACK REVIEW REPORT\n' : '\nWRONG_PREREQUISITE_CHOICE\n');
     }
     return;
   }
   firstInput = false;
   if (process.env.FIXTURE_MODE === 'exit') process.exit(7);
   if (process.env.FIXTURE_MODE === 'damaged-menu') {
-    process.stdout.write('☐Stripe event types\nWhich event should the handler accept?\n❯1.Specify one canonical event\n2.Accept all events\n' +
+    render('☐Stripe event types\nWhich event should the handler accept?\n❯1.Specify one canonical event\n2.Accept all events\n' +
       '·'.repeat(4200) + '\nMinimum required test cases:\n1.Happy path\n2.Email failure\n3.DB timeout\n4.Unknown event\n5.Unknown user\n❯1\n');
     completion = setTimeout(() => {
       question = 1;
       ask([questionMetadata('Test scope', 'Should the plan include an integration test? <gstack-qid:plan-ceo-test-scope>',
         ['Unit tests only for now (recommended)', 'Unit tests + one integration test', 'Integration test only'])]);
-      process.stdout.write('\n☐Test scope\nShould the plan include an integration test? <gstack-qid:plan-ceo-test-scope>\n' +
+      render('\n☐Test scope\nShould the plan include an integration test? <gstack-qid:plan-ceo-test-scope>\n' +
         '❯1.Unittestsonlyfornow(recommended)\n2Uni tsts + one integration test\n3.Integrationtestonly\n' +
         'Enter to select · ↑/↓ to navigate · Esc to cancel\n');
     }, 4100);
     return;
   }
   if (process.env.FIXTURE_MODE === 'damaged-submit') {
-    process.stdout.write(submitPanel(false));
+    render(submitPanel(false));
     return;
   }
   if (['late-mode', 'batched-mode'].includes(process.env.FIXTURE_MODE)) {
     if (process.env.FIXTURE_MODE === 'batched-mode') ask([modeQuestion,
       questionMetadata('Separate decision', 'Which fixture target should be used?', ['First target', 'Second target'])]);
-    process.stdout.write('\r☐ Review mode\r' + modeQuestion.question + '\r❯1.DX EXPANSION\r2.DX POLISH\r3.DX TRIAGE\r');
+    render('\r☐ Review mode\r' + modeQuestion.question + '\r❯1.DX EXPANSION\r2.DX POLISH\r3.DX TRIAGE\r');
     return;
   }
   if (['direct-finding', 'batched-finding', 'failed-call'].includes(process.env.FIXTURE_MODE)) {
@@ -405,27 +438,33 @@ process.stdin.on('data', (data) => {
     const questions = [questionMetadata('Button style', 'D1 — How should the four header buttons differ? <gstack-qid:plan-design-review-button-hierarchy>', ['Filled primary', 'Ghost buttons'])];
     if (process.env.FIXTURE_MODE === 'batched-finding') questions.push(questionMetadata('Loading', 'D2 — Define the loading state <gstack-qid:plan-design-review-loading>', ['Add spinner', 'Keep blank']));
     ask(questions);
-    process.stdout.write('\r☐Buttonstyle\r│D1—Howshouldthe4headerbuttonsbedifferentiated?<gstack-qid:plan-design-review-butn-hierarchy>\r❯1.Filledprimary\r2.Ghostbuttons\r');
+    render('\r☐Buttonstyle\r│D1—Howshouldthe4headerbuttonsbedifferentiated?<gstack-qid:plan-design-review-butn-hierarchy>\r❯1.Filledprimary\r2.Ghostbuttons\r');
     return;
   }
   if (process.env.FIXTURE_MODE === 'prerequisite') {
     question = 1;
     const suffix = process.env.FIXTURE_CUSTOM === 'true' ? ' Context '.repeat(50) + 'routing-proof-after-240' : '';
     ask([questionMetadata('Setup', 'Which fixture setup should be used?' + suffix, ['First setup', 'Second setup'])]);
-    process.stdout.write('\r☐ Setup\rWhich fixture setup should be used?\r❯1.First setup\r2.Second setup\r');
+    render('\r☐ Setup\rWhich fixture setup should be used?\r❯1.First setup\r2.Second setup\r');
+    return;
+  }
+  if (process.env.FIXTURE_MODE === 'native-permission-policy') {
+    const prompt = 'D1 — Should we create a file that documents always allow access to the project? <gstack-qid:plan-eng-review-file-policy>';
+    ask([questionMetadata('File policy', prompt, ['Create it', 'Keep current policy'])]);
+    render('\n☐ File policy\n' + prompt + '\n❯1.Create it\n2.Keep current policy\nEnter to select · ↑/↓ to navigte · Esc to cancel\n');
     return;
   }
   if (process.env.FIXTURE_MODE === 'permission-lifecycle') {
-    process.stdout.write(filePermission());
+    render(filePermission());
     return;
   }
   if (process.env.FIXTURE_MODE === 'permission') {
-    process.stdout.write('\rDo you want to create PLAN.md?\r❯1.Yes\r2.Yes, and switch to accept edits\r3.No\r');
+    render('\rDo you want to create PLAN.md?\r❯1.Yes\r2.Yes, and switch to accept edits\r3.No\r');
     return;
   }
   // Longer than the old 3 s delayed fixture send: record that regression
   // even if the helper would otherwise return on our completion marker.
-  completion = setTimeout(() => process.stdout.write('\nGSTACK REVIEW REPORT\n'), 4100);
+  completion = setTimeout(() => render('\nGSTACK REVIEW REPORT\n'), 4100);
 });
 process.on('SIGINT', () => {
   clearTimeout(completion);
@@ -456,16 +495,19 @@ const results = await Promise.all(cases.map(async (item) => ({
     slashCommand: '/' + item.skillName,
     followUpPrompt: item.prompt,
     fixtureFiles: item.files,
+    expectedPlanPath: item.report,
     isLastStep0AUQ: () => false,
     isFirstReviewAUQ: ['direct-finding', 'batched-finding', 'failed-call'].includes(item.mode) ? designFirstReviewAUQ : undefined,
     isReviewAUQ: item.custom ? fp => fp.promptSnippet.includes('routing-proof-after-240') : undefined,
-    pickAUQ: ['late-mode', 'batched-mode'].includes(item.mode) ? devexReviewModePick
+    pickAUQ: item.mode === 'native-permission-policy' ? () => 2
+      : ['late-mode', 'batched-mode'].includes(item.mode) ? devexReviewModePick
       : item.custom ? fp => fp.promptSnippet.includes('routing-proof-after-240') ? 1 : null : undefined,
     reviewCountCeiling: 8,
     timeoutMs: item.mode === 'permission-lifecycle' ? 22000 : 15000,
     firstAUQPick: () => ['late-mode', 'batched-mode'].includes(item.mode) ? 1 : 2,
     env: {
       FIXTURE_RECORD: item.record, FIXTURE_SKILL: item.skillName, FIXTURE_MODE: item.mode,
+      FIXTURE_EXPECTED_REPORT: item.report ?? '',
       FIXTURE_CUSTOM: String(item.custom ?? false),
       FIXTURE_SKIP_INDEX: String(item.skipIndex ?? ''), FIXTURE_CONFIG_BIN: ${JSON.stringify(path.join(ROOT, 'bin/gstack-config'))},
       GSTACK_HOME: ${JSON.stringify(hostState)}, GSTACK_STATE_ROOT: ${JSON.stringify(hostState)},
@@ -528,7 +570,7 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
               : item.mode === 'permission-lifecycle' ? '1\r1\r2\r'
               : item.mode === 'damaged-submit' ? '\x1b[Z2\r\r'
               : item.mode === 'batched-finding' ? '2\r1\r' : item.mode === 'batched-mode' ? '1\r'
-              : ['direct-finding', 'failed-call', 'permission', 'late-mode', 'damaged-menu'].includes(item.mode) ? '2\r' : ''));
+              : ['direct-finding', 'failed-call', 'permission', 'late-mode', 'damaged-menu', 'native-permission-policy'].includes(item.mode) ? '2\r' : ''));
           expect(fs.existsSync(startup.cwd)).toBe(false);
           expect(fs.existsSync(startup.stateRoot)).toBe(false);
           expect(() => process.kill(startup.pid, 0)).toThrow();
@@ -558,6 +600,15 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           if (item.mode === 'failed-call') {
             expect(result.observation.transcript.calls[0].failure).toContain('is_error');
             expect(result.observation.transcript.calls[0].answered).toBe(false);
+          }
+          if (item.mode === 'native-permission-policy') {
+            expect(events.filter(event => event.type === 'unexpected-policy-input')).toEqual([]);
+            expect(events.filter(event => event.type.endsWith('-policy-report')).map(event => event.type))
+              .toEqual(['partial-policy-report', 'complete-policy-report']);
+            expect(fs.readFileSync(item.report!, 'utf8')).toContain('NO UNRESOLVED DECISIONS');
+            expect(events.filter(event => event.type === 'native-policy-answer').map(event => event.selected)).toEqual(['2']);
+            expect(result.observation.transcript.calls).toHaveLength(1);
+            expect(Object.values(result.observation.transcript.calls[0].answers)).toEqual(['Keep current policy']);
           }
           if (item.mode === 'permission-lifecycle') {
             expect(events.filter(event => event.type === 'unexpected-permission-input')).toEqual([]);

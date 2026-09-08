@@ -6,6 +6,23 @@
 
 **Anti-shortcut clause:** The plan file is the OUTPUT of the interactive review, not a substitute for it. Writing every finding into one plan write and calling ExitPlanMode without firing AskUserQuestion is the precise failure mode of the May 2026 transcript bug — the model explored, found issues, and dumped them into a deliverable rather than walking the user through them. If you have ANY non-trivial finding in any review section, the path from finding to ExitPlanMode goes THROUGH AskUserQuestion. Zero findings in every section is the only path to ExitPlanMode that bypasses AskUserQuestion. If you find yourself wanting to write a plan with findings before asking, stop and call AskUserQuestion now — that's the bug, recognize it.
 
+**Carry decisions across sections.** Track each finding by its failure mode and
+individually approved remedy. Selecting a scope or approach alone does not approve
+every finding within it; each unresolved finding still needs its first individual
+decision, unless the user explicitly already approved those particular changes.
+Before raising a finding, check the existing contract and the
+user's earlier decisions. Present a complete remedy for that one issue, including
+the validation and failure observability needed to prove it works. Do not split
+those consequences of the same remedy into repeated approval questions. Keep
+independent issues separate, even when they affect the same component or test.
+
+When a later section encounters the same issue, verify and reference the approved
+remedy. Do not reopen it merely to restate the fix or suggest an alternative with
+no evidenced requirement. New evidence that leaves a failure mode unresolved
+still needs its own decision; explain what the earlier remedy does not cover.
+This does not approve an unraised finding or a new TODO: continue to present each
+new finding and each potential TODO individually under the rules below.
+
 ### Section 1: Architecture Review
 Evaluate and diagram:
 * Overall system design and component boundaries. Draw the dependency graph.

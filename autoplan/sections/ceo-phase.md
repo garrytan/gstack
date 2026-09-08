@@ -1,6 +1,7 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Follow plan-ceo-review/SKILL.md — all sections, full depth.
+Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full now; follow its lazy-section triggers.
+Apply /autoplan's skip list; all other work runs in full.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
@@ -20,6 +21,27 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   with run_in_background: false — subagents default to BACKGROUND since
   Claude Code v2.1.198, so the flag must be explicitly false), then Codex
   (Bash). Both must complete before building the consensus table.
+
+  **Claude CEO subagent** (via Agent tool):
+  Native subagent tool; Claude Code Agent arguments:
+  ```json
+  { "run_in_background": false }
+  ```
+  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+
+  "Read the plan file at <plan_path>. You are an independent CEO/strategist
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Is this the right problem to solve? Could a reframing yield 10x impact?
+  2. Are the premises stated or just assumed? Which ones could be wrong?
+  3. What's the 6-month regret scenario — what will look foolish?
+  4. What alternatives were dismissed without sufficient analysis?
+  5. What's the competitive risk — could someone else solve this first/better?
+  For each finding: what's wrong, severity (critical/high/medium), and the fix."
+
+
+  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
+  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
+  No inline substitute; apply the existing failure policy.
 
   **Codex CEO voice** (via Bash):
   Outside prompt (include the full current plan content and the context requested below, using the Write tool):
@@ -79,15 +101,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (ceo), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-  **Claude CEO subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent CEO/strategist
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Is this the right problem to solve? Could a reframing yield 10x impact?
-  2. Are the premises stated or just assumed? Which ones could be wrong?
-  3. What's the 6-month regret scenario — what will look foolish?
-  4. What alternatives were dismissed without sufficient analysis?
-  5. What's the competitive risk — could someone else solve this first/better?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
   **Error handling:** Both calls block in foreground. Codex auth/timeout/empty → proceed with
   Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
@@ -146,10 +159,15 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Dream state delta (where this plan leaves us vs 12-month ideal)
 - Completion Summary (the full summary table from the CEO skill)
 
-**PHASE 1 COMPLETE.** Emit phase-transition summary:
-> **Phase 1 complete.** Codex: [N concerns]. Claude subagent: [N issues].
-> Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
-> Passing to Phase 2.
+**Close this phase before continuing:** Check successful Write/Edit results for
+all required plan/artifact outputs and both reviewers' terminal status (including
+unavailable/disabled coverage). Do not announce completion while required work remains.
+Emit this filled-in summary as an actual assistant message:
+
+**Phase 1 complete.**
+Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].
+Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
+Passing to Phase 2.
 
 Do NOT begin Phase 2 until all Phase 1 outputs are written to the plan file,
 including the premise assessment (queued premise challenges travel to the

@@ -25,6 +25,8 @@ export interface PlanCountTranscript {
   status: 'missing' | 'ready' | 'error';
   calls: NativePlanQuestionCall[];
   assistantMessages: Array<{ sessionId: string; text: string; timestamp: string }>;
+  /** Actual native plan-mode approval requests; pending is the UI gate, never an AUQ. */
+  planReadyRequests?: Array<{ sessionId: string; toolUseId: string; timestamp: string; failed: boolean }>;
   error?: string;
 }
 
@@ -57,6 +59,7 @@ function validQuestions(value: unknown): value is NativePlanQuestion[] {
 export function readPlanCountTranscript(configDir: string, cwd: string): PlanCountTranscript {
   const calls = new Map<string, NativePlanQuestionCall>();
   const assistantMessages: PlanCountTranscript['assistantMessages'] = [];
+  const planReadyRequests = new Map<string, NonNullable<PlanCountTranscript['planReadyRequests']>[number]>();
   let matched = false;
   let bytes = 0;
   let files = 0;
@@ -89,6 +92,12 @@ export function readPlanCountTranscript(configDir: string, cwd: string): PlanCou
                 typeof block.text === 'string' && block.text.trim() && validTimestamp(record.timestamp)) {
               assistantMessages.push({ sessionId: record.sessionId, text: block.text, timestamp: record.timestamp });
             }
+            if (record.message.role === 'assistant' && block.type === 'tool_use' && block.name === 'ExitPlanMode' &&
+                typeof block.id === 'string' && validTimestamp(record.timestamp)) {
+              const key = `${record.sessionId}:${block.id}`;
+              if (!planReadyRequests.has(key)) planReadyRequests.set(key, { sessionId: record.sessionId,
+                toolUseId: block.id, timestamp: record.timestamp, failed: false });
+            }
             if (record.message.role === 'assistant' && block.type === 'tool_use' && block.name === 'AskUserQuestion' &&
                 typeof block.id === 'string' && object(block.input) && validQuestions(block.input.questions)) {
               const key = `${record.sessionId}:${block.id}`;
@@ -100,6 +109,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string): PlanCou
                 questions: block.input.questions, answered: false });
             } else if (record.message.role === 'user' && block.type === 'tool_result' &&
                        typeof block.tool_use_id === 'string') {
+              const ready = planReadyRequests.get(`${record.sessionId}:${block.tool_use_id}`);
+              if (ready && block.is_error === true) ready.failed = true;
               const call = calls.get(`${record.sessionId}:${block.tool_use_id}`);
               const answers = record.toolUseResult?.answers;
               const validAnswers = call && object(answers) ? Object.fromEntries(call.questions
@@ -124,7 +135,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string): PlanCou
         }
       }
     }
-    return { status: matched ? 'ready' : 'missing', calls: [...calls.values()], assistantMessages };
+    return { status: matched ? 'ready' : 'missing', calls: [...calls.values()], assistantMessages,
+      ...(planReadyRequests.size ? { planReadyRequests: [...planReadyRequests.values()] } : {}) };
   } catch (error) {
     // A failed read cannot silently turn an incomplete transcript into a
     // complete review. Keep the diagnostic explicit and return no coverage.

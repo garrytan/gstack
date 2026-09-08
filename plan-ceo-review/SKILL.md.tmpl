@@ -279,6 +279,7 @@ Rules:
 - **These two approaches have equal weight.** Don't default to "minimal viable" just because it's smaller. Recommend whichever best serves the user's goal. If the right answer is a rewrite, say so.
 - If only one approach exists, explain concretely why alternatives were eliminated.
 - Do NOT proceed to mode selection (0F) without user approval of the chosen approach.
+- Selecting an approach approves the direction, not a batch of review findings. Keep each unresolved finding for its own decision in the review sections before applying its remedy, unless the user explicitly already approved those particular changes.
 
 Present these approach options via AskUserQuestion using the preamble's AskUserQuestion Format section: include RECOMMENDATION and `Completeness: N/10` on every option. These approaches differ in coverage (minimal viable vs ideal architecture), so completeness scoring applies directly.
 

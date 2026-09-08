@@ -114,8 +114,10 @@ shipping gate, so it must review the FINAL amended plan — every other phase's
 amendments land before it. Each phase MUST complete fully before the next
 begins. NEVER run phases in parallel — each builds on the previous.
 
-Between each phase, emit a phase-transition summary and verify that all required
-outputs from the prior phase are written before starting the next.
+End each phase by verifying all required writes and reviewer outcomes, then emit
+its completion announcement as an actual assistant message before the next phase.
+Plan headings and promises are not announcements. Missing outside coverage does
+not block native completion; report its status accurately.
 
 ---
 
@@ -217,13 +219,22 @@ Then prepend a one-line HTML comment to the plan file:
   on top of) or if an AI agent is the primary user (OpenClaw actions, Claude Code skills,
   MCP servers).
 
-### Step 3: Load skill files from disk
+### Step 3: Locate review skills; load each at phase entry
 
-Read each file using the Read tool:
-- `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-design-review/SKILL.md` (only if UI scope detected)
-- `~/.claude/skills/gstack/plan-eng-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-devex-review/SKILL.md` (only if DX scope detected)
+At the start of each applicable phase, read its full review SKILL.md using the Read
+tool, then follow that skill's lazy-section Read triggers before doing their work:
+- Phase 1: {{AUTOPLAN_REVIEW_FILE:plan-ceo-review}}
+- Phase 2: {{AUTOPLAN_REVIEW_FILE:plan-design-review}} (only if UI scope detected)
+- Phase 2.5: {{AUTOPLAN_REVIEW_FILE:plan-devex-review}} (only if DX scope detected)
+- Phase 3: {{AUTOPLAN_REVIEW_FILE:plan-eng-review}}
+
+Use the same installed skill registry as /autoplan. Resolve sibling paths from its
+discovered SKILL.md directory, never cwd/runtime assets. Missing skill: report the
+missing phase and setup repair; never substitute another harness or claim completion.
+
+Do not prefetch future phase sections or review skills. Read each at its trigger;
+load the tasks aggregator at Phase 4. All applicable skills and required lazy
+sections still run in full.
 
 **Section skip list — when following a loaded skill file, SKIP these sections
 (they are already handled by /autoplan):**
@@ -244,7 +255,7 @@ Read each file using the Read tool:
 Follow ONLY the review-specific methodology, sections, and required outputs.
 
 Output: "Here's what I'm working with: [plan summary]. UI scope: [yes/no]. DX scope: [yes/no].
-Loaded review skills from disk. Starting full review pipeline with auto-decisions."
+Review skills will load at each phase entry. Starting full review pipeline with auto-decisions."
 
 ---
 

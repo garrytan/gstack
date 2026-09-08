@@ -112,6 +112,27 @@ describe('CEO mode navigation replay', () => {
     expect(nextCeoModeNavigation(`${permission}\r${actual}`, 'HOLD SCOPE', seen).kind).toBe('question');
   });
 
+  test('file permission lifecycle is shared by navigation and posture without becoming an AUQ', () => {
+    const seen = new Set<string>();
+    const permission = 'Do you want to overwrite CLAUDE.md?\n❯1.Yes\n2.No\nEsc to cancel · Tab to amend';
+    const transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
+    expect(nextCeoModeNavigation(permission, 'HOLD SCOPE', seen).kind).toBe('permission');
+    expect(nextCeoModeNavigation(permission, 'HOLD SCOPE', seen).kind).toBe('wait');
+    expect(nextCeoPostureContinuation(permission, transcript, 'HOLD SCOPE', 0, seen, true)).toBeNull();
+    const completed = permission + '\n⎿ Added1line\n';
+    expect(nextCeoPostureContinuation(completed, transcript, 'HOLD SCOPE', 0, seen, true)).toBeNull();
+    expect(nextCeoModeNavigation(completed, 'HOLD SCOPE', seen).kind).toBe('wait');
+    const again = completed + permission;
+    expect(nextCeoPostureContinuation(again, transcript, 'HOLD SCOPE', 0, seen, true)).toBe('permission');
+    expect(nextCeoModeNavigation(again, 'HOLD SCOPE', seen).kind).toBe('wait');
+    expect(seen.size).toBe(0);
+    const question = '☐ Approaches\nWhich storage strategy?\n❯1.Server\n2.Local';
+    expect(nextCeoModeNavigation(again + '\n' + question, 'HOLD SCOPE', seen).kind).toBe('question');
+    expect(seen.size).toBe(1);
+    // Different sessions retain independent permission state.
+    expect(nextCeoModeNavigation(permission, 'HOLD SCOPE', new Set()).kind).toBe('permission');
+  });
+
   test('selects the intended mode from the observed menu, preserving its index', () => {
     const frame = '☐ReviewMode\rWhat review posture should I use?\r❯1.SELECTIVEEXPANSION(recommended)\r2.HOLDSCOPE\r3.SCOPEEXPANSION\r4.SCOPEREDUCTION';
     for (const [mode, index] of [['HOLD SCOPE', 2], ['SCOPE EXPANSION', 3]] as const) {

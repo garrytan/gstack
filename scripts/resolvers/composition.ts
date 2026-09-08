@@ -1,4 +1,6 @@
 import type { TemplateContext } from './types';
+import * as path from 'path';
+import { getHostConfig } from '../../hosts';
 
 /**
  * {{INVOKE_SKILL:skill-name}} — emits prose instructing Claude to read
@@ -45,4 +47,22 @@ Follow its instructions from top to bottom, **skipping these sections** (already
 ${allSkips.map(s => `- ${s}`).join('\n')}
 
 Execute every other section at full depth. When the loaded skill's instructions are complete, continue with the next step below.`;
+}
+
+/** Autoplan reads methodology from this host's skill registry, not its runtime assets. */
+export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]): string {
+  const skill = args?.[0];
+  if (!skill || !['plan-ceo-review', 'plan-design-review', 'plan-devex-review', 'plan-eng-review'].includes(skill)) {
+    throw new Error('AUTOPLAN_REVIEW_FILE requires an autoplan review skill');
+  }
+  if (ctx.host === 'claude') return `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
+
+  const host = getHostConfig(ctx.host);
+  const file = `gstack-${skill}/SKILL.md`;
+  const local = `${path.posix.dirname(host.localSkillRoot)}/${file}`;
+  const global = `~/${path.posix.dirname(host.globalRoot)}/${file}`;
+  // Resolve from the discovered entrypoint's directory: GSTACK_ROOT is an
+  // independently configurable runtime asset tree, not a skill registry.
+  // This also preserves custom CODEX_HOME installations without guessing HOME.
+  return `the sibling registry file \`../${file}\`, relative to the installed \`/autoplan\` SKILL.md directory (local: \`${local}\`; global: \`${global}\`${ctx.host === 'codex' ? ', or the corresponding skills directory under CODEX_HOME when configured' : ''})`;
 }

@@ -41,6 +41,7 @@ import {
   COMPLETION_SUMMARY_RE,
   classifyPlanCountFrame,
   capturePlanCountQuestion,
+  matchesNativePlanQuestion,
   createPlanCountPermissionGuard,
   planCountPrerequisitePick,
   planCountSubmissionInput,
@@ -1751,7 +1752,7 @@ describe('Step0BoundaryPredicate per-skill', () => {
       for (const alter of [
         (call: any) => { call.answered = false; },
         (call: any) => { call.failed = true; },
-        (call: any) => { call.questions[0].header = 'Architecture'; },
+        (call: any) => { call.questions[0].header = 'Architecture issue'; call.questions[0].question = 'D1 — Architecture issue: should the cross-project feature use shared storage?'; },
         (call: any) => { call.questions[0].options = [{ label: 'Enable cross-project search' }, { label: 'Disable all search' }]; },
         (call: any) => { call.questions[0].options = [{ label: 'Enable cross-project search with project-scoped storage' }, { label: 'Discuss later' }]; },
         (call: any) => { call.questions[0].question = 'How should concurrent AuthCache writes across projects be serialized?';
@@ -1936,7 +1937,7 @@ describe('Step0BoundaryPredicate per-skill', () => {
       unansweredScope.nativeCall!.answers = { 'Separate answered setup question': 'Continue' };
       expect(engStep0Boundary(unansweredScope)).toBe(false);
       for (const alter of [
-        (q: any) => { q.question = q.question.replace('plan-eng-scope-complexity', 'plan-eng-cache-complexity'); },
+        (q: any) => { q.question = 'D1 — Architecture issue: the plan touches 12 files and introduces 4 classes, but AuthCache has a race. Reduce cache scope? <gstack-qid:plan-eng-cache-complexity>'; },
         (q: any) => { q.options = [{ label: 'Change cache size' }, { label: 'Keep cache size' }]; },
       ]) {
         const unrelated = structuredClone(original);
@@ -2386,5 +2387,299 @@ describe('native Eng first packet and registry identities', () => {
     expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([testScope], { [testScope.question]: testScope.options[0]!.label }), 0, true))).toBe(true);
     const q = { ...finding, header: 'Architecture', question: 'Choose a review focus. <gstack-qid:plan-eng-review-arch-finding>' };
     expect(engFirstReviewAUQ(nativePlanCallFingerprint(callWith([q], { [q.question]: q.options[0]!.label }), 0, true))).toBe(false);
+  });
+});
+
+
+describe('native Eng setup semantics (captured G)', () => {
+  // Exact native question stems, offered actions and answers. Five findings
+  // and both substantive TODO decisions must remain in review coverage.
+  const rows = [
+  {
+    "header": "Cross-project",
+    "question": "gstack can search learnings from your other projects on this machine to find patterns that might apply to this auth refactor review. This stays local \u2014 no data leaves your machine. Enable cross-project learnings? <gstack-qid:cross-project-learnings>",
+    "options": [
+      "Enable (recommended)",
+      "Project-scoped only"
+    ],
+    "answer": "Enable (recommended)"
+  },
+  {
+    "header": "Scope",
+    "question": "D1 \u2014 Scope challenge: this plan touches 12 files and introduces 4 new classes. Reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-challenge>",
+    "options": [
+      "Reduce: phase it (recommended)",
+      "Proceed as-is",
+      "Investigate first"
+    ],
+    "answer": "Reduce: phase it (recommended)"
+  },
+  {
+    "header": "Arch: cache wiring",
+    "question": "D2 \u2014 Architecture issue 1: AuthBroker and SessionMint share a global mutable AuthCache via module-level export. Module-level singletons prevent test isolation and break in multi-process deployments (cluster, serverless, worker threads). How should AuthCache be wired? <gstack-qid:plan-eng-arch-cache-wiring>",
+    "options": [
+      "Dependency injection (recommended)",
+      "Keep module-level export"
+    ],
+    "answer": "Dependency injection (recommended)"
+  },
+  {
+    "header": "Arch: concurrency",
+    "question": "D3 \u2014 Architecture issue 2: the plan explicitly states mutations to AuthCache are not serialized. With two services writing concurrently (e.g., AuthBroker evicting a token while SessionMint reads-then-writes it), you get classic check-then-act races. How should this be handled? <gstack-qid:plan-eng-arch-mutation-serialization>",
+    "options": [
+      "Make mutations idempotent + last-write-wins (recommended)",
+      "Add an async mutex per cache key",
+      "Document and defer"
+    ],
+    "answer": "Make mutations idempotent + last-write-wins (recommended)"
+  },
+  {
+    "header": "Code quality",
+    "question": "D4 \u2014 Code quality issue 1: validateAndDispatch() is 60 lines with three nested try/catch blocks, each silently swallowing a different error class. Swallowed errors mean silent failures in production \u2014 a token validation error looks identical to a dispatch error from the outside. Fix approach? <gstack-qid:plan-eng-cq-error-swallowing>",
+    "options": [
+      "Extract + typed errors (recommended)",
+      "Add structured logging before swallowing",
+      "Proceed as-is"
+    ],
+    "answer": "Extract + typed errors (recommended)"
+  },
+  {
+    "header": "Tests",
+    "question": "D5 \u2014 Test issue: all 13 new code paths in AuthCache and AuthBroker are untested (0% coverage planned). The plan mentions unit and integration coverage for success/error paths, but specifics are absent. Add explicit test requirements to the plan now? <gstack-qid:plan-eng-test-coverage>",
+    "options": [
+      "Add explicit test plan (recommended)",
+      "Keep plan vague, trust implementation"
+    ],
+    "answer": "Add explicit test plan (recommended)"
+  },
+  {
+    "header": "Performance",
+    "question": "D6 \u2014 Performance issue: token validation makes 5 sequential IDP API calls. The plan notes they are independent and could be parallelized via Promise.all trivially. Fix in this PR or defer? <gstack-qid:plan-eng-perf-idp-parallelization>",
+    "options": [
+      "Fix in this PR with Promise.all (recommended)",
+      "Defer to follow-up TODO"
+    ],
+    "answer": "Fix in this PR with Promise.all (recommended)"
+  },
+  {
+    "header": "TODO: PR 2",
+    "question": "D7 \u2014 TODO: capture PR 2 scope (SessionMint, TokenStore, RequestPolicy) in TODOS.md so it doesn\u2019t get lost after PR 1 ships. Add it? <gstack-qid:plan-eng-todo-pr2-scope>",
+    "options": [
+      "Add to TODOS.md (recommended)",
+      "Skip \u2014 not valuable enough"
+    ],
+    "answer": "Add to TODOS.md (recommended)"
+  },
+  {
+    "header": "TODO: IDP retry",
+    "question": "D8 \u2014 TODO: IDP circuit breaker. Token validation makes 5 IDP calls (now parallelized). If the IDP is degraded, all 5 fail together \u2014 no retry, no fallback, no circuit breaker in the plan. Add a TODO to add circuit breaker / exponential retry logic around IDP calls? <gstack-qid:plan-eng-todo-idp-circuit-breaker>",
+    "options": [
+      "Add to TODOS.md (recommended)",
+      "Build it now in this PR",
+      "Skip \u2014 not valuable enough"
+    ],
+    "answer": "Add to TODOS.md (recommended)"
+  }
+];
+  const callAt = (index: number) => {
+    const row = rows[index]!;
+    return { sessionId: 'captured-g-eng', toolUseId: `g-${index}`, answered: true, failed: false,
+      questions: [{ header: row.header, question: row.question, options: row.options.map(label => ({ label })) }],
+      answers: { [row.question]: row.answer } };
+  };
+  const setup = (call: ReturnType<typeof callAt>) => engSetupAUQ(nativePlanCallFingerprint(call, 0, false));
+  const change = (index: number, question: string, labels?: string[]) => {
+    const call = callAt(index); const q = call.questions[0]!;
+    q.question = question;
+    if (labels) q.options = labels.map(label => ({ label }));
+    call.answers = { [question]: q.options[0]!.label };
+    return call;
+  };
+  test('two setup calls precede five findings and two substantive TODO calls', () => {
+    for (const order of [[0, 1], [1, 0]]) {
+      let started = false;
+      const phases = [...order, 2, 3, 4, 5, 6, 7, 8].map(index => {
+        const phase = planCountQuestionPhase(nativePlanCallFingerprint(callAt(index), 0, !started),
+          started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+        started = phase.reviewStarted; return phase;
+      });
+      expect(phases.map(p => p.preReview)).toEqual([true, true, false, false, false, false, false, false, false]);
+      expect(phases.filter(p => !p.preReview)).toHaveLength(7);
+    }
+    expect(setup(callAt(0))).toBe(true);
+    expect(setup(callAt(1))).toBe(true);
+    for (const index of [2, 3, 4, 5, 6, 7, 8]) expect(setup(callAt(index))).toBe(false);
+  });
+  test('whole-plan scope uses its premise and opposed actions, not a model-chosen qid or header', () => {
+    for (const question of [
+      'D1 — Scope challenge: this plan touches 12 files and introduces 4 new classes. Reduce scope or proceed as-is?',
+      'The plan introduces 4 new services. Reduce the scope or proceed as-is? <gstack-qid:plan-eng-unfamiliar-size-check>',
+      'Complexity check: the plan spans 12 files. Reduce scope or proceed as-is? <gstack-qid:another-scope-name>',
+    ]) {
+      const call = change(1, question); call.questions[0]!.header = 'Review setup';
+      expect(setup(call)).toBe(true);
+      call.questions[0]!.options.reverse();
+      call.answers = { [question]: call.questions[0]!.options[0]!.label };
+      expect(setup(call)).toBe(true);
+    }
+  });
+  test('abbreviated enable requires explicit cross-project learnings and an opposed project-scoped action', () => {
+    for (const question of [
+      'Should gstack search learnings from your other projects on this machine?',
+      'Enable cross-project learnings for this review? <gstack-qid:model-selected-learning-scope>',
+    ]) {
+      const call = change(0, question); call.questions[0]!.header = 'Review setup';
+      expect(setup(call)).toBe(true);
+      call.questions[0]!.options.reverse();
+      call.answers = { [question]: call.questions[0]!.options[0]!.label };
+      expect(setup(call)).toBe(true);
+    }
+    for (const question of ['Enable the new feature?', 'Choose setup. <gstack-qid:cross-project-learnings>']) {
+      expect(setup(change(0, question))).toBe(false);
+    }
+    expect(setup(change(0, rows[0]!.question, ['Enable (recommended)', 'Discuss later']))).toBe(false);
+  });
+  test('individual issues and TODOs cannot borrow whole-plan scope or cross-project words', () => {
+    for (const [index, question, header] of [
+      [1, 'D1 — Architecture issue: this plan touches 12 files and adds 4 classes, but the AuthCache has a race. Reduce scope or proceed as-is?', 'Architecture issue'],
+      [1, 'D1 — Scope challenge: this cache spans 12 files and introduces 4 classes. Reduce scope or proceed as-is?', 'Scope'],
+      [1, 'D1 — Test gap: the plan spans 12 files. Reduce test scope or proceed as-is?', 'Tests'],
+      [1, 'The plan spans 12 files. Reduce scope or proceed as-is?', 'TODO: deferred implementation'],
+      [0, 'D1 — Security issue: cross-project learnings leak client data. Enable the feature or use project-scoped storage?', 'Security issue'],
+    ] as const) {
+      const call = change(index, question); call.questions[0]!.header = header;
+      expect(setup(call)).toBe(false);
+    }
+    expect(setup(change(1, rows[1]!.question, ['Reduce token scope', 'Investigate']))).toBe(false);
+  });
+  test('the captured retry scope heading and letter-prefixed native actions remain setup', () => {
+    const retry = {
+  "header": "Scope",
+  "question": "D2 \u2014 Scope reduction: 12 files + 4 new classes exceeds the complexity threshold\nProject/branch/task: Multi-tenant Auth Refactor on main\nELI10: The plan introduces 4 new classes (TokenStore, SessionMint, AuthCache, RequestPolicy) across 12 files. That\u2019s a lot of new surface area at once. Auth refactors are already high-risk (broken auth = all users locked out). Adding 4 new abstractions simultaneously makes the blast radius of a mistake much larger. A simpler split \u2014 just AuthBroker + SessionMint, collapsing TokenStore into AuthCache and inlining RequestPolicy \u2014 would achieve the same goal with 2 new classes and fewer files touched.\nStakes if we pick wrong: With 4 new classes landing together, a single bug in any one of them could take down auth for all tenants simultaneously. Fewer classes = smaller blast radius, easier rollback, faster onboarding for the next engineer.\nRecommendation: B (proceed as-is) \u2014 the plan already has the existing cache adapter retained, and the 4-class split may reflect genuine domain separations the plan description doesn\u2019t fully explain. Review the design at full scope, flag individual issues per section.\nCompleteness: Note: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Reduce scope \u2014 collapse TokenStore into AuthCache, inline RequestPolicy\n  \u2705 Fewer moving parts: 2 new classes instead of 4, smaller blast radius if auth fails\n  \u2705 Easier to review, test, and roll back each piece independently\n  \u274c May discard intentional domain separation the plan author had in mind\n  \u274c Requires re-planning before implementation can start\nB) Proceed as-is with full review (recommended)\n  \u2705 Respects the planned architecture and lets the full review surface real issues per section\n  \u2705 Faster path to implementation if the 4-class split turns out to be justified\n  \u274c Higher blast radius: 4 simultaneous new classes touching 12 files is more fragile to ship\n  \u274c The legacyAuthFlow rewrite without a regression test is a landmine that needs explicit attention\nNet: You\u2019re trading blast-radius safety (fewer classes) against re-planning delay. Recommend B \u2014 proceed at full scope, but treat each class boundary and the missing regression test as explicit issues in the review. <gstack-qid:plan-eng-review-scope-challenge>",
+  "options": [
+    "A) Reduce scope",
+    "B) Proceed as-is (Recommended)"
+  ],
+  "answer": "A) Reduce scope"
+};
+    const call = change(1, retry.question, retry.options);
+    call.questions[0]!.header = retry.header;
+    call.answers = { [retry.question]: retry.answer };
+    expect(setup(call)).toBe(true);
+    // A numerical component issue cannot borrow the whole-plan sentence in
+    // the explanatory body and the same Reduce/Proceed choices.
+    const issue = change(1, retry.question.replace('Scope reduction:', 'AuthCache issue:'), retry.options);
+    expect(setup(issue)).toBe(false);
+    const partial = change(1, retry.question.replace('ELI10: The plan introduces', 'ELI10: AuthCache introduces'), retry.options);
+    expect(setup(partial)).toBe(false);
+    const missingOpposition = change(1, retry.question, ['A) Reduce scope', 'B) Investigate']);
+    expect(setup(missingOpposition)).toBe(false);
+  });
+  test('late setup cannot hide earlier or later substantive findings', () => {
+    const order = [2, 1, 3, 0, 4, 5, 6, 7, 8];
+    let started = false;
+    const phases = order.map(index => {
+      const phase = planCountQuestionPhase(nativePlanCallFingerprint(callAt(index), 0, !started),
+        started, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+      started = phase.reviewStarted; return phase;
+    });
+    expect(phases.map(p => p.preReview)).toEqual([false, true, false, true, false, false, false, false, false]);
+    expect(phases.filter(p => !p.preReview)).toHaveLength(7);
+  });
+  test('pending, failed, uncertain and mixed answered calls never become wholly setup', () => {
+    for (const index of [0, 1]) {
+      const original = callAt(index);
+      expect(engSetupAUQ({ ...nativePlanCallFingerprint(original, 0, false), nativeCall: undefined })).toBe(false);
+      for (const mutate of [
+        (c: ReturnType<typeof callAt>) => { c.answered = false; },
+        (c: ReturnType<typeof callAt>) => { c.failed = true; },
+        (c: ReturnType<typeof callAt>) => { c.answers = {}; },
+        (c: ReturnType<typeof callAt>) => { c.answers = { [c.questions[0]!.question]: 'Uncertain; I have not selected a choice' }; },
+      ]) { const c = structuredClone(original); mutate(c); expect(setup(c)).toBe(false); }
+      const mixed = structuredClone(original); const finding = callAt(2).questions[0]!;
+      mixed.questions.push(finding);
+      mixed.answers[finding.question] = finding.options[0]!.label;
+      expect(setup(mixed)).toBe(false);
+      expect(planCountQuestionPhase(nativePlanCallFingerprint(mixed, 0, true), false,
+        engStep0Boundary, engFirstReviewAUQ, engSetupAUQ).preReview).toBe(false);
+      mixed.answers = { [finding.question]: finding.options[0]!.label };
+      expect(setup(mixed)).toBe(false);
+    }
+  });
+});
+
+describe('completed permission cannot become a queued review answer (captured G)', () => {
+  // Exact captured post-Write frame; the temporary repository path is sanitized.
+  // The damaged "wat" came from the CLI redraw, not the underlying question.
+  const captured = " real,specificgaps (Visual Hierachy, Spacing, Color, Typography,Motion)\r22-Itpreservesstrongaccessibilityandresponsivespecsfromtheexistingbehaviordescription\r23 -DESIGN.md exist andsuppliescorrectvaluesforall5gaps\r24\r 25 A 10/10would:\r26-Specifytheexactchangeforeachgap(concretetoken,before→after)\r27 -Add intection state table(loading,empty,error,success,partial)\r28-Storyboardtheuserjourney\r 29- Call out which DESIGN.md tokens each fix applies\r30-Resolveallimplementationambiguitiesbeforeadeveloperpicksitup\r31\r32 **DESIGN.md status:** Presnt and detailed. Spacing scale, clor system, typography,interacton patterns,andc\r  omponentbehavior re all specified. This review calbrates against it.\r33\r34 **Exsting design lverage:**\r35 -Button, Field, InlineStatus,ErrorSummary,ConfirmationDialogcomponentsreusedas-is\r36-Focusring:2pxsolid#1d4ed8,offset2px(alreadyspecified)\r37 -8px bae spacingscalealreadyestablished\r38\r39 ---\r40\r41 ## Review Passes\r42\r43*(Populatedprogressivelyasthereviewproceeds)*\r44\r╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\r Do you wat to create gstack-test-plan-design.md?\r❯ 1. Yes\r2.Yes,andswitchtoacceptedits(auto-approvefileeditsandcommonfilecommands)for this session; Yes,an\r      always allow access to /tmp/fixture for this session\r  3.Nohift+tab)\r\rEsc to cancl ·Tab to amend\u000f\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1006h\rRan1shellcommand\r\r●Scopegate:planmodeactive—auto-selectingB(reviewingPLAN.mdintheworkingdirectory).\r\rSkippingroutinginjection—thisisareviewfixturerepo.Nowrunningthepre-reviewaudit.\r\rRead2 files, ran1 shell command\r\r●Now let me read the review sectons fil as required by theskill.\r\rRead file, ran 1shellcommand\r\r●Nopriorlearnings found. Cross-project config isnot set — will ask once Ihavetheuser'sattention.\r\rPreReview System Audit:\r- DESIGN.md:exists and comprehensive (spacing, typography, color, interactionpatternsallspecified)\r- UIscope:APPUIclassifier—account-settingsformwithProfile+Notificationssections\r- 5 gaps explicily listed in the plan; l have corresponding specin DESIGN.md\r-N rior design reviews inth reviewlog\r- NoTODOS.mdexists\r\rStep0 Assessment:\r\rInitial scor: 5/10. The plan correctly identifies5realgapsandpreservesstrongaccessibilityandresponsivespecs\rinheritedfromtheexistingbehaviordescription.A10/10wouldspecifyHOWeachgapisresolved(concretecomponent\rchanges,tokenvalues,before/afterlayout),notjustnametheproblem.TheDESIGN.mdalreadyhasallcorrectvalues;\rtheplanjustneedstoreferencethem.\r\rWritingtheinitialplanfilenowbeforeaskingStep0D.\r\r●Write(/tmp/fixture/gstack-test-plan-design.md)\r\r✢ Undulatig… (2m 0s ·↓ 5.4 okens)\r ⎿  Tip:Use/btwtoaskaquicksidequestionwithoutinterruptingClaude'scurrentwork\r                                                                                   ● high · /effort\r────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r❯ \r────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r ⏸ plan mod on(shift+tab tocycle)·esctointerrupt·←foragents\u001b[?25h\u001b[?25l\r●No prior earnings found.Cross-projectconfigisnotset—willaskonceIhavetheuser'sattention.\r Pre-Review System Audit:\r-DESIGN.md:existsandcomprehensive(spacing,typography,color,interactionpatternsallspecified)\r- UI scope: APP UI classifier — account-settings fomwith Prfile + Notifications sctions\r-5gapsexplicitlylistedintheplan;allhavecorrespondingspecinDESIGN.md\r- Noprior desigreviwsin the reviewlog\r-NoTODOS.mdexists\r\rStep0Assessment:\r\rInitialscore:5/10.Theplancorrectlyidentifies5realgapsandpreservesstrongaccessibilityandresponsivespecs\r inheted from theexisting behavir desription.A 10/10would specify HOWechgapi eolved (ccretecomponent\rchanges,tokenvalues,before/afterlayout),notjustnametheproblem.TheDESIGN.mdalreadyhasallcorrectvalues;\rth plan just neds to referencethem.\r\rWriting theinitial plan lenow before ask Step 0D.\r\r●Write(/tmp/fixture/gstack-test-plan-design.md)\r⎿ Wrote 44 lines";
+
+  test('a missed grant followed by native Write completion sends no stale answer', () => {
+    const guard = createPlanCountPermissionGuard();
+    expect(classifyPlanCountFrame(captured)).toBeNull();
+    expect(guard(captured)).toBe('handled');
+    expect(capturePlanCountQuestion(captured, new Set(), 0, true)).toBeNull();
+  });
+
+  test('the same damaged active file permission grants once and never counts as a finding', () => {
+    const menu = captured.slice(captured.indexOf('Do you wat'), captured.indexOf('Esc to cancl')) + 'Esc to cancl ·Tab to amend';
+    const guard = createPlanCountPermissionGuard();
+    expect(guard(menu)).toBe('grant');
+    expect(guard(menu)).toBe('handled');
+    expect(capturePlanCountQuestion(menu, new Set(), 0, false)).toBeNull();
+    const completed = menu + '\n⎿ Wrote 44 lines';
+    expect(guard(completed)).toBe('handled');
+    expect(guard(completed + '\n' + menu)).toBe('grant');
+  });
+
+  test('plain legacy file decisions remain questions without native permission controls', () => {
+    const frame = 'Do you want to create first.md?\n❯1.Create the reviewed file\n2.Keep the current layout';
+    expect(classifyPlanCountFrame(frame)).toBeNull();
+    expect(createPlanCountPermissionGuard()(frame)).toBeNull();
+    expect(capturePlanCountQuestion(frame, new Set(), 0, false)?.options).toHaveLength(2);
+  });
+
+  test('a matching native finding can discuss file permissions without being consumed', () => {
+    const question = {
+      header: 'File policy',
+      question: 'Should we create a file that documents always allow access to the project?',
+      options: [{ label: 'Create it' }, { label: 'Keep current policy' }],
+    };
+    const pending = { sessionId: 'file-policy', toolUseId: 'file-finding', answered: false, questions: [question] };
+    const frame = captured + '\n☐ ' + question.header + '\n' + question.question +
+      '\n❯1.Create it\n2.Keep current policy\nEnter to select · ↑/↓ to navigate · Esc to cancel';
+    expect(classifyPlanCountFrame(frame)).toBeNull();
+    expect(createPlanCountPermissionGuard()(frame)).toBeNull();
+    expect(capturePlanCountQuestion(frame, new Set(), 0, false, pending)?.nativeCall).toBe(pending);
+    expect(capturePlanCountQuestion(frame, new Set(), 0, false)?.promptSnippet).toContain('File policy');
+  });
+});
+
+
+describe('native question identity outranks permission wording', () => {
+  const question = {
+    header: 'File policy',
+    question: 'D1 — Should we create a file that documents always allow access to the project? <gstack-qid:plan-eng-review-file-policy>',
+    options: [{ label: 'Create it' }, { label: 'Keep current policy' }],
+  };
+  const pending = { sessionId: 'file-policy', toolUseId: 'finding', answered: false, questions: [question] };
+  const frame = '☐ File policy\n' + question.question + '\n❯1.Create it\n2.Keep current policy\nEnter to select · ↑/↓ to navigte · Esc to cancel';
+  test('full native question and every option establish identity despite a damaged footer', () => {
+    // This is the formerly conflicting pure classifier result. The counting
+    // loop must consult native identity before taking its permission action.
+    expect(classifyPlanCountFrame(frame)).toBe('permission');
+    expect(matchesNativePlanQuestion(frame, pending)).toBe(true);
+    const seen = new Set<string>();
+    expect(capturePlanCountQuestion(frame, seen, 0, false, pending)?.nativeCall).toBe(pending);
+    expect(capturePlanCountQuestion(frame, seen, 1, false, pending)).toBeNull();
+  });
+  test('same header, changed choices, missing identity and an overlaid real permission cannot borrow a native call', () => {
+    for (const different of [
+      frame.replace('Should we create a file', 'Should we delete the file'),
+      frame.replace('2.Keep current policy', '2.Allow all edits'),
+      frame.replace(question.question, 'A different question with the same header?'),
+      frame + '\nDo you want to create actual.md?\n❯1.Yes\n2.Yes, and switch to accept edits\n3.No\nEsc to cancel · Tab to amend',
+    ]) expect(matchesNativePlanQuestion(different, pending)).toBe(false);
+    expect(capturePlanCountQuestion(frame, new Set(), 0, false, { ...pending, failed: true })).toBeNull();
+    expect(capturePlanCountQuestion(frame, new Set(), 0, false)).toBeNull();
   });
 });

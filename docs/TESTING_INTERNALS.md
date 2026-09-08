@@ -36,6 +36,20 @@ two gate-tier canaries in `test/skill-e2e-hermetic-canary.test.ts`, and the
 seeding tripwires in `test/hermetic-skills-seeding.test.ts` /
 `test/pty-skill-seeding-wiring.test.ts`.
 
+Seeded planning sessions also receive an isolated runtime home through
+`test/helpers/hermetic-skill-runtime.ts`, so absolute lazy-section paths resolve
+to the working tree under test. Explicit per-test home overrides remain intact.
+Autoplan resolves each review skill from its own installed host registry.
+
+**Interactive planning evidence.** Finding-count and autoplan-chain drivers use
+`observeScreen: true` and await `currentScreen()` before choosing an input. The
+existing xterm dependency interprets cursor moves and erases; old menus in the
+raw stream cannot establish a current prompt. Snapshots preserve
+`terminal.raw.log`, `terminal.visible.log`, and `terminal.screen.log` separately.
+Completed native transcript calls establish question counts and phase coverage.
+Report-aware count tests also require a fresh, complete report and native
+completion evidence before accepting a completion heading.
+
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack/projects/<slug>/evals/` (legacy
 fallback `~/.gstack-dev/evals/`) with auto-comparison

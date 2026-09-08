@@ -1,4 +1,5 @@
-Follow plan-devex-review/SKILL.md — all 8 DX dimensions, full depth.
+Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review}} in full now; follow its lazy-section triggers.
+Apply /autoplan's skip list; all other work runs in full.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
@@ -12,6 +13,28 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
 - Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
 
+  **{{NATIVE_LABEL}} DX subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
+  Native subagent tool; Claude Code Agent arguments:
+  ```json
+  { "run_in_background": false }
+  ```
+  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+
+  "Read the plan file at <plan_path>. You are an independent DX engineer
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Getting started: how many steps from zero to hello world? What's the TTHW?
+  2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
+  3. Error handling: does every error path specify problem + cause + fix + docs link?
+  4. Documentation: copy-paste examples? Information architecture? Interactive elements?
+  5. Escape hatches: can developers override every opinionated default?
+  For each finding: what's wrong, severity (critical/high/medium), and the fix."
+  NO prior-phase context — subagent must be truly independent.
+
+
+  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
+  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
+  No inline substitute; apply the existing failure policy.
+
   **{{OUTSIDE_LABEL}} DX voice** (via Bash):
   Outside prompt (include the full current plan content and the context requested below, using the Write tool):
 
@@ -21,7 +44,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definitio
 
   Also consider these findings from prior review phases:
   CEO: <insert CEO consensus summary>
-  Eng: <insert Eng consensus summary>
+  Design: <insert Design consensus summary, or 'skipped, no UI scope'>
 
   You are a developer who has never seen this product. Evaluate:
   1. Time to hello world: how many steps from zero to working? Target is under 5 minutes.
@@ -37,16 +60,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 {{OUTSIDE_PROVENANCE:dx}}
 
-  **{{NATIVE_LABEL}} DX subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
-  "Read the plan file at <plan_path>. You are an independent DX engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Getting started: how many steps from zero to hello world? What's the TTHW?
-  2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
-  3. Error handling: does every error path specify problem + cause + fix + docs link?
-  4. Documentation: copy-paste examples? Information architecture? Interactive elements?
-  5. Escape hatches: can developers override every opinionated default?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
-  NO prior-phase context — subagent must be truly independent.
 
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
@@ -90,8 +103,13 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - DX Implementation Checklist
 - TTHW assessment with target
 
-**PHASE 2.5 COMPLETE.** Emit phase-transition summary:
-> **Phase 2.5 complete.** DX overall: [N]/10. TTHW: [N] min → [target] min.
-> {{OUTSIDE_LABEL}}: [N concerns]. {{NATIVE_LABEL}} subagent: [N issues].
-> Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
-> Passing to Phase 3 (Eng Review — the required gate reviews the final amended plan).
+**Close this phase before continuing:** Check successful Write/Edit results for
+all required plan/artifact outputs and both reviewers' terminal status (including
+unavailable/disabled coverage). Do not announce completion while required work remains.
+Emit this filled-in summary as an actual assistant message:
+
+**Phase 2.5 complete.**
+DX overall: [N]/10. TTHW: [N] min → [target] min.
+{{OUTSIDE_LABEL}}: [completed: N concerns / unavailable / disabled]. {{NATIVE_LABEL}} subagent: [completed: N issues / unavailable].
+Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
+Passing to Phase 3 (Eng Review — the required gate reviews the final amended plan).

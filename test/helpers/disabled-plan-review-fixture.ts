@@ -90,7 +90,9 @@ export function disabledPlanReviewEvidence(result: {
     || result.output.split('\n').some(line => /\b(?:outside(?:\s+(?:voice|review))?|codex(?:\s+review)?)\b/i.test(line)
       && /\bdisabled\b/i.test(line) && !/\bnot\s+disabled\b/i.test(line));
   const falseCompletion = /\b(?:both reviewers agree|outside_status["'`*]*\s*[:=]\s*["'`*]*completed)\b/i.test(result.output);
-  const agentAvailable = Array.isArray(init?.tools) && init.tools.includes('Agent');
+  // Native CLI releases expose the requested subagent as Agent or Task.
+  // Availability never permits dispatch: fallbackCalls rejects both names.
+  const agentAvailable = Array.isArray(init?.tools) && init.tools.some((tool: unknown) => tool === 'Agent' || tool === 'Task');
   let records: any[] = [];
   let malformedLog = false;
   try { records = reviewLog.trim() ? reviewLog.trim().split('\n').map(line => JSON.parse(line)) : []; }

@@ -44,6 +44,20 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+**Carry decisions across passes.** Before each pass, reconcile the plan, its
+inherited DESIGN.md requirements, and the user's decisions so far. An issue is an
+unresolved design requirement or tradeoff, not each paragraph where it appears. Apply an
+approved fix to all affected plan references and matching established tokens;
+reference that decision in later passes instead of asking for it again.
+
+Create required review artifacts, such as the journey storyboard, from accepted
+design requirements without asking about their format. Restating an inherited requirement
+(such as an accepted contrast standard) also needs no new design decision. If
+that work exposes a missing design requirement, conflicting requirements, or a new
+tradeoff,
+raise that unresolved issue individually and wait for approval. A gap explicitly
+listed in the input still needs its first individual approval before it is fixed.
+
 ### Pass 1: Information Architecture
 Rate 0-10: Does the plan define what the user sees first, second, third?
 FIX TO 10: Add information hierarchy to the plan. Include ASCII diagram of screen/page structure and navigation flow. Apply "constraint worship" — if you can only show 3 things, which 3?

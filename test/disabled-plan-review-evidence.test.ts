@@ -38,6 +38,37 @@ describe('disabled outside-plan live oracle', () => {
   test('requires a real disabled preflight with Agent available and valid completion', () => {
     expect(oracle(completed(), '').passed).toBe(true);
   });
+  test('captured native init exposes the requested subagent as Task on Claude Code 2.1.257', () => {
+    const result = completed();
+    // G's actual init canonicalized the requested Agent tool to Task.
+    result.transcript[0] = {
+      type: 'system', subtype: 'init',
+      tools: ['Task', 'Bash', 'Glob', 'Grep', 'Read', 'Write'],
+      model: 'claude-sonnet-4-6', claude_code_version: '2.1.257',
+    };
+    expect(oracle(result)).toMatchObject({ passed: true, completed: true,
+      agentAvailable: true, persistedDisabled: true, fallbackCalls: [] });
+  });
+  test('unknown, malformed and lookalike tools do not establish subagent availability', () => {
+    for (const tools of [undefined, null, 'Agent', {}, [], ['Bash', 'Read'],
+      ['AgentTool'], ['TaskCreate', 'TaskList', 'TaskOutput', 'TaskStop'],
+      ['agent', 'task'], ['mcp__custom__Agent'], [{ name: 'Agent' }]]) {
+      const result = completed(); result.transcript[0].tools = tools;
+      expect(oracle(result)).toMatchObject({ passed: false, agentAvailable: false });
+    }
+  });
+  test('subagent availability must come from the native system init', () => {
+    for (const init of [
+      { type: 'assistant', subtype: 'init', tools: ['Task'] },
+      { type: 'system', subtype: 'other', tools: ['Agent'] },
+      { type: 'system', subtype: 'init' },
+    ]) {
+      const result = completed(); result.transcript[0] = init;
+      expect(oracle(result)).toMatchObject({ passed: false, agentAvailable: false });
+    }
+    const result = completed(); result.transcript.shift();
+    expect(oracle(result)).toMatchObject({ passed: false, agentAvailable: false });
+  });
   test('claimed disabled status without matching successful tool evidence cannot pass', () => {
     for (const mutate of [
       (r: ReturnType<typeof completed>) => { r.transcript.splice(1, 2); },
@@ -67,9 +98,11 @@ describe('disabled outside-plan live oracle', () => {
     }
   });
   test('Agent/Task fallback dispatch fails even when the parent reports disabled', () => {
-    for (const tool of ['Agent', 'Task']) {
-      const result = completed(); result.transcript.splice(-1, 0, dispatch(tool, { prompt: 'Review the plan independently' }));
+    for (const available of ['Agent', 'Task']) for (const tool of ['Agent', 'Task']) {
+      const result = completed(); result.transcript[0].tools = ['Bash', 'Read', available];
+      result.transcript.splice(-1, 0, dispatch(tool, { prompt: 'Review the plan independently' }));
       const evidence = oracle(result, '');
+      expect(evidence.agentAvailable).toBe(true);
       expect(evidence.passed).toBe(false);
       expect(evidence.fallbackCalls).toHaveLength(1);
     }

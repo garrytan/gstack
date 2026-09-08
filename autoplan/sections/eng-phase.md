@@ -1,11 +1,34 @@
 <!-- AUTO-GENERATED from eng-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Follow plan-eng-review/SKILL.md — all sections, full depth.
+Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` in full now; follow its lazy-section triggers.
+Apply /autoplan's skip list; all other work runs in full.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+
+  **Claude eng subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
+  Native subagent tool; Claude Code Agent arguments:
+  ```json
+  { "run_in_background": false }
+  ```
+  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+
+  "Read the plan file at <plan_path>. You are an independent senior engineer
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Architecture: Is the component structure sound? Coupling concerns?
+  2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
+  3. Tests: What's missing from the test plan? What would break at 2am Friday?
+  4. Security: New attack surface? Auth boundaries? Input validation?
+  5. Hidden complexity: What looks simple but isn't?
+  For each finding: what's wrong, severity, and the fix."
+  NO prior-phase context — subagent must be truly independent.
+
+
+  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
+  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
+  No inline substitute; apply the existing failure policy.
 
   **Codex eng voice** (via Bash):
   Outside prompt (include the full current plan content and the context requested below, using the Write tool):
@@ -67,16 +90,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (eng), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"eng"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-  **Claude eng subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
-  "Read the plan file at <plan_path>. You are an independent senior engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Architecture: Is the component structure sound? Coupling concerns?
-  2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
-  3. Tests: What's missing from the test plan? What would break at 2am Friday?
-  4. Security: New attack surface? Auth boundaries? Input validation?
-  5. Hidden complexity: What looks simple but isn't?
-  For each finding: what's wrong, severity, and the fix."
-  NO prior-phase context — subagent must be truly independent.
 
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
@@ -140,7 +153,12 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - Completion Summary (the full summary from the Eng skill)
 - TODOS.md updates (collected from all phases)
 
-**PHASE 3 COMPLETE.** Emit phase-transition summary:
-> **Phase 3 complete.** Codex: [N concerns]. Claude subagent: [N issues].
-> Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
-> Passing to Phase 4 (Final Gate).
+**Close this phase before continuing:** Check successful Write/Edit results for
+all required plan/artifact outputs and both reviewers' terminal status (including
+unavailable/disabled coverage). Do not announce completion while required work remains.
+Emit this filled-in summary as an actual assistant message:
+
+**Phase 3 complete.**
+Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].
+Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
+Passing to Phase 4 (Final Gate).

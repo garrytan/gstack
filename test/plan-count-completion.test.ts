@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { hasNativePlanCompletion, classifyPlanCountFrame } from './helpers/claude-pty-runner';
+import { hasNativePlanCompletion, hasNativePlanTerminal, classifyPlanCountFrame } from './helpers/claude-pty-runner';
 import type { PlanCountTranscript } from './helpers/plan-count-transcript';
 
 const CAPTURED_CALL = {
@@ -238,4 +238,256 @@ process.stdin.resume();
       expect(fs.existsSync(output)).toBe(true);
     } finally { clearTimeout(timer); child.kill('SIGKILL'); fs.rmSync(dir, { recursive: true, force: true }); }
   }, 40000);
+});
+
+// Last answered call and last finalized native text at the exact G soft-terminal race.
+const CAPTURED_ENG_STREAM = {
+  "status": "ready",
+  "calls": [
+    {
+      "sessionId": "4c3d29fb-2a00-4e5d-b3c6-9b584986e340",
+      "toolUseId": "toolu_011KrMyU6fjW7RQ7aAVJ4DfA",
+      "questions": [
+        {
+          "question": "D7 — Performance: 5 sequential IDP calls that could be Promise.all'd\nProject/branch/task: Multi-tenant Auth Refactor on main\nELI10: During token validation, the code makes 5 API calls to the identity provider (IDP) one at a time. But the calls are independent — none uses the result of the previous one. Changing from sequential to Promise.all([…]) takes one line of code and cuts auth latency by ~5x. At 100ms per call, sequential = ~500ms; parallel = ~100ms. This matters most under load: auth is on the critical path of every authenticated request.\nStakes if we pick wrong: Every authenticated request pays a 400ms tax that could be eliminated with one line. Under load, slow auth creates timeout cascades — auth is typically among the first things to degrade.\nRecommendation: A — trivially fix it now. The plan itself says “calls are independent” and “trivially” parallelizable. The only reason not to is if there’s a hidden ordering dependency the plan doesn’t mention.\nCompleteness: Note: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Parallelize the 5 IDP calls with Promise.all in this PR (recommended)\n  ✅ 5x latency reduction on the auth critical path for free — one line change\n  ✅ Under load, parallel calls bound latency to the slowest single call instead of sum of all\n  ❌ If any hidden ordering dependency exists (not mentioned in the plan), it will surface as a test failure — easily caught\nB) Defer parallelization to a follow-up performance PR\n  ✅ Keeps this PR focused on the refactor\n  ❌ The plan already flagged this as trivial; deferring creates a PR that self-documents debt without resolving it\nNet: The plan already identified this as trivial. Doing it now costs 5 minutes and makes the auth path meaningfully faster for all users. <gstack-qid:plan-eng-review-perf-idp-sequential-calls>",
+          "header": "Performance",
+          "options": [
+            {
+              "label": "A) Parallelize IDP calls now (Recommended)",
+              "description": "Promise.all the 5 independent calls. ~5 min, 5x auth latency improvement."
+            },
+            {
+              "label": "B) Defer to a follow-up PR",
+              "description": "Keeps this PR focused on refactor; acknowledged debt."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Performance: 5 sequential IDP calls that could be Promise.all'd\nProject/branch/task: Multi-tenant Auth Refactor on main\nELI10: During token validation, the code makes 5 API calls to the identity provider (IDP) one at a time. But the calls are independent — none uses the result of the previous one. Changing from sequential to Promise.all([…]) takes one line of code and cuts auth latency by ~5x. At 100ms per call, sequential = ~500ms; parallel = ~100ms. This matters most under load: auth is on the critical path of every authenticated request.\nStakes if we pick wrong: Every authenticated request pays a 400ms tax that could be eliminated with one line. Under load, slow auth creates timeout cascades — auth is typically among the first things to degrade.\nRecommendation: A — trivially fix it now. The plan itself says “calls are independent” and “trivially” parallelizable. The only reason not to is if there’s a hidden ordering dependency the plan doesn’t mention.\nCompleteness: Note: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Parallelize the 5 IDP calls with Promise.all in this PR (recommended)\n  ✅ 5x latency reduction on the auth critical path for free — one line change\n  ✅ Under load, parallel calls bound latency to the slowest single call instead of sum of all\n  ❌ If any hidden ordering dependency exists (not mentioned in the plan), it will surface as a test failure — easily caught\nB) Defer parallelization to a follow-up performance PR\n  ✅ Keeps this PR focused on the refactor\n  ❌ The plan already flagged this as trivial; deferring creates a PR that self-documents debt without resolving it\nNet: The plan already identified this as trivial. Doing it now costs 5 minutes and makes the auth path meaningfully faster for all users. <gstack-qid:plan-eng-review-perf-idp-sequential-calls>": "A) Parallelize IDP calls now (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T18:46:43.934Z"
+    }
+  ],
+  "assistantMessages": [
+    {
+      "sessionId": "4c3d29fb-2a00-4e5d-b3c6-9b584986e340",
+      "text": "Tests decision: add characterization tests for legacyAuthFlow() before rewriting. Moving to Section 4: Performance Review.\n\n**Finding 4 [P2] (confidence: 9/10):** The plan states: \"Token validation issues 5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially (calls are independent).\"\n\nThis is a free 5x latency improvement being left on the table. At 100ms per IDP call (typical), sequential = ~500ms per auth validation. Parallel via Promise.all = ~100ms.",
+      "timestamp": "2026-09-08T18:46:30.531Z"
+    }
+  ]
+};
+const CAPTURED_DX_HANDOFF = {
+  "sessionId": "cc1b321f-f306-4086-a236-34dd30f457be",
+  "toolUseId": "toolu_01AGy3uosDrjJJUv1aKGkhRY",
+  "questions": [
+    {
+      "question": "DX review done. 5 findings resolved, 7 implementation tasks written. What's next?\n\nEvalKit SDK / DX POLISH review / main\nThe DX review found API design issues (argument order, auth error), a broken getting-started path, a TTHW gap, and a cliff-edge upgrade. All resolved with user decisions. The full output is at gstack-test-plan-devex.md. Eng review is the required gate before shipping.\n<gstack-qid:devex-next-steps>",
+      "header": "Next step",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Run /plan-eng-review (Recommended)",
+          "description": "Required gate. The arg-order fix and --skip-ci flag both have architectural implications that eng review should validate."
+        },
+        {
+          "label": "Ready to implement",
+          "description": "Start building the 7 tasks. Run /devex-review after shipping to measure actual TTHW vs the <2-min target."
+        },
+        {
+          "label": "Skip, handle manually",
+          "description": "You'll manage next steps outside this session."
+        }
+      ]
+    }
+  ],
+  "answered": true,
+  "failed": false,
+  "answers": {
+    "DX review done. 5 findings resolved, 7 implementation tasks written. What's next?\n\nEvalKit SDK / DX POLISH review / main\nThe DX review found API design issues (argument order, auth error), a broken getting-started path, a TTHW gap, and a cliff-edge upgrade. All resolved with user decisions. The full output is at gstack-test-plan-devex.md. Eng review is the required gate before shipping.\n<gstack-qid:devex-next-steps>": "Run /plan-eng-review (Recommended)"
+  },
+  "unansweredQuestionIndices": [],
+  "answeredAt": "2026-09-08T18:46:16.771Z"
+};
+
+describe('guarded native terminal and report lifecycle', () => {
+  test('G Eng streamed summary cannot finish while native text/file is still pending', () => {
+    const f = fixture();
+    try {
+      const visible = '● Performance decision: parallelize the 5 IDP calls. All 4 review sections complete.\n\nCompletionSummary:\n- Step 0: Scope reduced\n- Architecture Review:1 issue found\n- Code Quality Review:1 issue found\n';
+      expect(classifyPlanCountFrame(visible)).toBe('completion_summary');
+      const t: PlanCountTranscript = structuredClone(CAPTURED_ENG_STREAM);
+      const answerTime = Math.max(...t.calls.map(c => Date.parse(c.answeredAt!)));
+      fs.utimesSync(f.file, (answerTime + 1) / 1000, (answerTime + 1) / 1000);
+      expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'completion_summary')).toBe(false);
+      t.assistantMessages.push({ sessionId: t.calls[0]!.sessionId, timestamp: new Date(answerTime + 2).toISOString(),
+        text: 'Completion Summary:\n- Architecture Review: 1 issue resolved\n- Code Quality Review: 1 issue resolved\n- Test Review: 1 gap resolved\n- Performance Review: 1 issue resolved\n' });
+      for (const content of ['', '# Draft\n', '## GSTACK REVIEW REPORT\n', REPORT.replace('NO UNRESOLVED DECISIONS', ''), REPORT.replace('| DX Review | clean | resolved |\n', '')]) {
+        fs.writeFileSync(f.file, content); fs.utimesSync(f.file, (answerTime + 3) / 1000, (answerTime + 3) / 1000);
+        expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'completion_summary'), content).toBe(false);
+      }
+      fs.writeFileSync(f.file, REPORT); fs.utimesSync(f.file, (answerTime + 3) / 1000, (answerTime + 3) / 1000);
+      expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'completion_summary')).toBe(true);
+    } finally { f.cleanup(); }
+  });
+
+  test('the actual post-report DX handoff does not require rewriting an unchanged report', () => {
+    const f = fixture();
+    try {
+      const t: PlanCountTranscript = structuredClone(f.transcript);
+      const sessionId = t.calls[0]!.sessionId;
+      t.calls.push({ ...structuredClone(CAPTURED_DX_HANDOFF), sessionId });
+      t.planReadyRequests = [{ sessionId, toolUseId: 'exit', timestamp: '2026-09-08T18:46:27.000Z', failed: false }];
+      expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'plan_ready')).toBe(true);
+      // Unknown, free-form, partly unanswered and substantive menus remain
+      // freshness boundaries, even if they reuse the same next-step header.
+      for (const mutate of [
+        (c: any) => { c.questions[0].question = c.questions[0].question.replace('devex-next-steps', 'new-change'); },
+        (c: any) => { c.answers[c.questions[0].question] = 'Also change the SDK auth behavior'; },
+        (c: any) => { c.questions[0].options.push({ label: 'Change the error message now' }); },
+        (c: any) => { c.unansweredQuestionIndices = [1]; },
+      ]) {
+        const changed = structuredClone(t); mutate(changed.calls[1]);
+        expect(hasNativePlanTerminal(changed, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      }
+      t.planReadyRequests[0]!.failed = true;
+      expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'plan_ready')).toBe(false);
+    } finally { f.cleanup(); }
+  });
+
+  test('pending/refused/mixed calls, stale or incomplete reports and quoted summaries cannot complete', () => {
+    const f = fixture();
+    try {
+      const t = structuredClone(f.transcript);
+      t.planReadyRequests = [{ sessionId: t.calls[0]!.sessionId, toolUseId: 'exit', timestamp: CAPTURED_FINAL.timestamp, failed: false }];
+      expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'plan_ready')).toBe(true);
+      const retried = structuredClone(t);
+      retried.calls.unshift({ ...structuredClone(retried.calls[0]!), toolUseId: 'failed-before-retry', answered: false, failed: true, answers: undefined });
+      expect(hasNativePlanTerminal(retried, f.file, f.startedAt, 'plan_ready')).toBe(true);
+      retried.calls[0]!.questions[0]!.question = 'A different unresolved question';
+      expect(hasNativePlanTerminal(retried, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      for (const mutate of [
+        (t: any) => { t.calls[0].answered = false; },
+        (t: any) => { t.calls[0].failed = true; },
+        (t: any) => { t.calls[0].sessionId = 'other'; },
+        (t: any) => { t.planReadyRequests[0].failed = true; },
+        (t: any) => { t.planReadyRequests[0].timestamp = t.calls[0].answeredAt; },
+        (t: any) => { t.planReadyRequests = []; },
+        (t: any) => { t.status = 'missing'; },
+      ]) { const changed = structuredClone(t); mutate(changed); expect(hasNativePlanTerminal(changed, f.file, f.startedAt, 'plan_ready')).toBe(false); }
+      const summary = 'Completion Summary:\n- Review: 4 findings resolved\n';
+      for (const text of ['> ' + summary, 'Example:\n' + summary, '```text\n' + summary + '```', 'Here is an example:\n\n' + summary, 'Here is a quoted result:\n```text\n' + summary + '```', 'I cannot complete the review.\n' + summary, 'Completion Summary:\n', summary + 'Waiting for your answer.']) {
+        t.assistantMessages[0]!.text = text;
+        expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'completion_summary'), text).toBe(false);
+      }
+      const old = Date.parse('2026-09-08T17:40:00Z') / 1000; fs.utimesSync(f.file, old, old);
+      expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'plan_ready')).toBe(false);
+    } finally { f.cleanup(); }
+  });
+});
+
+test.skipIf(process.platform === 'win32')('real PTY waits through streamed summary, another question and partial report writes', async () => {
+  await Promise.all(['completion_summary', 'plan_ready'].map(async (terminal) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guarded-terminal-pty-'));
+    const fake = path.join(dir, 'fake-claude');
+    const worker = path.join(dir, 'worker.ts');
+    const output = path.join(dir, 'plan.md');
+    const record = path.join(dir, 'inputs.jsonl');
+    const events = path.join(dir, 'events.jsonl');
+    const result = path.join(dir, 'result.json');
+    const runner = pathToFileURL(path.join(import.meta.dir, 'helpers/claude-pty-runner.ts')).href;
+    fs.writeFileSync(fake, `#!${process.execPath}\n` + String.raw`
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+const sessionId = 'guarded-terminal-fixture';
+const project = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', sessionId);
+fs.mkdirSync(project, { recursive: true });
+const file = path.join(project, sessionId + '.jsonl');
+const native = (role, content, extra = {}) => fs.appendFileSync(file, JSON.stringify({
+  cwd: process.cwd(), sessionId, isSidechain: false, timestamp: new Date().toISOString(), message: { role, content }, ...extra,
+}) + '\n');
+const event = name => fs.appendFileSync(process.env.PROBE_EVENTS, JSON.stringify({ name, at: Date.now() }) + '\n');
+const q = { header: 'Tests', question: 'D2 — Test finding: add the missing retry assertion? <gstack-qid:plan-eng-test-missing-retry>', options: [{ label: 'Add retry assertion' }, { label: 'Leave untested' }] };
+const ask = id => native('assistant', [{ type: 'tool_use', id, name: 'AskUserQuestion', input: { questions: [q] } }]);
+const answer = id => native('user', [{ type: 'tool_result', tool_use_id: id, content: 'Answered.' }], { toolUseResult: { answers: { [q.question]: q.options[0].label } } });
+const summary = 'Completion Summary:\n- Architecture Review: 1 issue resolved\n- Test Review: 1 missing test resolved\n';
+const ready = () => process.stdout.write('\nClaude has written up a plan and is ready to execute. Would you like to proceed?\n❯ 1. Yes, and use auto mode\n  2. Yes, manually approve edits\n  3. Tell Claude what to change\n');
+let stage = 0;
+process.stdin.setRawMode?.(true);
+process.stdin.on('data', data => {
+  fs.appendFileSync(process.env.PROBE_INPUTS, JSON.stringify(data.toString()) + '\n');
+  if (stage === 0) {
+    stage = 1; ask('first'); answer('first');
+    event('streamed-heading'); process.stdout.write('● Completion Summary:\n- Architecture Review: 1 issue resolved\n');
+    setTimeout(() => {
+      ask('second'); event('pending-question');
+      process.stdout.write('\n← ☐ Tests ✔ Submit →\n' + q.question + '\n❯ 1. Add retry assertion\n  2. Leave untested\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n');
+    }, 3500);
+    return;
+  }
+  if (stage === 1 && data.toString().includes('1')) {
+    stage = 2; answer('second'); event('answered-second');
+    fs.writeFileSync(process.env.PROBE_PLAN, '# Draft\n');
+    native('assistant', [{ type: 'text', text: summary }], { timestamp: new Date(Date.now() + 1).toISOString() });
+    process.stdout.write('\n● ' + summary);
+    setTimeout(() => {
+      event('partial-report'); fs.writeFileSync(process.env.PROBE_PLAN, process.env.PROBE_REPORT.split('VERDICT:')[0]);
+    }, 3000);
+    setTimeout(() => {
+      event('complete-report'); fs.writeFileSync(process.env.PROBE_PLAN, process.env.PROBE_REPORT);
+      if (process.env.PROBE_TERMINAL === 'plan_ready') {
+        native('assistant', [{ type: 'tool_use', id: 'rejected-ready', name: 'ExitPlanMode', input: {} }]);
+        native('user', [{ type: 'tool_result', tool_use_id: 'rejected-ready', is_error: true, content: 'Gate not ready' }]);
+        ready();
+        setTimeout(() => {
+          event('valid-native-ready'); native('assistant', [{ type: 'tool_use', id: 'valid-ready', name: 'ExitPlanMode', input: {} }]); ready();
+        }, 2500);
+      }
+    }, 6000);
+  } else if (stage === 2) event('unexpected-plan-approval-input');
+});
+process.stdin.resume();
+`);
+    fs.chmodSync(fake, 0o755);
+    fs.writeFileSync(worker, `import { runPlanSkillCounting } from ${JSON.stringify(runner)};\n` +
+      `const result = await runPlanSkillCounting({skillName:'plan-eng-review',slashCommand:'/plan-eng-review',followUpPrompt:'# Completion fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:30000,env:${JSON.stringify({PROBE_PLAN:output,PROBE_INPUTS:record,PROBE_EVENTS:events,PROBE_REPORT:REPORT,PROBE_TERMINAL:terminal})}});\n` +
+      `await Bun.write(${JSON.stringify(result)},JSON.stringify(result));\n`);
+    const child = Bun.spawn([process.execPath, worker], { env: { ...process.env,
+      EVALS_HERMETIC: '1', EVALS_RUN_ID: '', BROWSE_TERMINAL_BINARY: fake }, stdout: 'pipe', stderr: 'pipe' });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 45000);
+    try {
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, stdout + stderr).toBe(0);
+      const observation = JSON.parse(fs.readFileSync(result, 'utf8'));
+      expect(fs.existsSync(output), `D19: report must exist before stopping; ${observation.summary}`).toBe(true);
+      expect(observation.outcome, JSON.stringify(observation)).toBe(terminal);
+      expect(observation.reviewCount).toBe(2);
+      expect(fs.readFileSync(output, 'utf8')).toBe(REPORT);
+      const recorded = fs.readFileSync(events, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      expect(recorded.map(e => e.name)).toEqual(['streamed-heading', 'pending-question', 'answered-second', 'partial-report', 'complete-report', ...(terminal === 'plan_ready' ? ['valid-native-ready'] : [])]);
+      expect(fs.readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))).toEqual(['/plan-eng-review\r', '1\r']);
+      if (terminal === 'plan_ready') expect(observation.transcript.planReadyRequests.map(r => r.failed)).toEqual([true, false]);
+    } finally { clearTimeout(timer); child.kill('SIGKILL'); await child.exited; fs.rmSync(dir, { recursive: true, force: true }); }
+  }));
+}, 50000);
+
+// Actual finalized CEO prose uses a relative output name, not the DevEx fallback's
+// exact “Plan written to:” sentence. Its caller-owned file is checked independently.
+test('captured completed CEO prose supports the ordinary summary path', () => {
+  const f = fixture();
+  try {
+    f.transcript.assistantMessages = [{
+      sessionId: f.transcript.calls[0]!.sessionId,
+      timestamp: "2026-09-08T17:58:52.319Z",
+      text: "CEO review complete. Here's the summary:\n\n**Plan:** Payment Processing — Test Coverage\n**Mode:** HOLD SCOPE | **Verdict:** CLEARED (with 4 additions)\n\n**4 gaps found and resolved through interactive review:**\n\n1. **CRITICAL** — \"assert correct receipt is generated\" is too vague. Spec: assert `charge_id`, `amount`, `currency` (at minimum) match the charge response.\n2. **WARNING** — \"fails clean\" doesn't name what's raised. Spec: `assert raises <PaymentFailedError>` (resolve exact class from error hierarchy at implementation).\n3. **WARNING** — Retry count is implicit. Spec: `assert len(mock_stripe_call_history) == 2` explicitly in Test 2.\n4. **WARNING** — No test file path. Spec: resolve by convention-matching existing test structure.\n\nEverything else (architecture, security, data flow, performance, observability, deployment, trajectory) is clean. Section 11 skipped — no UI scope. Review output written to `gstack-test-plan-ceo-paired.md`."
+    }];
+    expect(hasNativePlanCompletion(f.transcript, f.file, f.startedAt)).toBe(false);
+    expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(true);
+    f.transcript.calls = [];
+    expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(false);
+  } finally { f.cleanup(); }
 });

@@ -218,3 +218,35 @@ describe('native plan-count transcripts', () => {
     expect(f.read().calls).toEqual([]);
   });
 });
+
+describe('native plan approval request evidence', () => {
+  test('captures only a scoped complete ExitPlanMode request and retains error results', () => {
+    const f = fixture();
+    // Exact native tool shape from G Design's pending approval gate (its
+    // zero-question workflow remains a separate failed count observation).
+    const ready = f.record('assistant', [{ type: 'tool_use', id: 'plan-ready', name: 'ExitPlanMode', input: {}, caller: { type: 'direct' } }]);
+    const line = JSON.stringify(ready);
+    fs.writeFileSync(f.file, line);
+    expect(f.read().planReadyRequests).toBeUndefined();
+    fs.appendFileSync(f.file, '\n');
+    expect(f.read().planReadyRequests).toEqual([{ sessionId: 'session-a', toolUseId: 'plan-ready', timestamp: ready.timestamp, failed: false }]);
+    f.append(f.record('user', [{ type: 'tool_result', tool_use_id: 'plan-ready', is_error: true, content: 'Plan not accepted' }]));
+    expect(f.read().planReadyRequests![0]!.failed).toBe(true);
+    f.append(ready); // duplicate request cannot clear a recorded failure
+    expect(f.read().planReadyRequests![0]!.failed).toBe(true);
+  });
+  test('foreign, sidechain, quoted, lookalike and untimestamped requests add no readiness', () => {
+    const f = fixture();
+    const block = { type: 'tool_use', id: 'ready', name: 'ExitPlanMode', input: {} };
+    f.append(f.record('assistant', [block], { cwd: f.cwd + '-other' }),
+      f.record('assistant', [block], { sessionId: 'foreign' }),
+      f.record('assistant', [block], { isSidechain: true }),
+      f.record('assistant', [block], { timestamp: 'invalid' }),
+      f.record('assistant', [{ ...block, name: 'example_ExitPlanMode' }]),
+      f.record('assistant', [{ type: 'text', text: JSON.stringify(block) }]));
+    expect(f.read().planReadyRequests).toBeUndefined();
+    fs.appendFileSync(f.file, 'bad JSON\n');
+    expect(f.read().status).toBe('error');
+    expect(f.read().planReadyRequests).toBeUndefined();
+  });
+});

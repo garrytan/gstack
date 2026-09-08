@@ -68,3 +68,61 @@ describe('autoplan phase order (Eng always last)', () => {
     expect(ceo).toContain('Final');
   });
 });
+
+describe('autoplan phase execution checkpoints', () => {
+  const tmpl = read('autoplan/SKILL.md.tmpl');
+  const phases = ['ceo', 'design', 'dx', 'eng'];
+
+  test('loads full review skills at phase entry instead of prefetching future phases', () => {
+    const intake = tmpl.split('### Step 3:')[1]?.split('## Phase 0.5:')[0] ?? '';
+    expect(intake).toContain('At the start of each applicable phase');
+    expect(intake).toContain('read its full review SKILL.md');
+    expect(intake).toContain('Do not prefetch future phase sections or review skills');
+    for (const phase of phases) {
+      expect(read(`autoplan/sections/${phase}-phase.md.tmpl`)).toMatch(/^Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+\}\} in full now/);
+    }
+  });
+
+  for (const phase of phases) {
+    test(`${phase} places explicit foreground dispatch and its completion barrier before the outside invocation`, () => {
+      const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
+      const native = section.indexOf(`**{{NATIVE_LABEL}} ${phase === 'design' ? 'design' : phase === 'dx' ? 'DX' : phase === 'ceo' ? 'CEO' : 'eng'} subagent**`);
+      const outside = section.indexOf('{{OUTSIDE_INVOCATION:autoplan}}');
+      expect(native).toBeGreaterThan(-1);
+      expect(native).toBeLessThan(outside);
+      const dispatch = section.slice(native, outside);
+      expect(dispatch).toContain('"run_in_background": false');
+      expect(dispatch).toContain('isAsync: true');
+      expect(dispatch).toContain('wait for that same agent');
+      expect(dispatch).toContain('before outside dispatch or parent review');
+      // Provider preflight, timeout and native fallback remain at every call.
+      expect(section).toContain('Outer tool timeout: 720000ms');
+      expect(section).toContain('Disabled skips the outside invocation; it retains the native pass.');
+      expect(section).toContain(`{{OUTSIDE_PROVENANCE:${phase}}}`);
+    });
+  }
+
+  test('each completed phase announces only after persisted full outputs and settled reviewers', () => {
+    for (const [phase, number] of [['ceo', '1'], ['design', '2'], ['dx', '2.5'], ['eng', '3']]) {
+      const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
+      const barrier = section.indexOf('**Close this phase before continuing:**');
+      const announcement = section.indexOf(`\n**Phase ${number} complete.**\n`);
+      expect(barrier).toBeGreaterThan(-1);
+      expect(barrier).toBeLessThan(announcement);
+      const checkpoint = section.slice(barrier, announcement);
+      expect(checkpoint).toContain('successful Write/Edit results');
+      expect(checkpoint).toContain('terminal status');
+      expect(checkpoint).toContain('actual assistant message');
+      expect(checkpoint).toContain('Do not announce completion while required work remains');
+    }
+  });
+
+  test('Design hands off to conditional DX and DX never requests a future Eng result', () => {
+    const design = read('autoplan/sections/design-phase.md.tmpl');
+    const dx = read('autoplan/sections/dx-phase.md.tmpl');
+    expect(design).toContain('Passing to Phase 2.5 (DX Review) if DX scope was detected; otherwise Phase 3');
+    expect(design).not.toContain('> Passing to Phase 3.');
+    expect(dx).toContain("Design: <insert Design consensus summary, or 'skipped, no UI scope'>");
+    expect(dx).not.toContain('Eng: <insert Eng consensus summary>');
+  });
+});

@@ -1,6 +1,7 @@
 <!-- AUTO-GENERATED from design-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Follow plan-design-review/SKILL.md — all 7 dimensions, full depth.
+Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` in full now; follow its lazy-section triggers.
+Apply /autoplan's skip list; all other work runs in full.
 Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
@@ -9,6 +10,28 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Aesthetic/taste issues: mark TASTE DECISION
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+
+  **Claude design subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
+  Native subagent tool; Claude Code Agent arguments:
+  ```json
+  { "run_in_background": false }
+  ```
+  Set on the call, not in prompt text. Other harnesses use native dispatch/wait.
+
+  "Read the plan file at <plan_path>. You are an independent senior product designer
+  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  1. Information hierarchy: what does the user see first, second, third? Is it right?
+  2. Missing states: loading, empty, error, success, partial — which are unspecified?
+  3. User journey: what's the emotional arc? Where does it break?
+  4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
+  5. What design decisions will haunt the implementer if left ambiguous?
+  For each finding: what's wrong, severity (critical/high/medium), and the fix."
+  NO prior-phase context — subagent must be truly independent.
+
+
+  **Native completion barrier:** `isAsync: true` / `status: "async_launched"` is pending:
+  wait for that same agent's final result/terminal failure before outside dispatch or parent review.
+  No inline substitute; apply the existing failure policy.
 
   **Codex design voice** (via Bash):
   Outside prompt (include the full current plan content and the context requested below, using the Write tool):
@@ -74,16 +97,6 @@ Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mar
 
 For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
-  **Claude design subagent** (via Agent tool, `run_in_background: false` — same foreground contract as Phase 1):
-  "Read the plan file at <plan_path>. You are an independent senior product designer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Information hierarchy: what does the user see first, second, third? Is it right?
-  2. Missing states: loading, empty, error, success, partial — which are unspecified?
-  3. User journey: what's the emotional arc? Where does it break?
-  4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
-  5. What design decisions will haunt the implementer if left ambiguous?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
-  NO prior-phase context — subagent must be truly independent.
 
   Error handling: same as Phase 1 (both foreground/blocking, degradation matrix applies).
 
@@ -103,9 +116,14 @@ For this phase (design), retain the historical review-log skill identifier. Add 
 3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
 
-**PHASE 2 COMPLETE.** Emit phase-transition summary:
-> **Phase 2 complete.** Codex: [N concerns]. Claude subagent: [N issues].
-> Consensus: [X/Y confirmed, Z disagreements → surfaced at gate].
-> Passing to Phase 3.
+**Close this phase before continuing:** Check successful Write/Edit results for
+all required plan/artifact outputs and both reviewers' terminal status (including
+unavailable/disabled coverage). Do not announce completion while required work remains.
+Emit this filled-in summary as an actual assistant message:
 
-Do NOT begin Phase 3 until all Phase 2 outputs (if run) are written to the plan file.
+**Phase 2 complete.**
+Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].
+Consensus: [X/Y confirmed, Z disagreements → surfaced at gate].
+Passing to Phase 2.5 (DX Review) if DX scope was detected; otherwise Phase 3 (Eng Review).
+
+Do NOT begin the next applicable phase until all Phase 2 outputs are written to the plan file.

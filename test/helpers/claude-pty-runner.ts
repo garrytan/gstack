@@ -32,6 +32,7 @@ import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
 import { trustDialogInput } from './pty-trust-dialog';
+import { createPtyScreen } from './pty-screen';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -95,6 +96,8 @@ export interface ClaudePtyOptions {
   /** Terminal size. Default 120x40. Plan-mode UI lays out cleanly at this size. */
   cols?: number;
   rows?: number;
+  /** Opt in only when input targeting needs the actual VT viewport. */
+  observeScreen?: boolean;
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -113,6 +116,8 @@ export interface ClaudePtySession {
   rawOutput(): string;
   /** Visible (ANSI-stripped) output for the entire session. For pattern matching. */
   visibleText(): string;
+  /** Flush the opted-in terminal parser and return only its current viewport. */
+  currentScreen(): Promise<string>;
   /**
    * Mark the current buffer position. Subsequent waitForAny / visibleSince
    * calls only look at output AFTER this mark. Use to scope assertions to
@@ -1226,6 +1231,82 @@ export function auqFingerprint(
   return (Bun as any).hash(normalized + '||' + sig).toString(16);
 }
 
+/** Permission and question capture inspect the same cursor-anchored window. */
+function planCountPermissionMenu(visible: string): {
+  normalized: string; cursorAt: number; prompt: string; menu: string;
+} | null {
+  const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+  const start = Math.max(0, normalized.length - 4096);
+  const cursor = [...normalized.slice(start).matchAll(/❯\s*1\./g)].at(-1);
+  if (!cursor) return null;
+  const cursorAt = start + cursor.index;
+  const before = normalized.slice(start, cursorAt);
+  const header = [...before.matchAll(/(?:^|\n)[\t │┃]*[☐□]([^\n│]*)/g)].at(-1);
+  const menu = normalized.slice(cursorAt);
+  // The native question panel has its own header and navigation footer.
+  // Its actual finding may discuss file creation or permission policy.
+  if (header && !/❯\s*[1-9]\./.test(before.slice(header.index)) &&
+      /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(menu)) return null;
+  // Anchor redraw identity to its question line; prior tool output and
+  // the preceding menu's footer must not change a permission signature.
+  const prompt = [...before.matchAll(/^[^\n]*\?[^\n]*$/gm)].at(-1)?.[0].trim()
+    ?? parseQuestionPrompt(normalized);
+  if (!prompt || !isPermissionDialogVisible(prompt + '\n' + menu)) return null;
+  return { normalized, cursorAt, prompt, menu };
+}
+
+/** A scrolled question must retain its entire visible suffix, choices and footer. */
+function matchesClippedNativeQuestion(visible: string, call: NativePlanQuestionCall): boolean {
+  const cursor = [...visible.matchAll(/❯\s*1\./g)].at(-1);
+  if (!cursor) return false;
+  const before = visible.slice(0, cursor.index);
+  // This is the top of the actual viewport, not a selected historical
+  // snippet. A header, preceding menu or blank top is not clipped identity.
+  if (!before.split('\n')[0]?.trim() || /[☐□❯]/.test(before)) return false;
+  const suffix = before.replace(/^[ \t]*[│┃] ?|[│┃][ \t]*$/gm, '').trim();
+  const exact = (value: string) => value.replace(/\s+/g, '');
+  const question = call.questions[0]!;
+  const native = exact(question.question);
+  const displayed = exact(suffix);
+  // Require substantial positive question text, including all visible
+  // pre-menu lines. Shared option labels or a generic short tail cannot
+  // borrow an unrelated pending call's routing policy.
+  if (suffix.split('\n').filter(line => line.trim()).length < 2 || displayed.length < 160 ||
+      displayed.length > native.length || !native.endsWith(displayed)) return false;
+  const menu = visible.slice(cursor.index);
+  const footer = /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.exec(menu);
+  if (!footer || !/^[\s│┃─━└┘]*$/.test(menu.slice(footer.index + footer[0].length))) return false;
+  const options = parseNumberedOptions(visible);
+  return options.length === question.options.length && options.every((option, index) =>
+    option.index === index + 1 && exact(option.label) === exact(question.options[index]!.label));
+}
+
+/** Match native question identity before permission text can choose an answer. */
+export function matchesNativePlanQuestion(visible: string, call: NativePlanQuestionCall): boolean {
+  if (call.failed || call.questions.length !== 1) return false;
+  const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+  const tail = normalized.slice(-4096);
+  const cursor = [...tail.matchAll(/❯\s*1\./g)].at(-1);
+  if (!cursor) return false;
+  const before = tail.slice(0, cursor.index);
+  const header = [...before.matchAll(/(?:^|\n)[\t │┃]*[☐□]([^\n│]*)/g)].at(-1);
+  const compact = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+  const question = call.questions[0]!;
+  if (!header) return matchesClippedNativeQuestion(normalized, call);
+  if (compact(header[1]!) !== compact(question.header) || /❯\s*[1-9]\./.test(before.slice(header.index))) return false;
+  const identity = question.question.match(/<gstack-qid:[^>]+>/i)?.[0] ?? question.question;
+  if (!compact(before.slice(header.index)).includes(compact(identity))) return false;
+  // Preserve the captured damaged-option path when the native panel's
+  // complete footer is intact. With a damaged footer, require the full
+  // question and every offered label instead of guessing from keywords.
+  if (/Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(tail.slice(cursor.index))) return true;
+  const displayed = before.slice(header.index).replace(/^[\t ─━┄┅┈┉┌┐└┘├┤┬┴┼│┃☐□■]+/gm, '');
+  const options = parseNumberedOptions(visible);
+  return compact(displayed) === compact(`${question.header} ${question.question}`) &&
+    options.length === question.options.length && options.every((option, index) =>
+      option.index === index + 1 && compact(option.label) === compact(question.options[index]!.label));
+}
+
 /** Capture each distinct question once, including questions sharing a menu. */
 export function capturePlanCountQuestion(
   visible: string,
@@ -1241,36 +1322,25 @@ export function capturePlanCountQuestion(
   // parser's still-visible historical question and queue spurious input.
   if (!cursor) return null;
 
-  if (pending && !pending.answered && !pending.failed && pending.questions.length === 1) {
-    const beforeCursor = tail.slice(0, cursor.index);
-    const header = [...beforeCursor.matchAll(/(?:^|\n)[\t │┃]*[☐□]([^\n│]*)/g)].at(-1);
-    const compact = (value: string) => value.replace(/\s+/g, '').toLowerCase();
-    const question = pending.questions[0]!;
-    const questionId = question.question.match(/<gstack-qid:[^>]+>/i)?.[0];
-    const identity = questionId ?? question.question;
-    const footer = /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i;
-    // A captured B menu lost the dot in option 2. The native call supplies
-    // its actual choices, but only after the matching boxed question,
-    // cursor, and complete navigation footer establish the active UI.
-    if (header && compact(header[1]!) === compact(question.header) &&
-        !/❯\s*[1-9]\./.test(beforeCursor.slice(header.index)) &&
-        compact(beforeCursor.slice(header.index)).includes(compact(identity)) &&
-        footer.test(tail.slice(cursor.index))) {
-      const fp = nativePlanCallFingerprint(pending, observedAtMs, preReview);
-      const renderedOptions = parseNumberedOptions(visible);
-      const renderedPrompt = parseQuestionPrompt(visible);
-      const renderedSignature = renderedOptions.length >= 2 && renderedPrompt
-        ? auqFingerprint(renderedPrompt, renderedOptions) : null;
-      const alreadyHandled = seen.has(fp.signature) || Boolean(renderedSignature && seen.has(renderedSignature));
-      // Once answered, the same menu may linger while the native call is
-      // no longer pending, or the native record may arrive after the UI
-      // answer. Bind both identities before testing either direction.
-      if (renderedSignature) seen.add(renderedSignature);
-      seen.add(fp.signature);
-      if (alreadyHandled) return null;
-      return fp;
-    }
+  if (pending && !pending.answered && !pending.failed && matchesNativePlanQuestion(visible, pending)) {
+    const fp = nativePlanCallFingerprint(pending, observedAtMs, preReview);
+    const renderedOptions = parseNumberedOptions(visible);
+    const renderedPrompt = parseQuestionPrompt(visible);
+    const renderedSignature = renderedOptions.length >= 2 && renderedPrompt
+      ? auqFingerprint(renderedPrompt, renderedOptions) : null;
+    const alreadyHandled = seen.has(fp.signature) || Boolean(renderedSignature && seen.has(renderedSignature));
+    // Once answered, the same menu may linger while the native call is
+    // no longer pending, or the native record may arrive after the UI
+    // answer. Bind both identities before testing either direction.
+    if (renderedSignature) seen.add(renderedSignature);
+    seen.add(fp.signature);
+    if (alreadyHandled) return null;
+    return fp;
   }
+  // A permission cursor can outlive the short frame-classifier window.
+  // Never turn it into an ordinary prompt answer, even when its question
+  // was damaged by a redraw or its original grant was not observed.
+  if (planCountPermissionMenu(visible)) return null;
   const options = parseNumberedOptions(visible);
   if (options.length < 2) return null;
   const promptSnippet = parseQuestionPrompt(visible);
@@ -1287,23 +1357,28 @@ export function capturePlanCountQuestion(
  * Its text is not a new answer request. The same file can ask again after
  * a successful native Write/Edit result, so content-only dedup is too broad.
  */
-export function createPlanCountPermissionGuard(): (visible: string) => 'grant' | 'handled' | null {
+export function createPlanCountPermissionGuard(): (visible: string, completionHistory?: string) => 'grant' | 'handled' | null {
   let granted: { signature: string; completedAt: number } | undefined;
-  return (visible) => {
-    const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
-    const start = Math.max(0, normalized.length - 4096);
-    const cursor = [...normalized.slice(start).matchAll(/❯\s*1\./g)].at(-1);
-    if (!cursor) return null;
-    const cursorAt = start + cursor.index;
-    const question = [...normalized.slice(start, cursorAt).matchAll(/^[\t │]*(Do\s*you\s*want\s*to\s*(?:create|overwrite|edit|make\s*this\s*edit\s*to)[^\n?]*\?)/gim)].at(-1)?.[1];
-    if (!question || !isPermissionDialogVisible(question + '\n' + normalized.slice(cursorAt))) return null;
-    const signature = question.replace(/\s+/g, '');
+  return (visible, completionHistory = visible) => {
+    // Only the current viewport can establish an actionable permission.
+    // Historical file results release a later identical grant, never a menu.
+    const candidate = planCountPermissionMenu(visible);
+    if (!candidate) return null;
+    const { normalized, cursorAt, prompt, menu } = candidate;
+    // File permission identity comes from the action or native approval
+    // choices, not a brittle exact rendering of "Do you want to ...".
+    // Other permission kinds retain the existing caller policy.
+    if (!/(?:create|overwrite|edit)/i.test(prompt.replace(/\s+/g, '')) &&
+        !/(?:acceptedits|allowalledits|auto-approvefileedits)/i.test(menu.replace(/\s+/g, ''))) return null;
+    const signature = prompt.replace(/\s+/g, '');
 
     // Match actual native file-tool results, not proposed diff rows, tool
     // headers, or tips. A diff repaint after the menu is still pending.
-    const completed = [...normalized.matchAll(/^[\t ]*⎿[\t \u00a0]*(?:Wrote\s*\d+\s*lines?|Added\s*\d+\s*lines?|Removed\s*\d+\s*lines?|Updated\b|Edited\b)/gm)].at(-1);
-    const completedAt = completed?.index ?? -1;
-    if (completedAt > cursorAt) return 'handled';
+    const completionPattern = /^[\t ]*⎿[\t \u00a0]*(?:Wrote\s*\d+\s*lines?|Added\s*\d+\s*lines?|Removed\s*\d+\s*lines?|Updated\b|Edited\b)/gm;
+    const visibleCompletedAt = [...normalized.matchAll(completionPattern)].at(-1)?.index ?? -1;
+    if (visibleCompletedAt > cursorAt) return 'handled';
+    const history = stripPtyResidue(completionHistory).replace(/\r+\n?/g, '\n');
+    const completedAt = [...history.matchAll(completionPattern)].at(-1)?.index ?? -1;
     if (granted?.signature === signature && completedAt <= granted.completedAt) return 'handled';
     granted = { signature, completedAt };
     return 'grant';
@@ -1348,6 +1423,7 @@ export function classifyPlanCountFrame(
   const permissionTail = visible.slice(Math.max(visible.length - TAIL_SCAN_BYTES, activeQuestionStart, 0));
   if (isNumberedOptionListVisible(visible) &&
       isPermissionDialogVisible(permissionTail) &&
+      planCountPermissionMenu(visible) &&
       (!report || report.index <= menuCursor)) {
     return 'permission';
   }
@@ -1462,10 +1538,15 @@ export function hasNativePlanCompletion(
       lastLine !== `Plan written to: ${expectedPlanPath}`) return false;
   const prose = text.replace(/```[\s\S]*?```|`[^`]*`/g, '');
   if (/\?|\b(?:awaiting|waiting for|please (?:choose|answer|confirm))\b/i.test(prose)) return false;
+  return hasCompletePlanReport(expectedPlanPath, Math.max(startedAt, ...answerTimes), finishedAt);
+}
+
+function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, maximumMtime: number): boolean {
+  if (!path.isAbsolute(expectedPlanPath)) return false;
   try {
     const stat = fs.lstatSync(expectedPlanPath);
     if (!stat.isFile() || stat.size > 2 * 1024 * 1024 ||
-        stat.mtimeMs < Math.max(startedAt, ...answerTimes) || stat.mtimeMs > finishedAt) return false;
+        stat.mtimeMs < minimumMtime || stat.mtimeMs > maximumMtime) return false;
     // A template/example inside Markdown code is not the completed report.
     // Fences open with 3+ identical backticks or tildes, indented at most
     // three spaces. A close uses the same marker, at least the opening
@@ -1491,10 +1572,100 @@ export function hasNativePlanCompletion(
     if (!assertReviewReportAtBottom(content).ok) return false;
     const report = content.slice(content.indexOf('## GSTACK REVIEW REPORT'));
     // Reject a provisional heading; retain both clean and issues-open reports.
-    return /^\|[^\n]*Review[^\n]*\|/m.test(report) &&
-      /^(?:\*\*)?VERDICT:/m.test(report) && /(?:NO )?UNRESOLVED DECISIONS/.test(report);
+    const rows = report.split('\n');
+    const table = rows.findIndex(line => /^\|[^\n]*Review[^\n]*\|/.test(line));
+    const completeTable = table >= 0 && /^\|[ :|-]+\|$/.test(rows[table + 1] ?? '') &&
+      /^\|.*[a-zA-Z].*\|$/.test(rows[table + 2] ?? '');
+    const decisions = rows.findIndex(line => /^\*\*UNRESOLVED DECISIONS:\*\*$/.test(line));
+    const trailing = rows.slice(decisions + 1).filter(line => line.trim());
+    const closed = rows.filter(line => line.trim()).at(-1) === 'NO UNRESOLVED DECISIONS' ||
+      (decisions >= 0 && trailing.length > 0 && trailing.every(line => /^[-*] \S|^\+ \d+ unresolved from prior reviews$/.test(line)));
+    return completeTable && /^(?:[-*] )?(?:\*\*)?VERDICT:(?:\*\*)?[ \t]*[A-Za-z]/m.test(report) && closed;
   } catch { return false; }
 }
+
+/** Native report completion is independent of the terminal's streamed headings. */
+export function hasNativePlanTerminal(
+  transcript: PlanCountTranscript,
+  expectedPlanPath: string,
+  startedAt: number,
+  frame: 'completion_summary' | 'plan_ready',
+  administrativeCalls: ReadonlySet<string> = new Set(),
+): boolean {
+  if (transcript.status !== 'ready' || !transcript.calls.length ||
+      transcript.calls.some(c => (!c.answered && !c.failed) || (c.answered && c.failed)) ||
+      unresolvedPlanQuestionCalls(transcript.calls).length) return false;
+  const sessions = new Set([...transcript.calls.map(c => c.sessionId),
+    ...transcript.assistantMessages.map(m => m.sessionId),
+    ...(transcript.planReadyRequests ?? []).map(r => r.sessionId)]);
+  if (sessions.size !== 1) return false;
+  const answered = transcript.calls.filter(c => c.answered);
+  if (!answered.length) return false;
+  const answerTimes = answered.map(c => Date.parse(c.answeredAt ?? ''));
+  if (!answerTimes.every(Number.isFinite)) return false;
+  const latestAnswer = Math.max(...answerTimes);
+  const latestReady = [...(transcript.planReadyRequests ?? [])]
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).at(-1);
+  if (latestReady?.failed) return false;
+  const modifyingAnswers = answered.filter(c =>
+    !administrativeCalls.has(`${c.sessionId}:${c.toolUseId}`) && !isCompletedDxHandoff(c))
+    .map(c => Date.parse(c.answeredAt!));
+  if (!modifyingAnswers.length || !hasCompletePlanReport(expectedPlanPath,
+      Math.max(startedAt, ...modifyingAnswers), Date.now())) return false;
+
+  if (frame === 'plan_ready') {
+    // A real pending ExitPlanMode call is the approval gate. Do not answer
+    // it or mistake its failed tool result for a completed review.
+    return Boolean(latestReady && Date.parse(latestReady.timestamp) > latestAnswer &&
+      Date.parse(latestReady.timestamp) <= Date.now());
+  }
+  const final = [...transcript.assistantMessages]
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).at(-1);
+  if (!final || !Number.isFinite(Date.parse(final.timestamp)) || Date.parse(final.timestamp) <= latestAnswer) return false;
+  const text = final.text.trim();
+  // Only finished, fixture-scoped native prose supplies this evidence. A
+  // rendered heading, quoted example, proposed write, or pending question
+  // cannot substitute for an actual completion message.
+  if (/^(?:>|`{3,}|~{3,}|(?:example|sample|template|quoted)\b)/i.test(text) ||
+      /\b(?:cannot|can't|unable to)\s+(?:complete|finish)|\b(?:awaiting|waiting for|please (?:choose|answer|confirm))\b/i.test(text) ||
+      text.endsWith('?')) return false;
+  if (/^(?:CEO|Eng(?:ineering)?|Design|DX) review complete[.!](?:\s|$)/i.test(text)) return true;
+  // A full native summary can precede the final report write; the independent
+  // fresh-file check above prevents the observed heading-before-Write race.
+  const lines: string[] = [];
+  let fence: { marker: string; length: number } | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      if (!fence) fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+      else if (delimiter[1]![0] === fence.marker && delimiter[1]!.length >= fence.length && !delimiter[2]!.trim()) fence = undefined;
+      continue;
+    }
+    if (!fence && !/^(?: {4}|\t| {0,3}>)/.test(line)) lines.push(line);
+  }
+  if (fence) return false;
+  const summary = lines.findIndex(line => /^(?:#{1,6}\s*)?(?:\*\*)?Completion\s+summary(?:\*\*)?\s*:?[ \t]*$/i.test(line.trim()));
+  const preceding = lines.slice(0, summary).filter(line => line.trim()).at(-1) ?? '';
+  if (summary < 0 || /\b(?:example|sample|template|quote|emit|print)\b.*[:：]\s*$/i.test(preceding)) return false;
+  const rows = lines.slice(summary + 1).filter(line => /^\s*(?:[-*] |\|)/.test(line));
+  return rows.length > 0 && rows.some(line => /\b(?:review|issues?|findings?|gaps?|resolved|scope)\b/i.test(line));
+}
+
+/** G's post-report DX next-step menu changes orchestration, not plan decisions. */
+function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
+  if (!call.answered || call.failed || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^next\s+steps?$/i.test(q.header.trim()) ||
+      !/^DX review (?:done|complete)[.!]/i.test(q.question) ||
+      !/<gstack-qid:devex-next-steps>/.test(q.question)) return false;
+  const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
+  const allowed = (label: string) => /^(?:Run \/plan-eng-review|Ready to implement|Skip, handle manually)$/.test(label);
+  return labels.every(allowed) && labels.includes('Run /plan-eng-review') && labels.includes('Skip, handle manually') &&
+    q.options.some(o => o.label === call.answers?.[q.question]);
+}
+
+
 
 /**
  * Test helper: if `obs.planFile` was set, read it and assert
@@ -1573,28 +1744,42 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
       /\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title);
   }) ?? false;
 
-/** Native setup identity comes from answered question IDs/actions, not display wording. */
+/** Native setup needs an answered scope decision, not a particular model-chosen qid. */
 export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   const answered = call.questions.filter(q => Boolean(call.answers?.[q.question]));
   // A mixed packet containing an answered finding is not wholly setup.
   return answered.length > 0 && answered.every(q => {
+    if (!q.options.some(option => option.label === call.answers?.[q.question])) return false;
+    const actions = q.options.map(option => option.label.trim().replace(/^[A-Z][.)]\s+/i, ''));
     const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1]?.toLowerCase();
+    const body = q.question.replace(/<gstack-qid:[^>]*>/gi, '').trim()
+      .replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
+    // A finding about one component or a TODO remains substantive even if
+    // it cites the plan's size or offers to reduce that individual issue.
+    if (/\b(?:issue|finding|gap|TODO)\b/i.test(q.header) ||
+        /^(?:(?:architecture|code quality|test|performance|security)\s+)?(?:issue|finding|gap|TODO)\b/i.test(body)) return false;
+    const learningPremise = /\bcross[- ]project\s+(?:learnings|lessons)\b|\b(?:learnings|lessons)\b[^.!?]{0,100}\b(?:other|all)\s+(?:projects|repositories)\b/i.test(body);
     const crossProject = id === 'cross-project-learnings' || id === 'preamble-cross-project-learnings' ||
-      (!id && /^cross[- ]project$/i.test(q.header.trim()));
+      (!id && /^cross[- ]project$/i.test(q.header.trim())) || learningPremise;
     if (crossProject) {
-      return q.options.some((enabled, i) => /^enable\s+cross[- ]project\b/i.test(enabled.label.trim()) &&
-        q.options.some((scoped, j) => j !== i && /\bproject[- ]scoped\b/i.test(scoped.label)));
+      return actions.some((enabled, i) =>
+        (/^enable\s+cross[- ]project\b/i.test(enabled) ||
+          (learningPremise && /^enable(?:\s*\(recommended\))?$/i.test(enabled))) &&
+        actions.some((scoped, j) => j !== i && /\bproject[- ]scoped\b/i.test(scoped)));
     }
-    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' ||
-      // Older native captures omitted qids. Require whole-plan class/file scope
-      // and its opposed scope actions, never an individual implementation issue.
-      (!id && /\bplan\b/i.test(q.question) && /\bclasses\b/i.test(q.question) && /\bfiles\b/i.test(q.question));
+    // The skill's complexity gate concerns the whole plan and a concrete
+    // file/class/service count. Its qid and header can vary across native runs.
+    const scopeHeading = /^scope(?:\s+(?:challenge|reduction|complexity))?\s*:/i.test(body);
+    const wholePlanStatement = /(?:^|\n)(?:ELI10:\s*)?(?:this|the|whole|entire)\s+plan\s+(?:touches|spans|covers|changes|introduces|involves)\b/i.test(body);
+    const wholePlanScope = (/^(?:(?:scope(?:\s+(?:challenge|reduction|complexity))?|complexity\s+check)\s*:\s*)?(?:this|the|whole|entire)\s+plan\s+(?:touches|spans|covers|changes|introduces|involves)\b/i.test(body) ||
+        (scopeHeading && wholePlanStatement)) && /\b\d+\s+(?:new\s+)?(?:files|classes|services)\b/i.test(body);
+    const scopeComplexity = id === 'plan-eng-scope-complexity' || id === 'plan-eng-review-scope-reduce' || wholePlanScope;
     return scopeComplexity &&
-      q.options.some((proceed, i) =>
-        (/^proceed\s+as[- ]is\b/i.test(proceed.label.trim()) || /^accept\b.*\bdesign\b.*\bfocus\b.*\bquality\b/i.test(proceed.label.trim())) &&
-        q.options.some((reduce, j) => j !== i && /^(?:reduce\b|flag\s+scope\s+reduction\b)/i.test(reduce.label.trim())));
+      actions.some((proceed, i) =>
+        (/^proceed\s+as[- ]is\b/i.test(proceed) || /^accept\b.*\bdesign\b.*\bfocus\b.*\bquality\b/i.test(proceed)) &&
+        actions.some((reduce, j) => j !== i && /^(?:reduce\b|flag\s+scope\s+reduction\b)/i.test(reduce)));
   });
 };
 
@@ -1711,29 +1896,40 @@ export async function launchClaudePty(
     }
   }
 
+  // Construction must succeed before any CLI can be spawned.
+  const screen = opts.observeScreen ? await createPtyScreen(cols, rows) : undefined;
+  let screenClosing: Promise<void> | undefined;
+  let screenFailure: unknown;
+  const disposeScreen = () => screenClosing ??= (screen?.dispose() ?? Promise.resolve()).catch(error => { screenFailure = error; });
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const proc = (Bun as any).spawn([claudePath, ...args], {
+  let proc: any;
+  try { proc = (Bun as any).spawn([claudePath, ...args], {
     terminal: {
       cols,
       rows,
       data(_t: unknown, chunk: Buffer) {
-        buffer += chunk.toString('utf-8');
+        const text = chunk.toString('utf-8');
+        buffer += text;
+        if (screen && !screenClosing) screen.write(text);
       },
     },
     cwd,
     env: childEnv,
-  });
+  }); } catch (error) { await disposeScreen(); throw error; }
 
   // Track exit so waitForAny can fail fast if claude crashes.
   let exitedPromise: Promise<void> = Promise.resolve();
   if (proc.exited && typeof proc.exited.then === 'function') {
     exitedPromise = proc.exited
-      .then((code: number | null) => {
+      .then(async (code: number | null) => {
         exitCodeCaptured = code;
         exited = true;
+        await disposeScreen();
       })
-      .catch(() => {
+      .catch(async () => {
         exited = true;
+        await disposeScreen();
       });
   }
 
@@ -1853,7 +2049,7 @@ export async function launchClaudePty(
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
     for (const timer of trustInputTimers) clearTimeout(timer);
-    if (exited) return;
+    if (exited) { await disposeScreen(); return; }
     try {
       proc.kill?.('SIGINT');
     } catch {
@@ -1869,6 +2065,7 @@ export async function launchClaudePty(
       }
       await Promise.race([exitedPromise, Bun.sleep(1000)]);
     }
+    await disposeScreen();
   }
 
   return {
@@ -1876,6 +2073,12 @@ export async function launchClaudePty(
     sendKey,
     rawOutput: () => buffer,
     visibleText: () => stripAnsi(buffer),
+    currentScreen: async () => {
+      if (!screen) throw new Error('PTY screen observation was not enabled for this session.');
+      if (screenClosing) await screenClosing;
+      if (screenFailure) throw new Error('PTY screen observation failed.', { cause: screenFailure });
+      return screen.read();
+    },
     mark,
     visibleSince,
     waitForAny,
@@ -2389,7 +2592,7 @@ export async function runPlanSkillCounting(opts: {
    * Native-bound selection uses activeCapture, whose metadata is present only
    * when capturePlanCountQuestion matched the currently visible native question. */
   pickAUQ?: (fp: AskUserQuestionFingerprint, activeCapture: AskUserQuestionFingerprint) => number | null;
-  /** Opt-in native completion fallback, validated against this caller-owned report path. */
+  /** Require native completion plus this caller-owned final report before accepting a soft terminal. */
   expectedPlanPath?: string;
   /** Additional versioned files available in the isolated fixture before the skill starts. */
   fixtureFiles?: Record<string, string>;
@@ -2433,6 +2636,7 @@ export async function runPlanSkillCounting(opts: {
       env: { ...opts.env, ...fixture.env },
       model: opts.model,
       seedSkills: true,
+      observeScreen: true,
     });
   } catch (error) {
     fixture.cleanup();
@@ -2443,6 +2647,7 @@ export async function runPlanSkillCounting(opts: {
   const seen = new Set<string>();
   const countedCalls = new Set<string>();
   const filePermission = createPlanCountPermissionGuard();
+  let lastMatchedNativeQuestion: NativePlanQuestionCall | undefined;
   let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
   let boundaryFired = false;
   let step0Count = 0;
@@ -2451,9 +2656,10 @@ export async function runPlanSkillCounting(opts: {
   let isFirstAUQ = true;
   const saveSnapshot = createPlanCountSnapshotWriter();
   let lastCheckpointAt = Date.now();
+  let viewport = '';
 
   const capture = (observation: object) => saveSnapshot({
-    skillName: opts.skillName, observation, raw: session.rawOutput(), visible: session.visibleText(),
+    skillName: opts.skillName, observation, raw: session.rawOutput(), visible: session.visibleText(), viewport,
     cwd: fixture.cwd, claudeConfigDir: session.hermeticConfigDir,
   });
 
@@ -2488,13 +2694,13 @@ export async function runPlanSkillCounting(opts: {
 
   try {
     await Bun.sleep(8000); // boot grace + auto-trust handler window
-    const since = session.mark();
+    session.mark();
     session.send(`${opts.slashCommand}\r`);
 
     const budgetStart = Date.now();
     while (Date.now() - budgetStart < timeoutMs) {
       await Bun.sleep(2000);
-      const visible = session.visibleSince(since);
+      const visible = viewport = await session.currentScreen();
       transcript = session.hermeticConfigDir
         ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd)
         : { status: 'error', calls: [], assistantMessages: [], error: 'Claude count session has no isolated transcript directory' };
@@ -2552,8 +2758,33 @@ export async function runPlanSkillCounting(opts: {
         );
       }
 
-      const frame = classifyPlanCountFrame(visible);
-      const permission = filePermission(visible);
+      const pending = transcript.calls.find(c => !c.answered && !c.failed);
+      const newlyMatched = pending && matchesNativePlanQuestion(visible, pending);
+      if (newlyMatched) lastMatchedNativeQuestion = pending;
+      const renderedFrame = classifyPlanCountFrame(visible);
+      const administrative = new Set(fingerprints.filter(fp => fp.administrative).map(fp => fp.signature));
+      // A long completed summary may scroll its heading off the viewport.
+      // With no active input UI, retain the existing native/report validator;
+      // neither display text nor a missing heading supplies completion evidence.
+      const nativeCompletion = opts.expectedPlanPath && hasNativePlanCompletion(transcript, opts.expectedPlanPath, startedAt);
+      const nativeSummary = !nativeCompletion && renderedFrame === null && opts.expectedPlanPath &&
+        !isNumberedOptionListVisible(visible) && !isPermissionDialogVisible(visible) && !isProseAUQVisible(visible) &&
+        hasNativePlanTerminal(transcript, opts.expectedPlanPath, startedAt, 'completion_summary', administrative);
+      const terminalFrame = nativeSummary ? 'completion_summary' : renderedFrame;
+      const isTerminalHint = terminalFrame === 'completion_summary' || terminalFrame === 'plan_ready';
+      const verifiedTerminal = nativeSummary || (opts.expectedPlanPath && isTerminalHint &&
+        hasNativePlanTerminal(transcript, opts.expectedPlanPath, startedAt, terminalFrame, administrative));
+      // A streamed heading cannot dismiss the last bound native question.
+      // Only an accepted terminal may supersede its answered redraw; otherwise
+      // permission wording inside that question could queue a stray answer.
+      const acceptedTerminal = isTerminalHint && (!opts.expectedPlanPath || verifiedTerminal);
+      const nativeQuestionVisible = newlyMatched || (!acceptedTerminal &&
+        lastMatchedNativeQuestion && matchesNativePlanQuestion(visible, lastMatchedNativeQuestion));
+      const terminalHint = nativeQuestionVisible ? null : terminalFrame;
+      let frame = terminalHint;
+      // Clear unverified hints before routing active permissions and Submit.
+      if (opts.expectedPlanPath && isTerminalHint && !verifiedTerminal) frame = null;
+      const permission = nativeQuestionVisible ? null : filePermission(visible, session.visibleText());
       if (frame === 'permission' || (permission === 'grant' && frame === null)) {
         if (permission !== 'handled') session.send(`${defaultPick}\r`);
         await Bun.sleep(1500);
@@ -2585,8 +2816,11 @@ export async function runPlanSkillCounting(opts: {
         }
       }
 
-      // Soft terminal signals — check before AUQ processing so a final
-      // completion-summary doesn't get misclassified as a bonus AUQ.
+      if (opts.expectedPlanPath && verifiedTerminal && (frame === 'completion_summary' || frame === 'plan_ready')) {
+        return snapshot(frame, `native ${frame} and final report verified (step0=${step0Count}, review=${reviewCount})`, visible);
+      }
+
+      // Legacy callers without a report contract retain their terminal policy.
       if (frame === 'completion_summary') {
         if (transcript.status !== 'ready' || transcript.calls.some(c => !c.answered && !c.failed) ||
             unresolvedPlanQuestionCalls(transcript.calls).length) {
@@ -2610,17 +2844,21 @@ export async function runPlanSkillCounting(opts: {
         );
       }
 
-      if (opts.expectedPlanPath && hasNativePlanCompletion(transcript, opts.expectedPlanPath, startedAt)) {
+      if (opts.expectedPlanPath && !transcript.planReadyRequests?.length && !isNumberedOptionListVisible(visible) &&
+          hasNativePlanCompletion(transcript, opts.expectedPlanPath, startedAt)) {
         return snapshot('completion_summary',
           `native review completion and final report verified (step0=${step0Count}, review=${reviewCount})`, visible);
       }
+
+      // Never submit a plan-approval menu while its final report/native gate
+      // is unverified: choosing option 1 would enter implementation.
+      if (opts.expectedPlanPath && terminalHint === 'plan_ready') continue;
 
       // A dismissed or repainted permission is never a native question.
       if (permission === 'handled') continue;
 
       // Dedupe the complete question, not just its answer labels: separate
       // findings often reuse the same Add to plan / Defer / Skip menu.
-      const pending = transcript.calls.find(c => !c.answered && !c.failed);
       const fp = capturePlanCountQuestion(visible, seen, Date.now() - startedAt, !boundaryFired, pending);
       if (!fp) continue;
       // Press to advance — first AUQ may use the override pick.
@@ -2645,7 +2883,7 @@ export async function runPlanSkillCounting(opts: {
     return snapshot(
       'timeout',
       `no terminal outcome within ${timeoutMs}ms (step0=${step0Count}, review=${reviewCount})`,
-      session.visibleSince(since),
+      viewport = await session.currentScreen(),
     );
   } finally {
     try {

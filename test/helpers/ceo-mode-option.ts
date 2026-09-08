@@ -1,6 +1,10 @@
 /** Match CEO mode labels after the PTY capture strips cursor-spacing escapes. */
 import {
   capturePlanCountQuestion,
+  createPlanCountPermissionGuard,
+  parseQuestionPrompt,
+  parseNumberedOptions,
+  auqFingerprint,
   classifyPlanCountFrame,
   isNumberedOptionListVisible,
   planCountSubmissionInput,
@@ -42,14 +46,37 @@ type ModeNavigationAction =
   | { kind: 'question'; question: AskUserQuestionFingerprint }
   | { kind: 'mode'; index: number; question: AskUserQuestionFingerprint };
 
+// Permission state follows the navigation session without entering its AUQ
+// dedup set. A file-tool result can reopen an identical permission prompt.
+const permissionStates = new WeakMap<Set<string>, {
+  file: ReturnType<typeof createPlanCountPermissionGuard>;
+  other: Set<string>;
+}>();
+function ceoPermissionAction(visible: string, seenQuestions: Set<string>): 'grant' | 'handled' | null {
+  let state = permissionStates.get(seenQuestions);
+  if (!state) {
+    state = { file: createPlanCountPermissionGuard(), other: new Set() };
+    permissionStates.set(seenQuestions, state);
+  }
+  const file = state.file(visible);
+  if (file !== null) return file;
+  if (classifyPlanCountFrame(visible) !== 'permission') return null;
+  const signature = auqFingerprint(parseQuestionPrompt(visible), parseNumberedOptions(visible));
+  if (state.other.has(signature)) return 'handled';
+  state.other.add(signature);
+  return 'grant';
+}
+
 /** Handle native controls before deduping actual navigation questions. */
 export function nextCeoModeNavigation(
   visible: string,
   targetMode: CeoMode,
   seenQuestions: Set<string>,
 ): ModeNavigationAction {
+  const permission = ceoPermissionAction(visible, seenQuestions);
+  if (permission !== null) return permission === 'grant'
+    ? { kind: 'permission', input: '1\r' } : { kind: 'wait' };
   const frame = classifyPlanCountFrame(visible);
-  if (frame === 'permission') return { kind: 'permission', input: '1\r' };
   const submission = frame === null ? planCountSubmissionInput(visible) : null;
   if (submission !== null) return { kind: 'submission', input: submission };
   if (!isNumberedOptionListVisible(visible)) return { kind: 'wait' };
@@ -150,9 +177,8 @@ export function nextCeoPostureContinuation(
   seenQuestions: Set<string>,
   alreadyContinued: boolean,
 ): 'permission' | 'question' | null {
-  if (classifyPlanCountFrame(visible) === 'permission') {
-    return capturePlanCountQuestion(visible, seenQuestions, 0, true) ? 'permission' : null;
-  }
+  const permission = ceoPermissionAction(visible, seenQuestions);
+  if (permission !== null) return permission === 'grant' ? 'permission' : null;
   if (alreadyContinued || !nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt)) return null;
   const action = nextCeoModeNavigation(visible, targetMode, seenQuestions);
   return action.kind === 'question' ? 'question' : null;

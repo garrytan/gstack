@@ -7,6 +7,7 @@ interface PlanCountSnapshot {
   observation: object;
   raw: string;
   visible: string;
+  viewport?: string;
   cwd: string;
   claudeConfigDir: string | null;
 }
@@ -31,6 +32,7 @@ export function createPlanCountSnapshotWriter(env: NodeJS.ProcessEnv = process.e
       };
       write('terminal.raw.log', input.raw);
       write('terminal.visible.log', input.visible);
+      if (input.viewport !== undefined) write('terminal.screen.log', input.viewport);
       write('observation.json', JSON.stringify({
         ...input.observation, artifactDir,
         capture: { skill: input.skillName, runId: env.EVALS_RUN_ID, cwd: input.cwd,

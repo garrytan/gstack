@@ -79,12 +79,14 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           cwd: tempDir,
           timeoutMs: 1_080_000, // 18 min, slightly above test budget
           seedSkills: true,
+          observeScreen: true,
         });
 
         let hits: AutoplanPhaseHit[] = [];
         let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
         let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' = 'timeout';
         let evidence = '';
+        let viewport = '';
         let fullSessionEvidence = '';
         let exitCode: number | null = null;
         let commandStartedAt = Date.now();
@@ -99,14 +101,14 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
         const capture = (state: string) => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
-            raw: session.rawOutput(), visible: session.visibleText(),
+            raw: session.rawOutput(), visible: session.visibleText(), viewport,
             observation: { state, hits, native: transcript, exitCode: session.exitCode() },
           });
         };
 
         try {
           await Bun.sleep(8000);
-          const since = session.mark();
+          session.mark();
           commandStartedAt = Date.now();
           session.send('/autoplan\r');
 
@@ -117,6 +119,7 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
             await Bun.sleep(5000);
+            viewport = await session.currentScreen();
             observe();
             if (Date.now() - lastCheckpointAt >= 30_000) {
               capture('in_progress');
@@ -124,10 +127,10 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
             }
             if (session.exited()) {
               outcome = 'exited';
-              evidence = session.visibleSince(since).slice(-3000);
+              evidence = viewport.slice(-3000);
               break;
             }
-            const visible = session.visibleSince(since);
+            const visible = viewport;
 
             // Auto-grant any permission dialog so autoplan can keep moving
             // through its phases. The autoplan template auto-decides review
@@ -172,11 +175,13 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
         } finally {
           // Preserve boot failures omitted by mark(), and observe the real exit
           // status before close() deliberately terminates a live session.
-          exitCode = session.exitCode();
-          fullSessionEvidence = diagnosticTail(session.visibleText());
-          observe();
-          capture(outcome);
-          await session.close();
+          try {
+            exitCode = session.exitCode();
+            viewport = await session.currentScreen();
+            fullSessionEvidence = diagnosticTail(session.visibleText());
+            observe();
+            capture(outcome);
+          } finally { await session.close(); }
         }
 
         if (outcome === 'exited' || outcome === 'timeout') {

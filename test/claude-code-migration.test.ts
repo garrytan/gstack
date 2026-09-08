@@ -166,7 +166,7 @@ describe('Claude wrapper installed-name migration', () => {
     expect(setup).toContain('export GSTACK_DEFER_CLAUDE_RENAME_PRUNE=1');
     expect(setup).toContain('unset GSTACK_DEFER_CLAUDE_RENAME_PRUNE');
     expect(setup).toContain('[ "$n" = "gstack-claude" ]');
-    const version = path.join(ROOT, 'gstack-upgrade/migrations/v1.82.0.0.sh');
+    const version = path.join(ROOT, 'gstack-upgrade/migrations/v1.83.0.0.sh');
     expect(fs.statSync(version).mode & 0o111).not.toBe(0);
     expect(fs.readFileSync(version, 'utf8')).toContain('gstack-migrate-claude-code');
   });
