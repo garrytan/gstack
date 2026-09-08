@@ -112,6 +112,10 @@ describe('test-free-shards: Windows curation', () => {
     const files = collectFreeTestFiles(ROOT);
     const result = curateWindowsSafe(files, ROOT);
     expect(result.safe.length + result.excluded.length).toBe(files.length);
+    // Its bin/ reference is passed to Bun argv, so it must exercise native
+    // Windows taskkill supervision instead of disappearing behind curation.
+    expect(result.safe).toContain('test/claude-code-runner.test.ts');
+    expect(result.safe).toContain('test/claude-code-windows-job.test.ts');
     // Sanity: at least one excluded entry, since we know test/ship-version-sync.test.ts uses /bin/bash
     expect(result.excluded.length).toBeGreaterThan(0);
     // Every excluded entry has a non-empty reason

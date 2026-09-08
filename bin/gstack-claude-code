@@ -1,0 +1,5 @@
+#!/usr/bin/env bun
+// Claude-only outside-review runner. Prompts arrive on stdin, never argv.
+import { claudeCodeMain } from '../lib/claude-code';
+
+process.exit(await claudeCodeMain(process.argv.slice(2)));
