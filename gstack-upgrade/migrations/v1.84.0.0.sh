@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Migration: v1.83.0.0 — /claude becomes /claude-code on non-Claude hosts.
+# Migration: v1.84.0.0 — /claude becomes /claude-code on non-Claude hosts.
 # Affected: existing generated skills, including copied and dangling installs.
 # The same helper runs before setup builds, so replacements are installed before
 # shared old renders are retired. This post-setup pass repairs missed upgrades.
