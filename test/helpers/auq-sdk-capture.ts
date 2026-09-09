@@ -262,10 +262,11 @@ export async function captureSectionReads(opts: {
   // Outside-review dispatch has separate behavioral coverage. Native-only
   // captures use the real supported control in state owned by this call;
   // never mutate the operator's or another capture's gstack configuration.
+  // Keep the model-facing config path relative to the fixture's working directory.
   const stateDir = opts.nativeReviewOnly
-    ? fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-section-state-')) : null;
+    ? fs.mkdtempSync(path.join(path.resolve(opts.planDir), '.gstack-section-state-')) : null;
   const nativeReviewRule = stateDir
-    ? `\n- Read ${path.join(stateDir, 'config.yaml')}, the isolated gstack configuration for this capture. It sets codex_reviews: disabled. Follow that documented control: skip the entire extra outside-review step, including its native fallback, and report outside coverage as disabled. Complete all native review sections and the full required report.`
+    ? `\n- Read ${path.relative(path.resolve(opts.planDir), path.join(stateDir, 'config.yaml'))}, the isolated gstack configuration for this capture. It sets codex_reviews: disabled. Follow that documented control: skip the entire extra outside-review step, including its native fallback, and report outside coverage as disabled. Complete all native review sections and the full required report.`
     : '';
   // Preserve full method execution while avoiding a second written walkthrough
   // of decisions already represented in the amended plan and required outputs.

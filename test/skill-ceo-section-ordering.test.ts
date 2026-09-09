@@ -123,7 +123,13 @@ describe('plan-ceo-review carve — static ordering', () => {
       expect(instructions).toContain('If safe, name the mechanism that prevents the violating schedule.');
       expect(instructions).toContain('Separate flow diagrams do not prove ordering.');
       expect(instructions).toContain('An accepted exception needs its exact contract clause; bounded damage is insufficient.');
-      expect(instructions).toContain('Test this schedule with controlled pause/release points.');
+      expect(instructions).toContain('For each pair of overlapping awaits that can affect an invariant, show both completion orders;');
+      expect(instructions).toContain('exclude an order only by naming the mechanism that prevents it.');
+      expect(instructions).toContain('The invariant is a requirement, not proof that the implementation meets it.');
+      expect(instructions).toContain('One favorable schedule is insufficient.');
+      expect(instructions).toContain('Single-thread execution and atomic calls do not prevent interleaving across awaits.');
+      expect(instructions).toContain('Test the relevant completion orders with controlled pause/release points.');
+      expect(instructions).toContain('Compare relevant pairs; exhaustive permutations are unnecessary.');
     }
   });
 

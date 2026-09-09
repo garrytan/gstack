@@ -14,6 +14,10 @@ interface Observed {
   stateHome: string;
   stateRoot: string | null;
   outsideDisabled: boolean;
+  workingDirectory: string;
+  promptConfigPath: string | null;
+  promptConfig: string | null;
+  promptConfigMatchesState: boolean;
 }
 
 describe('outside-review disabled status in a completed report', () => {
@@ -47,12 +51,28 @@ const FAKE_CLAUDE = String.raw`
   const stateHome = process.env.GSTACK_HOME;
   let config = '';
   try { config = fs.readFileSync(path.join(stateHome, 'config.yaml'), 'utf8'); } catch {}
+  const promptConfigPath = prompt.match(/^- Read (.+), the isolated gstack configuration for this capture\./m)?.[1] ?? null;
+  let promptConfig = null;
+  let promptConfigMatchesState = false;
+  if (promptConfigPath) {
+    try {
+      const file = path.resolve(process.cwd(), promptConfigPath);
+      promptConfig = fs.readFileSync(file, 'utf8');
+      promptConfigMatchesState = fs.realpathSync(file) === fs.realpathSync(path.join(stateHome, 'config.yaml'));
+    } catch {}
+  }
   const observed = {
     args: process.argv.slice(2), prompt, stateHome,
     stateRoot: process.env.GSTACK_STATE_ROOT ?? null,
     outsideDisabled: /^codex_reviews:\s*disabled\s*$/m.test(config),
+    workingDirectory: process.cwd(), promptConfigPath, promptConfig, promptConfigMatchesState,
   };
   fs.writeFileSync('observed.json', JSON.stringify(observed));
+  const coordinatedState = fs.existsSync('coordinate-configs') ? path.basename(stateHome) : null;
+  if (coordinatedState) {
+    fs.writeFileSync('pending-observed-' + coordinatedState + '.json', JSON.stringify(observed));
+    fs.renameSync('pending-observed-' + coordinatedState + '.json', 'observed-' + coordinatedState + '.json');
+  }
   const outputFile = fs.existsSync('active-plan-output') ? 'PLAN.md' : 'REPORT.md';
   console.log(JSON.stringify({ type: 'system', subtype: 'init' }));
   if (fs.existsSync('diagnostic-case')) {
@@ -103,6 +123,9 @@ const FAKE_CLAUDE = String.raw`
     console.log(JSON.stringify({ type: 'assistant', message: { content: [
       { type: 'tool_use', name: 'Read', input: { file_path } },
     ] } }));
+    if (coordinatedState) {
+      while (!fs.existsSync('release-' + coordinatedState)) await Bun.sleep(5);
+    }
     if (fs.existsSync('wait-for-report')) {
       fs.writeFileSync('work-ready', '');
       while (!fs.existsSync('release-report')) await Bun.sleep(5);
@@ -425,7 +448,11 @@ Rules for this run:
       expect(child.stateRoot).toBe(child.stateHome);
       expect(child.stateHome).not.toBe(hostState);
       expect(child.stateHome).not.toBe(getHermeticDirs().gstackHome);
-      expect(child.prompt).toContain(path.join(child.stateHome, 'config.yaml'));
+      expect(path.isAbsolute(child.stateHome)).toBe(true);
+      expect(path.dirname(child.stateHome)).toBe(path.resolve(dir));
+      expect(child.promptConfigPath).toBe(path.join(path.basename(child.stateHome), 'config.yaml'));
+      expect(child.promptConfig).toBe('codex_reviews: disabled\n');
+      expect(child.promptConfigMatchesState).toBe(true);
       expect(child.prompt).toContain('Complete all native review sections and the full required report.');
       expect(child.prompt).toContain('report outside coverage as disabled');
       expect(fs.existsSync(child.stateHome)).toBe(false);
@@ -436,6 +463,66 @@ Rules for this run:
     });
   });
 
+  test('native-only config resolves from the prompt inside a nested fixture working directory', async () => {
+    await withFakeClaude(async (dir) => {
+      const planDir = path.join(dir, 'gstack-paid-shard-fixture', 'tmp', 'review fixture');
+      fs.mkdirSync(planDir, { recursive: true });
+      const result = await captureSectionReads({
+        planDir, skillName: 'plan-ceo-review',
+        scenario: 'Review the full plan', testName: 'section-config-nested',
+        nativeReviewOnly: true, timeout: 5_000,
+      });
+      const child: Observed = JSON.parse(fs.readFileSync(path.join(planDir, 'observed.json'), 'utf8'));
+      expect(fs.realpathSync(child.workingDirectory)).toBe(fs.realpathSync(planDir));
+      expect(path.isAbsolute(child.stateHome)).toBe(true);
+      expect(path.dirname(child.stateHome)).toBe(path.resolve(planDir));
+      expect(child.stateRoot).toBe(child.stateHome);
+      expect(child.promptConfigPath).toMatch(/^\.gstack-section-state-[^/\\]+[/\\]config\.yaml$/);
+      expect(path.isAbsolute(child.promptConfigPath!)).toBe(false);
+      expect(child.promptConfig).toBe('codex_reviews: disabled\n');
+      expect(child.promptConfigMatchesState).toBe(true);
+      expect(child.outsideDisabled).toBe(true);
+      expect(result.reportProduced).toBe(true);
+      expect(fs.existsSync(child.stateHome)).toBe(false);
+      expect(fs.readdirSync(planDir).filter(name => name.startsWith('.gstack-section-state-'))).toEqual([]);
+    });
+  });
+
+  test('overlapping native-only captures in one fixture retain independent config until each exits', async () => {
+    await withFakeClaude(async (dir) => {
+      fs.writeFileSync(path.join(dir, 'coordinate-configs'), '');
+      const captures = [0, 1].map(index => captureSectionReads({
+        planDir: dir, skillName: 'plan-ceo-review', scenario: 'Review the full plan',
+        testName: 'section-config-overlap-' + index, nativeReviewOnly: true, timeout: 5_000,
+      }));
+      const readChildren = (): Observed[] => fs.readdirSync(dir)
+        .filter(name => /^observed-.*\.json$/.test(name))
+        .map(name => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
+      let children: Observed[] = [];
+      try {
+        const deadline = Date.now() + 3_000;
+        while ((children = readChildren()).length < 2 && Date.now() < deadline) await Bun.sleep(5);
+        expect(children).toHaveLength(2);
+        expect(new Set(children.map(child => child.stateHome)).size).toBe(2);
+        for (const child of children) {
+          expect(path.dirname(child.stateHome)).toBe(path.resolve(dir));
+          expect(child.stateRoot).toBe(child.stateHome);
+          expect(child.promptConfigMatchesState).toBe(true);
+          expect(child.promptConfig).toBe('codex_reviews: disabled\n');
+        }
+        fs.writeFileSync(path.join(dir, 'release-' + path.basename(children[0].stateHome)), '');
+        expect((await Promise.race(captures)).reportProduced).toBe(true);
+        expect(fs.existsSync(children[0].stateHome)).toBe(false);
+        expect(fs.readFileSync(path.join(children[1].stateHome, 'config.yaml'), 'utf8')).toBe('codex_reviews: disabled\n');
+      } finally {
+        for (const child of readChildren()) fs.writeFileSync(path.join(dir, 'release-' + path.basename(child.stateHome)), '');
+        const results = await Promise.all(captures);
+        expect(results.every(result => result.reportProduced)).toBe(true);
+      }
+      for (const child of children) expect(fs.existsSync(child.stateHome)).toBe(false);
+    });
+  }, 10_000);
+
   test.each(['nonzero', 'is_error', 'error'])('a %s capture cannot pass using a report left behind before failure', async (failure) => {
     await withFakeClaude(async (dir, observed) => {
       fs.writeFileSync(path.join(dir, 'fail-cli'), failure);
@@ -445,10 +532,27 @@ Rules for this run:
         reportMarker: /^## GSTACK REVIEW REPORT\s*$/m,
       });
       expect(observed().outsideDisabled).toBe(true);
+      expect(observed().promptConfigMatchesState).toBe(true);
       expect(fs.existsSync(observed().stateHome)).toBe(false);
       expect(result.reportProduced).toBe(false);
       // Preserve useful diagnostics; failed completion does not erase output.
       expect(result.output).toContain('## GSTACK REVIEW REPORT');
     });
   });
+
+  test('a timed-out native-only capture removes its config after the CLI has read it', async () => {
+    await withFakeClaude(async (dir, observed) => {
+      fs.writeFileSync(path.join(dir, 'wait-for-report'), '');
+      const result = await captureSectionReads({
+        planDir: dir, skillName: 'plan-ceo-review', scenario: 'Review the full plan',
+        testName: 'section-config-timeout', nativeReviewOnly: true, timeout: 1_500,
+      });
+      expect(fs.existsSync(path.join(dir, 'work-ready'))).toBe(true);
+      expect(observed().promptConfigMatchesState).toBe(true);
+      expect(observed().promptConfig).toBe('codex_reviews: disabled\n');
+      expect(fs.existsSync(observed().stateHome)).toBe(false);
+      expect(result.reportProduced).toBe(false);
+      expect(fs.existsSync(path.join(dir, 'REPORT.md'))).toBe(false);
+    });
+  }, 5_000);
 });

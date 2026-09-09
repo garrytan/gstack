@@ -124,14 +124,19 @@ This section traces data through the system and interactions through the UI with
 For each node: what happens on each shadow path? Is it tested?
 
 **Async ordering:** For flows sharing mutable state, include a combined ASCII
-schedule with one column per operation and one for shared state. At each `await`,
+schedule with one column per operation and one for shared state. For each pair
+of overlapping awaits that can affect an invariant, show both completion orders;
+exclude an order only by naming the mechanism that prevents it. At each `await`,
 callback or job handoff: pause, let a competing operation complete, resume, then
 start a fresh consumer. Show the observed result and compare it with the exact
-caller/time boundary of the stated invariant. If safe, name the mechanism that
+caller/time boundary of the stated invariant. The invariant is a requirement,
+not proof that the implementation meets it. If safe, name the mechanism that
 prevents the violating schedule. Separate flow diagrams do not prove ordering.
-Atomic calls and a single thread do not make the whole flow atomic. An accepted
-exception needs its exact contract clause; bounded damage is insufficient. Test
-this schedule with controlled pause/release points.
+One favorable schedule is insufficient. Single-thread execution and atomic calls
+do not prevent interleaving across awaits. An accepted exception needs its exact
+contract clause; bounded damage is insufficient. Test the relevant completion
+orders with controlled pause/release points. Compare relevant pairs; exhaustive
+permutations are unnecessary.
 
 **Interaction Edge Cases:** For every new user-visible interaction, evaluate:
 ```
