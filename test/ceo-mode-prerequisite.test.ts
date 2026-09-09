@@ -10,7 +10,9 @@ import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
 import priorCalls from './fixtures/ceo-mode-prerequisite-o-calls.json';
 import directProceedCall from './fixtures/ceo-mode-prerequisite-q-call.json';
-const calls = [...priorCalls, directProceedCall];
+import fullAd from './fixtures/ceo-mode-full-ad.json';
+const fullAdQuestions=fullAd.cases[0]!.records.find(row=>row.message.role==='assistant')!.message.content[0]!.input.questions;
+const calls = [...priorCalls, directProceedCall, {call:{sessionId:'full-ad-projected',toolUseId:'full-ad-prerequisite',questions:fullAdQuestions,answered:false,failed:false}}];
 function ownedIdentity(pid: number): string | null {
   try { return execFileSync('ps', ['-p', String(pid), '-o', 'lstart=', '-o', 'command='], { encoding: 'utf8', timeout: 5000 }).trim(); }
   catch { return null; }
@@ -90,7 +92,7 @@ describe('CEO mode prerequisite navigation', () => {
     for(const file of ['test/ceo-mode-prerequisite.test.ts','test/fixtures/ceo-mode-prerequisite-o-calls.json','test/fixtures/ceo-mode-prerequisite-q-call.json'])expect(selectTests([file],E2E_TOUCHFILES).selected).toEqual(['plan-ceo-mode-routing']);
   });
 });
-for(const fixtureIndex of [1,2,3])test.skipIf(process.platform==='win32')(`fake native PTY skips prerequisite ${fixtureIndex} and confirms target posture`,async()=>{
+for(const fixtureIndex of [1,2,3,4])test.skipIf(process.platform==='win32')(`fake native PTY skips prerequisite ${fixtureIndex} and confirms target posture`,async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ceo-mode-prerequisite-')),fake=path.join(dir,'fake-claude'),events=path.join(dir,'events.jsonl'),worker=path.join(dir,'worker.ts');
   const root=path.resolve(import.meta.dir,'..'),call=pending(fixtureIndex),screens=call.questions.map((_,i)=>pane(call,i)),expected=call.questions.map(q=>q.header==='Design doc'?'2':'1');
   fs.writeFileSync(fake,`#!${process.execPath}\n`+`

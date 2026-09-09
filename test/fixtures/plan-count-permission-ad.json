@@ -1,0 +1,98 @@
+{
+  "provenance": {
+    "run": "ship-source-ad-full-paid-20260909-v1",
+    "sourceHead": "d4f42b69a1dd0eb48d89500e03fb1c4407229284",
+    "captureProofSHA256": "62abe34ea7f79f91af352bee36a18ce5fe7fbef1dee84f5427214a626ab5bcf2",
+    "screens": "Exact retained current viewports; original raw hook state is content-free; transcript projection retains only status/session identity. These three calls were pending at operator cancellation and never award completion or review credit."
+  },
+  "rows": [
+    {
+      "pid": 1332470,
+      "cwd": "/tmp/gstack-paid-shard-dLDXE6/tmp/gstack-plan-count-9QMoxP",
+      "config": "/tmp/gstack-paid-shard-dLDXE6/tmp/gstack-hermetic-1332375-n7QqpR/with-skills/.claude",
+      "startUnix": 1788977964.97,
+      "screen": " 136 +                   |                             | (name/email, digest on, tips off)|                             \n     +                 |                                |                                                               \n 137 +Save               | PENDING (Gap 2): currently  | n/a                              | Validation: beside field + l\n     +inked summary,   | InlineStatus “Saved at HH:mm”  | Never exposed: save is atomic                                 \n 138 +                   | no indicator for 2-5s       |                                  | focus first invalid field. N\n     +etwork: edits    | (24h local), Export re-enabled |                                                               \n 139 +                   |                             |                                  | kept, “Unsaved changes” + er\n     +ror + Retry      |                                |                                                               \n 140 +                   |                             |                                  | (aria-label “Retry save”). C\n     +olor PENDING     |                                |                                                               \n 141 +                   |                             |                                  | (Gap 3).                    \n     +                 |                                |                                                               \n 142 +Dirty state        | n/a                         | Before first save: blank status  | n/a                         \n     +                 | Revert/Reset restores “Saved   | n/a                                                           \n 143 +                   |                             |                                  |                             \n     +                 | at HH:mm” or blank pre-save    |                                                               \n 144 +Reset              | n/a                         | Disabled/no-op when clean        | n/a                         \n     +                 | Dialog confirm → saved values, | n/a                                                           \n 145 +                   |                             |                                  |                             \n     +                 | focus back to Reset trigger    |                                                               \n 146 +Cancel             | n/a                         | Clean: navigate back directly    | n/a                         \n     +                 | Dirty: dialog → “Discard and   | n/a                                                           \n 147 +                   |                             |                                  |                             \n     +                 | leave” → destination h1 focus  |                                                               \n 148 +Export             | Both Save and Export        | n/a (defaults always exist)      | Same inline error/retry area\n     +, fields kept,   | JSON download of last saved    | n/a                                                           \n 149 +                   | disabled while pending      |                                  | Retry aria-label “Retry expo\n     +rt”              | preferences; clears only the   |                                                               \n 150 +                   |                             |                                  |                             \n     +                 | Export error                   |                                                               \n 151 +```                                                                                                               \n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n Do you want to make this edit to gstack-test-plan-design.md?\n ❯ 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-dLDXE6/tmp/gstack-e2e-plan-design-oxarVN for this session\n   3. Nohift+tab)\n\n Esc to cancel · Tab to amend\n",
+      "screenSHA256": "cfe0ec3902cb0f989d3b264d43bc1ea5b568fb5595e335ce95869ec497465548",
+      "state": {
+        "cwd": "/tmp/gstack-paid-shard-dLDXE6/tmp/gstack-plan-count-9QMoxP",
+        "expected": "/tmp/gstack-paid-shard-dLDXE6/tmp/gstack-e2e-plan-design-oxarVN/gstack-test-plan-design.md",
+        "sessionId": "4d9db343-ed09-40d4-9813-6a865ebf5dfc",
+        "transcriptPath": "/tmp/gstack-paid-shard-dLDXE6/tmp/gstack-hermetic-1332375-n7QqpR/with-skills/.claude/projects/-tmp-gstack-paid-shard-dLDXE6-tmp-gstack-plan-count-9QMoxP/4d9db343-ed09-40d4-9813-6a865ebf5dfc.jsonl",
+        "seenIds": [
+          "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_01XJjXS1coVMTm9HF7tGU8hs",
+          "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_01Qb8PpdQK7z7Xu3ESFv757b",
+          "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_0195ubwPQhDuzoa3WkqLbnsG"
+        ],
+        "pendingId": "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_0195ubwPQhDuzoa3WkqLbnsG",
+        "completedId": "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_01Qb8PpdQK7z7Xu3ESFv757b",
+        "completedIds": [
+          "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_01XJjXS1coVMTm9HF7tGU8hs",
+          "4d9db343-ed09-40d4-9813-6a865ebf5dfc:toolu_01Qb8PpdQK7z7Xu3ESFv757b"
+        ],
+        "timestamp": "2026-09-09T18:23:13.771Z"
+      },
+      "transcriptStatus": "ready",
+      "transcriptSessions": [
+        "4d9db343-ed09-40d4-9813-6a865ebf5dfc"
+      ]
+    },
+    {
+      "pid": 1332996,
+      "cwd": "/tmp/gstack-paid-shard-iA05Vy/tmp/gstack-plan-count-21Yj95",
+      "config": "/tmp/gstack-paid-shard-iA05Vy/tmp/gstack-hermetic-1332950-AN120U/with-skills/.claude",
+      "startUnix": 1788977969.01,
+      "screen": "     +e retries        OK                                                                                               \n 100 +handler#send_notification   provider timeout / 5xx / SMTP     mail client's named     Y (D5)          nothing; ale\n     +rt + runbook     FIXED                                                                                            \n 101 +                                                              delivery exceptions                                 \n 102 +handler#send_notification   fired before commit               (ordering)              n/a             dup email on\n     + retry           FIXED (D5)                                                                                       \n 103 +handler#send_notification   mail outage inside the txn        mail client error       n/a             payment neve\n     +r recorded       FIXED (D5)                                                                                       \n 104 +```                                                                                                               \n 105 +                                                                                                                  \n 106 +Finding 2.1 — Email leg had undefined ordering and no rescue. **Decision D5 = A:**                                \n 107 +lookup → update inside the transaction → commit → dedup marks complete → send                                     \n 108 +email. Rescue ONLY the mail client's named delivery exceptions (timeout,                                          \n 109 +delivery failure; never StandardError). On rescue: error-level log with event                                     \n 110 +ID, user ID, payment intent ID, exception class; the mail client's existing                                       \n 111 +failure metric and on-call alert fire; return 200. Any other exception                                            \n 112 +propagates unchanged. Tests: post-commit ordering, rescued mail failure returns                                   \n 113 +200 and logs, non-mail exception propagates.                                                                      \n 114 +                                                                                                                  \n 115 +## Section 3: Security & Threat Model                                                                             \n 116 +                                                                                                                  \n 117 +| Threat | Likelihood | Impact | Mitigated? |                                                                     \n 118 +|---|---|---|---|                                                                                                 \n 119 +| SQL injection via `request.params.userId` in a raw SQL fragment | Med | High | No (see 3.1) |                   \n 120 +| Forged webhook | Low | High | Yes: existing signature middleware |                                              \n 121 +| Replayed event | Low | Low | Yes: event-ID dedup; update is idempotent assignment |                             \n 122 +| Attacker-influenced metadata marks the wrong user paid | Low | High | Outside this handler; belongs to the check\n     +out flow that sets metadata (NOT in scope) |                                                                      \n 123 +| Card data / PII | n/a | n/a | No card data; IDs already traced by existing clients |                            \n 124 +                                                                                                                  \n 125  _(review in progress — sections appended as decisions land)_\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n Do you want to make this edit to gstack-test-plan-ceo.md?\n ❯ 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-iA05Vy/tmp/gstack-e2e-plan-ceo-I6YhZN for this session (shift+tab)\n   3. No\n\n Esc to cancel · Tab to amend\n",
+      "screenSHA256": "d87280407169d000329f7567a982b14b0529b94db5e2758c9587e805f9af9bac",
+      "state": {
+        "cwd": "/tmp/gstack-paid-shard-iA05Vy/tmp/gstack-plan-count-21Yj95",
+        "expected": "/tmp/gstack-paid-shard-iA05Vy/tmp/gstack-e2e-plan-ceo-I6YhZN/gstack-test-plan-ceo.md",
+        "sessionId": "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d",
+        "transcriptPath": "/tmp/gstack-paid-shard-iA05Vy/tmp/gstack-hermetic-1332950-AN120U/with-skills/.claude/projects/-tmp-gstack-paid-shard-iA05Vy-tmp-gstack-plan-count-21Yj95/3e71b5ab-fec6-4cce-ba20-9d60b3b9970d.jsonl",
+        "seenIds": [
+          "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_01J4snDFPcLUS4dtBx3wPdNv",
+          "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_01ES9kGmZCiY7ZXMF1SMig2g",
+          "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_011t5RMqaJ72mFr761edaw9e"
+        ],
+        "pendingId": "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_011t5RMqaJ72mFr761edaw9e",
+        "completedId": "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_01ES9kGmZCiY7ZXMF1SMig2g",
+        "completedIds": [
+          "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_01J4snDFPcLUS4dtBx3wPdNv",
+          "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d:toolu_01ES9kGmZCiY7ZXMF1SMig2g"
+        ],
+        "timestamp": "2026-09-09T18:25:17.883Z"
+      },
+      "transcriptStatus": "ready",
+      "transcriptSessions": [
+        "3e71b5ab-fec6-4cce-ba20-9d60b3b9970d"
+      ]
+    },
+    {
+      "pid": 1333364,
+      "cwd": "/tmp/gstack-paid-shard-ZHj9Ga/tmp/gstack-plan-count-F6E4PY",
+      "config": "/tmp/gstack-paid-shard-ZHj9Ga/tmp/gstack-hermetic-1333312-CatzTs/with-skills/.claude",
+      "startUnix": 1788977973.31,
+      "screen": "     +t path still reports `EVALKIT_CI_TIMEOUT`.                                                                        \n 304 +5. Run a v1 script using `Client.evaluate()` and `run_batch(evaluator, dataset)`; expect two DeprecationWarnings a\n     +nd correct results.                                                                                               \n 305 +6. Re-run the onboarding timing (T6); record the result in docs/benchmarks.md.                                    \n 306 +                                                                                                                  \n 307 +## Deferred housekeeping (outside plan mode)                                                                      \n 308 +- Append the gstack \"## Skill routing\" section to CLAUDE.md and commit it (user chose A on the routing prompt; def\n     +erred because plan mode forbids the edit).                                                                        \n 309 +- Cross-project learnings preference was not asked: the learnings store is empty in this environment, so the toggl\n     +e has no effect yet. It will be offered on the next run.                                                          \n 310 +- Recommended next review: `/plan-eng-review` to validate the runtime changes in T1-T3 and T5, then `/devex-review\n     +` on the shipped wheel to check the sub-2-minute claim.                                                           \n 311 +                                                                                                                  \n 312 +## GSTACK REVIEW REPORT                                                                                           \n 313 +                                                                                                                  \n 314 +| Review | Trigger | Why | Runs | Status | Findings |                                                             \n 315 +|--------|---------|-----|------|--------|----------|                                                             \n 316 +| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |                                                \n 317 +| Outside Review | codex via `/plan-devex-review` | Independent 2nd opinion | 1 | disabled (skipped) | none, codex\n     +_reviews disabled |                                                                                               \n 318 +| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |                                 \n 319 +| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |                                                \n 320 +| DX Review | `/plan-devex-review` | Developer experience gaps | 1 | clean | score: 5/10 → 9/10, TTHW: 6 min → <2 \n     +min (est.), 5 findings, 5 decisions, mode POLISH |                                                                \n 321 +                                                                                                                  \n 322 +**OUTSIDE COVERAGE:** provider codex, phase plan-review, outside_status disabled (user config `codex_reviews=disab\n     +led`), no findings; native fallback intentionally not dispatched.                                                 \n 323 +                                                                                                                  \n 324 +**VERDICT:** DX CLEARED — eng review required (no `/plan-eng-review` or `/review` entry in the last 7 days).      \n 325 +                                                                                                                  \n 326 +NO UNRESOLVED DECISIONS                                                                                           \n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n Do you want to make this edit to gstack-test-plan-devex.md?\n ❯ 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-ZHj9Ga/tmp/gstack-e2e-plan-devex-Pn1BeW for this session (shift+tab)\n   3. No\n\n Esc to cancel · Tab to amend\n",
+      "screenSHA256": "31548208a094334e0072323081570cbdcd3529833bc5e803cadc56466c4227dd",
+      "state": {
+        "cwd": "/tmp/gstack-paid-shard-ZHj9Ga/tmp/gstack-plan-count-F6E4PY",
+        "expected": "/tmp/gstack-paid-shard-ZHj9Ga/tmp/gstack-e2e-plan-devex-Pn1BeW/gstack-test-plan-devex.md",
+        "sessionId": "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089",
+        "transcriptPath": "/tmp/gstack-paid-shard-ZHj9Ga/tmp/gstack-hermetic-1333312-CatzTs/with-skills/.claude/projects/-tmp-gstack-paid-shard-ZHj9Ga-tmp-gstack-plan-count-F6E4PY/40207c5f-0ce9-4ec9-b09d-ec0ba8f93089.jsonl",
+        "seenIds": [
+          "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089:toolu_01QLo6kZHJWRkGmtn92aBW81",
+          "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089:toolu_018vYkQ6sYgziye4GfXFyWDF"
+        ],
+        "pendingId": "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089:toolu_018vYkQ6sYgziye4GfXFyWDF",
+        "completedId": "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089:toolu_01QLo6kZHJWRkGmtn92aBW81",
+        "completedIds": [
+          "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089:toolu_01QLo6kZHJWRkGmtn92aBW81"
+        ],
+        "timestamp": "2026-09-09T18:26:53.932Z"
+      },
+      "transcriptStatus": "ready",
+      "transcriptSessions": [
+        "40207c5f-0ce9-4ec9-b09d-ec0ba8f93089"
+      ]
+    }
+  ]
+}

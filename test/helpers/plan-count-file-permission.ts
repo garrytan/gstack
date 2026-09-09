@@ -73,12 +73,15 @@ export function recordFilePermission(input: string, file: string, cwd: string, c
 /** A long diff can crop its path header; the native access choice repeats the directory. */
 function croppedEditTarget(screen: string): string | undefined {
   const text = screen.replace(/\r+\n?/g, '\n');
-  // Require actual diff rows above the native footer, never a quoted AUQ.
-  if (!/^\s*\d+\s+[ +\-]?/.test(text) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
+  // Cropping may begin inside a wrapped added/deleted diff row (five-space gutter).
+  // Still require numbered rows below and the full native footer; never a quoted AUQ.
+  if (!/^(?:\s*\d+\s+[ +\-]?| {5}[+\-])/.test(text) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
   const prompt = [...text.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?\/\\]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
   if (!prompt || (text.slice(0, prompt.index).match(/^\s*\d+\s+/gm)?.length ?? 0) < 2) return undefined;
   // The unselected option supplies path identity only. Input remains one-time Yes.
-  const choices = /^ {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n\s*2\.[ \t]*Yes,\s+and\s+switch\s+to\s+accept\s+edits\s+\(auto-approve\s+file\s+edits\s+and\s+common\s+file\s+commands\)\s+for\s+this\s+session;\s+Yes,\s+and\s+always\s+allow\s+access\s+to\s+([^\r\n]+?)\s+for\s+this\s+session(?:\s*\(shift\+tab\))?\s*\n\s*3\.[ \t]*No[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.exec(prompt[2]!);
+  // A redraw can leave this exact keyboard-hint tail on the unselected No row.
+  // It does not change the selected one-time Yes or authorize another action.
+  const choices = /^ {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n\s*2\.[ \t]*Yes,\s+and\s+switch\s+to\s+accept\s+edits\s+\(auto-approve\s+file\s+edits\s+and\s+common\s+file\s+commands\)\s+for\s+this\s+session;\s+Yes,\s+and\s+always\s+allow\s+access\s+to\s+([^\r\n]+?)\s+for\s+this\s+session(?:\s*\(shift\+tab\))?\s*\n\s*3\.[ \t]*No(?:hift\+tab\))?[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.exec(prompt[2]!);
   const directory = choices?.[1]?.trim();
   if (!directory || !path.isAbsolute(directory)) return undefined;
   return path.join(directory, prompt[1]!.trim());

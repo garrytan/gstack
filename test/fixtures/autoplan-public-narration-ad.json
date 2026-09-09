@@ -1,0 +1,18 @@
+{
+  "provenance": {
+    "kind": "Retained public narration text; synthetic schema-only signature envelope",
+    "label": "ship-source-ad-full-paid-20260909-v1",
+    "sessionId": "8f4d4357-07f8-45bb-98b4-0c3d94e2e2a0",
+    "uuid": "15ec6b49-9b23-4f07-9d4c-4e4265255ed5",
+    "timestamp": "2026-09-09T18:31:15.976Z",
+    "textSha256": "65a0f544c2031cbd86ee5afe366aadcb86887448cbfb35d8cef604c1b14e96ab",
+    "attributionReceiptSha256": "42b71fb70382755268d811ebd7293ba36fa02a997668c2897a1761b9f0668a14",
+    "frozenCliSha256": "26d020351e8112f4006790f3cfce43b4c9df0c1bb1d0e542364d64151b81d5ba",
+    "signature": "Synthetic protobuf tag path 2\u21921\u21928=narration. Original opaque signature and all non-narration thinking text are excluded. This tests classification, not cryptographic verification."
+  },
+  "block": {
+    "type": "thinking",
+    "thinking": "Phase 1 is done: the Claude subagent found 14 issues (3 critical, 5 high, 6 medium), with 6 taste disagreements and 1 premise flagged for the gate. I've updated the implementation plan with 10 tasks and saved the CEO plan, and I'm now moving into Phase 2 (Design, since UI scope was detected).",
+    "signature": "Eg0KC0IJbmFycmF0aW9u"
+  }
+}

@@ -134,6 +134,18 @@ export function hasPostAnswerCeoPosture(visible: string, posture: RegExp): boole
   return matches();
 }
 
+/** Apply the same echo/quotation exclusions to native prose and decision rationale. */
+function hasNativePostureProse(text: string, posture: RegExp): boolean {
+  const prose = text.replace(/```[\s\S]*?```/g, '').split('\n').filter(line => {
+    if (/^\s*>/.test(line)) return false;
+    const plain = line.replace(/[*_`]/g, '').trim().replace(/^#+\s*/, '');
+    // A repeated menu or bare confirmation is still only an answer echo.
+    if (/^(?:[-+]|\d+[.)]|[A-D][.)])\s*(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)\b/i.test(plain)) return false;
+    return !/^(?:(?:You\s+)?selected(?:\s+(?:option|mode))?\s*[:：]?\s*)?(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)(?:\s+mode)?(?:\s+confirmed)?(?:\s*\(recommended\))?[.!]?$/i.test(plain);
+  }).join('\n');
+  return hasPostAnswerCeoPosture(`● ${prose}`, posture);
+}
+
 /** A native successful answer, not the key we intended to send to the menu. */
 export function nativeCeoModeAnswer(
   transcript: PlanCountTranscript,
@@ -176,7 +188,7 @@ function completedQuestionTimes(call: NativePlanQuestionCall, events: ReadonlyAr
 }
 
 /** New shorthand forms must be one complete decision, not a mode mention or extra question. */
-function singleScopeBrief(text: string, descriptions: readonly string[]): boolean {
+function singleScopeBrief(text: string, descriptions: readonly string[], comparison = true): boolean {
   if ([text, ...descriptions].some(value => /(?:^|[.!?]\s+|\n)\s*(?:Also|Separately|Additionally)\b|\b(?:Please|We must|You must|The plan must)\b/i.test(value))) return false;
   // Query parameter names such as ?view= are not another decision prompt.
   const questions = text.replace(/\?[A-Za-z_][\w-]*=/g, '=').match(/\?/g);
@@ -192,7 +204,9 @@ function singleScopeBrief(text: string, descriptions: readonly string[]): boolea
   });
   // Net closes this decision brief. A following instruction is not part of its
   // comparison; this is not a general classifier of instructions inside prose.
-  return complete && /^[^.!?;\n]+ (?:vs|versus) [^.!?;\n]+\.$/.test(text.slice(previous + 'Net:'.length).trim());
+  const net = text.slice(previous + 'Net:'.length).trim();
+  return complete && (comparison ? /^[^.!?;\n]+ (?:vs|versus) [^.!?;\n]+\.$/.test(net)
+    : /^[^.!?;\n]+\.$/.test(net.replace(/\bvs\./gi, 'vs')));
 }
 
 /** HOLD can apply its boundary in a completed defer decision, before standalone prose. */
@@ -205,6 +219,17 @@ function hasAnsweredHoldPosture(transcript: PlanCountTranscript, selected: Nativ
     const times = completedQuestionTimes(call, events);
     if (!times || times.requestedAt <= modeTimes.answeredAt) return false;
     const q = call.questions[0]!;
+    // A substantive review decision can apply HOLD in its rationale before
+    // standalone prose is published. Metadata and answer echoes do not count.
+    // This recognizes posture language; it does not validate every scope choice.
+    const context = /Project\/branch\/task:([\s\S]*?)(?=ELI10:)/i.exec(q.question)?.[1] ?? '';
+    const rationale = /ELI10:([\s\S]*?)(?=Stakes if (?:we pick )?wrong:)/i.exec(q.question)?.[1]?.trim() ?? '';
+    const offered = q.options.map(o => o.label.trim());
+    if (!q.multiSelect && q.options.length >= 2 && q.options.length <= 4 && new Set(offered).size === offered.length &&
+        offered.includes(call.answers?.[q.question] ?? '') && /\bHOLD SCOPE\b/i.test(context) &&
+        !/\b(?:SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)\b/i.test(context) &&
+        singleScopeBrief(q.question, q.options.map(o => o.description ?? ''), false) &&
+        hasNativePostureProse(rationale, posture)) return true;
     if (q.multiSelect || q.options.length !== 3 || !singleScopeBrief(q.question, q.options.map(o => o.description ?? ''))) return false;
     const title = /^D\d+\s*[—–-]\s*Under HOLD SCOPE, keep or defer the (\w+)\b([\s\S]+?)\?\s+Project\/branch\/task:/i.exec(q.question);
     if (!title || !/\bnot in the plan text\b/i.test(title[2]!) ||
@@ -234,16 +259,20 @@ function hasAnsweredExpansionPosture(
     const times = completedQuestionTimes(call, events);
     if (!times || times.requestedAt <= modeTimes.answeredAt) return false;
     const question = call.questions[0]!;
+    // This is evidence that the selected mode produced a concrete scope
+    // decision, not authority to answer it. Numbering and heading names vary.
     const title = question.question.split('\n')[0]!
-      .replace(/\s*<gstack-qid:plan-ceo-review-expansion-[a-z0-9-]+>\s*$/i, '');
-    const numbered = /^D\d+\s*[—–-]\s*Expansion\s+\d+\s+of\s+\d+:\s+\S.+\?\s*$/i.test(title);
-    const short = /^D\d+\s*[—–-]\s*E(\d+):\s+Add\s+[^?\n]+\?\s*$/i.exec(title);
-    const explicitShort = short && new RegExp(`^E${short[1]}\\s+\\S`, 'i').test(question.header) &&
-      /\nProject\/branch\/task:[^\n]+\bSCOPE EXPANSION mode\.\s*\nELI10:/i.test(question.question) &&
-      singleScopeBrief(question.question, question.options.map(o => o.description ?? ''));
-    if (question.multiSelect || question.options.length !== 3 || (!numbered && !explicitShort)) return false;
+      .replace(/\s*<gstack-qid:[a-z0-9-]+>\s*$/i, '').replace(/^D\d+\s*[—–-]\s*/i, '');
+    const context = /\nProject\/branch\/task:([^\n]+)/i.exec(question.question)?.[1] ?? '';
+    if (question.multiSelect || question.options.length !== 3 ||
+        !/^[\p{L}\p{N}][^?\n]+\?$/u.test(title) ||
+        /\b(?:review\s+(?:mode|posture)|(?:selected|confirmed)\s+(?:mode|option))\b/i.test(title) ||
+        /\b(?:HOLD SCOPE|SELECTIVE EXPANSION|SCOPE REDUCTION)\b/i.test(context) ||
+        !/\b(?:SCOPE\s+EXPANSION|EXPANSION\s+(?:mode|opt[ -]in))\b/i.test(context) ||
+        !singleScopeBrief(question.question, question.options.map(o => o.description ?? ''), false)) return false;
     const labels = question.options.map(option => option.label.trim()
-      .replace(/^[A-C][):.]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').toLowerCase());
+      .replace(/^[A-C][):.]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').toLowerCase()
+      .replace(/^add to (?:(?:this|the) plan['’]s )?scope$/, 'add to scope'));
     if (new Set(labels).size !== 3 || !['add to scope', 'defer to todos.md', 'skip'].every(label => labels.includes(label)) ||
         !question.options.some(option => option.label === call.answers?.[question.question])) return false;
     // Never search quoted instructions, tool output or a menu for posture.
@@ -266,14 +295,7 @@ export function hasNativePostAnswerCeoPosture(
   const answeredAt = Date.parse(selected.answeredAt!);
   return transcript.assistantMessages.some(message => {
     if (message.sessionId !== selected.sessionId || Date.parse(message.timestamp) <= answeredAt) return false;
-    const prose = message.text.replace(/```[\s\S]*?```/g, '').split('\n').filter(line => {
-      if (/^\s*>/.test(line)) return false;
-      const plain = line.replace(/[*_`]/g, '').trim().replace(/^#+\s*/, '');
-      // A repeated menu or bare confirmation is still only an answer echo.
-      if (/^(?:[-+]|\d+[.)]|[A-D][.)])\s*(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)\b/i.test(plain)) return false;
-      return !/^(?:(?:You\s+)?selected(?:\s+(?:option|mode))?\s*[:：]?\s*)?(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)(?:\s+mode)?(?:\s+confirmed)?(?:\s*\(recommended\))?[.!]?$/i.test(plain);
-    }).join('\n');
-    return hasPostAnswerCeoPosture(`● ${prose}`, posture);
+    return hasNativePostureProse(message.text, posture);
   }) || (targetMode === 'SCOPE EXPANSION' && hasAnsweredExpansionPosture(transcript, selected, posture, publicTools)) ||
     (targetMode === 'HOLD SCOPE' && hasAnsweredHoldPosture(transcript, selected, posture, publicTools));
 }

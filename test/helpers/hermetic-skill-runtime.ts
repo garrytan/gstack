@@ -16,13 +16,17 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { getHermeticDirs, hermeticSkillsConfigDir } from './hermetic-env';
 
-let cachedRuntime: { home: string; root: string } | undefined;
+let cachedRuntime: { home: string; root: string; stateRoot: string } | undefined;
 
-export function hermeticSkillRuntime(): { home: string; root: string } {
+export function hermeticSkillRuntime(): { home: string; root: string; stateRoot: string } {
   if (cachedRuntime) return cachedRuntime;
   const home = fs.mkdtempSync(path.join(getHermeticDirs().runRoot, 'skill-home-'));
   const root = path.join(home, '.claude', 'skills', 'gstack');
+  const stateRoot = path.join(home, '.gstack');
   try {
+    // Some generated workflows keep snapshots under ~/.gstack independently
+    // of GSTACK_HOME. This is owned by the same disposable HOME and cleanup.
+    fs.mkdirSync(stateRoot);
     fs.mkdirSync(path.dirname(root), { recursive: true });
     fs.symlinkSync(path.resolve(import.meta.dir, '..', '..'), root, 'dir');
     // Setup exposes both the gstack runtime checkout and flattened skill
@@ -37,7 +41,7 @@ export function hermeticSkillRuntime(): { home: string; root: string } {
     fs.rmSync(home, { recursive: true, force: true });
     throw error;
   }
-  cachedRuntime = { home, root };
+  cachedRuntime = { home, root, stateRoot };
   return cachedRuntime;
 }
 
@@ -55,7 +59,7 @@ function browserCache(env: Record<string, string>, originalHome: string): string
 export function withHermeticSkillRuntime(
   env: Record<string, string>,
   operatorEnv: NodeJS.ProcessEnv = process.env,
-): { env: Record<string, string>; root: string } {
+): { env: Record<string, string>; root: string; stateRoot: string } {
   const originalHome = env.HOME || os.homedir();
   const runtime = hermeticSkillRuntime();
   // An explicit empty per-test value resets Codex to its original HOME default.
@@ -64,6 +68,7 @@ export function withHermeticSkillRuntime(
     : operatorEnv.CODEX_HOME || path.join(originalHome, '.codex');
   return {
     root: runtime.root,
+    stateRoot: runtime.stateRoot,
     env: {
       ...env,
       HOME: runtime.home,

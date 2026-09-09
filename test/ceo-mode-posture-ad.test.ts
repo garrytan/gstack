@@ -102,8 +102,9 @@ test('HOLD requires the explicit out-of-scope deferral and its selected defer an
   e.transcript.calls[1]!.answers={[q.question]:q.options[1]!.label};expect(matches(e)).toBe(false);
 });
 
-test('E-number shorthand requires matching header, add decision and explicit expansion context',()=>{
-  for(const change of [(q:any)=>{q.header='E2 shared';},(q:any)=>{q.question=q.question.replace('E1: Add','E1: Mention');},
+test('completed expansion decisions require application of the selected mode',()=>{
+  for(const change of [(q:any)=>{q.question='D6 — Continue the review?\nSelected SCOPE EXPANSION.';},
+    (q:any)=>{q.question=q.question.replace('SCOPE EXPANSION mode','SELECTIVE EXPANSION mode');},
     (q:any)=>{q.question=q.question.replace('SCOPE EXPANSION mode','HOLD SCOPE mode');},
     (q:any)=>{q.options[1].label='Enable telemetry';}]){
     const e=replay(1);change(e.transcript.calls[1]!.questions[0]);rebind(e);expect(matches(e)).toBe(false);

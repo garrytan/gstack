@@ -46,13 +46,20 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 const root = path.join(process.env.HOME,'.claude','skills','gstack');
 const args = process.argv.slice(2);
-const addDir = args.includes('--add-dir') ? args[args.indexOf('--add-dir')+1] : null;
+const addDirs = args.flatMap((arg,index) => arg === '--add-dir' ? [args[index+1]] : []);
+const addDir = addDirs[0] || null;
+const stateDirectory = path.join(process.env.HOME,'.gstack');
+const methodologyPath = path.join(stateDirectory,'projects','probe','autoplan-design-methodology-owned','methodology.md');
+const inside = (file,directory) => { const relative=path.relative(directory,file); return relative==='' || (!relative.startsWith('..'+path.sep) && relative!=='..' && !path.isAbsolute(relative)); };
+
 const phase = spawnSync('bash',['-c','cat ~/.claude/skills/gstack/autoplan/sections/ceo-phase.md'],{timeout:5000});
 const config = spawnSync('bash',['-c','"$HOME/.claude/skills/gstack/bin/gstack-config" get codex_reviews'],{timeout:5000});
 const canonicalConfig = process.env.CLAUDE_CONFIG_DIR && spawnSync('bash',['-c','"$CLAUDE_CONFIG_DIR/skills/gstack/bin/gstack-config" get codex_reviews'],{timeout:5000});
 const codexHome = process.env.CODEX_HOME || path.join(process.env.HOME,'.codex');
 const record = {
-  pid:process.pid, home:process.env.HOME, root:fs.realpathSync(root), args,
+  pid:process.pid, home:process.env.HOME, root:fs.realpathSync(root), args, addDirs,
+  stateDirectory, stateDirectoryExists:fs.existsSync(stateDirectory), methodologyPath,
+  methodologyAllowed:addDirs.some(directory => inside(methodologyPath,directory)),
   phaseExit:phase.status, phaseHash:createHash('sha256').update(phase.stdout).digest('hex'),
   configExit:config.status, configValue:config.stdout.toString().trim(),
   canonicalConfigExit:canonicalConfig?.status, canonicalConfigValue:canonicalConfig?.stdout.toString().trim(),
@@ -130,6 +137,16 @@ try {
           expect(result.home).not.toBe(operatorHome);
           expect(result.root).toBe(fs.realpathSync(ROOT));
           expect(result.configValue).toBe('disabled'); expect(result.runtimeAllowed).toBe(true);
+          // Actual Autoplan snapshots live under generated HOME/.gstack, outside
+          // the runtime checkout. Approve only that owned state tree, not HOME,
+          // an inherited/explicit GSTACK_HOME, or a broad policy-setting answer.
+          expect(result.methodologyAllowed, item.name + ': owned methodology Read is covered').toBe(true);
+          expect(result.stateDirectoryExists).toBe(true);
+          expect(result.addDirs).toEqual([path.join(result.home,'.claude','skills','gstack'),path.join(result.home,'.gstack')]);
+          for (const external of [operatorHome,state,path.dirname(result.home),result.codexHome,result.browserCache])
+            expect(result.addDirs).not.toContain(external);
+          expect(result.args).not.toContain('--dangerously-skip-permissions');
+          expect(result.args).not.toContain('--settings');
           expect(result.canonicalConfigExit).toBe(0); expect(result.canonicalConfigValue).toBe('disabled');
           for (const asset of result.discovery) {
             expect(asset.home, item.name + ': HOME discovery ' + asset.relative).toBe(fs.realpathSync(path.join(ROOT,asset.relative)));
@@ -145,6 +162,7 @@ try {
         } else {
           expect(result.home).toBe(operatorHome); expect(result.phaseHash).toBe(originalSection);
           expect(result.configValue).toBe('stale-runtime'); expect(result.runtimeAllowed).toBe(false);
+          expect(result.addDirs).toEqual([]); expect(result.methodologyAllowed).toBe(false);
         }
         if (item.name === 'explicit-config') expect(result.configDir).toBe(customConfig);
         expect(() => process.kill(result.pid,0)).toThrow();

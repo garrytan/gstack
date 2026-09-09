@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import captured from './fixtures/plan-count-permission-ac.json';
+import capturedAd from './fixtures/plan-count-permission-ad.json';
 import { classifyPlanCountFrame, createPlanCountPermissionGuard } from './helpers/claude-pty-runner';
 import { recordFilePermission, currentFilePermissionEpoch, currentFilePermissionBinding } from './helpers/plan-count-file-permission';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
@@ -146,4 +147,90 @@ test('a later exact owned binding wins over an earlier same-basename block', () 
     expect(unrelated).toBeUndefined();
     expect(createPlanCountPermissionGuard()(otherScreen, '', unrelated)).toBe('grant');
   } finally { f.close(); }
+});
+
+// Exact current screens plus content-free native identity from the full AD run.
+// The replay projections do not assert these pending writes ever completed.
+const cases = capturedAd.rows.map(row => ({
+  p: row, screen: row.screen, binding: {expected: row.state.expected, state: row.state},
+  observation: {transcript: {status: row.transcriptStatus, calls: [],
+    assistantMessages: row.transcriptSessions.map(sessionId => ({sessionId}))}},
+}));
+function adEpoch(c: any, screen = c.screen, state = c.binding.state, delta: any = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'permission-crop-replay-'));
+  const file = path.join(dir, 'state.json');
+  try {
+    fs.writeFileSync(file, JSON.stringify(state));
+    return currentFilePermissionEpoch(file, delta.expected ?? c.binding.expected, delta.cwd ?? c.p.cwd,
+      delta.config ?? c.p.config, delta.startedAt ?? c.p.startUnix * 1000,
+      delta.transcript ?? c.observation.transcript, screen);
+  } finally { fs.rmSync(dir, {recursive:true, force:true}); }
+}
+for (const c of cases) {
+  test(`actual AD captured current permission ${c.p.pid} returns its exact pending epoch`, () => {
+    expect(classifyPlanCountFrame(c.screen)).toBe('permission');
+    expect(adEpoch(c)).toEqual({pendingId:c.binding.state.pendingId, completedId:c.binding.state.completedId,
+      completedIds:c.binding.state.completedIds});
+    const guard = createPlanCountPermissionGuard();
+    expect(guard(c.screen, '', adEpoch(c))).toBe('grant');
+    expect(guard(c.screen, '', adEpoch(c))).toBe('handled');
+  });
+  test(`AD isolating the rejected rendering guard ${c.p.pid} preserves native identity`, () => {
+    // These are explicitly normalized controls; the actual captured screen is unchanged above.
+    const normalized = c.p.pid === 1332470 ? c.screen.replace('3. Nohift+tab)', '3. No') : c.screen.replace(/^     \+/, ' 99 +');
+    expect(normalized).not.toBe(c.screen);
+    expect(adEpoch(c, normalized)?.pendingId).toBe(c.binding.state.pendingId);
+  });
+}
+for (const c of cases) {
+  test(`AD crop ${c.p.pid} rejects foreign, quoted, incomplete and policy-changing menus`, () => {
+    const directory = path.dirname(c.binding.expected);
+    const changes: [string, string][] = [
+      ['foreign directory', c.screen.replace(directory, path.join(directory, 'foreign'))],
+      ['split directory', c.screen.replace(directory, directory + '\n/foreign')],
+      ['quoted', '> Example:\n' + c.screen],
+      ['AUQ', '☐ Review\n' + c.screen],
+      ['code fence', '```\n' + c.screen],
+      ['missing footer', c.screen.replace('Esc to cancel · Tab to amend', '')],
+      ['policy on selected Yes', c.screen.replace('❯ 1. Yes', '❯ 1. Yes, always allow')],
+      ['selected No', c.screen.replace('❯ 1. Yes', '  1. Yes').replace('   3. No', ' ❯ 3. No')],
+      ['arbitrary No suffix', c.screen.replace(/3\. No(?:hift\+tab\))?/, '3. No; run another command')],
+      ['another hint', c.screen.replace(/3\. No(?:hift\+tab\))?/, '3. No(shift+enter)')],
+      ['foreign option action', c.screen.replace(/always\s+allow\s+access\s+to/, 'delete files from')],
+      ['unrecognized cropped prose', c.screen.replace(/^.*\n/, 'arbitrary text\n')],
+    ];
+    for (const [name, screen] of changes) {
+      expect(screen, name).not.toBe(c.screen);
+      expect(adEpoch(c, screen), name).not.toBeTruthy();
+      expect(createPlanCountPermissionGuard()(screen, '', adEpoch(c, screen)), name).not.toBe('grant');
+    }
+  });
+  test(`AD crop ${c.p.pid} leaves unrelated-basename permission policy unchanged`, () => {
+    const screen = c.screen.replace(path.basename(c.binding.expected), 'OTHER.md');
+    expect(adEpoch(c, screen)).toBeUndefined();
+    // This is intentionally the existing caller policy for unrelated fixture permissions.
+    expect(createPlanCountPermissionGuard()(screen, '', adEpoch(c, screen))).toBe('grant');
+  });
+  test(`AD crop ${c.p.pid} cannot replace missing, stale, completed or foreign native identity`, () => {
+    const original = c.binding.state;
+    for (const [name, state, delta] of [
+      ['foreign session', {...original, sessionId:'foreign'}, {}],
+      ['wrong native transcript', {...original, transcriptPath:path.join(c.p.config, 'projects', 'foreign', 'other.jsonl')}, {}],
+      ['completed request', {...original, completedId:original.pendingId}, {}],
+      ['no pending request', {...original, pendingId:null}, {}],
+      ['unseen pending request', {...original, pendingId:original.sessionId + ':other'}, {}],
+      ['stale timestamp', {...original, timestamp:new Date(c.p.startUnix * 1000 - 1).toISOString()}, {}],
+      ['future timestamp', {...original, timestamp:new Date(Date.now() + 60_000).toISOString()}, {}],
+      ['mixed sessions', original, {transcript:{status:'ready', calls:[], assistantMessages:[{sessionId:original.sessionId},{sessionId:'foreign'}]}}],
+      ['unready transcript', original, {transcript:{...c.observation.transcript,status:'unavailable'}}],
+    ] as const) {
+      expect(adEpoch(c, c.screen, state, delta), name).toBeNull();
+    }
+  });
+}
+
+test('AD crop fixture selects the exact existing permission regression callers', () => {
+  expect(selectTests(['test/fixtures/plan-count-permission-ad.json'], E2E_TOUCHFILES).selected.sort()).toEqual(
+    selectTests(['test/fixtures/plan-count-permission-ac.json'], E2E_TOUCHFILES).selected.sort());
+  expect(selectTests(['test/fixtures/plan-count-permission-ad.json'], E2E_TOUCHFILES).selected).toContain('plan-ceo-finding-count');
 });

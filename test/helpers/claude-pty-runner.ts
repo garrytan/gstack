@@ -1561,21 +1561,29 @@ export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint, active
   const skip = fp.options.filter(({ label }) =>
     /^Skip\s*[—–-]\s*(?:proceed\s*with\s*)?standard\s*review(?:\s*\(recommended\))?$/i.test(label));
   if (run.length === 1 && skip.length === 1) return skip[0].index;
-  // Short labels such as "Skip — proceed" need their full native meaning.
-  // A visible generic Skip alone cannot authorize leaving a review question.
+  // Short labels need the complete meaning of the active native tab. Other
+  // questions in a packet cannot lend their prerequisite context or choices.
   const call = activeCapture.nativeCall;
-  if (call && call.answered === false && call.failed === false && activeCapture.preReview && call.questions.length === 1 &&
-      activeCapture.signature === `${call.sessionId}:${call.toolUseId}` &&
-      fp.signature === activeCapture.signature &&
-      (activeCapture.nativeQuestionIndex === undefined || activeCapture.nativeQuestionIndex === 0)) {
-    const q = call.questions[0]!;
+  const activeIndex = activeCapture.nativeQuestionIndex ?? (call?.questions.length === 1 ? 0 : -1);
+  if (call && call.answered === false && call.failed === false && activeCapture.preReview &&
+      Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < call.questions.length) {
+    const q = call.questions[activeIndex]!;
+    const base = `${call.sessionId}:${call.toolUseId}`;
+    const activeSignature = call.questions.length === 1 ? base : `${base}:question:${activeIndex}`;
+    const routing = nativePlanCallFingerprint(call, fp.observedAtMs, fp.preReview);
     const optionsMatch = (capture: AskUserQuestionFingerprint) => capture.options.length === q.options.length &&
       capture.options.every((option, i) => option.index === i + 1 && option.label === q.options[i]!.label);
-    if (!q.multiSelect && q.options.length === 2 && optionsMatch(fp) && optionsMatch(activeCapture)) {
+    const routingMatches = fp.nativeCall === call && (fp.signature === activeSignature
+      ? fp.promptSnippet === `${q.header} ${q.question}` && optionsMatch(fp)
+      : fp.signature === base && fp.promptSnippet === routing.promptSnippet &&
+        JSON.stringify(fp.options) === JSON.stringify(routing.options));
+    if (!q.multiSelect && q.options.length === 2 && activeCapture.signature === activeSignature &&
+        activeCapture.promptSnippet === `${q.header} ${q.question}` && optionsMatch(activeCapture) && routingMatches &&
+        /\/office-hours/i.test(q.question) && /(?:no\s*design\s*doc|produce\s*a\s*design\s*doc)/i.test(q.question)) {
       const nativeRun = q.options.findIndex(option => /^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(option.label));
       const nativeSkip = q.options.findIndex(option =>
-        /^Skip\s*[—–-]\s*proceed(?:\s*\(recommended\))?$/i.test(option.label) &&
-        /^(?:(?:The\s+)?plan\s+(?:scope\s+)?is\s+(?:already\s+)?(?:precise|clear|well-defined|explicit)\.\s*)?Proceed\s+with\s+standard(?:\s+DX(?:\s+(?:POLISH|EXPANSION|TRIAGE))?)?\s+review\.?$/i.test((option.description ?? '').trim()));
+        /^Skip(?:\s*[—–-]\s*proceed)?(?:\s*\(recommended\))?$/i.test(option.label) &&
+        /^(?:(?:The\s+)?plan\s+(?:scope\s+)?is\s+(?:already\s+)?(?:precise|clear|well-defined|explicit)\.\s*)?Proceed\s+(?:with\s+standard(?:\s+DX(?:\s+(?:POLISH|EXPANSION|TRIAGE))?)?\s+review|straight\s+to\s+Step\s*0\s+premise\s+challenge\s+and\s+approach\s+alternatives)\.?$/i.test((option.description ?? '').trim()));
       if (nativeRun >= 0 && nativeSkip >= 0 && nativeRun !== nativeSkip) return nativeSkip + 1;
     }
   }
@@ -2467,9 +2475,10 @@ export async function launchClaudePty(
     if (opts.env?.HOME === undefined) {
       const runtime = withHermeticSkillRuntime(childEnv);
       childEnv = runtime.env;
-      // Lazy sections are installed runtime inputs outside the fixture cwd.
-      // Grant this known directory, preserving all other permission decisions.
-      args.push('--add-dir', runtime.root);
+      // Installed sections and generated ~/.gstack snapshots are owned inputs
+      // outside the fixture cwd. Grant only these two runtime directories;
+      // explicit GSTACK_HOME paths and operator permission settings stay separate.
+      args.push('--add-dir', runtime.root, '--add-dir', runtime.stateRoot);
     }
   }
 

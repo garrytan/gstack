@@ -63,7 +63,7 @@ describe('captured R planning navigation', () => {
     }
   });
 
-  test('short prerequisite labels require the current single native question and affirmative review action', () => {
+  test('short prerequisite labels require the current native question and affirmative review action', () => {
     for (const change of [
       (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.description = ''; },
       (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.description = 'Do not proceed with standard DX POLISH review.'; },
@@ -73,7 +73,6 @@ describe('captured R planning navigation', () => {
       (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.description = 'Proceed with standard DX POLISH review? No, run /office-hours first.'; },
       (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.description = 'Proceed with standard DX POLISH review. Accept the security risk.'; },
       (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.description = 'Plan scope is already precise. Proceed with standard DX POLISH review if the tests pass.'; },
-      (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.label = 'Skip'; },
       (c: NativePlanQuestionCall) => { c.questions[0]!.options.push({ label: 'Accept this security finding' }); },
       (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
       (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
@@ -97,6 +96,11 @@ describe('captured R planning navigation', () => {
     call.questions[0]!.options.reverse();
     const reordered = frame(call);
     expect(planCountPrerequisitePick(reordered.routing, reordered.active)).toBe(1);
+  });
+
+  test('a bare short label uses its bound unconditional review meaning', () => {
+    const call = pending(prerequisite as NativePlanQuestionCall);call.questions[0]!.options[1]!.label='Skip';
+    const {active,routing}=frame(call);expect(planCountPrerequisitePick(routing,active)).toBe(2);
   });
 
   test('short labels allow only a benign plan-scope premise plus the unconditional review action', () => {

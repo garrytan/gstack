@@ -6,9 +6,9 @@ export interface AutoplanPhaseHit {
 }
 
 function phaseDeclaration(text: string): RegExpExecArray | null {
-  const plain = text.replace(/^\*\*(Phase[ \t]+[\d.]+[ \t]+complete\.?)\*\*/i, '$1');
+  const plain = text.replace(/^\*\*(Phase[ \t]+[\d.]+[ \t]+(?:complete|is[ \t]+done)[.:]?)\*\*/i, '$1');
   if (/\bEmit\s+phase-transition\s+summary\s*:/i.test(plain)) return null;
-  return /^Phase[ \t]+(1|2(?:\.5)?|3)[ \t]+complete(?:\.(?:[ \t]+.*)?|)$/i.exec(plain);
+  return /^Phase[ \t]+(1|2(?:\.5)?|3)[ \t]+(?:complete(?:\.(?:[ \t]+.*)?|)|is[ \t]+done(?:[.:](?:[ \t]+.*)?|))$/i.exec(plain);
 }
 
 /**

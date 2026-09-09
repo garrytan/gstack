@@ -56,6 +56,69 @@ const object = (value: unknown): value is Record<string, any> =>
 const validTimestamp = (value: unknown): value is string =>
   typeof value === 'string' && Number.isFinite(Date.parse(value));
 
+/** Read one length-delimited protobuf field, rejecting malformed/ambiguous input. */
+function signatureField(bytes: Uint8Array | undefined, wanted: number): Uint8Array | undefined {
+  if (!bytes) return;
+  let cursor = 0;
+  let result: Uint8Array | undefined;
+  let seen = false;
+  const integer = () => {
+    let value = 0;
+    for (let shift = 0; shift < 70; shift += 7) {
+      if (cursor >= bytes.length) throw new Error('truncated signature');
+      const byte = bytes[cursor++]!;
+      value += (byte & 127) * 2 ** shift;
+      if (!Number.isSafeInteger(value)) throw new Error('signature integer overflow');
+      if (!(byte & 128)) return value;
+    }
+    throw new Error('overlong signature integer');
+  };
+  while (cursor < bytes.length) {
+    const key = integer();
+    const field = Math.floor(key / 8);
+    if (field < 1 || field > 0x1fffffff) throw new Error('invalid signature field');
+    if (field === wanted) {
+      if (seen) throw new Error('duplicate signature field');
+      seen = true;
+    }
+    switch (key % 8) {
+      case 0: integer(); break;
+      case 1: cursor += 8; break;
+      case 2: {
+        const length = integer();
+        if (length > bytes.length - cursor) throw new Error('truncated signature field');
+        if (field === wanted) result = bytes.subarray(cursor, cursor + length);
+        cursor += length;
+        break;
+      }
+      case 5: cursor += 4; break;
+      default: throw new Error('unsupported signature wire type');
+    }
+    if (cursor > bytes.length) throw new Error('truncated signature field');
+  }
+  return result;
+}
+
+/**
+ * Claude's public narration renderer classifies signature fields 2→1→8 as
+ * block_kind="narration": summaries of inter-tool prose, not private reasoning.
+ * Match that metadata only in this already-owned native transcript. This is
+ * classification, not cryptographic signature verification. Never read the
+ * thinking text of an untagged, unknown, malformed or legacy block.
+ */
+function publicNarrationText(block: Record<string, any>): string | undefined {
+  if (block.type !== 'thinking' || typeof block.signature !== 'string' ||
+      block.signature.length > 64 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(block.signature)) return;
+  try {
+    const bytes = Buffer.from(block.signature, 'base64');
+    const canonical = bytes.toString('base64');
+    if (block.signature !== canonical && block.signature !== canonical.replace(/=+$/, '')) return;
+    const tag = signatureField(signatureField(signatureField(bytes, 2), 1), 8);
+    if (!tag || Buffer.from(tag).toString('utf8') !== 'narration') return;
+    return typeof block.thinking === 'string' && block.thinking.trim() ? block.thinking : undefined;
+  } catch { return; }
+}
+
 function validQuestions(value: unknown): value is NativePlanQuestion[] {
   return Array.isArray(value) && value.length > 0 && value.every(q =>
     object(q) && typeof q.header === 'string' && typeof q.question === 'string' && q.question.trim() &&
@@ -116,9 +179,10 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
               }
             }
 
-            if (record.message.role === 'assistant' && block.type === 'text' &&
-                typeof block.text === 'string' && block.text.trim() && validTimestamp(record.timestamp)) {
-              assistantMessages.push({ sessionId: record.sessionId, text: block.text, timestamp: record.timestamp });
+            if (record.message.role === 'assistant' && validTimestamp(record.timestamp)) {
+              const text = block.type === 'text' && typeof block.text === 'string' && block.text.trim()
+                ? block.text : publicNarrationText(block);
+              if (text) assistantMessages.push({ sessionId: record.sessionId, text, timestamp: record.timestamp });
             }
             if (record.message.role === 'assistant' && block.type === 'tool_use' && block.name === 'ExitPlanMode' &&
                 typeof block.id === 'string' && validTimestamp(record.timestamp)) {
