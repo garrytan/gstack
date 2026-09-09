@@ -1,0 +1,306 @@
+{
+  "provenance": {
+    "at": "2026-09-09T01:30:34.158058+00:00",
+    "sourceHead": "36fa6add62cf36b986b962a1ea62b09ba9b10703",
+    "sourceWtree": "712c56e3cd77b2203553adc267ed3ea2a5953325",
+    "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+    "artifact": "/home/vercel-sandbox/gstack/.context/ship-source-n-full-paid-20260909-0105/evals/job-5/shards/skill-e2e-plan-devex-finding-count/pty-count/ship-source-n-full-paid-20260909-0105-5/plan-devex-review-1788916012691-lEPDRv",
+    "nativeSource": "/home/vercel-sandbox/gstack/.context/ship-source-n-full-paid-20260909-0105/native-observation/pinned-native/1584143-3983963/79f19998-a239-4375-86d4-a88a49a47222/5c1aec097d2ee74cc40671cc2749c1160f3fd5fa64671c42a846f64d25f4bedf.jsonl",
+    "hookSource": "/tmp/gstack-paid-shard-uOXOXc/tmp/gstack-pending-exit-XwUzWn/pending.json",
+    "reportSource": "/tmp/gstack-paid-shard-uOXOXc/tmp/gstack-e2e-plan-devex-DF5MmP/gstack-test-plan-devex.md",
+    "reportMtimeMs": 1788916573653.5134,
+    "capture": {
+      "skill": "plan-devex-review",
+      "runId": "ship-source-n-full-paid-20260909-0105-5",
+      "cwd": "/tmp/gstack-paid-shard-uOXOXc/tmp/gstack-plan-count-864Nrp",
+      "claudeConfigDir": "/tmp/gstack-paid-shard-uOXOXc/tmp/gstack-hermetic-1584001-z9r1Ak/with-skills/.claude",
+      "at": "2026-09-09T01:30:32.123Z"
+    },
+    "calls": 7,
+    "rawCounts": {
+      "step0Count": 1,
+      "reviewCount": 6,
+      "administrativeCount": 0
+    },
+    "lastCall": {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01DfE43HaCnuEHH4fD8hsSKR",
+      "questions": [
+        {
+          "question": "D7 \u2014 DX review is complete. 5 issues found and resolved (T1\u2013T5, all P1 except T5). What\u2019s next?\n\nDX Review result: 4/10 \u2192 8/10. TTHW: 6 min \u2192 < 2 min (Champion tier). Two of the fixes (T2: demo CI skip, T3: run_batch arg order) have architectural implications worth an engineering review.\n\nRecommendation: A \u2014 /plan-eng-review. The T2 and T3 changes affect public contracts and SDK internals. Eng review catches sequencing issues and implementation risks before implementation starts.",
+          "header": "D7 Next",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /plan-eng-review next (Recommended)",
+              "description": "Validate T2 (demo CI skip) and T3 (arg order change) architecturally. Required gate before shipping regardless."
+            },
+            {
+              "label": "Start implementing now",
+              "description": "The DX decisions are clear enough to implement. Run /devex-review after shipping to verify TTHW target was met."
+            },
+            {
+              "label": "Skip, handle next steps manually",
+              "description": "You\u2019ll decide what to run next independently."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 DX review is complete. 5 issues found and resolved (T1\u2013T5, all P1 except T5). What\u2019s next?\n\nDX Review result: 4/10 \u2192 8/10. TTHW: 6 min \u2192 < 2 min (Champion tier). Two of the fixes (T2: demo CI skip, T3: run_batch arg order) have architectural implications worth an engineering review.\n\nRecommendation: A \u2014 /plan-eng-review. The T2 and T3 changes affect public contracts and SDK internals. Eng review catches sequencing issues and implementation risks before implementation starts.": "Run /plan-eng-review next (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:16:55.267Z"
+    },
+    "files": {
+      "observation.json": "24896116d00d26626ac50841addfcb562915f3d889994540d13931afd214027b",
+      "terminal.raw.log": "7b327455539e2714acf0d66937616c7865b4192a222ee7d173e3715509ee1439",
+      "terminal.visible.log": "0cdbbc0f5bf4458652991ba4838ca01aa723c5a4e752dba89e8d81b4715bc026",
+      "terminal.screen.log": "4ca3678ddeb9773fc4e34f2c4e4af076c1162ff069bfc08d2adfc8f8edc3ffcc",
+      "native.jsonl": "5c1aec097d2ee74cc40671cc2749c1160f3fd5fa64671c42a846f64d25f4bedf",
+      "pending-exit.json": "675087c7e83a054843e53b71f94fdbd8235f82f437df0b7a60451c2f633b0bb5",
+      "current-report.md": "a5a1fde52876f78486322e1282cd57045e38e390703d0e0a8ec86cba9f5bf822"
+    }
+  },
+  "calls": [
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01X81sNZuBzCRNWVuTZQKdqH",
+      "questions": [
+        {
+          "question": "D1 \u2014 Does this first-person developer trace match reality?\n\nI traced your ML engineer persona's actual getting-started path from the README. Here's what I found they experience:\n\nT+0:00  Opens README. Sees install command. Runs pip install evalkit==2.0.0b1. Clean.\nT+1:00  Sets EVALKIT_API_KEY. No validation feedback \u2014 unclear if key is correct.\nT+1:15  Runs `python examples/first_eval.py` per README. Gets: FileNotFoundError.\nT+1:30  Searches package contents. No examples/ directory. README was wrong.\nT+2:00  Eventually finds `python -m evalkit.demo` (not in primary README quickstart).\nT+2:15  Runs demo. Hangs. No output, no progress, no ETA.\nT+7:15  Five minutes later: first score prints. 6 minutes total.\nT+7:20  Tries run_eval() then run_batch(). Notices reversed arg order.\n\nFinal state: Got a result, filed 3 mental complaints, not recommending to teammates yet.\n\nDoes this match the actual experience?",
+          "header": "D1 Narrative",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Accurate \u2014 proceed (Recommended)",
+              "description": "This trace matches the real getting-started experience. Use it as the baseline for all DX scoring."
+            },
+            {
+              "label": "Mostly right \u2014 minor corrections",
+              "description": "The broad strokes are right but a detail or two needs updating. You can describe the correction."
+            },
+            {
+              "label": "Wrong \u2014 actual experience differs",
+              "description": "The real path is different from this trace. You'll describe what actually happens."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Does this first-person developer trace match reality?\n\nI traced your ML engineer persona's actual getting-started path from the README. Here's what I found they experience:\n\nT+0:00  Opens README. Sees install command. Runs pip install evalkit==2.0.0b1. Clean.\nT+1:00  Sets EVALKIT_API_KEY. No validation feedback \u2014 unclear if key is correct.\nT+1:15  Runs `python examples/first_eval.py` per README. Gets: FileNotFoundError.\nT+1:30  Searches package contents. No examples/ directory. README was wrong.\nT+2:00  Eventually finds `python -m evalkit.demo` (not in primary README quickstart).\nT+2:15  Runs demo. Hangs. No output, no progress, no ETA.\nT+7:15  Five minutes later: first score prints. 6 minutes total.\nT+7:20  Tries run_eval() then run_batch(). Notices reversed arg order.\n\nFinal state: Got a result, filed 3 mental complaints, not recommending to teammates yet.\n\nDoes this match the actual experience?": "Accurate \u2014 proceed (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:12:36.870Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01FNzCAWLHkfujekN3t8TTfd",
+      "questions": [
+        {
+          "question": "D2 \u2014 The 5-minute mandatory CI wait structurally blocks your < 2 min TTHW target. How should the plan resolve this?\n\nContext: docs/current-contracts.md states every first evaluation blocks for 5 minutes on a mandatory remote CI check, with no skip flag and no offline path. Your approved TTHW target is < 2 minutes (docs/benchmarks.md). These two contracts are directly contradictory. The plan currently retains the CI gate unchanged.\n\nYour ML engineer persona runs `python -m evalkit.demo` expecting a quick local result, hangs for 5 minutes with no output, and hits the 6-minute mark before seeing anything. Competitor A reaches the same result in 2 minutes.\n\nDX Principle at stake: 'Zero friction at T0' and 'Opinionated defaults with escape hatches.'\n\nRecommendation: A \u2014 add a skip flag for the demo command. It\u2019s the smallest targeted change that unblocks the TTHW target without touching normal evaluation behavior.\nCompleteness: A=9/10, B=8/10, C=3/10, D=4/10",
+          "header": "D2 TTHW",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add --skip-ci-check to demo (Recommended)",
+              "description": "python -m evalkit.demo skips the remote CI check by default. Normal run_eval/run_batch behavior is unchanged. Targeted, low-risk. (human: ~2h / CC: ~20min)"
+            },
+            {
+              "label": "Make CI check async",
+              "description": "Return an immediate local result, then validate asynchronously in the background. Better UX but more complex to implement. (human: ~1 week / CC: ~2h)"
+            },
+            {
+              "label": "Accept 6-min TTHW, adjust the target",
+              "description": "Keep the gate, lower the ambition. Competitive rank stays 'Needs Work' vs peers. Documents the trade-off honestly."
+            },
+            {
+              "label": "Remove CI gate for all local runs",
+              "description": "Detect non-CI environment and skip the gate entirely. Broadest fix, highest risk of inconsistency between local and CI results."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 The 5-minute mandatory CI wait structurally blocks your < 2 min TTHW target. How should the plan resolve this?\n\nContext: docs/current-contracts.md states every first evaluation blocks for 5 minutes on a mandatory remote CI check, with no skip flag and no offline path. Your approved TTHW target is < 2 minutes (docs/benchmarks.md). These two contracts are directly contradictory. The plan currently retains the CI gate unchanged.\n\nYour ML engineer persona runs `python -m evalkit.demo` expecting a quick local result, hangs for 5 minutes with no output, and hits the 6-minute mark before seeing anything. Competitor A reaches the same result in 2 minutes.\n\nDX Principle at stake: 'Zero friction at T0' and 'Opinionated defaults with escape hatches.'\n\nRecommendation: A \u2014 add a skip flag for the demo command. It\u2019s the smallest targeted change that unblocks the TTHW target without touching normal evaluation behavior.\nCompleteness: A=9/10, B=8/10, C=3/10, D=4/10": "Add --skip-ci-check to demo (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:12:58.944Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01CkX8gQWRA4xAeFxs7Aeg7W",
+      "questions": [
+        {
+          "question": "D3 \u2014 The README quickstart directs developers to a file that doesn\u2019t exist in the published package. How should the plan fix this?\n\nContext: README.md says 'follow the quickstart\u2019s command: python examples/first_eval.py'. But docs/package-contents.txt confirms this file is absent from both the published package and the release examples archive. The developer's very first action after install fails with FileNotFoundError. This is the worst possible first-run experience.\n\nFrom the confirmed empathy narrative (D1): the developer spends ~45 seconds confused, hunting through the package contents before finding the demo command.\n\nDX Principle at stake: 'Zero friction at T0' \u2014 the first command must work.\n\nRecommendation: B \u2014 redirect README to demo command. The demo command already works and is the settled delivery vehicle. Replacing the broken reference costs 30 minutes and closes the gap cleanly.\nCompleteness: A=10/10, B=9/10",
+          "header": "D3 Quickstart",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add examples/first_eval.py to the package (Recommended)",
+              "description": "Include the file in the published package so the README stays accurate. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Redirect README to python -m evalkit.demo",
+              "description": "Remove the broken file reference. Make the demo command the primary quickstart path. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "Add both \u2014 include the file AND demo command",
+              "description": "Belt and suspenders: keep examples/first_eval.py as a complete worked example, add demo as the fast path. (human: ~2h / CC: ~20min)"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 The README quickstart directs developers to a file that doesn\u2019t exist in the published package. How should the plan fix this?\n\nContext: README.md says 'follow the quickstart\u2019s command: python examples/first_eval.py'. But docs/package-contents.txt confirms this file is absent from both the published package and the release examples archive. The developer's very first action after install fails with FileNotFoundError. This is the worst possible first-run experience.\n\nFrom the confirmed empathy narrative (D1): the developer spends ~45 seconds confused, hunting through the package contents before finding the demo command.\n\nDX Principle at stake: 'Zero friction at T0' \u2014 the first command must work.\n\nRecommendation: B \u2014 redirect README to demo command. The demo command already works and is the settled delivery vehicle. Replacing the broken reference costs 30 minutes and closes the gap cleanly.\nCompleteness: A=10/10, B=9/10": "Add examples/first_eval.py to the package (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:12.976Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_018qhm8N25uCWGxL6zYYWZFe",
+      "questions": [
+        {
+          "question": "D4 \u2014 Two evaluation functions use the same argument names in reversed order. Should the plan standardize them?\n\nContext (from docs/api.md): run_eval(dataset, evaluator) and run_batch(evaluator, dataset) describe the same concepts with the same argument names, but reversed positional order. The reversal is described as 'intentional in the current draft.' A developer who uses both functions will eventually call one with the wrong arg order. Python won\u2019t raise a TypeError \u2014 it will silently produce wrong results.\n\nYour ML engineer persona uses both functions after the getting-started flow. They\u2019ll either get burned once and learn, or never notice because their evaluation scores look plausible.\n\nDX Principle at stake: 'Pit of Success \u2014 make the right thing easy, the wrong thing hard.'\n\nRecommendation: A \u2014 standardize the order. Silent wrong results are worse than a one-time breaking change in a beta SDK. Beta is the right moment for this.\nCompleteness: A=9/10, B=6/10, C=5/10",
+          "header": "D4 API args",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Standardize to (dataset, evaluator) for both (Recommended)",
+              "description": "Match run_eval's current order. Update run_batch signature. Add a clear changelog note. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Keep reversed order, add keyword-arg enforcement",
+              "description": "Require keyword arguments for both functions so positional mistakes raise TypeError immediately. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Keep as-is \u2014 document the difference clearly",
+              "description": "Add a warning note in the API docs. Accept that developers will need to check each time. Completeness: 5/10 \u2014 documents the hazard but doesn\u2019t eliminate it."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Two evaluation functions use the same argument names in reversed order. Should the plan standardize them?\n\nContext (from docs/api.md): run_eval(dataset, evaluator) and run_batch(evaluator, dataset) describe the same concepts with the same argument names, but reversed positional order. The reversal is described as 'intentional in the current draft.' A developer who uses both functions will eventually call one with the wrong arg order. Python won\u2019t raise a TypeError \u2014 it will silently produce wrong results.\n\nYour ML engineer persona uses both functions after the getting-started flow. They\u2019ll either get burned once and learn, or never notice because their evaluation scores look plausible.\n\nDX Principle at stake: 'Pit of Success \u2014 make the right thing easy, the wrong thing hard.'\n\nRecommendation: A \u2014 standardize the order. Silent wrong results are worse than a one-time breaking change in a beta SDK. Beta is the right moment for this.\nCompleteness: A=9/10, B=6/10, C=5/10": "Standardize to (dataset, evaluator) for both (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:27.023Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01JyBKwLH2NjsfqcXTsgjzRv",
+      "questions": [
+        {
+          "question": "D5 \u2014 The authentication error gives developers nothing to act on. Should the plan improve it?\n\nContext (from docs/api.md): For an invalid API key, the SDK raises AuthError('request failed'). No error code, no explanation of which credential failed, no instruction for fixing it. The plan retains this message. This is the most common new-developer failure \u2014 typo in the API key, expired key, wrong key format. When it fires, the developer has zero signal.\n\nWhat the developer currently sees:\n    AuthError: request failed\n\nWhat they need:\n    AuthError: API key rejected (E401). Your EVALKIT_API_KEY was rejected by the server.\n    Check that the key is correct and not expired.\n    Docs: https://docs.evalkit/auth\n\nAll other errors in the SDK already identify cause, file/argument, and fix \u2014 this is the sole exception (docs/current-contracts.md).\n\nDX Principle at stake: 'Fight uncertainty \u2014 every error = problem + cause + fix.'\n\nRecommendation: A \u2014 full error repair. One-line change in evalkit/client.py, high leverage, no downside.\nCompleteness: A=10/10, B=8/10, C=2/10",
+          "header": "D5 AuthError",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Full repair: cause + fix + doc link (Recommended)",
+              "description": "Update AuthError to include: which credential failed, likely cause, fix instruction, and a docs link. One change in evalkit/client.py. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "Partial: add cause only",
+              "description": "Tell the developer the API key was rejected but skip the fix instruction and doc link. Better than nothing. (human: ~15min / CC: ~5min)"
+            },
+            {
+              "label": "Keep as-is",
+              "description": "Retain 'request failed'. Accept that developers will need to search for solutions externally. Completeness: 2/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 The authentication error gives developers nothing to act on. Should the plan improve it?\n\nContext (from docs/api.md): For an invalid API key, the SDK raises AuthError('request failed'). No error code, no explanation of which credential failed, no instruction for fixing it. The plan retains this message. This is the most common new-developer failure \u2014 typo in the API key, expired key, wrong key format. When it fires, the developer has zero signal.\n\nWhat the developer currently sees:\n    AuthError: request failed\n\nWhat they need:\n    AuthError: API key rejected (E401). Your EVALKIT_API_KEY was rejected by the server.\n    Check that the key is correct and not expired.\n    Docs: https://docs.evalkit/auth\n\nAll other errors in the SDK already identify cause, file/argument, and fix \u2014 this is the sole exception (docs/current-contracts.md).\n\nDX Principle at stake: 'Fight uncertainty \u2014 every error = problem + cause + fix.'\n\nRecommendation: A \u2014 full error repair. One-line change in evalkit/client.py, high leverage, no downside.\nCompleteness: A=10/10, B=8/10, C=2/10": "Full repair: cause + fix + doc link (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:41.065Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01JyS795WZ7WjmHEtxQV42T5",
+      "questions": [
+        {
+          "question": "D6 \u2014 v1\u2019s Client.evaluate() is removed in v2 with no warning, guide, or codemod. How should the plan address this?\n\nContext (from docs/api.md): Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided. A developer upgrading from v1 will get a silent runtime breakage: AttributeError: 'Client' object has no attribute 'evaluate'. They won't know why, and won't know the fix without digging through release notes.\n\nThis is 'upgrade fear' at its worst \u2014 the moment a developer trusts you enough to upgrade, you break their app.\n\nDX Principle at stake: 'Credibility \u2014 upgrades should be boring.'\n\nRecommendation: A \u2014 deprecation shim. One extra method in evalkit/client.py plus a changelog entry. Developers who upgrade get a clear ActionableError pointing to the new method name instead of a cryptic AttributeError. Low cost, high trust signal.\nCompleteness: A=9/10, B=8/10, C=3/10",
+          "header": "D6 Upgrade",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add deprecation shim + migration guide (Recommended)",
+              "description": "Client.evaluate() in v2 raises DeprecationWarning with exact fix: 'use Client.run() instead.' Add a migration note to changelog. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Add migration guide only, no shim",
+              "description": "Document the rename in the changelog and a migration guide. Developers need to read before upgrading. No code safety net. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "Keep as-is \u2014 beta SDK, breaking changes expected",
+              "description": "Accept that v1\u2192v2 is a breaking change. Developers should check the changelog. Completeness: 3/10 \u2014 developer pain is real but beta expectations are lower."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 v1\u2019s Client.evaluate() is removed in v2 with no warning, guide, or codemod. How should the plan address this?\n\nContext (from docs/api.md): Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided. A developer upgrading from v1 will get a silent runtime breakage: AttributeError: 'Client' object has no attribute 'evaluate'. They won't know why, and won't know the fix without digging through release notes.\n\nThis is 'upgrade fear' at its worst \u2014 the moment a developer trusts you enough to upgrade, you break their app.\n\nDX Principle at stake: 'Credibility \u2014 upgrades should be boring.'\n\nRecommendation: A \u2014 deprecation shim. One extra method in evalkit/client.py plus a changelog entry. Developers who upgrade get a clear ActionableError pointing to the new method name instead of a cryptic AttributeError. Low cost, high trust signal.\nCompleteness: A=9/10, B=8/10, C=3/10": "Add deprecation shim + migration guide (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:55.116Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01DfE43HaCnuEHH4fD8hsSKR",
+      "questions": [
+        {
+          "question": "D7 \u2014 DX review is complete. 5 issues found and resolved (T1\u2013T5, all P1 except T5). What\u2019s next?\n\nDX Review result: 4/10 \u2192 8/10. TTHW: 6 min \u2192 < 2 min (Champion tier). Two of the fixes (T2: demo CI skip, T3: run_batch arg order) have architectural implications worth an engineering review.\n\nRecommendation: A \u2014 /plan-eng-review. The T2 and T3 changes affect public contracts and SDK internals. Eng review catches sequencing issues and implementation risks before implementation starts.",
+          "header": "D7 Next",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /plan-eng-review next (Recommended)",
+              "description": "Validate T2 (demo CI skip) and T3 (arg order change) architecturally. Required gate before shipping regardless."
+            },
+            {
+              "label": "Start implementing now",
+              "description": "The DX decisions are clear enough to implement. Run /devex-review after shipping to verify TTHW target was met."
+            },
+            {
+              "label": "Skip, handle next steps manually",
+              "description": "You\u2019ll decide what to run next independently."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 DX review is complete. 5 issues found and resolved (T1\u2013T5, all P1 except T5). What\u2019s next?\n\nDX Review result: 4/10 \u2192 8/10. TTHW: 6 min \u2192 < 2 min (Champion tier). Two of the fixes (T2: demo CI skip, T3: run_batch arg order) have architectural implications worth an engineering review.\n\nRecommendation: A \u2014 /plan-eng-review. The T2 and T3 changes affect public contracts and SDK internals. Eng review catches sequencing issues and implementation risks before implementation starts.": "Run /plan-eng-review next (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:16:55.267Z"
+    }
+  ],
+  "pendingExit": {
+    "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+    "toolUseId": "toolu_01MjJwSFKThu6uj7seM62GVR",
+    "cwd": "/tmp/gstack-paid-shard-uOXOXc/tmp/gstack-plan-count-864Nrp",
+    "transcriptPath": "/tmp/gstack-paid-shard-uOXOXc/tmp/gstack-hermetic-1584001-z9r1Ak/with-skills/.claude/projects/-tmp-gstack-paid-shard-uOXOXc-tmp-gstack-plan-count-864Nrp/79f19998-a239-4375-86d4-a88a49a47222.jsonl",
+    "timestamp": "2026-09-09T01:17:10.868Z"
+  },
+  "screen": "  \n\u25cf EXIT PLAN MODE GATE checks all pass:\n  - Last ## heading: ## GSTACK REVIEW REPORT \u2713\n  - Table + VERDICT present \u2713\n  - Final non-whitespace line: NO UNRESOLVED DECISIONS (unbolded) \u2713\n  - gstack-review-log called \u2713\n  - gstack-review-read run \u2713\n\n  Running learnings log, then asking the final next-steps question.\n\n\u25cf Bash(~/.claude/skills/gstack/bin/gstack-learnings-log\n      '{\"skill\":\"plan-devex-review\",\"type\":\"pitfall\",\"key\":\"mandatory-ci-wait-tthw-conflict\",\"insight\":\"A mandatory r\u2026)\n  \u23bf \u00a0Learnings logged\n  \u23bf \u00a0Allowed by auto mode classifier\n\n\u25cf\u00a0User answered Claude's questions:\n  \u23bf \u00a0\u00b7 D7 \u2014 DX review is complete. 5 issues found and resolved (T1\u2013T5, all P1 except T5). What\u2019s next?\n\n     DX Review result: 4/10 \u2192 8/10. TTHW: 6 min \u2192 < 2 min (Champion tier). Two of the fixes (T2: demo CI skip, T3:\n     run_batch arg order) have architectural implications worth an engineering review.\n\n     Recommendation: A \u2014 /plan-eng-review. The T2 and T3 changes affect public contracts and SDK internals. Eng review\n     catches sequencing issues and implementation risks before implementation starts. \u2192 Run /plan-eng-review next\n     (Recommended)\n\n\u25cf Bash(# Run telemetry - PLAN MODE EXCEPTION \u2014 ALWAYS RUN\n      ~/.claude/skills/gstack/bin/gstack-skill-end --skill \"plan-devex-review\" --outcome success \\\u2026)\n  \u23bf \u00a0SKILL_END: recorded outcome=success duration_s=622\n     Telemetry done\n  \u23bf \u00a0Allowed by auto mode classifier\n  \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n Exit plan mode?\n\n  Claude wants to exit plan mode\n\n  \u276f 1. Yes, and switch to default (ask each time) for this session\n    2. No\n\n",
+  "reportContent": "# EvalKit SDK \u2014 DX Polish Plan Review\n\n## Context\n\nThis review applies the DX POLISH posture to the EvalKit SDK beta release plan.\nThe goal is to make every developer-facing touchpoint bulletproof within the\nexisting release scope \u2014 no new features, no scope expansion. The SDK is a Python\nlibrary for ML engineers evaluating LLM responses. The review surfaces concrete\ncontract repairs the plan must include before shipping.\n\nPre-established decisions (from README.md, docs/benchmarks.md, PLAN.md \u2014 not re-litigated here):\n- **Persona**: ML engineer, writes Python daily, terminal user, wants local results before connecting to production CI\n- **TTHW target**: < 2 minutes (approved; current measurement: 6 minutes including mandatory 5-min CI wait)\n- **Delivery vehicle**: `python -m evalkit.demo` (copy-paste demo command, no hosted playground)\n- **Mode**: DX POLISH (existing scope, bulletproof every touchpoint)\n- **Competitive rank**: EvalKit 6 min vs Peer A=2 min, B=4 min, C=3 min\n\n---\n\n## Developer Persona Card\n\n```\nTARGET DEVELOPER PERSONA\n========================\nWho:       ML engineer evaluating LLM outputs; writes Python daily\nContext:   Runs EvalKit locally first to validate before wiring it into CI\nTolerance: Expects < 5 minutes to first result; abandons at 10+ minutes\nExpects:   pip install works, env var sets up auth, first run produces real scores\n```\n\n---\n\n## Developer Empathy Narrative (D1 \u2014 confirmed accurate)\n\nI open the README. The first heading is \"EvalKit SDK\" \u2014 a clear one-liner: Python SDK\nfor ML engineers evaluating LLM responses. That's me. I scroll down. Install command:\n`python -m pip install evalkit==2.0.0b1`. I run it. A minute passes. Next: set\n`EVALKIT_API_KEY`. I set it. Then: `python examples/first_eval.py`. I run it and see:\n\n```\nFileNotFoundError: [Errno 2] No such file or directory: 'examples/first_eval.py'\n```\n\nWhat? I check the package files. No `examples/` directory. The README told me to run\na file that isn't in the package. I dig around and eventually find a note about\n`python -m evalkit.demo`. I try it. It starts running. Then it hangs \u2014 no output, no\nprogress indicator, no ETA. I wait. The SDK is silently waiting for a remote CI check.\nFive minutes pass before I see my first real score. Six minutes total for hello world.\nThe peer SDK I evaluated last week took two minutes. I'm not yet sold.\n\n---\n\n## Competitive DX Benchmark\n\n```\nCOMPETITIVE DX BENCHMARK\n=========================\nTool           | TTHW  | Notable DX Choice                    | Source\nPeer SDK A     | 2 min | Sets the benchmark the team targets  | docs/benchmarks.md\nPeer SDK C     | 3 min | Middle of the field                  | docs/benchmarks.md\nPeer SDK B     | 4 min | Longest of the three peers           | docs/benchmarks.md\nEvalKit (now)  | 6 min | Mandatory 5-min CI wait, broken ref  | docs/ audit\nEvalKit (goal) | <2 min| Champion tier: under 2 minutes       | docs/benchmarks.md\n```\n\nGap to close: 4+ minutes. The 5-minute CI wait is the primary driver.\n\n---\n\n## Developer Journey Map (all friction points resolved)\n\n```\nSTAGE           | DEVELOPER DOES                       | FRICTION POINT               | STATUS\n----------------|--------------------------------------|------------------------------|----------\n1. Discover     | Google, land on README               | Clear audience call-out      | ok\n2. Install      | pip install evalkit==2.0.0b1         | One command, no prereqs      | ok\n3. Hello World  | python examples/first_eval.py        | FILE NOT IN PACKAGE          | FIXED (T1)\n4. Demo run     | python -m evalkit.demo               | 5-min CI wait, no feedback   | FIXED (T2)\n5. Real Usage   | run_eval() / run_batch()             | Reversed positional args     | FIXED (T3)\n6. Debug        | Wrong API key                        | AuthError(\"request failed\")  | FIXED (T4)\n7. Upgrade      | v1 -> v2 migration                   | Immediate removal, no guide  | FIXED (T5)\n```\n\n---\n\n## First-Time Developer Confusion Report (D1 \u2014 all items addressed)\n\n```\nFIRST-TIME DEVELOPER REPORT\n============================\nPersona: ML engineer, Python daily, terminal-first\nAttempting: EvalKit getting started\n\nCONFUSION LOG:\nT+0:00  Opens README. Sees install command. Runs pip install. Clean.\nT+1:00  Sets EVALKIT_API_KEY env var. No validation feedback.\nT+1:15  Runs `python examples/first_eval.py` per README. FileNotFoundError.\n         -> FIXED by T1: examples/first_eval.py added to package\nT+1:30  Searches package contents. No examples/. Confused.\n         -> FIXED by T1\nT+2:00  Finds `python -m evalkit.demo`. Runs it.\nT+2:15  Demo hangs. No output, no progress, no ETA.\n         -> FIXED by T2: demo skips CI check, produces result in < 2 min\nT+7:15  First score prints. 6 minutes total.\n         -> TARGET: < 2 minutes after T2 fix\nT+7:20  Tries run_eval() then run_batch(). Reversed arg order.\n         -> FIXED by T3: both standardized to (dataset, evaluator)\n```\n\n---\n\n## DX Review Findings (8 Passes \u2014 DX POLISH)\n\n### Pass 1: Getting Started Experience \u2014 2/10 \u2192 8/10\n\n**Evidence:** The ML engineer's hello world path broke at step 3 (missing file, Gap 1A)\nand step 4 (5-minute silent wait, Gap 1B). Competitor A reaches the same result in 2 min.\n\n**Gap 1A \u2014 Missing quickstart file (RESOLVED: D3 \u2014 add examples/first_eval.py to package)**\n`examples/first_eval.py` is in the README quickstart but absent from both the published\npackage and the release examples archive (docs/package-contents.txt). The developer's first\ncommand after install produces FileNotFoundError. Fix: include the file in the package.\n\n**Gap 1B \u2014 TTHW blocker: mandatory 5-minute CI wait (RESOLVED: D2 \u2014 skip-CI-check for demo)**\nEvery first evaluation blocks for 5 minutes on a mandatory remote CI check with no skip\nflag. The approved TTHW target is < 2 minutes (docs/benchmarks.md). These are structurally\ncontradictory. Fix: `python -m evalkit.demo` skips the remote CI check by default. Normal\n`run_eval`/`run_batch` behavior is unchanged.\n\n**Post-fix score: 8/10**\n\n---\n\n### Pass 2: API/CLI/SDK Design \u2014 5/10 \u2192 8/10\n\n**Evidence:** `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)` use the\nsame argument names in reversed order. Silent wrong results for developers who use both.\n\n**Gap 2A \u2014 Reversed positional argument order (RESOLVED: D4 \u2014 standardize to (dataset, evaluator))**\nBeta is the right time for this fix. Standardize `run_batch` to match `run_eval`'s signature.\nDocument the change in the changelog. Eliminates the pit-of-failure pattern without\nintroducing any ongoing API maintenance burden.\n\n**Post-fix score: 8/10**\n\n---\n\n### Pass 3: Error Messages & Debugging \u2014 2/10 \u2192 9/10\n\n**Evidence:** `AuthError(\"request failed\")` \u2014 no code, no cause, no fix. All other errors\nalready identify cause, argument/file, and fix (docs/current-contracts.md). Auth is the\nsole critical gap and the most common new-developer failure mode.\n\n**Gap 3A \u2014 Useless auth error (RESOLVED: D5 \u2014 full repair: cause + fix + doc link)**\n\nCurrent: `AuthError: request failed`\n\nRequired after fix:\n```\nAuthError: API key rejected (E401). Your EVALKIT_API_KEY was rejected by the server.\nCheck that the key is correct and not expired.\nDocs: https://docs.evalkit/auth\n```\n\nOne change in `evalkit/client.py`. The fix costs 30 minutes and closes the most\npainful error path for new developers.\n\n**Post-fix score: 9/10**\n\n---\n\n### Pass 4: Documentation & Learning \u2014 6/10 \u2192 8/10\n\n**What's working:** README is clear and audience-targeted. API reference, benchmarks,\nand package contents are documented.\n\n**Gap 4A:** Linked to Gap 1A \u2014 quickstart points to missing file. Fixed by T1.\n\n**Post-fix score: 8/10**\n\n---\n\n### Pass 5: Upgrade & Migration Path \u2014 1/10 \u2192 8/10\n\n**Evidence:** v1 `Client.evaluate()` removed immediately in v2. No deprecation warning,\nno migration guide, no codemod. Developer upgrades, gets `AttributeError`, has no path.\n\n**Gap 5A \u2014 Upgrade cliff (RESOLVED: D6 \u2014 deprecation shim + migration guide)**\nAdd `Client.evaluate()` to v2 that raises `DeprecationWarning: Client.evaluate() is\nremoved in v2. Use Client.run() instead.` One extra method in `evalkit/client.py`.\nAdd a migration note to the changelog: \"Rename `.evaluate()` to `.run()` \u2014 v2 will\nwarn, v3 will remove.\" Developers who upgrade get a self-healing error instead of a\nsilent AttributeError.\n\n**Post-fix score: 8/10**\n\n---\n\n### Pass 6: Developer Environment & Tooling \u2014 7/10 (no new gaps)\n\n**What's working (docs/current-contracts.md):**\n- Python 3.10+, macOS, Linux, Windows \u2014 no Docker required\n- Type annotations, offline sample data, mock transport\n- Noninteractive CI mode\n- API timeouts, rate limits, retries bounded and documented\n- Evaluation IDs prevent duplicate submitted jobs\n\nNo critical gaps. Score stays 7/10 until the TTHW blocker is resolved (T2).\n\n---\n\n### Pass 7: Community & Ecosystem \u2014 6/10 (no new gaps)\n\n**What's working:** Support contact, contributor guide, telemetry opt-in, changelog.\nNo community expansion in this release scope. Score: 6/10.\n\n---\n\n### Pass 8: DX Measurement & Feedback Loops \u2014 8/10 (no new gaps)\n\n**What's working:** Timing instrumentation (used for onboarding study) and post-beta\nfeedback survey both exist and continue unchanged. Score: 8/10.\n\n---\n\n## \"What Already Exists\" (reuse, do not reinvent)\n\n- `python -m evalkit.demo` + bundled `sample_responses.json` \u2014 working\n- Noninteractive CI mode \u2014 working, distinct from demo's skip-CI-check\n- Mock transport for local testing \u2014 working\n- Timing instrumentation + feedback survey \u2014 working, continue unchanged\n- Type annotations, Python 3.10+ \u2014 working\n- Support contact, contributor guide, changelog \u2014 present\n- Telemetry opt-in \u2014 working trust signal\n\n---\n\n## \"NOT in Scope\" (explicitly deferred)\n\n- Hosted playground / interactive sandbox \u2014 not proposed; demo command covers this need\n- Additional language bindings \u2014 explicitly out of scope for this release\n- New community program \u2014 not proposed\n- Automated TTHW regression CI check \u2014 post-beta follow-up\n\n---\n\n## DX Scorecard\n\n```\n+====================================================================+\n|              DX PLAN REVIEW \u2014 SCORECARD (DX POLISH)                |\n+====================================================================+\n| Dimension            | Before | After  | Trend       |\n|----------------------|--------|--------|-------------|\n| Getting Started      |  2/10  |  8/10  | \u2191 +6        |\n| API/CLI/SDK          |  5/10  |  8/10  | \u2191 +3        |\n| Error Messages       |  2/10  |  9/10  | \u2191 +7        |\n| Documentation        |  6/10  |  8/10  | \u2191 +2        |\n| Upgrade Path         |  1/10  |  8/10  | \u2191 +7        |\n| Dev Environment      |  7/10  |  7/10  | \u2192 0         |\n| Community            |  6/10  |  6/10  | \u2192 0         |\n| DX Measurement       |  8/10  |  8/10  | \u2192 0         |\n+--------------------------------------------------------------------+\n| TTHW                 |  6 min | <2 min | Champion    |\n| Competitive Rank     | Needs Work \u2192 Champion (target after T2)    |\n| Magical Moment       | via python -m evalkit.demo                 |\n| Product Type         | Python SDK (Library)                       |\n| Mode                 | DX POLISH                                  |\n| Overall DX (before)  |  4/10  |        |             |\n| Overall DX (after)   |        |  8/10  | \u2191 +4        |\n+====================================================================+\n| DX PRINCIPLE COVERAGE (after fixes)                                 |\n| Zero Friction        | covered \u2014 broken quickstart + CI wait fixed|\n| Learn by Doing       | covered \u2014 working quickstart + demo        |\n| Fight Uncertainty    | covered \u2014 AuthError fully repaired         |\n| Opinionated + Escape | covered \u2014 demo skips CI, normal eval does  |\n| Code in Context      | covered \u2014 demo uses real sample data       |\n| Magical Moments      | covered \u2014 demo delivers real scores fast   |\n+====================================================================+\n```\n\n---\n\n## DX Implementation Checklist\n\n```\nDX IMPLEMENTATION CHECKLIST\n============================\n[ ] T1 (P1) Add examples/first_eval.py to the published package\n[ ] T2 (P1) python -m evalkit.demo skips the remote CI check by default\n[ ] T3 (P1) run_batch signature standardized to (dataset, evaluator)\n[ ] T4 (P1) AuthError updated: cause (E401) + fix instruction + doc link\n[ ] T5 (P2) Client.evaluate() in v2 raises DeprecationWarning + migration guide\n[x] Installation is one command (pip install evalkit==2.0.0b1)\n[x] Demo command produces meaningful output (python -m evalkit.demo)\n[x] Magical moment delivered via demo command\n[x] Works in CI/CD without special config (noninteractive CI mode)\n[x] Type annotations present (Python SDK)\n[x] Changelog exists and is maintained\n[x] Support contact exists\n[x] Telemetry opt-in (trust signal)\n```\n\n---\n\n## Implementation Tasks\n\nSynthesized from this review's findings. Each task derives from a specific finding.\n\n- [ ] **T1 (P1, human: ~1h / CC: ~10min)** \u2014 Package \u2014 Add examples/first_eval.py to published package\n  - Surfaced by: Pass 1, Gap 1A \u2014 file referenced in README but absent from package (docs/package-contents.txt)\n  - Files: `evalkit/__init__.py` or `MANIFEST.in`, `examples/first_eval.py` (new)\n  - Verify: `pip install evalkit && python examples/first_eval.py` \u2014 no FileNotFoundError\n\n- [ ] **T2 (P1, human: ~2h / CC: ~20min)** \u2014 SDK Core \u2014 python -m evalkit.demo skips remote CI check\n  - Surfaced by: Pass 1, Gap 1B \u2014 5-min mandatory CI wait blocks < 2 min TTHW target\n  - Files: `evalkit/demo.py`, `evalkit/client.py`, `docs/current-contracts.md`\n  - Verify: `time python -m evalkit.demo` completes in < 2 min; normal run_eval still requires CI check\n\n- [ ] **T3 (P1, human: ~1h / CC: ~10min)** \u2014 API Design \u2014 Standardize run_batch to (dataset, evaluator)\n  - Surfaced by: Pass 2, Gap 2A \u2014 reversed positional args create silent wrong-result bugs\n  - Files: `evalkit/client.py`, `docs/api.md`\n  - Verify: Both functions accept (dataset, evaluator); add test confirming argument order\n\n- [ ] **T4 (P1, human: ~30min / CC: ~5min)** \u2014 Error Messages \u2014 Full AuthError repair\n  - Surfaced by: Pass 3, Gap 3A \u2014 `AuthError(\"request failed\")` gives no cause, fix, or link\n  - Files: `evalkit/client.py`\n  - Verify: Trigger auth failure with bad key; confirm error includes code (E401), fix, and doc URL\n\n- [ ] **T5 (P2, human: ~1h / CC: ~10min)** \u2014 Upgrade Path \u2014 Client.evaluate() deprecation shim + migration guide\n  - Surfaced by: Pass 5, Gap 5A \u2014 v1\u2192v2 removes evaluate() with no warning or guide\n  - Files: `evalkit/client.py`, changelog or `docs/migration.md`\n  - Verify: Calling `.evaluate()` on v2 Client raises DeprecationWarning with exact rename instruction\n\n_No new tasks from Pass 6 (Dev Environment), Pass 7 (Community), Pass 8 (DX Measurement)._\n\n---\n\n## Review Readiness Dashboard\n\n```\n+====================================================================+\n|                    REVIEW READINESS DASHBOARD                       |\n+====================================================================+\n| Review          | Runs | Last Run            | Status    | Required |\n|-----------------|------|---------------------|-----------|----------|\n| Eng Review      |  0   | \u2014                   | \u2014         | YES      |\n| CEO Review      |  0   | \u2014                   | \u2014         | no       |\n| Design Review   |  0   | \u2014                   | \u2014         | no       |\n| Adversarial     |  0   | \u2014                   | \u2014         | no       |\n| Outside Voice   |  1   | 2026-09-09 01:14    | disabled  | no       |\n| DX Review       |  1   | 2026-09-09 01:14    | issues_open | \u2014      |\n+--------------------------------------------------------------------+\n| VERDICT: NOT CLEARED \u2014 Eng Review required before shipping          |\n+====================================================================+\n```\n\nOutside voice: Codex reviews disabled (`codex_reviews=disabled`). Re-enable: `gstack-config set codex_reviews enabled`.\n\nNext recommended: `/plan-eng-review` \u2014 API signature change (T3) and the demo CI skip (T2) both have architectural implications worth a second pass.\n\n---\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | \u2014 | \u2014 |\n| Outside Review | disabled (`codex_reviews=disabled`) | Independent 2nd opinion | 0 | disabled | re-enable with gstack-config set codex_reviews enabled |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | \u2014 |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | \u2014 |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 1 | issues_open | score: 4/10 \u2192 8/10, TTHW: 6min \u2192 <2min |\n\n**OUTSIDE COVERAGE:** Codex reviews disabled. No outside voice run this session.\n\n**VERDICT:** DX Review completed \u2014 5 issues found and resolved (T1\u2013T5). Eng Review required before shipping.\n\nNO UNRESOLVED DECISIONS\n"
+}

@@ -6,6 +6,133 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const CLIPPED_ROUTING_N = fs.readFileSync(path.join(import.meta.dir, 'fixtures/autoplan-routing-n-screen.txt'), 'utf8');
+
+describe('current routing title survives a scrolled native header before metadata flushes', () => {
+  test('exact N frame selects the offered Add action once with a native digit only', () => {
+    expect(CLIPPED_ROUTING_N).not.toMatch(/[☐□]/);
+    const seen = new Set<string>();
+    const decision = autoplanSetupDecision(CLIPPED_ROUTING_N, seen);
+    expect(decision.kind).toBe('input');
+    if (decision.kind !== 'input') throw Error('Expected native setup input');
+    expect(decision.input).toBe('1');
+    expect(seen.size).toBe(0);
+    for (const signature of decision.signatures) seen.add(signature);
+    expect(autoplanSetupDecision(CLIPPED_ROUTING_N, seen).kind).toBe('waiting');
+    expect(E2E_TOUCHFILES['autoplan-chain-pty']).toContain('test/fixtures/autoplan-routing-n-screen.txt');
+  });
+
+  test('equivalent direct title and reordered opposed choices retain picker binding', () => {
+    const frame = CLIPPED_ROUTING_N.replace('D1 — Add skill', 'D9 — Add gstack skill');
+    const swapped = frame.replace('1. Add routing rules (Recommended)', '1. Skip, invoke manually')
+      .replace('2. Skip, invoke manually', '2. Add routing rules (Recommended)');
+    expect(autoplanSetupDecision(frame, new Set())).toMatchObject({kind:'input',input:'1'});
+    expect(autoplanSetupDecision(swapped, new Set())).toMatchObject({kind:'input',input:'2'});
+  });
+
+  test('copied, stale, incomplete, ambiguous and substantive panels cannot borrow the top routing identity', () => {
+    for (const frame of [
+      'Example panel:\n' + CLIPPED_ROUTING_N,
+      'Quoted source:\n' + CLIPPED_ROUTING_N,
+      '```text\n' + CLIPPED_ROUTING_N + '\n```',
+      '~~~~text\n' + CLIPPED_ROUTING_N,
+      CLIPPED_ROUTING_N.split('\n').map(line => '    ' + line).join('\n'),
+      CLIPPED_ROUTING_N.split('\n').map(line => '> ' + line).join('\n'),
+      CLIPPED_ROUTING_N + '\n⏺ Continuing the review.',
+      CLIPPED_ROUTING_N.replace('Esc to cancel', 'Esc to'),
+      CLIPPED_ROUTING_N.replace('❯ 1.', '  1.'),
+      CLIPPED_ROUTING_N.replace('❯ 1.', '  1.').replace('  2.', '❯ 2.'),
+      CLIPPED_ROUTING_N.replace('  2.', '❯ 2.'),
+      CLIPPED_ROUTING_N.replace('1. Add', '1. [ ] Add'),
+      CLIPPED_ROUTING_N.replace('│\n│ Project', '│ ← ☐ Routing ✔ Submit →\n│ Project'),
+      CLIPPED_ROUTING_N.replace('  4. Chat about this', ''),
+      CLIPPED_ROUTING_N.replace('2. Skip, invoke manually', '2. Add routing rules (Recommended)'),
+      CLIPPED_ROUTING_N.replace('2. Skip, invoke manually', '2. Delete routing and migrate the product'),
+      CLIPPED_ROUTING_N.replace('routing-injection>', 'product-routing>'),
+      CLIPPED_ROUTING_N.replace('routing-injection>', 'routing-injection'),
+      CLIPPED_ROUTING_N.replace('│ Project/branch:', '│ <gstack-qid:routing-injection>\n│ Project/branch:'),
+      CLIPPED_ROUTING_N.replace('Add skill routing rules to CLAUDE.md?', 'Choose the product API router for CLAUDE.md?'),
+      CLIPPED_ROUTING_N.replace('Add skill routing rules to CLAUDE.md?', 'The spec quotes Add skill routing rules to CLAUDE.md?'),
+      CLIPPED_ROUTING_N.replace('Add skill routing rules to CLAUDE.md?', 'Add skill routing rules to README.md?'),
+      CLIPPED_ROUTING_N.replace(' <gstack-qid:routing-injection>', '').replace('│ Net:', '│ <gstack-qid:routing-injection> Net:'),
+      CLIPPED_ROUTING_N.replace('│ ELI10:', '│ ```text\n│ ELI10:'),
+      CLIPPED_ROUTING_N.replace('│ ELI10:', '│ > Quoted source:\n│ ELI10:'),
+    ]) expect(autoplanSetupDecision(frame, new Set()).kind, frame).not.toBe('input');
+  });
+
+  test('present native metadata keeps its full existing identity binding', () => {
+    const before = CLIPPED_ROUTING_N.split('❯ 1.')[0]!.replace(/^[│┃] ?/gm, '').trim();
+    const call: any = {toolUseId:'n-routing',sessionId:'n',timestamp:'2026-09-09T01:10:05Z',answered:false,failed:false,
+      questions:[{header:'Routing',question:before,options:[{label:'Add routing rules (Recommended)'},{label:'Skip, invoke manually'}]}]};
+    expect(autoplanSetupDecision(CLIPPED_ROUTING_N,new Set(),call)).toMatchObject({kind:'input',input:'1'});
+    for (const mutate of [
+      (q:any) => {q.failed=true;}, (q:any) => {q.answered=true;}, (q:any) => {q.questions=[];},
+      (q:any) => {q.questions.push(structuredClone(q.questions[0]));},
+      (q:any) => {q.questions[0].multiSelect=true;},
+      (q:any) => {q.questions[0].question='Unrelated finding <gstack-qid:routing-injection>';},
+      (q:any) => {q.questions[0].options[1].label='Another choice';},
+    ]) {const changed=structuredClone(call);mutate(changed);expect(autoplanSetupDecision(CLIPPED_ROUTING_N,new Set(),changed).kind).not.toBe('input');}
+    const seen=new Set<string>();
+    const early=autoplanSetupDecision(CLIPPED_ROUTING_N,seen);
+    if(early.kind!=='input')throw Error('Expected initial input');
+    for(const signature of early.signatures)seen.add(signature);
+    expect(autoplanSetupDecision(CLIPPED_ROUTING_N,seen,call).kind).toBe('waiting');
+  });
+});
+
+test.skipIf(process.platform === 'win32')('real PTY clipped routing advances from the exact current panel with one digit and no Enter', async () => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-clipped-routing-'));
+  const fake=path.join(dir,'fake-claude');const events=path.join(dir,'events.jsonl');
+  fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
+import * as fs from 'node:fs';
+const emit=value=>fs.appendFileSync(process.env.ROUTING_EVENTS,JSON.stringify(value)+'\n');
+emit({kind:'started',pid:process.pid});
+process.stdin.setRawMode?.(true);process.stdin.resume();
+process.stdin.on('data',data=>{emit({kind:'input',data:data.toString()});process.stdout.write('\r\nNATIVE_SETUP_ACCEPTED\r\n');});
+process.stdout.write(fs.readFileSync(process.env.ROUTING_SCREEN,'utf8').replace(/\n/g,'\r\n'));
+process.on('SIGINT',()=>process.exit(0));
+`);fs.chmodSync(fake,0o755);
+  const worker=path.join(dir,'worker.ts');const resultFile=path.join(dir,'result.json');
+  const helper=(name:string)=>pathToFileURL(path.resolve(import.meta.dir,'helpers',name)).href;
+  fs.writeFileSync(worker,`
+import * as fs from 'node:fs';
+import {launchClaudePty,resolveClaudeBinary} from ${JSON.stringify(helper('claude-pty-runner.ts'))};
+import {autoplanSetupDecision} from ${JSON.stringify(helper('autoplan-setup-question.ts'))};
+if(resolveClaudeBinary()!==${JSON.stringify(fake)})throw Error('Fake binary binding failed before launch');
+const session=await launchClaudePty({cwd:${JSON.stringify(dir)},observeScreen:true,timeoutMs:15000,
+  env:{ROUTING_EVENTS:process.env.ROUTING_EVENTS,ROUTING_SCREEN:process.env.ROUTING_SCREEN}});
+try{
+  await session.waitFor('Enter to select',{timeoutMs:10000,pollMs:20});
+  const screen=await session.currentScreen();
+  const decision=autoplanSetupDecision(screen,new Set());
+  if(decision.kind!=='input'||decision.input!=='1')throw Error('Expected current setup: '+JSON.stringify(decision));
+  session.send(decision.input);
+  await session.waitFor('NATIVE_SETUP_ACCEPTED',{timeoutMs:3000,pollMs:20});
+  fs.writeFileSync(${JSON.stringify(resultFile)},JSON.stringify({screen,decision}));
+}finally{await session.close();}
+`);
+  const child=Bun.spawn([process.execPath,worker],{env:{...process.env,BROWSE_TERMINAL_BINARY:fake,
+    ROUTING_EVENTS:events,ROUTING_SCREEN:path.join(import.meta.dir,'fixtures/autoplan-routing-n-screen.txt')},stdout:'pipe',stderr:'pipe'});
+  const killer=setTimeout(()=>child.kill('SIGKILL'),17000);
+  try {
+    const [exit,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+    expect(exit,stdout+stderr).toBe(0);
+    const result=JSON.parse(fs.readFileSync(resultFile,'utf8'));
+    expect(result.screen).not.toMatch(/[☐□]/);
+    expect(result.decision).toMatchObject({kind:'input',input:'1'});
+    const recorded=fs.readFileSync(events,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    expect(recorded.filter(e=>e.kind==='input')).toEqual([{kind:'input',data:'1'}]);
+    expect(()=>process.kill(recorded[0].pid,0)).toThrow();
+  } finally {
+    clearTimeout(killer);child.kill('SIGKILL');
+    if(fs.existsSync(events)){
+      const pid=JSON.parse(fs.readFileSync(events,'utf8').split('\n')[0]!).pid;
+      if(process.platform==='linux')try{if(fs.readFileSync('/proc/'+pid+'/cmdline','utf8').split('\0').includes(fake))process.kill(pid,'SIGKILL');}catch{}
+    }
+    fs.rmSync(dir,{recursive:true,force:true});
+  }
+},20000);
+
 // Sanitized terminal frame from the 2026-09-08 autoplan timeout. The qid is
 // visibly incomplete; the prompt body and explicit choices remain intact.
 const CAPTURE = [
@@ -269,7 +396,7 @@ describe('autoplan routing setup handling', () => {
   });
 
   test('setup helper and captured-frame changes select the autoplan eval only', () => {
-    for (const file of ['test/helpers/autoplan-setup-question.ts', 'test/autoplan-setup-question.test.ts']) {
+    for (const file of ['test/helpers/autoplan-setup-question.ts', 'test/autoplan-setup-question.test.ts', 'test/fixtures/autoplan-routing-n-screen.txt']) {
       expect(selectTests([file], E2E_TOUCHFILES).selected).toEqual(['autoplan-chain-pty']);
     }
   });

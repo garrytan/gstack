@@ -51,7 +51,7 @@ export function recordPendingExit(input: string, file: string, cwd: string, conf
 /** Exact current native gate; ordinary prose or a still-streaming menu is insufficient. */
 export function isCurrentPlanApprovalScreen(screen: string): boolean {
   const gate = /(?:^|\n) {0,3}─{5,}[ \t]*\n {0,3}Claude has written up a plan and is ready to execute\. Would you like to proceed\?[ \t]*\n\s*❯[ \t]*1\.[ \t]*Yes, and use auto mode[ \t]*\n[ \t]*2\.[ \t]*Yes, manually approve edits[ \t]*\n[ \t]*3\.[ \t]*Tell Claude what to change[ \t]*(?:\n[ \t]*shift\+tab to approve with this feedback)?\s*$/i.exec(screen) ??
-    /(?:^|\n) {0,3}Exit plan mode\?[ \t]*\n {0,3}Claude wants to exit plan mode[ \t]*\n\s*❯[ \t]*1\.[ \t]*Yes, and switch to default \(ask each time\) for this session[ \t]*\n[ \t]*2\.[ \t]*No\s*$/i.exec(screen);
+    /(?:^|\n) {0,3}Exit plan mode\?[ \t]*\n(?:[ \t]*\n)* {0,3}Claude wants to exit plan mode[ \t]*\n\s*❯[ \t]*1\.[ \t]*Yes, and switch to default \(ask each time\) for this session[ \t]*\n[ \t]*2\.[ \t]*No\s*$/i.exec(screen);
   if (!gate) return false;
   const before = screen.slice(0, gate.index);
   if (/\b(?:example|sample|template|quote)\b.*[:：]\s*$/i.test(before.trimEnd().split('\n').at(-1) ?? '')) return false;

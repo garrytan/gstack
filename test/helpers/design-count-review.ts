@@ -12,6 +12,22 @@ export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolea
     if (/^(?:focus|scope|learnings|routing|next steps?|outside(?: design)? voices)$/i.test(q.header.trim())) return false;
     const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1] ?? '';
     if (/(?:^|-)(?:focus|scope|setup|routing|learnings|onboarding|next-steps?|posture|mockups?|target)(?:-|$)/i.test(id)) return false;
+    // A named or scored pass can ask for a missing design requirement before a
+    // numbered finding heading appears. Its actual decision and opposed
+    // choices establish review; a score or familiar qid alone cannot.
+    const scoredPass = /^(?:D\s*\d+\s*[—–:-]\s*)?Pass\s*[1-7]\s*\([^)]*\)\s*[—–:-]\s*(?:10|[0-9])(?:\.[0-9]+)?\/10[.!:]/i.test(q.question.trim());
+    const namedPass = /^(?:D\s*\d+\s*[—–:-]\s*)?Pass\s*[1-7]\s*[—–:-]\s*[A-Za-z][A-Za-z ]{3,60}:\s+/i.test(q.question.trim());
+    const chosen = q.options.some(option => option.label === call.answers?.[q.question]);
+    const fixChoice = q.options.some(option => /^(?:Add|Fix|Specify|Define|Restore)\b/i.test(option.label));
+    const leaveChoice = q.options.some(option => /^(?:Leave as-is|Keep as-is|Defer|Accept the gap)\b/i.test(option.label) ||
+      /^Skip\s*[—–-]\s*implied by\s+[^.!?]+\bgap$/i.test(option.label));
+    if ((scoredPass || namedPass) && /^plan-design-review-[a-z0-9-]+$/i.test(id) &&
+        (q.question.match(/<gstack-qid/gi)?.length ?? 0) === 1 &&
+        /\b(?:gap|problem|defect|missing|inconsisten\w*)\b|\b(?:doesn['’]t|does not)\s+(?:record|specify|define|describe)\b/i.test(q.question) &&
+        /\bShould I (?:add|fix|specify|define|restore)\b[^?]+\?\s*<gstack-qid:[^>]+>\s*$/i.test(q.question) &&
+        fixChoice && leaveChoice && chosen &&
+        !(call.unansweredQuestionIndices?.length) &&
+        fp.signature === `${call.sessionId}:${call.toolUseId}`) return true;
     // Native pass decisions can carry a D-number before the pass title and
     // use plan-design-passN rather than plan-design-review-... identities.
     // Bind both forms to the same explicit pass and an offered choice that
@@ -41,17 +57,24 @@ function designHandoff(fp: AskUserQuestionFingerprint): { manualIndex: number | 
     .replace(/^next\s+steps?\s*:\s*/i, '');
   // Scores and a completed decision count describe a closed review. A
   // condition or unresolved gap cannot masquerade as its next-step menu.
-  if (!/^Design\s+review\s+(?:is\s+)?complete(?:[.!]|\s+\((?:\d+(?:\.\d+)?(?:\/10)?\s*(?:→|->|to)\s*)?\d+(?:\.\d+)?\/10(?:,\s*\d+\s+decisions?\s+made)?\)[.!])(?:\s|$)/i.test(declaration) ||
-      !/\bWhat['’]s\s+next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration)) return null;
+  const completed = /^Design\s+review\s+(?:is\s+)?complete(?:[.!]|\s+\((?:\d+(?:\.\d+)?(?:\/10)?\s*(?:→|->|to)\s*)?\d+(?:\.\d+)?\/10(?:,\s*\d+\s+decisions?(?:\s+made)?)?\)[.!])(?:\s|$)/i.exec(declaration);
+  if (!completed) return null;
+  const requiredGateOffer = /^The required next gate is Eng(?:ineering)? Review\s*[—–-]\s*want me to run it now\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
+  const requiredGateQuestion = requiredGateOffer || /^(?:\d+ implementation tasks ready\.\s*)?Eng(?:ineering)? Review is the required shipping gate\.\s*What next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
+  if (!requiredGateQuestion && !/\bWhat['’]s\s+next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration)) return null;
+  // A routing label cannot conceal a new repair in its description.
+  if (requiredGateQuestion && q.options.some(option =>
+    /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|must|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/i.test(option.description ?? ''))) return null;
   // A closed heading does not override an affirmative outstanding-work claim
   // in its recap. Zero/no outstanding work is a compatible completion claim.
-  const outstanding = declaration
+  const outstanding = (requiredGateQuestion ? [declaration, ...q.options.map(o => o.description ?? '')].join('\n') : declaration)
     .replace(/\b(?:no|zero|0)\s+(?:unresolved|open|pending|unaddressed|remaining|outstanding)\s+(?:[a-z-]+\s+){0,3}(?:gaps?|issues?|decisions?|requirements?|work)\b/gi, '')
     .replace(/\bno\s+(?:gaps?|issues?|decisions?|requirements?|work)\s+remains?\b/gi, '');
   if (/\b(?:unresolved|open|pending|unaddressed|remaining|outstanding)\s+(?:[a-z-]+\s+){0,3}(?:gaps?|issues?|decisions?|requirements?|work)\b|\b(?:gaps?|issues?|decisions?|requirements?|work)\s+(?:still\s+)?remains?\b|\b(?:gaps?|issues?|decisions?|requirements?|work)\s+(?:is|are)\s+still\s+(?:unresolved|open|pending|unaddressed)\b/i.test(outstanding)) return null;
   const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).]\s*/i, '')
     .replace(/\s*\(recommended\)\s*$/i, '').trim());
-  const manual = labels.map(label => /^(?:Handle next steps manually|Skip\s*[—–-]\s*I['’]ll handle next steps manually)$/i.test(label));
+  const manual = labels.map(label => /^(?:Handle next steps manually|Skip\s*[—–-]\s*I['’]ll handle next steps manually)$/i.test(label) ||
+    (requiredGateQuestion && /^Skip\s*[—–-]\s*handle (?:next steps )?manually$/i.test(label)));
   const review = labels.map(label => /^Run \/plan-eng-review(?: next)?(?: \(required gate\))?$/i.test(label));
   const navigation = labels.map(label => /^(?:Skip to implementation|Run \/plan-ceo-review(?: first)?|Run \/design-(?:shotgun|html))$/i.test(label));
   if (manual.filter(Boolean).length > 1 || !review.some(Boolean) ||

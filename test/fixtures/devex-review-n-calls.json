@@ -1,0 +1,210 @@
+{
+  "sourceHead": "36fa6add62cf36b986b962a1ea62b09ba9b10703",
+  "sourceWtree": "712c56e3cd77b2203553adc267ed3ea2a5953325",
+  "sourceObservationSha256": "9196f1c829898ebaa6ee862cd0977fd01940158a7aab27a995fd96ef331aac8e",
+  "originalState": "in_progress",
+  "rawCounts": {
+    "step0Count": 0,
+    "reviewCount": 6,
+    "administrativeCount": 0
+  },
+  "calls": [
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01X81sNZuBzCRNWVuTZQKdqH",
+      "questions": [
+        {
+          "question": "D1 \u2014 Does this first-person developer trace match reality?\n\nI traced your ML engineer persona's actual getting-started path from the README. Here's what I found they experience:\n\nT+0:00  Opens README. Sees install command. Runs pip install evalkit==2.0.0b1. Clean.\nT+1:00  Sets EVALKIT_API_KEY. No validation feedback \u2014 unclear if key is correct.\nT+1:15  Runs `python examples/first_eval.py` per README. Gets: FileNotFoundError.\nT+1:30  Searches package contents. No examples/ directory. README was wrong.\nT+2:00  Eventually finds `python -m evalkit.demo` (not in primary README quickstart).\nT+2:15  Runs demo. Hangs. No output, no progress, no ETA.\nT+7:15  Five minutes later: first score prints. 6 minutes total.\nT+7:20  Tries run_eval() then run_batch(). Notices reversed arg order.\n\nFinal state: Got a result, filed 3 mental complaints, not recommending to teammates yet.\n\nDoes this match the actual experience?",
+          "header": "D1 Narrative",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Accurate \u2014 proceed (Recommended)",
+              "description": "This trace matches the real getting-started experience. Use it as the baseline for all DX scoring."
+            },
+            {
+              "label": "Mostly right \u2014 minor corrections",
+              "description": "The broad strokes are right but a detail or two needs updating. You can describe the correction."
+            },
+            {
+              "label": "Wrong \u2014 actual experience differs",
+              "description": "The real path is different from this trace. You'll describe what actually happens."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Does this first-person developer trace match reality?\n\nI traced your ML engineer persona's actual getting-started path from the README. Here's what I found they experience:\n\nT+0:00  Opens README. Sees install command. Runs pip install evalkit==2.0.0b1. Clean.\nT+1:00  Sets EVALKIT_API_KEY. No validation feedback \u2014 unclear if key is correct.\nT+1:15  Runs `python examples/first_eval.py` per README. Gets: FileNotFoundError.\nT+1:30  Searches package contents. No examples/ directory. README was wrong.\nT+2:00  Eventually finds `python -m evalkit.demo` (not in primary README quickstart).\nT+2:15  Runs demo. Hangs. No output, no progress, no ETA.\nT+7:15  Five minutes later: first score prints. 6 minutes total.\nT+7:20  Tries run_eval() then run_batch(). Notices reversed arg order.\n\nFinal state: Got a result, filed 3 mental complaints, not recommending to teammates yet.\n\nDoes this match the actual experience?": "Accurate \u2014 proceed (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:12:36.870Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01FNzCAWLHkfujekN3t8TTfd",
+      "questions": [
+        {
+          "question": "D2 \u2014 The 5-minute mandatory CI wait structurally blocks your < 2 min TTHW target. How should the plan resolve this?\n\nContext: docs/current-contracts.md states every first evaluation blocks for 5 minutes on a mandatory remote CI check, with no skip flag and no offline path. Your approved TTHW target is < 2 minutes (docs/benchmarks.md). These two contracts are directly contradictory. The plan currently retains the CI gate unchanged.\n\nYour ML engineer persona runs `python -m evalkit.demo` expecting a quick local result, hangs for 5 minutes with no output, and hits the 6-minute mark before seeing anything. Competitor A reaches the same result in 2 minutes.\n\nDX Principle at stake: 'Zero friction at T0' and 'Opinionated defaults with escape hatches.'\n\nRecommendation: A \u2014 add a skip flag for the demo command. It\u2019s the smallest targeted change that unblocks the TTHW target without touching normal evaluation behavior.\nCompleteness: A=9/10, B=8/10, C=3/10, D=4/10",
+          "header": "D2 TTHW",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add --skip-ci-check to demo (Recommended)",
+              "description": "python -m evalkit.demo skips the remote CI check by default. Normal run_eval/run_batch behavior is unchanged. Targeted, low-risk. (human: ~2h / CC: ~20min)"
+            },
+            {
+              "label": "Make CI check async",
+              "description": "Return an immediate local result, then validate asynchronously in the background. Better UX but more complex to implement. (human: ~1 week / CC: ~2h)"
+            },
+            {
+              "label": "Accept 6-min TTHW, adjust the target",
+              "description": "Keep the gate, lower the ambition. Competitive rank stays 'Needs Work' vs peers. Documents the trade-off honestly."
+            },
+            {
+              "label": "Remove CI gate for all local runs",
+              "description": "Detect non-CI environment and skip the gate entirely. Broadest fix, highest risk of inconsistency between local and CI results."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 The 5-minute mandatory CI wait structurally blocks your < 2 min TTHW target. How should the plan resolve this?\n\nContext: docs/current-contracts.md states every first evaluation blocks for 5 minutes on a mandatory remote CI check, with no skip flag and no offline path. Your approved TTHW target is < 2 minutes (docs/benchmarks.md). These two contracts are directly contradictory. The plan currently retains the CI gate unchanged.\n\nYour ML engineer persona runs `python -m evalkit.demo` expecting a quick local result, hangs for 5 minutes with no output, and hits the 6-minute mark before seeing anything. Competitor A reaches the same result in 2 minutes.\n\nDX Principle at stake: 'Zero friction at T0' and 'Opinionated defaults with escape hatches.'\n\nRecommendation: A \u2014 add a skip flag for the demo command. It\u2019s the smallest targeted change that unblocks the TTHW target without touching normal evaluation behavior.\nCompleteness: A=9/10, B=8/10, C=3/10, D=4/10": "Add --skip-ci-check to demo (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:12:58.944Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01CkX8gQWRA4xAeFxs7Aeg7W",
+      "questions": [
+        {
+          "question": "D3 \u2014 The README quickstart directs developers to a file that doesn\u2019t exist in the published package. How should the plan fix this?\n\nContext: README.md says 'follow the quickstart\u2019s command: python examples/first_eval.py'. But docs/package-contents.txt confirms this file is absent from both the published package and the release examples archive. The developer's very first action after install fails with FileNotFoundError. This is the worst possible first-run experience.\n\nFrom the confirmed empathy narrative (D1): the developer spends ~45 seconds confused, hunting through the package contents before finding the demo command.\n\nDX Principle at stake: 'Zero friction at T0' \u2014 the first command must work.\n\nRecommendation: B \u2014 redirect README to demo command. The demo command already works and is the settled delivery vehicle. Replacing the broken reference costs 30 minutes and closes the gap cleanly.\nCompleteness: A=10/10, B=9/10",
+          "header": "D3 Quickstart",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add examples/first_eval.py to the package (Recommended)",
+              "description": "Include the file in the published package so the README stays accurate. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Redirect README to python -m evalkit.demo",
+              "description": "Remove the broken file reference. Make the demo command the primary quickstart path. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "Add both \u2014 include the file AND demo command",
+              "description": "Belt and suspenders: keep examples/first_eval.py as a complete worked example, add demo as the fast path. (human: ~2h / CC: ~20min)"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 The README quickstart directs developers to a file that doesn\u2019t exist in the published package. How should the plan fix this?\n\nContext: README.md says 'follow the quickstart\u2019s command: python examples/first_eval.py'. But docs/package-contents.txt confirms this file is absent from both the published package and the release examples archive. The developer's very first action after install fails with FileNotFoundError. This is the worst possible first-run experience.\n\nFrom the confirmed empathy narrative (D1): the developer spends ~45 seconds confused, hunting through the package contents before finding the demo command.\n\nDX Principle at stake: 'Zero friction at T0' \u2014 the first command must work.\n\nRecommendation: B \u2014 redirect README to demo command. The demo command already works and is the settled delivery vehicle. Replacing the broken reference costs 30 minutes and closes the gap cleanly.\nCompleteness: A=10/10, B=9/10": "Add examples/first_eval.py to the package (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:12.976Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_018qhm8N25uCWGxL6zYYWZFe",
+      "questions": [
+        {
+          "question": "D4 \u2014 Two evaluation functions use the same argument names in reversed order. Should the plan standardize them?\n\nContext (from docs/api.md): run_eval(dataset, evaluator) and run_batch(evaluator, dataset) describe the same concepts with the same argument names, but reversed positional order. The reversal is described as 'intentional in the current draft.' A developer who uses both functions will eventually call one with the wrong arg order. Python won\u2019t raise a TypeError \u2014 it will silently produce wrong results.\n\nYour ML engineer persona uses both functions after the getting-started flow. They\u2019ll either get burned once and learn, or never notice because their evaluation scores look plausible.\n\nDX Principle at stake: 'Pit of Success \u2014 make the right thing easy, the wrong thing hard.'\n\nRecommendation: A \u2014 standardize the order. Silent wrong results are worse than a one-time breaking change in a beta SDK. Beta is the right moment for this.\nCompleteness: A=9/10, B=6/10, C=5/10",
+          "header": "D4 API args",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Standardize to (dataset, evaluator) for both (Recommended)",
+              "description": "Match run_eval's current order. Update run_batch signature. Add a clear changelog note. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Keep reversed order, add keyword-arg enforcement",
+              "description": "Require keyword arguments for both functions so positional mistakes raise TypeError immediately. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Keep as-is \u2014 document the difference clearly",
+              "description": "Add a warning note in the API docs. Accept that developers will need to check each time. Completeness: 5/10 \u2014 documents the hazard but doesn\u2019t eliminate it."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Two evaluation functions use the same argument names in reversed order. Should the plan standardize them?\n\nContext (from docs/api.md): run_eval(dataset, evaluator) and run_batch(evaluator, dataset) describe the same concepts with the same argument names, but reversed positional order. The reversal is described as 'intentional in the current draft.' A developer who uses both functions will eventually call one with the wrong arg order. Python won\u2019t raise a TypeError \u2014 it will silently produce wrong results.\n\nYour ML engineer persona uses both functions after the getting-started flow. They\u2019ll either get burned once and learn, or never notice because their evaluation scores look plausible.\n\nDX Principle at stake: 'Pit of Success \u2014 make the right thing easy, the wrong thing hard.'\n\nRecommendation: A \u2014 standardize the order. Silent wrong results are worse than a one-time breaking change in a beta SDK. Beta is the right moment for this.\nCompleteness: A=9/10, B=6/10, C=5/10": "Standardize to (dataset, evaluator) for both (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:27.023Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01JyBKwLH2NjsfqcXTsgjzRv",
+      "questions": [
+        {
+          "question": "D5 \u2014 The authentication error gives developers nothing to act on. Should the plan improve it?\n\nContext (from docs/api.md): For an invalid API key, the SDK raises AuthError('request failed'). No error code, no explanation of which credential failed, no instruction for fixing it. The plan retains this message. This is the most common new-developer failure \u2014 typo in the API key, expired key, wrong key format. When it fires, the developer has zero signal.\n\nWhat the developer currently sees:\n    AuthError: request failed\n\nWhat they need:\n    AuthError: API key rejected (E401). Your EVALKIT_API_KEY was rejected by the server.\n    Check that the key is correct and not expired.\n    Docs: https://docs.evalkit/auth\n\nAll other errors in the SDK already identify cause, file/argument, and fix \u2014 this is the sole exception (docs/current-contracts.md).\n\nDX Principle at stake: 'Fight uncertainty \u2014 every error = problem + cause + fix.'\n\nRecommendation: A \u2014 full error repair. One-line change in evalkit/client.py, high leverage, no downside.\nCompleteness: A=10/10, B=8/10, C=2/10",
+          "header": "D5 AuthError",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Full repair: cause + fix + doc link (Recommended)",
+              "description": "Update AuthError to include: which credential failed, likely cause, fix instruction, and a docs link. One change in evalkit/client.py. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "Partial: add cause only",
+              "description": "Tell the developer the API key was rejected but skip the fix instruction and doc link. Better than nothing. (human: ~15min / CC: ~5min)"
+            },
+            {
+              "label": "Keep as-is",
+              "description": "Retain 'request failed'. Accept that developers will need to search for solutions externally. Completeness: 2/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 The authentication error gives developers nothing to act on. Should the plan improve it?\n\nContext (from docs/api.md): For an invalid API key, the SDK raises AuthError('request failed'). No error code, no explanation of which credential failed, no instruction for fixing it. The plan retains this message. This is the most common new-developer failure \u2014 typo in the API key, expired key, wrong key format. When it fires, the developer has zero signal.\n\nWhat the developer currently sees:\n    AuthError: request failed\n\nWhat they need:\n    AuthError: API key rejected (E401). Your EVALKIT_API_KEY was rejected by the server.\n    Check that the key is correct and not expired.\n    Docs: https://docs.evalkit/auth\n\nAll other errors in the SDK already identify cause, file/argument, and fix \u2014 this is the sole exception (docs/current-contracts.md).\n\nDX Principle at stake: 'Fight uncertainty \u2014 every error = problem + cause + fix.'\n\nRecommendation: A \u2014 full error repair. One-line change in evalkit/client.py, high leverage, no downside.\nCompleteness: A=10/10, B=8/10, C=2/10": "Full repair: cause + fix + doc link (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:41.065Z"
+    },
+    {
+      "sessionId": "79f19998-a239-4375-86d4-a88a49a47222",
+      "toolUseId": "toolu_01JyS795WZ7WjmHEtxQV42T5",
+      "questions": [
+        {
+          "question": "D6 \u2014 v1\u2019s Client.evaluate() is removed in v2 with no warning, guide, or codemod. How should the plan address this?\n\nContext (from docs/api.md): Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided. A developer upgrading from v1 will get a silent runtime breakage: AttributeError: 'Client' object has no attribute 'evaluate'. They won't know why, and won't know the fix without digging through release notes.\n\nThis is 'upgrade fear' at its worst \u2014 the moment a developer trusts you enough to upgrade, you break their app.\n\nDX Principle at stake: 'Credibility \u2014 upgrades should be boring.'\n\nRecommendation: A \u2014 deprecation shim. One extra method in evalkit/client.py plus a changelog entry. Developers who upgrade get a clear ActionableError pointing to the new method name instead of a cryptic AttributeError. Low cost, high trust signal.\nCompleteness: A=9/10, B=8/10, C=3/10",
+          "header": "D6 Upgrade",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add deprecation shim + migration guide (Recommended)",
+              "description": "Client.evaluate() in v2 raises DeprecationWarning with exact fix: 'use Client.run() instead.' Add a migration note to changelog. (human: ~1h / CC: ~10min)"
+            },
+            {
+              "label": "Add migration guide only, no shim",
+              "description": "Document the rename in the changelog and a migration guide. Developers need to read before upgrading. No code safety net. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "Keep as-is \u2014 beta SDK, breaking changes expected",
+              "description": "Accept that v1\u2192v2 is a breaking change. Developers should check the changelog. Completeness: 3/10 \u2014 developer pain is real but beta expectations are lower."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 v1\u2019s Client.evaluate() is removed in v2 with no warning, guide, or codemod. How should the plan address this?\n\nContext (from docs/api.md): Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided. A developer upgrading from v1 will get a silent runtime breakage: AttributeError: 'Client' object has no attribute 'evaluate'. They won't know why, and won't know the fix without digging through release notes.\n\nThis is 'upgrade fear' at its worst \u2014 the moment a developer trusts you enough to upgrade, you break their app.\n\nDX Principle at stake: 'Credibility \u2014 upgrades should be boring.'\n\nRecommendation: A \u2014 deprecation shim. One extra method in evalkit/client.py plus a changelog entry. Developers who upgrade get a clear ActionableError pointing to the new method name instead of a cryptic AttributeError. Low cost, high trust signal.\nCompleteness: A=9/10, B=8/10, C=3/10": "Add deprecation shim + migration guide (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T01:13:55.116Z"
+    }
+  ],
+  "scope": "Exact observed completed-call prefix; later live calls and historical outcome are not rescored."
+}

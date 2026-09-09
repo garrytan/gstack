@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { AskUserQuestionFingerprint } from './helpers/claude-pty-runner';
 import capturedL from './fixtures/devex-review-l-calls.json';
+import capturedN from './fixtures/devex-review-n-calls.json';
+import { nativePlanCallFingerprint } from './helpers/claude-pty-runner';
+import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import {
   DEVEX_COUNT_FILES,
   planDevexCountFixture,
@@ -241,5 +244,56 @@ describe('native first-local-run CI decisions', () => {
         ),
       ),
     ).toBe(false);
+  });
+});
+
+
+describe('native developer-trace accuracy confirmation', () => {
+  const actualCalls = () => structuredClone(capturedN.calls) as NativePlanQuestionCall[];
+  const actual = () => actualCalls()[0]!;
+  const fp = (native: NativePlanQuestionCall) => nativePlanCallFingerprint(native, 0, true);
+
+  test('the captured developer narrative confirms evidence and retains all five actual issue decisions', () => {
+    const input = actualCalls();
+    const before = structuredClone(input);
+    expect(isDevexReviewIssue(fp(input[0]!))).toBe(false);
+    expect(input.filter(native => isDevexReviewIssue(fp(native)))).toHaveLength(5);
+    expect(input.slice(1).every(native => isDevexReviewIssue(fp(native)))).toBe(true);
+    expect(input).toEqual(before);
+  });
+
+  test('accuracy labels cannot hide remedy choices or a substantive repair question', () => {
+    for (const mutate of [
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question = issues[3][1]; },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.options[0]!.label = 'Package the missing example now'; },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.options[1]!.description = 'Package the missing example now.'; },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question += ' Should I package the missing examples/first_eval.py to fix this quickstart?'; },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question = native.questions[0]!.question.replace('Does this match the actual experience?', 'Should I package the missing examples/first_eval.py to fix this quickstart? Does this match the actual experience?'); },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question = native.questions[0]!.question.replace('Does this match the actual experience?', 'Do you want me to package the missing examples/first_eval.py to fix this quickstart? Does this match the actual experience?'); },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question = native.questions[0]!.question.replace('Does this match the actual experience?', 'Would you like the missing examples/first_eval.py packaged? Does this match the actual experience?'); },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question = native.questions[0]!.question.replace('Does this match the actual experience?', 'Approve packaging the missing examples/first_eval.py? Does this match the actual experience?'); },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question = native.questions[0]!.question.replace('Does this match the actual experience?', 'Please package the missing examples/first_eval.py. Does this match the actual experience?'); },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.options[0]!.description = 'Proceed to package the missing examples/first_eval.py so the quickstart works.'; },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.options.push({ label: 'Fix the API argument order' }); },
+      (native: NativePlanQuestionCall) => { native.questions[0]!.question += ' <gstack-qid:plan-devex-example-fix>'; },
+    ]) {
+      const native = actual();
+      mutate(native);
+      native.answers = { [native.questions[0]!.question]: native.questions[0]!.options[0]!.label };
+      expect(isDevexReviewIssue(fp(native))).toBe(true);
+    }
+  });
+
+  test('an answered issue beside the narrative still counts the native call once', () => {
+    const native = actual();
+    const issue = actualCalls()[1]!;
+    native.questions.push(issue.questions[0]!);
+    native.unansweredQuestionIndices = [1];
+    expect(isDevexReviewIssue(fp(native))).toBe(false);
+    Object.assign(native.answers!, issue.answers);
+    native.unansweredQuestionIndices = [];
+    expect([native].filter(value => isDevexReviewIssue(fp(value)))).toHaveLength(1);
+    native.answered = false;
+    expect(isDevexReviewIssue(fp(native))).toBe(false);
   });
 });

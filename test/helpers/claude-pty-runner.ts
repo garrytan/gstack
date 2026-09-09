@@ -1459,7 +1459,15 @@ export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint): numbe
   const run = fp.options.filter(({ label }) => /^Run\s*\/office-hours\s*(?:now|first)/i.test(label));
   const skip = fp.options.filter(({ label }) =>
     /^Skip\s*[—–-]\s*(?:proceed\s*with\s*)?standard\s*review(?:\s*\(recommended\))?$/i.test(label));
-  return run.length === 1 && skip.length === 1 ? skip[0].index : null;
+  if (run.length === 1 && skip.length === 1) return skip[0].index;
+  // The same prerequisite also offers "Skip — review now". Require exactly
+  // the two opposed actions so this wording cannot skip a mixed finding.
+  const choices = fp.options.filter(({ label }) => !/^(?:Typesomething\.|Chataboutthis)$/i.test(label.replace(/\s+/g, '')));
+  const reviewNow = choices.filter(({ label }) => /^Skip\s*[—–-]\s*review\s*now(?:\s*\(recommended\))?$/i.test(label));
+  if (choices.length !== 2 || run.length !== 1 || reviewNow.length !== 1 || run[0].index === reviewNow[0].index ||
+      !/^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(run[0].label) ||
+      (fp.nativeCall && (fp.nativeCall.failed || fp.nativeCall.questions.length !== 1 || fp.nativeCall.questions[0]?.multiSelect))) return null;
+  return reviewNow[0].index;
 }
 
 /**
@@ -1748,26 +1756,40 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   if (!call.answered || call.failed || call.questions.length !== 1 ||
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
-  if (q.multiSelect || !/^next\s+steps?$/i.test(q.header.trim()) ||
+  const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
+  if (q.multiSelect || !/^next(?:\s+steps?)?$/i.test(header) ||
       !/^DX review (?:is )?(?:done|complete)[.!]/i.test(q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, ''))) return false;
   const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
   if ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return false;
+  let resultRecap = false;
   if (ids.length) {
     if (ids.length !== 1 || ids[0]![1] !== 'devex-next-steps') return false;
   } else {
     // Some native final menus omit a qid. Require an explicit finished-review
     // declaration plus resolved findings and the navigation-only question;
     // malformed/unknown identities and outstanding decisions remain blockers.
+    const navigation = /\bWhat(?:['’]s)? next\?/i.exec(q.question);
+    const afterQuestion = navigation ? q.question.slice(navigation.index + navigation[0].length).trim() : '';
+    resultRecap = /^DX Review result:\s*\d+(?:\.\d+)?\/10\s*(?:→|->)\s*\d+(?:\.\d+)?\/10[.!]/i.test(afterQuestion) &&
+      /(?:^|\n)Recommendation:\s*(?:[A-Z]\s*[—–-]\s*)?\/plan-eng-review[.!](?:\s|$)/i.test(afterQuestion);
+    const context = [q.question, ...q.options.map(o => o.description ?? '')].join('\n');
+    if (resultRecap &&
+        (/\b(?:if|unless|until)\b|\bnot(?:\s+[a-z-]+){0,4}\s+resolved\b/i.test(context) ||
+         q.options.some(option => /\?/.test(option.description ?? '')) ||
+         !/\brequired gate before shipping\b/i.test(context))) return false;
     if (/<gstack-qid/i.test(q.question) ||
         !/(?:^|[.!]\s+)(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten) (?:issues?|findings?|friction points?) (?:found and )?resolved\b/i.test(q.question) ||
-        !/\bWhat(?:['’]s)? next\?\s*$/i.test(q.question) ||
+        !navigation || (afterQuestion && !resultRecap) ||
         (q.question.match(/\?/g)?.length ?? 0) !== 1 ||
-        /\b(?:unresolved|pending|remaining|outstanding)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(q.question)) return false;
+        /\b(?:unresolved|pending|remaining|outstanding)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(context) ||
+        /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|package|implement|resolve|decide)\b/im.test(context)) return false;
   }
   const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
   const runEng = (label: string) => /^Run \/plan-eng-review(?: next)?$/i.test(label);
-  const ready = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/devex-review after shipping)?$/i.test(label);
-  const manual = (label: string) => /^Skip(?:, handle manually|\s*[—–-]\s*I['’]ll handle next steps manually)$/i.test(label);
+  const ready = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/devex-review after shipping)?$/i.test(label) ||
+    (resultRecap && /^Start implementing now$/i.test(label));
+  const manual = (label: string) => /^Skip(?:, handle manually|\s*[—–-]\s*I['’]ll handle next steps manually)$/i.test(label) ||
+    (resultRecap && /^Skip, handle next steps manually$/i.test(label));
   return labels.every(label => runEng(label) || ready(label) || manual(label)) &&
     labels.filter(runEng).length === 1 && labels.filter(manual).length === 1 &&
     q.options.some(o => o.label === call.answers?.[q.question]);

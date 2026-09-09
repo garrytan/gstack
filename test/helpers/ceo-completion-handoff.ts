@@ -24,7 +24,7 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const ids = [...q.question.matchAll(/<gstack-qid:\s*([a-z0-9-]+)\s*>/gi)];
   if (ids.length > 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return null;
   const id = ids[0]?.[1]?.toLowerCase();
-  if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-next-step-eng-review)$/.test(id)) return null;
+  if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-next-step-eng-review|ceo-plan-next-steps)$/.test(id)) return null;
   const declaration = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
     .replace(/^next\s+(?:review|steps?)\s*:\s*/i, '');
   const gateContext = [q.question, ...q.options.map(option => option.description ?? '')].join('\n');
@@ -41,6 +41,14 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const completion = explicitCompletion || describedCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);
+  // This native identity still needs an unconditional closed-review heading;
+  // a next-step label cannot conceal a new repair or an unfinished obligation.
+  if (id === 'ceo-plan-next-steps' &&
+      (!/^CEO review (?:is )?complete[.!](?:\s|$)/i.test(declaration) ||
+       !/\bWhat(?:['’]s)? next\?\s*<gstack-qid:ceo-plan-next-steps>\s*$/i.test(declaration) ||
+       (declaration.match(/\?/g)?.length ?? 0) !== 1 ||
+       /\b(?:unresolved|outstanding|remaining|pending|if|unless|until)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(gateContext) ||
+       /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(gateContext))) return null;
   // A qid names the menu; it cannot replace its completed-review declaration
   // or authorize another fix. The named gate can be explained in a choice.
   if (!/^next\s+(?:review|steps?)$/i.test(q.header.trim()) || !completion || !requiredEng) return null;

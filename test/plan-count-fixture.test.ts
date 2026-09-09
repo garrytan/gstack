@@ -176,6 +176,7 @@ try {
         { name: 'exited', skillName: 'plan-eng-review', prompt: '# Early-exit plan\nStill clean up.', mode: 'exit' },
         { name: 'skip-first', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 1 },
         { name: 'skip-second', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 2 },
+        { name: 'skip-review-now', skillName: 'plan-ceo-review', prompt: '# Native CEO plan', mode: 'prerequisite', skipIndex: 2, skipLabel: 'Skip — review now (Recommended)' },
         { name: 'caller-policy', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 2, custom: true },
         { name: 'late-mode', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'late-mode' },
         { name: 'batched-mode', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'batched-mode' },
@@ -397,7 +398,7 @@ process.stdin.on('data', (data) => {
       record({ type: 'generic-answer', input });
       question = 2;
       selected = '';
-      const labels = ['Run /office-hours now', 'Skip — proceed with standard review'];
+      const labels = ['Run /office-hours now', process.env.FIXTURE_SKIP_LABEL || 'Skip — proceed with standard review'];
       if (process.env.FIXTURE_SKIP_INDEX === '1') labels.reverse();
       ask([questionMetadata('Prerequisite', 'No design doc found. Run /office-hours first?', labels)]);
       render('\r☐ Prerequisite\rNo design doc found. Run /office-hours first?\r❯1.' + labels[0] + '\r2.' + labels[1] + '\r');
@@ -517,6 +518,7 @@ const results = await Promise.all(cases.map(async (item) => ({
       FIXTURE_EXPECTED_REPORT: item.report ?? '',
       FIXTURE_CUSTOM: String(item.custom ?? false),
       FIXTURE_SKIP_INDEX: String(item.skipIndex ?? ''), FIXTURE_CONFIG_BIN: ${JSON.stringify(path.join(ROOT, 'bin/gstack-config'))},
+      FIXTURE_SKIP_LABEL: item.skipLabel ?? '',
       GSTACK_HOME: ${JSON.stringify(hostState)}, GSTACK_STATE_ROOT: ${JSON.stringify(hostState)},
     },
   }),

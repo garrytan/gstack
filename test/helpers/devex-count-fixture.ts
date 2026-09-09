@@ -104,7 +104,7 @@ export function planDevexCountFixture(planPath: string): string {
   ].join('\n');
 }
 
-type QuestionRecord = { header: string; question: string; options?: Array<{ label: string }> };
+type QuestionRecord = { header: string; question: string; options?: Array<{ label: string; description?: string }> };
 
 function questionRecords(fp: AskUserQuestionFingerprint, answeredOnly = false): QuestionRecord[] {
   if (!fp.nativeCall) return [{ header: '', question: fp.promptSnippet }];
@@ -131,6 +131,23 @@ function administrativeQuestion(header: string, question: string, options: Quest
       (/^Partially\s*[—–-]\s*(?:the [^;.!?]+? (?:does|is|has)|it (?:does|is|has)|there (?:is|are))\s+[^;.!?]+$/i.test(label) &&
         !/\b(?:should|must|needs?|shall|will|would|could)\b|(?:[,：:]|\b(?:and|then)\b)\s*(?:add|fix|package|remove|change|implement|enable|disable)\b/i.test(label));
     if (labels.filter(confirm).length === 1 && labels.some(correct) && labels.every(label => confirm(label) || correct(label))) return true;
+  }
+  const narrativeHeader = header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
+  const narrativeQuestion = question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
+  if (/^Narrative$/i.test(narrativeHeader) &&
+      /^Does (?:this|the) first-person developer trace match reality\?/i.test(narrativeQuestion) &&
+      !/<gstack-qid/i.test(question)) {
+    const labels = options?.map(option => option.label.trim().replace(/\s*\(recommended\)\s*$/i, '')) ?? [];
+    const confirm = (label: string) => /^Accurate\s*[—–-]\s*proceed$/i.test(label);
+    const correct = (label: string) => /^(?:Mostly right\s*[—–-]\s*minor corrections|Wrong\s*[—–-]\s*actual experience differs)$/i.test(label);
+    const repair = /(?:^|[.!?]\s+|\b(?:and|then|also|please|must|should|will|need to|proceed to|continue to)\s+)(?:add|fix|package|remove|change|implement|enable|disable|repair|rewrite)\b/i;
+    // The captured trace has only its opening and closing accuracy questions.
+    // An additional question asks for another decision, even with accuracy labels.
+    const confirmationOnly = /^Does (?:this|the) first-person developer trace match reality\?[^?]*Does this match the actual experience\?\s*$/i.test(narrativeQuestion);
+    if (labels.filter(confirm).length === 1 && labels.some(correct) &&
+        new Set(labels).size === labels.length && labels.every(label => confirm(label) || correct(label)) &&
+        confirmationOnly && !repair.test(narrativeQuestion) &&
+        options!.every(option => !repair.test(option.description ?? ''))) return true;
   }
   const id = [...question.matchAll(/<gstack-qid:([^>]+)>/gi)].at(-1)?.[1];
   if (id && /^(?:routing-injection|cross-project-learnings|plan-devex-review-(?:office-hours-preflight|prereq|persona|empathy(?:-check|-narrative)?|tthw-tier|competitive-tier|benchmark-tier|magical-moment|mode|confusion-report))$/i.test(id)) return true;

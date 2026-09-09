@@ -113,6 +113,36 @@ describe('pending native ExitPlanMode identity', () => {
     } finally { f.cleanup(); }
   });
 
+  test('captured compact gate permits blank rows without changing native ownership or source guards', () => {
+    // Exact active gate suffix from N DevEx terminal.screen.log SHA4ca3678d.
+    // Its blank heading/body row was absent from the original synthetic gate.
+    const captured = ' Exit plan mode?\n\n  Claude wants to exit plan mode\n\n' +
+      '  ❯ 1. Yes, and switch to default (ask each time) for this session\n    2. No\n\n';
+    const f = fixture();
+    try {
+      expect(isCurrentPlanApprovalScreen(captured)).toBe(true);
+      expect(isCurrentPlanApprovalScreen(captured.replace('\n\n', '\n \t\n  \n'))).toBe(true);
+      expect(f.observe(captured).planReadyRequests).toBeUndefined();
+      recordPendingExit(JSON.stringify(f.event), f.recorder.file, f.dir, f.config);
+      expect(f.observe(captured).planReadyRequests?.[0]?.source).toBe('pre_tool_use');
+      for (const screen of [
+        captured.split('\n').map(line => '> ' + line).join('\n'),
+        captured.split('\n').map(line => '    ' + line).join('\n'),
+        '~~~text\n' + captured, '````text\n' + captured + '````',
+        'Example approval menu:\n\n' + captured,
+        captured.replace('  Claude wants to exit plan mode', ''),
+        captured.replace('    2. No', ''), captured + '3. Delete report',
+        captured + 'Working…',
+      ]) {
+        expect(isCurrentPlanApprovalScreen(screen), screen).toBe(false);
+        expect(f.observe(screen).planReadyRequests, screen).toBeUndefined();
+      }
+      expect(isCurrentPlanApprovalScreen('~~~text\nprior code\n~~~\n' + captured)).toBe(true);
+      fs.utimesSync(f.report, new Date(f.startedAt - 1), new Date(f.startedAt - 1));
+      expect(hasNativePlanTerminal(f.observe(captured), f.report, f.startedAt, 'plan_ready')).toBe(false);
+    } finally { f.cleanup(); }
+  });
+
   test('quoted, incomplete, busy and superseded screens never supply the active gate', () => {
     expect(isCurrentPlanApprovalScreen(GATE)).toBe(true);
     expect(isCurrentPlanApprovalScreen(COMPACT_GATE)).toBe(true);

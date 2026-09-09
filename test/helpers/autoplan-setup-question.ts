@@ -26,6 +26,29 @@ export type AutoplanSetupDecision =
   | { kind: 'unsupported_setup'; setup: 'routing' | 'prerequisite'; prompt: string;
       options: Array<{ index: number; label: string }>; identitySource: 'native-bound' | 'current-native-panel' };
 
+/** A long boxed routing question can retain its title after only the header scrolls away. */
+function clippedRoutingTitle(visible: string, question: AskUserQuestionFingerprint): string | null {
+  const lines = visible.replace(/\r+\n?/g, '\n').trimEnd().split('\n');
+  const title = /^ {0,3}[│┃][\t ]*(.+)$/.exec(lines[0] ?? '')?.[1];
+  if (!title || !/^(?:D\s*\d+\s*[—–:-]\s*)?Add\s+(?:gstack\s+)?skill\s+routing\s+rules\s+to\s+CLAUDE\.md\?\s*<gstack-qid:routing-injection>$/i.test(title)) return null;
+  const cursors = lines.flatMap((line, index) => /❯\s*[1-9]\./.test(line) ? [index] : []);
+  if (cursors.length !== 1 || !/^ {0,3}❯\s*1\./.test(lines[cursors[0]!]!)) return null;
+  const before = lines.slice(0, cursors[0]);
+  if (before.some(line => line.trim() && !/^ {0,3}[│┃](?:[\t ]|$)/.test(line)) ||
+      before.some(line => /^ {0,3}[│┃][\t ]*(?:`{3,}|~{3,}|>)/.test(line)) ||
+      (before.join('\n').match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      /[☐□☒]|←[^\n]*Submit|(?:^|\n)[^\n]*[1-9]\.\s*\[[ ✓✔xX]\]/.test(visible)) return null;
+  if (!/^Enter[\t ]+to[\t ]+select[\t ]*·[\t ]*↑\/↓[\t ]+to[\t ]+navigate[\t ]*·[\t ]*Esc[\t ]+to[\t ]+cancel$/i.test(lines.at(-1)?.trim() ?? '')) return null;
+  const rows = lines.slice(cursors[0]).flatMap(line => {
+    const match = /^ {0,3}(?:❯\s*)?([1-9])\.[\t ]*(\S.*?)\s*$/.exec(line);
+    return match ? [{ index: Number(match[1]), label: match[2]! }] : [];
+  });
+  if (rows.length !== 4 || rows.some((row, index) => row.index !== index + 1) ||
+      rows[2]!.label !== 'Type something.' || rows[3]!.label !== 'Chat about this' ||
+      JSON.stringify(rows) !== JSON.stringify(question.options)) return null;
+  return title;
+}
+
 /** Fail only a complete current setup panel; absence or stale/partial metadata is not failure. */
 function completeSetupOptions(visible: string, pending?: NativePlanQuestionCall): Array<{ index: number; label: string }> | null {
   if (!activeSetupPanel(visible)) return null;
@@ -75,6 +98,10 @@ export function autoplanSetupDecision(visible: string, seen: ReadonlySet<string>
   const captured = new Set(seen);
   const question = capturePlanCountQuestion(display, captured, 0, true, pending);
   if (!question) return { kind: 'waiting' };
+  // Recover only a still-visible direct routing title from this complete
+  // boxed native panel. A present native call keeps its existing binding.
+  const clippedTitle = !pending ? clippedRoutingTitle(visible, question) : null;
+  if (clippedTitle) question.promptSnippet = clippedTitle;
   const answered = (input: string | null): AutoplanSetupDecision => input === null
     ? { kind: 'waiting' }
     : { kind: 'input', input, signatures: [...captured].filter(signature => !seen.has(signature)) };
@@ -154,7 +181,9 @@ export function autoplanSetupDecision(visible: string, seen: ReadonlySet<string>
   // turn substantive/ambiguous choices into an early setup failure.
   if (add.length !== 1) return { kind: 'waiting' };
   if (decline.length !== 1 || add[0]!.index === decline[0]!.index) return unsupportedSetup(display, question, 'routing', pending);
-  return answered(planCountQuestionInput(display, question, add[0]!.index));
+  // The verified clipped panel has the same native numeric shortcut. Do
+  // not queue Enter behind it when the single-select header is offscreen.
+  return answered(clippedTitle ? String(add[0]!.index) : planCountQuestionInput(display, question, add[0]!.index));
 }
 
 /** Compatibility wrapper: preserve the existing input-only API. */

@@ -7,6 +7,7 @@ import { capturePlanCountQuestion, ceoFirstReviewAUQ, ceoStep0Boundary, hasNativ
 import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/ceo-completion-handoff-m-call.json';
+import nextStepCapture from './fixtures/ceo-handoff-n-calls.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const handoff = () => calls().at(-1)!;
@@ -254,6 +255,96 @@ describe('native next-review navigation with a resolved CEO recap', () => {
       transcript.calls.push({ ...structuredClone(transcript.calls[4]!), toolUseId: 'new-independent-finding',
         answeredAt: transcript.calls.at(-1)!.answeredAt });
       expect(hasNativePlanTerminal(transcript, report, startedAt, 'plan_ready', administrative)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CEO completed next-step identity in native option order', () => {
+  const input = () => structuredClone(nextStepCapture.calls) as NativePlanQuestionCall[];
+  const actual = () => input().at(-1)!;
+
+  test('the complete native sequence retains two setup and four real issue decisions', () => {
+    let started = false;
+    const counts = { setup: 0, review: 0, administrative: 0 };
+    const native = input();
+    const original = structuredClone(native);
+    for (const call of native) {
+      const phase = planCountQuestionPhase(fingerprint(call), started, ceoStep0Boundary,
+        ceoFirstReviewAUQ, undefined, isCeoCompletionHandoff);
+      started = phase.reviewStarted;
+      if (phase.administrative) counts.administrative++;
+      else if (phase.preReview) counts.setup++;
+      else counts.review++;
+    }
+    expect(counts).toEqual({ setup: 2, review: 4, administrative: 1 });
+    expect(native).toEqual(original);
+  });
+
+  test('only the positively bound pending menu selects its offered manual action', () => {
+    for (const reverse of [false, true]) {
+      const call = actual();
+      call.answered = false;
+      delete call.answers;
+      delete call.unansweredQuestionIndices;
+      if (reverse) call.questions[0]!.options.reverse();
+      expect(pickCeoCompletionHandoff(fingerprint(call))).toBe(reverse ? 1 : 2);
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+      expect(pickCeoCompletionHandoff({ ...fingerprint(call), signature: 'other:call' })).toBeNull();
+    }
+  });
+
+  test('the observed identity cannot excuse unfinished work, a finding or a malformed native call', () => {
+    for (const mutate of [
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('complete.', 'complete only after fixing authorization.'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('complete.', 'complete. One issue remains unresolved.'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('complete.', 'complete. Please fix the missing authorization test.'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('What next?', 'Should we add a missing authorization test before the next review?'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('What next?', 'We should fix the missing authorization test before the next review.'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('What next?', 'We should fix the missing authorization test. What next?'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('required shipping gate', 'optional review'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('ceo-plan-next-steps', 'ceo-plan-test-gap'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question += ' <gstack-qid:ceo-plan-next-steps>'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.header = 'TODO'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.options[1]!.description = 'Proceed to fix the missing authorization test before Eng review.'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.options[0]!.label += ' and add a missing test'; },
+      (call: NativePlanQuestionCall) => { call.questions.push(input()[2]!.questions[0]!); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.multiSelect = true; },
+    ]) {
+      const call = actual();
+      mutate(call);
+      call.answers = Object.fromEntries(call.questions.map(q => [q.question, q.options[0]!.label]));
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+      call.answered = false;
+      expect(pickCeoCompletionHandoff(fingerprint(call))).toBeNull();
+    }
+    for (const mutate of [
+      (call: NativePlanQuestionCall) => { call.failed = true; },
+      (call: NativePlanQuestionCall) => { call.unansweredQuestionIndices = [0]; },
+      (call: NativePlanQuestionCall) => { call.answers = {}; },
+      (call: NativePlanQuestionCall) => { call.answers = { [call.questions[0]!.question]: 'Build another feature' }; },
+    ]) {
+      const call = actual();
+      mutate(call);
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+    }
+  });
+
+  test('the actual report precedes handoff but the captured absent Exit remains incomplete', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-native-next-step-'));
+    const report = path.join(dir, 'plan.md');
+    try {
+      fs.writeFileSync(report, nextStepCapture.report.content);
+      const written = Date.parse(nextStepCapture.report.successfulUpdateAt) / 1000;
+      fs.utimesSync(report, written, written);
+      const calls = input();
+      expect(Date.parse(calls.at(-2)!.answeredAt!)).toBeLessThan(written * 1000);
+      expect(Date.parse(calls.at(-1)!.answeredAt!)).toBeGreaterThan(written * 1000);
+      const transcript = { status: 'ready' as const, calls, assistantMessages: [],
+        planReadyRequests: structuredClone(nextStepCapture.planReadyRequests) };
+      const admin = new Set([fingerprint(calls.at(-1)!).signature]);
+      expect(hasNativePlanTerminal(transcript, report, Date.parse('2026-09-09T01:06:22Z'), 'plan_ready', admin)).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

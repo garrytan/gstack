@@ -7,6 +7,7 @@ import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQue
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/design-review-j-calls.json';
 import numberedPasses from './fixtures/design-review-l-calls.json';
+import scoredPasses from './fixtures/design-review-n-calls.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
@@ -244,5 +245,98 @@ describe('Design count native review phases and completion handoff', () => {
       const incomplete = structuredClone(transcript); incomplete.calls[3]!.answered = false;
       expect(hasNativePlanTerminal(incomplete, file, start, 'plan_ready', administrative)).toBe(false);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+
+describe('scored native Design pass decisions', () => {
+  const actualCalls = () => structuredClone(scoredPasses.calls) as NativePlanQuestionCall[];
+  const actual = () => actualCalls()[0]!;
+  const answer = (call: NativePlanQuestionCall) => {
+    call.answers = Object.fromEntries(call.questions.map(q => [q.question, q.options[0]!.label]));
+    return call;
+  };
+
+  test('the captured scored first pass retains all eight substantive decisions above the unchanged ceiling', () => {
+    const input = actualCalls().slice(0, 8);
+    const before = structuredClone(input);
+    expect(isDesignCountFirstReview(fingerprint(input[0]!))).toBe(true);
+    const result = replay(input);
+    expect(result).toMatchObject({ step0: 0, review: 8, administrative: 0 });
+    expect(result.review).toBeGreaterThan(7);
+    expect(input).toEqual(before);
+  });
+
+  test('the complete first attempt retains all eleven issue and TODO approvals before its handoff', () => {
+    const input = actualCalls();
+    expect(input).toHaveLength(12);
+    expect(input[10]!.questions[0]!.header).toContain('TODO');
+    expect(replay(input.slice(0, -1))).toMatchObject({ step0: 0, review: 11, administrative: 0 });
+  });
+
+  test('the captured retry begins at its explicit missing-spec decision and retains every issue', () => {
+    const input = structuredClone(scoredPasses.retry.calls) as NativePlanQuestionCall[];
+    const original = structuredClone(input);
+    expect(isDesignCountFirstReview(fingerprint(input[0]!))).toBe(true);
+    expect(replay(input.slice(0, 8))).toMatchObject({ step0: 0, review: 8, administrative: 0 });
+    expect(input).toEqual(original);
+  });
+
+  test('named pass identity cannot turn phase readiness or a missing answer into a finding', () => {
+    for (const mutate of [
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = 'Pass 1 — Information Architecture: ready to begin? <gstack-qid:plan-design-review-ia-hierarchy>'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.options = [{ label: 'Begin' }, { label: 'Not yet' }]; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.header = 'Focus'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = 'Example: ' + call.questions[0]!.question; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('plan-design-review-ia-hierarchy', 'plan-design-review-focus'); },
+      (call: NativePlanQuestionCall) => { call.failed = true; },
+      (call: NativePlanQuestionCall) => { call.unansweredQuestionIndices = [0]; },
+    ]) {
+      const call = structuredClone(scoredPasses.retry.calls[0]) as NativePlanQuestionCall;
+      mutate(call);
+      expect(isDesignCountFirstReview(fingerprint(answer(call)))).toBe(false);
+    }
+  });
+
+  test('native numeric score and missing-requirement decision do not depend on a D-number', () => {
+    for (const prefix of ['Pass 1 (Info Architecture) — 7/10.', 'D2 — Pass 1 (Information Architecture): 7.5/10.']) {
+      const call = actual();
+      call.questions[0]!.question = call.questions[0]!.question.replace(/^Pass 1 \(Info Architecture\) — 7\/10\./, prefix);
+      expect(isDesignCountFirstReview(fingerprint(answer(call)))).toBe(true);
+    }
+  });
+
+  test('readiness, setup, quoted examples and missing substantive choices cannot start review', () => {
+    for (const mutate of [
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = 'Pass 1 (Info Architecture) — 7/10. Ready to start this pass? <gstack-qid:plan-design-review-ia-scan-path>'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = 'Pass 1 (Info Architecture) — 7/10. The plan has no missing requirements. Should I begin this pass? <gstack-qid:plan-design-review-ia-scan-path>'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = 'Example: ' + call.questions[0]!.question; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = '> ' + call.questions[0]!.question; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('plan-design-review-ia-scan-path', 'plan-design-review-focus'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.question = call.questions[0]!.question.replace('plan-design-review-ia-scan-path', 'unrelated-setup'); },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.header = 'Outside voices'; },
+      (call: NativePlanQuestionCall) => { call.questions[0]!.options = [{ label: 'Begin' }, { label: 'Not yet' }]; },
+    ]) {
+      const call = actual();
+      mutate(call);
+      expect(isDesignCountFirstReview(fingerprint(answer(call)))).toBe(false);
+    }
+  });
+
+  test('the scored pass needs a successfully answered offered native decision', () => {
+    for (const mutate of [
+      (call: NativePlanQuestionCall) => { call.answered = false; },
+      (call: NativePlanQuestionCall) => { call.failed = true; },
+      (call: NativePlanQuestionCall) => { call.answers = {}; },
+      (call: NativePlanQuestionCall) => { call.answers = { [call.questions[0]!.question]: 'Unknown free-form request' }; },
+      (call: NativePlanQuestionCall) => { call.unansweredQuestionIndices = [0]; },
+    ]) {
+      const call = actual();
+      mutate(call);
+      expect(isDesignCountFirstReview(fingerprint(call))).toBe(false);
+    }
+    const missing = fingerprint(actual());
+    delete missing.nativeCall;
+    expect(isDesignCountFirstReview(missing)).toBe(false);
   });
 });
