@@ -3019,10 +3019,10 @@ if [ "$NO_TEAM_MODE" -eq 1 ] && [ -x "$SETTINGS_HOOK" ]; then
   "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral >/dev/null || true
   "$SETTINGS_HOOK" remove-source --source auq-error-fallback >/dev/null || true
   "$SETTINGS_HOOK" remove-source --source gstack-timeline-stop >/dev/null || true
-  # verify-gate is a user-registered opt-in unrelated to team mode -- turning
-  # team mode off must not delete it (uninstall still sweeps it, correctly,
-  # because there the binary itself is being removed).
-  GSTACK_SWEEP_EXCLUDE_SOURCES="verify-gate" "$SETTINGS_HOOK" prune-stale --all >/dev/null || true
+  # verify-gate and gstack-memorable are user-registered opt-ins unrelated to
+  # team mode -- turning team mode off must not delete them (uninstall still
+  # sweeps both, correctly, because there the binaries themselves are removed).
+  GSTACK_SWEEP_EXCLUDE_SOURCES="verify-gate,gstack-memorable" "$SETTINGS_HOOK" prune-stale --all >/dev/null || true
 fi
 
 # ─── Redact pre-push guard consent (#1946) ───────────────────────────────────

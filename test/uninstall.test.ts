@@ -309,6 +309,81 @@ describe('hook cleanup runs before the install root is deleted', () => {
   }, 30000);
 });
 
+describe('the Memorable bridge hook is removed by name and the kept config is left honest', () => {
+  test('a tag-stripped memorable entry is removed, reported, and memorable_recall is set off under --keep-state', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-memo-'));
+    try {
+      const mockHome = path.join(tmp, 'home');
+      const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
+      const installBin = path.join(installRoot, 'bin');
+      fs.mkdirSync(installBin, { recursive: true });
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config']) {
+        const dst = path.join(installBin, b);
+        fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
+        fs.chmodSync(dst, 0o755);
+      }
+      const settingsFile = path.join(mockHome, '.claude', 'settings.json');
+      fs.writeFileSync(settingsFile, JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [
+            { hooks: [{ type: 'command', command: `${installRoot}/hosts/claude/hooks/memorable-user-prompt-hook`, timeout: 5 }] },
+            { hooks: [{ type: 'command', command: '"/Users/me/.memorable/bin/memorable" hook user-prompt' }] },
+          ],
+        },
+      }, null, 2));
+      const stateRoot = path.join(mockHome, '.gstack');
+      fs.mkdirSync(stateRoot, { recursive: true });
+      const env = { ...process.env, HOME: mockHome, GSTACK_SETTINGS_FILE: settingsFile, GSTACK_STATE_ROOT: stateRoot };
+      spawnSync('bash', [path.join(installBin, 'gstack-config'), 'set', 'memorable_recall', 'on'], { env, timeout: 20_000 });
+
+      const result = spawnSync('bash', [path.join(installBin, 'gstack-uninstall'), '--force', '--keep-state'], {
+        stdio: 'pipe', timeout: 30_000, env, cwd: tmp, encoding: 'utf-8',
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('Memorable UserPromptSubmit hook');
+      const s = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+      // gstack's entry gone, the vendor's own entry untouched
+      expect(s.hooks.UserPromptSubmit).toHaveLength(1);
+      expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toContain('.memorable/bin/memorable');
+      expect(fs.readFileSync(path.join(stateRoot, 'config.yaml'), 'utf-8')).toMatch(/memorable_recall: off/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30000);
+});
+
+describe('the Memorable arm stays quiet when nothing of its is registered', () => {
+  test('no memorable entry -> no "Memorable UserPromptSubmit hook" in the summary, exit 0', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-memo-none-'));
+    try {
+      const mockHome = path.join(tmp, 'home');
+      const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
+      const installBin = path.join(installRoot, 'bin');
+      fs.mkdirSync(installBin, { recursive: true });
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config']) {
+        const dst = path.join(installBin, b);
+        fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
+        fs.chmodSync(dst, 0o755);
+      }
+      const settingsFile = path.join(mockHome, '.claude', 'settings.json');
+      fs.writeFileSync(settingsFile, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: '/Users/me/my-own-hook' }] }] } }, null, 2));
+      fs.mkdirSync(path.join(mockHome, '.gstack'), { recursive: true });
+      const result = spawnSync('bash', [path.join(installBin, 'gstack-uninstall'), '--force', '--keep-state'], {
+        stdio: 'pipe', timeout: 30_000, encoding: 'utf-8', cwd: tmp,
+        env: { ...process.env, HOME: mockHome, GSTACK_SETTINGS_FILE: settingsFile, GSTACK_STATE_ROOT: path.join(mockHome, '.gstack') },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain('Memorable UserPromptSubmit hook');
+      const s = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+      expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toBe('/Users/me/my-own-hook');
+      // the consent flip only runs when the key reads on: no config file is created just to say off
+      expect(fs.existsSync(path.join(mockHome, '.gstack', 'config.yaml'))).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 30000);
+});
+
 describe('hook cleanup under lock contention is loud, never silent (review-army)', () => {
   test('a held foreign lock during uninstall surfaces the give-up warning on stderr', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-lock-'));
@@ -362,4 +437,65 @@ describe('hook cleanup under lock contention is loud, never silent (review-army)
     // and their bun -e cold starts stack up under load — the default 5s
     // per-test budget is too tight on a busy box.
   }, 30000);
+});
+
+describe('the consent key never outlives the hook, even when the config lives outside the removed state dir', () => {
+  test('full uninstall (no --keep-state) with GSTACK_STATE_ROOT elsewhere: memorable_recall flips off there', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-memo-root-'));
+    try {
+      const mockHome = path.join(tmp, 'home');
+      const otherRoot = path.join(tmp, 'elsewhere');
+      const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
+      const installBin = path.join(installRoot, 'bin');
+      fs.mkdirSync(installBin, { recursive: true });
+      fs.mkdirSync(otherRoot, { recursive: true });
+      for (const b of ['gstack-uninstall', 'gstack-settings-hook', 'gstack-session-update', 'gstack-config']) {
+        const dst = path.join(installBin, b);
+        fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
+        fs.chmodSync(dst, 0o755);
+      }
+      const settingsFile = path.join(mockHome, '.claude', 'settings.json');
+      fs.writeFileSync(settingsFile, JSON.stringify({ hooks: {} }));
+      fs.mkdirSync(path.join(mockHome, '.gstack'), { recursive: true });
+      const env = { ...process.env, HOME: mockHome, GSTACK_SETTINGS_FILE: settingsFile, GSTACK_STATE_ROOT: otherRoot };
+      expect(spawnSync('bash', [path.join(installBin, 'gstack-config'), 'set', 'memorable_recall', 'on'], { env, timeout: 20_000 }).status).toBe(0);
+      const result = spawnSync('bash', [path.join(installBin, 'gstack-uninstall'), '--force'], {
+        stdio: 'pipe', timeout: 30_000, encoding: 'utf-8', cwd: tmp, env,
+      });
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(false); // the default state dir went
+      expect(fs.readFileSync(path.join(otherRoot, 'config.yaml'), 'utf-8')).toMatch(/memorable_recall: off/); // the real config did not keep consent
+      expect(result.stdout).toContain('memorable_recall consent (set off)');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the consent flip does not depend on the hook manager being present', () => {
+  test('gstack-settings-hook missing from the install: memorable_recall still goes off', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-uninstall-memo-nohook-'));
+    try {
+      const mockHome = path.join(tmp, 'home');
+      const installRoot = path.join(mockHome, '.claude', 'skills', 'gstack');
+      const installBin = path.join(installRoot, 'bin');
+      fs.mkdirSync(installBin, { recursive: true });
+      for (const b of ['gstack-uninstall', 'gstack-config']) { // no settings hook, no session-update
+        const dst = path.join(installBin, b);
+        fs.copyFileSync(path.join(ROOT, 'bin', b), dst);
+        fs.chmodSync(dst, 0o755);
+      }
+      const stateRoot = path.join(mockHome, '.gstack');
+      fs.mkdirSync(stateRoot, { recursive: true });
+      const env = { ...process.env, HOME: mockHome, GSTACK_STATE_ROOT: stateRoot };
+      expect(spawnSync('bash', [path.join(installBin, 'gstack-config'), 'set', 'memorable_recall', 'on'], { env, timeout: 20_000 }).status).toBe(0);
+      const result = spawnSync('bash', [path.join(installBin, 'gstack-uninstall'), '--force', '--keep-state'], {
+        stdio: 'pipe', timeout: 30_000, encoding: 'utf-8', cwd: tmp, env,
+      });
+      expect(result.status).toBe(0);
+      expect(fs.readFileSync(path.join(stateRoot, 'config.yaml'), 'utf-8')).toMatch(/memorable_recall: off/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

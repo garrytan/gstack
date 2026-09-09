@@ -531,6 +531,137 @@ references — include it in this fix's coverage list.
 - Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
 - Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
 
+## Memorable bridge follow-ups (filed via /plan-ceo-review + /plan-eng-review on the Memorable bridge fix-up, #2831)
+
+### P3: gstack-mediated third-party hook seam
+
+**What:** Generalize what the Memorable bridge instantiates: a `mediate <name>`
+verb (or provider table) that gives ANY third-party Claude Code hook a consent
+key, a receipt sink, an envelope, healing and clean removal, with Memorable as
+the first provider.
+
+**Why:** The bridge fixes the interface (config key, sink name, source tag,
+hook basename, gate, envelope). A second vendor today would copy
+`bin/gstack-memorable` and the hook `.ts`; the seam makes it a registration.
+
+**Context:** Deliberately not built with one provider (premature abstraction;
+CEO review D1/ED17). Start from `bin/gstack-memorable`,
+`hosts/claude/hooks/memorable-user-prompt-hook.ts`, and the `KNOWN_HOOKS`
+row shape.
+
+**Effort:** L (human ~1.5 weeks / CC+gstack ~4 h). **Priority:** P3.
+**Depends on:** a second third-party hook actually wanting in.
+
+### P2: Windows support for the Memorable bridge (D21)
+
+**What:** `enable` refuses on Windows and the hook exits 0 there. Bring it up:
+descendant termination (`taskkill /T` or a job object) so a vendor process
+cannot outlive a timeout, `.cmd` and extensionless shim handling for the
+vendor path, the `bash ` command prefix setup uses for registrations, and a
+live verification on the windows lane with a real `npm i -g memorable-cli`.
+
+**Why:** Without process groups the containment guarantee the bridge makes
+cannot be given; refusing was the honest choice for this wave.
+
+**Context:** `runExternal` in `hosts/claude/hooks/spawn-bin.ts` returns
+`EPLATFORM` on win32; the behavioural tests are auto-excluded from the
+windows lane because they spawn `bin/` scripts.
+
+**Effort:** M (human ~2 days / CC+gstack ~1 h). **Priority:** P2.
+**Depends on:** none.
+
+### P3: `lib/tracker-guard.ts` envelope `kind` parameter
+
+**What:** The envelope wraps recall text with the TRACKER banner. Add a
+`kind` so third-party hook content reads as what it is, keeping the pinned
+banner constants intact for tracker callers.
+
+**Effort:** S (human ~2 h / CC+gstack ~10 min). **Priority:** P3.
+**Depends on:** none.
+
+### P3: vendor payload-minimization contract
+
+**What:** Ask Memorable which `UserPromptSubmit` fields `hook user-prompt`
+actually reads, so the bridge can forward fewer (drop `transcript_path` if
+unused). Today it forwards the full JSON because the vendor parses Claude
+Code's documented schema and its EULA forbids finding out otherwise.
+
+**Effort:** S. **Priority:** P3. **Depends on:** vendor response.
+
+### P3: recall latency measurement and timeout revisit
+
+**What:** After a month of use, read `gstack_ms=` and `timeout` outcomes from
+`gstack-egress list --sink memorable-recall` and revisit the 4.5 s ceiling and
+the `--timeout 5` registration.
+
+**Effort:** S. **Priority:** P3. **Depends on:** the bridge in use.
+
+### P3: consolidate the vendor resolvers and extract the canonical-root helper (D24)
+
+**What:** The vendor CLI is resolved twice (bash in `bin/gstack-memorable`, TS
+in the hook); the canonical-root and `IS_WINDOWS` logic is copied from
+`setup` (marked `TODO D24` at each copy). Extract a sourced
+`gstack-canonical-root.sh` used by `setup`, `bin/gstack-memorable` and
+`bin/gstack-relink`, and one resolver for the vendor.
+
+**Context:** `setup`'s text is pinned by `test/setup-hook-canonical-paths.test.ts`;
+the extraction must move those pins with it.
+
+**Effort:** S. **Priority:** P3. **Depends on:** settling the pinned-text tests.
+
+### P3: non-interactive MEDIUM-tier redaction policy for hooks
+
+**What:** The hook refuses HIGH-tier findings only; MEDIUM needs a
+confirmation no hook can ask for. Decide a policy (skip-and-log vs pass) so
+hooks can honor more than HIGH.
+
+**Effort:** S. **Priority:** P3. **Depends on:** none.
+
+### P3: adopt `list-items` at setup's plan-tune "already installed" check
+
+**What:** `setup:2525` decides with `list-sources | grep plan-tune-cathedral`,
+which is tag-only and misses tag-stripped live hooks. `gstack-settings-hook
+list-items --event PostToolUse --owned-by plan-tune-cathedral` is the
+identity-based answer.
+
+**Effort:** S. **Priority:** P3. **Depends on:** none.
+
+### P3: one state-root rule for the bridge's four stores
+
+**What:** The hook, `bin/gstack-config` and `bin/gstack-memorable` resolve
+their root as `GSTACK_STATE_ROOT` > `GSTACK_HOME` > `GSTACK_STATE_DIR`; the
+egress ledger (`lib/egress-receipt.ts`) honors `GSTACK_HOME` >
+`GSTACK_STATE_DIR`; the trust-policy store (`lib/gbrain-repo-policy-client.ts`)
+only `GSTACK_HOME`; `bin/gstack-uninstall` deletes only
+`${GSTACK_STATE_DIR:-$HOME/.gstack}`. Extract one shared rule (a
+`lib/state-root.ts` plus its bash twin) and use it everywhere.
+
+**Why:** With `GSTACK_STATE_ROOT` set, the gate lives under one directory and
+the receipts under another; the tests pin all three variables to one temp dir,
+so the drift is invisible to them. Found by the /ship red team.
+
+**Context:** Uninstall already flips `memorable_recall` off whenever it reads
+`on`, kept state or not (through gstack-config's own resolution), so no config
+can say `on` after the hook is gone; the remaining drift is observability, not
+consent.
+
+**Effort:** S (human ~3 h / CC+gstack ~20 min). **Priority:** P3.
+**Depends on:** none.
+
+### P3: shared hook logging helper
+
+**What:** `stateRoot()` and the `hook-errors.log` appender now exist in five
+hooks (`question-log`, `question-preference`, `auq-error-fallback`,
+`timeline-stop`, `memorable-user-prompt`), with drifting env-var precedence.
+Extract `hosts/claude/hooks/hook-log.ts` (root resolution, 0600 append, the
+rate limiter the memorable hook added) and migrate the five.
+
+**Why:** One place to fix precedence and file modes; the memorable hook's
+rate limiter belongs to every hook that can fail on every prompt.
+
+**Effort:** S (human ~2 h / CC+gstack ~15 min). **Priority:** P3.
+**Depends on:** the state-root rule above.
+
 ## Aside integration follow-ups (filed via /plan-ceo-review + /plan-eng-review on the third-party-actions Aside plan)
 
 ### QA logged-in-evidence path via Aside (Phase 2)
@@ -3423,7 +3554,7 @@ needs one paid run to validate, so it didn't ride the ship.
 **Priority:** P1
 **Depends on:** None
 
-**Completed:** v1.84.0.0 (2026-09-09). Shipped as `/claude-code`, with automatic outside-review routing and safe installation migration.
+**Completed:** v1.85.0.0 (2026-09-09). Shipped as `/claude-code`, with automatic outside-review routing and safe installation migration.
 
 ### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
 

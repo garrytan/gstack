@@ -19,7 +19,7 @@ import * as path from "path";
 import * as os from "os";
 import { spawnSync } from "child_process";
 
-import { repoPolicyTierBatch } from "../lib/gbrain-repo-policy-client";
+import { repoPolicyTier, repoPolicyTierBatch } from "../lib/gbrain-repo-policy-client";
 import { canonicalizeRemote } from "../lib/gstack-memory-helpers";
 
 const ROOT = path.resolve(import.meta.dir, "..");
@@ -207,5 +207,15 @@ describe("normalize parity: bash normalize() ↔ canonicalizeRemote (edge URL sh
     const canon = canonicalizeRemote("https://github.com/ACME/XShape.GIT/");
     const verdicts = repoPolicyTierBatch([canon], env());
     expect(verdicts.get(canon)).toEqual({ tier: "deny" });
+  });
+});
+
+describe("repoPolicyTier timeoutMs (hook deadline seam)", () => {
+  test("a spawn that cannot finish inside timeoutMs classifies as unreadable; the default still reads the tier", () => {
+    const url = "https://github.com/example/timed.git";
+    expect(run(["set", url, "deny"]).status).toBe(0);
+    expect(repoPolicyTier(url, env())).toEqual({ tier: "deny" });
+    // 1 ms cannot cover a bash+jq spawn; the caller's polarity decides what unreadable means
+    expect(repoPolicyTier(url, env(), 1)).toEqual({ tier: "none", error: "unreadable" });
   });
 });

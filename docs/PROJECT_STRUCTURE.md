@@ -15,7 +15,7 @@ gstack/
 │   └── dist/        # Compiled binary
 ├── hosts/           # Typed host configs (one per AI agent)
 │   ├── claude.ts    # Primary host config
-│   ├── claude/hooks/  # Claude Code lifecycle hooks (AUQ capture + enforcement, spawned-session directive, timeline stop)
+│   ├── claude/hooks/  # Claude Code lifecycle hooks (AUQ capture + enforcement, spawned-session directive, timeline stop, Memorable recall bridge (opt-in))
 │   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
 │   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # IDE hosts
 │   ├── hermes.ts, gbrain.ts  # Agent runtime hosts
@@ -63,7 +63,7 @@ gstack/
 ├── freeze/          # /freeze skill; bin/check-freeze.sh (PreToolUse edit-boundary hook; sources careful/bin/hook-extract.sh, fails closed)
 ├── guard/, unfreeze/  # /guard (careful + freeze in one), /unfreeze
 ├── gstack-upgrade/  # /gstack-upgrade skill + migrations/ (run after ./setup during an upgrade)
-├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside or the engine, gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, gstack-relink, etc.)
+├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside or the engine, gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, gstack-relink, gstack-memorable, etc.)
 ├── document-release/ # /document-release skill (post-ship doc updates + Diataxis coverage map)
 ├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)

@@ -111,6 +111,18 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Override per-run: ./setup --plan-tune-hooks /
 #                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
 #
+# ─── Memorable recall bridge (opt-in, third party) ──────────────────
+# memorable_recall: off     # The gstack-side consent gate for the Memorable
+#                           #   UserPromptSubmit bridge (bin/gstack-memorable).
+#                           #   off — the hook does nothing, spawns nothing (default)
+#                           #   on  — the hook hands each prompt to the local
+#                           #         `memorable` CLI, receipted as memorable-recall
+#                           # Written by `gstack-memorable enable|disable`. An
+#                           # invalid value is REJECTED and the stored value kept:
+#                           # a typo must never flip a third-party consent.
+#                           # The vendor capture consent (`memorable enable`)
+#                           # is separate; gstack never sets it.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Workflow outside review (Codex or Claude Code by harness).
 #                           #   enabled: /review, /ship, /document-release, plan reviews,
@@ -158,6 +170,7 @@ lookup_default() {
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
     pair_agent) echo "off" ;; # remote tunnel consent — fail-closed until /pair-agent asks
+    memorable_recall) echo "off" ;; # on | off — Memorable bridge gate, fail-closed until `gstack-memorable enable`
     founder_resources) echo "true" ;; # office-hours resource pitch — #538 permanent opt-out sets false
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
     #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
@@ -421,6 +434,13 @@ case "${1:-}" in
       echo "Error: cross_project_learnings '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
       exit 1
     fi
+    # memorable_recall is a CONSENT key: `on` lets a Claude Code hook hand every
+    # prompt to a third-party binary. Reject like codex_reviews -- a typo must
+    # never flip consent in either direction, so nothing is coerced or stored.
+    if [ "$KEY" = "memorable_recall" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: memorable_recall '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -452,7 +472,7 @@ case "${1:-}" in
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
-               timeline_stop_hook; do
+               timeline_stop_hook memorable_recall; do
       VALUE=$(read_config_value "$KEY" || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -469,7 +489,7 @@ case "${1:-}" in
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
-               timeline_stop_hook; do
+               timeline_stop_hook memorable_recall; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

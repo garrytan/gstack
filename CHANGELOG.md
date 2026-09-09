@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.84.0.0] - 2026-09-09
+## [1.85.0.0] - 2026-09-09
 
 ### Added
 
@@ -18,6 +18,52 @@
 - Spec review stops when redaction fails, before sending the spec to a reviewer or saving it downstream.
 - Planning reviews request each unresolved decision before editing and carry approved remedies across sections without asking again. Choosing a scope or approach does not approve every finding. Reviews preserve stated requirements unless you authorize changing them.
 - Autoplan preserves the original plan and gives each reviewer the complete current phase input. It reads the review skills installed for the current harness, waits for its reviewers, and reports completion after saving the required outputs. Disabling extra plan or documentation review also skips replacement reviewers.
+
+## [1.83.0.0] - 2026-09-09
+
+**Memorable's workflow memory plugs into Claude Code through gstack, behind a consent key you control.**
+**Every prompt it sees is receipted, secret-scanned and enveloped. The switch is off until you flip it.**
+
+Memorable (memorable.sh) is a third-party CLI that remembers how you did a task and recalls it the next time you ask for something similar. Its own installer registers a Claude Code hook directly. This release lets you register that hook through gstack instead, with `gstack-memorable enable`, and nothing changes until you run it. When you do, gstack records its own consent key (`memorable_recall`, listed by `gstack-egress grants` with its revoke command), writes an egress receipt before every prompt it hands to the vendor binary and skips the hand-off if the receipt cannot be written, refuses to hand over a prompt carrying a live-shaped credential, skips repositories whose trust policy is `deny` or `read-only`, runs the binary in an allowlisted environment inside its own process group under a 4.5 second budget, and wraps whatever comes back in the trust envelope so recalled text can never block a prompt or speak as gstack. `gstack-memorable status` shows the vendor CLI, the gate, who registered the hook (by identity, so it stays correct after Claude Code rewrites `settings.json`), receipt counts and recent errors. `disable` turns it off and verifies both the consent and the registration before it says so. Claude Code only; Windows is refused for now because there are no process groups to contain the vendor.
+
+The numbers that matter. Measured on a Linux sandbox with a fake vendor; the scan rows come from `scan()` in `lib/redact-engine.ts` on a synthetic log-like prompt dense in emails and IP addresses (256 KiB: 5,462 findings; 512 KiB: 10,898 findings), `main` against this release.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Redaction scan, 256 KiB log-like prompt | 1,573 ms | 65 ms | 24x faster |
+| Redaction scan, 512 KiB log-like prompt | 6,182 ms | 126 ms | 49x faster |
+| Hook cost per prompt with the bridge disabled | no hook | 49 ms | shim, bun, one config read |
+| gstack work per prompt before the vendor runs | no hook | ~25 ms | gate, policy, scan, receipt |
+| Tests in the free suite covering this bridge and the hook manager | 0 | 128 | +128 |
+
+The scan speedup is not bridge-specific. Line and column for each finding used to be computed by walking the text from the start, so a pasted log full of addresses cost time quadratic in its matches; it is a binary search over a line index now, and every caller of the engine (`gstack-redact`, the pre-push hook, the PR-body scan in `/ship`) gets it.
+
+What this means for you: if you use Memorable, run `memorable login`, `memorable enable`, then `gstack-memorable enable`, and look at `gstack-egress list --sink memorable-recall` after a few prompts. If you do not, nothing changes: the key defaults to off, no hook is registered, `./setup` never registers one for you, and upgrading needs no migration. `docs/memorable-workflow-memory.md` says exactly what gstack hands over, what it can attest, and what is Memorable's own claim. Contributed by @AdvaiytSane and @NIkhil-cmd-cmd (#2831).
+
+### Itemized changes
+
+#### Added
+
+- **`bin/gstack-memorable enable | disable | status`**, the Memorable recall bridge (Claude Code only, off by default). `enable` needs the vendor CLI on the machine, registers gstack's hook at the stable install path with a 5 second timeout, refuses when Memorable's own installer already registered its hook (two entries would run the hook twice per prompt), verifies the stable install carries this bridge before touching anything, and sets `memorable_recall=on`. It never runs `memorable enable`: the vendor's capture consent is yours to grant. `disable` flips the key off first, removes gstack's entry by identity (tag or no tag), verifies both, and reports a partial failure as one. `status` never executes the vendor. One lifecycle transition runs at a time (a lock under `~/.gstack/locks`, stale after 30 seconds). Exit codes mirror the hook manager: 1 refused, 3 unparseable `settings.json`, 4 unexpected shape, 5 lock.
+- **`hosts/claude/hooks/memorable-user-prompt-hook`** (bash shim plus `memorable-user-prompt-hook.ts`), the UserPromptSubmit hook the bridge registers. One deadline clock undercuts Claude Code's 5 second hook kill; stdin is capped at 1 MiB; the prompt is scanned for HIGH-tier credential shapes on the raw bytes and on the decoded string values; the vendor sees only `PATH`, `HOME`, identity and locale variables, temp directories, the standard proxy, TLS and `XDG_*` variables and its own `MEMORABLE*` knobs; only a string `additionalContext` is accepted from it (a vendor `decision`, `continue` or `systemMessage` is dropped), control and Unicode format characters are stripped, the text is capped at 8 KiB on a UTF-8 boundary and enveloped. The vendor's whole process group is killed when the hook finishes, hangs past its budget, or is terminated by the host mid-flight (a process the vendor detaches into its own session is outside that guarantee); a vendor that exits but leaves a helper holding its pipes still gets its answer delivered. Every refusal is one rate-limited line in `~/.gstack/hook-errors.log` (created 0600); the hook always exits 0.
+- **`memorable_recall` config key** (`on | off`, default `off`, a typo is rejected and the prior value kept) and a **`memorable-recall` row in `gstack-egress grants`** naming the vendor CLI, the per-prompt receipt sink and the revoke command.
+- **Egress receipts for the `memorable-recall` sink**, fail-closed: no receipt, no hand-off. The receipt records the byte count and sha256 of the exact stdin handed over, the consent key, and `local:<path to the vendor executable>` as the recipient gstack can attest; the outcome records `exit:0 output-written bytes=N gstack_ms=N`, `exit:N injected=no`, `timeout`, `spawn-error:<code>` or `budget-exhausted`. A receipt with no outcome reads as unknown, never as success.
+- **`gstack-settings-hook list-items --event <E> [--owned-by <source>] [--command-regex <js-re>]`**, a read-only identity view: one JSON string literal per matching hook command, identity from the hook table rather than the tag, empty output when nothing matches, exit 3 on unparseable settings and 4 on an unexpected shape, so a caller can decide a mutation from it.
+- **`runExternal` in `hosts/claude/hooks/spawn-bin.ts`**, the contained way for a hook to run a third-party executable: its own process group, a wall-clock limit that kills the group, a stdout cap, a drained stderr tail, stdin write errors kept separate from spawn errors, resolution on the child's exit rather than on the last pipe closing, and a refusal on Windows.
+- **`lockBudgetMs`** on `writeReceipt` and `writeOutcome` in `lib/egress-receipt.ts`, so a caller on a deadline can bound the ledger lock wait (default unchanged at 2.5 seconds), and a **spawn timeout parameter** on `repoPolicyTier` in `lib/gbrain-repo-policy-client.ts`.
+- **`docs/memorable-workflow-memory.md`**: what you get, the two consents (gstack's and Memorable's, neither implies the other), what gstack hands over and what it can attest, what gstack tests and what is the vendor's claim, turning it on and off, and a troubleshooting runbook. A README row, a Docs-table row and a privacy pointer link to it.
+
+#### Changed
+
+- **`gstack-settings-hook remove-source` removes by identity as well as by tag.** Claude Code strips gstack's `_gstack_source` tag when it rewrites `settings.json`; the off switch for every gstack hook used to no-op on exactly those entries. Items the hook table identifies as the requested source are removed whether or not the entry is tagged, other sources' items are never touched, and entries with nothing of the source's stay byte-identical.
+- **`./setup --no-team` keeps the opt-in Memorable hook** when it sweeps stray gstack hooks, alongside the verify gate.
+- **`gstack-uninstall` removes the Memorable hook by name**, sets `memorable_recall` off wherever gstack's config lives (kept state or not, hook manager present or not, and a failed revocation is named), and says that Memorable's own consent is unchanged (`memorable disable`, `memorable forget`).
+- **Redaction findings locate their line and column by binary search** over a per-scan line index, so scan time is linear in the input for every caller of `lib/redact-engine.ts`.
+
+#### For contributors
+
+- New test files: `test/gstack-memorable.test.ts`, `test/memorable-user-prompt-hook.test.ts` (a fake vendor written in sh; the hook's stdin bytes are compared byte for byte with what the vendor received), `test/gstack-config-memorable-key.test.ts`. Extended: `test/gstack-settings-hook-schema-aware.test.ts` (identity removal pinned for every source in the hook table), `test/egress-receipt.test.ts`, `test/egress-receipt-wiring.test.ts` (the `hosts/` tree is now swept for unreceipted sinks), `test/uninstall.test.ts`, `test/gbrain-repo-policy-client.test.ts`, `test/redact-engine.test.ts`, `test/verify-gate.test.ts`, `test/setup-hook-canonical-paths.test.ts`, `test/hooks-windows-paths.test.ts`, `test/gstack-egress-cli.test.ts`.
+- `docs/PROJECT_STRUCTURE.md` lists the new hook and bin.
 
 ## [1.81.0.0] - 2026-09-06
 

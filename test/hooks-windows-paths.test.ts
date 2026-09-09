@@ -23,6 +23,7 @@ describe('claude hooks: Windows path + bin-spawn invariants', () => {
     expect(src).toContain('export function repoRoot');
     expect(src).toContain('export function binPath');
     expect(src).toContain('export function runBin');
+    expect(src).toContain('export function runExternal');
     expect(src).toContain('fileURLToPath');
   });
 

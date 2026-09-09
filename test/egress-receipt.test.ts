@@ -149,6 +149,44 @@ describe('egress receipt library', () => {
     }
   }, 15_000);
 
+  test('lockBudgetMs bounds the lock wait: a held lock fails closed within the budget instead of the 2.5 s default', () => {
+    const ledger = egressLedgerPath(home);
+    fs.mkdirSync(path.dirname(ledger), { recursive: true });
+    fs.mkdirSync(`${ledger}.lock`); // fresh mtime: not reclaimable as stale
+    const t0 = Date.now();
+    expect(() => writeReceipt({
+      home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: 150,
+    })).toThrow(/locked/);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(100);
+    expect(elapsed).toBeLessThan(1500);
+    fs.rmdirSync(`${ledger}.lock`);
+    // the default still applies when the option is omitted (the lock is free now, so this succeeds)
+    const { id } = writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c' });
+    expect(() => writeOutcome({ home, receipt: id, status: 'exit:0', lockBudgetMs: 0 })).not.toThrow();
+    expect(verifyLedger(home).ok).toBe(true);
+  });
+
+  test('lockBudgetMs 0 on a held lock tries once and fails closed in well under 100 ms; writeOutcome rejects garbage too', () => {
+    const ledger = egressLedgerPath(home);
+    const { id } = writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c' });
+    fs.mkdirSync(`${ledger}.lock`);
+    const t0 = Date.now();
+    expect(() => writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: 0 })).toThrow(/locked/);
+    expect(Date.now() - t0).toBeLessThan(100);
+    fs.rmdirSync(`${ledger}.lock`);
+    const lines = fs.readFileSync(ledger, 'utf8').trim().split('\n').length;
+    expect(() => writeOutcome({ home, receipt: id, status: 'x', lockBudgetMs: -5 })).toThrow(/lockBudgetMs/);
+    expect(() => writeOutcome({ home, receipt: id, status: 'x', lockBudgetMs: Number.POSITIVE_INFINITY })).toThrow(/lockBudgetMs/);
+    expect(fs.readFileSync(ledger, 'utf8').trim().split('\n').length).toBe(lines); // nothing appended
+  });
+
+  test('lockBudgetMs rejects garbage before touching the ledger', () => {
+    expect(() => writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: -1 })).toThrow(/lockBudgetMs/);
+    expect(() => writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: Number.NaN })).toThrow(/lockBudgetMs/);
+    expect(fs.existsSync(egressLedgerPath(home))).toBe(false);
+  });
+
   test('tail-read: last line is found correctly on a multi-record ledger larger than the tail window', () => {
     // 30 records ≈ 9KB > the 4KB tail window, so the append path must find
     // the true last line from a partial read.

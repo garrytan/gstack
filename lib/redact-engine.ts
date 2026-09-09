@@ -163,18 +163,28 @@ export function normalizeWithMap(input: string): {
 
 // ── Offset → line/col on the ORIGINAL text ────────────────────────────────────
 
-function lineColAt(original: string, offset: number): { line: number; col: number } {
-  let line = 1;
-  let col = 1;
-  for (let i = 0; i < offset && i < original.length; i++) {
-    if (original[i] === "\n") {
-      line += 1;
-      col = 1;
-    } else {
-      col += 1;
-    }
+/** Start offset of every line, built once per scan and only when a finding needs it. */
+function lineStarts(original: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < original.length; i++) if (original[i] === "\n") starts.push(i + 1);
+  return starts;
+}
+
+/**
+ * Binary search over lineStarts: O(log lines) per finding. The previous walk
+ * from offset 0 per finding made a match-dense input (a pasted log full of
+ * emails and IPs) cost O(findings x bytes) — seconds for a few hundred KiB.
+ */
+function lineColAt(starts: number[], original: string, offset: number): { line: number; col: number } {
+  const at = Math.min(Math.max(0, offset), original.length);
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= at) lo = mid;
+    else hi = mid - 1;
   }
-  return { line, col };
+  return { line: lo + 1, col: at - starts[lo] + 1 };
 }
 
 // ── Safe preview masking ──────────────────────────────────────────────────────
@@ -318,6 +328,7 @@ function emailAllowed(
 
 export function scan(input: string, opts: ScanOptions = {}): ScanResult {
   const repoVisibility: RepoVisibility = opts.repoVisibility ?? "unknown";
+  let starts: number[] | null = null; // line index, built on the first finding
   // #1824: ?? only catches null/undefined, not NaN or <= 0. A bad value
   // (NaN from a malformed --max-bytes, or a negative) would make `byteLen >
   // maxBytes` always false and silently disable the fail-closed oversize guard.
@@ -395,7 +406,8 @@ export function scan(input: string, opts: ScanOptions = {}): ScanResult {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const { line, col } = lineColAt(input, origOffset);
+      starts ??= lineStarts(input);
+      const { line, col } = lineColAt(starts, input, origOffset);
 
       // Tool-fence degrade: only credential-category, only obvious doc examples.
       let severity: Severity = pat.tier;

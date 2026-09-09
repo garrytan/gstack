@@ -589,6 +589,20 @@ describe("redactFindingSpans — machine-egress masking (#1947)", () => {
     }
   });
 
+  test("line/col at boundaries: line start, after blank lines, first char, last unterminated line", () => {
+    const token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz";
+    const at = (text: string) => {
+      const f = scan(text, { repoVisibility: "private" }).findings.find((x) => x.id === "github.pat");
+      expect(f).toBeDefined();
+      return [f!.line, f!.col];
+    };
+    expect(at(`a\nb\n${token} x`)).toEqual([3, 1]);
+    expect(at(`a\n\n\n  ${token}`)).toEqual([4, 3]);
+    expect(at(token)).toEqual([1, 1]);
+    expect(at(`one\r\ntwo ${token}`)).toEqual([2, 5]);
+    expect(redactFindingSpans(`a\nb\n${token} x`, { repoVisibility: "private" })).toBe("a\nb\n<REDACTED-github.pat> x");
+  });
+
   test("multiline input redacts a finding past the first line (locateSpan line/col path)", () => {
     const token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz";
     const out = redactFindingSpans(`line one\nline two has ${token}\nline three`, {

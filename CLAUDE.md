@@ -251,7 +251,8 @@ send off the machine MUST write a hash-chained receipt to
 `writeReceipt` from `lib/egress-receipt.ts`; shell scripts source
 `bin/gstack-egress-lib.sh` and use `_receipted_curl` / `_receipted_git`. Failure
 polarity is per-class: fail-closed for sensitive sinks (brain-sync, memory-ingest,
-gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision), fail-open
+gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision, and the
+Memorable bridge's per-prompt memorable-recall hand-off), fail-open
 + stderr warning for user-facing ones (design OpenAI calls, update-check,
 dashboards, git-class ops). The new-sink scanner in
 `test/egress-receipt-wiring.test.ts` fails CI on an unreceipted `curl` /
