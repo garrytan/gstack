@@ -27,6 +27,10 @@ import * as path from 'path';
 //   5. the skip-list must be normalized to the same separator form as `rel`,
 //      or a backslash entry in .brain-skip.txt stops matching and a file the
 //      user explicitly skipped gets synced.
+//   6. the index probe must launch through Bash so Git Bash can resolve a
+//      gbrain .cmd/shebang shim.
+//   7. timeout cleanup must use taskkill /T on Windows so a shim's bun/node
+//      child cannot outlive the launcher and keep the database wedged.
 const ROOT = path.resolve(import.meta.dir, '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-brain-sync'), 'utf-8');
 
@@ -66,5 +70,13 @@ describe('gstack-brain-sync — Windows path/exec invariants', () => {
     // commit, syncing a file the user explicitly skipped.
     const NORM = 's.replace(os.sep, "/") for s in load_lines(skip_path)';
     expect(SRC.split(NORM).length - 1).toBeGreaterThanOrEqual(2);
+  });
+
+  test('page-count probe launches the gbrain shim through Bash', () => {
+    expect(SRC).toContain("bash -c 'exec \"$1\" sources list --json'");
+  });
+
+  test('page-count timeout kills the full Windows process tree', () => {
+    expect(SRC).toContain('MSYS_NO_PATHCONV=1 taskkill.exe /PID "$probe_pid" /T /F');
   });
 });
