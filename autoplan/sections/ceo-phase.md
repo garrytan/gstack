@@ -26,20 +26,18 @@ bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>"
 
   **Claude CEO subagent** (via Agent tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
-  Other hosts: native dispatch/wait.
+  Other hosts: use foreground dispatch and await completion when supported.
 
-  "Read the plan file at <CEO_INPUT>. You are an independent CEO/strategist
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Is this the right problem to solve? Could a reframing yield 10x impact?
-  2. Are the premises stated or just assumed? Which ones could be wrong?
-  3. What's the 6-month regret scenario — what will look foolish?
-  4. What alternatives were dismissed without sufficient analysis?
-  5. What's the competitive risk — could someone else solve this first/better?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
+  Send `nativePrompt` verbatim. If truncated, Read `nativePromptPath` to EOF.
+  It contains all criteria and snapshot bytes; no summaries or prior reviews.
 
   **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
-  Claude Code: end response; resume only on same-agent terminal notification.
-  Other hosts: await that ID. Then outside → this phase's review ONLY.
+  Claude Code: immediately end this response with "Waiting for <agent ID>."
+  Do no more tool calls or review work until that ID's terminal notification is
+  delivered. Other hosts: await that ID. Then outside → this phase's review ONLY.
+  For completed native reviews, match INPUT phase/hash to this snapshot. Missing
+  or mismatched INPUT: retry the full payload once, then use failure policy if
+  still invalid.
   No inline substitute; apply failure policy.
 
   **Codex CEO voice** (via Bash):
@@ -164,7 +162,8 @@ bun "<SNAPSHOT_TOOL>" check ceo "<ACTIVE_PLAN>" "<CEO_INPUT>" changed
 ```
 Use `unchanged` only if no implementation changes were accepted; explain why.
 Verify returned text against decisions; hashes prove bytes, not correctness.
-Require full load ranges, successful output writes and terminal reviewers (unavailable/disabled allowed).
+Require full load ranges, matched INPUT for completed native reviews, consumed
+terminal reviewers (unavailable/disabled allowed), successful writes and this check result.
 Only then emit this actual assistant message:
 
 **Phase 1 complete.**

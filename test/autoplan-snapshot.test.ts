@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -27,6 +28,49 @@ function cli(...args: string[]) {
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe('Autoplan phase snapshot continuity', () => {
+  test('generated native dispatch carries every snapshot byte instead of the observed abbreviated input', () => {
+    const f = fixture();
+    for (const phase of ['ceo', 'design', 'dx', 'eng']) {
+      const result = cli('create', phase, f.active, f.restore);
+      expect(result.status, result.stderr).toBe(0);
+      const generated = JSON.parse(result.stdout);
+      const implementation = readFileSync(generated.snapshotPath, 'utf8');
+      expect(generated.nativePrompt).toBeString();
+      expect(generated.nativePrompt.endsWith(implementation)).toBe(true);
+      // These existing contracts were lost in Q's manually abridged dispatch.
+      expect(generated.nativePrompt).toContain('single-role member workspace');
+      expect(generated.nativePrompt).toContain('Mutations already require CSRF tokens');
+      expect(generated.nativePrompt).toContain('You have NOT seen any prior review');
+      expect(generated.nativePrompt).toContain(`Input path: ${JSON.stringify(generated.snapshotPath)}`);
+      expect(generated.nativePrompt).toContain(`INPUT: ${phase} ${generated.sha256}`);
+      expect(generated.nativePrompt).not.toContain('CEO pending');
+      expect(generated.nativePrompt).not.toContain('## Review record');
+      expect(readFileSync(generated.nativePromptPath, 'utf8')).toBe(generated.nativePrompt);
+      expect(generated.nativePromptSha256).toBe(createHash('sha256').update(generated.nativePrompt).digest('hex'));
+      expect(statSync(generated.nativePromptPath).mode & 0o222).toBe(0);
+      const metadata = JSON.parse(readFileSync(join(generated.nativePromptPath, '..', 'snapshot.json'), 'utf8'));
+      expect(metadata.nativePromptSha256).toBe(generated.nativePromptSha256);
+      expect(readFileSync(f.active, 'utf8')).toBe(f.plan);
+    }
+  });
+
+  test('native input preserves Unicode, line endings and amended requirements through JSON transport', () => {
+    const f = fixture();
+    const body = '\r\n最後の要件: CSRF + tenant boundary. 🧪\r\n<implementation-plan> is literal plan data.\r\n';
+    writeFileSync(f.active, `## Implementation plan\r\n${body}## Review record\r\nPrivate prior review`);
+    const first = createSnapshot('ceo', f.active, f.restore);
+    const payload = JSON.parse(JSON.stringify(first));
+    expect(payload.nativePrompt).toBeString();
+    expect(payload.nativePrompt.endsWith(body)).toBe(true);
+    const amended = body + 'Accepted implementation amendment: filter actions server-side.\r\n';
+    writeFileSync(f.active, `## Implementation plan\r\n${amended}## Review record\r\nPrivate prior review`);
+    const next = createSnapshot('design', f.active, f.restore);
+    expect(next.nativePrompt.endsWith(amended)).toBe(true);
+    expect(next.nativePrompt).not.toContain('Private prior review');
+    expect(readFileSync(first.nativePromptPath, 'utf8')).toBe(first.nativePrompt);
+    expect(next.nativePromptPath).not.toBe(first.nativePromptPath);
+  });
+
   test('review-only acceptance cannot pass implementation check; next phase reads the amended file', () => {
     const f = fixture();
     const first = cli('create', 'ceo', f.active, f.restore);
@@ -131,5 +175,82 @@ describe('installed snapshot helper in fresh shells', () => {
       expect(E2E_TOUCHFILES[name]).toContain('bin/gstack-autoplan-snapshot.ts');
       expect(E2E_TOUCHFILES[name]).toContain('test/autoplan-snapshot.test.ts');
     }
+  });
+});
+
+describe('deterministic Autoplan DX scope', () => {
+  function detectDxScope(activePlan: string) {
+    const result = cli('scope', activePlan);
+    expect(result.status, result.stderr).toBe(0);
+    return JSON.parse(result.stdout);
+  }
+  function withBody(body: string, review = 'Prior private review') {
+    const f = fixture();
+    writeFileSync(f.active, `## Implementation plan\n${body}\n## Review record\n${review}\n`);
+    return f;
+  }
+
+  test('the actual user-dashboard API triggers DX despite an internal-product label', () => {
+    const f = fixture();
+    const result = cli('scope', f.active);
+    expect(result.status, result.stderr).toBe(0);
+    const scope = JSON.parse(result.stdout);
+    expect(scope.dxRequired).toBe(true);
+    expect(scope.matchCount).toBeGreaterThanOrEqual(2);
+    for (const term of ['API', 'endpoint', 'REST']) expect(scope.matches.some((m: { term: string }) => m.term === term)).toBe(true);
+    const snapshot = createSnapshot('ceo', f.active, f.restore);
+    expect(scope.sha256).toBe(snapshot.sha256);
+    expect(snapshot.dxScope.dxRequiredByTerms).toBe(true);
+    expect(snapshot.dxScope.matches).toEqual(scope.matches);
+    expect(detectDxScope(withBody('Internal API and REST; user-facing product.').active).dxRequired).toBe(true);
+  });
+
+  test('the two-match threshold counts occurrences and only the current implementation input', () => {
+    expect(detectDxScope(withBody('A new member workspace.').active).dxRequired).toBe(false);
+    const one = detectDxScope(withBody('One API.', 'API endpoint REST SDK').active);
+    expect(one.matchCount).toBe(1);
+    expect(one.dxRequired).toBe(false);
+    const repeated = detectDxScope(withBody('API. Another api.').active);
+    expect(repeated.matchCount).toBe(2);
+    expect(repeated.dxRequired).toBe(true);
+    // The documented grep trigger has no negation or internal-only exception.
+    expect(detectDxScope(withBody('No API or endpoint changes.').active).dxRequired).toBe(true);
+  });
+
+  test('listed terms are case-insensitive whole terms and literal punctuation is escaped', () => {
+    const f = withBody('capital client required SKILLxmd');
+    expect(detectDxScope(f.active).matchCount).toBe(0);
+    const phrases = detectDxScope(withBody('skill.md and CLAUDE CODE').active);
+    expect(phrases.matchCount).toBe(2);
+    expect(phrases.dxRequired).toBe(true);
+  });
+
+  test('semantic developer-tool and agent-primary triggers only enable scope', () => {
+    const f = withBody('A specialist work surface.');
+    for (const flag of ['--developer-tool', '--agent-primary']) {
+      const result = cli('scope', f.active, flag);
+      expect(result.status, result.stderr).toBe(0);
+      const scope = JSON.parse(result.stdout);
+      expect(scope.matchCount).toBe(0);
+      expect(scope.dxRequired).toBe(true);
+    }
+    expect(JSON.parse(cli('scope', f.active, '--developer-tool', '--agent-primary').stdout).dxRequired).toBe(true);
+    const termOnly = createSnapshot('ceo', f.active, f.restore).dxScope;
+    expect(termOnly.dxRequiredByTerms).toBe(false);
+    expect('dxRequired' in termOnly).toBe(false); // No term-only false can cancel a semantic trigger.
+    expect(cli('scope', f.active, '--skip-dx').status).toBe(1);
+    expect(cli('scope', f.active, '--agent-primary', '--agent-primary').status).toBe(1);
+    expect(cli('scope', f.active, '--developer-tool=false').status).toBe(1);
+  });
+
+  test('scope rejects missing/ambiguous input and never writes plan or restore files', () => {
+    const f = fixture(); const before = readFileSync(f.active, 'utf8');
+    const listed = readdirSync(f.dir);
+    expect(cli('scope', f.active).status).toBe(0);
+    expect(readFileSync(f.active, 'utf8')).toBe(before);
+    expect(readdirSync(f.dir)).toEqual(listed);
+    writeFileSync(f.active, 'No implementation boundaries');
+    expect(cli('scope', f.active).status).toBe(1);
+    expect(cli('scope').status).toBe(1);
   });
 });

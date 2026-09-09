@@ -21,21 +21,18 @@ bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>"
 
   **Claude DX subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
-  Other hosts: native dispatch/wait.
+  Other hosts: use foreground dispatch and await completion when supported.
 
-  "Read the plan file at <DX_INPUT>. You are an independent DX engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
-  1. Getting started: how many steps from zero to hello world? What's the TTHW?
-  2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
-  3. Error handling: does every error path specify problem + cause + fix + docs link?
-  4. Documentation: copy-paste examples? Information architecture? Interactive elements?
-  5. Escape hatches: can developers override every opinionated default?
-  For each finding: what's wrong, severity (critical/high/medium), and the fix."
-  NO prior-phase context — subagent must be truly independent.
+  Send `nativePrompt` verbatim. If truncated, Read `nativePromptPath` to EOF.
+  It contains all criteria and snapshot bytes; no summaries or prior reviews.
 
   **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
-  Claude Code: end response; resume only on same-agent terminal notification.
-  Other hosts: await that ID. Then outside → this phase's review ONLY.
+  Claude Code: immediately end this response with "Waiting for <agent ID>."
+  Do no more tool calls or review work until that ID's terminal notification is
+  delivered. Other hosts: await that ID. Then outside → this phase's review ONLY.
+  For completed native reviews, match INPUT phase/hash to this snapshot. Missing
+  or mismatched INPUT: retry the full payload once, then use failure policy if
+  still invalid.
   No inline substitute; apply failure policy.
 
   **Codex DX voice** (via Bash):
@@ -152,7 +149,8 @@ bun "<SNAPSHOT_TOOL>" check dx "<ACTIVE_PLAN>" "<DX_INPUT>" changed
 ```
 Use `unchanged` only if no implementation changes were accepted; explain why.
 Verify returned text against decisions; hashes prove bytes, not correctness.
-Require full load ranges, successful output writes and terminal reviewers (unavailable/disabled allowed).
+Require full load ranges, matched INPUT for completed native reviews, consumed
+terminal reviewers (unavailable/disabled allowed), successful writes and this check result.
 Only then emit this actual assistant message:
 
 **Phase 2.5 complete.**

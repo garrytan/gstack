@@ -621,9 +621,14 @@ preference." The user still decides, but the framing is appropriately urgent.
 
 Phases MUST execute in strict order: CEO → Design (if UI scope) → DX (if
 developer-facing scope) → Eng. Eng runs LAST, always, reviewing all prior amendments.
-Keep ONE phase active: load its phase instructions and full skill/sections; consume
-native and enabled outside results; do its full primary review; persist outputs
-and amendments; emit an actual assistant completion; only then load the next phase.
+Keep ONE phase active, completing these gates in order:
+1. Load its phase instructions and full skill/sections, recording complete Read ranges.
+2. Create the fresh snapshot and dispatch its generated nativePrompt unchanged.
+3. Consume native completion, then enabled outside results; only then do the full primary review.
+4. Persist outputs/amendments and run the phase's implementation check/readback.
+5. Emit actual completion; only then load the next required phase.
+A missing gate means the current phase remains open, even if a reviewer finished.
+INPUT correlates reported input; it is not independent proof of uptake or review quality.
 Never draft future-phase reviews or outputs. Headings/promises are not completion.
 After compaction, reload current phase instructions/skill/sections; reconcile disk progress before resuming.
 
@@ -725,14 +730,17 @@ bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "$HOME/.claude
 - Detect UI scope: grep the plan for view/rendering terms (component, screen, form,
   button, modal, layout, dashboard, sidebar, nav, dialog). Require 2+ matches. Exclude
   false positives ("page" alone, "UI" in acronyms).
-- Detect DX scope: grep the plan for developer-facing terms (API, endpoint, REST,
-  GraphQL, gRPC, webhook, CLI, command, flag, argument, terminal, shell, SDK, library,
-  package, npm, pip, import, require, SKILL.md, skill template, Claude Code, MCP, agent,
-  OpenClaw, action, developer docs, getting started, onboarding, integration, debug,
-  implement, error message). Require 2+ matches. Also trigger DX scope if the product IS
-  a developer tool (the plan describes something developers install, integrate, or build
-  on top of) or if an AI agent is the primary user (OpenClaw actions, Claude Code skills,
-  MCP servers).
+- Detect DX scope from the full implementation input:
+```bash
+bun "<SNAPSHOT_TOOL>" scope "<ACTIVE_PLAN>"
+```
+  Use returned `dxRequired` and record its input hash/matched terms. The existing
+  threshold is 2+ term matches (occurrences, not distinct terms). Also enable DX when the product is a developer tool
+  (developers install, integrate or build on it) or an AI agent is the primary user:
+  add `--developer-tool` or `--agent-primary` to this command. These flags only enable
+  DX; no context label can negate a positive result. Skip DX only when the result is
+  false and neither semantic trigger applies.
+
 
 ### Step 3: Locate review skills; load each at phase entry
 

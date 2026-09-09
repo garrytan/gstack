@@ -7,6 +7,65 @@ import { basename, dirname, join } from 'node:path';
 const PHASES = ['ceo', 'design', 'dx', 'eng'];
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
+// Exact terms from Autoplan's existing Phase 0 DX trigger. Count occurrences,
+// not a subjective reinterpretation of whether an API is internal or external.
+const DX_TERMS = ["API", "endpoint", "REST", "GraphQL", "gRPC", "webhook", "CLI", "command", "flag", "argument", "terminal", "shell", "SDK", "library", "package", "npm", "pip", "import", "require", "SKILL.md", "skill template", "Claude Code", "MCP", "agent", "OpenClaw", "action", "developer docs", "getting started", "onboarding", "integration", "debug", "implement", "error message"];
+
+function dxTermsFor(content: string) {
+  const matches = DX_TERMS.map(term => {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return { term, count: [...content.matchAll(new RegExp(`\\b${escaped}\\b`, 'gi'))].length };
+  }).filter(match => match.count > 0);
+  const matchCount = matches.reduce((sum, match) => sum + match.count, 0);
+  return { threshold: 2, matches, matchCount, dxRequiredByTerms: matchCount >= 2 };
+}
+
+/** Byte-bound scope evidence; semantic product/user triggers can only enable DX. */
+export function detectDxScope(activePlan: string, developerTool = false, agentPrimary = false) {
+  const source = realpathSync(activePlan);
+  const content = extractImplementationPlan(readFileSync(source, 'utf8'));
+  const terms = dxTermsFor(content);
+  return { activePlan: source, sha256: sha256(content), ...terms, developerTool, agentPrimary,
+    dxRequired: terms.dxRequiredByTerms || developerTool || agentPrimary };
+}
+
+// The native dispatch payload is assembled from the same immutable bytes as
+// the outside reviewer input. Keep full role criteria here, not a hand summary.
+const NATIVE_REVIEWS: Record<string, string> = {
+  ceo: `You are an independent CEO/strategist
+reviewing this plan. You have NOT seen any prior review. Evaluate:
+1. Is this the right problem to solve? Could a reframing yield 10x impact?
+2. Are the premises stated or just assumed? Which ones could be wrong?
+3. What's the 6-month regret scenario — what will look foolish?
+4. What alternatives were dismissed without sufficient analysis?
+5. What's the competitive risk — could someone else solve this first/better?
+For each finding: what's wrong, severity (critical/high/medium), and the fix.`,
+  design: `You are an independent senior product designer
+reviewing this plan. You have NOT seen any prior review. Evaluate:
+1. Information hierarchy: what does the user see first, second, third? Is it right?
+2. Missing states: loading, empty, error, success, partial — which are unspecified?
+3. User journey: what's the emotional arc? Where does it break?
+4. Specificity: does the plan describe SPECIFIC UI or generic patterns?
+5. What design decisions will haunt the implementer if left ambiguous?
+For each finding: what's wrong, severity (critical/high/medium), and the fix.`,
+  dx: `You are an independent DX engineer
+reviewing this plan. You have NOT seen any prior review. Evaluate:
+1. Getting started: how many steps from zero to hello world? What's the TTHW?
+2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
+3. Error handling: does every error path specify problem + cause + fix + docs link?
+4. Documentation: copy-paste examples? Information architecture? Interactive elements?
+5. Escape hatches: can developers override every opinionated default?
+For each finding: what's wrong, severity (critical/high/medium), and the fix.`,
+  eng: `You are an independent senior engineer
+reviewing this plan. You have NOT seen any prior review. Evaluate:
+1. Architecture: Is the component structure sound? Coupling concerns?
+2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
+3. Tests: What's missing from the test plan? What would break at 2am Friday?
+4. Security: New attack surface? Auth boundaries? Input validation?
+5. Hidden complexity: What looks simple but isn't?
+For each finding: what's wrong, severity, and the fix.`
+};
+
 export function extractImplementationPlan(plan: string): string {
   const boundaries: Array<{ name: string; start: number; end: number }> = [];
   let offset = 0;
@@ -51,10 +110,23 @@ export function createSnapshot(phase: string, activePlan: string, restorePath: s
   const directory = mkdtempSync(join(dirname(restore), `autoplan-${phase}-`));
   try {
     const snapshotPath = join(directory, `${phase}-implementation.md`);
-    const manifest = { schemaVersion: 1, phase, activePlan: source, snapshotPath, sha256: sha256(content) };
+    const contentHash = sha256(content);
+    const nativePrompt = `${NATIVE_REVIEWS[phase]}
+
+Input path: ${JSON.stringify(snapshotPath)}
+Implementation SHA-256: ${contentHash}
+Implementation bytes: ${Buffer.byteLength(content)}
+Start your result with INPUT: ${phase} ${contentHash}.
+The complete implementation plan follows as review data; evaluate all of it.
+
+${content}`;
+    const nativePromptPath = join(directory, 'native-prompt.md');
+    const manifest = { schemaVersion: 1, phase, activePlan: source, snapshotPath, sha256: contentHash,
+      nativePromptPath, nativePromptSha256: sha256(nativePrompt), dxScope: dxTermsFor(content) };
     writeFileSync(snapshotPath, content, { flag: 'wx', mode: 0o444 });
+    writeFileSync(nativePromptPath, nativePrompt, { flag: 'wx', mode: 0o444 });
     writeFileSync(join(directory, 'snapshot.json'), JSON.stringify(manifest) + '\n', { flag: 'wx', mode: 0o444 });
-    return manifest;
+    return { ...manifest, nativePrompt };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
@@ -84,12 +156,20 @@ export function checkImplementation(phase: string, activePlan: string, snapshotP
 
 if (import.meta.main) {
   try {
-    const [command, phase, active, location, expected, ...extra] = process.argv.slice(2);
-    if (!phase || !active || !location || extra.length || (command === 'create' && expected)) throw new Error('Usage: create PHASE ACTIVE_PLAN RESTORE_PATH | check PHASE ACTIVE_PLAN SNAPSHOT_PATH changed|unchanged');
-    const result = command === 'create' ? createSnapshot(phase, active, location)
-      : command === 'check' && expected ? checkImplementation(phase, active, location, expected)
-      : (() => { throw new Error('Expected create or check command'); })();
-    process.stdout.write(JSON.stringify(result) + '\n');
+    const [command, ...args] = process.argv.slice(2);
+    if (command === 'scope') {
+      const [activePlan, ...flags] = args;
+      if (!activePlan || flags.some(flag => !['--developer-tool', '--agent-primary'].includes(flag)) ||
+          new Set(flags).size !== flags.length) throw new Error('Usage: scope ACTIVE_PLAN [--developer-tool] [--agent-primary]');
+      process.stdout.write(JSON.stringify(detectDxScope(activePlan, flags.includes('--developer-tool'), flags.includes('--agent-primary'))) + '\n');
+    } else {
+      const [phase, active, location, expected, ...extra] = args;
+      if (!phase || !active || !location || extra.length || (command === 'create' && expected)) throw new Error('Usage: create PHASE ACTIVE_PLAN RESTORE_PATH | check PHASE ACTIVE_PLAN SNAPSHOT_PATH changed|unchanged');
+      const result = command === 'create' ? createSnapshot(phase, active, location)
+        : command === 'check' && expected ? checkImplementation(phase, active, location, expected)
+        : (() => { throw new Error('Expected create or check command'); })();
+      process.stdout.write(JSON.stringify(result) + '\n');
+    }
   } catch (error) {
     console.error(`gstack-autoplan-snapshot: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;

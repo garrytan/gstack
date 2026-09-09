@@ -98,7 +98,10 @@ describe('autoplan phase execution checkpoints', () => {
       expect(dispatch).toContain('run_in_background: false');
       expect(dispatch).toContain('if its schema exposes it');
       expect(dispatch).toContain('isAsync: true');
-      expect(dispatch).toContain('Claude Code: end response; resume only on same-agent terminal notification');
+      expect(dispatch).toContain('Claude Code: immediately end this response with');
+      expect(dispatch).toContain('Do no more tool calls or review work until that ID');
+      expect(dispatch).toContain('For completed native reviews, match INPUT phase/hash');
+      expect(dispatch).toContain('retry the full payload once, then use failure policy');
       expect(dispatch).toContain('Other hosts: await that ID');
       expect(dispatch).toContain("Then outside → this phase's review ONLY");
       expect(dispatch).toContain('No inline substitute; apply failure policy');
@@ -114,9 +117,13 @@ describe('autoplan phase execution checkpoints', () => {
     expect(contract).toContain('Keep ONE phase active');
     expect(contract).toContain('Never draft future-phase reviews or outputs');
     expect(contract).toContain('After compaction, reload current phase instructions/skill/sections; reconcile disk progress before resuming');
-    expect(contract).toContain('load its phase instructions and full skill/sections');
-    expect(contract).toContain('consume\nnative and enabled outside results; do its full primary review; persist outputs');
-    expect(contract).toContain('emit an actual assistant completion; only then load the next phase');
+    expect(contract).toContain('Load its phase instructions and full skill/sections');
+    expect(contract).toContain('Create the fresh snapshot and dispatch its generated nativePrompt unchanged');
+    expect(contract).toContain('Consume native completion, then enabled outside results; only then do the full primary review');
+    expect(contract).toContain("Persist outputs/amendments and run the phase's implementation check/readback");
+    expect(contract).toContain('Emit actual completion; only then load the next required phase');
+    expect(contract).toContain('A missing gate means the current phase remains open');
+    expect(contract).toContain('INPUT correlates reported input; it is not independent proof of uptake or review quality');
     expect(contract).toContain('Pending is not unavailable');
     expect(contract).toContain('Time/context pressure or your own review never permits\nskipping native passes or required sections');
     expect(contract).toContain('Never read raw agent transcripts');
@@ -131,8 +138,11 @@ describe('autoplan phase execution checkpoints', () => {
       expect(barrier).toBeLessThan(announcement);
       const checkpoint = section.slice(barrier, announcement);
       expect(checkpoint).toContain('Require full load ranges');
-      expect(checkpoint).toContain('successful output writes');
+      expect(checkpoint).toContain('successful writes');
       expect(checkpoint).toContain('terminal reviewers');
+      expect(checkpoint).toContain('matched INPUT for completed native reviews');
+      expect(checkpoint).toContain('(unavailable/disabled allowed)');
+      expect(checkpoint).toContain('this check result');
       expect(checkpoint).toContain('actual assistant message');
       expect(checkpoint).toContain('Edit accepted changes into `Implementation plan`');
       expect(checkpoint).toContain('Verify returned text against decisions');
@@ -166,6 +176,16 @@ describe('autoplan current implementation-plan identity', () => {
     expect(intake).not.toContain('Bind `<review_plan_path>`');
   });
 
+  test('DX scope consumes the deterministic full-input result and permits only enabling overrides', () => {
+    const intake = read('autoplan/SKILL.md.tmpl').split('### Step 2: Read context')[1]?.split('### Step 3:')[0] ?? '';
+    expect(intake).toContain('scope "<ACTIVE_PLAN>"');
+    expect(intake).toContain('Use returned `dxRequired`');
+    expect(intake).toContain('threshold is 2+ term matches');
+    expect(intake).toContain('`--developer-tool` or `--agent-primary`');
+    expect(intake).toContain('no context label can negate a positive result');
+    expect(intake).toContain('false and neither semantic trigger applies');
+  });
+
   test('every native and outside call site binds the fresh snapshot, retaining requested outside consensus', () => {
     for (const phase of ['ceo', 'design', 'dx', 'eng']) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
@@ -179,17 +199,18 @@ describe('autoplan current implementation-plan identity', () => {
       expect(preparation).toContain(`create ${phase} "<ACTIVE_PLAN>" "<RESTORE_PATH>"`);
       expect(preparation).toContain('`snapshotPath` as `<' + phase.toUpperCase() + '_INPUT>` for both voices');
       expect(preparation).toContain('excludes `Review record`');
-      expect(section).toContain(`Read the plan file at <${phase.toUpperCase()}_INPUT>`);
+      expect(section).toContain('Send `nativePrompt` verbatim');
+      expect(section).toContain('Read `nativePromptPath` to EOF');
       expect(section).toContain(`Outside prompt: inline the full contents of <${phase.toUpperCase()}_INPUT>`);
       expect(section).toContain(`check ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>" changed`);
       expect(section).toContain('Use `unchanged` only if no implementation changes were accepted');
       expect(section).toContain('Report/task edits do not count');
       expect(section).not.toContain('<review_plan_path>');
       expect(section).not.toContain('<plan_path>');
-      expect(section).toContain('You have NOT seen any prior review');
+      expect(section).toContain('no summaries or prior reviews');
     }
     const eng = read('autoplan/sections/eng-phase.md.tmpl');
-    expect(eng).toContain('NO prior-phase context — subagent must be truly independent');
+    expect(eng).toContain('no summaries or prior reviews');
     expect(eng).toContain('DX: <insert DX consensus table summary');
   });
 });
