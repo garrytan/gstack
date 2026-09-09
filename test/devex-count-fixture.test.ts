@@ -1,4 +1,5 @@
 import capturedURetry from './fixtures/devex-count-u-retry-calls.json';
+import capturedY from './fixtures/devex-count-y-calls.json';
 import capturedV from './fixtures/devex-empathy-v-calls.json';
 import capturedU from './fixtures/devex-count-u-calls.json';
 
@@ -18,6 +19,66 @@ import {
 } from './helpers/devex-count-fixture';
 
 let nextCall = 0;
+
+describe('Y agreed TTHW versus retained CI block decision', () => {
+  const captured = () => structuredClone(capturedY[0]!) as NativePlanQuestionCall;
+  const fp = (c: NativePlanQuestionCall) => nativePlanCallFingerprint(c, 0, true);
+  const change = (c: NativePlanQuestionCall, transform: (text: string) => string) => {
+    const q = c.questions[0]!; const answer = c.answers![q.question]!;
+    q.question = transform(q.question); c.answers = {[q.question]:answer}; return c;
+  };
+  test('all five exact completed native calls carry independent issues', () => {
+    expect(capturedY.map(c => isDevexReviewIssue(fp(structuredClone(c) as NativePlanQuestionCall)))).toEqual([true,true,true,true,true]);
+    expect(capturedY[0]!.answers[capturedY[0]!.questions[0]!.question]).toBe('Demo-only CI bypass (Recommended)');
+  });
+  test('numeric contradiction and selected remedy are independent of literal minutes and option order', () => {
+    const c = change(captured(), text => text.replace('<2 min','<3.5 min').replace('5-min','4-minute').replace('devex-d1-tthw-contradiction','plan-devex-review-timing-conflict'));
+    c.questions[0]!.options.reverse();
+    expect(isDevexReviewIssue(fp(c))).toBe(true);
+    for (const index of [0,1,2]) {
+      const alternative = captured(); alternative.answers = {[alternative.questions[0]!.question]:alternative.questions[0]!.options[index]!.label};
+      expect(isDevexReviewIssue(fp(alternative))).toBe(true);
+    }
+    for (const [from,to] of [['5-min','1-min'],['<2 min','<0 min'],['5-min','0-min']])
+      expect(isDevexReviewIssue(fp(change(captured(), text => text.replace(from!,to!))))).toBe(false);
+  });
+  test('the complete affirmative statement excludes setup, negation, examples and conditional timings', () => {
+    for (const transform of [
+      (s:string) => s.replace('is mathematically impossible','is not mathematically impossible'),
+      (s:string) => s.replace('is mathematically impossible','is achievable'),
+      (s:string) => s.replace('The agreed','If the agreed'),
+      (s:string) => s.replace('The agreed','Example: The agreed'),
+      (s:string) => '> '+s,
+      (s:string) => '```text\n'+s+'\n```',
+      (s:string) => s.replace('5-min CI block.', '5-min CI block only if optional simulation is enabled.'),
+      (s:string) => s.replace('Which resolution belongs in the plan?', 'Which review mode should we use?'),
+      (s:string) => s.replace('Which resolution belongs in the plan?', 'Should we begin the review?'),
+      (s:string) => s.replace('devex-d1-tthw-contradiction','devex-review-mode'),
+      (s:string) => s.replace('devex-d1-tthw-contradiction','foreign-tthw-contradiction'),
+      (s:string) => s.replace('Which resolution belongs in the plan?', 'Which resolution belongs in the plan? Also approve deployment.'),
+    ]) expect(isDevexReviewIssue(fp(change(captured(),transform)))).toBe(false);
+    const c=captured();c.questions[0]!.header='TTHW target';expect(isDevexReviewIssue(fp(c))).toBe(false);
+  });
+  test('only complete current native answers to offered remedies enter the new arm', () => {
+    for (const mutate of [
+      (c:NativePlanQuestionCall)=>{c.answered=false;},
+      (c:NativePlanQuestionCall)=>{c.failed=true;},
+      (c:NativePlanQuestionCall)=>{delete c.failed;},
+      (c:NativePlanQuestionCall)=>{delete c.unansweredQuestionIndices;},
+      (c:NativePlanQuestionCall)=>{c.unansweredQuestionIndices=[0];},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.multiSelect=true;},
+      (c:NativePlanQuestionCall)=>{c.questions.push(structuredClone(c.questions[0]!));},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.options.push(structuredClone(c.questions[0]!.options[0]!));},
+      (c:NativePlanQuestionCall)=>{c.answers={[c.questions[0]!.question]:'unoffered remedy'};},
+      (c:NativePlanQuestionCall)=>{c.answers={[c.questions[0]!.question]:c.questions[0]!.options[3]!.label};},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.label='Confirm benchmark';c.answers={[c.questions[0]!.question]:'Confirm benchmark'};},
+    ]) { const c=captured();mutate(c);expect(isDevexReviewIssue(fp(c))).toBe(false); }
+    expect(isDevexReviewIssue({...fp(captured()),signature:'foreign:call'})).toBe(false);
+    expect(isDevexReviewIssue({...fp(captured()),nativeCall:undefined})).toBe(false);
+    expect(isDevexReviewIssue({...fp(captured()),options:[...fp(captured()).options].reverse()})).toBe(false);
+    expect(isDevexReviewIssue({...fp(captured()),options:[]})).toBe(false);
+  });
+});
 function call(question: string, labels = ['Add to plan', 'Defer']): AskUserQuestionFingerprint {
   const toolUseId = `tool-${++nextCall}`;
   return {

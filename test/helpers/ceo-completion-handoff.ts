@@ -155,6 +155,26 @@ function clearRequiredEngNavigation(question: string, descriptions: string[], co
     closedNavigationContext(context);
 }
 
+/** A bare next-workflow choice is administration, never proof of completed review. */
+function bareEngNavigation(question: string, descriptions: string[]): boolean {
+  if (!/^run \/plan-eng-review\?$/i.test(question) || descriptions.some(s => !s.trim())) return false;
+  const sentences = descriptions.flatMap(s => s.trim().split(/\n+|[.!](?:\s+|$)/))
+    .map(s => s.trim().replace(/^\[[+-]\]\s*/, '')).filter(Boolean);
+  const approved = /^Proceed directly to implementation with the approved changes from this CEO review$/i;
+  const gate = /^Eng Review is the required shipping gate$/i;
+  // Consume the complete offered context. Past findings and already-approved
+  // changes are recaps; an added remedy or unfinished-review choice is not.
+  return sentences.some(s => approved.test(s)) && sentences.some(s => gate.test(s)) &&
+    sentences.every(s => approved.test(s) || gate.test(s) ||
+      /^It covers architecture depth, code quality, test gaps, and performance [—–-] complementing what this CEO review found$/i.test(s) ||
+      /^Since this CEO review expanded the plan \(added [a-z0-9_ +/-]{1,120} requirements\), a fresh eng review is especially valuable$/i.test(s) ||
+      /^Required before shipping; catches implementation issues the plan-level review cannot$/i.test(s) ||
+      /^This CEO review found critical issues \([a-z0-9_ +/-]{1,80}\) [—–-] eng review will verify the fix approach is architecturally sound$/i.test(s) ||
+      /^Adds another review session before implementation starts$/i.test(s) ||
+      /^Faster path to implementation$/i.test(s) ||
+      /^Eng review is the required shipping gate [—–-] skipping it means less confidence before enabling the feature flag$/i.test(s));
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -170,7 +190,7 @@ function closedNavigationContext(context: string): boolean {
     !/(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to|can|could|would)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(context);
 }
 
-/** Only the CEO's finished-review menu, never a finding/TODO mentioning another skill. */
+/** Closed CEO next-review navigation; native terminal/report checks prove completion separately. */
 function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const call = fp.nativeCall;
   // The capture path assigns this native identity only after matching the
@@ -208,6 +228,10 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const clearCompletion = !id && call.failed === false && q.options.length === 2 &&
     clearRequiredEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
   const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion || describedPostReviewCompletion || countedCompletion || clearCompletion;
+  const bareNavigation = Boolean(id) && call.failed === false && q.options.length === 2 &&
+    (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0) &&
+    fp.options.length === 2 && fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) &&
+    bareEngNavigation(questionText, q.options.map(o => o.description ?? ''));
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext) ||
     pronounEngGate(questionText, q.options.map(option => option.description ?? ''), gateContext);
@@ -215,9 +239,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   // the question or a following recap cannot hide a new repair obligation.
   if (id && /^(?:ceo-plan-next-steps|ceo-review-next-(?:steps?|review))$/.test(id) &&
       !closedReviewNavigation(declaration, gateContext)) return null;
-  // A qid names the menu; it cannot replace its completed-review declaration
-  // or authorize another fix. The named gate can be explained in a choice.
-  if (!/^next\s+(?:review|steps?)$/i.test(q.header.trim()) || !completion || !requiredEng) return null;
+  // A qid alone cannot authorize another fix. The bare navigation arm grants
+  // no completion credit; native Exit, report freshness and finding floor remain independent.
+  if (!/^next\s+(?:review|steps?)$/i.test(q.header.trim()) || !(completion || bareNavigation) || !requiredEng) return null;
 
   const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').trim());
   if (clearCompletion && !labels.some(label => /^Run\s+\/plan-eng-review(?:\s+(?:next|now))?$/i.test(label))) return null;

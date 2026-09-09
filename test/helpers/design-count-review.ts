@@ -2,16 +2,55 @@ import { designFirstReviewAUQ } from './claude-pty-runner';
 import type { AskUserQuestionFingerprint } from './claude-pty-runner';
 import { pickDesignCountOutsideVoices } from './design-count-outside';
 
+/** Choosing reviewer participation is setup, even when numbered or asked late. */
+export function isDesignCountSetup(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.answered || call.failed || call.questions.length !== 1 ||
+      call.unansweredQuestionIndices?.length || fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^outside(?: design)? voices$/i.test(q.header.trim()) ||
+      (q.question.match(/<gstack-qid:/g)?.length ?? 0) !== 1 ||
+      !/<gstack-qid:(?:plan-design-review-outside-voices|outside-voices-design)>\s*$/.test(q.question) ||
+      (q.question.match(/\?/g)?.length ?? 0) !== 1 ||
+      !/^(?:D\s*\d+(?:\s*\(Step\s*0[A-Z]?\))?\s*[—–:-]\s*)?(?:Run|Want|Include|Enable)\s+outside(?: design)? voices\s+(?:before|for)\s+the\s+(?:detailed\s+)?(?:design\s+)?review(?:\s+passes)?\?/i.test(q.question.trim())) return false;
+  const labels = q.options.map(option => option.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
+  // Consume the entire menu, not just its opening question or action labels.
+  // Unknown explanatory prose can contain a second product decision.
+  const remainder = q.question.slice(q.question.indexOf('?') + 1).replace(/<gstack-qid:[^>]+>\s*$/, '').trim();
+  if (remainder && !/^(?:Codex evaluates the design; a Claude subagent reviews completeness\.|Codex evaluates against OpenAI's design hard rules \+ litmus checks; a Claude subagent does an independent completeness review\. \(Requires Codex CLI to be installed\.\))$/.test(remainder)) return false;
+  const descriptions = q.options.map(option => (option.description ?? '').trim().replace(/\s+/g, ' '));
+  const noDescription = /^(?:Skip Codex \+ Claude subagent outside pass\. Best for this case: it's a scoped settings form update with a complete DESIGN\.md; hard-rejection checks apply to marketing surfaces, not OPERATE\/settings UI\.|Skip outside voices and go straight to the 7 review passes\. Faster; sufficient for most plans\.)$/;
+  const yesDescription = /^(?:Run Codex against OpenAI design hard rules \+ litmus checks, and a separate Claude subagent for an independent completeness review\. Adds time but catches anything a single-model pass misses\.|Launches Codex design critique \+ Claude subagent completeness review in parallel before the 7 passes\. Adds 1[–-]2 minutes\.)$/;
+  if (labels.some((label, index) => descriptions[index] &&
+      !(/^No\b/.test(label) ? noDescription : yesDescription).test(descriptions[index]!))) return false;
+  const no = labels.filter(label => /^No(?:\s*[,—–-]\s*|\s+)proceed without$/i.test(label));
+  const yes = labels.filter(label => /^Yes(?:\s*[,—–-]\s*|\s+)run (?:outside(?: design)? voices|Codex \+ Claude subagent)$/i.test(label));
+  return labels.length === 2 && no.length === 1 && yes.length === 1 &&
+    q.options.some(option => option.label === call.answers?.[q.question]);
+}
+
 /** A completed finding can start the passes when the caller already supplied the focus. */
 export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolean {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
+  if (isDesignCountSetup(fp)) return false;
   if (designFirstReviewAUQ(fp)) return true;
   return call.questions.some(q => {
     if (!call.answers?.[q.question] || q.options.length < 2) return false;
     if (/^(?:focus|scope|learnings|routing|next steps?|outside(?: design)? voices)$/i.test(q.header.trim())) return false;
     const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1] ?? '';
     if (/(?:^|-)(?:focus|scope|setup|routing|learnings|onboarding|next-steps?|posture|mockups?|target)(?:-|$)/i.test(id)) return false;
+    // Native fingerprints prepend the menu header. Inspect the actual question
+    // for an explicit finding that offers a plan amendment and deferral.
+    if (call.answered === true && call.failed === false && /^Pass\s*[1-7]\s*\([^)]*\)\s*[—–:]\s*Finding\s*[1-9]\d*:\s+\S/i.test(q.question.trim()) &&
+        /^plan-design-review-[a-z0-9-]+$/i.test(id) &&
+        (q.question.match(/<gstack-qid/gi)?.length ?? 0) === 1 &&
+        /\b(?:Apply|Add|Fix|Specify|Define|Restore)\b[^?\n]*\b(?:to|in) the plan\?\s*<gstack-qid:[^>]+>\s*$/i.test(q.question) &&
+        q.options.some(option => /^(?:Apply|Add|Fix|Specify|Define|Restore)\b/i.test(option.label)) &&
+        q.options.some(option => /^(?:Defer|Leave|Keep as-is|Accept the gap)\b/i.test(option.label)) &&
+        q.options.some(option => option.label === call.answers?.[q.question]) &&
+        Array.isArray(call.unansweredQuestionIndices) && !call.unansweredQuestionIndices.length &&
+        fp.signature === `${call.sessionId}:${call.toolUseId}`) return true;
     // A named or scored pass can ask for a missing design requirement before a
     // numbered finding heading appears. Its actual decision and opposed
     // choices establish review; a score or familiar qid alone cannot.
@@ -73,12 +112,35 @@ function closedDesignGateRecap(tail: string, descriptions: string[]): boolean {
     /^You have \d+ (?:concrete )?(?:implementation )?tasks ready to build from$/i.test(part)));
 }
 
+/** A qidless closed handoff must consume every question/description clause. */
+function resolvedDesignHandoff(q: NonNullable<AskUserQuestionFingerprint['nativeCall']>['questions'][number]): number | null {
+  if (!/^next review$/i.test(q.header.trim()) || q.options.length !== 2) return null;
+  const completed = /^Design review complete [—–-] (?:10|[0-9](?:\.\d+)?)\/10 (?:→|->) (?:10|[0-9](?:\.\d+)?)\/10\. All ([1-9]\d*) decisions resolved\. The plan is design-complete; next is the required shipping gate\. What['’]s next\?$/.exec(q.question.trim());
+  if (!completed) return null;
+  const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
+  const review = labels.findIndex(label => /^Run \/plan-eng-review$/i.test(label));
+  const manual = labels.findIndex(label => /^Skip\s*[—–-]\s*I['’]ll handle next steps manually$/i.test(label));
+  if (review < 0 || manual < 0 || review === manual) return null;
+  const description = (index: number) => (q.options[index]!.description ?? '').trim().replace(/\s+/g, ' ');
+  const topics = '(?:spinner|skeleton|(?:button|switch|field) (?:keyboard|focus|loading|error|disabled|pending|success)|(?:keyboard|focus|loading|error|disabled|pending|success) (?:states?|behavior|navigation))';
+  const recap = new RegExp('^Eng review is the required shipping gate\\. It validates architecture, component wiring, tests, and accessibility implementation against the ' + completed[1] + ' approved design decisions\\. This design review added interaction specs \\(' + topics + '(?:, ' + topics + ')*\\), so eng review needs to validate their architectural fit\\.$');
+  if (!recap.test(description(review)) ||
+      !/^End the review workflow here\. The improved plan is at the (?:e2e output|approved plan) path; implementation can begin\. Run \/plan-eng-review later before shipping\.$/.test(description(manual))) return null;
+  return manual + 1;
+}
+
 function designHandoff(fp: AskUserQuestionFingerprint): { manualIndex: number | null } | null {
   const call = fp.nativeCall;
   if (!call || call.failed || call.questions.length !== 1 ||
       fp.signature !== `${call.sessionId}:${call.toolUseId}`) return null;
   const q = call.questions[0]!;
-  if (q.multiSelect || q.options.length < 2 || !/^next\s+steps?$/i.test(q.header.trim())) return null;
+  if (q.multiSelect || q.options.length < 2) return null;
+  const pending = call.answered === false && call.answers === undefined && call.answeredAt === undefined &&
+    (call.unansweredQuestionIndices === undefined || (Array.isArray(call.unansweredQuestionIndices) &&
+      call.unansweredQuestionIndices.length === 1 && call.unansweredQuestionIndices[0] === 0));
+  const resolvedManual = call.failed === false && (call.answered === true || pending) ? resolvedDesignHandoff(q) : null;
+  if (resolvedManual !== null) return { manualIndex: resolvedManual };
+  if (!/^next\s+steps?$/i.test(q.header.trim())) return null;
   const ids = [...q.question.matchAll(/<gstack-qid:\s*([a-z0-9-]+)\s*>/gi)].map(match => match[1]);
   if ((q.question.match(/<gstack-qid\b/gi) ?? []).length !== 1 || ids.length !== 1 || !/^plan-design-(?:review-)?next-steps?$/i.test(ids[0]!)) return null;
   const declaration = q.question.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '')

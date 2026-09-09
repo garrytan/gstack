@@ -286,6 +286,22 @@ function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
       administrativeQuestion(q.header, q.question, q.options)) return false;
   const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
   if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return false;
+  if (/^(?:plan-)?devex-(?:review-)?[a-z0-9-]+$/i.test(ids[0]![1]!) &&
+      !/(?:^|-)(?:mode|setup|scope|routing|prerequisite|next-steps?)(?:-|$)/i.test(ids[0]![1]!) &&
+      /^TTHW block$/i.test(q.header.trim())) {
+    // The retained CI wait contradicts an agreed target; this is an accepted
+    // repair decision, not selection or confirmation of the target itself.
+    if (call.answered !== true || call.failed !== false ||
+        fp.options.length !== q.options.length || !fp.options.every((o, i) =>
+          o.index === i + 1 && o.label === q.options[i]!.label)) return false;
+    const body = q.question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '').trim();
+    const timing = /^D\s*\d+\s*[—–:-]\s*Pass 1 \(Getting Started\): The agreed <(\d+(?:\.\d+)?) min TTHW target is mathematically impossible with the retained (\d+(?:\.\d+)?)[- ](?:min|minute) CI block\. Which resolution belongs in the plan\?$/i.exec(body);
+    if (!timing) return false;
+    const [target, wait] = timing.slice(1).map(Number);
+    const selected = call.answers![q.question]!.replace(/\s*\(Recommended\)\s*$/i, '').trim();
+    return [target, wait].every(n => Number.isFinite(n) && n! > 0) && wait! >= target! &&
+      /^(?:Demo-only CI bypass|Add --offline flag to [a-z_$][\w$.-]*|Update TTHW target to reflect reality)$/i.test(selected);
+  }
   if (ids[0]![1] === 'devex-demo-ci-bypass') {
     // A demo is a first result too. Require an affirmative measured timing
     // contradiction and a direct bypass decision, not benchmark confirmation.

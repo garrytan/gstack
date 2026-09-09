@@ -4,12 +4,15 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { createSnapshot, extractImplementationPlan } from '../bin/gstack-autoplan-snapshot';
+import { createSnapshot, prepareMethodology, extractImplementationPlan } from '../bin/gstack-autoplan-snapshot';
 
 const TOOL = join(import.meta.dir, '../bin/gstack-autoplan-snapshot.ts');
 const captured = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/t-ceo-omitted-obligations.json'), 'utf8'));
 const lost = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/u-ceo-original-loss.json'), 'utf8'));
 const dangling = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/v-ceo-dangling-references.json'), 'utf8'));
+function methodology(phase: string, restore: string) {
+  return prepareMethodology(phase, join(import.meta.dir, '..', `plan-${phase === 'dx' ? 'devex' : phase}-review`, 'SKILL.md'), restore).methodologyPath;
+}
 const owned: string[] = [];
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
@@ -25,7 +28,7 @@ function setup(body = 'Build the dashboard.\n') {
   const active = join(dir, 'plan.md'); const restore = join(dir, 'restore.md');
   writeFileSync(active, `## Implementation plan\n${body}## Review record\n`);
   writeFileSync(restore, 'Original restore bytes\n');
-  const snapshot = createSnapshot('ceo', active, restore);
+  const snapshot = createSnapshot('ceo', active, restore, methodology('ceo', restore));
   return { dir, active, restore, snapshot };
 }
 const block = (phase: string, body: string) => `<!-- autoplan-accepted:${phase} -->\n${body}\n<!-- /autoplan-accepted:${phase} -->\n`;
@@ -45,7 +48,7 @@ for (const command of ['amend', 'check']) {
 test('actual V dangling references cannot create the next blind input even if close was skipped', () => {
   const f = setup(dangling.initialImplementation);
   writeFileSync(f.active, dangling.activeAfterAmend);
-  expect(() => createSnapshot('design', f.active, f.restore)).toThrow('Review-record-only Section 6');
+  expect(() => createSnapshot('design', f.active, f.restore, methodology('design', f.restore))).toThrow('Review-record-only Section 6');
   expect(readFileSync(f.active, 'utf8')).toBe(dangling.activeAfterAmend);
   expect(readFileSync(f.restore, 'utf8')).toBe('Original restore bytes\n');
 });
@@ -91,7 +94,7 @@ test('inline adopted tests and instrumentation instead of transporting V review-
   const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
   expect(result.status, result.stderr).toBe(0);
   expect(invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed').status).toBe(0);
-  const next = createSnapshot('design', f.active, f.restore);
+  const next = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   const input = readFileSync(next.snapshotPath, 'utf8');
   expect(input.startsWith(dangling.initialImplementation)).toBe(true);
   for (const term of ['T-S6-1', 'T-S6-12', 'dashboard.page.loaded', 'api.dashboard.partial_failure_rate', 'dashboard_fetch_start', 'snapshot_time']) {
@@ -123,7 +126,7 @@ test('reference checks preserve external, unresolved, ambiguous, quoted and sati
     appendRecord(f.active, (example.review || '### Section 6: Tests\nRun coverage.\n') + block('ceo', example.body));
     const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
     expect(result.status, example.body + result.stderr).toBe(0);
-    expect(() => createSnapshot('design', f.active, f.restore)).not.toThrow();
+    expect(() => createSnapshot('design', f.active, f.restore, methodology('design', f.restore))).not.toThrow();
   }
 });
 
@@ -131,10 +134,10 @@ test('new reference checks do not bind a later phase to an earlier phase review 
   const f = setup('Existing external contract uses tests in Section 6.\n');
   appendRecord(f.active, '### Section 6: CEO tests\nOriginal review.\n' + block('ceo', '- Keep all authorization checks.'));
   expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
-  const design = createSnapshot('design', f.active, f.restore);
+  const design = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   appendRecord(f.active, block('design', '- Run tests in Section 6 before rollout.'));
   expect(invoke('amend', 'design', f.active, design.snapshotPath).status).toBe(0);
-  expect(() => createSnapshot('dx', f.active, f.restore)).not.toThrow();
+  expect(() => createSnapshot('dx', f.active, f.restore, methodology('dx', f.restore))).not.toThrow();
 });
 
 test('actual T changed-only plan cannot close with accepted obligations only in its review', () => {
@@ -167,7 +170,7 @@ test('whole recorded T obligations retain omitted guards and every nested verifi
     'Screen reader: live region', 'Reduced-motion', 'session expiry mid-page-load', 'RTL test with mixed panel results']) {
     expect(result.implementation).toContain(detail);
   }
-  const next = createSnapshot('design', f.active, f.restore);
+  const next = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   expect(readFileSync(next.sourceSnapshotPath, 'utf8')).toContain(accepted);
   expect(readFileSync(next.snapshotPath, 'utf8')).toContain(captured.acceptedObligations.trimEnd());
   expect(readFileSync(next.snapshotPath, 'utf8')).not.toContain('autoplan-accepted:');
@@ -198,7 +201,7 @@ test('unchanged U source retains every original byte when accepted requirements 
   const amended = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
   expect(amended.status, amended.stderr).toBe(0);
   expect(JSON.parse(amended.stdout).implementation.startsWith(lost.initialImplementation)).toBe(true);
-  const next = createSnapshot('design', f.active, f.restore);
+  const next = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   expect(readFileSync(next.snapshotPath, 'utf8').startsWith(lost.initialImplementation)).toBe(true);
   expect(readFileSync(f.snapshot.sourceSnapshotPath, 'utf8')).toBe(lost.initialImplementation);
 });
@@ -219,7 +222,7 @@ test('exact replacements and deletion preserve untouched CRLF/Unicode bytes and 
     expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
     expect(readFileSync(f.active, 'utf8')).toBe(first);
     expect(invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed').status).toBe(0);
-    const next = createSnapshot('design', f.active, f.restore);
+    const next = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
     expect(next.nativePrompt).not.toContain('autoplan-baseline-edits');
     expect(next.nativePrompt).not.toContain('Use a blue button.');
     expect(next.nativePrompt.endsWith(readFileSync(next.snapshotPath, 'utf8'))).toBe(true);
@@ -264,7 +267,7 @@ test('later exact baseline revisions preserve earlier accepted blocks and reject
   const ceo = block('ceo', '- Preserve owner authorization.\n  Verify: reject cross-user access.');
   appendRecord(f.active, ceo);
   expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
-  const design = createSnapshot('design', f.active, f.restore);
+  const design = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   const original = readFileSync(f.active, 'utf8');
   const accepted = block('design', '- Replace the blue baseline with green.\n  Verify: green keeps the authorized action.');
   for (const oldText of ['owner authorization', ceo, 'Use blue.\n\n' + ceo]) {
@@ -278,7 +281,7 @@ test('later exact baseline revisions preserve earlier accepted blocks and reject
   expect(result.status, result.stderr).toBe(0);
   expect(JSON.parse(result.stdout).implementation).toContain(ceo);
   expect(JSON.parse(result.stdout).implementation.startsWith('Use green.\n')).toBe(true);
-  const next = createSnapshot('dx', f.active, f.restore);
+  const next = createSnapshot('dx', f.active, f.restore, methodology('dx', f.restore));
   expect(readFileSync(next.snapshotPath, 'utf8')).toContain('Preserve owner authorization.');
   expect(next.nativePrompt).not.toContain('sourceSha256');
 });
@@ -379,7 +382,7 @@ test('phase/path/snapshot identity still rejects before any amendment', () => {
 test('later phases retain prior registered obligations and cannot erase them with None', () => {
   const f = setup(); const ceo = block('ceo', '- Handle network failure.\n  Verify: offer retry.');
   appendRecord(f.active, ceo); expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
-  const design = createSnapshot('design', f.active, f.restore);
+  const design = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   const next = block('design', '- Show a named error control.\n  Verify: keyboard reaches retry.');
   appendRecord(f.active, next);
   expect(invoke('amend', 'design', f.active, design.snapshotPath).status).toBe(0);
@@ -398,7 +401,7 @@ test('UTF-8 and CRLF requirements survive exact copying and a repeated no-change
   appendRecord(f.active, accepted);
   expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
   expect(extractImplementationPlan(readFileSync(f.active, 'utf8'))).toContain(accepted);
-  const again = createSnapshot('ceo', f.active, f.restore);
+  const again = createSnapshot('ceo', f.active, f.restore, methodology('ceo', f.restore));
   expect(invoke('amend', 'ceo', f.active, again.snapshotPath).status).toBe(0);
   expect(invoke('check', 'ceo', f.active, again.snapshotPath, 'unchanged').status).toBe(0);
 });
@@ -422,7 +425,7 @@ test('changing both earlier copies cannot erase the authorization obligation fro
   const original = block('ceo', '- Preserve owner authorization.\n  Verify: reject cross-user access.');
   appendRecord(f.active, original);
   expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
-  const design = createSnapshot('design', f.active, f.restore);
+  const design = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   const changed = readFileSync(f.active, 'utf8').replaceAll(original,
     block('ceo', '- Permit cross-user access.\n  Verify: cross-user access succeeds.')) +
     block('design', '- Label the owner control.\n  Verify: accessible name.');
@@ -441,7 +444,7 @@ test('blind projection preserves UTF-8/CRLF bodies and fenced examples, while bi
   const body = '- Preserve café ✓ and 日本語.\r\n  Verify: the last condition survives.\r\n';
   appendRecord(f.active, '<!-- autoplan-accepted:ceo -->\r\n' + body + '<!-- /autoplan-accepted:ceo -->\r\n');
   expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
-  const next = createSnapshot('design', f.active, f.restore);
+  const next = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
   const transport = readFileSync(next.snapshotPath, 'utf8');
   expect(transport).toContain(example);
   expect(transport).toContain(body);

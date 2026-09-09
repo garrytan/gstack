@@ -4,10 +4,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { capturePlanCountQuestion, designFirstReviewAUQ, designStep0Boundary, hasNativePlanTerminal, nativePlanCallFingerprint, planCountQuestionPhase } from './helpers/claude-pty-runner';
 import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
+import * as designReview from './helpers/design-count-review';
+// The old caller had no setup callback; absence is equivalent to false.
+const isDesignCountSetup = designReview.isDesignCountSetup ?? (() => false);
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/design-review-j-calls.json';
 import numberedPasses from './fixtures/design-review-l-calls.json';
 import scoredPasses from './fixtures/design-review-n-calls.json';
+import outsideCalls from './fixtures/design-outside-y-calls.json';
+import boundaryCalls from './fixtures/design-boundaries-y-calls.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
@@ -25,7 +30,7 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
   const phases = [];
   for (const call of input) {
     const phase = planCountQuestionPhase(fingerprint(call), started, designStep0Boundary,
-      first, undefined, isDesignCompletionHandoff);
+      first, isDesignCountSetup, isDesignCompletionHandoff);
     if (phase.administrative) counts.administrative++;
     else if (phase.preReview) counts.step0++;
     else counts.review++;
@@ -34,6 +39,181 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
   }
   return { ...counts, started, phases };
 }
+
+describe('Native finding and closed handoff boundaries', () => {
+  const actual = () => structuredClone(boundaryCalls) as NativePlanQuestionCall[];
+  const handoff = () => actual().at(-1)!;
+  const pending = (call: NativePlanQuestionCall) => {
+    const copy = structuredClone(call); copy.answered = false; delete copy.answers; delete copy.answeredAt;
+    copy.unansweredQuestionIndices = [0]; return copy;
+  };
+  test('full native finding questions start review despite their arbitrary menu headers', () => {
+    const input = actual();
+    for (const call of input.slice(0, 3)) expect(isDesignCountFirstReview(fingerprint(call))).toBe(true);
+    expect(replay(input)).toMatchObject({step0: 0, review: 7, administrative: 1});
+    expect(input).toHaveLength(8); // Raw calls are preserved, including the handoff.
+  });
+  test('a finding requires native identity, an offered answer and a plan amendment choice', () => {
+    const mutations: Array<(c: NativePlanQuestionCall) => void> = [
+      c => {c.answered = false;}, c => {c.failed = true;}, c => {delete (c as Partial<NativePlanQuestionCall>).failed;}, c => {c.answers = {};},
+      c => {c.unansweredQuestionIndices = [0];},
+      c => {c.questions[0]!.question = '> ' + c.questions[0]!.question;},
+      c => {c.questions[0]!.question = '```\n' + c.questions[0]!.question + '\n```';},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('plan-design-review-save-button-primary', 'plan-design-review-setup');},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('Apply it to the plan?', 'Start the review now?');},
+      c => {c.questions[0]!.options = [{label:'Start reviewing'}, {label:'Wait'}];},
+    ];
+    for (const mutate of mutations) {
+      const call = actual()[0]!; mutate(call);
+      if (call.answers && Object.keys(call.answers).length) call.answers = {[call.questions[0]!.question]:call.questions[0]!.options[0]!.label};
+      expect(isDesignCountFirstReview(fingerprint(call))).toBe(false);
+    }
+    expect(isDesignCountFirstReview({...fingerprint(actual()[0]!), signature:'foreign'})).toBe(false);
+  });
+  test('the closed qidless next-review menu is administrative and picks only the offered manual option', () => {
+    const call = handoff();
+    expect(isDesignCompletionHandoff(fingerprint(call))).toBe(true);
+    const active = fingerprint(pending(call));
+    expect(pickDesignCountQuestion(active, active)).toBe(2);
+    expect(isDesignCompletionHandoff(active)).toBe(false);
+    call.questions[0]!.options.reverse();
+    const reordered = fingerprint(pending(call));
+    expect(pickDesignCountQuestion(reordered, reordered)).toBe(1);
+    for (const option of call.questions[0]!.options) {
+      call.answers = {[call.questions[0]!.question]:option.label};
+      expect(isDesignCompletionHandoff(fingerprint(call))).toBe(true);
+    }
+  });
+  test('closed scores, approved count and interaction-spec topics can vary consistently', () => {
+    const call = handoff(); const q = call.questions[0]!;
+    q.question = q.question.replace('6/10 → 9/10', '4.5/10 → 8.75/10').replace('All 7', 'All 3');
+    q.options[0]!.description = q.options[0]!.description!.replace('the 7 approved', 'the 3 approved').replace('spinner, skeleton, switch keyboard', 'focus states, keyboard navigation');
+    q.options[1]!.description = q.options[1]!.description!.replace('e2e output path', 'approved plan path');
+    call.answers = {[q.question]:q.options[0]!.label};
+    expect(isDesignCompletionHandoff(fingerprint(call))).toBe(true);
+  });
+  test('pending selection uses explicit native pending metadata including the real producer absent-index form', () => {
+    const producer = pending(handoff()); delete producer.unansweredQuestionIndices;
+    const active = fingerprint(producer);
+    expect(pickDesignCountQuestion(active, active)).toBe(2);
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => {delete (c as Partial<NativePlanQuestionCall>).answered;},
+      (c: NativePlanQuestionCall) => {delete (c as Partial<NativePlanQuestionCall>).failed;},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [];},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [1];},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [0, 0];},
+      (c: NativePlanQuestionCall) => {c.answers = {};},
+      (c: NativePlanQuestionCall) => {c.answeredAt = handoff().answeredAt;},
+    ]) {
+      const call = structuredClone(producer); mutate(call); const fp = fingerprint(call);
+      expect(pickDesignCountQuestion(fp, fp)).toBeNull();
+      expect(isDesignCompletionHandoff(fp)).toBe(false);
+    }
+  });
+  test('unresolved, conditional, mixed or foreign menus do not become a closed handoff', () => {
+    const mutations: Array<(c: NativePlanQuestionCall) => void> = [
+      c => {c.failed = true;}, c => {delete (c as Partial<NativePlanQuestionCall>).failed;}, c => {c.questions[0]!.multiSelect = true;},
+      c => {c.questions.push(structuredClone(c.questions[0]!));},
+      c => {c.questions[0]!.question = '> ' + c.questions[0]!.question;},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('complete —', 'complete if Export is fixed —');},
+      c => {c.questions[0]!.question += ' Also remove account-owner authorization.';},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('decisions resolved', 'decisions unresolved');},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('All 7', 'All 0');},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('6/10', '11/10');},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('the 7 approved', 'the 8 approved');},
+      c => {c.questions[0]!.options[0]!.description += ' Also remove account-owner authorization.';},
+      c => {c.questions[0]!.options[1]!.description += ' Also remove account-owner authorization.';},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('spinner, skeleton', 'spinner, remove authorization');},
+      c => {c.questions[0]!.options[1]!.description = c.questions[0]!.options[1]!.description!.replace('before shipping', 'if desired');},
+      c => {c.questions[0]!.options.push({label:'Fix one more gap'});},
+    ];
+    for (const mutate of mutations) {
+      const call = handoff(); mutate(call);
+      call.answers = {[call.questions[0]!.question]:call.questions[0]!.options[0]!.label};
+      expect(isDesignCompletionHandoff(fingerprint(call))).toBe(false);
+      const active = fingerprint(pending(call));
+      expect(pickDesignCountQuestion(active, active)).toBeNull();
+    }
+    for (const mutate of [(c: NativePlanQuestionCall) => {c.answered = false;},
+      (c: NativePlanQuestionCall) => {c.answers = {};},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [0];},
+      (c: NativePlanQuestionCall) => {c.answers = {[c.questions[0]!.question]:'unoffered reply'};}]) {
+      const call = handoff(); mutate(call); expect(isDesignCompletionHandoff(fingerprint(call))).toBe(false);
+    }
+    const foreign = {...fingerprint(handoff()), signature:'foreign'};
+    expect(isDesignCompletionHandoff(foreign)).toBe(false);
+    const activeForeign = {...fingerprint(pending(handoff())), signature:'foreign'};
+    expect(pickDesignCountQuestion(activeForeign, activeForeign)).toBeNull();
+  });
+  test('only the closed handoff leaves the final report freshness boundary at the last substantive decision', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-boundaries-report-')); const file = path.join(dir, 'plan.md');
+    try {
+      const input = actual(); const lastIssue = Date.parse(input[6]!.answeredAt!);
+      // Synthetic complete-report body/time inside the real D7→D8 interval;
+      // this checks the unchanged gate, not historical report quality or success.
+      fs.writeFileSync(file, '# Reviewed plan\n\n## GSTACK REVIEW REPORT\n\n| Review | Status | Findings |\n|---|---|---|\n| Design | complete | resolved |\n\nVERDICT: DESIGN CLEARED — eng review required\n\nNO UNRESOLVED DECISIONS\n');
+      fs.utimesSync(file, (lastIssue + 1000) / 1000, (lastIssue + 1000) / 1000);
+      const transcript = {status:'ready' as const, calls:input, assistantMessages:[], planReadyRequests:[{
+        sessionId:input[0]!.sessionId, toolUseId:'toolu_01AU7GkUZW2wWr2c6E9bdTEv', timestamp:'2026-09-09T11:24:48.896Z', failed:false, source:'pre_tool_use' as const}]};
+      const admin = new Set(input.filter(c => isDesignCompletionHandoff(fingerprint(c))).map(c => fingerprint(c).signature));
+      const start = Date.parse(input[0]!.answeredAt!) - 1000;
+      expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready')).toBe(false);
+      expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready', admin)).toBe(true);
+      expect(hasNativePlanTerminal({...transcript, planReadyRequests:[]}, file, start, 'plan_ready', admin)).toBe(false);
+      fs.utimesSync(file, (lastIssue - 1) / 1000, (lastIssue - 1) / 1000);
+      expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready', admin)).toBe(false);
+    } finally {fs.rmSync(dir, {recursive:true, force:true});}
+  });
+});
+
+describe('Completed outside-review participation stays setup', () => {
+  const actual = () => structuredClone(outsideCalls) as NativePlanQuestionCall[];
+  test('the actual first opt-in cannot start review; all seven later decisions still count', () => {
+    const input = actual();
+    expect(input).toHaveLength(8);
+    expect(isDesignCountSetup(fingerprint(input[0]!))).toBe(true);
+    expect(isDesignCountFirstReview(fingerprint(input[0]!))).toBe(false);
+    expect(replay(input)).toMatchObject({step0: 1, review: 7, administrative: 0});
+    expect(replay(input).phases[0]!.reviewStarted).toBe(false);
+    for (const call of input.slice(1)) expect(isDesignCountSetup(fingerprint(call))).toBe(false);
+  });
+  test('a late opt-in and either offered answer preserve the other decisions', () => {
+    for (const selected of [0, 1]) {
+      const input = actual(); const setup = input.shift()!;
+      const q = setup.questions[0]!; setup.answers = {[q.question]: q.options[selected]!.label};
+      input.splice(3, 0, setup);
+      expect(replay(input)).toMatchObject({step0: 1, review: 7, administrative: 0});
+    }
+  });
+  test('the existing outside-voices identity and comma labels also stay setup', () => {
+    const call = actual()[0]!; const q = call.questions[0]!;
+    q.question = 'D4 — Want outside design voices before the detailed review? Codex evaluates the design; a Claude subagent reviews completeness. <gstack-qid:outside-voices-design>';
+    q.options = [{label:'Yes, run outside design voices'}, {label:'No, proceed without (Recommended)'}];
+    call.answers = {[q.question]:q.options[1]!.label};
+    expect(isDesignCountSetup(fingerprint(call))).toBe(true);
+    expect(isDesignCountFirstReview(fingerprint(call))).toBe(false);
+  });
+  test('incomplete, mismatched, mixed and substantive questions cannot be hidden as setup', () => {
+    const mutations: Array<(call: NativePlanQuestionCall) => void> = [
+      c => {c.answered = false;}, c => {c.failed = true;}, c => {c.answers = {};},
+      c => {c.unansweredQuestionIndices = [0];}, c => {c.questions[0]!.multiSelect = true;},
+      c => {c.questions.push(actual()[1]!.questions[0]!);},
+      c => {c.questions[0]!.options.push({label: 'Fix the missing export state'});},
+      c => {c.questions[0]!.options[0]!.label = 'No — leave the defect unfixed';},
+      c => {c.questions[0]!.options[0]!.description += ' Also remove the account-owner authorization check from Export.';},
+      c => {c.questions[0]!.options[1]!.description += ' Also remove the account-owner authorization check from Export.';},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace(' <gstack-qid:', ' Also remove the account-owner authorization check from Export. <gstack-qid:');},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('plan-design-review-outside-voices', 'plan-design-review-auth');},
+      c => {c.questions[0]!.question = 'D1 — Should the product require outside design voices for every customer? <gstack-qid:plan-design-review-outside-voices>';},
+      c => {c.questions[0]!.question = c.questions[0]!.question.replace('before the review passes?', 'before the review passes? Also fix Export?');},
+    ];
+    for (const mutate of mutations) {
+      const call = actual()[0]!; mutate(call);
+      expect(isDesignCountSetup(fingerprint(call))).toBe(false);
+    }
+    expect(isDesignCountSetup({...fingerprint(actual()[0]!), signature:'foreign'})).toBe(false);
+  });
+});
 
 describe('Design count native review phases and completion handoff', () => {
   test('numbered native pass decisions retain the first hierarchy approval after learnings setup', () => {

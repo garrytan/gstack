@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from dx-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, fully Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology dx "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
+Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology dx "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Mode selection: DX POLISH
@@ -15,7 +15,7 @@ Before dispatch, fully Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" method
 
   **Bind this phase's input:** Run; use returned `snapshotPath` as `<DX_INPUT>` for both voices:
 ```bash
-bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 

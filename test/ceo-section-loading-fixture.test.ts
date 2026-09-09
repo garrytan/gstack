@@ -5,6 +5,40 @@ import {
   hasStaleFillRaceFinding,
 } from './helpers/ceo-section-loading-fixture';
 
+describe('restore vocabulary in the actual Y finding', () => {
+  const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-y-report.md'), 'utf8');
+  const amendment = report.slice(report.indexOf('**AMENDMENT (Finding 1'), report.indexOf('```javascript')).trim();
+
+  test('recognizes the delivered report and its explicit original-invariant failure', () => {
+    expect(amendment).toContain('original pseudocode did not satisfy');
+    expect(amendment).toContain('in-flight read from restoring a stale cache entry');
+    expect(hasStaleFillRaceFinding(amendment)).toBe(true);
+    expect(hasStaleFillRaceFinding(report)).toBe(true);
+  });
+
+  test.each(['can restore', 'restores', 'restored', 'is restoring'])('recognizes the cache-fill verb %s', verb => {
+    expect(hasStaleFillRaceFinding(`An in-flight read ${verb} stale data after write invalidation. A subsequent read sees the old value, violating the contract.`)).toBe(true);
+  });
+
+  test.each(['cannot restore', "can't restore", 'never restores', 'does not restore', "doesn't restore", 'will not restore', "won't restore", 'did not restore', "didn't restore", 'is not restoring', "isn't restoring", 'was not restoring', 'has not restored', "hasn't restored", 'had not restored'])('rejects a current prevention assertion: %s', denied => {
+    expect(hasStaleFillRaceFinding(`An in-flight read ${denied} stale data after write invalidation. A subsequent read observes the committed value.`)).toBe(false);
+  });
+
+  test.each([
+    'An in-flight read restores stale data after write invalidation. This is not a defect; no guard is required.',
+    'An in-flight read restores stale data after write invalidation. Subsequent stale reads are permitted by the contract.',
+    'An in-flight read restores stale data after write invalidation. This is the accepted consistency model.',
+    'An in-flight read restores the committed new value after write invalidation. A subsequent read observes it.',
+    'The original pending caller receives an old snapshot after the write; that return is permitted.',
+    'If deletion throws after a write, a restore operation leaves stale cache data. Log and bypass the adapter.',
+    '> An in-flight read restores stale data after write invalidation; a subsequent read violates the contract.',
+    '```text\nAn in-flight read restores stale data after write invalidation; a subsequent read violates the contract.\n```',
+    '* An in-flight read restores stale data after write invalidation.\n* Telemetry has a bug.',
+  ])('preserves dismissal, source and separate-finding boundaries: %s', text => {
+    expect(hasStaleFillRaceFinding(text)).toBe(false);
+  });
+});
+
 describe('pre-write snapshot vocabulary in the actual U finding', () => {
   const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-u-report.md'), 'utf8');
   const paragraph = report.slice(report.indexOf('After T4 the cache correctly reflects'), report.indexOf('**Recommended fix (auto-decided):**')).trim();

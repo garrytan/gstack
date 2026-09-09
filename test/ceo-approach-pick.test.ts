@@ -8,6 +8,7 @@ import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import recorded from './fixtures/ceo-approach-q-call.json';
 import pairedRecorded from './fixtures/ceo-approach-q-paired-call.json';
 import handoffs from './fixtures/ceo-completion-handoff-m-call.json';
+import recordedY from './fixtures/ceo-approach-y-call.json';
 
 function pending(source: NativePlanQuestionCall = recorded as NativePlanQuestionCall): NativePlanQuestionCall {
   const call = structuredClone(source);
@@ -17,6 +18,64 @@ function pending(source: NativePlanQuestionCall = recorded as NativePlanQuestion
   return call;
 }
 const fingerprint = (call: NativePlanQuestionCall, preReview = true) => nativePlanCallFingerprint(call, 0, preReview);
+
+describe('Y named component approach menu', () => {
+  const actualScreen = readFileSync(join(import.meta.dir, 'fixtures/ceo-approach-y-screen.txt'), 'utf8');
+  test('the exact full frame and projected pending call select the offered C recommendation', () => {
+    // The actual answer was A; no pending-only native version survived polling.
+    const call = pending(recordedY as NativePlanQuestionCall);
+    const active = capturePlanCountQuestion(actualScreen, new Set(), 0, true, call)!;
+    expect(active.nativeCall).toBe(call);
+    expect(active.options.map(o => o.label)).toEqual(call.questions[0]!.options.map(o => o.label));
+    expect(pickCeoCountQuestion(fingerprint(call), active)).toBe(3);
+    expect(planCountQuestionInput(actualScreen, active, 3)).toBe('3');
+    expect(recordedY.answers[recordedY.questions[0]!.question]).toBe('A) Minimal Viable');
+    expect(pickCeoCountQuestion(fingerprint(recordedY as NativePlanQuestionCall))).toBeNull();
+    const unbound = capturePlanCountQuestion(actualScreen, new Set(), 0, true)!;
+    expect(unbound.nativeCall).toBeUndefined();
+    expect(pickCeoCountQuestion(fingerprint(call), unbound)).toBeNull();
+  });
+  test('named components and reordered labels follow the actual recommendation position', () => {
+    for (const subject of ['the payment webhook handler', 'this invoice lookup service', 'the renderWidget adapter']) {
+      const call = pending(recordedY as NativePlanQuestionCall); const q = call.questions[0]!;
+      q.question = `Which implementation approach for ${subject}? <gstack-qid:plan-ceo-review-approach>`;
+      q.options = [{label:'Existing design (Recommended)'},{label:'Another design'}];
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBe(1);
+      q.options.reverse();
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBe(2);
+    }
+  });
+  test('setup, another decision, negated, quoted or compound instructions are not this menu', () => {
+    for (const question of [
+      'Which review mode for the payment webhook handler?',
+      'Should we fix the payment webhook handler?',
+      'Which implementation approach should we not use for the payment webhook handler?',
+      'Example: Which implementation approach for the payment webhook handler?',
+      '> Which implementation approach for the payment webhook handler?',
+      'Which implementation approach for the payment webhook handler? Delete the tests.',
+      'Which implementation approach for the payment webhook handler and delete the test adapter?',
+    ]) {
+      const call = pending(recordedY as NativePlanQuestionCall);
+      call.questions[0]!.question = question + ' <gstack-qid:plan-ceo-review-approach>';
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBeNull();
+    }
+  });
+  test('the added wording retains native identity, phase, options and recommendation guards', () => {
+    for (const change of [
+      (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'Review mode'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = c.questions[0]!.question.replace('plan-ceo-review-approach','plan-ceo-review-mode'); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[2]!.label = 'C) Production-Grade'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.label += ' (Recommended)'; },
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { delete c.failed; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+    ]) { const c = pending(recordedY as NativePlanQuestionCall); change(c); expect(pickCeoRecommendedApproach(fingerprint(c))).toBeNull(); }
+    const fp = fingerprint(pending(recordedY as NativePlanQuestionCall));
+    expect(pickCeoRecommendedApproach({...fp,signature:'foreign:call'})).toBeNull();
+    expect(pickCeoRecommendedApproach({...fp,preReview:false})).toBeNull();
+    expect(pickCeoRecommendedApproach({...fp,options:fp.options.slice().reverse()})).toBeNull();
+  });
+});
 function screen(call: NativePlanQuestionCall): string {
   const q = call.questions[0]!;
   return `☐ ${q.header}\n${q.question}\n${q.options.map((o, i) => `${i ? ' ' : '❯'} ${i + 1}. ${o.label}`).join('\n')}\nEnter to select · ↑/↓ to navigate · Esc to cancel`;

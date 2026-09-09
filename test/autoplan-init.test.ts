@@ -4,6 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { prepareMethodology } from '../bin/gstack-autoplan-snapshot';
 
 const ROOT = resolve(import.meta.dir, '..');
 const TOOL = join(ROOT, 'bin/gstack-autoplan-snapshot.ts');
@@ -19,6 +20,7 @@ function fixture() {
   return { dir, source, active, restore };
 }
 function cli(...args: string[]) {
+  if (args[0] === 'create' && args.length === 4) args.push(prepareMethodology(args[1]!, join(ROOT, `plan-${args[1] === 'dx' ? 'devex' : args[1]}-review`, 'SKILL.md'), args[3]!).methodologyPath);
   return spawnSync(process.execPath, [TOOL, ...args], {
     cwd: ROOT, encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024,
   });

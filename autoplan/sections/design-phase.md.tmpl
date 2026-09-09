@@ -1,4 +1,4 @@
-Before dispatch, fully Read {{AUTOPLAN_REVIEW_FILE:plan-design-review:with-sections}}; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
+Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-design-review:with-sections}}; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
@@ -9,7 +9,7 @@ Before dispatch, fully Read {{AUTOPLAN_REVIEW_FILE:plan-design-review:with-secti
 
   **Bind this phase's input:** Run; use returned `snapshotPath` as `<DESIGN_INPUT>` for both voices:
 ```bash
-bun "<SNAPSHOT_TOOL>" create design "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+bun "<SNAPSHOT_TOOL>" create design "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 

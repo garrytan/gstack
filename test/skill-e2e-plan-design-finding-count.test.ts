@@ -10,7 +10,7 @@
 
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
-import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
+import { isDesignCountFirstReview, isDesignCountSetup, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
 import { isDesignArtifactGeneration } from './helpers/design-artifact-question';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -194,6 +194,7 @@ describeE2E('/plan-design-review per-finding AskUserQuestion count (periodic)', 
           expectedPlanPath: planPath,
           isLastStep0AUQ: designStep0Boundary,
           isFirstReviewAUQ: isDesignCountFirstReview,
+          isSetupAUQ: isDesignCountSetup,
           isCompletionHandoffAUQ: isDesignCompletionHandoff,
           isArtifactGenerationAUQ: isDesignArtifactGeneration,
           fixtureFiles: { 'DESIGN.md': designSystem },

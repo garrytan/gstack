@@ -2043,8 +2043,36 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     return omission && amendment;
   }) ?? false;
 
+/** A closed whole-plan complexity choice sets review scope, not an issue remedy. */
+function engWholePlanSetupAUQ(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (call?.answered !== true || call.failed !== false || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^Scope$/i.test(q.header.trim()) || q.options.length !== 2 ||
+      new Set(q.options.map(o => o.label)).size !== 2 ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
+      fp.options.length !== 2 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label)) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      ids[0]![1] !== 'plan-eng-review-scope-challenge') return false;
+  const body = q.question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '').trim().replace(/\s+/g, ' ');
+  const counts = /^D\s*\d+\s*[—–:-]\s*This plan introduces ([1-9]\d*) new classes across ([1-9]\d*) files\. Recommend scope reduction before reviewing, or accept the complexity and review as-is\?$/i.exec(body);
+  if (!counts || !counts.slice(1).every(n => Number.isFinite(Number(n)))) return false;
+  const label = (s: string) => s.trim().replace(/\s*\(recommended\)$/i, '');
+  const accept = q.options.find(o => /^Accept complexity\s*[—–-]\s*review as-is$/i.test(label(o.label)));
+  const reduce = q.options.find(o => /^Recommend scope reduction first$/i.test(label(o.label)));
+  if (!accept || !reduce) return false;
+  const description = (s: string) => s.trim().replace(/\s+/g, ' ');
+  const accepted = /^Proceed with the full review of all ([1-9]\d*) classes across ([1-9]\d*) files\. Flag any specific overengineering during the Architecture section, but don't block on scope reduction now\. Recommended: the scope smell is already called out in the plan and the review will surface whether it's justified\.$/i.exec(description(accept.description ?? ''));
+  return Boolean(accepted && accepted[1] === counts[1] && accepted[2] === counts[2] &&
+    /^Propose a minimal version(?: \([^()\n]*\))? and ask the user to confirm before reviewing the full plan\. This risks re-scoping before we understand the full design rationale\.$/i.test(description(reduce.description ?? '')));
+}
+
 /** Native setup needs an answered scope decision, not a particular model-chosen qid. */
 export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
+  if (engWholePlanSetupAUQ(fp)) return true;
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   const answered = call.questions.filter(q => Boolean(call.answers?.[q.question]));

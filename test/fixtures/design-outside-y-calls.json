@@ -1,0 +1,242 @@
+[
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_016LskTqkTpnBoXPf7inaJbq",
+    "questions": [
+      {
+        "question": "D1 \u2014 Run outside design voices before the review passes? <gstack-qid:plan-design-review-outside-voices>",
+        "header": "Outside voices",
+        "options": [
+          {
+            "label": "No \u2014 proceed without (recommended)",
+            "description": "Skip Codex + Claude subagent outside pass. Best for this case: it's a scoped settings form update with a complete DESIGN.md; hard-rejection checks apply to marketing surfaces, not OPERATE/settings UI."
+          },
+          {
+            "label": "Yes \u2014 run Codex + Claude subagent",
+            "description": "Run Codex against OpenAI design hard rules + litmus checks, and a separate Claude subagent for an independent completeness review. Adds time but catches anything a single-model pass misses."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Run outside design voices before the review passes? <gstack-qid:plan-design-review-outside-voices>": "No \u2014 proceed without (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:09:50.422Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_01Mptx24PCxWs9mfwqYqbVyY",
+    "questions": [
+      {
+        "question": "D2 \u2014 Pass 2: Export pending state is not specified in the plan. What should the user see while the JSON download is being prepared? <gstack-qid:plan-design-review-export-pending>",
+        "header": "Export pending",
+        "options": [
+          {
+            "label": "Disable + spinner (recommended)",
+            "description": "Apply the same DESIGN.md pending pattern used by Save: disable the Export button, show an inline spinner beside \u201cExporting\u2026\u201d, aria-busy=true. Reuses existing component behavior; prevents duplicate downloads; consistent with Save pending UX. (human: ~30min / CC: ~5min)"
+          },
+          {
+            "label": "Disable only, no spinner",
+            "description": "Disable the Export button while downloading but show no spinner. Prevents double-clicks but gives no progress signal. Simpler, but inconsistent with Save pending pattern; user may think it froze. (human: ~15min / CC: ~3min)"
+          },
+          {
+            "label": "Leave unspecified \u2014 implementer decides",
+            "description": "Defer this to the implementer. Risk: engineer ships a frozen Export button, users click it multiple times and receive duplicate downloads."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Pass 2: Export pending state is not specified in the plan. What should the user see while the JSON download is being prepared? <gstack-qid:plan-design-review-export-pending>": "Disable + spinner (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:10:18.487Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_01AWCbis4SQmcNnFXLZHBjfC",
+    "questions": [
+      {
+        "question": "D3 \u2014 Pass 2: The plan says 'the existing form skeleton' for initial load. Is this skeleton truly already built, or is it new work that needs a visual spec? <gstack-qid:plan-design-review-skeleton>",
+        "header": "Skeleton status",
+        "options": [
+          {
+            "label": "Already built \u2014 no new spec needed (recommended)",
+            "description": "The skeleton component exists and works today. Plan correctly references it. Implementation task just needs to point to the existing component; no shimmer or gray-box spec required."
+          },
+          {
+            "label": "New work \u2014 needs visual spec",
+            "description": "The skeleton does not yet exist. The plan needs to describe which elements shimmer (input fields? section headings? the action group?). Adds spec work before implementation can start. (human: ~1h / CC: ~10min)"
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Pass 2: The plan says 'the existing form skeleton' for initial load. Is this skeleton truly already built, or is it new work that needs a visual spec? <gstack-qid:plan-design-review-skeleton>": "Already built \u2014 no new spec needed (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:10:32.528Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_01U1M5vvNUM4VgQWa2srLYPJ",
+    "questions": [
+      {
+        "question": "D4 \u2014 Pass 5 / Gap G1: Save button has the same visual weight as Reset, Cancel, and Export. DESIGN.md specifies the fix. Approve adding this implementation task? <gstack-qid:plan-design-review-g1-save-style>",
+        "header": "Save button style",
+        "options": [
+          {
+            "label": "Approve DESIGN.md fix: Save = filled primary (#1d4ed8 + white text), others = ghost (recommended)",
+            "description": "Style Save as the filled primary Button component; Reset, Cancel, Export as neutral ghost variants. Exact tokens from DESIGN.md. Immediately tells users which action is primary. (human: ~1h / CC: ~10min)"
+          },
+          {
+            "label": "Keep all four buttons equal weight",
+            "description": "Leave all four buttons visually identical. Users must read labels to find Save. Contradicts the DESIGN.md primary/ghost distinction. Not recommended for a primary action page."
+          },
+          {
+            "label": "Different visual distinction \u2014 size or border only",
+            "description": "Make Save larger or bolder rather than filled. Requires new design work outside DESIGN.md; adds ambiguity. Not recommended when DESIGN.md already specifies the exact solution."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Pass 5 / Gap G1: Save button has the same visual weight as Reset, Cancel, and Export. DESIGN.md specifies the fix. Approve adding this implementation task? <gstack-qid:plan-design-review-g1-save-style>": "Approve DESIGN.md fix: Save = filled primary (#1d4ed8 + white text), others = ghost (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:10:46.563Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_01QJvgcs6sqNvYbLMAkS199z",
+    "questions": [
+      {
+        "question": "D5 \u2014 Pass 5 / Gap G2: Spacing is inconsistent (16px / 24px / 32px). DESIGN.md specifies sections = 32px, field groups = 24px, label-to-input = 8px. The 16px is the offender. Approve normalizing to the DESIGN.md 8px scale? <gstack-qid:plan-design-review-g2-spacing>",
+        "header": "Spacing fix",
+        "options": [
+          {
+            "label": "Approve DESIGN.md fix: normalize to sections=32px, groups=24px, label=8px (recommended)",
+            "description": "Apply the DESIGN.md 8px base scale. Eliminates the 16px rogue value. Creates consistent vertical rhythm. Implementation task will identify the specific element(s) using 16px. (human: ~1h / CC: ~10min)"
+          },
+          {
+            "label": "Leave spacing as-is",
+            "description": "Accept the 16px/24px/32px mix. The user will see inconsistent breathing room between elements \u2014 professional but not polished. Contradicts DESIGN.md. Not recommended."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 Pass 5 / Gap G2: Spacing is inconsistent (16px / 24px / 32px). DESIGN.md specifies sections = 32px, field groups = 24px, label-to-input = 8px. The 16px is the offender. Approve normalizing to the DESIGN.md 8px scale? <gstack-qid:plan-design-review-g2-spacing>": "Approve DESIGN.md fix: normalize to sections=32px, groups=24px, label=8px (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:11:00.600Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_01Ps2iFr4RduoDLL1MuN4aXJ",
+    "questions": [
+      {
+        "question": "D6 \u2014 Pass 5 / Gap G3: Error colors. The plan says contrast is ~3:1. But DESIGN.md's tokens (#991b1b on #fef2f2) actually achieve ~7.4:1 \u2014 the plan's claim describes the *current wrong implementation*, not the fix. Approve applying DESIGN.md tokens and correcting the contrast claim in the plan? <gstack-qid:plan-design-review-g3-error-color>",
+        "header": "Error color fix",
+        "options": [
+          {
+            "label": "Approve: apply DESIGN.md error tokens + correct the contrast claim (recommended)",
+            "description": "Use error.text #991b1b on error.surface #fef2f2 with an icon. Update the plan to state the ~3:1 is the current wrong value and the DESIGN.md fix achieves ~7.4:1. Prevents implementers from researching a problem that doesn\u2019t exist in the fixed state. (human: ~1h / CC: ~10min)"
+          },
+          {
+            "label": "Apply tokens only, leave the plan\u2019s contrast claim unchanged",
+            "description": "Fix the colors but keep the misleading ~3:1 description. Risk: future readers think the DESIGN.md fix still has a contrast problem and add unnecessary workarounds."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 Pass 5 / Gap G3: Error colors. The plan says contrast is ~3:1. But DESIGN.md's tokens (#991b1b on #fef2f2) actually achieve ~7.4:1 \u2014 the plan's claim describes the *current wrong implementation*, not the fix. Approve applying DESIGN.md tokens and correcting the contrast claim in the plan? <gstack-qid:plan-design-review-g3-error-color>": "Approve: apply DESIGN.md error tokens + correct the contrast claim (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:11:14.646Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_01NAJCKX9PejBacx8oyd7GQn",
+    "questions": [
+      {
+        "question": "D7 \u2014 Pass 5 / Gap G4: Form uses 14px, 16px, and 18px. DESIGN.md specifies two roles: 16px (body/labels/helper text) and 20px (section headings). 14px also violates the universal rule (body text < 16px is prohibited). Approve rationalizing to 16px + 20px only? <gstack-qid:plan-design-review-g4-typography>",
+        "header": "Typography fix",
+        "options": [
+          {
+            "label": "Approve DESIGN.md fix: 16px body/labels/helper + 20px headings, eliminate 14px and 18px (recommended)",
+            "description": "Removes the accessibility violation (14px body text) and the intermediate 18px that creates false hierarchy. Implementation task will identify which elements currently use 14px and 18px. Strong two-tier system: 16px for everything readable, 20px for h2 section headings. (human: ~1h / CC: ~10min)"
+          },
+          {
+            "label": "Keep 14px for helper/secondary text",
+            "description": "Retain 14px for less prominent text (e.g., field hints). Risks: violates body text accessibility rule; creates three-size system instead of two; small text on a form erodes usability. Not recommended."
+          },
+          {
+            "label": "Use 18px for section headings instead of 20px",
+            "description": "Compromise: 16px body + 18px headings. Creates weaker section hierarchy than DESIGN.md\u2019s 20px; implementer must override DESIGN.md token. Not recommended when the spec is already clear."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 \u2014 Pass 5 / Gap G4: Form uses 14px, 16px, and 18px. DESIGN.md specifies two roles: 16px (body/labels/helper text) and 20px (section headings). 14px also violates the universal rule (body text < 16px is prohibited). Approve rationalizing to 16px + 20px only? <gstack-qid:plan-design-review-g4-typography>": "Approve DESIGN.md fix: 16px body/labels/helper + 20px headings, eliminate 14px and 18px (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:11:30.690Z"
+  },
+  {
+    "sessionId": "b6b8f7c7-a50c-4ccd-9996-4b321309a017",
+    "toolUseId": "toolu_0195rLfgc3HFFq7jLPNCuVK6",
+    "questions": [
+      {
+        "question": "D8 \u2014 Pass 5 / Gap G5: Save takes 2-5s with no feedback (frozen page). DESIGN.md specifies the fix exactly. Approve adding the loading indicator? <gstack-qid:plan-design-review-g5-motion>",
+        "header": "Loading indicator",
+        "options": [
+          {
+            "label": "Approve DESIGN.md fix: inline spinner + \u201cSaving\u2026\u201d inside disabled Save, aria-busy=true, reduced-motion support (recommended)",
+            "description": "Reuses the DESIGN.md established pending-action pattern. Spinner appears beside \u201cSaving\u2026\u201d text inside the Save button; button is disabled while pending; aria-busy=true for screen readers; @media (prefers-reduced-motion) suppresses animation. User sees immediate feedback, never a frozen page. (human: ~2h / CC: ~15min)"
+          },
+          {
+            "label": "Page-level skeleton or overlay instead",
+            "description": "Show a full-page loading overlay or skeleton while saving. Higher visual weight than a simple button spinner; harder to implement; inconsistent with the DESIGN.md pattern. Overkill for a small form save. Not recommended."
+          },
+          {
+            "label": "Toast notification after save instead of spinner during",
+            "description": "Show a toast notification after success rather than in-button feedback during save. Doesn\u2019t solve the frozen-page problem (the user still sees nothing during 2-5s). Not recommended."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 \u2014 Pass 5 / Gap G5: Save takes 2-5s with no feedback (frozen page). DESIGN.md specifies the fix exactly. Approve adding the loading indicator? <gstack-qid:plan-design-review-g5-motion>": "Approve DESIGN.md fix: inline spinner + \u201cSaving\u2026\u201d inside disabled Save, aria-busy=true, reduced-motion support (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:11:46.732Z"
+  }
+]

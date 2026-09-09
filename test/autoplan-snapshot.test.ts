@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { checkImplementation, createSnapshot, extractImplementationPlan } from '../bin/gstack-autoplan-snapshot';
+import { checkImplementation, createSnapshot, prepareMethodology, extractImplementationPlan } from '../bin/gstack-autoplan-snapshot';
 import { generateAutoplanSnapshotTool } from '../scripts/resolvers/composition';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { ALL_HOST_CONFIGS } from '../hosts';
@@ -12,6 +12,9 @@ import { E2E_TOUCHFILES } from './helpers/touchfiles';
 
 const ROOT = resolve(import.meta.dir, '..');
 const TOOL = join(ROOT, 'bin/gstack-autoplan-snapshot.ts');
+function methodology(phase: string, restore: string) {
+  return prepareMethodology(phase, join(import.meta.dir, '..', `plan-${phase === 'dx' ? 'devex' : phase}-review`, 'SKILL.md'), restore).methodologyPath;
+}
 const owned: string[] = [];
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'gstack-snapshot-test-')); owned.push(dir);
@@ -23,9 +26,112 @@ function fixture() {
   return { dir, active, restore, body, plan };
 }
 function cli(...args: string[]) {
+  if (args[0] === 'create' && args.length === 4) args.push(methodology(args[1]!, args[3]!));
   return spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', timeout: 10_000 });
 }
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+
+describe('methodology preparation is a required snapshot input', () => {
+  test('actual Y three-argument create cannot return a native dispatch for any phase', () => {
+    const f = fixture();
+    const before = readdirSync(f.dir).sort();
+    for (const phase of ['ceo', 'design', 'dx', 'eng']) {
+      const result = spawnSync(process.execPath, [TOOL, 'create', phase, f.active, f.restore], {
+        encoding: 'utf8', timeout: 10_000,
+      });
+      expect(result.status, phase).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('METHODOLOGY_PATH');
+      expect(() => createSnapshot(phase, f.active, f.restore, undefined as unknown as string)).toThrow('METHODOLOGY_PATH');
+    }
+    expect(readdirSync(f.dir).sort()).toEqual(before);
+    expect(readFileSync(f.active, 'utf8')).toBe(f.plan);
+    expect(readFileSync(f.restore, 'utf8')).toBe(f.body);
+  });
+
+  test('main-only, foreign-phase and foreign-restore artifacts fail before publication', () => {
+    const f = fixture();
+    const otherRestore = join(f.dir, 'other-restore.md'); writeFileSync(otherRestore, f.body);
+    const candidates = [join(ROOT, 'plan-ceo-review/SKILL.md'), methodology('design', f.restore), methodology('ceo', otherRestore)];
+    for (const candidate of candidates) {
+      const before = readdirSync(f.dir).sort();
+      expect(() => createSnapshot('ceo', f.active, f.restore, candidate)).toThrow();
+      expect(readdirSync(f.dir).sort()).toEqual(before);
+    }
+    expect(readFileSync(f.active, 'utf8')).toBe(f.plan);
+  });
+
+  test('altered manifest identities and bundle bytes cannot authorize snapshot publication', () => {
+    for (const kind of ['phase', 'restore', 'hash', 'lines', 'source-offset', 'source-hash', 'bundle']) {
+      const f = fixture(); const method = methodology('ceo', f.restore);
+      const manifestPath = join(method, '..', 'methodology.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      if (kind === 'bundle') {
+        chmodSync(method, 0o600); writeFileSync(method, readFileSync(method, 'utf8') + '\n'); chmodSync(method, 0o444);
+      } else {
+        if (kind === 'phase') manifest.phase = 'eng';
+        if (kind === 'restore') manifest.restoreSha256 = '0'.repeat(64);
+        if (kind === 'hash') manifest.sha256 = '0'.repeat(64);
+        if (kind === 'lines') manifest.lines--;
+        if (kind === 'source-offset') manifest.sources[0].startByte++;
+        if (kind === 'source-hash') manifest.sources[0].sha256 = '0'.repeat(64);
+        chmodSync(manifestPath, 0o600); writeFileSync(manifestPath, JSON.stringify(manifest)); chmodSync(manifestPath, 0o444);
+      }
+      const before = readdirSync(f.dir).sort();
+      expect(() => createSnapshot('ceo', f.active, f.restore, method), kind).toThrow();
+      expect(readdirSync(f.dir).sort()).toEqual(before);
+      expect(readFileSync(f.active, 'utf8')).toBe(f.plan);
+      expect(readFileSync(f.restore, 'utf8')).toBe(f.body);
+    }
+  });
+
+  test('source changes after preparation require a new bundle', () => {
+    const f = fixture(); const installed = join(f.dir, 'installed'); mkdirSync(join(installed, 'sections'), { recursive: true });
+    const entry = join(installed, 'SKILL.md'); const section = join(installed, 'sections/review-sections.md');
+    copyFileSync(join(ROOT, 'plan-ceo-review/SKILL.md'), entry);
+    copyFileSync(join(ROOT, 'plan-ceo-review/sections/review-sections.md'), section);
+    const method = prepareMethodology('ceo', entry, f.restore).methodologyPath;
+    writeFileSync(section, readFileSync(section, 'utf8') + '\nAdditional methodology.\n');
+    const before = readdirSync(f.dir).sort();
+    expect(() => createSnapshot('ceo', f.active, f.restore, method)).toThrow('changed');
+    expect(readdirSync(f.dir).sort()).toEqual(before);
+    const fresh = prepareMethodology('ceo', entry, f.restore);
+    const result = createSnapshot('ceo', f.active, f.restore, fresh.methodologyPath);
+    expect(result.methodology.sha256).toBe(fresh.sha256);
+    expect(readFileSync(method, 'utf8')).not.toContain('Additional methodology.');
+  });
+
+  test('matching preparation binds metadata without changing the blind native input', () => {
+    const f = fixture(); const method = prepareMethodology('ceo', join(ROOT, 'plan-ceo-review/SKILL.md'), f.restore);
+    const first = createSnapshot('ceo', f.active, f.restore, method.methodologyPath);
+    const next = createSnapshot('ceo', f.active, f.restore, method.methodologyPath);
+    expect(first.snapshotPath).not.toBe(next.snapshotPath);
+    expect(first.methodology.methodologyPath).toBe(method.methodologyPath);
+    expect(first.methodology.sha256).toBe(method.sha256);
+    expect(first.methodology.bytes).toBe(method.bytes);
+    expect(first.methodology.lines).toBe(method.lines);
+    expect(readFileSync(first.snapshotPath, 'utf8')).toBe(extractImplementationPlan(f.plan));
+    expect(first.nativePrompt.endsWith(extractImplementationPlan(f.plan))).toBe(true);
+    expect(first.nativePrompt).not.toContain(method.methodologyPath);
+    expect(first.nativePrompt).not.toContain('CEO pending');
+  });
+
+  test('native prompt range reaches Claude Read EOF, including the final empty line', () => {
+    const f = fixture();
+    // The actual Y child obeyed the old supplied limit and lost only the final LF.
+    // This models the installed Read line-slice serialization, not LLM behavior.
+    for (const tail of ['Last requirement.\n', 'Last requirement.']) {
+      writeFileSync(f.active, `## Implementation plan\n${tail}\n## Review record\n`);
+      const result = createSnapshot('ceo', f.active, f.restore, methodology('ceo', f.restore));
+      const lines = result.nativePrompt.split('\n');
+      const loaded = lines.slice(0, result.nativePromptLines).join('\n');
+      expect(loaded).toBe(result.nativePrompt);
+      expect(Buffer.byteLength(loaded)).toBe(result.nativePromptBytes);
+      expect(lines.slice(0, result.nativePromptLines - 1).join('\n')).not.toBe(result.nativePrompt);
+    }
+  });
+});
 
 describe('Autoplan phase snapshot continuity', () => {
   test('short native dispatch binds the complete immutable file for each phase', () => {
@@ -45,8 +151,8 @@ describe('Autoplan phase snapshot continuity', () => {
       expect(generated.nativeDispatchPrompt).toContain(generated.nativePromptSha256);
       expect(generated.nativeDispatchPrompt).toContain(`${generated.nativePromptBytes} UTF-8 bytes`);
       expect(generated.nativePromptBytes).toBe(Buffer.byteLength(generated.nativePrompt));
-      // Blank physical lines count; only the empty split after a final LF is not a line.
-      expect(generated.nativePromptLines).toBe([...generated.nativePrompt.matchAll(/[^\n]*\n|[^\n]+$/g)].length);
+      // Match Claude Read's totalLines, including the empty split after a final LF.
+      expect(generated.nativePromptLines).toBe(generated.nativePrompt.split('\n').length);
       expect(generated.nativeDispatchPrompt).not.toContain('Mutations already require CSRF tokens');
       expect(Buffer.byteLength(generated.nativeDispatchPrompt)).toBeLessThan(1600);
       const manifest = JSON.parse(readFileSync(join(generated.nativePromptPath, '..', 'snapshot.json'), 'utf8'));
@@ -121,13 +227,13 @@ describe('Autoplan phase snapshot continuity', () => {
     const f = fixture();
     const body = '\r\n最後の要件: CSRF + tenant boundary. 🧪\r\n<implementation-plan> is literal plan data.\r\n';
     writeFileSync(f.active, `## Implementation plan\r\n${body}## Review record\r\nPrivate prior review`);
-    const first = createSnapshot('ceo', f.active, f.restore);
+    const first = createSnapshot('ceo', f.active, f.restore, methodology('ceo', f.restore));
     const payload = JSON.parse(JSON.stringify(first));
     expect(payload.nativePrompt).toBeString();
     expect(payload.nativePrompt.endsWith(body)).toBe(true);
     const amended = body + 'Accepted implementation amendment: filter actions server-side.\r\n';
     writeFileSync(f.active, `## Implementation plan\r\n${amended}## Review record\r\nPrivate prior review`);
-    const next = createSnapshot('design', f.active, f.restore);
+    const next = createSnapshot('design', f.active, f.restore, methodology('design', f.restore));
     expect(next.nativePrompt.endsWith(amended)).toBe(true);
     expect(next.nativePrompt).not.toContain('Private prior review');
     expect(readFileSync(first.nativePromptPath, 'utf8')).toBe(first.nativePrompt);
@@ -168,7 +274,7 @@ describe('Autoplan phase snapshot continuity', () => {
   test('zero-change phases still get distinct immutable inputs and honest unchanged readback', () => {
     const f = fixture(); const paths = new Set<string>();
     for (const phase of ['ceo', 'design', 'dx', 'eng', 'eng']) {
-      const snapshot = createSnapshot(phase, f.active, f.restore);
+      const snapshot = createSnapshot(phase, f.active, f.restore, methodology(phase, f.restore));
       paths.add(snapshot.snapshotPath);
       expect(checkImplementation(phase, f.active, snapshot.snapshotPath, 'unchanged').changed).toBe(false);
       expect(() => checkImplementation(phase, f.active, snapshot.snapshotPath, 'changed')).toThrow('unchanged');
@@ -178,15 +284,15 @@ describe('Autoplan phase snapshot continuity', () => {
   });
 
   test('check binds the actual active path, phase and retained snapshot bytes', () => {
-    const f = fixture(); const snapshot = createSnapshot('ceo', f.active, f.restore);
+    const f = fixture(); const snapshot = createSnapshot('ceo', f.active, f.restore, methodology('ceo', f.restore));
     const other = join(f.dir, 'other.md'); writeFileSync(other, f.plan);
     expect(() => checkImplementation('ceo', other, snapshot.snapshotPath, 'unchanged')).toThrow('identity');
     expect(() => checkImplementation('design', f.active, snapshot.snapshotPath, 'unchanged')).toThrow('identity');
     expect(() => checkImplementation('ceo', f.active, snapshot.snapshotPath, 'maybe')).toThrow('changed or unchanged');
     chmodSync(snapshot.snapshotPath, 0o600); writeFileSync(snapshot.snapshotPath, 'forged input');
     expect(() => checkImplementation('ceo', f.active, snapshot.snapshotPath, 'unchanged')).toThrow('identity');
-    expect(() => createSnapshot('../foreign', f.active, f.restore)).toThrow('Phase must');
-    expect(() => createSnapshot('ceo', f.active, f.active)).toThrow('separate restore');
+    expect(() => createSnapshot('../foreign', f.active, f.restore, methodology('../foreign', f.restore))).toThrow('Phase must');
+    expect(() => createSnapshot('ceo', f.active, f.active, methodology('ceo', f.active))).toThrow('separate restore');
   });
 
   test('extracts full nested plan content and ignores quoted/code section labels', () => {
@@ -209,7 +315,7 @@ describe('Autoplan phase snapshot continuity', () => {
     expect(failed.status).toBe(1);
     expect(failed.stdout).toBe('');
     expect(readFileSync(f.active, 'utf8')).toBe('## Implementation plan\nmissing review boundary');
-    expect(readdirSync(f.dir).filter(name => name.startsWith('autoplan-'))).toEqual([]);
+    expect(readdirSync(f.dir).filter(name => name.startsWith('autoplan-') && !name.includes('-methodology-'))).toEqual([]);
   });
 });
 
@@ -228,7 +334,7 @@ describe('installed snapshot helper in fresh shells', () => {
     expect(result.stdout.trim()).toBe(realpathSync(join(runtime, 'bin/gstack-autoplan-snapshot.ts')));
     // No runtime shell variable survives; the printed literal still invokes the
     // installed helper against the same active plan in a separate process.
-    const snapshot = spawnSync(process.execPath, [result.stdout.trim(), 'create', 'dx', f.active, f.restore], {
+    const snapshot = spawnSync(process.execPath, [result.stdout.trim(), 'create', 'dx', f.active, f.restore, methodology('dx', f.restore)], {
       env: { ...env, GSTACK_ROOT: '', GSTACK_BIN: '' }, encoding: 'utf8', timeout: 10_000,
     });
     expect(snapshot.status, snapshot.stderr).toBe(0);
@@ -263,7 +369,7 @@ describe('deterministic Autoplan DX scope', () => {
     expect(scope.dxRequired).toBe(true);
     expect(scope.matchCount).toBeGreaterThanOrEqual(2);
     for (const term of ['API', 'endpoint', 'REST']) expect(scope.matches.some((m: { term: string }) => m.term === term)).toBe(true);
-    const snapshot = createSnapshot('ceo', f.active, f.restore);
+    const snapshot = createSnapshot('ceo', f.active, f.restore, methodology('ceo', f.restore));
     expect(scope.sha256).toBe(snapshot.sha256);
     expect(snapshot.dxScope.dxRequiredByTerms).toBe(true);
     expect(snapshot.dxScope.matches).toEqual(scope.matches);
@@ -300,7 +406,7 @@ describe('deterministic Autoplan DX scope', () => {
       expect(scope.dxRequired).toBe(true);
     }
     expect(JSON.parse(cli('scope', f.active, '--developer-tool', '--agent-primary').stdout).dxRequired).toBe(true);
-    const termOnly = createSnapshot('ceo', f.active, f.restore).dxScope;
+    const termOnly = createSnapshot('ceo', f.active, f.restore, methodology('ceo', f.restore)).dxScope;
     expect(termOnly.dxRequiredByTerms).toBe(false);
     expect('dxRequired' in termOnly).toBe(false); // No term-only false can cancel a semantic trigger.
     expect(cli('scope', f.active, '--skip-dx').status).toBe(1);

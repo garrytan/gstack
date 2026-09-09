@@ -1,4 +1,4 @@
-Before dispatch, fully Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review:with-sections}}; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
+Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review:with-sections}}; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Mode selection: DX POLISH
@@ -13,7 +13,7 @@ Before dispatch, fully Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review:with-sectio
 
   **Bind this phase's input:** Run; use returned `snapshotPath` as `<DX_INPUT>` for both voices:
 ```bash
-bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```
   Fresh `Implementation plan` only; excludes `Review record`.
 

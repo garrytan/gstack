@@ -60,13 +60,13 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
   if ((args?.length ?? 0) > 2 || (args?.[1] !== undefined && !withSections)) {
     throw new Error('AUTOPLAN_REVIEW_FILE only accepts with-sections');
   }
-  if (ctx.host === 'claude') {
-    const entry = `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
+  // Every host prepares an explicit bound artifact before create. Inline hosts
+  // supply one complete source file; Claude supplies main plus its carved section.
+  if (withSections) {
     const phase = skill === 'plan-devex-review' ? 'dx' : skill.split('-')[1]!;
-    return withSections
-      ? `\`methodologyPath\` from \`bun "<SNAPSHOT_TOOL>" methodology ${phase} "<REVIEW_SKILL>" "<RESTORE_PATH>"\``
-      : entry;
+    return `\`methodologyPath\` from \`bun "<SNAPSHOT_TOOL>" methodology ${phase} "<REVIEW_SKILL>" "<RESTORE_PATH>"\``;
   }
+  if (ctx.host === 'claude') return `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
 
   const host = getHostConfig(ctx.host);
   const file = `gstack-${skill}/SKILL.md`;

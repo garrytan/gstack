@@ -40,6 +40,13 @@ function assertBundle(result: ReturnType<typeof methodology>, expected: string[]
     expect(actual.length).toBe(part.bytes);
   }
   if (process.platform !== 'win32') expect(fs.statSync(manifest.methodologyPath).mode & 0o777).toBe(0o444);
+  const active = path.join(path.dirname(manifest.restorePath), 'active.md');
+  fs.writeFileSync(active, '## Implementation plan\nKeep every requirement.\n## Review record\n');
+  const created = spawnSync(process.execPath, [path.join(ROOT, 'bin/gstack-autoplan-snapshot.ts'), 'create', manifest.phase, active, manifest.restorePath, manifest.methodologyPath], {
+    encoding: 'utf8', timeout: 10_000,
+  });
+  expect(created.status, created.stderr).toBe(0);
+  expect(JSON.parse(created.stdout).methodology.sha256).toBe(manifest.sha256);
   return manifest;
 }
 
@@ -97,10 +104,12 @@ describe('autoplan reads installed host methodology', () => {
           const phaseBody = host.name === 'claude'
             ? fs.readFileSync(path.join(generatedRoot, 'autoplan', 'sections', `${phase}-phase.md`), 'utf8')
             : body;
-          const directive = phaseBody.split('\n').find(line => line.startsWith('Before dispatch, fully Read ')
+          const directive = phaseBody.split('\n').find(line => line.startsWith('Before dispatch, Read ')
             && (line.includes(`methodology ${phase} `) || line.includes(`/${review}/SKILL.md`) || line.includes(`/gstack-${review}/SKILL.md`)));
           expect(directive).toBeDefined();
           expect(phaseBody.indexOf(directive!)).toBeLessThan(phaseBody.indexOf(`create ${phase} `));
+          expect(directive).toContain(`methodology ${phase} `);
+          expect(phaseBody).toContain(`create ${phase} \"<ACTIVE_PLAN>\" \"<RESTORE_PATH>\" \"<methodologyPath>\"`);
           // U's CEO loaded this section only after its child finished. Pin the
           // concrete prerequisite, then resolve the rendered path in real
           // copy/symlink installations; references alone are not its contents.

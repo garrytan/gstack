@@ -173,7 +173,7 @@ function hasProseStaleFillFinding(report: string): boolean {
     const stale = /\b(?:stale|outdated)\b|\b(?:old(?:er)?|pre[- ]write)\s+(?:value|data|result|version|snapshot)\b/i.test(text);
     const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text);
     const read = /\b(?:read|fetch)\w*\b/i.test(text);
-    const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
+    const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor|restor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
     const fill = fillPattern.test(text);
     const invalidation = /\b(?:invalidat|evict|write|commit|delet)\w*\b/i.test(text);
     const ordering = /\b(?:after|later|resum\w*)\b|out[- ]of[- ]order/i.test(text);
@@ -221,6 +221,7 @@ function hasProseStaleFillFinding(report: string): boolean {
         || /\b(?:accepted|expected|intentional|documented)\s+(?:invariant|behavior|trade[- ]off|stale[- ]read\s+window)\b|\b(?:allowed|permitted|acceptable)\b/i.test(allowanceText)
         || acceptedStaleModel
         || (!proposedPrevention && /\b(?:cannot|can't|never|does not|will not)\s+(?:\w+\s+){0,3}(?:refill|repopulate|populate|insert|store|cache|set|violate)\b/i.test(claim))
+        || (!proposedPrevention && /\b(?:cannot|can't|never|does not|doesn't|will not|won't|did not|didn't|is not|isn't|was not|wasn't|has not|hasn't|had not|hadn't)\s+(?:\w+\s+){0,3}restor\w*\b/i.test(claim))
         || /\bno\s+(?:fix|change|coordination|guard)\s+(?:is\s+)?(?:needed|required)\b/i.test(claim);
       if (!dismissal) continue;
       const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);

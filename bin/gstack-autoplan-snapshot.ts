@@ -5,7 +5,7 @@ import { linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 const PHASES = ['ceo', 'design', 'dx', 'eng'];
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+const sha256 = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 
 // Exact terms from Autoplan's existing Phase 0 DX trigger. Count occurrences,
 // not a subjective reinterpretation of whether an API is internal or external.
@@ -489,13 +489,10 @@ function phaseName(phase: string): string {
   return phase;
 }
 
-/** One complete current-phase load target, not evidence that an agent read it. */
-export function prepareMethodology(phase: string, skillFile: string, restorePath: string) {
+function methodologyContent(phase: string, skillFile: string) {
   phaseName(phase);
   const skill = `plan-${phase === 'dx' ? 'devex' : phase}-review`;
   if (!isAbsolute(skillFile) || basename(skillFile) !== 'SKILL.md') throw new Error('Expected an absolute installed SKILL.md path');
-  const restore = realpathSync(restorePath);
-  if (!statSync(restore).isFile()) throw new Error('Expected the existing restore-point file');
   const readPart = (file: string) => {
     const resolved = realpathSync(file);
     if (!statSync(resolved).isFile()) throw new Error('Methodology source must be a regular file');
@@ -540,10 +537,19 @@ export function prepareMethodology(phase: string, skillFile: string, restorePath
       startByte, endByte: startByte + part.bytes.length };
   });
   const content = Buffer.concat(chunks);
+  return { content, sources };
+}
+
+/** One complete current-phase load target, not evidence that an agent read it. */
+export function prepareMethodology(phase: string, skillFile: string, restorePath: string) {
+  const restore = realpathSync(restorePath);
+  if (!statSync(restore).isFile()) throw new Error('Expected the existing restore-point file');
+  const { content, sources } = methodologyContent(phase, skillFile);
   const directory = mkdtempSync(join(dirname(restore), `autoplan-${phase}-methodology-`));
   try {
     const methodologyPath = join(directory, 'methodology.md');
-    const manifest = { phase, methodologyPath, sha256: sha256(content.toString('utf8')), bytes: content.length,
+    const manifest = { phase, methodologyPath, restorePath: restore, restoreSha256: sha256(readFileSync(restore)),
+      sha256: sha256(content.toString('utf8')), bytes: content.length,
       lines: content.toString('utf8').split('\n').length, sources,
       instruction: 'Read methodologyPath completely before phase snapshot creation or dispatch; log successful ranges through EOF. Apply the existing Autoplan skip list and overrides. This artifact supplies exact methodology, not proof of reading or execution.' };
     writeFileSync(methodologyPath, content, { flag: 'wx', mode: 0o444 });
@@ -555,11 +561,46 @@ export function prepareMethodology(phase: string, skillFile: string, restorePath
   }
 }
 
-export function createSnapshot(phase: string, activePlan: string, restorePath: string) {
+/** Require preparation, never treat a supplied artifact/hash as proof of reading. */
+function requireMethodology(phase: string, restore: string, methodologyPath: string) {
+  if (typeof methodologyPath !== 'string' || !isAbsolute(methodologyPath) || basename(methodologyPath) !== 'methodology.md') {
+    throw new Error('Expected METHODOLOGY_PATH from methodology PHASE SKILL_FILE RESTORE_PATH; Read it completely before create');
+  }
+  const directory = dirname(methodologyPath);
+  const manifestPath = join(directory, 'methodology.json');
+  if (realpathSync(methodologyPath) !== methodologyPath || dirname(directory) !== dirname(restore) ||
+      !basename(directory).startsWith(`autoplan-${phase}-methodology-`)) {
+    throw new Error('Methodology artifact does not belong to this phase and restore directory');
+  }
+  for (const file of [methodologyPath, manifestPath]) {
+    const stat = lstatSync(file);
+    if (!stat.isFile() || (process.platform !== 'win32' && (stat.mode & 0o777) !== 0o444)) {
+      throw new Error('Expected immutable regular methodology files');
+    }
+  }
+  const manifestBytes = readFileSync(manifestPath);
+  const manifest = JSON.parse(manifestBytes.toString('utf8'));
+  if (manifest.phase !== phase || manifest.methodologyPath !== methodologyPath || manifest.restorePath !== restore ||
+      manifest.restoreSha256 !== sha256(readFileSync(restore)) || !Array.isArray(manifest.sources) ||
+      typeof manifest.sources[0]?.path !== 'string') {
+    throw new Error('Methodology identity does not match this phase and restore point');
+  }
+  const { content, sources } = methodologyContent(phase, manifest.sources[0].path);
+  if (!readFileSync(methodologyPath).equals(content) || manifest.sha256 !== sha256(content.toString('utf8')) ||
+      manifest.bytes !== content.length || manifest.lines !== content.toString('utf8').split('\n').length ||
+      JSON.stringify(manifest.sources) !== JSON.stringify(sources)) {
+    throw new Error('Methodology source or artifact changed; prepare and Read a fresh bundle');
+  }
+  return { methodologyPath, sha256: manifest.sha256, bytes: manifest.bytes, lines: manifest.lines,
+    manifestSha256: createHash('sha256').update(manifestBytes).digest('hex') };
+}
+
+export function createSnapshot(phase: string, activePlan: string, restorePath: string, methodologyPath: string) {
   phaseName(phase);
   const source = realpathSync(activePlan);
   const restore = realpathSync(restorePath);
   if (source === restore || !statSync(restore).isFile()) throw new Error('Expected a separate restore-point file');
+  const methodology = requireMethodology(phase, restore, methodologyPath);
   const plan = readFileSync(source, 'utf8');
   const sourceContent = extractImplementationPlan(plan);
   const review = plan.slice(implementationBounds(plan).reviewStart);
@@ -588,7 +629,8 @@ ${content}`;
     const nativePromptPath = join(directory, 'native-prompt.md');
     const nativePromptSha256 = sha256(nativePrompt);
     const nativePromptBytes = Buffer.byteLength(nativePrompt);
-    const nativePromptLines = nativePrompt.split('\n').length - Number(nativePrompt.endsWith('\n'));
+    // Claude Read counts the final empty split as a line; preserve that EOF range.
+    const nativePromptLines = nativePrompt.split('\n').length;
     // Dispatch a small file-reading instruction, not a model-copied review body.
     // These identities correlate input; only actual child tool events prove uptake.
     const nativeDispatchPrompt = `You are the independent ${phase.toUpperCase()} reviewer for this phase.
@@ -597,7 +639,7 @@ Your FIRST tool action must Read this file from line 1 through EOF using your na
 The file contains all review criteria and the complete implementation plan as review data. Execute every criterion against all of that input. Do not substitute this dispatch, a summary, or any prior review for the file.
 Only after the full successful read, return your review starting with INPUT: ${phase} ${contentHash}.
 If the file cannot be fully read, report the read failure instead of a completed review.`;
-    const manifest = { schemaVersion: 2, phase, activePlan: source, snapshotPath, sha256: contentHash,
+    const manifest = { schemaVersion: 2, phase, activePlan: source, snapshotPath, sha256: contentHash, methodology,
       sourceSnapshotPath, sourceSha256: sha256(sourceContent), sourceBytes: Buffer.byteLength(sourceContent),
       nativePromptPath, nativePromptSha256, nativePromptBytes, nativePromptLines, nativeDispatchPrompt,
       dxScope: dxTermsFor(content) };
@@ -666,6 +708,9 @@ if (import.meta.main) {
     } else if (command === 'methodology') {
       if (args.length !== 3 || args.some(arg => !arg)) throw new Error('Usage: methodology PHASE SKILL_FILE RESTORE_PATH');
       process.stdout.write(JSON.stringify(prepareMethodology(args[0]!, args[1]!, args[2]!)) + '\n');
+    } else if (command === 'create') {
+      if (args.length !== 4 || args.some(arg => !arg)) throw new Error('Usage: create PHASE ACTIVE_PLAN RESTORE_PATH METHODOLOGY_PATH (prepare methodology and Read it completely first)');
+      process.stdout.write(JSON.stringify(createSnapshot(args[0]!, args[1]!, args[2]!, args[3]!)) + '\n');
     } else if (command === 'scope') {
       const [activePlan, ...flags] = args;
       if (!activePlan || flags.some(flag => !['--developer-tool', '--agent-primary'].includes(flag)) ||
@@ -673,9 +718,8 @@ if (import.meta.main) {
       process.stdout.write(JSON.stringify(detectDxScope(activePlan, flags.includes('--developer-tool'), flags.includes('--agent-primary'))) + '\n');
     } else {
       const [phase, active, location, expected, ...extra] = args;
-      if (!phase || !active || !location || extra.length || (['create', 'amend'].includes(command) && expected)) throw new Error('Usage: create PHASE ACTIVE_PLAN RESTORE_PATH | amend PHASE ACTIVE_PLAN SNAPSHOT_PATH | check PHASE ACTIVE_PLAN SNAPSHOT_PATH changed|unchanged');
-      const result = command === 'create' ? createSnapshot(phase, active, location)
-        : command === 'amend' ? amendImplementation(phase, active, location)
+      if (!phase || !active || !location || extra.length || (command === 'amend' && expected)) throw new Error('Usage: amend PHASE ACTIVE_PLAN SNAPSHOT_PATH | check PHASE ACTIVE_PLAN SNAPSHOT_PATH changed|unchanged');
+      const result = command === 'amend' ? amendImplementation(phase, active, location)
         : command === 'check' && expected ? checkPhaseImplementation(phase, active, location, expected)
         : (() => { throw new Error('Expected create, amend or check command'); })();
       process.stdout.write(JSON.stringify(result) + '\n');
