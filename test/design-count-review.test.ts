@@ -13,6 +13,7 @@ import numberedPasses from './fixtures/design-review-l-calls.json';
 import scoredPasses from './fixtures/design-review-n-calls.json';
 import outsideCalls from './fixtures/design-outside-y-calls.json';
 import boundaryCalls from './fixtures/design-boundaries-y-calls.json';
+import gapCalls from './fixtures/design-gap-z-calls.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
@@ -39,6 +40,35 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
   }
   return { ...counts, started, phases };
 }
+
+describe('Z numbered gap starts review at the actual plan amendment', () => {
+  const actual = () => structuredClone(gapCalls.calls) as NativePlanQuestionCall[];
+  const first = () => actual()[0]!;
+  const reanswer = (c: NativePlanQuestionCall) => { c.answers = {[c.questions[0]!.question]:c.questions[0]!.options[0]!.label}; return c; };
+  test('first visual hierarchy decision opens all eight substantive calls without changing raw count', () => {
+    expect(isDesignCountFirstReview(fingerprint(first()))).toBe(true);
+    const output = replay(actual());
+    expect(output).toMatchObject({step0:0,review:8,administrative:0,started:true});
+    expect(output.phases).toHaveLength(8);expect(output.phases.every(p=>!p.preReview&&!p.administrative)).toBe(true);
+    expect(isDesignCompletionHandoff(fingerprint(first()))).toBe(false);
+    expect(isDesignCountSetup(fingerprint(first()))).toBe(false);
+  });
+  test('control names, palette, gap/task numbers and offered answer order may vary', () => {
+    const c=first(),q=c.questions[0]!;
+    q.question=q.question.replace('Gap 1 of 8','Gap 3 of 12').replace('Save button','Submit button');q.header='Gap 3: Button';
+    q.options[0]!.description=q.options[0]!.description!.replace('Save gets #1d4ed8','Submit gets #123abc').replace('T1','T9');q.options.reverse();
+    for(const o of q.options){c.answers={[q.question]:o.label};expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);}
+  });
+  test('setup, examples, mismatched finding identity and unknown offered clauses cannot open review', () => {
+    for(const change of [(s:string)=>s.replace('apply DESIGN.md primary button style?','start reviewing the design?'),(s:string)=>s.replace('Gap 1 of 8','Gap 9 of 8'),(s:string)=>s.replace('Gap 1','Gap 0'),(s:string)=>'Example: '+s,(s:string)=>'> '+s,(s:string)=>'```\n'+s+'\n```',(s:string)=>s+' Ready to begin?']){const c=first();c.questions[0]!.question=change(c.questions[0]!.question);expect(isDesignCountFirstReview(fingerprint(reanswer(c)))).toBe(false);}
+    for(const i of [0,1])for(const suffix of [' Review starts after this setup choice.',' Choose the design source first.',' Should we review the button?']){const c=first();c.questions[0]!.options[i]!.description+=suffix;expect(isDesignCountFirstReview(fingerprint(c))).toBe(false);}
+    for(const mutate of [(c:NativePlanQuestionCall)=>{c.questions[0]!.header='Gap 2: Button';},(c:NativePlanQuestionCall)=>{c.questions[0]!.header='Focus';},(c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description=c.questions[0]!.options[0]!.description!.replace('Save gets','Publish gets');},(c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.label='Start the review';},(c:NativePlanQuestionCall)=>{c.questions[0]!.options[1]!.label='Wait';}]){const c=first();mutate(c);expect(isDesignCountFirstReview(fingerprint(reanswer(c)))).toBe(false);}
+  });
+  test('only one explicitly completed current native question with an offered answer opens review', () => {
+    for(const mutate of [(c:NativePlanQuestionCall)=>{c.answered=false;},(c:NativePlanQuestionCall)=>{delete (c as Partial<NativePlanQuestionCall>).answered;},(c:NativePlanQuestionCall)=>{c.failed=true;},(c:NativePlanQuestionCall)=>{delete c.failed;},(c:NativePlanQuestionCall)=>{c.sessionId='';},(c:NativePlanQuestionCall)=>{c.toolUseId='';},(c:NativePlanQuestionCall)=>{delete c.unansweredQuestionIndices;},(c:NativePlanQuestionCall)=>{c.unansweredQuestionIndices=[0];},(c:NativePlanQuestionCall)=>{c.answers={};},(c:NativePlanQuestionCall)=>{c.answers={[c.questions[0]!.question]:'Start reviewing'};},(c:NativePlanQuestionCall)=>{c.questions[0]!.multiSelect=true;},(c:NativePlanQuestionCall)=>{c.questions.push(structuredClone(c.questions[0]!));},(c:NativePlanQuestionCall)=>{c.questions[0]!.options.push({label:'Another choice'});}]){const c=first();mutate(c);expect(isDesignCountFirstReview(fingerprint(c))).toBe(false);}
+    for(const f of [{...fingerprint(first()),signature:'foreign:call'},{...fingerprint(first()),nativeCall:undefined},{...fingerprint(first()),nativeQuestionIndex:1},{...fingerprint(first()),options:[]}])expect(isDesignCountFirstReview(f)).toBe(false);
+  });
+});
 
 describe('Native finding and closed handoff boundaries', () => {
   const actual = () => structuredClone(boundaryCalls) as NativePlanQuestionCall[];

@@ -1370,6 +1370,38 @@ export function planCountQuestionInput(visible: string, fp: AskUserQuestionFinge
   return panel ? String(index) : `${index}\r`;
 }
 
+/** A native single-question pane can elide its tail to leave room for choices. */
+function matchesTruncatedNativeQuestion(visible: string, call: NativePlanQuestionCall): boolean {
+  if (call.questions.length !== 1) return false;
+  const cursor = [...visible.matchAll(/❯\s*1\./g)].at(-1);
+  if (!cursor) return false;
+  const before = visible.slice(0, cursor.index);
+  const header = /^(?:[\t │┃]*\n)*[\t │┃]*[☐□]([^\n│]*)\n/.exec(before);
+  if (!header || /[☐□❯]/.test(before.slice(header[0].length))) return false;
+  const exact = (value: string) => value.replace(/\s+/g, '');
+  const question = call.questions[0]!;
+  if (exact(header[1]!) !== exact(question.header)) return false;
+  const body = before.slice(header[0].length).replace(/^[ \t]*[│┃] ?|[│┃][ \t]*$/gm, '').trim();
+  // Require the complete displayed prefix, not a fragment or common heading.
+  // The final ellipsis is the native UI's elision indicator; missing or changed
+  // text anywhere before it cannot borrow an unrelated call's answer policy.
+  if (!body.endsWith('…')) return false;
+  const prefix = exact(body.slice(0, -1));
+  const native = exact(question.question);
+  if (prefix.length < 160 || body.split('\n').filter(line => line.trim()).length < 2 ||
+      prefix.length >= native.length || !native.startsWith(prefix)) return false;
+  const menu = visible.slice(cursor.index);
+  const footer = /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*(?:n\s*to\s*add\s*notes\s*·\s*)?Esc\s*to\s*cancel/i.exec(menu);
+  if (!footer || !/^[\s│┃─━└┘]*$/.test(menu.slice(footer.index + footer[0].length))) return false;
+  const options = parseNumberedOptions(visible);
+  const offered = options.slice(0, question.options.length);
+  const controls = options.slice(question.options.length);
+  return offered.length === question.options.length && offered.every((option, index) =>
+    option.index === index + 1 && exact(option.label) === exact(question.options[index]!.label)) &&
+    controls.length <= 2 && controls.every((option, index) => option.index === question.options.length + index + 1 &&
+      (index === 0 ? /^Typesomething\.?$/ : /^Chataboutthis$/).test(exact(option.label)));
+}
+
 /** Match native question identity before permission text can choose an answer. */
 export function matchesNativePlanQuestion(visible: string, call: NativePlanQuestionCall): boolean {
   if (call.failed) return false;
@@ -1385,7 +1417,7 @@ export function matchesNativePlanQuestion(visible: string, call: NativePlanQuest
   if (!header) return matchesClippedNativeQuestion(normalized, call);
   if (compact(header[1]!) !== compact(question.header) || /❯\s*[1-9]\./.test(before.slice(header.index))) return false;
   const identity = question.question.match(/<gstack-qid:[^>]+>/i)?.[0] ?? question.question;
-  if (!compact(before.slice(header.index)).includes(compact(identity))) return false;
+  if (!compact(before.slice(header.index)).includes(compact(identity))) return matchesTruncatedNativeQuestion(normalized, call);
   // Preserve the captured damaged-option path when the native panel's
   // complete footer is intact, including the optional native preview notes key.
   // With a damaged footer, require the full
@@ -1851,7 +1883,7 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   if (!call.answered || call.failed || call.questions.length !== 1 ||
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
-  if (resolvedDxTaskNavigation(call)) return true;
+  if (resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call)) return true;
   const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
   const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const completionLines: string[] = [];
@@ -1918,6 +1950,30 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   return labels.every(label => runEng(label) || ready(label) || manual(label)) &&
     labels.filter(runEng).length === 1 && labels.filter(manual).length === 1 &&
     q.options.some(o => o.label === call.answers?.[q.question]);
+}
+
+/** A completed DX recap can offer navigation over already specified tasks. */
+function specifiedDxTaskNavigation(call: NativePlanQuestionCall): boolean {
+  const q = call.questions[0]!;
+  if (call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      q.multiSelect || q.header.trim() !== 'Next steps' || q.options.length !== 3 ||
+      new Set(q.options.map(o => o.label)).size !== 3 ||
+      Object.keys(call.answers ?? {}).length !== 1) return false;
+  const compact = (value: string | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
+  const question = compact(q.question);
+  const match = /^D\d+ [—–-] What's next\? DX review complete\. ([1-9]\d*) tasks specified \(([1-9]\d*) P1 block ship, ([1-9]\d*) P2 same branch\)\. DX score: (?:10|[0-9])\/10 → (?:10|[0-9])\/10\. TTHW: \d+(?:\.\d+)? min → < (\d+(?:\.\d+)?) min \(Champion tier\) after T\d+ lands\. The API changes \((T\d+, T\d+, T\d+)\) have architectural implications that warrant an eng review\. <gstack-qid:plan-devex-review-next-steps>$/.exec(question);
+  if (!match || Number(match[1]) !== Number(match[2]) + Number(match[3]) || Number(match[4]) <= 0) return false;
+  const labels = q.options.map(o => o.label.trim().replace(/\s*\(Recommended\)$/, ''));
+  const expected = ['Run /plan-eng-review next', 'Ready to implement', 'Skip — handle next steps manually'];
+  const descriptions = [
+    `API changes (${match[5]}) have architectural implications. Eng review validates the --skip-ci-check design, deprecation shim contract, and argument-order change scope before implementation.`,
+    `Skip eng review. Start implementing T1–T${match[1]} directly. Run /devex-review after shipping to measure the real TTHW against the < ${match[4]} min target.`,
+    'No follow-up review needed right now.',
+  ];
+  return labels.every((label, index) => {
+    const role = expected.indexOf(label);
+    return role >= 0 && compact(q.options[index]!.description) === descriptions[role];
+  }) && new Set(labels).size === 3 && q.options.some(o => o.label === call.answers?.[q.question]);
 }
 
 /** Completed issue decisions can hand off their existing numbered tasks. */
@@ -2168,9 +2224,68 @@ function engArchitectureChoiceAUQ(fp: AskUserQuestionFingerprint): boolean {
   return Boolean(unchanged && /^Each worker gets its own copy of the retry logic\.\s+Completeness:\s*\d+\/10\.\s+Creates \d+ divergence points; acknowledged DRY violation from the start\.$/i.test(unchanged.description ?? ''));
 }
 
+/** A closed dependency choice can expose the current plan's coupling in its options. */
+function engDependencyBindingAUQ(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (call?.answered !== true || call.failed !== false || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^Cache binding$/i.test(q.header.trim()) || q.options.length !== 2 ||
+      new Set(q.options.map(o => o.label)).size !== 2 ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
+      fp.options.length !== 2 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label)) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      ids[0]![1] !== 'plan-eng-cache-binding') return false;
+  const normalize = (s: string) => s.trim().replace(/\s+/g, ' ');
+  const body = normalize(q.question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, ''));
+  const choice = /^D\s*\d+\s*[—–:-]\s*Architecture: How should ([A-Za-z_$][\w$]*) access the cache adapter after scope reduction\?$/i.exec(body);
+  if (!choice) return false;
+  const label = (s: string) => s.trim().replace(/\s*\(recommended\)$/i, '');
+  const injected = q.options.find(o => /^Constructor injection$/i.test(label(o.label)));
+  const imported = q.options.find(o => /^Module-level import$/i.test(label(o.label)));
+  if (!injected || !imported) return false;
+  // Consume both descriptions: the current-plan coupling and the offered
+  // alternative must be affirmative, not quoted, conditional, or mixed with new work.
+  const core = (s: string) => normalize(s).replace(/ Completeness: (?:10|[0-9])\/10\. \(human: (?:no change|~?\d+(?:\.\d+)?(?:min|h| days?)) \/ CC: (?:no change|~?\d+(?:\.\d+)?(?:min|h))\)$/, '');
+  return core(injected.description ?? '') === `${choice[1]} receives the cache adapter as a constructor argument (or factory function parameter). Tests pass a stub; production passes the real adapter. Eliminates module-level mutable state entirely. Requires wiring at the call site.` &&
+    core(imported.description ?? '') === `${choice[1]} imports the adapter directly at module scope, same pattern as the current plan. Works fine in production; makes tests require module-level mocking (jest.mock, proxyquire). Matches the existing codebase pattern if that's what's already used.`;
+}
+
+/** A direct shared-state risk is a finding even when its qid omits the section name. */
+function engSharedMutableCacheAUQ(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (call?.answered !== true || call.failed !== false || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^Shared cache$/i.test(q.header.trim()) || q.options.length !== 3 ||
+      new Set(q.options.map(o => o.label)).size !== 3 ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
+      fp.options.length !== 3 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label)) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      ids[0]![1] !== 'plan-eng-shared-mutable-cache') return false;
+  const normalize = (s: string) => s.trim().replace(/\s+/g, ' ');
+  const body = normalize(q.question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, ''));
+  const risk = /^D\s*\d+\s*[—–:-]\s*Architecture: Two services share a global mutable ([A-Za-z_$][\w$]*) via module-level export\. This is the #[1-9]\d* reliability risk in multi-tenant auth [—–-] concurrent mutations can corrupt tenant isolation\. How should the plan address this\?$/i.exec(body);
+  if (!risk) return false;
+  const label = (s: string) => s.trim().replace(/\s*\(recommended\)$/i, '');
+  const injected = q.options.find(o => /^Dependency injection$/i.test(label(o.label)));
+  const guarded = q.options.find(o => /^Mutation guards on the global$/i.test(label(o.label)));
+  const accepted = q.options.find(o => /^Accept as-is, flag as known risk$/i.test(label(o.label)));
+  if (!injected || !guarded || !accepted) return false;
+  const core = (s: string) => normalize(s).replace(/ Completeness: (?:10|[0-9])\/10\.$/, '');
+  const remedy = /^The plan is updated to pass ([A-Za-z_$][\w$]*) as a constructor argument to both ([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*)\. No module-level mutable export\. Tests can inject a mock\/stub\. Single shared instance still possible at the app root\.$/.exec(core(injected.description ?? ''));
+  return Boolean(remedy && remedy[1] === risk[1] && remedy[2] !== remedy[3] &&
+    core(guarded.description ?? '') === 'Keep the global export but wrap every mutation site in explicit locking or compare-and-swap. Safer than bare shared state but still couples both services to the global. Adds concurrency primitives that need their own tests.' &&
+    core(accepted.description ?? '') === 'Note the shared-global pattern in the review report as a known risk. Leave the plan unchanged. Suitable only if the runtime is single-threaded and concurrent mutation is architecturally impossible.');
+}
+
 /** An answered substantive finding can start review even in a mixed setup packet. */
 export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
-  if (engExplicitRepairAUQ(fp) || engArchitectureChoiceAUQ(fp)) return true;
+  if (engExplicitRepairAUQ(fp) || engArchitectureChoiceAUQ(fp) || engDependencyBindingAUQ(fp) || engSharedMutableCacheAUQ(fp)) return true;
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   return call.questions.some(q => {

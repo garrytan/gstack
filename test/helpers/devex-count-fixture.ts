@@ -355,6 +355,21 @@ function answeredDocumentationFollowup(fp: AskUserQuestionFingerprint): boolean 
   if (selected.length !== 1 || ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return false;
   const label = selected[0]!.label.trim().replace(/^[A-Z][.):]\s*/i, '').replace(/\s*\(recommended\)$/i, '');
   const headline = q.question.split('\n')[0]!.replace(/<gstack-qid:[^>]+>/i, '').trim();
+  if (/^plan-devex-review-todo\d+-migration-guide$/i.test(ids[0]![1]!) && /^TODO[- ]\d+ Migration$/i.test(q.header.trim())) {
+    // A written upgrade guide is additional work beyond the accepted runtime
+    // compatibility shim. Require that distinct gap and the selected doc task;
+    // a recap, hypothetical example or unselected guide cannot supply it.
+    const parts = q.question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '').trim().split(/\n\s*\n/);
+    const compact = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim();
+    return call.answered === true && parts.length === 5 &&
+      /^D\s*\d+\s*[—–:-]\s*TODO: should the plan include a v\d+→v\d+ written migration guide\?$/i.test(compact(parts[0])) &&
+      /^The deprecation shim \(T\d+\) handles the runtime experience: v\d+ callers get a DeprecationWarning naming `[a-z_]\w*\(\)` as the replacement\. But there is currently no written migration guide in docs\/\.$/i.test(compact(parts[1])) &&
+      /^A one-page migration guide covers: - What changed \(`[a-z_]\w*\(\)` → `[a-z_]\w*\(\)`\) - What stayed the same \(all other APIs\) - How to find and update callsites \(grep for `[^`\n]+`\) - When the shim is removed \(e\.g\., v\d+(?:\.\d+)?\)$/i.test(compact(parts[2])) &&
+      /^Without it, developers upgrading a large codebase need to discover the change at each call site rather than planning the migration upfront\. The changelog has the what; the guide provides the how and the timeline\.$/i.test(compact(parts[3])) &&
+      /^Completeness: A=(?:10|[0-9])\/10 \(complete\), B=(?:10|[0-9])\/10 \(runtime-only, no planning\), C=(?:10|[0-9])\/10$/i.test(compact(parts[4])) &&
+      /^Add to TODOS\.md [—–-] include migration guide in plan$/i.test(label) &&
+      /^Add docs\/migration-v\d+-v\d+\.md as a P[0-3] task\. One page covering the rename, unchanged APIs, grep command to find callsites, and shim removal timeline\. Completeness: (?:10|[0-9])\/10\.$/i.test(compact(selected[0]!.description));
+  }
   if (ids[0]![1] === 'devex-api-key-docs' && /^API key docs$/i.test(q.header.trim())) {
     // The earlier auth-error decision changes runtime diagnostics. This one
     // adds the missing acquisition instructions to the README itself.

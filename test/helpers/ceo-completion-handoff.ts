@@ -175,6 +175,34 @@ function bareEngNavigation(question: string, descriptions: string[]): boolean {
       /^Eng review is the required shipping gate [—–-] skipping it means less confidence before enabling the feature flag$/i.test(s));
 }
 
+/** A completed CEO review may distinguish the still-unrun Eng shipping gate. */
+function unrunEngNavigation(fp: AskUserQuestionFingerprint, question: string): number | null {
+  const call = fp.nativeCall!;
+  const q = call.questions[0]!;
+  if (!call.sessionId || !call.toolUseId || call.failed !== false ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+      q.options.length !== 2 || fp.options.length !== 2 ||
+      !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !/^Next review$/i.test(q.header.trim()) ||
+      !/^CEO Review is CLEAR\. Eng Review is the required shipping gate and (?:hasn['’]t|has not) run yet\. What(?:['’]s| is) next\?$/i.test(question)) return null;
+  if (call.answered === false) {
+    if (call.answers !== undefined || call.answeredAt !== undefined ||
+        (call.unansweredQuestionIndices !== undefined &&
+          (call.unansweredQuestionIndices.length !== 1 || call.unansweredQuestionIndices[0] !== 0))) return null;
+  } else if (call.answered !== true || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return null;
+  const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').trim());
+  const run = labels.findIndex(s => /^Run \/plan-eng-review(?: next| now)?$/i.test(s));
+  const manual = labels.findIndex(s => /^Skip\s*[—–-]\s*I['’]ll handle reviews manually$/i.test(s));
+  if (run < 0 || manual < 0 || run === manual) return null;
+  const topics = String.raw`(?:architecture|code quality|test design|performance|deployment)`;
+  const runDescription = new RegExp(String.raw`^${topics}(?:,\s+${topics})*(?:,?\s+and\s+${topics})?\s+review\.\s+The required gate before shipping\.\s+Run this before implementation begins to catch any structural issues in how the tests are wired up\.$`, 'i');
+  // Consume each complete description in its own offered role. The temporal
+  // qualification is about the next review, not an unfinished CEO decision.
+  if (!runDescription.test(q.options[run]!.description?.trim() ?? '') ||
+      !/^Proceed to implementation directly\.\s+You can run \/plan-eng-review later if needed\.\s+Eng Review is required before shipping but not before starting implementation\.$/i.test(q.options[manual]!.description?.trim() ?? '')) return null;
+  return manual + 1;
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -208,6 +236,8 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const explicitCompletion = /(?:^|[.!?]\s+)(?:ELI10:\s*)?(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|cleared|clean|done(?:\s+and\s+the\s+plan\s+is\s+cleared)?)(?:\s+with\s+0\s+unresolved\s+decisions)?(?=\s*(?:[.!?—–]|$))/i.test(declaration);
   const genericCompletion = /(?:^|[.!?]\s+)(?:The\s+)?review\s+(?:is\s+)?(?:complete|cleared|clean|done)(?=\s*(?:[.!?—–]|$))/i.test(declaration);
   const questionText = declaration.replace(/<gstack-qid:[^>]+>/gi, '').trim();
+  const unrunNavigation = id ? unrunEngNavigation(fp, questionText) : null;
+  if (unrunNavigation !== null) return unrunNavigation;
   const recappedNavigation = Boolean(id) &&
     /^What(?:['’]s|\s+is)\s+the\s+next\s+(?:steps?|review)\s+after\s+(?:this|the)\s+CEO\s+review\?$/i.test(questionText) &&
     q.options.some(option => resolvedCeoRecap(option.description ?? ''));

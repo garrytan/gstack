@@ -9,6 +9,7 @@ import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 
 const captured = fs.readFileSync(path.join(import.meta.dir, 'fixtures/autoplan-setup-packet-o-screen.txt'), 'utf8');
 const original = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/autoplan-setup-packet-o-call.json'), 'utf8')) as NativePlanQuestionCall;
+const zPacket = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/autoplan-setup-z-packet.json'), 'utf8')) as {pendingCall: NativePlanQuestionCall; screen: string};
 const footer = 'Enter to select · Tab/Arrow keys to navigate · Esc to cancel';
 function pane(call: NativePlanQuestionCall, index: number, answered: number[] = []) {
   const bar = '← ' + call.questions.map((q,i) => (answered.includes(i) ? '☒ ' : '☐ ') + q.header).join('  ') + ' ✔ Submit →';
@@ -117,11 +118,83 @@ describe('native routing and prerequisite setup packet', () => {
   });
 });
 
+describe('numbered native setup packet preserves the full existing review', () => {
+  test('exact Z packet advances both bound tabs and only then submits once', () => {
+    const seen = new Set<string>();
+    expect(autoplanSetupDecision(zPacket.screen, seen).kind).toBe('waiting');
+    commit(zPacket.screen, seen, zPacket.pendingCall, '1');
+    expect(autoplanSetupDecision(pane(zPacket.pendingCall, 2, [0,1]), seen, zPacket.pendingCall).kind).toBe('waiting');
+    commit(pane(zPacket.pendingCall, 1, [0]), seen, zPacket.pendingCall, '1');
+    commit(pane(zPacket.pendingCall, 2, [0,1]), seen, zPacket.pendingCall, '\r');
+    expect(E2E_TOUCHFILES['autoplan-chain-pty']).toContain('test/fixtures/autoplan-setup-z-packet.json');
+  });
+
+  test('numbering and offered order vary while picks keep their exact native identities', () => {
+    for (const reverseQuestions of [false, true]) for (const reverseOptions of [false, true]) {
+      const call = structuredClone(zPacket.pendingCall);
+      call.questions[0]!.question = call.questions[0]!.question.replace('D1 —', 'D17:');
+      call.questions[1]!.question = call.questions[1]!.question.replace('D2 —', 'D23 –').replace('this branch', 'the project').replace('the review input', 'this review input');
+      if (reverseQuestions) call.questions.reverse();
+      if (reverseOptions) call.questions.forEach(question => question.options.reverse());
+      const seen = new Set<string>();
+      commit(pane(call,0), seen, call, reverseOptions ? '2' : '1');
+      commit(pane(call,1,[0]), seen, call, reverseOptions ? '2' : '1');
+      commit(pane(call,2,[0,1]), seen, call, '\r');
+    }
+  });
+
+  test('all new question and option description clauses must remain setup only', () => {
+    const mutations: Array<(call: NativePlanQuestionCall) => void> = [
+      call => { call.questions[0]!.question += ' Also remove account-owner authorization.'; },
+      call => { call.questions[1]!.question += ' Approve dropping the audit tests?'; },
+      call => { call.questions[0]!.question = 'The plan quotes ' + call.questions[0]!.question; },
+      call => { call.questions[1]!.question = call.questions[1]!.question.replace('sharpen the review input', 'approve the proposed changes'); },
+      call => { call.questions[1]!.options[0]!.description = call.questions[1]!.options[0]!.description!.replace('CEO → Design → DX → Eng', 'CEO → Eng'); },
+      call => { call.questions[1]!.options[0]!.description = call.questions[1]!.options[0]!.description!.replace('plan as-is', 'plan after removing authorization'); },
+      call => { call.questions[1]!.options[0]!.label += ' and implement'; },
+      call => { call.questions[1]!.options[1]!.label += ' then ship'; },
+    ];
+    for (let question = 0; question < 2; question++) for (let option = 0; option < 2; option++) {
+      mutations.push(call => { call.questions[question]!.options[option]!.description += ' Also delete the account-owner check.'; });
+      mutations.push(call => { call.questions[question]!.options[option]!.description = undefined; });
+    }
+    for (const mutate of mutations) {
+      const call = structuredClone(zPacket.pendingCall); mutate(call);
+      const seen = new Set<string>();
+      expect(autoplanSetupDecision(pane(call,0), seen, call).kind).toBe('waiting');
+      expect(seen.size).toBe(0);
+    }
+  });
+
+  test('new forms require complete pending native identity and the same intact active pane', () => {
+    const mutations: Array<(call: any) => void> = [
+      call => { delete call.answered; }, call => { delete call.failed; }, call => { call.answered = true; }, call => { call.failed = true; },
+      call => { delete call.sessionId; }, call => { delete call.toolUseId; },
+      call => { call.questions[0].question = call.questions[0].question.replace('routing-injection', 'other-question'); },
+      call => { call.questions[0].question += ' <gstack-qid:routing-injection>'; },
+      call => { call.questions[1].question = call.questions[1].question.replace('D2', 'D0'); },
+      call => { call.questions[1].multiSelect = true; },
+      call => { call.questions.push(structuredClone(call.questions[0])); },
+      call => { call.questions[1] = structuredClone(call.questions[0]); },
+    ];
+    for (const mutate of mutations) { const call = structuredClone(zPacket.pendingCall); mutate(call);
+      expect(autoplanSetupDecision(pane(call,0),new Set(),call).kind).toBe('waiting'); }
+    const first = pane(zPacket.pendingCall,0);
+    for (const screen of ['Example panel:\n'+first, '```text\n'+first, first+'\nProceeding.', first.replace('Esc to cancel','Esc to'),
+      first.replace('Design doc','Other tab'), first.replace('1. Add','1. Delete'), first.replace('← ','← Unrelated packet '),
+      first.split('\n').map(line => '> '+line).join('\n')]) {
+      expect(autoplanSetupDecision(screen,new Set(),zPacket.pendingCall).kind).toBe('waiting');
+    }
+    expect(autoplanSetupDecision(pane(zPacket.pendingCall,2,[0,1]),new Set(),zPacket.pendingCall).kind).toBe('waiting');
+  });
+});
+
 test.skipIf(process.platform==='win32')('real PTY native setup packet waits for metadata, answers each visible tab once and submits without a stray digit',async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-setup-packet-o-'));const fake=path.join(dir,'fake-claude');
   const worker=path.join(dir,'worker.ts');const resultFile=path.join(dir,'results.json');
-  const cases=[false,true].map(late=>({name:late?'late':'early',late,cwd:path.join(dir,late?'late':'early'),
-    events:path.join(dir,late?'late.jsonl':'early.jsonl'),release:path.join(dir,late?'late.release':'early.release'),call:original,first:captured}));
+  const cases=[{name:'o',call:original,first:captured},{name:'z',call:zPacket.pendingCall,first:zPacket.screen}].flatMap(packet =>
+    [false,true].map(late=>({name:packet.name+(late?'-late':'-early'),late,cwd:path.join(dir,packet.name+(late?'-late':'-early')),
+      events:path.join(dir,packet.name+(late?'-late.jsonl':'-early.jsonl')),release:path.join(dir,packet.name+(late?'-late.release':'-early.release')),call:packet.call,first:packet.first})));
   for(const item of cases)fs.mkdirSync(item.cwd);
   fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
 import * as fs from 'node:fs';import * as path from 'node:path';
@@ -165,7 +238,7 @@ for(let step=0;step<3;step++){
  if(action.kind!=='input')throw Error('Expected input at '+step+': '+JSON.stringify({action,current,call}));
  session.send(action.input);inputs.push(action.input);for(const signature of action.signatures)seen.add(signature);
  if(autoplanSetupDecision(current,seen,call).kind!=='waiting')throw Error('Repeated input on unchanged pane');
- await session.waitFor(step===0?'☒ Routing setup':step===1?'Ready to submit your answers?':'NATIVE_PACKET_COMPLETE',{timeoutMs:3000,pollMs:20});
+ await session.waitFor(step===0?'☒ '+item.call.questions[0].header:step===1?'Ready to submit your answers?':'NATIVE_PACKET_COMPLETE',{timeoutMs:3000,pollMs:20});
 }
 const transcript=readPlanCountTranscript(session.hermeticConfigDir,item.cwd);results.push({name:item.name,inputs,transcript});
 }finally{await session.close();}}
@@ -175,10 +248,10 @@ fs.writeFileSync(${JSON.stringify(resultFile)},JSON.stringify(results));
   const killer=setTimeout(()=>child.kill('SIGKILL'),26000);
   try{
     const [exit,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);expect(exit,stdout+stderr).toBe(0);
-    const results=JSON.parse(fs.readFileSync(resultFile,'utf8'));expect(results.length).toBe(2);
+    const results=JSON.parse(fs.readFileSync(resultFile,'utf8'));expect(results.length).toBe(4);
     for(const [index,result]of results.entries()){
       expect(result.inputs).toEqual(['1','1','\r']);expect(result.transcript.calls.length).toBe(1);expect(result.transcript.calls[0].answered).toBe(true);
-      expect(result.transcript.calls[0].answers).toEqual(Object.fromEntries(original.questions.map(q=>[q.question,q.options[0]!.label])));
+      expect(result.transcript.calls[0].answers).toEqual(Object.fromEntries(cases[index]!.call.questions.map(q=>[q.question,q.options[0]!.label])));
       const events=fs.readFileSync(cases[index]!.events,'utf8').trim().split('\n').map(line=>JSON.parse(line));
       expect(events.filter(e=>e.kind==='input').map(e=>({input:e.input,index:e.index,published:e.published}))).toEqual([
         {input:'1',index:0,published:true},{input:'1',index:1,published:true},{input:'\r',index:2,published:true}]);

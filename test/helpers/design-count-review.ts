@@ -29,11 +29,37 @@ export function isDesignCountSetup(fp: AskUserQuestionFingerprint): boolean {
     q.options.some(option => option.label === call.answers?.[q.question]);
 }
 
+/** A numbered design-system amendment can be the first review decision. */
+function numberedVisualHierarchyFinding(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call || call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      call.questions.length !== 1 || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return false;
+  const q = call.questions[0]!;
+  const finding = /^Gap ([1-9]\d*) of ([1-9]\d*)\s*[—–-]\s*([A-Za-z][A-Za-z0-9_-]{0,39}) button visual hierarchy: apply DESIGN\.md primary button style\?$/i.exec(q.question.trim());
+  if (!finding || Number(finding[1]) > Number(finding[2]) ||
+      !new RegExp(`^Gap ${finding[1]}: Button$`, 'i').test(q.header.trim()) || q.multiSelect || q.options.length !== 2 ||
+      fp.options.length !== 2 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => o.label === call.answers?.[q.question])) return false;
+  const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
+  const apply = labels.findIndex(s => /^Apply DESIGN\.md fix$/i.test(s));
+  const defer = labels.findIndex(s => /^Defer to implementation$/i.test(s));
+  if (apply < 0 || defer < 0 || apply === defer) return false;
+  const control = '[A-Za-z][A-Za-z0-9_-]{0,39}';
+  const amendment = new RegExp(`^Add to plan: ${finding[3]} gets #[0-9a-f]{6} filled \\+ (?:white|black) text \\(primary\\); ${control}(?:, ${control})*(?:,? and ${control})? get neutral ghost style\\. Closes the visual hierarchy gap exactly as DESIGN\\.md specifies\\. Implementation task T[1-9]\\d* becomes committed\\.$`, 'i');
+  // Both offered bodies describe the actual style amendment or its deferral;
+  // readiness, a source-selection question, or an example is not this finding.
+  return amendment.test(q.options[apply]!.description?.trim() ?? '') &&
+    /^Leave the gap named but unresolved\. Engineer decides the button styles at implementation time without a spec\. Risk: inconsistency with the design system or re-work after review\.$/i.test(q.options[defer]!.description?.trim() ?? '');
+}
+
 /** A completed finding can start the passes when the caller already supplied the focus. */
 export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolean {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   if (isDesignCountSetup(fp)) return false;
+  if (numberedVisualHierarchyFinding(fp)) return true;
   if (designFirstReviewAUQ(fp)) return true;
   return call.questions.some(q => {
     if (!call.answers?.[q.question] || q.options.length < 2) return false;

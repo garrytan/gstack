@@ -1,3 +1,4 @@
+import capturedZ from './fixtures/devex-count-z-calls.json';
 import capturedURetry from './fixtures/devex-count-u-retry-calls.json';
 import capturedY from './fixtures/devex-count-y-calls.json';
 import capturedV from './fixtures/devex-empathy-v-calls.json';
@@ -628,5 +629,52 @@ describe('U demo timing decision after completed measurements', () => {
     ]) { const c=captured(); mutate(c); expect(isDevexReviewIssue(fp(c))).toBe(false); }
     expect(isDevexReviewIssue({...fp(captured()), signature:'foreign:call'})).toBe(false);
     expect(isDevexReviewIssue({...fp(captured()), nativeCall:undefined})).toBe(false);
+  });
+});
+
+describe('Z written migration guide as an additional accepted obligation', () => {
+  const call = () => structuredClone(capturedZ[7]!) as NativePlanQuestionCall;
+  const fp = (c: NativePlanQuestionCall) => nativePlanCallFingerprint(c, 0, false);
+  const change = (c: NativePlanQuestionCall, from: string, to: string) => {
+    const q=c.questions[0]!;const answer=c.answers![q.question]!;q.question=q.question.replaceAll(from,to);c.answers={[q.question]:answer};return c;
+  };
+  test('all eight real calls retain empathy plus seven distinct issue decisions', () => {
+    const calls=structuredClone(capturedZ) as NativePlanQuestionCall[];
+    expect(calls.map(c=>isDevexReviewIssue(fp(c)))).toEqual([false,true,true,true,true,true,true,true]);expect(calls).toEqual(capturedZ);
+    const c=call();c.questions[0]!.options.reverse();expect(isDevexReviewIssue(fp(c))).toBe(true);
+  });
+  test('version, decision and task numbers do not determine finding credit', () => {
+    const c=call();for(const [from,to] of [['D8','D17'],['TODO-2','TODO-9'],['todo2-migration','todo9-migration'],['v1','v3'],['v2','v4'],['T4','T11'],['P2','P1']]) {
+      change(c,from!,to!);const q=c.questions[0]!;q.header=q.header.replaceAll(from!,to!);q.options.forEach(o=>{o.description=o.description?.replaceAll(from!,to!);});
+    }expect(isDevexReviewIssue(fp(c))).toBe(true);
+  });
+  test('setup, quoted, hypothetical and already satisfied claims confer no new acceptance', () => {
+    for(const [from,to] of [
+      ['TODO: should the plan include','TODO: should the review confirm'],
+      ['But there is currently no written migration guide in docs/.','The written migration guide already exists in docs/.'],
+      ['But there is currently no written migration guide in docs/.','But there is currently no written migration guide in docs/ only in this hypothetical example.'],
+      ['The deprecation shim (T4) handles','If the deprecation shim (T4) handles'],
+      ['The deprecation shim (T4) handles','> The deprecation shim (T4) handles'],
+      ['The deprecation shim (T4) handles','```text\nThe deprecation shim (T4) handles'],
+      ['A one-page migration guide covers:','The already-approved migration guide covers:'],
+      ['Without it, developers','This is only an example. Without it, developers'],
+      ['<gstack-qid:plan-devex-review-todo2-migration-guide>','<gstack-qid:plan-devex-review-mode>'],
+      ['<gstack-qid:plan-devex-review-todo2-migration-guide>','<gstack-qid:foreign>'],
+    ])expect(isDevexReviewIssue(fp(change(call(),from!,to!)))).toBe(false);
+    for(const header of ['Review mode','Empathy check','Next steps']){const c=call();c.questions[0]!.header=header;expect(isDevexReviewIssue(fp(c))).toBe(false);}
+    expect(isDevexReviewIssue(fp(change(call(),'<gstack-qid:plan-devex-review-todo2-migration-guide>','<gstack-qid:plan-devex-review-todo2-migration-guide> <gstack-qid:extra>')))).toBe(false);
+  });
+  test('one exact successful native call must select the offered written-guide task', () => {
+    for(const mutate of [
+      (c:NativePlanQuestionCall)=>{c.answered=false;},(c:NativePlanQuestionCall)=>{c.failed=true;},(c:NativePlanQuestionCall)=>{delete c.failed;},
+      (c:NativePlanQuestionCall)=>{delete c.unansweredQuestionIndices;},(c:NativePlanQuestionCall)=>{c.unansweredQuestionIndices=[0];},
+      (c:NativePlanQuestionCall)=>{c.answers={};},(c:NativePlanQuestionCall)=>{c.answers={[c.questions[0]!.question]:'unoffered answer'};},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.multiSelect=true;},(c:NativePlanQuestionCall)=>{c.questions.push(structuredClone(c.questions[0]!));},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.options.push(structuredClone(c.questions[0]!.options[0]!));},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description+=' Also remove authentication.';},
+      (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description=undefined;},
+    ]){const c=call();mutate(c);expect(isDevexReviewIssue(fp(c))).toBe(false);}
+    for(const index of [1,2]){const c=call();const q=c.questions[0]!;c.answers={[q.question]:q.options[index]!.label};expect(isDevexReviewIssue(fp(c))).toBe(false);}
+    expect(isDevexReviewIssue({...fp(call()),signature:'foreign:call'})).toBe(false);expect(isDevexReviewIssue({...fp(call()),nativeCall:undefined})).toBe(false);
   });
 });

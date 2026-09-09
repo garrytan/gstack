@@ -1,0 +1,182 @@
+[
+  {
+    "sessionId": "9b477fa1-a8ff-463d-9863-0c63a3a79b48",
+    "toolUseId": "toolu_01NXbqfKxF1qxpbYAThLzzJY",
+    "questions": [
+      {
+        "question": "D1 — Scope challenge: 12 files + 4 new classes exceeds the complexity threshold. Should we reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-challenge>",
+        "header": "Scope",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reduce scope (Recommended)",
+            "description": "Cut to 1-2 new classes: merge TokenStore + SessionMint into AuthBroker; use the existing cache adapter directly instead of a new AuthCache facade; fold RequestPolicy into AuthBroker as a private method. Target: ~6-8 files, 1-2 classes. Same outcome, less surface area to test and maintain. (human: ~1 day saved / CC: ~10min to restructure)"
+          },
+          {
+            "label": "Proceed as-is",
+            "description": "Keep all 4 new classes across 12 files. The plan argues each class has a distinct responsibility. Proceed to full review of the existing design without scope reduction. (human: no change / CC: no change)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 — Scope challenge: 12 files + 4 new classes exceeds the complexity threshold. Should we reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-challenge>": "Reduce scope (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:10:13.579Z"
+  },
+  {
+    "sessionId": "9b477fa1-a8ff-463d-9863-0c63a3a79b48",
+    "toolUseId": "toolu_01Hg4GPH9pzVWAV51s6Rgx4q",
+    "questions": [
+      {
+        "question": "D2 — Architecture: How should AuthBroker access the cache adapter after scope reduction? <gstack-qid:plan-eng-cache-binding>",
+        "header": "Cache binding",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Constructor injection (Recommended)",
+            "description": "AuthBroker receives the cache adapter as a constructor argument (or factory function parameter). Tests pass a stub; production passes the real adapter. Eliminates module-level mutable state entirely. Requires wiring at the call site. Completeness: 9/10. (human: ~2h / CC: ~5min)"
+          },
+          {
+            "label": "Module-level import",
+            "description": "AuthBroker imports the adapter directly at module scope, same pattern as the current plan. Works fine in production; makes tests require module-level mocking (jest.mock, proxyquire). Matches the existing codebase pattern if that's what's already used. Completeness: 6/10. (human: no change / CC: no change)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 — Architecture: How should AuthBroker access the cache adapter after scope reduction? <gstack-qid:plan-eng-cache-binding>": "Constructor injection (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:11:05.687Z"
+  },
+  {
+    "sessionId": "9b477fa1-a8ff-463d-9863-0c63a3a79b48",
+    "toolUseId": "toolu_01FsTi5TZqg3CxiwxeyeAkvt",
+    "questions": [
+      {
+        "question": "D3 — Code quality: validateAndDispatch() swallows errors. How should we handle error propagation? <gstack-qid:plan-eng-error-handling>",
+        "header": "Error handling",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Refactor + typed errors (Recommended)",
+            "description": "Extract the three catch blocks into named helper functions. Replace swallow behavior with explicit typed error returns (discriminated union) or re-throw with context. validateAndDispatch() becomes a 15-line orchestrator. Each error type is explicitly handled, observable, and testable. Completeness: 9/10. (human: ~3h / CC: ~10min)"
+          },
+          {
+            "label": "Refactor structure only",
+            "description": "Extract into helpers to reduce nesting, but keep the swallow behavior for now (existing contract). Reduces cognitive load without changing observable behavior. Can add typed errors in a follow-up. Completeness: 7/10. (human: ~1h / CC: ~5min)"
+          },
+          {
+            "label": "Leave as-is",
+            "description": "Document the swallow behavior with a comment. Tech debt acknowledged; fix in follow-up. Low effort but the silent failures remain. Completeness: 3/10. (human: 15min / CC: 1min)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 — Code quality: validateAndDispatch() swallows errors. How should we handle error propagation? <gstack-qid:plan-eng-error-handling>": "Refactor + typed errors (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:11:19.707Z"
+  },
+  {
+    "sessionId": "9b477fa1-a8ff-463d-9863-0c63a3a79b48",
+    "toolUseId": "toolu_01D1bqdZYF7NhzYAT8mtqWqG",
+    "questions": [
+      {
+        "question": "D4 — Tests: What is the desired behavior when k of 5 parallel IDP calls fail? This decides the error path test case. <gstack-qid:plan-eng-partial-idp-failure>",
+        "header": "IDP partial fail",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fail fast — any failure fails validation (Recommended)",
+            "description": "If any of the 5 IDP calls fails, the whole token validation fails with a typed TokenValidationError. Safest security posture: one failed check = reject. Tests cover: 1-fail, all-fail, all-succeed. Completeness: 9/10. (human: ~30min to specify / CC: ~5min)"
+          },
+          {
+            "label": "Partial success — all 5 must succeed",
+            "description": "Same outcome as fail-fast semantically (all must succeed), but documents the all-must-succeed requirement explicitly in the plan so test cases are unambiguous. Clarifies intent for future readers without changing behavior. Completeness: 9/10. (human: ~15min / CC: ~2min)"
+          },
+          {
+            "label": "Best effort — majority must succeed",
+            "description": "If N-of-5 succeed, token passes. Threshold configurable. More complex logic; rare in auth systems because partial validity is a security gap. Completeness: 7/10. (human: ~1 day / CC: ~30min)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 — Tests: What is the desired behavior when k of 5 parallel IDP calls fail? This decides the error path test case. <gstack-qid:plan-eng-partial-idp-failure>": "Fail fast — any failure fails validation (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:12:03.814Z"
+  },
+  {
+    "sessionId": "9b477fa1-a8ff-463d-9863-0c63a3a79b48",
+    "toolUseId": "toolu_01QmbWT9eYiGT7vUJgeeXett",
+    "questions": [
+      {
+        "question": "D5 — Performance: Parallelize the 5 sequential IDP calls via Promise.all in this PR or defer? <gstack-qid:plan-eng-idp-parallel>",
+        "header": "IDP parallel",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Parallelize now (Recommended)",
+            "description": "Replace sequential await chain with Promise.all([call1, call2, call3, call4, call5]). The plan already notes this is trivial and calls are independent. Reduces auth latency by ~4x in practice. Fail-fast semantics from D4 work cleanly with Promise.all rejection. Add one test: all-fail triggers rejection. (human: ~30min / CC: ~3min)"
+          },
+          {
+            "label": "Defer to follow-up",
+            "description": "Leave sequential for now. Document as a known perf gap in TODOS.md. Low risk of blocking ship. Revisit when auth latency becomes a measured issue. (human: ~5min to document / CC: ~1min)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — Performance: Parallelize the 5 sequential IDP calls via Promise.all in this PR or defer? <gstack-qid:plan-eng-idp-parallel>": "Parallelize now (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:12:19.838Z"
+  },
+  {
+    "sessionId": "9b477fa1-a8ff-463d-9863-0c63a3a79b48",
+    "toolUseId": "toolu_014kJdUP73WGRwuSvtstZapy",
+    "questions": [
+      {
+        "question": "D6 — TODOS: Add IDP call timeout protection to TODOS.md? <gstack-qid:plan-eng-todo-idp-timeout>",
+        "header": "TODO: Timeout",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md (Recommended)",
+            "description": "Log a TODO: wrap each parallel IDP call with an explicit timeout (AbortSignal or Promise.race). Without it, a slow IDP silently blocks auth for all users behind that tenant. The plan has no timeout handling and no test for it — this is the one remaining critical gap. Capture context now while it's fresh. (human: ~15min / CC: ~2min to add TODO)"
+          },
+          {
+            "label": "Build it now in this PR",
+            "description": "Add timeout wrapping to AuthBroker's IDP call logic in this PR. Adds ~20-30 lines; needs a configurable threshold and a test for the timeout path. This is the complete version. (human: ~1h / CC: ~10min)"
+          },
+          {
+            "label": "Skip",
+            "description": "Don't capture this. Accept the risk of silent auth hangs on slow IDP endpoints. Only reasonable if the IDP is always fast by contract (e.g., same-datacenter, sub-10ms). (human: ~0 / CC: ~0)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 — TODOS: Add IDP call timeout protection to TODOS.md? <gstack-qid:plan-eng-todo-idp-timeout>": "Add to TODOS.md (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:13:17.972Z"
+  }
+]

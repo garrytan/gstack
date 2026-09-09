@@ -1,6 +1,6 @@
 import { capturePlanCountQuestion, parseNumberedOptions, planCountPrerequisitePick, planCountQuestionInput, planCountSubmissionInput, type AskUserQuestionFingerprint } from './claude-pty-runner';
 
-import type { NativePlanQuestionCall } from './plan-count-transcript';
+import type { NativePlanQuestion, NativePlanQuestionCall } from './plan-count-transcript';
 
 /** A copied native panel is not actionable after prose or inside a code example. */
 function activeSetupPanel(visible: string): boolean {
@@ -132,6 +132,36 @@ function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporar
   return { add, decline };
 }
 
+/** Numbered setup wording may vary; newly admitted forms still consume every description. */
+function numberedPacketSetup(question: NativePlanQuestion, pending: NativePlanQuestionCall) {
+  if (pending.answered !== false || pending.failed !== false || !pending.sessionId || !pending.toolUseId || question.options.length !== 2) return null;
+  const compact = (value: string | undefined) => (value ?? '').trim().replace(/\s+/g, ' ');
+  const ids = [...question.question.matchAll(/<gstack-qid:[a-z0-9-]+>/gi)];
+  const text = compact(question.question.replace(/<gstack-qid:[a-z0-9-]+>/gi, ''))
+    .replace(/^D[1-9]\d*\s*[—–:-]\s*/, '');
+  const fp: AskUserQuestionFingerprint = { signature: '', observedAtMs: 0, preReview: true,
+    promptSnippet: `${question.header} ${question.question}`,
+    options: question.options.map((option, index) => ({ index: index + 1, label: option.label })) };
+  const routing = routingSetupActions(fp, true);
+  if (ids.length === 1 && ids[0]![0].toLowerCase() === '<gstack-qid:routing-injection>' &&
+      /^Add\s+(?:gstack\s+)?skill\s+routing\s+rules\s+to\s+CLAUDE\.md\?$/i.test(text) &&
+      routing?.add.length === 1 && routing.decline.length === 1 && routing.add[0]!.index !== routing.decline[0]!.index) {
+    const add = question.options[routing.add[0]!.index - 1]!;
+    const decline = question.options[routing.decline[0]!.index - 1]!;
+    if (/^Appends a skill routing section to CLAUDE\.md so future sessions automatically invoke the right skill(?: \(e\.g\. \/autoplan for reviews, \/ship for deploys\))? without you needing to type the command each time\. One-time setup per project\.$/i.test(compact(add.description)) &&
+        /^No change to CLAUDE\.md\. You['’]ll continue calling skills yourself with \/skill-name as you do now\.$/i.test(compact(decline.description))) {
+      return { kind: 'routing', pick: routing.add[0]!.index };
+    }
+  }
+  if (ids.length || !/^No design doc (?:found|exists) for (?:this|the) (?:branch|project)\. Run \/office-hours (?:first|now)(?: to sharpen (?:the|this) review input)?\?$/i.test(text)) return null;
+  const run = question.options.findIndex(option => /^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(option.label));
+  const skip = question.options.findIndex(option => /^Skip\s*[,—–-]\s*proceed\s+with\s+(?:standard\s+)?review(?:\s*\(recommended\))?$/i.test(option.label));
+  if (run < 0 || skip < 0 || run === skip ||
+      !/^Start the full CEO (?:→|->) Design (?:→|->) DX (?:→|->) Eng review pipeline now using the plan as-is\. (?:Recommended when the plan context is already rich enough\. ?)?(?:\(Recommended\))?$/i.test(compact(question.options[skip]!.description)) ||
+      !/^Produces a structured problem statement, premise challenge, and explored alternatives before the review\. (?:Takes ~?\d+(?:[–-]\d+)? min\. )?Gives the review sharper, better-grounded input\.$/i.test(compact(question.options[run]!.description))) return null;
+  return { kind: 'prerequisite', pick: skip + 1 };
+}
+
 /** Answer only the known pair of setup offers, using the actual native active tab. */
 function setupPacketDecision(visible: string, seen: ReadonlySet<string>, pending: NativePlanQuestionCall): AutoplanSetupDecision {
   const waiting: AutoplanSetupDecision = { kind: 'waiting' };
@@ -159,7 +189,7 @@ function setupPacketDecision(visible: string, seen: ReadonlySet<string>, pending
     // Require an actual prerequisite offer, not a product question that
     // happens to mention the absence of an office-hours design document.
     const offer = /^No\s+design\s+doc\s+(?:found|exists)(?:\s+for\s+(?:this|the)\s+(?:branch|project))?\.\s*(?:\/office-hours\s+(?:produces|creates|provides)\s+(?:a\s+)?(?:structured\s+)?(?:design\s+doc(?:ument)?|problem\s+statement)(?:,?\s+(?:and\s+)?(?:premise\s+challenge|(?:explored\s+)?alternatives))*(?:\s*[—–-]\s*(?:sharper|better)\s+input\s+for\s+(?:the|this)\s+review)?\.\s*)?(?:Want\s+to\s+|Would\s+you\s+like\s+to\s+)?Run\s+(?:it|\/office-hours)\s+(?:now|first)(?:\s+or\s+proceed\s+with\s+standard\s+review)?\s*\?$/i.test(offerText);
-    return prerequisite !== null && run.length === 1 && offer ? { kind: 'prerequisite', pick: prerequisite } : null;
+    return prerequisite !== null && run.length === 1 && offer ? { kind: 'prerequisite', pick: prerequisite } : numberedPacketSetup(question, pending);
   });
   if (policies.some(policy => !policy) || new Set(policies.map(policy => policy!.kind)).size !== 2) return waiting;
 

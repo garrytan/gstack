@@ -397,6 +397,8 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
       expect(child.prompt).toContain('all 11 sections an explicit outcome (including no issues or justified skips)');
       expect(child.prompt).toContain('complete required registries, applicable diagrams, tasks, completion summary, and exact GSTACK REVIEW REPORT table');
       expect(child.prompt).toContain('Cross-reference those records instead of repeating findings, option deliberations, diagrams, or registries');
+      expect(child.prompt).toContain('Use compact outcome entries and short table cells; execute the review checklists without copying their questions or narrating every check into the artifact.');
+      expect(child.prompt).toContain('Brevity must preserve every finding, accepted requirement, required field, and required diagram in its specified format.');
       expect(child.prompt).toContain('unless that code is needed to specify an accepted plan change');
       expect(child.prompt).toContain('execute the full review, perform every required lazy-file Read, and complete all required artifacts');
       expect(child.prompt).toContain('MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers');
