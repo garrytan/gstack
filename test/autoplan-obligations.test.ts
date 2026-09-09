@@ -9,6 +9,7 @@ import { createSnapshot, extractImplementationPlan } from '../bin/gstack-autopla
 const TOOL = join(import.meta.dir, '../bin/gstack-autoplan-snapshot.ts');
 const captured = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/t-ceo-omitted-obligations.json'), 'utf8'));
 const lost = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/u-ceo-original-loss.json'), 'utf8'));
+const dangling = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/v-ceo-dangling-references.json'), 'utf8'));
 const owned: string[] = [];
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
@@ -29,6 +30,112 @@ function setup(body = 'Build the dashboard.\n') {
 }
 const block = (phase: string, body: string) => `<!-- autoplan-accepted:${phase} -->\n${body}\n<!-- /autoplan-accepted:${phase} -->\n`;
 const appendRecord = (active: string, value: string) => writeFileSync(active, readFileSync(active, 'utf8') + value);
+
+for (const command of ['amend', 'check']) {
+  test(`actual V dangling local requirements reject ${command} without changing preserved baseline`, () => {
+    const f = setup(dangling.initialImplementation);
+    writeFileSync(f.active, dangling.activeAfterAmend);
+    const result = invoke(command, 'ceo', f.active, f.snapshot.snapshotPath, ...(command === 'check' ? ['changed'] : []));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Review-record-only Section 6');
+    expect(readFileSync(f.active, 'utf8')).toBe(dangling.activeAfterAmend);
+  });
+}
+
+test('actual V dangling references cannot create the next blind input even if close was skipped', () => {
+  const f = setup(dangling.initialImplementation);
+  writeFileSync(f.active, dangling.activeAfterAmend);
+  expect(() => createSnapshot('design', f.active, f.restore)).toThrow('Review-record-only Section 6');
+  expect(readFileSync(f.active, 'utf8')).toBe(dangling.activeAfterAmend);
+  expect(readFileSync(f.restore, 'utf8')).toBe('Original restore bytes\n');
+});
+
+test('local requirement references reject before first publication and ignore fake implementation headings', () => {
+  for (const fake of ['', '```md\n### Section 8: Metrics\n```\n', '> ### Section 8: Metrics\n']) {
+    const f = setup('Build the dashboard.\n' + fake);
+    appendRecord(f.active, '### Section 8: Metrics\nCount errors.\n' + block('ceo', '- Instrumentation as specified in Section 8.'));
+    const before = readFileSync(f.active, 'utf8');
+    const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Review-record-only Section 8');
+    expect(readFileSync(f.active, 'utf8')).toBe(before);
+  }
+});
+
+test('local requirement references cannot hide behind an unrelated filename or URL', () => {
+  for (const body of ['- Add all tests in Section 6; update README.md.',
+    '- Add all tests in Section 6; see https://example.test/other.',
+    '- Read README.md and add all tests in Section 6.',
+    '- Follow https://example.test/other and add all tests in Section 6.']) {
+    const f = setup();
+    appendRecord(f.active, '### Section 6: Tests\nRun coverage.\n' + block('ceo', body));
+    const before = readFileSync(f.active, 'utf8');
+    const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Review-record-only Section 6');
+    expect(readFileSync(f.active, 'utf8')).toBe(before);
+  }
+});
+
+test('inline adopted tests and instrumentation instead of transporting V review-only references', () => {
+  const f = setup(dangling.initialImplementation);
+  const full = dangling.activeAfterAmend as string;
+  const tests = full.match(/FLOW \/ CODEPATH[\s\S]*?No → T-S6-12/)![0];
+  const metrics = full.match(/Metric\/log[\s\S]*?api\.dashboard\.partial_failure_rate[^\n]*/)![0];
+  const logs = full.match(/- Endpoint entry:[\s\S]*?- Mutation:[^\n]*/)![0];
+  const indented = (value: string) => value.split('\n').map(line => '  ' + line).join('\n');
+  const revised = full.slice(full.indexOf('## Review record\n') + '## Review record\n'.length)
+    .replace('- All 12 test scenarios in Section 6 required before rollout.', '- Required test scenarios before rollout:\n' + indented(tests))
+    .replace('- Dashboard instrumentation: metrics and structured logs as specified in Section 8.', '- Required instrumentation:\n' + indented(metrics) + '\n' + indented(logs));
+  appendRecord(f.active, revised);
+  const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+  expect(result.status, result.stderr).toBe(0);
+  expect(invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed').status).toBe(0);
+  const next = createSnapshot('design', f.active, f.restore);
+  const input = readFileSync(next.snapshotPath, 'utf8');
+  expect(input.startsWith(dangling.initialImplementation)).toBe(true);
+  for (const term of ['T-S6-1', 'T-S6-12', 'dashboard.page.loaded', 'api.dashboard.partial_failure_rate', 'dashboard_fetch_start', 'snapshot_time']) {
+    expect(input).toContain(term);
+  }
+  expect(input).not.toContain('as specified in Section 8');
+  expect(input).not.toContain('All 12 test scenarios in Section 6');
+  expect(input).not.toContain('CEO DUAL VOICES');
+  expect(input).not.toContain('autoplan-accepted:');
+});
+
+test('reference checks preserve external, unresolved, ambiguous, quoted and satisfied local references', () => {
+  const examples = [
+    { base: '### Section 6: Tests\nRun regression coverage.\n', body: '- Run tests in Section 6 before rollout.' },
+    { body: '- Run tests in Section 6 of docs/testing.md.' },
+    { body: '- Run tests in Section 6 (https://example.test/spec).' },
+    { body: '- Follow https://example.test/spec as specified in Section 6.' },
+    { body: '- Run tests in Section 60 before rollout.' },
+    { body: '- Run tests in Section 6.1 before rollout.' },
+    { body: '- Display the literal "as specified in Section 6".' },
+    { body: '- Display `as specified in Section 6` as example text.' },
+    { body: '- Document an example:\n  ```md\n  tests as specified in Section 6.\n  ```' },
+    { body: '- Document an example:\n  > tests as specified in Section 6.' },
+    { review: '### Section 6: First\nTests.\n### Section 6: Second\nOther tests.\n', body: '- Run tests in Section 6 before rollout.' },
+    { review: '```md\n### Section 6: Tests\n```\n', body: '- Run tests in Section 6 before rollout.' },
+  ];
+  for (const example of examples) {
+    const f = setup(example.base || 'Build the dashboard.\n');
+    appendRecord(f.active, (example.review || '### Section 6: Tests\nRun coverage.\n') + block('ceo', example.body));
+    const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+    expect(result.status, example.body + result.stderr).toBe(0);
+    expect(() => createSnapshot('design', f.active, f.restore)).not.toThrow();
+  }
+});
+
+test('new reference checks do not bind a later phase to an earlier phase review heading or baseline prose', () => {
+  const f = setup('Existing external contract uses tests in Section 6.\n');
+  appendRecord(f.active, '### Section 6: CEO tests\nOriginal review.\n' + block('ceo', '- Keep all authorization checks.'));
+  expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
+  const design = createSnapshot('design', f.active, f.restore);
+  appendRecord(f.active, block('design', '- Run tests in Section 6 before rollout.'));
+  expect(invoke('amend', 'design', f.active, design.snapshotPath).status).toBe(0);
+  expect(() => createSnapshot('dx', f.active, f.restore)).not.toThrow();
+});
 
 test('actual T changed-only plan cannot close with accepted obligations only in its review', () => {
   const f = setup(captured.initialImplementation);

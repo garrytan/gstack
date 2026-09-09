@@ -139,7 +139,9 @@ async function navigateToModeAskUserQuestion(
       );
     }
     priorAnswered++;
-    session.send(planCountQuestionInput(visible, action.question, action.index));
+    const input = planCountQuestionInput(visible, action.question, action.index);
+    if (input.includes('\r')) await selectPtyNumberedOption(session, action.index);
+    else session.send(input);
     // Give the agent a beat to advance before re-polling.
     await Bun.sleep(2000);
   }

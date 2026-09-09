@@ -250,10 +250,62 @@ function withAcceptedBlock(baseline: string, block: AcceptedBlock) {
     : baseline + (baseline.endsWith('\n') ? '' : '\n') + '\n' + block.raw + block.newline;
 }
 
+// Check only demonstrable document-local dependencies in recorded requirements.
+// A heading's presence does not prove that its requirements are complete/correct.
+function referenceProse(text: string): string[] {
+  const lines: string[] = [];
+  let fence: { char: string; length: number } | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (fence) {
+        if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) fence = null;
+      } else if (run[0] !== '`' || !delimiter[2]!.includes('`')) fence = { char: run[0]!, length: run.length };
+    } else if (!fence && !/^(?: {4}|\t|\s*>)/.test(line)) {
+      lines.push(line);
+    }
+  }
+  return lines;
+}
+
+function numberedSections(text: string) {
+  const sections = new Map<string, number>();
+  for (const line of referenceProse(text)) {
+    const heading = /^ {0,3}#{1,6}[ \t]+Section[ \t]+(\d+(?:\.\d+)*)(?=[ \t:]|$)/i.exec(line);
+    if (heading) sections.set(heading[1]!, (sections.get(heading[1]!) || 0) + 1);
+  }
+  return sections;
+}
+
+function checkLocalRequirementReferences(review: string, implementation: string, block: AcceptedBlock) {
+  if (block.none) return;
+  // The prior block is a structural boundary, not an inferred phase heading.
+  const precedingEnd = Math.max(0, ...[...acceptedBlocks(review).values()]
+    .filter(other => other.end <= block.start).map(other => other.end));
+  const targets = numberedSections(review.slice(precedingEnd, block.start));
+  const available = numberedSections(implementation);
+  for (const line of referenceProse(block.body)) {
+    const prose = line.replace(/(`+).*?\1|"(?:\\.|[^"\\])*"|“[^”]*”/g, '');
+    for (const reference of prose.matchAll(/\b(?:in|under)[ \t]+Section[ \t]+(\d+(?:\.\d+)*)(?!\d|\.\d)\b/gi)) {
+      const before = prose.slice(0, reference.index);
+      const tail = prose.slice(reference.index! + reference[0].length);
+      // Exempt only an attached external source, never an unrelated clause.
+      if (/^[ \t]+(?:of|in|from)\b|^[ \t]*\(/i.test(tail) ||
+          /(?:https?:\/\/[^\s;]+|\b[^\s;]+\.(?:md|pdf|html))[,]?[ \t]+(?:as[ \t]+specified[ \t]+)?$/i.test(before)) continue;
+      const section = reference[1]!;
+      if (targets.get(section) === 1 && !available.has(section)) {
+        throw new Error(`Accepted ${block.phase} requirements reference Review-record-only Section ${section}; inline its required details in the accepted block, remove the dangling reference, and retry`);
+      }
+    }
+  }
+}
+
 function expectedAmendment(plan: string, phase: string, prior: string, state: ReturnType<typeof obligationState>) {
   const baseline = editedBaseline(plan.slice(state.bounds.reviewStart), phase, prior);
   const implementation = withAcceptedBlock(baseline, state.block);
   if (state.block.none && baseline !== prior) throw new Error('None cannot authorize baseline replacements');
+  checkLocalRequirementReferences(plan.slice(state.bounds.reviewStart), implementation, state.block);
   return { baseline, implementation };
 }
 
@@ -442,7 +494,14 @@ export function createSnapshot(phase: string, activePlan: string, restorePath: s
   const source = realpathSync(activePlan);
   const restore = realpathSync(restorePath);
   if (source === restore || !statSync(restore).isFile()) throw new Error('Expected a separate restore-point file');
-  const sourceContent = extractImplementationPlan(readFileSync(source, 'utf8'));
+  const plan = readFileSync(source, 'utf8');
+  const sourceContent = extractImplementationPlan(plan);
+  const review = plan.slice(implementationBounds(plan).reviewStart);
+  const records = acceptedBlocks(review);
+  for (const [name, applied] of acceptedBlocks(sourceContent)) {
+    const recorded = records.get(name);
+    if (recorded?.raw === applied.raw) checkLocalRequirementReferences(review, sourceContent, recorded);
+  }
   const content = implementationForReview(sourceContent);
   // Unique path on every invocation, including a repeated/zero-change phase.
   // No prior snapshot is overwritten, and no review text enters this file.

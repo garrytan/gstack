@@ -123,6 +123,19 @@ function describedPostReviewNavigation(question: string, descriptions: string[],
     closedNavigationContext(context);
 }
 
+/** A resolved-gap count may qualify completion before the required next gate. */
+function countedCeoNavigation(question: string, descriptions: string[]): boolean {
+  if (!/^(?:The )?CEO review is complete \(0 critical gaps, [1-9]\d* (?:spec )?gaps resolved\)\. Eng Review is the required shipping gate\. What['’]s next\?$/i.test(question)) return false;
+  const topics = String.raw`(?:architecture|code quality|tests|performance)`;
+  const covers = new RegExp(String.raw`^Covers ${topics}(?:, ${topics})*(?:,? and ${topics})?$`, 'i');
+  return descriptions.flatMap(description => description.trim().split(/[.!](?:\s+|$)/)
+    .map(sentence => sentence.trim()).filter(Boolean)).every(sentence => covers.test(sentence) ||
+      /^Required gate before shipping$/i.test(sentence) ||
+      /^This is a test-only plan so eng review should be fast$/i.test(sentence) ||
+      /^You manage the eng review yourself$/i.test(sentence) ||
+      /^The dashboard will show NOT CLEARED until it runs$/i.test(sentence));
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -171,7 +184,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
     describedEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
   const describedPostReviewCompletion = !id && q.options.length === 2 &&
     describedPostReviewNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
-  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion || describedPostReviewCompletion;
+  const countedCompletion = !id && call.failed === false && q.options.length === 2 &&
+    countedCeoNavigation(questionText, q.options.map(option => option.description ?? ''));
+  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion || describedPostReviewCompletion || countedCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext) ||
     pronounEngGate(questionText, q.options.map(option => option.description ?? ''), gateContext);

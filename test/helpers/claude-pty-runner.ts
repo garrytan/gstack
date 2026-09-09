@@ -102,8 +102,8 @@ export interface ClaudePtyOptions {
   observeScreen?: boolean;
   /** Count-only pending identity; the hook never approves or changes native tools. */
   observePlanReady?: boolean;
-  /** Count-only native permission epochs for this disposable caller-owned report. */
-  observeFilePermissions?: string;
+  /** Count-only native permission epochs for these exact disposable fixture/report paths. */
+  observeFilePermissions?: readonly string[];
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -162,7 +162,7 @@ export interface ClaudePtySession {
   hermeticConfigDir: string | null;
   /** Owned pre-tool identity record, removed by close(). */
   pendingPlanReadyFile?: string;
-  pendingFilePermissionFile?: string;
+  pendingFilePermissionFiles?: Array<{ expected: string; file: string }>;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
    * Awaits process exit before resolving.
@@ -321,10 +321,32 @@ export const TAIL_SCAN_BYTES = 1500;
  * `allow all edits`, `always allow access to`, `Bash command requires permission`)
  * remain unconditional.
  */
+function isNativeEditPermissionVisible(visible: string): boolean {
+  const text = visible.replace(/\r+\n?/g, '\n');
+  const panel = [...text.matchAll(/^ {0,3}Edit file[ \t]*\n {0,3}([^\n]+)\n/gm)].at(-1);
+  if (!panel) return false;
+  const before = text.slice(0, panel.index);
+  // Source excerpts and native review questions cannot authorize file input.
+  if (/[☐□]/.test(before) || /(?:^|\n)[ \t]*(?:>|(?:example|quoted|source)[^:\n]*:)[^\n]*$/i.test(before.trimEnd())) return false;
+  let fence: string | undefined;
+  for (const line of before.split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!marker) continue;
+    if (!fence) fence = marker[1];
+    else if (marker[1]![0] === fence[0] && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined;
+  }
+  if (fence) return false;
+  const tail = text.slice(panel.index + panel[0].length);
+  const prompt = [...tail.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
+  if (!prompt || prompt[1]!.trim() !== panel[1]!.trim()) return false;
+  return /^ {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n {0,3}2\.[ \t]*Yes, and switch to accept edits[^\n]*\n {0,3}3\.[ \t]*No[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.test(prompt[2]!);
+}
+
 export function isPermissionDialogVisible(visible: string): boolean {
   // Cursor-positioning escapes supply spaces visually, but stripping those
   // escapes leaves labels such as "alwaysallowaccessto" in captured frames.
   const compact = visible.replace(/\s+/g, '');
+  if (isNativeEditPermissionVisible(visible)) return true;
   if (/requestedpermissions?to|allowalledits|alwaysallowaccessto|Bashcommand.*requirespermission/i.test(compact)) {
     return true;
   }
@@ -1266,7 +1288,7 @@ function planCountPermissionMenu(visible: string): {
   // the preceding menu's footer must not change a permission signature.
   const prompt = [...before.matchAll(/^[^\n]*\?[^\n]*$/gm)].at(-1)?.[0].trim()
     ?? parseQuestionPrompt(normalized);
-  if (!prompt || !isPermissionDialogVisible(prompt + '\n' + menu)) return null;
+  if (!prompt || !(isPermissionDialogVisible(prompt + '\n' + menu) || isNativeEditPermissionVisible(before + menu))) return null;
   return { normalized, cursorAt, prompt, menu };
 }
 
@@ -1322,13 +1344,19 @@ function nativePacketQuestionIndex(visible: string, call: NativePlanQuestionCall
   return matched.length === 1 ? matched[0]! : null;
 }
 
-/** Native numeric shortcuts accept or toggle; never queue Enter behind them. */
+/** Preview digits focus an option; ordinary native digits accept or toggle it. */
 export function planCountQuestionInput(visible: string, fp: AskUserQuestionFingerprint, index: number): string {
   if (!Number.isInteger(index) || index < 1 || index > 9) throw new RangeError(`Invalid numbered option: ${index}`);
   const native = fp.nativeCall?.questions[fp.nativeQuestionIndex ?? 0];
-  if (native) return String(index);
   // A numeric shortcut toggles one native checkbox; Enter toggles it again.
-  if (nativeCheckboxPanel(visible)) return String(index);
+  if (native?.multiSelect || nativeCheckboxPanel(visible)) return String(index);
+  // Claude Code's preview pane uses numbers only to move focus. Its Return
+  // handler submits that focused option, including when native JSONL has not
+  // flushed yet. Require the complete active pane, not a quoted notes hint.
+  const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+  const preview = /(?:^|\n)[\t │┃]*(?:[☐□][^\n]+|←[^\n]*[☐☒][^\n]*✔\s*Submit\s*→)[\s\S]*❯\s*[1-9]\.[\s\S]*\n[\t │┃]*Notes:[^\n]*\n[\s\S]*\nEnter\s+to\s+select\s*·\s*↑\/↓\s+to\s+navigate\s*·\s*n\s+to\s+add\s+notes\s*·\s*(?:Tab\s+to\s+switch\s+questions\s*·\s*)?Esc\s+to\s+cancel\s*$/i.test(normalized);
+  if (preview) return `${index}\r`;
+  if (native) return String(index);
   if (/❯?\s*[1-9]\.\s*\[[ ✓✔xX]\]/m.test(visible)) return `${index}\r`;
   // Native JSONL may flush only after submission. Its complete tab bar and
   // navigation footer establish the input protocol without counting coverage.
@@ -1821,6 +1849,7 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   if (!call.answered || call.failed || call.questions.length !== 1 ||
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
+  if (resolvedDxTaskNavigation(call)) return true;
   const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
   const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const completionLines: string[] = [];
@@ -1887,6 +1916,35 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   return labels.every(label => runEng(label) || ready(label) || manual(label)) &&
     labels.filter(runEng).length === 1 && labels.filter(manual).length === 1 &&
     q.options.some(o => o.label === call.answers?.[q.question]);
+}
+
+/** Completed issue decisions can hand off their existing numbered tasks. */
+function resolvedDxTaskNavigation(call: NativePlanQuestionCall): boolean {
+  const q = call.questions[0]!;
+  if (call.failed !== false || q.multiSelect || !/^Next steps$/i.test(q.header.trim()) ||
+      q.options.length !== 4 || new Set(q.options.map(option => option.label)).size !== 4) return false;
+  const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '').replace(/\s+/g, ' ').trim();
+  const count = String.raw`(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten)`;
+  const match = new RegExp(String.raw`^Next steps: (${count}) P1 DX tasks are ready to implement The DX review found and resolved (${count}) P1 issues\. All decisions were made \(D(\d+)[–-]D(\d+)\)\. The implementation tasks \(T(\d+)[–-]T(\d+)\) are waiting\. The plan also needs an Eng Review before shipping\. What would you like to do next\? <gstack-qid:devex-review-next-steps>$`, 'i').exec(question);
+  if (!match) return false;
+  const number = (value: string) => /^\d+$/.test(value) ? Number(value) :
+    ['one','two','three','four','five','six','seven','eight','nine','ten'].indexOf(value.toLowerCase()) + 1;
+  const n = number(match[1]!);
+  if (number(match[2]!) !== n || Number(match[4]) - Number(match[3]) + 1 !== n ||
+      Number(match[6]) - Number(match[5]) + 1 !== n) return false;
+  const labels = q.options.map(option => option.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
+  const expected = ['Run /plan-eng-review next', `Start implementing T${match[5]}–T${match[6]} now`,
+    'Run /devex-review after shipping', "Done for now — I'll handle next steps manually"];
+  const descriptions = [
+    /^DX fixes touch [\w./-]+(?: \([\w -]+(?:, [\w -]+)*\))?(?: and [\w./-]+)*\. Eng review validates the implementation approach for those changes\.$/i,
+    /^The tasks are well-defined\. Jump straight to implementation and run \/plan-eng-review after\.$/i,
+    /^Implement the tasks and then run \/devex-review on the live SDK to verify TTHW actually hits the <\d+(?:\.\d+)?-minute target\.$/i,
+    /^Save the plan and review report; return to it when ready\.$/i,
+  ];
+  return labels.every((label, index) => {
+    const kind = expected.findIndex(expected => expected.toLowerCase() === label.replace(/T(\d+)-T(\d+)/g, 'T$1–T$2').toLowerCase());
+    return kind >= 0 && descriptions[kind]!.test(q.options[index]!.description?.trim() ?? '');
+  }) && q.options.some(option => option.label === call.answers?.[q.question]);
 }
 
 
@@ -2188,17 +2246,21 @@ export async function launchClaudePty(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let proc: any;
   let pendingExit: ReturnType<typeof createPendingExitRecorder> | undefined;
-  let pendingFile: ReturnType<typeof createFilePermissionRecorder>;
+  const pendingFiles: Array<{ expected: string; recorder: NonNullable<ReturnType<typeof createFilePermissionRecorder>> }> = [];
   try {
     if (opts.observePlanReady && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       pendingExit = createPendingExitRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
     }
     if (opts.observeFilePermissions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
-      pendingFile = createFilePermissionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, opts.observeFilePermissions);
+      for (const expected of new Set(opts.observeFilePermissions)) {
+        const recorder = createFilePermissionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, expected);
+        if (recorder) pendingFiles.push({ expected, recorder });
+      }
     }
-    if (pendingFile) {
+    if (pendingFiles.length) {
       const hooks = pendingExit ? JSON.parse(pendingExit.settings).hooks : {};
-      for (const [event, entries] of Object.entries(pendingFile.hooks)) hooks[event] = [...(hooks[event] ?? []), ...entries];
+      for (const { recorder } of pendingFiles) for (const [event, entries] of Object.entries(recorder.hooks))
+        hooks[event] = [...(hooks[event] ?? []), ...entries];
       args.push('--settings', JSON.stringify({hooks}));
     } else if (pendingExit) args.push('--settings', pendingExit.settings);
     proc = (Bun as any).spawn([claudePath, ...args], {
@@ -2213,7 +2275,7 @@ export async function launchClaudePty(
     },
     cwd,
     env: childEnv,
-  }); } catch (error) { pendingFile?.dispose(); pendingExit?.dispose(); await disposeScreen(); throw error; }
+  }); } catch (error) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); await disposeScreen(); throw error; }
 
   // Track exit so waitForAny can fail fast if claude crashes.
   let exitedPromise: Promise<void> = Promise.resolve();
@@ -2346,7 +2408,7 @@ export async function launchClaudePty(
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
     for (const timer of trustInputTimers) clearTimeout(timer);
-    if (exited) { pendingFile?.dispose(); pendingExit?.dispose(); await disposeScreen(); return; }
+    if (exited) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); await disposeScreen(); return; }
     try {
       proc.kill?.('SIGINT');
     } catch {
@@ -2362,7 +2424,7 @@ export async function launchClaudePty(
       }
       await Promise.race([exitedPromise, Bun.sleep(1000)]);
     }
-    pendingFile?.dispose();
+    pendingFiles.forEach(({ recorder }) => recorder.dispose());
     pendingExit?.dispose();
     await disposeScreen();
   }
@@ -2387,7 +2449,7 @@ export async function launchClaudePty(
     exitCode: () => exitCodeCaptured,
     hermeticConfigDir: hermetic ? childEnv.CLAUDE_CONFIG_DIR ?? null : null,
     pendingPlanReadyFile: pendingExit?.file,
-    pendingFilePermissionFile: pendingFile?.file,
+    pendingFilePermissionFiles: pendingFiles.map(({ expected, recorder }) => ({ expected, file: recorder.file })),
     close,
   };
 }
@@ -2961,7 +3023,7 @@ export async function runPlanSkillCounting(opts: {
       seedSkills: true,
       observeScreen: true,
       observePlanReady: true,
-      observeFilePermissions: opts.expectedPlanPath,
+      observeFilePermissions: opts.expectedPlanPath ? [opts.expectedPlanPath, path.join(fixture.cwd, 'PLAN.md')] : undefined,
     });
   } catch (error) {
     fixture.cleanup();
@@ -2972,6 +3034,10 @@ export async function runPlanSkillCounting(opts: {
   const seen = new Set<string>();
   const countedCalls = new Set<string>();
   const filePermission = createPlanCountPermissionGuard();
+  // Each owned path keeps its own grant history when the workflow switches
+  // between the active plan and the separate caller-owned final report.
+  const ownedFilePermissions = (session.pendingFilePermissionFiles ?? []).map(binding =>
+    ({ ...binding, guard: createPlanCountPermissionGuard() }));
   let lastMatchedNativeQuestion: NativePlanQuestionCall | undefined;
   let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
   let boundaryFired = false;
@@ -3124,9 +3190,15 @@ export async function runPlanSkillCounting(opts: {
           'Native plan approval reached with zero review-phase AskUserQuestion calls; review coverage is missing', visible);
       }
       if (opts.expectedPlanPath && terminalHint === 'plan_ready' && !verifiedTerminal) continue;
+      let permissionGuard = filePermission;
+      let permissionEpoch: FilePermissionEpoch | null | undefined;
+      for (const binding of ownedFilePermissions) {
+        const epoch = currentFilePermissionEpoch(binding.file, binding.expected, fixture.cwd,
+          session.hermeticConfigDir, startedAt, transcript, visible);
+        if (epoch !== undefined) { permissionGuard = binding.guard; permissionEpoch = epoch; break; }
+      }
       const permission = nativeQuestionVisible || terminalHint === 'plan_ready'
-        ? null : filePermission(visible, session.visibleText(), currentFilePermissionEpoch(
-          session.pendingFilePermissionFile, opts.expectedPlanPath, fixture.cwd, session.hermeticConfigDir, startedAt, transcript, visible));
+        ? null : permissionGuard(visible, session.visibleText(), permissionEpoch);
       if (frame === 'permission' || (permission === 'grant' && frame === null)) {
         if (remainingWork() <= 0) break;
         if (permission !== 'handled') session.send(`${defaultPick}\r`);
@@ -3218,7 +3290,7 @@ export async function runPlanSkillCounting(opts: {
       isFirstAUQ = false;
       const questionInput = planCountQuestionInput(visible, fp, pickIdx);
       if (remainingWork() <= 0) break;
-      if (questionInput.includes('\r') && (prerequisitePick !== null || callerPick !== null)) {
+      if (questionInput.includes('\r')) {
         // The helper separates digit and Enter by 500ms. Do not let that
         // delayed confirmation send input after this counting window closes.
         await selectPtyNumberedOption({ send: input => {

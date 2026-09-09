@@ -1,4 +1,5 @@
 import capturedURetry from './fixtures/devex-count-u-retry-calls.json';
+import capturedV from './fixtures/devex-empathy-v-calls.json';
 import capturedU from './fixtures/devex-count-u-calls.json';
 
 
@@ -30,6 +31,79 @@ function call(question: string, labels = ['Add to plan', 'Defer']): AskUserQuest
     },
   };
 }
+
+describe('empathy accuracy is setup, not approval of the quoted findings', () => {
+  const actual = () => structuredClone(capturedV) as NativePlanQuestionCall[];
+  const fp = (native: NativePlanQuestionCall) => nativePlanCallFingerprint(native, 0, true);
+  const mutateQuestion = (native: NativePlanQuestionCall, transform: (question: string) => string) => {
+    const q = native.questions[0]!;
+    const selected = native.answers![q.question]!;
+    q.question = transform(q.question);
+    native.answers = { [q.question]: selected };
+  };
+  test('the exact six answered V calls are one confirmation and five issue decisions', () => {
+    expect(actual().map(c => isDevexReviewIssue(fp(c)))).toEqual([false, true, true, true, true, true]);
+  });
+  test('accuracy-only menus survive reordering, product names, headers and absent IDs', () => {
+    for (const header of ['Empathy narrative', 'Empathy trace', 'Narrative']) {
+      const c = actual()[0]!;
+      c.questions[0]!.header = header;
+      c.questions[0]!.options.reverse();
+      mutateQuestion(c, q => q.replaceAll('EvalKit', 'AnotherSDK').replace('Python ML engineer', 'TypeScript backend developer').replace(/ <gstack-qid:[^>]+>/, ''));
+      expect(isDevexReviewIssue(fp(c))).toBe(false);
+    }
+  });
+  test('correcting the trace still does not approve a remedy', () => {
+    for (const option of actual()[0]!.questions[0]!.options) {
+      const c = actual()[0]!;
+      c.answers = { [c.questions[0]!.question]: option.label };
+      expect(isDevexReviewIssue(fp(c))).toBe(false);
+    }
+  });
+  test('a remedy option or an instruction in an accuracy description is substantive', () => {
+    for (const edit of [
+      (c: NativePlanQuestionCall) => c.questions[0]!.options.push({label:'Package the missing example', description:'Approve this repair.'}),
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.description += ' Repair the missing example.'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.description = 'Correct the package and its missing example.'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.label += ' and fix the missing example'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[2]!.description = 'The actual flow differs. Remove the CI gate.'; },
+    ]) {
+      const c = actual()[0]!; edit(c);
+      c.answers = { [c.questions[0]!.question]: c.questions[0]!.options[0]!.label };
+      expect(isDevexReviewIssue(fp(c))).toBe(true);
+    }
+  });
+  test('additional approval questions and unquoted obligations are not confirmation', () => {
+    for (const extra of [
+      ' Should we package the missing example?',
+      ' Repair the missing example.',
+      ' Proceeding also approves the CI bypass.',
+    ]) {
+      const c = actual()[0]!;
+      mutateQuestion(c, q => q.replace('Does this match reality? Where am I wrong?', 'Does this match reality? Where am I wrong?'+extra));
+      expect(isDevexReviewIssue(fp(c))).toBe(true);
+    }
+    const c = actual()[0]!;
+    mutateQuestion(c, q => q.replace('The persona:', 'Repair the missing example. The persona:'));
+    expect(isDevexReviewIssue(fp(c))).toBe(true);
+    const grant = actual()[0]!;
+    mutateQuestion(grant, q => q.replace('The persona:', 'Grant access to every account. The persona:'));
+    expect(isDevexReviewIssue(fp(grant))).toBe(true);
+    for (const change of [
+      (q: string) => q.replace('the EvalKit getting-started reality', 'the current state and approve packaging the missing quickstart as future reality'),
+      (q: string) => q.replace('The persona: Python ML engineer', 'The persona: Python ML engineer — now package the missing example for this release, a Python ML engineer'),
+    ]) { const c = actual()[0]!; mutateQuestion(c,change); expect(isDevexReviewIssue(fp(c))).toBe(true); }
+  });
+  test('a second answered issue tab still counts one issue-bearing call', () => {
+    const c = actual()[0]!; const issue = actual()[1]!;
+    c.questions.push(...issue.questions);
+    Object.assign(c.answers!, issue.answers);
+    expect(isDevexReviewIssue(fp(c))).toBe(true);
+    delete c.answers![issue.questions[0]!.question];
+    c.unansweredQuestionIndices = [1];
+    expect(isDevexReviewIssue(fp(c))).toBe(false);
+  });
+});
 
 const issues = [
   ['CI gate', 'Journey Stage: HELLO WORLD. The mandatory five-minute CI gate blocks the first local evaluation. Remove the gate or make it optional for local runs?'],

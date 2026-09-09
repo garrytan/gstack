@@ -131,10 +131,48 @@ const ADMINISTRATIVE_HEADERS = new Set([
   'magic delivery', 'review mode', 'fix scope', 'confusion scope',
 ]);
 
+/** Confirming a quoted developer journey authorizes understanding, not its repairs. */
+function empathyAccuracyConfirmation(header: string, question: string, options: QuestionRecord['options']): boolean {
+  if (!/^(?:Empathy(?: narrative| trace)?|Narrative)$/i.test(header.trim()) ||
+      !options || options.length < 2 || options.length > 4) return false;
+  const clean = (value: string) => value.trim().replace(/\s*\(recommended\)\s*$/i, '').trim();
+  const confirm = (label: string) => /^(?:Accurate|Yes\s*[—–-]\s*accurate)\s*[—–-]\s*proceed(?: with this understanding)?$/i.test(clean(label));
+  const correct = (label: string) => /^(?:Partly wrong\s*[—–-]\s*let me correct it|Mostly right\s*[—–-]\s*minor corrections|Wrong path\s*[—–-]\s*the actual flow is different|Wrong\s*[—–-]\s*actual experience differs|The experience is different\s*[—–-]\s*let me describe it)$/i.test(clean(label));
+  const labels = options.map(option => clean(option.label));
+  if (new Set(labels).size !== labels.length || labels.filter(confirm).length !== 1 ||
+      !labels.some(correct) || !labels.every(label => confirm(label) || correct(label))) return false;
+  // Consume each description completely: an accuracy label must not also
+  // approve a remedy hidden in a subsequent sentence or clause.
+  const description = /^(?:(?:The (?:narrative|trace) is (?:correct|accurate)\.[ ]*)?Proceed with this understanding(?: for the full DX review)?\.|Some details are off; I['’]ll clarify before we continue\.|The (?:real|actual) (?:getting-started path|flow|experience) differs(?: significantly)? from what was traced\.)$/i;
+  if (options.some(option => option.description && !description.test(clean(option.description)))) return false;
+  const ids = question.match(/<gstack-qid:[^>]+>/gi) ?? [];
+  if (ids.length > 1 || (question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return false;
+  const text = question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '').trim()
+    .replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
+  const paragraphs = text.split(/\n\s*\n/);
+  const opening = paragraphs.shift() ?? '';
+  const closing = paragraphs.pop() ?? '';
+  if (!/^(?:Empathy (?:narrative|trace): does this match (?:the [\w.-]+ (?:getting-started|onboarding|first-run) )?reality\?|Does (?:this|the) (?:empathy narrative|first-person developer trace) match reality\?)$/i.test(opening) ||
+      !/^Does this match (?:reality|the actual experience)\?(?: Where am I wrong\?)?$/i.test(closing)) return false;
+  // Only quoted journey evidence and an observational preface may intervene.
+  // Additional questions or instructions outside the quote remain decisions.
+  const source = String.raw`(?:the docs|[\w-]+(?:[/.][\w-]+)+)`;
+  const role = String.raw`(?:(?:Python|JavaScript|TypeScript|Go|Rust|Java|Ruby) )?(?:(?:ML|backend|frontend|full-stack) )?(?:developer|engineer)`;
+  const goal = String.raw`(?: who just heard about [\w.-]+ and wants to verify it works locally before integrating it into their team['’]s CI pipeline)?`;
+  const preface = new RegExp(String.raw`^(?:Here['’]s what I (?:traced|observed) from ${source}(?:, ${source})*(?: and ${source})?\.\s*)?(?:The persona: ${role}${goal}\.)?$`, 'i');
+  let quoted = false;
+  for (const paragraph of paragraphs) {
+    if (paragraph.split('\n').every(line => /^\s*>/.test(line))) { quoted = true; continue; }
+    if (quoted || !preface.test(paragraph)) return false;
+  }
+  return quoted;
+}
+
 function administrativeQuestion(header: string, question: string, options: QuestionRecord['options']): boolean {
   // These decisions establish the review's evidence and scope. Mentioning a
   // defect in their recap does not turn a confirmation into a finding.
   if (ADMINISTRATIVE_HEADERS.has(header.toLowerCase().replace(/\s+/g, ' ').trim())) return true;
+  if (empathyAccuracyConfirmation(header, question, options)) return true;
   if (/^empathy(?:\s*\(0B\))?$/i.test(header.trim()) &&
       /^Does (?:this|the) empathy narrative match\b/i.test(question.replace(/^D\s*\d+\s*[—–:-]\s*/i, ''))) {
     const labels = options?.map(option => option.label.trim().replace(/\s*\(recommended\)\s*$/i, '')) ?? [];

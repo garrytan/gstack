@@ -267,6 +267,11 @@ export async function captureSectionReads(opts: {
   const nativeReviewRule = stateDir
     ? `\n- Read ${path.join(stateDir, 'config.yaml')}, the isolated gstack configuration for this capture. It sets codex_reviews: disabled. Follow that documented control: skip the entire extra outside-review step, including its native fallback, and report outside coverage as disabled. Complete all native review sections and the full required report.`
     : '';
+  // Preserve full method execution while avoiding a second written walkthrough
+  // of decisions already represented in the amended plan and required outputs.
+  const planReviewWritingRule = opts.skillName === 'plan-ceo-review'
+    ? `\n- Write a concise, complete decision record: preserve original requirements and accepted plan amendments. Record each finding once with concrete evidence, the selected remedy, residual risks, and verification. Give all 11 sections an explicit outcome (including no issues or justified skips); retain the complete required registries, applicable diagrams, tasks, completion summary, and exact GSTACK REVIEW REPORT table. Cross-reference those records instead of repeating findings, option deliberations, diagrams, or registries in each section. Do not expand the artifact into full implementation or test code unless that code is needed to specify an accepted plan change. This is a writing rule only: execute the full review, perform every required lazy-file Read, and complete all required artifacts before returning.`
+    : '';
   const prompt = `You are running an automated skill-execution test. No human is present, so AskUserQuestion is unavailable. The ONLY skill file you may read is this absolute path: ${skillPath}. Do NOT Glob/find/search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users.
 
 Read ${skillPath} and EXECUTE its workflow for this scenario:
@@ -278,7 +283,7 @@ Rules for this run:
 - At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask.
 - This skill's body has been carved into on-demand sections/. When the skill gives a STOP-Read directive (for example "Read \`.../sections/<file>\` and execute it in full"), you MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers. Do not work from memory.
 - Do NOT run git, gh, commit, push, or any mutating command.
-- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.${nativeReviewRule}
+- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.${nativeReviewRule}${planReviewWritingRule}
 - After all required writes are complete, return a brief completion message and STOP. Do not reproduce the full report in the final response.`;
 
   let result: SkillTestResult;

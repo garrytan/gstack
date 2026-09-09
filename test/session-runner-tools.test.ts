@@ -260,6 +260,52 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
     });
   });
 
+  test('CEO report writing retains the complete method and decision evidence without a repeated walkthrough', async () => {
+    await withFakeClaude(async (dir, observed) => {
+      const scenario = 'Preserve this plan, review every section, and amend accepted requirements.';
+      await captureSectionReads({
+        planDir: dir, skillName: 'plan-ceo-review', scenario, reportFile: 'PLAN.md',
+        testName: 'ceo-report-writing', nativeReviewOnly: true, timeout: 5_000,
+      });
+      const child = observed();
+      expect(child.prompt).toContain(scenario);
+      expect(child.prompt).toContain('preserve original requirements and accepted plan amendments');
+      expect(child.prompt).toContain('concrete evidence, the selected remedy, residual risks, and verification');
+      expect(child.prompt).toContain('all 11 sections an explicit outcome (including no issues or justified skips)');
+      expect(child.prompt).toContain('complete required registries, applicable diagrams, tasks, completion summary, and exact GSTACK REVIEW REPORT table');
+      expect(child.prompt).toContain('Cross-reference those records instead of repeating findings, option deliberations, diagrams, or registries');
+      expect(child.prompt).toContain('unless that code is needed to specify an accepted plan change');
+      expect(child.prompt).toContain('execute the full review, perform every required lazy-file Read, and complete all required artifacts');
+      expect(child.prompt).toContain('MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers');
+      expect(child.prompt).toContain('report outside coverage as disabled');
+      expect(child.prompt).toContain('After all required writes are complete');
+      expect(flagValue(child.args, '--tools')).toBe('Read,Grep,Glob,Write');
+    });
+  });
+
+  test('CEO-specific writing guidance leaves another skill capture prompt unchanged', async () => {
+    await withFakeClaude(async (dir, observed) => {
+      const scenario = 'Keep the requested release workflow and report.';
+      await captureSectionReads({
+        planDir: dir, skillName: 'ship', scenario, testName: 'ship-report-writing', timeout: 5_000,
+      });
+      const skillPath = path.join(dir, 'ship', 'SKILL.md');
+      expect(observed().prompt).toBe(`You are running an automated skill-execution test. No human is present, so AskUserQuestion is unavailable. The ONLY skill file you may read is this absolute path: ${skillPath}. Do NOT Glob/find/search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users.
+
+Read ${skillPath} and EXECUTE its workflow for this scenario:
+
+${scenario}
+
+Rules for this run:
+- Skip system-audit, environment-setup, telemetry, and codebase-exploration steps.
+- At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask.
+- This skill's body has been carved into on-demand sections/. When the skill gives a STOP-Read directive (for example "Read \`.../sections/<file>\` and execute it in full"), you MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers. Do not work from memory.
+- Do NOT run git, gh, commit, push, or any mutating command.
+- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${path.join(dir, 'REPORT.md')}.
+- After all required writes are complete, return a brief completion message and STOP. Do not reproduce the full report in the final response.`);
+    });
+  });
+
   test('native-only capture gives its child real isolated disabled config and cleans only that state', async () => {
     await withFakeClaude(async (dir, observed) => {
       const hostState = path.join(dir, 'host-state');

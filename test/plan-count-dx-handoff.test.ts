@@ -6,6 +6,51 @@ import { hasNativePlanTerminal } from './helpers/claude-pty-runner';
 import { withPendingExit } from './helpers/plan-count-pending-exit';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/devex-handoff-n-call.json';
+import vCaptured from './fixtures/devex-handoff-v-call.json';
+
+describe('V closed DX task handoff', () => {
+  function run(edit?: (calls: NativePlanQuestionCall[]) => void) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dx-v-handoff-'));
+    try {
+      const report = path.join(dir, 'report.md'); fs.writeFileSync(report, vCaptured.reportContent);
+      const written=vCaptured.provenance.reportMtimeMs/1000;fs.utimesSync(report,written,written);
+      const calls=structuredClone(vCaptured.calls) as NativePlanQuestionCall[];edit?.(calls);
+      return hasNativePlanTerminal({status:'ready',calls,assistantMessages:[],planReadyRequests:vCaptured.planReadyRequests},
+        report,Date.parse('2026-09-09T08:42:53Z'),'plan_ready');
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  }
+  test('exact task navigation permits the complete report written after all issue decisions', () => {
+    expect(run()).toBe(true);
+    expect(run(calls=>{calls.at(-1)!.questions[0]!.options.reverse();})).toBe(true);
+    expect(run(calls=>{calls.at(-2)!.answeredAt=new Date(vCaptured.provenance.reportMtimeMs+1).toISOString();})).toBe(false);
+  });
+  test('new obligations, incomplete decisions and non-navigation routes preserve freshness', () => {
+    const mutations: Array<(c: NativePlanQuestionCall) => void> = [
+      c=>{c.questions[0]!.question=c.questions[0]!.question.replace('found and resolved','found but not resolved');},
+      c=>{c.questions[0]!.question=c.questions[0]!.question.replace('All decisions were made','All decisions will be made');},
+      c=>{c.questions[0]!.question=c.questions[0]!.question.replace('five P1 issues','six P1 issues');},
+      c=>{c.questions[0]!.question+=' Repair the missing authorization test.';},
+      c=>{c.questions[0]!.question+=' Should we add another task?';},
+      c=>{c.questions[0]!.options[3]!.description+=' Remove the owner check.';},
+      c=>{c.questions[0]!.options[1]!.description='The tasks need another approval before implementation.';},
+      c=>{c.questions[0]!.options[0]!.label='Run a new feature implementation';},
+      c=>{c.questions[0]!.question=c.questions[0]!.question.replace('needs an Eng Review before shipping','may skip Eng Review');},
+      c=>{c.questions[0]!.question='```\n'+c.questions[0]!.question+'\n```';},
+      c=>{c.questions[0]!.header='Issue decision';},
+      c=>{c.questions[0]!.multiSelect=true;},
+    ];
+    for(const edit of mutations)expect(run(calls=>{
+      const c=calls.at(-1)!;edit(c);c.answers={[c.questions[0]!.question]:c.questions[0]!.options[0]!.label};
+    })).toBe(false);
+  });
+  test('native answer identity and completed status are required', () => {
+    expect(run(calls=>{calls.at(-1)!.failed=true;})).toBe(false);
+    expect(run(calls=>{calls.at(-1)!.answered=false;})).toBe(false);
+    expect(run(calls=>{delete calls.at(-1)!.unansweredQuestionIndices;})).toBe(false);
+    expect(run(calls=>{const c=calls.at(-1)!;c.answers={[c.questions[0]!.question]:'Repair another issue'};})).toBe(false);
+    expect(run(calls=>{calls.at(-1)!.questions.push(structuredClone(calls[1]!.questions[0]!));})).toBe(false);
+  });
+});
 
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dx-completed-handoff-'));
