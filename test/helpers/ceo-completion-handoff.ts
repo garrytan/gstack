@@ -1,5 +1,18 @@
 import type { AskUserQuestionFingerprint } from './claude-pty-runner';
 
+/** A native choice may carry the CEO-specific recap beside a generic completion question. */
+function closedCeoRecap(description: string): boolean {
+  const clause = /(?:^|[.!?]\s+)((?:The\s+)?CEO\s+review\b[^.!?]{0,240})(?=[.!?]|$)/i.exec(description)?.[1];
+  if (!clause || /\b(?:if|unless|until|once|when|after|not|never)\b|n['’]t\b/i.test(clause)) return false;
+  return /\b(?:all(?:\s+(?:gaps?|issues?|findings?))?(?:\s+(?:are|were))?\s+resolved|(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings))(?=\s*\)?\s*(?:;|$))/i.test(clause);
+}
+
+/** Past-tense resolution can close a native next-review recap without the word "complete". */
+function resolvedCeoRecap(description: string): boolean {
+  const clause = /(?:^|[.!?]\s+)((?:(?:This|The)\s+)?CEO\s+review\s+resolved\s+[^.!?;]{1,180}\b(?:bugs|gaps|issues|findings))(?=\s*(?:[.!?;]|$))/i.exec(description)?.[1];
+  return Boolean(clause && !/\b(?:if|unless|until|once|when|after|not|never|some|most|partially|only|of|but|several|few)\b|n['’]t\b/i.test(clause));
+}
+
 /** Only the CEO's finished-review menu, never a finding/TODO mentioning another skill. */
 function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const call = fp.nativeCall;
@@ -8,12 +21,24 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   if (!call || call.failed || fp.signature !== `${call.sessionId}:${call.toolUseId}` || call.questions.length !== 1) return null;
   const q = call.questions[0]!;
   if (q.multiSelect || q.options.length < 2) return null;
-  const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1]?.toLowerCase();
+  const ids = [...q.question.matchAll(/<gstack-qid:\s*([a-z0-9-]+)\s*>/gi)];
+  if (ids.length > 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return null;
+  const id = ids[0]?.[1]?.toLowerCase();
   if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-next-step-eng-review)$/.test(id)) return null;
   const declaration = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
     .replace(/^next\s+(?:review|steps?)\s*:\s*/i, '');
-  const completion = /(?:^|[.!?]\s+)(?:ELI10:\s*)?(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|cleared|clean|done(?:\s+and\s+the\s+plan\s+is\s+cleared)?)(?:\s+with\s+0\s+unresolved\s+decisions)?(?=\s*(?:[.!?—–]|$))/i.test(declaration);
   const gateContext = [q.question, ...q.options.map(option => option.description ?? '')].join('\n');
+  const explicitCompletion = /(?:^|[.!?]\s+)(?:ELI10:\s*)?(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|cleared|clean|done(?:\s+and\s+the\s+plan\s+is\s+cleared)?)(?:\s+with\s+0\s+unresolved\s+decisions)?(?=\s*(?:[.!?—–]|$))/i.test(declaration);
+  const genericCompletion = /(?:^|[.!?]\s+)(?:The\s+)?review\s+(?:is\s+)?(?:complete|cleared|clean|done)(?=\s*(?:[.!?—–]|$))/i.test(declaration);
+  const questionText = declaration.replace(/<gstack-qid:[^>]+>/gi, '').trim();
+  const recappedNavigation = Boolean(id) &&
+    /^What(?:['’]s|\s+is)\s+the\s+next\s+(?:steps?|review)\s+after\s+(?:this|the)\s+CEO\s+review\?$/i.test(questionText) &&
+    q.options.some(option => resolvedCeoRecap(option.description ?? ''));
+  const unfinished = gateContext.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
+  const describedCompletion = (recappedNavigation || (genericCompletion && q.options.some(option => closedCeoRecap(option.description ?? '')))) &&
+    !/\b(?:unresolved|outstanding|remains?|remaining|pending)\b/i.test(unfinished) &&
+    !/(?:^|[.!?;]\s+|\b(?:please|must|need\s+to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(gateContext);
+  const completion = explicitCompletion || describedCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);
   // A qid names the menu; it cannot replace its completed-review declaration

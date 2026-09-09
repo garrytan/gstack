@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
+import { autoplanRoutingSetupInput, autoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -496,6 +496,293 @@ await Bun.write(${JSON.stringify(resultFile)},JSON.stringify(results));
       if (!fs.existsSync(item.record)) continue;
       const first = JSON.parse(fs.readFileSync(item.record, 'utf8').split('\n')[0]!);
       try { process.kill(first.pid, 'SIGKILL'); } catch { /* already reaped */ }
+    }
+    fs.rmSync(dir, {recursive:true,force:true});
+  }
+}, 30000);
+
+
+// Exact current viewport from source-M's routing stall. Owned temporary paths
+// are retained as display text; no fixture path is accessed by this replay.
+const M_ROUTING_CAPTURE = "\n\n❯ /autoplan\n\n● Starting the autoplan pipeline — running the preamble first.\n\n● Bash(_SS=\"$HOME/.claude/skills/gstack/bin/gstack-skill-start\"\n      [ -x \"$_SS\" ] || _SS=\".claude/skills/gstack/bin/gstack-skill-start\"…)\n  ⎿  SKILL_START_PROTO: 1\n     BRANCH: main\n     PROACTIVE: true \n     … +54 lines (ctrl+o to expand)\n  ⎿  Allowed by auto mode classifier\n\n● The preamble ran. SESSION_KIND is interactive, SESSION_ID is 1144263-1788912944-701e8cc4. There's a one-time routing\n  instruction to handle first.\n\n  Let me check if CLAUDE.md exists and explore the repo before presenting the routing question.\n\n  Read 1 file, listed 1 directory (ctrl+o to expand)\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\nPlanning:\n/tmp/gstack-paid-shard-2DwzUD/tmp/gstack-hermetic-1144068-Ep9FFb/with-skills/.claude/plans/scalable-bouncing-moth.md\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ☐ Skill routing\n\n│ gstack works best when your project's CLAUDE.md includes skill routing rules. Should I add them now?\n│ <gstack-qid:routing-injection>\n\n❯ 1. Add routing rules (Recommended)\n     Append skill routing rules to CLAUDE.md and commit it — /autoplan, /ship, /qa, and other skills will be suggested\n     automatically when relevant.\n  2. No thanks, manual only\n     Skip for now; you can invoke skills manually anytime. You won't be asked again.\n  3. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n";
+
+describe('M routing manual-only action grammar', () => {
+  test('answers the exact native panel once and preserves the Add choice in either order', () => {
+    const seen = new Set<string>();
+    expect(autoplanRoutingSetupInput(M_ROUTING_CAPTURE, seen)).toBe('1');
+    expect(autoplanRoutingSetupInput(M_ROUTING_CAPTURE, seen)).toBeNull();
+    const reversed = M_ROUTING_CAPTURE
+      .replace('❯ 1. Add routing rules (Recommended)', '❯ 1. No thanks, manual only')
+      .replace('  2. No thanks, manual only', '  2. Add routing rules (Recommended)');
+    expect(autoplanRoutingSetupInput(reversed, new Set())).toBe('2');
+  });
+
+  test('equivalent manual actions use the same grammar with or without a courtesy prefix', () => {
+    for (const label of [
+      'No thanks, manual', 'No thanks, manual only', 'Skip — manual only',
+      'Manual', 'Manual only', 'Manual-only', 'Manual invocation', 'Manual invocation only',
+      'No thanks, manual invocation only', 'Invoke skills manually only',
+      "No thanks, I'll invoke skills manually only",
+    ]) expect(autoplanRoutingSetupInput(M_ROUTING_CAPTURE.replace('No thanks, manual only', label), new Set()), label).toBe('1');
+  });
+
+  test('manual modifiers do not admit extra actions, other workflows or ambiguous choices', () => {
+    for (const label of [
+      'No thanks, manual data migration only', 'Manual deployment only',
+      'No thanks, invoke the deployment manually only', 'No thanks, manual only then delete CLAUDE.md',
+      'No thanks, skip the review', 'No thanks, proceed with implementation',
+      'No thanks, manual invocation only after deleting the rules', 'Manual only approval',
+    ]) expect(autoplanRoutingSetupInput(M_ROUTING_CAPTURE.replace('No thanks, manual only', label), new Set()), label).toBeNull();
+    for (const frame of [
+      M_ROUTING_CAPTURE.replace('  3. Type something.', '  3. Manual only'),
+      M_ROUTING_CAPTURE.replace('  3. Type something.', '  3. Add routing rules'),
+      M_ROUTING_CAPTURE.replace('Add routing rules (Recommended)', 'Add product routes (Recommended)'),
+      M_ROUTING_CAPTURE.replace('Add routing rules (Recommended)', 'Add ruting rules (Recommended)'),
+      M_ROUTING_CAPTURE.replace("gstack works best when your project's CLAUDE.md includes skill routing rules. Should I add them now?", 'Which application API routing design should we choose?'),
+      M_ROUTING_CAPTURE.replace("gstack works best when your project's CLAUDE.md includes skill routing rules. Should I add them now?", 'The plan quotes gstack skill routing rules in CLAUDE.md. Should we expand the feature?'),
+    ]) expect(autoplanRoutingSetupInput(frame, new Set()), frame).toBeNull();
+  });
+});
+
+
+const UNSUPPORTED_ROUTING = M_ROUTING_CAPTURE.replace('No thanks, manual only', 'Ask me after this review');
+const unsupportedNative = () => ({
+  sessionId: 'unsupported-routing', toolUseId: 'routing-call', answered: false, failed: false,
+  questions: [{ header: 'Skill routing', question: "gstack works best when your project's CLAUDE.md includes skill routing rules. Should I add them now? <gstack-qid:routing-injection>",
+    options: [{label:'Add routing rules (Recommended)'},{label:'Ask me after this review'}] }],
+});
+
+describe('unsupported setup diagnostic state', () => {
+  test('a complete recognized unsupported setup fails explicitly without selecting an action', () => {
+    const seen = new Set<string>();
+    for (const pending of [undefined, unsupportedNative()]) {
+      const result = autoplanSetupDecision(UNSUPPORTED_ROUTING, seen, pending);
+      expect(result.kind).toBe('unsupported_setup');
+      if (result.kind === 'unsupported_setup') {
+        expect(result.setup).toBe('routing');
+        expect(result.options).toEqual([{index:1,label:'Add routing rules (Recommended)'},{index:2,label:'Ask me after this review'}]);
+        expect(result.identitySource).toBe(pending ? 'native-bound' : 'current-native-panel');
+      }
+      expect(seen.size).toBe(0);
+    }
+    expect(autoplanSetupDecision(PREREQUISITE_CAPTURE.replace('Skip — proceed with standard review', 'Ask me later'), new Set()).kind).toBe('unsupported_setup');
+  });
+
+  test('supported input is pure until sent; redraw and delayed metadata then wait', () => {
+    const seen = new Set<string>();
+    const decision = autoplanSetupDecision(M_ROUTING_CAPTURE, seen);
+    expect(decision.kind).toBe('input'); expect(seen.size).toBe(0);
+    if (decision.kind !== 'input') throw Error('Expected supported setup');
+    expect(decision.input).toBe('1');
+    for (const signature of decision.signatures) seen.add(signature);
+    expect(autoplanSetupDecision(M_ROUTING_CAPTURE, seen).kind).toBe('waiting');
+    const native = unsupportedNative(); native.questions[0]!.options[1]!.label = 'No thanks, manual only';
+    expect(autoplanSetupDecision(M_ROUTING_CAPTURE, seen, native).kind).toBe('waiting');
+    expect(autoplanSetupDecision(M_ROUTING_CAPTURE + '\n⏺ Continuing…', seen).kind).toBe('waiting');
+    expect(autoplanSetupDecision(PREREQUISITE_CAPTURE, new Set()).kind).toBe('input');
+  });
+
+  test('a substantive product or taste question mentioning office hours is not an unsupported prerequisite', () => {
+    const fullQuestion = prerequisiteQuestion.question;
+    const unsupported = PREREQUISITE_CAPTURE.replace('Skip — proceed with standard review', 'Ask me after this review');
+    for (const [prompt, first, second] of [
+      ['No design doc exists for /office-hours integration. Should we build X or defer Y?', 'Build X', 'Defer Y'],
+      ['We should produce a design doc for /office-hours. Which visual style should this product use?', 'Minimal', 'Expressive'],
+      ['No design doc exists for /office-hours integration. Should we build X or defer Y?', 'Run /office-hours now', 'Defer Y'],
+      ['No design doc found. Run /office-hours first?', 'Run /office-hours now and delete the feature', 'Ask me later'],
+    ]) {
+      const native = prerequisiteCall();
+      native.questions[0]!.question = prompt!;
+      native.questions[0]!.options = [{label:first!},{label:second!}];
+      // Reconstruct from the actual full native layout, including footer.
+      const frame = unsupported.replace(/│ No design doc[\s\S]*?Run \/office-hours first\?/, prompt!)
+        .replace('1. Run /office-hours now', '1. ' + first)
+        .replace('2. Ask me after this review', '2. ' + second);
+      for (const pending of [undefined, native]) {
+        expect(autoplanSetupDecision(frame, new Set(), pending).kind, prompt).toBe('unrelated');
+      }
+    }
+    // Existing unsupported offer remains positively identified independently
+    // of the unsupported opposite label; no exact question wording is needed.
+    const native = prerequisiteCall();
+    native.questions[0]!.question = fullQuestion.replace('Run /office-hours first?', 'Would you like to run /office-hours now?');
+    native.questions[0]!.options[1]!.label = 'Ask me after this review';
+    expect(autoplanSetupDecision(unsupported.replace('Run /office-hours first?', 'Would you like to run /office-hours now?'), new Set(), native).kind).toBe('unsupported_setup');
+  });
+
+  test('routing identity still needs its explicit setup action before an unsupported failure', () => {
+    for (const [first, second] of [['React', 'Vue'], ['Accept recommendation', 'Defer finding'], ['Add routing rules (Recommended)', 'Add routing rules (Recommended)']]) {
+      const frame = UNSUPPORTED_ROUTING.replace('1. Add routing rules (Recommended)', '1. ' + first)
+        .replace('2. Ask me after this review', '2. ' + second);
+      const native = unsupportedNative();
+      native.questions[0]!.options = [{label:first!},{label:second!}];
+      for (const pending of [undefined,native]) expect(autoplanSetupDecision(frame,new Set(),pending).kind).toBe('waiting');
+    }
+  });
+
+  test('incomplete, stale, quoted, indented or mixed UI cannot establish unsupported setup', () => {
+    const panel = UNSUPPORTED_ROUTING.slice(UNSUPPORTED_ROUTING.indexOf(' ☐ Skill routing'));
+    for (const frame of [
+      panel.replace('Enter to select · ↑/↓ to navigate · Esc to cancel', ''),
+      panel.replace('  2. Ask me after this review', ''),
+      panel.replace('  4. Chat about this', ''),
+      panel.replace('❯ 1.', '  1.'),
+      panel.replace('  2.', '❯ 2.'),
+      panel.replace('1. Add', '1. [ ] Add'),
+      panel.replace(' ☐ Skill routing', '← ☐ Skill routing ✔ Submit →'),
+      panel + '\n⏺ Continuing the review now.',
+      panel + '\n❯ 1. Different menu\n  2. Other choice',
+      'Example panel:\n' + panel,
+      'Quoted source:\n' + panel,
+      '```text\n' + panel,
+      '~~~~text\n```\n' + panel,
+      panel.split('\n').map(line => '    ' + line).join('\n'),
+      panel.split('\n').map(line => '> ' + line).join('\n'),
+    ]) expect(autoplanSetupDecision(frame, new Set()).kind, frame).not.toBe('unsupported_setup');
+    expect(autoplanSetupDecision('```text\nearlier code\n```\n' + panel, new Set()).kind).toBe('unsupported_setup');
+    const product = panel.replace("gstack works best when your project's CLAUDE.md includes skill routing rules. Should I add them now?", 'Which product API router should we use?');
+    expect(autoplanSetupDecision(product, new Set()).kind).toBe('unrelated');
+  });
+
+  test('mismatched, failed, answered, empty and multi-question metadata cannot diagnose this panel', () => {
+    for (const mutate of [
+      (call: ReturnType<typeof unsupportedNative>) => { call.failed = true; },
+      (call: ReturnType<typeof unsupportedNative>) => { call.answered = true; },
+      (call: ReturnType<typeof unsupportedNative>) => { call.questions = []; },
+      (call: ReturnType<typeof unsupportedNative>) => { call.questions.push(structuredClone(call.questions[0]!)); },
+      (call: ReturnType<typeof unsupportedNative>) => { Object.assign(call.questions[0]!, {multiSelect:true}); },
+      (call: ReturnType<typeof unsupportedNative>) => { call.questions[0]!.header = 'Other question'; },
+      (call: ReturnType<typeof unsupportedNative>) => { call.questions[0]!.question = 'Different question <gstack-qid:routing-injection>'; },
+      (call: ReturnType<typeof unsupportedNative>) => { call.questions[0]!.options[1]!.label = 'Different choice'; },
+      (call: ReturnType<typeof unsupportedNative>) => { call.questions[0]!.options[1]!.label = 'No thanks, manual only'; },
+    ]) {
+      const native = unsupportedNative(); mutate(native);
+      expect(autoplanSetupDecision(UNSUPPORTED_ROUTING, new Set(), native).kind).not.toBe('unsupported_setup');
+    }
+  });
+
+  test('a supported native question clipped by the actual viewport preserves its existing input policy', async () => {
+    const {createPtyScreen} = await import('./helpers/pty-screen');
+    const {matchesNativePlanQuestion} = await import('./helpers/claude-pty-runner');
+    const native = unsupportedNative();
+    native.questions[0]!.question += '\n' + Array.from({length:41}, (_,i) =>
+      `Routing context line ${i+1}: keep current project conventions and existing commands.`).join('\n');
+    native.questions[0]!.options[1]!.label = 'No thanks, invoke manually';
+    const frame = `☐ Skill routing\n${native.questions[0]!.question}\n❯ 1. Add routing rules (Recommended)\n  2. No thanks, invoke manually\n  3. Type something.\n  4. Chat about this\nEnter to select · ↑/↓ to navigate · Esc to cancel`;
+    const screen = await createPtyScreen(120,40);
+    try {
+      screen.write(frame.replace(/\n/g,'\r\n'));
+      const visible = await screen.read();
+      expect(visible).not.toContain('☐ Skill routing');
+      expect(matchesNativePlanQuestion(visible,native)).toBe(true);
+      const seen = new Set<string>();
+      const decision = autoplanSetupDecision(visible,seen,native);
+      expect(decision.kind).toBe('input');
+      if (decision.kind !== 'input') throw new Error('Expected supported native input');
+      expect(decision.input).toBe('1');
+      expect(seen.size).toBe(0);
+      for (const signature of decision.signatures) seen.add(signature);
+      expect(autoplanSetupDecision(visible,seen,native).kind).toBe('waiting');
+    } finally { await screen.dispose(); }
+  });
+});
+
+test.skipIf(process.platform === 'win32')('real PTY unsupported setup fails after ready with zero input and durable parsed evidence', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-unsupported-setup-'));
+  const fake = path.join(dir, 'fake-claude');
+  const worker = path.join(dir, 'worker.ts');
+  const resultFile = path.join(dir, 'result.json');
+  const cases = [false, true].map(early => ({
+    name: early ? 'early' : 'deferred', early, cwd: path.join(dir, early ? 'early' : 'deferred'),
+    events: path.join(dir, early ? 'early.jsonl' : 'deferred.jsonl'),
+    evalDir: path.join(dir, early ? 'early-artifacts' : 'deferred-artifacts'),
+    frame: UNSUPPORTED_ROUTING, native: unsupportedNative(),
+  }));
+  for (const item of cases) fs.mkdirSync(item.cwd);
+  fs.writeFileSync(fake, `#!${process.execPath}\n` + String.raw`
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+const item=JSON.parse(process.env.SETUP_DIAGNOSTIC_CASE);
+const event=value=>fs.appendFileSync(item.events,JSON.stringify(value)+'\n');
+event({kind:'startup',pid:process.pid});
+if(item.early){
+  const folder=path.join(process.env.CLAUDE_CONFIG_DIR,'projects','fixture');fs.mkdirSync(folder,{recursive:true});
+  fs.writeFileSync(path.join(folder,item.name+'.jsonl'),JSON.stringify({type:'assistant',sessionId:item.name,isSidechain:false,cwd:process.cwd(),timestamp:new Date().toISOString(),message:{role:'assistant',content:[{type:'tool_use',id:'setup',name:'AskUserQuestion',input:{questions:item.native.questions}}]}})+'\n');
+}
+process.stdin.setRawMode?.(true);
+process.stdin.on('data',data=>event({kind:'input',data:data.toString()}));
+process.stdout.write('\x1b[2J\x1b[H'+item.frame);
+process.on('SIGINT',()=>process.exit(0));process.stdin.resume();
+`);
+  fs.chmodSync(fake, 0o755);
+  const url = (name: string) => pathToFileURL(path.resolve(import.meta.dir, 'helpers', name)).href;
+  fs.writeFileSync(worker, `
+import * as fs from 'node:fs';
+import {launchClaudePty} from ${JSON.stringify(url('claude-pty-runner.ts'))};
+import {autoplanSetupDecision,autoplanRoutingSetupInput} from ${JSON.stringify(url('autoplan-setup-question.ts'))};
+import {readPlanCountTranscript} from ${JSON.stringify(url('plan-count-transcript.ts'))};
+import {createPlanCountSnapshotWriter} from ${JSON.stringify(url('plan-count-artifacts.ts'))};
+const results=[];
+for(const item of ${JSON.stringify(cases)}){
+  const session=await launchClaudePty({cwd:item.cwd,observeScreen:true,timeoutMs:20000,env:{SETUP_DIAGNOSTIC_CASE:JSON.stringify(item)}});
+  const result={name:item.name,config:session.hermeticConfigDir};
+  try{
+    await session.waitFor('Enter to select',{timeoutMs:10000,pollMs:20});
+    const viewport=await session.currentScreen();
+    const native=readPlanCountTranscript(session.hermeticConfigDir,item.cwd);
+    const pending=native.calls.find(call=>!call.answered&&!call.failed);
+    if(Boolean(pending)!==item.early)throw Error('Readiness did not establish expected metadata state');
+    result.legacyInput=autoplanRoutingSetupInput(viewport,new Set(),pending);
+    const decision=autoplanSetupDecision(viewport,new Set(),pending);
+    if(decision.kind==='input')throw Error('Unexpected guessed input');
+    if(decision.kind!=='unsupported_setup')throw Error('Expected unsupported_setup, got '+decision.kind);
+    const save=createPlanCountSnapshotWriter({EVALS_RUN_ID:item.name,GSTACK_EVAL_DIR:item.evalDir});
+    Object.assign(result,save({skillName:'autoplan',cwd:item.cwd,claudeConfigDir:session.hermeticConfigDir,raw:session.rawOutput(),visible:session.visibleText(),viewport,
+      observation:{state:'unsupported_setup',unsupportedSetup:decision,native,retention:'UI and parsed metadata only; full parent JSONL not guaranteed.'}}));
+    throw Error('UNSUPPORTED_SETUP_DIAGNOSTIC: '+decision.prompt);
+  }catch(error){result.failed=true;result.error=String(error);}
+  finally{await session.close();fs.rmSync(item.cwd,{recursive:true,force:true});}
+  results.push(result);
+}
+await Bun.write(${JSON.stringify(resultFile)},JSON.stringify(results));
+process.exitCode=results.some(result=>result.failed)?1:0;
+`);
+  const child = Bun.spawn([process.execPath, worker], {
+    env: { ...process.env, BROWSE_TERMINAL_BINARY: fake, EVALS_HERMETIC: '1' }, stdout: 'pipe', stderr: 'pipe',
+  });
+  const killer = setTimeout(() => child.kill('SIGKILL'), 25000);
+  try {
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stdout + stderr).toBe(1);
+    const results = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+    expect(results.length).toBe(2);
+    for (const [index, result] of results.entries()) {
+      const item = cases[index]!;
+      expect(result.failed).toBe(true);
+      expect(result.error).toContain('UNSUPPORTED_SETUP_DIAGNOSTIC:');
+      expect(result.legacyInput).toBeNull();
+      expect(result.artifactError).toBeUndefined();
+      const artifact = JSON.parse(fs.readFileSync(path.join(result.artifactDir, 'observation.json'), 'utf8'));
+      expect(artifact.state).toBe('unsupported_setup');
+      expect(artifact.native.calls.length).toBe(item.early ? 1 : 0);
+      expect(artifact.retention).toContain('full parent JSONL not guaranteed');
+      expect(fs.readFileSync(path.join(result.artifactDir, 'terminal.screen.log'), 'utf8')).toContain('Ask me after this review');
+      expect(fs.readFileSync(path.join(result.artifactDir, 'terminal.raw.log'), 'utf8')).toContain('routing-injection');
+      expect(fs.existsSync(item.cwd)).toBe(false);
+      expect(fs.existsSync(result.config)).toBe(false);
+      const events = fs.readFileSync(item.events, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      expect(events.filter(event => event.kind === 'input')).toEqual([]);
+      expect(() => process.kill(events[0].pid, 0)).toThrow();
+    }
+  } finally {
+    clearTimeout(killer); child.kill('SIGKILL');
+    for (const item of cases) {
+      if (!fs.existsSync(item.events)) continue;
+      const pid = JSON.parse(fs.readFileSync(item.events, 'utf8').split('\n')[0]!).pid;
+      if (process.platform === 'linux') {
+        try { if (fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').split('\0').includes(fake)) process.kill(pid, 'SIGKILL'); }
+        catch { /* already reaped or PID no longer belongs to this fixture */ }
+      }
     }
     fs.rmSync(dir, {recursive:true,force:true});
   }

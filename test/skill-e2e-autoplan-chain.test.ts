@@ -30,7 +30,7 @@ import {
   isNumberedOptionListVisible,
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
-import { autoplanRoutingSetupInput } from './helpers/autoplan-setup-question';
+import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript } from './helpers/plan-count-transcript';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
@@ -81,7 +81,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
 
         let hits: AutoplanPhaseHit[] = [];
         let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
-        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' = 'timeout';
+        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' = 'timeout';
+        let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
         let evidence = '';
         let viewport = '';
         let fullSessionEvidence = '';
@@ -99,7 +100,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
-            observation: { state, hits, native: transcript, exitCode: session.exitCode() },
+            observation: { state, hits, native: transcript, exitCode: session.exitCode(), unsupportedSetup,
+              retention: 'Current raw/visible/viewport and parsed native metadata only; full parent JSONL retention is not guaranteed.' },
           });
         };
 
@@ -147,12 +149,19 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             // prerequisite. Keep the supplied plan and continue its full
             // review; taste decisions remain autoplan's responsibility. The helper
             // deduplicates the complete question before returning an input.
-            const setupInput = autoplanRoutingSetupInput(visible, seenSetupQuestions, transcript.calls.find(call => !call.answered && !call.failed));
-            if (setupInput !== null) {
-              if (setupInput.includes('\r')) await selectPtyNumberedOption(session, Number(setupInput.trim()));
-              else session.send(setupInput);
+            const setup = autoplanSetupDecision(visible, seenSetupQuestions, transcript.calls.find(call => !call.answered && !call.failed));
+            if (setup.kind === 'input') {
+              if (setup.input.includes('\r')) await selectPtyNumberedOption(session, Number(setup.input.trim()));
+              else session.send(setup.input);
+              for (const signature of setup.signatures) seenSetupQuestions.add(signature);
               await Bun.sleep(2000);
               continue;
+            }
+            if (setup.kind === 'unsupported_setup') {
+              outcome = 'unsupported_setup';
+              unsupportedSetup = setup;
+              evidence = viewport.slice(-3000);
+              break;
             }
 
             // Terminal: Phase 3 (Eng) seen — chain reached the required end.
@@ -182,10 +191,11 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           } finally { await session.close(); }
         }
 
-        if (outcome === 'exited' || outcome === 'timeout') {
+        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup') {
           throw new Error(
             `autoplan chain test FAILED: outcome=${outcome}, exitCode=${exitCode}, hits=${JSON.stringify(hits)}\n` +
               `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
+              (unsupportedSetup ? `Unsupported setup: ${JSON.stringify(unsupportedSetup)}; no input sent. Artifacts contain UI and parsed metadata, not guaranteed full parent JSONL.\n` : '') +
               `--- post-command evidence (last 3KB) ---\n${diagnosticTail(evidence)}\n` +
               `--- full-session visible tail, including startup (last 3KB) ---\n${fullSessionEvidence}`,
           );

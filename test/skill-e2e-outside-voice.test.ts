@@ -7,7 +7,7 @@ import { e2eTierEnabled } from './helpers/e2e-gate';
 import { runSkillTest } from './helpers/session-runner';
 import { runCodexSkill } from './helpers/codex-session-runner';
 import { EvalCollector } from './helpers/eval-store';
-import { installOutsideReviewFixture } from './helpers/outside-voice-fixture';
+import { createOutsideReviewRepo, installOutsideReviewFixture } from './helpers/outside-voice-fixture';
 import { claudeOutsideExecutions, codexOutsideExecutions, foundInvoiceAuthorizationDefect, outsideExecutionTranscript } from './helpers/outside-voice-evidence';
 import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 
@@ -23,36 +23,6 @@ const collector = enabled ? new EvalCollector('e2e-outside-voice') : null;
 const describeLive = enabled ? describe : describe.skip;
 let fixtureRoot: string;
 let rendered: string;
-
-function git(cwd: string, ...args: string[]) {
-  const result = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe', timeout: 10_000 });
-  if (result.exitCode !== 0) throw new Error(`git ${args[0]}: ${result.stderr.toString()}`);
-}
-
-function createRepo(host: 'claude' | 'codex'): string {
-  const dir = path.join(fixtureRoot, host);
-  fs.mkdirSync(dir, { recursive: true });
-  git(dir, 'init', '-b', 'main');
-  git(dir, 'config', 'user.email', 'eval@example.com');
-  git(dir, 'config', 'user.name', 'Outside Voice Eval');
-  const safe = `export async function readPrivateInvoice(db, actor, invoiceId) {
-  const invoice = await db.invoice.findUnique({ where: { id: invoiceId } });
-  if (!invoice) return null;
-  if (invoice.ownerId !== actor.id) throw new Error('Forbidden');
-  return { amount: invoice.amount, bankAccount: invoice.bankAccount };
-}
-`;
-  fs.writeFileSync(path.join(dir, 'invoice.ts'), safe);
-  git(dir, 'add', 'invoice.ts');
-  git(dir, 'commit', '-m', 'Protect private invoices by owner');
-  git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-  git(dir, 'checkout', '-b', 'feature/invoice-lookup');
-  fs.writeFileSync(path.join(dir, 'invoice.ts'), safe.replace("  if (invoice.ownerId !== actor.id) throw new Error('Forbidden');\n", ''));
-  git(dir, 'add', 'invoice.ts');
-  git(dir, 'commit', '-m', 'Simplify invoice lookup');
-  return dir;
-}
-
 
 function prompt(skill: string): string {
   return `Run the installed ${skill} skill on this branch. The base branch is main (origin/main exists locally). Complete its adversarial review workflow and report the outside provider's actual findings separately from the native review. Review only; leave source files unchanged. All reviewer calls in this skill are authorized. If a native subagent tool is unavailable, report that and continue the independent outside CLI pass. Do not claim success if the outside CLI cannot complete.`;
@@ -74,7 +44,7 @@ describeLive('Installed workflows dispatch outside their host harness', () => {
   });
 
   testIfSelected('outside-voice-codex-to-claude-code', async () => {
-    const repo = createRepo('codex');
+    const repo = createOutsideReviewRepo(fixtureRoot, 'codex');
     const skillDir = installOutsideReviewFixture(rendered, 'codex', repo, ROOT);
     const result = await runCodexSkill({
       skillDir, skillName: 'gstack-review', cwd: repo, prompt: prompt('gstack-review'),
@@ -95,7 +65,7 @@ describeLive('Installed workflows dispatch outside their host harness', () => {
   });
 
   testIfSelected('outside-voice-claude-code-to-codex', async () => {
-    const repo = createRepo('claude');
+    const repo = createOutsideReviewRepo(fixtureRoot, 'claude');
     installOutsideReviewFixture(rendered, 'claude', repo, ROOT);
     const env: Record<string, string> = {};
     // Admit only Codex authentication/config location, never the operator's
