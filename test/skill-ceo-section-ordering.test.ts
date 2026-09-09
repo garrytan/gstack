@@ -82,15 +82,36 @@ describe('plan-ceo-review carve — static ordering', () => {
       const testReview = document.split('### Section 6: Test Review')[1]?.split('### Section 7:')[0];
       expect(testReview).toBeDefined();
       const instructions = testReview!.replace(/\s+/g, ' ');
-      expect(instructions).toContain('For an already-required test, reuse exact expected observations the user specified or individually approved; spell out assertion mechanics without asking again.');
-      expect(instructions).toContain('Preserve every condition and quantifier; never weaken an exact count to a lower bound.');
-      expect(instructions).toContain('Vague success labels do not settle outcomes or values; missing observations and real choices still need individual decisions.');
-      expect(instructions).toContain('Keep user-required behaviors and assertions mandatory unless the user explicitly approves changing them.');
-      expect(instructions).toContain('Never fill a missing behavioral assertion silently in the final report: obtain its own AskUserQuestion decision first.');
-      expect(instructions).toContain('Scope/approach approval is not approval of individual assertion gaps.');
-      expect(instructions).toContain("Helper coverage alone does not prove the caller's path");
-      expect(instructions).toContain('equivalent caller coverage exists or the user explicitly accepted that particular risk.');
+      expect(instructions).toContain("First map it to the user's exact requirement or individually approved remedy.");
+      expect(instructions).toContain('A stated outcome plus its retained caller contract can already determine the assertion, even without assertion syntax.');
+      expect(instructions).toContain('Translate semantic counts, conditions and quantifiers exactly');
+      expect(instructions).toContain('Never weaken an exact count to a lower bound.');
+      expect(instructions).toContain('Reuse these requirements without asking again.');
+      expect(instructions).toContain('Ask individually only for an unresolved behavioral choice, new outcome, or independent uncovered failure mode.');
+      expect(instructions).toContain('Vague success labels do not settle values');
+      expect(instructions).toContain('scope/approach approval does not resolve an individual assertion gap.');
+      expect(instructions).toContain("Helper coverage alone does not prove the caller's path.");
+      expect(instructions).toContain('Explain what the existing requirement or approved remedy fails to cover before calling a check missing.');
+      expect(instructions).toContain('Never silently add, defer or waive a missing behavioral assertion.');
+      expect(instructions).toContain('Keep required behaviors mandatory unless the user explicitly approves changing them');
+      expect(instructions).toContain('honor previously accepted risks and equivalent caller coverage.');
       expect(instructions).toContain('AskUserQuestion once per issue. Do NOT batch.');
+    }
+  });
+
+  test('the loaded data-flow review requires evidence across interacting operations', () => {
+    const template = fs.readFileSync(`${SECTION}.tmpl`, 'utf-8');
+    for (const document of [template, section]) {
+      const dataFlow = document.split('### Section 4: Data Flow & Interaction Edge Cases')[1]?.split('### Section 5:')[0];
+      expect(dataFlow).toBeDefined();
+      const instructions = dataFlow!.replace(/\s+/g, ' ');
+      expect(instructions).toContain('include a combined ASCII schedule with one column per operation and one for shared state.');
+      expect(instructions).toContain('pause, let a competing operation complete, resume, then start a fresh consumer.');
+      expect(instructions).toContain('compare it with the exact caller/time boundary of the stated invariant.');
+      expect(instructions).toContain('If safe, name the mechanism that prevents the violating schedule.');
+      expect(instructions).toContain('Separate flow diagrams do not prove ordering.');
+      expect(instructions).toContain('An accepted exception needs its exact contract clause; bounded damage is insufficient.');
+      expect(instructions).toContain('Test this schedule with controlled pause/release points.');
     }
   });
 

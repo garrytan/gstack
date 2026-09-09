@@ -263,7 +263,37 @@ function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
 
 /** A batched native call remains one decision; the caller owns call-ID deduplication. */
 export function isDevexReviewIssue(fp: AskUserQuestionFingerprint): boolean {
-  return answeredSetupRepair(fp) || answeredContractRepair(fp) || questionRecords(fp, true).some(substantiveIssue);
+  return answeredSetupRepair(fp) || answeredContractRepair(fp) || answeredDocumentationFollowup(fp) || questionRecords(fp, true).some(substantiveIssue);
+}
+
+/** New documentation and example obligations are separate from the original repairs. */
+function answeredDocumentationFollowup(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.answered || call.failed !== false || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      administrativeQuestion(q.header, q.question, q.options)) return false;
+  const selected = q.options.filter(o => o.label === call.answers?.[q.question]);
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (selected.length !== 1 || ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return false;
+  const label = selected[0]!.label.trim().replace(/^[A-Z][.):]\s*/i, '').replace(/\s*\(recommended\)$/i, '');
+  const headline = q.question.split('\n')[0]!.replace(/<gstack-qid:[^>]+>/i, '').trim();
+  if (ids[0]![1] === 'devex-api-key-docs' && /^API key docs$/i.test(q.header.trim())) {
+    // The earlier auth-error decision changes runtime diagnostics. This one
+    // adds the missing acquisition instructions to the README itself.
+    return /^D\s*\d+\s*[—–:-]\s*Pass\s+\d+:\s*Documentation\s*[—–:-]\s*README says ['"][^'"]+['"] but never says where to get one\.$/i.test(headline) &&
+      /^Add key acquisition link to README$/i.test(label);
+  }
+  if (ids[0]![1] === 'devex-todo-real-world-examples' && /^TODO examples$/i.test(q.header.trim())) {
+    // The quickstart repair supplies one missing file. These additional
+    // custom-data examples are an independently accepted follow-up obligation.
+    return /^D\s*\d+\s*[—–:-]\s*TODO check:\s*Real-world examples beyond the bundled sample data\?$/i.test(headline) &&
+      /^\*\*What:\*\* Add \d+(?:-\d+)? additional examples\/ files showing real use cases\b/m.test(q.question) &&
+      /^(?:Add to TODOS\.md for post-beta|Build it now as part of this plan)$/i.test(label);
+  }
+  return false;
 }
 
 /** Select POLISH only on the recognized mode menu; leave all other answers unchanged. */

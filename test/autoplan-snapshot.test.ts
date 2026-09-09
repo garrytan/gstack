@@ -145,7 +145,9 @@ describe('Autoplan phase snapshot continuity', () => {
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('review-record/task edits are not implementation amendments');
     const amendment = 'Implementation: query panels concurrently and return each panel\'s failure independently.\n';
-    writeFileSync(f.active, readFileSync(f.active, 'utf8').replace('## Review record', amendment + '\n## Review record'));
+    writeFileSync(f.active, readFileSync(f.active, 'utf8') + '<!-- autoplan-accepted:ceo -->\n- ' + amendment + '<!-- /autoplan-accepted:ceo -->\n');
+    const applied = cli('amend', 'ceo', f.active, ceo.snapshotPath);
+    expect(applied.status, applied.stderr).toBe(0);
     const checked = cli('check', 'ceo', f.active, ceo.snapshotPath, 'changed');
     expect(checked.status, checked.stderr).toBe(0);
     expect(JSON.parse(checked.stdout).implementation).toContain(amendment);

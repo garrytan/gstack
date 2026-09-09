@@ -1,0 +1,298 @@
+{
+  "sourceObservation": ".context/ship-source-t-full-paid-20260909-0639/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-t-full-paid-20260909-0639-4/plan-ceo-review-1788936459964-URKYk7/observation.json",
+  "sourceSession": {
+    "identity": "434477-6028690",
+    "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+    "pid": 434477,
+    "startTicks": "6028690",
+    "file": "test/skill-e2e-plan-ceo-finding-count.test.ts",
+    "cwd": "/tmp/gstack-paid-shard-SxF6xq/tmp/gstack-plan-count-ULTLUt",
+    "source": "/tmp/gstack-paid-shard-SxF6xq/tmp/gstack-hermetic-434287-jO1XY2/with-skills/.claude/projects/-tmp-gstack-paid-shard-SxF6xq-tmp-gstack-plan-count-ULTLUt/93152292-0b46-4e39-8b32-e963a6bc02cb.jsonl",
+    "openedAt": "2026-09-09T06:47:44.000956+00:00",
+    "sha256": "1c9131ffe4d08dfc200e5ef823dcd2d2f94fc4cbc37491bdabe7f3abbbd037eb",
+    "bytes": 884092,
+    "saved": "/home/vercel-sandbox/gstack/.context/ship-source-t-full-paid-20260909-0639/native-observation/pinned-native/434477-6028690/93152292-0b46-4e39-8b32-e963a6bc02cb/1c9131ffe4d08dfc200e5ef823dcd2d2f94fc4cbc37491bdabe7f3abbbd037eb.jsonl",
+    "capturedAt": "2026-09-09T07:03:54.177177+00:00"
+  },
+  "calls": [
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01Y34PZugyyJFHxMzLFSitm5",
+      "questions": [
+        {
+          "question": "D1 — No design doc found for this branch. Run /office-hours before the CEO review, or skip straight to reviewing the plan as written? <gstack-qid:plan-ceo-review-office-hours-prereq>",
+          "header": "Prerequisite",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip — review plan as-is (Recommended)",
+              "description": "The plan under review is already fully defined in PLAN.md. /office-hours is for problem exploration and design iteration — not applicable here. Proceed directly to the CEO review."
+            },
+            {
+              "label": "Run /office-hours first",
+              "description": "Run /office-hours to produce a structured problem statement and explored alternatives, then come back to the CEO review with sharper input. Takes ~10 minutes."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — No design doc found for this branch. Run /office-hours before the CEO review, or skip straight to reviewing the plan as written? <gstack-qid:plan-ceo-review-office-hours-prereq>": "Skip — review plan as-is (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:51:44.046Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01JDbX66NjiiemiaPAKcqm5D",
+      "questions": [
+        {
+          "question": "D2 — Which implementation approach should this plan target? <gstack-qid:plan-ceo-review-impl-approach>",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B: Integrated Architecture (Recommended)",
+              "description": "Route through WebhookDispatcher; parameterized queries throughout; async email via queue; full handler unit tests + integration test. Human ~2 days / CC ~30 min. Completeness: 9/10. Fixes all critical/high issues AND the architectural bypass question. CC compresses the human effort gap to nearly zero."
+            },
+            {
+              "label": "A: Surgical Fix (minimal viable)",
+              "description": "Fix SQL injection with parameterized query; add email error handling; optimize N+1 to single JOIN query; add targeted unit tests. Human ~4h / CC ~10 min. Completeness: 7/10. Smallest diff, preserves namespace separation decision, leaves WebhookDispatcher bypass open."
+            },
+            {
+              "label": "C: Reject and redesign",
+              "description": "Reject the plan as-written — a plan that documents its own SQL injection should not ship in any form. Use Approach B as the clean rewrite target. Same implementation effort as B, stronger organizational signal: security-by-default is non-negotiable. Completeness: 9/10."
+            },
+            {
+              "label": "A + B (phase it)",
+              "description": "Land Approach A immediately (unblocks the feature), follow with Approach B as a refactor PR. Completeness: 9/10 across both phases. Human ~2.5 days / CC ~40 min total. Suitable if the feature flag means urgency is high and architectural cleanup can follow."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Which implementation approach should this plan target? <gstack-qid:plan-ceo-review-impl-approach>": "B: Integrated Architecture (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:52:34.192Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01BiCKzA14Pd6KZmxKU5JwMV",
+      "questions": [
+        {
+          "question": "D3 — What review mode should this CEO review run in? <gstack-qid:plan-ceo-review-mode>",
+          "header": "Review mode",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "HOLD SCOPE (Recommended)",
+              "description": "The webhook handler scope is right. The job is to make Approach B bulletproof: catch every failure mode (SQL injection, email retry loop, N+1), map every edge case (missing userId, double-delivery, partial commit), verify observability, and harden the test plan. No expansions surfaced. Note: options differ in kind, not coverage — no completeness score."
+            },
+            {
+              "label": "SELECTIVE EXPANSION",
+              "description": "Hold the current scope as baseline, but surface cherry-pick expansion opportunities (e.g., rate limiting, payment analytics, retry queue improvements). Present each individually via AskUserQuestion. Neutral recommendation posture — you opt in to each expansion. Note: options differ in kind, not coverage — no completeness score."
+            },
+            {
+              "label": "SCOPE EXPANSION",
+              "description": "Dream bigger — propose the 10x version of the payment pipeline. What would a world-class payment webhook system look like? Present each expansion for approval. Recommended only if the team wants to revisit the scope of the payment integration beyond the immediate handler. Note: options differ in kind, not coverage — no completeness score."
+            },
+            {
+              "label": "SCOPE REDUCTION",
+              "description": "Ruthlessly cut to the minimum that ships value. What is the absolute smallest handler that is safe and correct? Defer everything else. Recommended if timeline pressure is acute and Approach B feels overbuilt. Note: options differ in kind, not coverage — no completeness score."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — What review mode should this CEO review run in? <gstack-qid:plan-ceo-review-mode>": "HOLD SCOPE (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:52:54.252Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_011UpgJGCsBgeqEKRpxY7VWn",
+      "questions": [
+        {
+          "question": "S1-F1 — The plan fetches each order in a loop but never explains why. What should happen here?",
+          "header": "Order fetch",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "S1-F1-A: Fetch orders for email content (Recommended)",
+              "description": "The email notification includes order-level details (items, amounts). Refactor the loop to a single JOIN or WHERE IN query instead. Approach B's parameterized-query requirement covers the safety fix; add to that scope that the order fetch must be a single query, not a loop. Verify: unit test asserts exactly 1 DB call for orders regardless of order count."
+            },
+            {
+              "label": "S1-F1-B: Remove the loop — orders are not needed",
+              "description": "The handler's job is to set payment_status=paid. If orders aren't needed for that, cut the loop entirely. Simpler code, no N+1, fewer test surface areas. Verify: confirm the email template doesn't require order data; remove the loop from the plan."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "S1-F1 — The plan fetches each order in a loop but never explains why. What should happen here?": "S1-F1-A: Fetch orders for email content (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:54:40.646Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01NzcEKPXm2hCQoEAEv6Cf6R",
+      "questions": [
+        {
+          "question": "S2-F1 — When the async email enqueue fails (queue broker down), the handler has no specified rescue behavior. What should it do?",
+          "header": "Enqueue error",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "S2-F1-A: Catch + log + HTTP 200 (Recommended)",
+              "description": "Wrap the enqueue call in error handling. On failure: log with structured context (event ID, userId, queue error message, timestamp). Return HTTP 200. Rationale: the DB has committed, the dedup guard has fired, and Stripe retries can’t help — the existing runbook handles notification retries independently. Verify: unit test that enqueue failure does NOT cause HTTP 500 and DOES emit a structured log entry."
+            },
+            {
+              "label": "S2-F1-B: Catch + log + HTTP 500",
+              "description": "Return HTTP 500 on enqueue failure to trigger Stripe retry. Problem: the dedup guard has already fired, so the retry is eaten and the email is silently lost. Only viable if the dedup guard records AFTER the enqueue (specify this ordering constraint explicitly in the plan). Higher risk of silent failures."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "S2-F1 — When the async email enqueue fails (queue broker down), the handler has no specified rescue behavior. What should it do?": "S2-F1-A: Catch + log + HTTP 200 (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:55:46.904Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01URtNFV5BnCFQVAPLg29P8s",
+      "questions": [
+        {
+          "question": "S4-F1 — If the order fetch query fails after the payment DB update has committed (and dedup has fired), what should the handler do?",
+          "header": "Order fetch err",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "S4-F1-A: Catch + log + HTTP 200 (Recommended)",
+              "description": "Wrap the order fetch in error handling. On failure: log with structured context (event ID, userId, error). Enqueue the email without order details as a fallback (if possible), OR log and return HTTP 200 and let the runbook handle it. Consistent with S2-F1-A (email enqueue failures). Verify: unit test that order fetch failure does NOT cause HTTP 500 and DOES log a structured warning."
+            },
+            {
+              "label": "S4-F1-B: Let it propagate (HTTP 500)",
+              "description": "Leave the existing ingress wrapper handling in place: exception propagates, HTTP 500, Stripe retries. Acceptable ONLY if the plan explicitly specifies that the dedup guard records completion AFTER the order fetch (not after the DB update). Verify: confirm dedup guard ordering in implementation and document it."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "S4-F1 — If the order fetch query fails after the payment DB update has committed (and dedup has fired), what should the handler do?": "S4-F1-A: Catch + log + HTTP 200 (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:57:27.380Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01PLavQBrkD4SyLGcHR7rd8P",
+      "questions": [
+        {
+          "question": "S6-F1 — The plan’s Tests section says “None planned” but Approach B requires tests. Should the Tests section be updated to enumerate T1-T6?",
+          "header": "Test plan",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "S6-F1-A: Update Tests section with T1-T6 (Recommended)",
+              "description": "Replace “None planned” with the 6-test plan above. T1-T5 are unit tests (fast, no external deps). T6 is the integration test on the existing staging payment-event replay already called out in the rollout checklist. This aligns the Tests section with the approved approach and gives implementers concrete coverage targets. The Friday-2am ship test: T5 (SQL safety) + T3/T4 (failure paths) must be green before enabling the feature flag."
+            },
+            {
+              "label": "S6-F1-B: Keep “None planned”, rely on PR review to catch missing tests",
+              "description": "Defer test specification to the implementation PR. Risk: the reviewer must reconstruct the required cases from the review history. The SQL injection resistance test (T5) and failure path tests (T3/T4) are easy to miss without an explicit list."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "S6-F1 — The plan’s Tests section says “None planned” but Approach B requires tests. Should the Tests section be updated to enumerate T1-T6?": "S6-F1-A: Update Tests section with T1-T6 (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:58:13.595Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01RNgxmyCPEHSCqQZeScAu4y",
+      "questions": [
+        {
+          "question": "TODO-1 — No proactive alert for email enqueue failures (queue-down scenario). Add to TODOS.md?",
+          "header": "Alert TODO",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "TODO-1-A: Add to TODOS.md (Recommended)",
+              "description": "The existing on-call alert covers delivery failures but not enqueue failures. If the queue is down for hours, payments succeed but notification enqueues fail silently. The logs are there; the runbook covers manual retry. But a proactive alert would catch sustained failures before the runbook is needed. What: add alert on email enqueue failure rate > N% over M minutes. Effort: S (human ~1h / CC ~5min). Priority: P2."
+            },
+            {
+              "label": "TODO-1-B: Skip — runbook is sufficient",
+              "description": "The enqueue failure is logged with full context (S2-F1-A). The runbook already directs on-call to retry notifications. A proactive alert is a nice-to-have, not a correctness requirement. Acceptable in HOLD SCOPE."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "TODO-1 — No proactive alert for email enqueue failures (queue-down scenario). Add to TODOS.md?": "TODO-1-A: Add to TODOS.md (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:59:38.037Z"
+    },
+    {
+      "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+      "toolUseId": "toolu_01Pj9FmnhtjHMT5YMHQu44JS",
+      "questions": [
+        {
+          "question": "What’s the next review step after this CEO review?",
+          "header": "Next review",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /plan-eng-review (Recommended)",
+              "description": "Eng review is the required shipping gate. It covers architecture details, code quality, and test verification. This CEO review changed the implementation approach (Approach B: WebhookDispatcher integration, parameterized queries, async email queue) — a fresh eng review should validate the new approach before implementation begins."
+            },
+            {
+              "label": "Skip — handle reviews manually",
+              "description": "Proceed to implementation without the eng review gate. The CEO review resolved all findings, but the eng review validates the approach at a lower implementation level. Skipping is not recommended for a handler that processes payment webhooks."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "What’s the next review step after this CEO review?": "Run /plan-eng-review (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T07:03:47.073Z"
+    }
+  ],
+  "pendingExit": {
+    "sessionId": "93152292-0b46-4e39-8b32-e963a6bc02cb",
+    "toolUseId": "toolu_018AY3h698PASCbQEvjcT6q9",
+    "cwd": "/tmp/gstack-paid-shard-SxF6xq/tmp/gstack-plan-count-ULTLUt",
+    "transcriptPath": "/tmp/gstack-paid-shard-SxF6xq/tmp/gstack-hermetic-434287-jO1XY2/with-skills/.claude/projects/-tmp-gstack-paid-shard-SxF6xq-tmp-gstack-plan-count-ULTLUt/93152292-0b46-4e39-8b32-e963a6bc02cb.jsonl",
+    "timestamp": "2026-09-09T07:03:53.964Z"
+  },
+  "reportAtMs": 1788937345058.2493,
+  "reportContent": "# CEO Plan Review: Payment Processing Integration\n\n## Context\n\nReviewing `PLAN.md` — a plan to add a `StripePaymentWebhookHandler` class that processes `payment_intent.succeeded` Stripe events, updates the user record in the database, and sends a notification email.\n\n**Review mode:** HOLD SCOPE\n**Implementation approach:** B — Integrated Architecture (WebhookDispatcher, parameterized queries, async email queue, full tests)\n\nThe plan explicitly documents its own SQL injection vulnerability: `userId` from Stripe metadata is acknowledged as unsanitized, then used directly in a raw SQL fragment. This review surfaced that and five other issues, all resolved via approved remedies.\n\n---\n\n## Step 0 Decisions\n\n| Decision | Result |\n|----------|--------|\n| /office-hours prerequisite | Skipped — plan fully defined |\n| Implementation approach | B: Integrated Architecture |\n| Review mode | HOLD SCOPE |\n\n---\n\n## System Architecture (Approach B)\n\n```\nSTRIPE          EXISTING                              NEW (APPROACH B)\n──────          ──────────────────────────────────    ─────────────────────────────────────\n       POST     Signature Verification Middleware\nStripe ──────▶  Event type filter (succeeded only)\n                     │\n              [WebhookDispatcher]  ◀── NOW ROUTES HERE\n                     │\n              [StripePaymentWebhookHandler]  ← NEW\n                     │\n              [Event ID Dedup Guard]  (existing)\n                     │\n              [Per-user Transaction Lock]  (existing)\n                     │\n              DB Lookup: userId (PARAMETERIZED)\n                     │\n              ┌──────┴──────────────────┐\n         unknown user             user found\n         HTTP 200 + log    DB Update: payment_status=paid\n                                 │\n                        DB Fetch: orders (single JOIN)\n                                 │\n                        ┌────────┴─────────────────────────┐\n                    fetch fails                       fetch succeeds\n                    log + HTTP 200                   Async Email Enqueue (queue)\n                    (S4-F1-A)                               │\n                                              ┌─────────────┴──────────────┐\n                                         enqueue fails               enqueue succeeds\n                                         log + HTTP 200               HTTP 200\n                                         (S2-F1-A)                   queue manages delivery\n```\n\n---\n\n## Approved Findings & Remedies\n\n| # | Section | Finding | Severity | Approved Remedy |\n|---|---------|---------|----------|-----------------|\n| S1-F1-A | Architecture | Order fetch loop — N+1 queries, purpose undocumented | HIGH | Fetch is for email content; single JOIN query; unit test asserts 1 DB round-trip |\n| S2-F1-A | Error Map | Email enqueue failure — no rescue action specified | HIGH | Catch + log (event ID, userId, error) + HTTP 200 (not HTTP 500) |\n| S4-F1-A | Data Flow | Order fetch failure after dedup fires — silent loss risk | MEDIUM | Catch + log + HTTP 200, consistent with S2-F1-A |\n| S6-F1-A | Tests | Tests section says \"None planned\" — contradicts Approach B | HIGH | Replace with T1-T6 test plan (see below) |\n\n**Approach B base remedies (inherent in approach selection):**\n- SQL injection → parameterized queries throughout\n- WebhookDispatcher bypass → route through dispatcher\n- Inline email → async email queue\n\n---\n\n## Updated Tests Section (replaces \"None planned\")\n\n```\nT1 (unit, P1): Happy path — valid userId → payment updated + email enqueued\nT2 (unit, P1): Unknown user → HTTP 200, no update, no email\nT3 (unit, P1): Email enqueue failure → HTTP 200, structured log, NOT HTTP 500\nT4 (unit, P1): Order fetch failure → HTTP 200, structured log, NOT HTTP 500\nT5 (unit, P1): SQL injection resistance — adversarial userId does not leak into SQL literal\nT6 (integration, P2): Staging payment event replay → update + email delivery + correlated traces\n```\n\n---\n\n## Error & Rescue Registry\n\n```\nMETHOD/CODEPATH           EXCEPTION              RESCUED?  RESCUE ACTION              USER SEES\n─────────────────────────────────────────────────────────────────────────────────────────────────\nDB Lookup (userId)        nil/RecordNotFound     Y         Existing guard → HTTP 200  Nothing (logged)\n                          ConnectionError         Y         Ingress → HTTP 500         Stripe retries\n                          TimeoutError            Y         Ingress → HTTP 500         Stripe retries\nDB Update (payment_status)ConstraintError         Y         Ingress → HTTP 500         Stripe retries\n                          DeadlockError           Y         Ingress → HTTP 500         Stripe retries\nOrder fetch (JOIN)        Empty result            Y         No-op (email sans orders)  Nothing\n                          ConnectionError/Timeout Y (S4-F1-A) Log + HTTP 200          Runbook handles\nEmail enqueue             QueueError              Y (S2-F1-A) Log + HTTP 200          Runbook handles\nEmail delivery            SMTPError               Y (queue) Queue retries / DLQ       Runbook handles\n```\n\n---\n\n## Failure Modes Registry\n\n```\nCODEPATH        FAILURE MODE        RESCUED?  TEST?  USER SEES    LOGGED?\n────────────────────────────────────────────────────────────────────────\nuserId lookup   SQL injection        Y (param)  T5    Nothing      Y (no literal)\nDB update       DB exception         Y          T2    Stripe retry  Y (ingress)\nOrder fetch     DB exception         Y (S4-F1)  T4    HTTP 200     Y (structured)\nEmail enqueue   Queue down           Y (S2-F1)  T3    HTTP 200     Y (structured)\nEmail delivery  SMTP failure         Y (queue)  T6    Nothing      Y (mail client)\nDuplicate event Dedup guard fires    Y          T1    HTTP 200     Y (existing)\n```\n\nNo CRITICAL GAPS (all failure modes: rescued=Y, logged=Y, test-covered).\n\n---\n\n## NOT in Scope\n\n1. New Stripe event types (plan limits to `payment_intent.succeeded`)\n2. Balance / counter increments (explicitly excluded)\n3. Changes to signature verification, dedup guard, or per-user lock\n4. Automated event replay tooling (manual staging replay per rollout checklist)\n\n---\n\n## What Already Exists (Reuse Map)\n\n| Sub-problem | Existing code | Reused? |\n|-------------|---------------|---------|\n| Signature verification | Ingress middleware | Yes (unchanged) |\n| Event routing | WebhookDispatcher | Yes (Approach B) |\n| Event deduplication | Event ID dedup guard | Yes (unchanged) |\n| Concurrent update safety | Per-user transaction lock | Yes (unchanged) |\n| DB outcome tracing | DB client | Yes |\n| Email delivery + tracking | Mail client | Yes (via queue job) |\n| Notification failure recovery | Incident runbook | Yes |\n| Handler rollback | Feature flag + procedure | Yes (unchanged) |\n\n---\n\n## Dream State Delta\n\nThis plan (remedied) covers: parameterized queries, async email, error handling, full tests, WebhookDispatcher integration. Remaining gap to 12-month ideal: automated event replay tooling, proactive enqueue-failure alert (TODO-1-A), advanced payment state machine.\n\n---\n\n## TODOS.md Updates\n\n**TODO-1-A (P2, S, ~1h human / CC ~5min):** Alert for sustained email enqueue failure rate\n- **Why:** Enqueue failures are logged (S2-F1-A) but not actively paged\n- **Context:** Queue-down scenarios would succeed silently until runbook review\n- **Depends on:** Email queue provider selection (Approach B scope)\n\n---\n\n## Implementation Tasks\n\n- [ ] **T1 (P1, ~2h / CC ~15min)** — WebhookDispatcher — Route handler through dispatcher\n- [ ] **T2 (P1, ~1h / CC ~10min)** — DB query — Parameterize userId lookup\n- [ ] **T3 (P1, ~1h / CC ~10min)** — Order fetch — Single JOIN (not loop)\n- [ ] **T4 (P1, ~1h / CC ~10min)** — Email — Replace inline with async queue job\n- [ ] **T5 (P1, ~1h / CC ~10min)** — Error handling — Catch email enqueue failures (S2-F1-A)\n- [ ] **T6 (P1, ~1h / CC ~10min)** — Error handling — Catch order fetch failures (S4-F1-A)\n- [ ] **T7 (P1, ~3h / CC ~20min)** — Tests — Unit tests T1-T5 (incl. SQL injection resistance)\n- [ ] **T8 (P2, ~2h / CC ~15min)** — Tests — Integration test T6: staging payment event replay\n- [ ] **T9 (P2, ~1h / CC ~5min)** — Observability — Alert for email enqueue failure rate\n\n---\n\n```\n+====================================================================+\n|            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |\n+====================================================================+\n| Mode selected        | HOLD SCOPE                                  |\n| Step 0               | Approach B (Integrated Arch), HOLD SCOPE   |\n| Section 1  (Arch)    | 1 issue found (S1-F1-A)                    |\n| Section 2  (Errors)  | 6 paths mapped, 1 GAP (S2-F1-A)           |\n| Section 3  (Security)| SQL injection resolved by Approach B        |\n| Section 4  (Data/UX) | 1 issue (S4-F1-A)                          |\n| Section 5  (Quality) | 0 issues                                    |\n| Section 6  (Tests)   | 6 gaps resolved (S6-F1-A: T1-T6)          |\n| Section 7  (Perf)    | 0 issues (N+1 resolved)                    |\n| Section 8  (Observ)  | 1 gap (TODO-1-A accepted)                  |\n| Section 9  (Deploy)  | 0 risks                                    |\n| Section 10 (Future)  | Reversibility: 4/5, 0 debt items           |\n| Section 11 (Design)  | SKIPPED (no UI scope)                      |\n+--------------------------------------------------------------------+\n| Error/rescue registry| 12 methods, 0 CRITICAL GAPS                |\n| Failure modes        | 6 total, 0 CRITICAL GAPS                   |\n| TODOS.md updates     | 1 (TODO-1-A accepted)                      |\n| Outside voice        | skipped (codex_reviews disabled)           |\n| Lake Score           | 4/4 recommendations chose complete option  |\n| Unresolved decisions | 0                                          |\n+====================================================================+\n```\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | mode: HOLD_SCOPE, 0 critical gaps, 4 findings all resolved |\n| Outside Review | disabled | Independent 2nd opinion | 0 | disabled | — |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |\n\n**OUTSIDE COVERAGE:** Codex reviews disabled. Re-enable: `gstack-config set codex_reviews enabled`.\n\n**VERDICT:** CEO review complete — 4 findings resolved, 0 critical gaps. **Eng review required** (not yet run).\n\nNO UNRESOLVED DECISIONS\n",
+  "screen": " | Unresolved decisions | 0                                           |\n +====================================================================+\n\n GSTACK REVIEW REPORT\n\n ┌────────────┬─────────────────────┬───────────────────────┬──────┬─────────────┬─────────────────────────────────┐\n │   Review   │       Trigger       │          Why          │ Runs │   Status    │            Findings             │\n ├────────────┼─────────────────────┼───────────────────────┼──────┼─────────────┼─────────────────────────────────┤\n │ CEO Review │ /plan-ceo-review    │ Scope & strategy      │ 1    │ issues_open │ mode: HOLD_SCOPE, 0 critical    │\n │            │                     │                       │      │             │ gaps, 4 findings resolved       │\n ├────────────┼─────────────────────┼───────────────────────┼──────┼─────────────┼─────────────────────────────────┤\n │ Outside    │ disabled            │ Independent 2nd       │ 0    │ disabled    │ —                               │\n │ Review     │                     │ opinion               │      │             │                                 │\n ├────────────┼─────────────────────┼───────────────────────┼──────┼─────────────┼─────────────────────────────────┤\n │ Eng Review │ /plan-eng-review    │ Architecture & tests  │ 0    │ —           │ —                               │\n │            │                     │ (required)            │      │             │                                 │\n ├────────────┼─────────────────────┼───────────────────────┼──────┼─────────────┼─────────────────────────────────┤\n │ Design     │ /plan-design-review │ UI/UX gaps            │ 0    │ —           │ —                               │\n │ Review     │                     │                       │      │             │                                 │\n ├────────────┼─────────────────────┼───────────────────────┼──────┼─────────────┼─────────────────────────────────┤\n │ DX Review  │ /plan-devex-review  │ Developer experience  │ 0    │ —           │ —                               │\n │            │                     │ gaps                  │      │             │                                 │\n └────────────┴──────��──────────────┴───────────────────────┴──────┴─────────────┴─────────────────────────────────┘\n\n OUTSIDE COVERAGE: Codex reviews disabled (gstack-config set codex_reviews enabled to re-enable). No outside review\n attempted.\n\n VERDICT: CEO review complete — 4 findings resolved, 0 critical gaps. Eng review required (not yet run).\n\n NO UNRESOLVED DECISIONS\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Claude has written up a plan and is ready to execute. Would you like to proceed?\n\n ❯ 1. Yes, and use auto mode\n   2. Yes, manually approve edits\n   3. Tell Claude what to change\n      shift+tab to approve with this feedback\n",
+  "startedAtMs": 1788936429000
+}

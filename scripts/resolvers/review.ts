@@ -182,10 +182,12 @@ export function generateExitPlanModeGate(ctx: TemplateContext): string {
   // Writing a report or choosing the review's approach cannot supply approval.
   const noApproval = ctx.skillName === 'plan-design-review'
     ? 'DESIGN.md tokens and navigation' : 'Setup, mode, approach and navigation';
-  const approvals = ['plan-design-review', 'plan-ceo-review'].includes(ctx.skillName) ? `0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+  const approvals = ['plan-design-review', 'plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName) ? `0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
    Never group distinct issues. ${noApproval} are not approval.
    Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
-   record why. Deferrals remain unresolved.
+   record why. Deferrals remain unresolved.${ctx.skillName === 'plan-eng-review' ? `
+   The coverage-audit REGRESSION test is already authorized; cite that rule.
+   This exception covers only the regression test, not other findings.` : ''}
    If missing, reset drafts to pending, ask and wait. After answers or resets,
    refresh the plan, report and review log; rerun this gate.
 

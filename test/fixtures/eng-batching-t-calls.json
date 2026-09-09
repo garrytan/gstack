@@ -1,0 +1,162 @@
+[
+  {
+    "sessionId": "226e0e07-1291-4bd7-bcf6-ae870fb2e506",
+    "toolUseId": "toolu_0138pRD8ckvesCTQy87DbJjZ",
+    "questions": [
+      {
+        "question": "D2 \u2014 Architecture: Custom retry scheduler vs. the library's built-in retry hooks? <gstack-qid:plan-eng-review-arch-retry-scheduler>",
+        "header": "Retry arch",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Use library built-in with curve config (Recommended)",
+            "description": "Verify the library's backoff API, configure the curve there. Zero new code. Completeness: 9/10. (human: ~30min to verify API / CC: ~5min)"
+          },
+          {
+            "label": "Custom scheduler, shared module",
+            "description": "Roll custom but extract it to one shared module rather than copying inline to all 5 workers. Completeness: 8/10. (human: ~4h / CC: ~15min)"
+          },
+          {
+            "label": "Proceed as planned \u2014 custom, inline per worker",
+            "description": "Each worker gets its own copy of the retry logic. Completeness: 5/10. Creates 5 divergence points; acknowledged DRY violation from the start."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Architecture: Custom retry scheduler vs. the library's built-in retry hooks? <gstack-qid:plan-eng-review-arch-retry-scheduler>": "Use library built-in with curve config (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:05:35.182Z"
+  },
+  {
+    "sessionId": "226e0e07-1291-4bd7-bcf6-ae870fb2e506",
+    "toolUseId": "toolu_01Pocbd57aDt1wBR6MhVuaxt",
+    "questions": [
+      {
+        "question": "D3 \u2014 Code Quality: The retry envelope (compute delay, log attempt, dispatch) is copy-pasted across 5 worker files. The plan defers the refactor to 'later.' How should we handle this? <gstack-qid:plan-eng-review-cq-retry-envelope-dry>",
+        "header": "DRY violation",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Extract to shared module now (Recommended)",
+            "description": "Pull the retry envelope into one shared module before shipping. CC makes this ~10min. Bug fixes apply once, not 5 times. Completeness: 9/10."
+          },
+          {
+            "label": "Ship with copies, add tracked TODO",
+            "description": "Keep the 5 copies for now, but add a TODOS.md entry with a concrete upgrade trigger (e.g., 'before adding a 6th worker'). Completeness: 6/10."
+          },
+          {
+            "label": "Proceed as planned \u2014 copy-paste, refactor 'later'",
+            "description": "No extraction, no tracking. Each worker diverges independently over time. Completeness: 3/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Code Quality: The retry envelope (compute delay, log attempt, dispatch) is copy-pasted across 5 worker files. The plan defers the refactor to 'later.' How should we handle this? <gstack-qid:plan-eng-review-cq-retry-envelope-dry>": "Extract to shared module now (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:05:57.238Z"
+  },
+  {
+    "sessionId": "226e0e07-1291-4bd7-bcf6-ae870fb2e506",
+    "toolUseId": "toolu_0195Nj7YjAuqyngr2bhsMqgy",
+    "questions": [
+      {
+        "question": "D4 \u2014 Performance: On every retry the plan re-fetches the full job payload from the database AND recomputes the dependency graph. The plan notes caching is possible but 'not planned.' For a retry framework (same job fires N times), this multiplies DB reads by retry count. What should we do? <gstack-qid:plan-eng-review-perf-retry-cache>",
+        "header": "Retry cache",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Cache parsed dependency graph on first attempt (Recommended)",
+            "description": "Parse the graph once, attach it to the job context object, reuse on retries. DB reads = 1 per job regardless of retry count. Completeness: 9/10. (CC: ~10min)"
+          },
+          {
+            "label": "Cache full payload only, re-parse each retry",
+            "description": "Eliminate the DB round-trip on retries by caching the raw payload, but still re-parse the dependency graph each time. Completeness: 7/10. Partial win."
+          },
+          {
+            "label": "Proceed as planned \u2014 re-fetch + recompute every retry",
+            "description": "No caching. DB load scales with retry count. For a job retrying 5\u00d7, that is 5 DB reads and 5 graph traversals for the same data. Completeness: 4/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Performance: On every retry the plan re-fetches the full job payload from the database AND recomputes the dependency graph. The plan notes caching is possible but 'not planned.' For a retry framework (same job fires N times), this multiplies DB reads by retry count. What should we do? <gstack-qid:plan-eng-review-perf-retry-cache>": "Cache parsed dependency graph on first attempt (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:06:09.262Z"
+  },
+  {
+    "sessionId": "226e0e07-1291-4bd7-bcf6-ae870fb2e506",
+    "toolUseId": "toolu_01NsJuHrMsfaftvyrRjT1tBb",
+    "questions": [
+      {
+        "question": "TODO candidate \u2014 Retry observability: The plan introduces retry infrastructure but no way to see which jobs are retrying, how many times, or why they're failing. Without this, a retry storm is invisible until it shows up as load. Add to TODOS.md?",
+        "header": "TODO: metrics",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md (Recommended)",
+            "description": "Track: retry count per job, failure reasons, p99 retry latency. Implement after this PR ships. Depends on: shared retry envelope (T2) \u2014 metrics attach there."
+          },
+          {
+            "label": "Skip \u2014 not valuable enough",
+            "description": "Logging/metrics are a separate concern. Leave it out."
+          },
+          {
+            "label": "Build it now in this PR",
+            "description": "Add basic retry-count and failure-reason logging inside the shared retry envelope (T2) before shipping."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "TODO candidate \u2014 Retry observability: The plan introduces retry infrastructure but no way to see which jobs are retrying, how many times, or why they're failing. Without this, a retry storm is invisible until it shows up as load. Add to TODOS.md?": "Add to TODOS.md (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:06:53.371Z"
+  },
+  {
+    "sessionId": "226e0e07-1291-4bd7-bcf6-ae870fb2e506",
+    "toolUseId": "toolu_011bZEZbSYMgHLvG62iB5iwv",
+    "questions": [
+      {
+        "question": "TODO candidate \u2014 Exhausted retry handling: The plan doesn't specify what happens when a job hits max retries. Silent drop? Error log? Dead-letter queue? This affects data integrity guarantees (especially relevant given the at-most-once concern). Add to TODOS.md?",
+        "header": "TODO: dead-letter",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md (Recommended)",
+            "description": "Define the max-retry policy and implement dead-letter queue or explicit error handler. Depends on: retry framework (this PR)."
+          },
+          {
+            "label": "Skip \u2014 not valuable enough",
+            "description": "Acceptable to handle this in a follow-up or treat as a known gap."
+          },
+          {
+            "label": "Build it now in this PR",
+            "description": "Define max retry count and wire a dead-letter handler before shipping. Adds ~1h scope."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "TODO candidate \u2014 Exhausted retry handling: The plan doesn't specify what happens when a job hits max retries. Silent drop? Error log? Dead-letter queue? This affects data integrity guarantees (especially relevant given the at-most-once concern). Add to TODOS.md?": "Add to TODOS.md (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:06:59.382Z"
+  }
+]

@@ -712,10 +712,21 @@ Always work through the full interactive review: one section at a time (Architec
 
 Confirm you Read the review section the Section index named, and executed every review section (Architecture, Code Quality, Tests, Performance), the outside voice, and the required outputs in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
 
+Before summaries, review logs or next-step menus, run approval check 0 below.
+
 ## EXIT PLAN MODE GATE (BLOCKING)
 
 Before calling ExitPlanMode, run this self-check. If any item fails, do the
 missing work — do NOT call ExitPlanMode:
+
+0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+   Never group distinct issues. Setup, mode, approach and navigation are not approval.
+   Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
+   record why. Deferrals remain unresolved.
+   The coverage-audit REGRESSION test is already authorized; cite that rule.
+   This exception covers only the regression test, not other findings.
+   If missing, reset drafts to pending, ask and wait. After answers or resets,
+   refresh the plan, report and review log; rerun this gate.
 
 1. Read the plan file with the Read tool (after your most recent write to it).
 2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.

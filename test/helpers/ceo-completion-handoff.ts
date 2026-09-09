@@ -74,6 +74,26 @@ function pronounEngGate(question: string, descriptions: string[], context: strin
     closedNavigationContext(context);
 }
 
+/** A next-review question may explain completed CEO work only in its choices. */
+function describedPostReviewNavigation(question: string, descriptions: string[], context: string): boolean {
+  if (!/^What(?:['’]s|\s+is)\s+the\s+next\s+review\s+step\s+after\s+(?:this|the)\s+CEO\s+review\?$/i.test(question) ||
+      /`{3}|~{3}|(?:^|\n)[ \t]*>|\b(?:example|quoted source)\s*:/im.test(context)) return false;
+  const closed = /^(?:The|This) CEO review resolved all findings, but the eng review validates the approach at a lower implementation level$/i;
+  const topics = String.raw`(?:[\w-]+ integration|parameterized queries|async [\w-]+ queue)`;
+  const changedApproach = new RegExp(String.raw`^This CEO review changed the implementation approach \(Approach [A-Z]: ${topics}(?:, ${topics})*\) [—–-] a fresh eng review should validate the new approach before implementation begins$`, 'i');
+  const sentences = descriptions.flatMap(description => description.trim().split(/[.!](?:\s+|$)/)
+    .map(sentence => sentence.trim()).filter(Boolean));
+  // Whole sentences keep extra work out of the recap, including actions that
+  // an imperative-verb blacklist would miss. Only the next review is offered.
+  return sentences.filter(sentence => closed.test(sentence)).length === 1 &&
+    sentences.every(sentence => closed.test(sentence) || changedApproach.test(sentence) ||
+      /^Eng review is the required shipping gate$/i.test(sentence) ||
+      /^It covers architecture details, code quality, and test verification$/i.test(sentence) ||
+      /^Proceed to implementation without the eng review gate$/i.test(sentence) ||
+      /^Skipping is not recommended for a handler that processes payment webhooks$/i.test(sentence)) &&
+    closedNavigationContext(context);
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -118,7 +138,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   if (isMetadataNavigationQuestion(questionText) && /\n[ \t]*ELI10:/i.test(questionText) && !metadataCompletion) return null;
   const describedEngCompletion = q.options.length === 2 &&
     describedEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
-  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion;
+  const describedPostReviewCompletion = !id && q.options.length === 2 &&
+    describedPostReviewNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
+  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion || describedPostReviewCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext) ||
     pronounEngGate(questionText, q.options.map(option => option.description ?? ''), gateContext);

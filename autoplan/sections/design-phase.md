@@ -112,18 +112,14 @@ For this phase (design), retain the historical review-log skill identifier. Add 
 3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
 
-**Close this phase:** Reread full phase `Review record`; record EVERY accepted
-obligation (split bundles) → exact `Implementation plan` text. Edit omissions.
-Taste: provisional; unresolved User Challenges: original direction.
-Report/task edits do not count.
+**Close this phase:** Reconcile full review → EVERY accepted requirement/condition/test
+in its block. Taste provisional; User Challenges keep original.
 ```bash
-bun "<SNAPSHOT_TOOL>" check design "<ACTIVE_PLAN>" "<DESIGN_INPUT>" changed
+bun "<SNAPSHOT_TOOL>" amend design "<ACTIVE_PLAN>" "<DESIGN_INPUT>"
 ```
-No accepted implementation change: `unchanged` + reason.
-Verify each mapping in readback; bytes prove neither completeness nor correctness.
-Require full skill/section Read ranges, matched INPUT for completed native reviews, consumed
-terminal reviewers (unavailable/disabled allowed), successful writes/check.
-Only then announce completion AND load/create/dispatch the next phase:
+None: reason checks unchanged. Read back fully; retention ≠ approval/completeness/correctness.
+Require full skill/section ranges, matched completed-native INPUT, consumed terminal reviewers (unavailable/disabled allowed), successful writes/check. Only then
+announce completion AND load/create/dispatch the next phase:
 
 **Phase 2 complete.**
 Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].

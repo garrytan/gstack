@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { AskUserQuestionFingerprint } from './helpers/claude-pty-runner';
 import capturedL from './fixtures/devex-review-l-calls.json';
 import capturedN from './fixtures/devex-review-n-calls.json';
+import capturedT from './fixtures/devex-review-t-calls.json';
 import { nativePlanCallFingerprint } from './helpers/claude-pty-runner';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import {
@@ -295,5 +296,79 @@ describe('native developer-trace accuracy confirmation', () => {
     expect([native].filter(value => isDevexReviewIssue(fp(value)))).toHaveLength(1);
     native.answered = false;
     expect(isDevexReviewIssue(fp(native))).toBe(false);
+  });
+});
+
+describe('T native documentation follow-up decisions', () => {
+  const calls = () => structuredClone(capturedT.calls) as NativePlanQuestionCall[];
+  const fp = (native: NativePlanQuestionCall) => nativePlanCallFingerprint(native, 0, true);
+  const changeQuestion = (native: NativePlanQuestionCall, transform: (s: string) => string) => {
+    const q = native.questions[0]!;
+    const answer = native.answers![q.question]!;
+    q.question = transform(q.question);
+    native.answers = { [q.question]: answer };
+    return native;
+  };
+
+  test('the complete captured census keeps empathy setup and seven distinct issue calls', () => {
+    const actual = calls(); const before = structuredClone(actual);
+    expect(actual.map(c => isDevexReviewIssue(fp(c)))).toEqual([false, true, true, true, true, true, true, true]);
+    expect(actual).toEqual(before);
+  });
+
+  for (const index of [6, 7]) {
+    test(`follow-up ${index} requires complete native offered-answer identity`, () => {
+      for (const mutate of [
+        (c: NativePlanQuestionCall) => { c.failed = true; },
+        (c: NativePlanQuestionCall) => { delete c.failed; },
+        (c: NativePlanQuestionCall) => { c.answered = false; },
+        (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+        (c: NativePlanQuestionCall) => { delete c.unansweredQuestionIndices; },
+        (c: NativePlanQuestionCall) => { c.answers = {}; },
+        (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'Foreign answer' }; },
+        (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+        (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
+        (c: NativePlanQuestionCall) => { c.questions[0]!.options.push(structuredClone(c.questions[0]!.options[0]!)); },
+      ]) { const c = calls()[index]!; mutate(c); expect(isDevexReviewIssue(fp(c))).toBe(false); }
+      const foreign = fp(calls()[index]!); foreign.signature = 'foreign:call'; expect(isDevexReviewIssue(foreign)).toBe(false);
+      const screen = fp(calls()[index]!); delete screen.nativeCall; expect(isDevexReviewIssue(screen)).toBe(false);
+    });
+
+    test(`follow-up ${index} cannot borrow an unselected remedy or a setup identity`, () => {
+      const skipped = calls()[index]!; const q = skipped.questions[0]!;
+      skipped.answers = { [q.question]: q.options.at(-1)!.label };
+      expect(isDevexReviewIssue(fp(skipped))).toBe(false);
+      for (const header of ['Empathy check', 'Review mode', 'Next steps']) {
+        const c = calls()[index]!; c.questions[0]!.header = header; expect(isDevexReviewIssue(fp(c))).toBe(false);
+      }
+      for (const replacement of ['<gstack-qid:devex-mode>', '<gstack-qid:devex-next-steps>', '<gstack-qid:foreign>']) {
+        const c = changeQuestion(calls()[index]!, s => s.replace(/<gstack-qid:[^>]+>/, replacement));
+        expect(isDevexReviewIssue(fp(c))).toBe(false);
+      }
+      const duplicate = changeQuestion(calls()[index]!, s => s + ' <gstack-qid:devex-extra>');
+      expect(isDevexReviewIssue(fp(duplicate))).toBe(false);
+    });
+  }
+
+  test('a resolved documentation gap, quoted example or removed follow-up obligation earns no new credit', () => {
+    for (const transform of [
+      (s: string) => s.replace('but never says where to get one', 'and already says where to get one'),
+      (s: string) => s.replace('Documentation — README', 'Documentation — It is false that README'),
+      (s: string) => '> ' + s,
+      (s: string) => '```text\n' + s + '\n```',
+    ]) expect(isDevexReviewIssue(fp(changeQuestion(calls()[6]!, transform)))).toBe(false);
+    for (const transform of [
+      (s: string) => s.replace('**What:** Add', '**What:** Do not add'),
+      (s: string) => s.replace('additional examples/ files', 'the already-approved quickstart file'),
+      (s: string) => '> ' + s,
+      (s: string) => '```text\n' + s + '\n```',
+    ]) expect(isDevexReviewIssue(fp(changeQuestion(calls()[7]!, transform)))).toBe(false);
+  });
+
+  test('option reordering preserves the exact selected remedy and each native call counts once', () => {
+    for (const c of calls().slice(6)) {
+      c.questions[0]!.options.reverse();
+      expect([c].filter(c => isDevexReviewIssue(fp(c)))).toHaveLength(1);
+    }
   });
 });

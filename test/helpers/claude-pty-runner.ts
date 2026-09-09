@@ -32,6 +32,7 @@ import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
 import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
+import { createFilePermissionRecorder, currentFilePermissionEpoch, type FilePermissionEpoch } from './plan-count-file-permission';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 
@@ -101,6 +102,8 @@ export interface ClaudePtyOptions {
   observeScreen?: boolean;
   /** Count-only pending identity; the hook never approves or changes native tools. */
   observePlanReady?: boolean;
+  /** Count-only native permission epochs for this disposable caller-owned report. */
+  observeFilePermissions?: string;
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -159,6 +162,7 @@ export interface ClaudePtySession {
   hermeticConfigDir: string | null;
   /** Owned pre-tool identity record, removed by close(). */
   pendingPlanReadyFile?: string;
+  pendingFilePermissionFile?: string;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
    * Awaits process exit before resolving.
@@ -1421,9 +1425,9 @@ export function capturePlanCountQuestion(
  * Its text is not a new answer request. The same file can ask again after
  * a successful native Write/Edit result, so content-only dedup is too broad.
  */
-export function createPlanCountPermissionGuard(): (visible: string, completionHistory?: string) => 'grant' | 'handled' | null {
-  let granted: { signature: string; completedAt: number } | undefined;
-  return (visible, completionHistory = visible) => {
+export function createPlanCountPermissionGuard(): (visible: string, completionHistory?: string, native?: FilePermissionEpoch | null) => 'grant' | 'handled' | null {
+  let granted: { signature: string; completedAt: number; nativeId?: string } | undefined;
+  return (visible, completionHistory = visible, native) => {
     // Only the current viewport can establish an actionable permission.
     // Historical file results release a later identical grant, never a menu.
     const candidate = planCountPermissionMenu(visible);
@@ -1443,8 +1447,13 @@ export function createPlanCountPermissionGuard(): (visible: string, completionHi
     if (visibleCompletedAt > cursorAt) return 'handled';
     const history = stripPtyResidue(completionHistory).replace(/\r+\n?/g, '\n');
     const completedAt = [...history.matchAll(completionPattern)].at(-1)?.index ?? -1;
-    if (granted?.signature === signature && completedAt <= granted.completedAt) return 'handled';
-    granted = { signature, completedAt };
+    if (native !== undefined) {
+      // Native success alone is not a new prompt: the old pane may redraw.
+      // Release only a distinct pending request after this exact grant completed.
+      if (!native || (granted?.signature === signature &&
+          (!granted.nativeId || native.pendingId === granted.nativeId || native.completedId !== granted.nativeId))) return 'handled';
+    } else if (granted?.signature === signature && completedAt <= granted.completedAt) return 'handled';
+    granted = { signature, completedAt, ...(native ? {nativeId:native.pendingId} : {}) };
     return 'grant';
   };
 }
@@ -2033,9 +2042,31 @@ function engExplicitRepairAUQ(fp: AskUserQuestionFingerprint): boolean {
   return Boolean(issue && !/\b(?:false|not|never|no longer|denies?|claim|assertion|example)\b/i.test(issue[1]!));
 }
 
+/** A component choice can name its existing defect in an offered remedy. */
+function engArchitectureChoiceAUQ(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (call?.answered !== true || call.failed !== false || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^(?:Retry arch|Architecture)$/i.test(q.header.trim()) || q.options.length !== 3 ||
+      new Set(q.options.map(o => o.label)).size !== 3 ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      !/^plan-eng-(?:review-)?arch(?:itecture)?-retry-scheduler$/i.test(ids[0]![1]!)) return false;
+  const body = q.question.replace(/<gstack-qid:[^>]+>/i, '').trim().replace(/\s+/g, ' ');
+  if (!/^D\s*\d+\s*[—–:-]\s*Architecture:\s*Custom retry scheduler vs\.? the library['’]s built-in retry hooks\?$/i.test(body)) return false;
+  const label = (s: string) => s.trim().replace(/\s*\(recommended\)$/i, '');
+  if (!q.options.some(o => /^Use library built-in with curve config$/i.test(label(o.label))) ||
+      !q.options.some(o => /^Custom scheduler, shared module$/i.test(label(o.label)))) return false;
+  const unchanged = q.options.find(o => /^Proceed as planned\s*[—–-]\s*custom, inline per worker$/i.test(label(o.label)));
+  return Boolean(unchanged && /^Each worker gets its own copy of the retry logic\.\s+Completeness:\s*\d+\/10\.\s+Creates \d+ divergence points; acknowledged DRY violation from the start\.$/i.test(unchanged.description ?? ''));
+}
+
 /** An answered substantive finding can start review even in a mixed setup packet. */
 export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
-  if (engExplicitRepairAUQ(fp)) return true;
+  if (engExplicitRepairAUQ(fp) || engArchitectureChoiceAUQ(fp)) return true;
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   return call.questions.some(q => {
@@ -2156,11 +2187,19 @@ export async function launchClaudePty(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let proc: any;
   let pendingExit: ReturnType<typeof createPendingExitRecorder> | undefined;
+  let pendingFile: ReturnType<typeof createFilePermissionRecorder>;
   try {
     if (opts.observePlanReady && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       pendingExit = createPendingExitRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
-      args.push('--settings', pendingExit.settings);
     }
+    if (opts.observeFilePermissions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
+      pendingFile = createFilePermissionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, opts.observeFilePermissions);
+    }
+    if (pendingFile) {
+      const hooks = pendingExit ? JSON.parse(pendingExit.settings).hooks : {};
+      for (const [event, entries] of Object.entries(pendingFile.hooks)) hooks[event] = [...(hooks[event] ?? []), ...entries];
+      args.push('--settings', JSON.stringify({hooks}));
+    } else if (pendingExit) args.push('--settings', pendingExit.settings);
     proc = (Bun as any).spawn([claudePath, ...args], {
     terminal: {
       cols,
@@ -2173,7 +2212,7 @@ export async function launchClaudePty(
     },
     cwd,
     env: childEnv,
-  }); } catch (error) { pendingExit?.dispose(); await disposeScreen(); throw error; }
+  }); } catch (error) { pendingFile?.dispose(); pendingExit?.dispose(); await disposeScreen(); throw error; }
 
   // Track exit so waitForAny can fail fast if claude crashes.
   let exitedPromise: Promise<void> = Promise.resolve();
@@ -2306,7 +2345,7 @@ export async function launchClaudePty(
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
     for (const timer of trustInputTimers) clearTimeout(timer);
-    if (exited) { pendingExit?.dispose(); await disposeScreen(); return; }
+    if (exited) { pendingFile?.dispose(); pendingExit?.dispose(); await disposeScreen(); return; }
     try {
       proc.kill?.('SIGINT');
     } catch {
@@ -2322,6 +2361,7 @@ export async function launchClaudePty(
       }
       await Promise.race([exitedPromise, Bun.sleep(1000)]);
     }
+    pendingFile?.dispose();
     pendingExit?.dispose();
     await disposeScreen();
   }
@@ -2346,6 +2386,7 @@ export async function launchClaudePty(
     exitCode: () => exitCodeCaptured,
     hermeticConfigDir: hermetic ? childEnv.CLAUDE_CONFIG_DIR ?? null : null,
     pendingPlanReadyFile: pendingExit?.file,
+    pendingFilePermissionFile: pendingFile?.file,
     close,
   };
 }
@@ -2919,6 +2960,7 @@ export async function runPlanSkillCounting(opts: {
       seedSkills: true,
       observeScreen: true,
       observePlanReady: true,
+      observeFilePermissions: opts.expectedPlanPath,
     });
   } catch (error) {
     fixture.cleanup();
@@ -3082,7 +3124,8 @@ export async function runPlanSkillCounting(opts: {
       }
       if (opts.expectedPlanPath && terminalHint === 'plan_ready' && !verifiedTerminal) continue;
       const permission = nativeQuestionVisible || terminalHint === 'plan_ready'
-        ? null : filePermission(visible, session.visibleText());
+        ? null : filePermission(visible, session.visibleText(), currentFilePermissionEpoch(
+          session.pendingFilePermissionFile, opts.expectedPlanPath, fixture.cwd, session.hermeticConfigDir, startedAt, transcript, visible));
       if (frame === 'permission' || (permission === 'grant' && frame === null)) {
         if (remainingWork() <= 0) break;
         if (permission !== 'handled') session.send(`${defaultPick}\r`);

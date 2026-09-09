@@ -135,8 +135,9 @@ CEO DUAL VOICES — CONSENSUS TABLE:
   5. Competitive/market risks covered? —       —      —
   6. 6-month trajectory sound?         —       —      —
 ═══════════════════════════════════════════════════════════════
-CONFIRMED = native + outside agree; primary cannot replace outside. DISAGREE → taste.
-Missing/disabled voice = N/A, never CONFIRMED. Flag any single-voice critical finding.
+CONFIRMED = completed subagent + outside; primary cannot replace outside.
+Outside disabled/unavailable: six Consensus cells N/A, never CONFIRMED.
+Native findings stay separate; disagreements → taste; flag single-voice criticals.
 ```
 
 Sections 1-10 — for EACH section, run the evaluation criteria from the loaded skill file:
@@ -153,22 +154,18 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Dream state delta (where this plan leaves us vs 12-month ideal)
 - Completion Summary (the full summary table from the CEO skill)
 
-**Close this phase:** Reread full phase `Review record`; record EVERY accepted
-obligation (split bundles) → exact `Implementation plan` text. Edit omissions.
-Taste: provisional; unresolved User Challenges: original direction.
-Report/task edits do not count.
+**Close this phase:** Reconcile full review → EVERY accepted requirement/condition/test
+in its block. Taste provisional; User Challenges keep original.
 ```bash
-bun "<SNAPSHOT_TOOL>" check ceo "<ACTIVE_PLAN>" "<CEO_INPUT>" changed
+bun "<SNAPSHOT_TOOL>" amend ceo "<ACTIVE_PLAN>" "<CEO_INPUT>"
 ```
-No accepted implementation change: `unchanged` + reason.
-Verify each mapping in readback; bytes prove neither completeness nor correctness.
-Require full skill/section Read ranges, matched INPUT for completed native reviews, consumed
-terminal reviewers (unavailable/disabled allowed), successful writes/check.
-Only then announce completion AND load/create/dispatch the next phase:
+None: reason checks unchanged. Read back fully; retention ≠ approval/completeness/correctness.
+Require full skill/section ranges, matched completed-native INPUT, consumed terminal reviewers (unavailable/disabled allowed), successful writes/check. Only then
+announce completion AND load/create/dispatch the next phase:
 
 **Phase 1 complete.**
 Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].
-Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
+Consensus: [N/A (outside disabled/unavailable) | X/6 native+outside confirmed; Y disagreements → gate].
 Passing to Phase 2.
 
 Do NOT begin Phase 2 until all Phase 1 outputs are written to the plan file,

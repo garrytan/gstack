@@ -113,7 +113,7 @@ describe('autoplan phase execution checkpoints', () => {
       expect(section).toContain('Outer tool timeout: 720000ms');
       expect(section).toContain('disabled → skip outside. Both retain the native pass.');
       expect(section).toContain(`{{OUTSIDE_PROVENANCE:${phase}}}`);
-      expect(section).toContain('Missing/disabled');
+      expect(section).toContain(phase === 'ceo' ? 'Outside disabled/unavailable' : 'Missing/disabled');
       expect(section).toContain('N/A');
       expect(section).toContain('primary cannot replace');
       expect(section).toContain(phase === 'design' ? 'not CONFIRMED' : 'never CONFIRMED');
@@ -135,7 +135,7 @@ describe('autoplan phase execution checkpoints', () => {
     expect(contract).toContain('Pending is not unavailable');
     expect(contract).toContain('Time/context pressure or your own review never permits\nskipping native passes or required sections');
     expect(contract).toContain('Never read raw agent transcripts');
-    expect(tmpl).toContain('LOG each decision and amend ALL accepted obligations in `Implementation plan` in the SAME edit');
+    expect(tmpl).toContain('LOG each decision; record ALL accepted obligations below and run `amend` before continuing');
   });
 
   test('each completed phase announces only after persisted full outputs and settled reviewers', () => {
@@ -146,23 +146,25 @@ describe('autoplan phase execution checkpoints', () => {
       expect(barrier).toBeGreaterThan(-1);
       expect(barrier).toBeLessThan(announcement);
       const checkpoint = section.slice(barrier, announcement);
-      expect(checkpoint).toContain('Require full skill/section Read ranges');
+      expect(checkpoint).toContain('Require full skill/section ranges');
       expect(checkpoint).toContain('successful writes');
       expect(checkpoint).toContain('terminal reviewers');
-      expect(checkpoint).toContain('matched INPUT for completed native reviews');
+      expect(checkpoint).toContain('matched completed-native INPUT');
       expect(checkpoint).toContain('(unavailable/disabled allowed)');
       expect(checkpoint).toContain('successful writes/check');
       expect(checkpoint).toContain(phase === 'eng'
         ? 'announce completion and proceed to final synthesis/approval'
         : 'announce completion AND load/create/dispatch the next phase');
-      expect(checkpoint).toContain('record EVERY accepted');
-      expect(checkpoint).toContain('obligation (split bundles) → exact `Implementation plan` text. Edit omissions');
-      expect(checkpoint).toContain('Reread full phase `Review record`');
-      expect(checkpoint).toContain('Verify each mapping in readback');
-      expect(checkpoint).toContain('bytes prove neither completeness nor correctness');
-      expect(checkpoint).toContain('Taste: provisional');
-      expect(checkpoint).toContain('unresolved User Challenges: original direction');
-      expect(checkpoint).toContain('Only then announce');
+      expect(checkpoint).toContain('EVERY accepted requirement/condition/test');
+      expect(checkpoint).toContain('in its block');
+      expect(checkpoint).toContain('Reconcile full review');
+      expect(checkpoint).toContain('Read back fully');
+      expect(checkpoint).toContain('retention ≠ approval/completeness/correctness');
+      expect(checkpoint).toContain('Taste provisional');
+      expect(checkpoint).toContain('User Challenges keep original');
+      expect(checkpoint).toContain(`amend ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>"`);
+      expect(checkpoint).toContain('None: reason checks unchanged');
+      expect(checkpoint).toContain('Only then\nannounce');
     }
   });
 
@@ -218,9 +220,9 @@ describe('autoplan current implementation-plan identity', () => {
       expect(section).toContain('Send `nativeDispatchPrompt` verbatim');
       expect(section).toContain('Reads `nativePromptPath` to EOF');
       expect(section).toContain(`Outside prompt: inline the full contents of <${phase.toUpperCase()}_INPUT>`);
-      expect(section).toContain(`check ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>" changed`);
-      expect(section).toContain('No accepted implementation change: `unchanged` + reason');
-      expect(section).toContain('Report/task edits do not count');
+      expect(section).toContain(`amend ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>"`);
+      expect(section).toContain('None: reason checks unchanged');
+      expect(read('autoplan/SKILL.md.tmpl')).toContain('checks exact retention');
       expect(section).not.toContain('<review_plan_path>');
       expect(section).not.toContain('<plan_path>');
       expect(section).toContain('no summaries or prior reviews');

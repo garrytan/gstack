@@ -52,6 +52,7 @@ test('actual raw R input initializes before scope and reaches a complete CEO dis
   expect(ceo.nativePrompt.endsWith(original.toString())).toBe(true);
   expect(ceo.nativePrompt).toContain('Mutations already require CSRF tokens');
   expect(ceo.sha256).toBe(initialized.scope.sha256);
+  writeFileSync(f.source, readFileSync(f.source, 'utf8') + '<!-- autoplan-accepted:ceo -->\nNone: Initialization only; no review decisions yet.\n<!-- /autoplan-accepted:ceo -->\n');
   expect(invoke('check', 'ceo', f.source, ceo.snapshotPath, 'unchanged').changed).toBe(false);
 });
 

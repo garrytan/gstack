@@ -125,13 +125,15 @@ This section traces data through the system and interactions through the UI with
 ```
 For each node: what happens on each shadow path? Is it tested?
 
-**Async ordering:** At each suspension point (`await`, callback, or job handoff),
-trace another operation running before resumption. Follow shared-state effects
-through the next consumer, not just the original caller's return. Compare each
-result with the exact caller/time boundary of the stated invariant; cite the
-clause before calling an exception accepted. Bounded damage does not establish a
-stricter guarantee. Single-threaded execution and atomic calls do not make the
-whole flow atomic. Test the interleaving with controlled pause/release points.
+**Async ordering:** For flows sharing mutable state, include a combined ASCII
+schedule with one column per operation and one for shared state. At each `await`,
+callback or job handoff: pause, let a competing operation complete, resume, then
+start a fresh consumer. Show the observed result and compare it with the exact
+caller/time boundary of the stated invariant. If safe, name the mechanism that
+prevents the violating schedule. Separate flow diagrams do not prove ordering.
+Atomic calls and a single thread do not make the whole flow atomic. An accepted
+exception needs its exact contract clause; bounded damage is insufficient. Test
+this schedule with controlled pause/release points.
 
 **Interaction Edge Cases:** For every new user-visible interaction, evaluate:
 ```
@@ -196,19 +198,22 @@ For each item in the diagram:
 * What is the failure path test? (Be specific — which failure?)
 * What is the edge case test? (nil, empty, boundary values, concurrent access)
 
-For each behavior, name its observable assertion and a wrong result it must reject.
-For an already-required test, reuse exact expected observations the user specified
-or individually approved; spell out assertion mechanics without asking again.
-Preserve every condition and quantifier; never weaken an exact count to a lower
-bound. Vague success labels do not settle outcomes or values; missing observations
-and real choices still need individual decisions.
-Keep user-required behaviors and assertions mandatory unless the user explicitly
-approves changing them. Never fill a missing behavioral assertion silently in the
-final report: obtain its own AskUserQuestion decision first. Scope/approach approval
-is not approval of individual assertion gaps. Helper coverage alone does not prove
-the caller's path; deferring syntax does not waive a missing check. Raise each
-independent missing check separately; do not invent one where equivalent caller
-coverage exists or the user explicitly accepted that particular risk.
+For each behavior, name its observable assertion and a wrong result it rejects.
+First map it to the user's exact requirement or individually approved remedy.
+A stated outcome plus its retained caller contract can already determine the
+assertion, even without assertion syntax. Translate semantic counts, conditions
+and quantifiers exactly; selecting an existing probe or spelling out that check
+is implementation work, not another approval. Never weaken an exact count to a
+lower bound. Reuse these requirements without asking again.
+
+Ask individually only for an unresolved behavioral choice, new outcome, or
+independent uncovered failure mode. Vague success labels do not settle values;
+scope/approach approval does not resolve an individual assertion gap. Helper
+coverage alone does not prove the caller's path. Explain what the existing
+requirement or approved remedy fails to cover before calling a check missing.
+Never silently add, defer or waive a missing behavioral assertion. Keep required
+behaviors mandatory unless the user explicitly approves changing them; honor
+previously accepted risks and equivalent caller coverage.
 
 Test ambition check (all modes): For each new feature, answer:
 * What's the test that would make you confident shipping at 2am on a Friday?

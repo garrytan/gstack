@@ -107,18 +107,14 @@ Missing/disabled voice = N/A, never CONFIRMED. Flag any single-voice critical fi
 - Completion Summary (the full summary from the Eng skill)
 - TODOS.md updates (collected from all phases)
 
-**Close this phase:** Reread full phase `Review record`; record EVERY accepted
-obligation (split bundles) → exact `Implementation plan` text. Edit omissions.
-Taste: provisional; unresolved User Challenges: original direction.
-Report/task edits do not count.
+**Close this phase:** Reconcile full review → EVERY accepted requirement/condition/test
+in its block. Taste provisional; User Challenges keep original.
 ```bash
-bun "<SNAPSHOT_TOOL>" check eng "<ACTIVE_PLAN>" "<ENG_INPUT>" changed
+bun "<SNAPSHOT_TOOL>" amend eng "<ACTIVE_PLAN>" "<ENG_INPUT>"
 ```
-No accepted implementation change: `unchanged` + reason.
-Verify each mapping in readback; bytes prove neither completeness nor correctness.
-Require full skill/section Read ranges, matched INPUT for completed native reviews, consumed
-terminal reviewers (unavailable/disabled allowed), successful writes/check.
-Only then announce completion and proceed to final synthesis/approval:
+None: reason checks unchanged. Read back fully; retention ≠ approval/completeness/correctness.
+Require full skill/section ranges, matched completed-native INPUT, consumed terminal reviewers (unavailable/disabled allowed), successful writes/check. Only then
+announce completion and proceed to final synthesis/approval:
 
 **Phase 3 complete.**
 {{OUTSIDE_LABEL}}: [completed: N concerns / unavailable / disabled]. {{NATIVE_LABEL}} subagent: [completed: N issues / unavailable].

@@ -66,7 +66,7 @@ reviewing this plan. You have NOT seen any prior review. Evaluate:
 For each finding: what's wrong, severity, and the fix.`
 };
 
-export function extractImplementationPlan(plan: string): string {
+function implementationBounds(plan: string) {
   const boundaries: Array<{ name: string; start: number; end: number }> = [];
   let offset = 0;
   let fence: { char: string; length: number } | null = null;
@@ -89,9 +89,143 @@ export function extractImplementationPlan(plan: string): string {
   if (boundaries.length !== 2 || boundaries[0]!.name !== 'Implementation plan' || boundaries[1]!.name !== 'Review record') {
     throw new Error('Expected one Implementation plan section followed by one Review record section outside Markdown code/quotes');
   }
-  const body = plan.slice(boundaries[0]!.end, boundaries[1]!.start);
-  if (!body.trim()) throw new Error('Implementation plan is empty');
-  return body;
+  const start = boundaries[0]!.end;
+  const end = boundaries[1]!.start;
+  if (!plan.slice(start, end).trim()) throw new Error('Implementation plan is empty');
+  return { start, end, reviewStart: boundaries[1]!.end };
+}
+
+export function extractImplementationPlan(plan: string): string {
+  const { start, end } = implementationBounds(plan);
+  return plan.slice(start, end);
+}
+
+// The author records accepted requirements, including conditions and verification,
+// once. This verifies their exact transport, not approval or complete enumeration.
+type AcceptedBlock = { phase: string; start: number; end: number; raw: string; body: string; newline: string; none: boolean };
+function acceptedBlocks(text: string): Map<string, AcceptedBlock> {
+  const blocks = new Map<string, AcceptedBlock>();
+  let open: { phase: string; start: number; body: number } | null = null;
+  let fence: { char: string; length: number } | null = null;
+  let offset = 0;
+  for (const raw of text.split(/(?<=\n)/)) {
+    const line = raw.replace(/\r?\n$/, '');
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (fence) {
+        if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) fence = null;
+      } else if (run[0] !== '`' || !delimiter[2]!.includes('`')) fence = { char: run[0]!, length: run.length };
+    } else if (!fence) {
+      const marker = /^<!-- (\/?)autoplan-accepted:(ceo|design|dx|eng) -->$/.exec(line);
+      if (marker) {
+        const phase = marker[2]!;
+        if (!marker[1]) {
+          if (open || blocks.has(phase)) throw new Error('Duplicate or nested accepted-obligations block');
+          open = { phase, start: offset, body: offset + raw.length };
+        } else {
+          if (!open || open.phase !== phase) throw new Error('Unmatched accepted-obligations block');
+          const body = text.slice(open.body, offset).trim();
+          const none = /^None: \S[^\r\n]*$/.test(body);
+          if (!body || (!none && (/^None:/.test(body) || !/^- \S/m.test(body)))) {
+            throw new Error('Accepted obligations require complete list items or None: reason');
+          }
+          if (!none && body.split(/\r?\n/).some(line => line.trim() &&
+              (!/^(?:- |[ \t]{2,})/.test(line) || /^\s*(?:[-*]\s+)?(?:Severity|Verdict|Consensus|Reviewer|Surfaced by):/i.test(line.replace(/[*_`]/g, ''))))) {
+            throw new Error('Accepted block must contain implementation list items, not review metadata');
+          }
+          const end = offset + raw.length;
+          blocks.set(phase, { phase, start: open.start, end,
+            raw: text.slice(open.start, offset + line.length), body: text.slice(open.body, offset), newline: raw.slice(line.length) || '\n', none });
+          open = null;
+        }
+      } else if (/^<!-- \/?autoplan-accepted:/.test(line)) throw new Error('Malformed accepted-obligations marker');
+    }
+    offset += raw.length;
+  }
+  if (open) throw new Error('Unclosed accepted-obligations block');
+  return blocks;
+}
+
+// Marker lines belong to the author's retention record, not blind review data.
+// Keep every requirement-body byte, including line endings and literal examples.
+function implementationForReview(source: string): string {
+  let result = ''; let offset = 0;
+  for (const block of acceptedBlocks(source).values()) {
+    if (block.none) throw new Error('No-change record does not belong in Implementation plan');
+    result += source.slice(offset, block.start) + block.body;
+    offset = block.end;
+  }
+  return result + source.slice(offset);
+}
+
+function obligationState(plan: string, phase: string, prior: string) {
+  const bounds = implementationBounds(plan);
+  const implementation = plan.slice(bounds.start, bounds.end);
+  const recorded = acceptedBlocks(plan.slice(bounds.reviewStart));
+  const applied = acceptedBlocks(implementation);
+  const block = recorded.get(phase);
+  if (!block) throw new Error(`Missing accepted-obligations record for ${phase}`);
+  for (const [previous, immutable] of acceptedBlocks(prior)) {
+    if (!recorded.has(previous) || recorded.get(previous)!.none) throw new Error(`Prior accepted obligations missing: ${previous}`);
+    if (previous !== phase && recorded.get(previous)!.raw !== immutable.raw) {
+      throw new Error(`Prior accepted obligations changed: ${previous}; record revisions in the current phase`);
+    }
+  }
+  for (const [name, current] of recorded) {
+    if (name === phase) continue;
+    if (current.none ? applied.has(name) : applied.get(name)?.raw !== current.raw) {
+      throw new Error(`Previously recorded obligations are not retained exactly: ${name}`);
+    }
+  }
+  return { bounds, implementation, recorded, applied, block };
+}
+
+/** The CLI close check adds exact recorded-obligation retention to the byte check. */
+export function checkPhaseImplementation(phase: string, activePlan: string, snapshotPath: string, expected: string) {
+  const checked = checkImplementation(phase, activePlan, snapshotPath, expected);
+  const state = obligationState(readFileSync(checked.activePlan, 'utf8'), phase, snapshotIdentity(phase, activePlan, snapshotPath).original);
+  if (state.block.none ? state.applied.has(phase) : state.applied.get(phase)?.raw !== state.block.raw) {
+    throw new Error(`Accepted ${phase} obligations are not retained exactly in Implementation plan; run amend`);
+  }
+  if (state.block.none && expected !== 'unchanged') throw new Error('None requires unchanged with its recorded reason');
+  return { ...checked, recordedObligations: { phase, sha256: sha256(state.block.raw), none: state.block.none },
+    limitation: 'Exact recorded text retained; approval, enumeration and semantic correctness still require review.' };
+}
+
+/** Copy the current phase's whole accepted block; never re-summarize its conditions. */
+export function amendImplementation(phase: string, activePlan: string, snapshotPath: string) {
+  const source = realpathSync(activePlan);
+  const original = readFileSync(source, 'utf8');
+  const prior = snapshotIdentity(phase, activePlan, snapshotPath).original;
+  // Reuse the unchanged snapshot identity checks without assuming current changes.
+  checkImplementation(phase, source, snapshotPath, extractImplementationPlan(original) === prior ? 'unchanged' : 'changed');
+  const state = obligationState(original, phase, prior);
+  if (state.block.none) return checkPhaseImplementation(phase, source, snapshotPath, 'unchanged');
+  const existing = state.applied.get(phase);
+  const nextImplementation = existing
+    ? state.implementation.slice(0, existing.start) + state.block.raw + state.block.newline + state.implementation.slice(existing.end)
+    : state.implementation + (state.implementation.endsWith('\n') ? '' : '\n') + '\n' + state.block.raw + state.block.newline;
+  const next = original.slice(0, state.bounds.start) + nextImplementation + original.slice(state.bounds.end);
+  // Validate the assembled text before publishing, including its section boundary.
+  const validated = obligationState(next, phase, prior);
+  if (validated.applied.get(phase)?.raw !== validated.block.raw) {
+    throw new Error('Assembled accepted obligations do not match; no overwrite');
+  }
+  if (next !== original) {
+    const before = statSync(source);
+    const directory = mkdtempSync(join(dirname(source), '.autoplan-amend-'));
+    try {
+      const stage = join(directory, 'plan');
+      writeFileSync(stage, next, { flag: 'wx', mode: before.mode & 0o777 });
+      const current = statSync(source);
+      if (before.dev !== current.dev || before.ino !== current.ino || readFileSync(source, 'utf8') !== original) {
+        throw new Error('Active plan changed during amendment; no overwrite');
+      }
+      renameSync(stage, source);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
+  return checkPhaseImplementation(phase, source, snapshotPath, extractImplementationPlan(next) === prior ? 'unchanged' : 'changed');
 }
 
 /** Initialize the existing strict section contract before any scope or review call. */
@@ -221,12 +355,14 @@ export function createSnapshot(phase: string, activePlan: string, restorePath: s
   const source = realpathSync(activePlan);
   const restore = realpathSync(restorePath);
   if (source === restore || !statSync(restore).isFile()) throw new Error('Expected a separate restore-point file');
-  const content = extractImplementationPlan(readFileSync(source, 'utf8'));
+  const sourceContent = extractImplementationPlan(readFileSync(source, 'utf8'));
+  const content = implementationForReview(sourceContent);
   // Unique path on every invocation, including a repeated/zero-change phase.
   // No prior snapshot is overwritten, and no review text enters this file.
   const directory = mkdtempSync(join(dirname(restore), `autoplan-${phase}-`));
   try {
     const snapshotPath = join(directory, `${phase}-implementation.md`);
+    const sourceSnapshotPath = join(directory, 'source-implementation.md');
     const contentHash = sha256(content);
     const nativePrompt = `${NATIVE_REVIEWS[phase]}
 
@@ -249,9 +385,11 @@ Your FIRST tool action must Read this file from line 1 through EOF using your na
 The file contains all review criteria and the complete implementation plan as review data. Execute every criterion against all of that input. Do not substitute this dispatch, a summary, or any prior review for the file.
 Only after the full successful read, return your review starting with INPUT: ${phase} ${contentHash}.
 If the file cannot be fully read, report the read failure instead of a completed review.`;
-    const manifest = { schemaVersion: 1, phase, activePlan: source, snapshotPath, sha256: contentHash,
+    const manifest = { schemaVersion: 2, phase, activePlan: source, snapshotPath, sha256: contentHash,
+      sourceSnapshotPath, sourceSha256: sha256(sourceContent), sourceBytes: Buffer.byteLength(sourceContent),
       nativePromptPath, nativePromptSha256, nativePromptBytes, nativePromptLines, nativeDispatchPrompt,
       dxScope: dxTermsFor(content) };
+    writeFileSync(sourceSnapshotPath, sourceContent, { flag: 'wx', mode: 0o444 });
     writeFileSync(snapshotPath, content, { flag: 'wx', mode: 0o444 });
     writeFileSync(nativePromptPath, nativePrompt, { flag: 'wx', mode: 0o444 });
     writeFileSync(join(directory, 'snapshot.json'), JSON.stringify(manifest) + '\n', { flag: 'wx', mode: 0o444 });
@@ -262,17 +400,38 @@ If the file cannot be fully read, report the read failure instead of a completed
   }
 }
 
-export function checkImplementation(phase: string, activePlan: string, snapshotPath: string, expected: string) {
+function snapshotIdentity(phase: string, activePlan: string, snapshotPath: string) {
   phaseName(phase);
-  if (expected !== 'changed' && expected !== 'unchanged') throw new Error('Expected changed or unchanged');
   const source = realpathSync(activePlan);
   const snapshot = realpathSync(snapshotPath);
   const manifest = JSON.parse(readFileSync(join(dirname(snapshot), 'snapshot.json'), 'utf8'));
-  const original = readFileSync(snapshot, 'utf8');
-  if (manifest.schemaVersion !== 1 || manifest.phase !== phase || manifest.activePlan !== source ||
-      manifest.snapshotPath !== snapshot || manifest.sha256 !== sha256(original) || basename(snapshot) !== `${phase}-implementation.md`) {
+  const content = readFileSync(snapshot, 'utf8');
+  if (![1, 2].includes(manifest.schemaVersion) || manifest.phase !== phase || manifest.activePlan !== source ||
+      manifest.snapshotPath !== snapshot || manifest.sha256 !== sha256(content) || basename(snapshot) !== `${phase}-implementation.md`) {
     throw new Error('Snapshot identity/content does not match this phase and active plan');
   }
+  let original = content;
+  if (manifest.schemaVersion === 2) {
+    const originalPath = join(dirname(snapshot), 'source-implementation.md');
+    if (manifest.sourceSnapshotPath !== originalPath || !lstatSync(originalPath).isFile()) {
+      throw new Error('Snapshot source identity does not match its immutable directory');
+    }
+    original = readFileSync(originalPath, 'utf8');
+    if (manifest.sourceSha256 !== sha256(original) || manifest.sourceBytes !== Buffer.byteLength(original) ||
+        implementationForReview(original) !== content) {
+      throw new Error('Snapshot source content or blind review projection does not match');
+    }
+  } else if (lstatSync(join(dirname(snapshot), 'source-implementation.md'), { throwIfNoEntry: false }) ||
+      manifest.sourceSnapshotPath !== undefined || manifest.sourceSha256 !== undefined ||
+      manifest.sourceBytes !== undefined || acceptedBlocks(content).size) {
+    throw new Error('Legacy snapshot cannot contain accepted-obligation source metadata');
+  }
+  return { source, snapshot, original };
+}
+
+export function checkImplementation(phase: string, activePlan: string, snapshotPath: string, expected: string) {
+  if (expected !== 'changed' && expected !== 'unchanged') throw new Error('Expected changed or unchanged');
+  const { source, snapshot, original } = snapshotIdentity(phase, activePlan, snapshotPath);
   const implementation = extractImplementationPlan(readFileSync(source, 'utf8'));
   const changed = implementation !== original;
   if (changed !== (expected === 'changed')) {
@@ -296,10 +455,11 @@ if (import.meta.main) {
       process.stdout.write(JSON.stringify(detectDxScope(activePlan, flags.includes('--developer-tool'), flags.includes('--agent-primary'))) + '\n');
     } else {
       const [phase, active, location, expected, ...extra] = args;
-      if (!phase || !active || !location || extra.length || (command === 'create' && expected)) throw new Error('Usage: create PHASE ACTIVE_PLAN RESTORE_PATH | check PHASE ACTIVE_PLAN SNAPSHOT_PATH changed|unchanged');
+      if (!phase || !active || !location || extra.length || (['create', 'amend'].includes(command) && expected)) throw new Error('Usage: create PHASE ACTIVE_PLAN RESTORE_PATH | amend PHASE ACTIVE_PLAN SNAPSHOT_PATH | check PHASE ACTIVE_PLAN SNAPSHOT_PATH changed|unchanged');
       const result = command === 'create' ? createSnapshot(phase, active, location)
-        : command === 'check' && expected ? checkImplementation(phase, active, location, expected)
-        : (() => { throw new Error('Expected create or check command'); })();
+        : command === 'amend' ? amendImplementation(phase, active, location)
+        : command === 'check' && expected ? checkPhaseImplementation(phase, active, location, expected)
+        : (() => { throw new Error('Expected create, amend or check command'); })();
       process.stdout.write(JSON.stringify(result) + '\n');
     }
   } catch (error) {

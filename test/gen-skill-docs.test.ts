@@ -1929,8 +1929,25 @@ describe('Design approval reconciliation', () => {
     expect(main).toContain('Zero findings: state "No issues, moving on"');
   });
 
+  test('Eng cannot exit with unasked findings listed only in an unresolved-decisions report', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'plan-eng-review/SKILL.md'), 'utf8');
+    const check = extractMarkdownSection(main, '## Section self-check');
+    expect(check).toContain('Before summaries, review logs or next-step menus, run approval check 0 below.');
+    const gate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)');
+    expect(gate.indexOf('0. Approvals:')).toBeGreaterThanOrEqual(0);
+    expect(gate.indexOf('0. Approvals:')).toBeLessThan(gate.indexOf('1. Read the plan file'));
+    expect(gate).toContain("each issue's remedy needs its own AskUserQuestion call and answer.");
+    expect(gate).toContain('Never group distinct issues. Setup, mode, approach and navigation are not approval.');
+    expect(gate).toContain('Honor prior exact decisions and preamble-authorized per-issue auto-decisions;');
+    expect(gate).toContain('record why. Deferrals remain unresolved.');
+    expect(gate).toContain('The coverage-audit REGRESSION test is already authorized; cite that rule.');
+    expect(gate).toContain('This exception covers only the regression test, not other findings.');
+    expect(gate).toContain('If missing, reset drafts to pending, ask and wait.');
+    expect(gate).toContain('refresh the plan, report and review log; rerun this gate.');
+  });
+
   test('approval entry does not alter other review Exit checklists', () => {
-    for (const skill of ['plan-eng-review', 'plan-devex-review']) {
+    for (const skill of ['plan-devex-review']) {
       const gate = extractMarkdownSection(readSkillUnion(skill), '## EXIT PLAN MODE GATE (BLOCKING)');
       expect(gate).not.toContain('0. Approvals:');
       expect(gate).toContain('1. Read the plan file');
