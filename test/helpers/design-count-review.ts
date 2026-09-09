@@ -54,12 +54,34 @@ function numberedVisualHierarchyFinding(fp: AskUserQuestionFingerprint): boolean
     /^Leave the gap named but unresolved\. Engineer decides the button styles at implementation time without a spec\. Risk: inconsistency with the design system or re-work after review\.$/i.test(q.options[defer]!.description?.trim() ?? '');
 }
 
+/** A qidless Issue with its own design gap is a finding, independent of D numbering. */
+function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call || call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      call.questions.length !== 1 || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return false;
+  const q = call.questions[0]!;
+  const title = q.question.split('\n')[0]!.trim();
+  const issue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \((?:G[1-9]\d*, )?(?:Visual Hierarchy|Spacing|Color|Typography|Motion)\))?: ([^?]+)\?$/i.exec(title);
+  if (!issue || !new RegExp(`^Issue ${issue[1]}$`, 'i').test(q.header.trim()) ||
+      !/\b(?:fix|resolve|address)\b/i.test(title) || /<gstack-qid:/i.test(q.question) || q.multiSelect ||
+      q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => o.label === call.answers?.[q.question])) return false;
+  // The numbered headline must ask about a concrete design requirement.
+  // Reviewer participation or workflow navigation can also use Issue labels.
+  if (!/\b(?:buttons?|hierarchy|spacing|contrast|colou?rs?|labels?|typography|fonts?|loading|spinner|skeleton|motion)\b/i.test(issue[2]!)) return false;
+  return q.options.some(o => /^(?:[1-9]\d*[A-Z][).]\s*)?(?:Defer|Leave|Keep|Accept the gap)\b/i.test(o.label)) &&
+    q.options.some(o => /\b(?:closing|closes|fixes|resolves?|applies?)\b/i.test(o.description ?? ''));
+}
+
 /** A completed finding can start the passes when the caller already supplied the focus. */
 export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolean {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   if (isDesignCountSetup(fp)) return false;
-  if (numberedVisualHierarchyFinding(fp)) return true;
+  if (numberedVisualHierarchyFinding(fp) || ordinaryDesignIssue(fp)) return true;
   if (designFirstReviewAUQ(fp)) return true;
   return call.questions.some(q => {
     if (!call.answers?.[q.question] || q.options.length < 2) return false;

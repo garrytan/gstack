@@ -360,10 +360,107 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   return manual.findIndex(Boolean) + 1;
 }
 
+/** Every offered explanation must remain a clause about this review handoff. */
+function closedNextReviewExplanations(question: string, descriptions: string[]): boolean {
+  // Validate each complete sentence/line, rather than discarding prose under
+  // an accepted heading. A new imperative has no navigation subject and
+  // cannot borrow the preceding sentence's administrative classification.
+  const navigation = [
+    /^(?:The )?CEO review (?:is (?:done|complete|cleared)(?: and clears scope and strategy)?|cleared scope and strengthened both test assertions)$/i,
+    /^The engineering review is the one gate that must pass before shipping \(skip_eng_review is false\)$/i,
+    /^It checks architecture, code quality, and test design in depth$/i,
+    /^gstack['’]s shipping gate is the eng review, which checks architecture and test design$/i,
+    /^it has not run for this plan yet$/i,
+    /^(?:There is no UI|No UI scope was found), so a design review does not apply$/i,
+    /^Skipping (?:the )?eng review leaves the (?:required gate unmet, so the readiness dashboard stays NOT CLEARED until someone runs it later|ship dashboard NOT CLEARED)$/i,
+    /^running it costs a few minutes on a two-test plan$/i,
+    /^[A-Z] because eng review is the required (?:shipping gate and this plan is now precise enough for it to run quickly|gate and the plan changed since it was written \(two assertions strengthened\), so the tests deserve a second read)$/i,
+    /^options differ in kind(?: \(which workflow runs next\))?, not coverage [—–-] no completeness score$/i,
+    /^clear the (?:required )?gate now versus (?:handling reviews on your own schedule|implement first and review later)$/i,
+    /^Clears the required (?:engineering gate while the plan and its two approved remedies are fresh|shipping gate on the review readiness dashboard)$/i,
+    /^A second structured pass over the test design catches anything the scope review did not$/i,
+    /^One more interactive review session before implementation starts$/i,
+    /^Ends the review chain here$/i,
+    /^you decide when the eng review runs$/i,
+    /^No further (?:questions this session|review prompts in this session)$/i,
+    /^(?:The required eng gate stays unmet and the dashboard remains NOT CLEARED|Dashboard stays NOT CLEARED until an eng review runs)$/i,
+    /^Second read of the exact assertions and the await-then-count ordering before code is written$/i,
+    /^A few extra minutes on a plan that is already two tests against existing probes$/i,
+    /^Move straight to implementing T[1-9]\d* and T[1-9]\d* now$/i,
+    /^Start the eng review against the updated plan after this review exits$/i,
+    /^End here$/i,
+    /^run reviews yourself later$/i,
+  ];
+  const duration = String.raw`~?\d+(?:\.\d+)?\s*(?:minutes?|mins?|hours?|hrs?|days?|weeks?)`;
+  const timing = new RegExp(String.raw`\s*\(human:\s*${duration}\s*/\s*CC:\s*${duration}\)$`, 'i');
+  let metadata = 0;
+  const body = question.split('\n').slice(1).concat(descriptions.flatMap(text => text.split('\n')));
+  for (const raw of body) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/^Project\/branch\/task:/.test(line)) {
+      // Only the project/mode recap is metadata, never a repair paragraph.
+      if (++metadata !== 1 || !/^Project\/branch\/task: (?:[\w-]+ on [\w/-]+, \/plan-ceo-review \(HOLD SCOPE\) finished on the payment test-coverage plan|`[\w/-]+`, CEO review of PLAN\.md complete \(HOLD SCOPE, 0 critical gaps, [1-9]\d* assertion fixes approved\))\.$/.test(line)) return false;
+      continue;
+    }
+    if (line === 'Pros / cons:') continue;
+    if (/^[A-Z][):] /.test(line)) {
+      const offered = line.replace(/^[A-Z][):] /, '').replace(timing, '').replace(/ \(recommended\)$/, '');
+      if (!/^(?:Run \/plan-eng-review next|Skip, handle reviews manually)$/.test(offered)) return false;
+      continue;
+    }
+    const prose = line.replace(/^(?:ELI10|Stakes if we pick wrong|Recommendation|Note|Net):\s*/, '')
+      .replace(/^[✅❌]\s*/, '').replace(timing, '');
+    const clauses = prose.split(/[.;]\s+|[.]$/).map(s => s.trim()).filter(Boolean);
+    if (!clauses.length || !clauses.every(clause => navigation.some(pattern => pattern.test(clause)))) return false;
+  }
+  return metadata === 1;
+}
+
+/** Evidence-only next-review accounting; this never selects a pending option. */
+function completedNextReviewBrief(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` || call.questions.length !== 1 ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      Object.keys(call.answers ?? {}).length !== 1 || !Number.isFinite(Date.parse(call.answeredAt ?? ''))) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^Next (?:step|review)$/i.test(q.header.trim()) || q.options.length !== 2 ||
+      fp.options.length !== 2 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => o.label === call.answers?.[q.question]) || /<gstack-qid/i.test(q.question)) return false;
+  const question = q.question.trim().replace(/^D\d+\s*[—–-]\s*/i, '');
+  const lines = question.split('\n').map(line => line.trim()).filter(Boolean);
+  // Numbered headings and echoed pros/cons are presentation. Require the
+  // actual navigation query, explicit current CEO closure, and a final brief
+  // boundary; a new question or directive after that boundary stays work.
+  if (!/^(?:CEO review (?:is )?(?:complete|done|cleared)\. )?Which review runs next\?$/i.test(lines[0]!) ||
+      !/^Net:\s+[^\n]+[.!]$/.test(lines.at(-1) ?? '') ||
+      !/(?:^|[.!?]\s+|^ELI10:\s*)(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|done|cleared)\b/im.test(question)) return false;
+  const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).:]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, ''));
+  if (labels.filter(label => /^Run \/plan-eng-review next$/i.test(label)).length !== 1 ||
+      labels.filter(label => /^Skip\s*[,—–-]\s*(?:(?:I['’]ll\s+)?handle reviews manually|manual reviews)$/i.test(label)).length !== 1) return false;
+  const context = [question, ...q.options.map(o => o.description ?? '')].join('\n')
+    .replace(/^Stakes if we pick wrong:/m, 'Stakes:');
+  // Only the next Eng gate can keep the readiness dashboard uncleared.
+  // Its temporal explanation is not a condition on current CEO closure;
+  // every other unfinished-work and conditional-closure guard still applies.
+  const navigationContext = context.replace(
+    /\b((?:(?:readiness|ship)\s+)?dashboard\s+(?:stays|remains)\s+NOT\s+CLEARED)\s+until\s+(?:someone\s+runs\s+it|(?:an?|the)\s+eng(?:ineering)?\s+review\s+runs)(?:\s+later)?(?=[.!]|\n|$)/gi,
+    '$1',
+  );
+  return q.options.every(o => o.description?.trim()) &&
+    closedNextReviewExplanations(question, q.options.map(o => o.description ?? '')) &&
+    !/`{3}|~{3}|(?:^|\n)\s*>|\b(?:example|quoted source)\s*:/im.test(context) &&
+    !/\bCEO\s+review\b[^.!?\n]{0,80}\b(?:not|never|incomplete|unfinished)\b/i.test(context) &&
+    /\b(?:Eng|engineering) review\b[^.!?]{0,180}\bgate\b/i.test(context) && closedNavigationContext(navigationContext);
+}
+
 /** Classification happens only after one real, successful, fully answered native call. */
 export function isCeoCompletionHandoff(fp: AskUserQuestionFingerprint): boolean {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
+  if (completedNextReviewBrief(fp)) return true;
   if (manualHandoffIndex(fp) === null) return false;
   const q = call.questions[0]!;
   // A free-form answer can introduce a new substantive request. Do not

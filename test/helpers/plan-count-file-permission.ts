@@ -71,11 +71,17 @@ export function recordFilePermission(input: string, file: string, cwd: string, c
 }
 
 /** A long diff can crop its path header; the native access choice repeats the directory. */
-function croppedEditTarget(screen: string): string | undefined {
+function croppedEditTarget(screen: string, cwd: string): string | undefined {
   const text = screen.replace(/\r+\n?/g, '\n');
   // Cropping may begin inside a wrapped added/deleted diff row (five-space gutter).
   // Still require numbered rows below and the full native footer; never a quoted AUQ.
-  if (!/^(?:\s*\d+\s+[ +\-]?| {5}[+\-])/.test(text) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
+  // The heading can be cropped one row earlier, leaving the complete path.
+  // Keep it only when the existing menu independently identifies that target.
+  const header = /^ {0,3}([^\n]+)\n[╌─━]{3,}[ \t]*\n/.exec(text);
+  const headerPath = header?.[1]?.trim();
+  const pathOnly = headerPath && (path.isAbsolute(headerPath) || /^\.\.?[/\\]/.test(headerPath));
+  const diff = pathOnly ? text.slice(header![0].length) : text;
+  if (!/^(?:\s*\d+\s+[ +\-]?| {5}[+\-])/.test(diff) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
   const prompt = [...text.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?\/\\]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
   if (!prompt || (text.slice(0, prompt.index).match(/^\s*\d+\s+/gm)?.length ?? 0) < 2) return undefined;
   // The unselected option supplies path identity only. Input remains one-time Yes.
@@ -84,7 +90,8 @@ function croppedEditTarget(screen: string): string | undefined {
   const choices = /^ {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n\s*2\.[ \t]*Yes,\s+and\s+switch\s+to\s+accept\s+edits\s+\(auto-approve\s+file\s+edits\s+and\s+common\s+file\s+commands\)\s+for\s+this\s+session;\s+Yes,\s+and\s+always\s+allow\s+access\s+to\s+([^\r\n]+?)\s+for\s+this\s+session(?:\s*\(shift\+tab\))?\s*\n\s*3\.[ \t]*No(?:hift\+tab\))?[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.exec(prompt[2]!);
   const directory = choices?.[1]?.trim();
   if (!directory || !path.isAbsolute(directory)) return undefined;
-  return path.join(directory, prompt[1]!.trim());
+  const target = path.join(directory, prompt[1]!.trim());
+  return !pathOnly || path.resolve(cwd, headerPath!) === target ? target : undefined;
 }
 
 /** Undefined leaves other permissions alone; null keeps this report pane waiting. */
@@ -93,7 +100,7 @@ export function currentFilePermissionEpoch(file: string | undefined, expected: s
   screen: string): FilePermissionEpoch | null | undefined {
   if (!file || !expected || !config) return undefined;
   const panel = [...screen.matchAll(/(?:^|\n) {0,3}(?:Edit|Write) file[ \t]*\n {0,3}([^\n]+)\n/g)].at(-1);
-  const target = panel ? path.resolve(cwd,panel[1]!.trim()) : croppedEditTarget(screen);
+  const target = panel ? path.resolve(cwd,panel[1]!.trim()) : croppedEditTarget(screen, cwd);
   if (target !== expected) {
     // A foreign path with this report's basename cannot fall back to a stale
     // owned grant. An incomplete owned menu also waits for full path identity.

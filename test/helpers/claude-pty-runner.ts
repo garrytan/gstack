@@ -1584,6 +1584,17 @@ export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint, active
       const nativeSkip = q.options.findIndex(option =>
         /^Skip(?:\s*[—–-]\s*proceed)?(?:\s*\(recommended\))?$/i.test(option.label) &&
         /^(?:(?:The\s+)?plan\s+(?:scope\s+)?is\s+(?:already\s+)?(?:precise|clear|well-defined|explicit)\.\s*)?Proceed\s+(?:with\s+standard(?:\s+DX(?:\s+(?:POLISH|EXPANSION|TRIAGE))?)?\s+review|straight\s+to\s+Step\s*0\s+premise\s+challenge\s+and\s+approach\s+alternatives)\.?$/i.test((option.description ?? '').trim()));
+      // A full Skip label can use a comma. Admit that form only from the
+      // bound active tab's direct opposed offer and unconditional review action.
+      const offer = q.question.split('?', 1)[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/, '').trim();
+      const commaSkip = q.options.findIndex(option =>
+        /^Skip\s*,\s*(?:proceed\s+with\s+)?standard\s+review(?:\s*\(recommended\))?$/i.test(option.label) &&
+        /^Proceed\s+(?:(?:directly|straight)\s+)?(?:with\s+(?:the\s+)?standard\s+review|to\s+Step\s*0\s+of\s+(?:the\s+)?(?:CEO\s+)?review)\.?$/i.test((option.description ?? '').trim()));
+      if (nativeRun >= 0 && commaSkip >= 0 && nativeRun !== commaSkip && call.sessionId && call.toolUseId &&
+          q.question.split('?').length === 2 &&
+          /^Run\s*\/office-hours\s+(?:now|first),?\s+or\s+proceed\s+with\s+(?:the\s+)?standard\s+review$/i.test(offer) &&
+          /^(?:Build|Create|Produce)\s+(?:a|the)\s+design\s+doc(?:ument)?\s+first[,;]\s*then\s+resume\s+(?:the|standard|CEO)\s+review\.?$/i.test((q.options[nativeRun]!.description ?? '').trim()) &&
+          !/\b(?:must|need\s+to|have\s+to)\s+(?:run|complete|finish)\s*\/office-hours\b|(?:\/office-hours|design\s+doc(?:ument)?)\s+(?:is\s+)?(?:required|mandatory)\b|\breview\s+is\s+(?:forbidden|blocked)\b/i.test(q.question)) return commaSkip + 1;
       if (nativeRun >= 0 && nativeSkip >= 0 && nativeRun !== nativeSkip) return nativeSkip + 1;
     }
   }
@@ -2152,10 +2163,19 @@ function qidlessCeoFinding(fp: AskUserQuestionFingerprint): boolean {
       new Set(q.options.map(option => option.label)).size !== q.options.length ||
       !q.options.some(option => option.label === call.answers?.[q.question])) return false;
   const title = q.question.split('\n')[0]!;
-  const finding = /^(?:D[1-9]\d*\s*[—–-]\s*)?Finding\s+([1-9]\d*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*[^\n?]+\?$/i.exec(title);
-  if (finding) return !/\(Section\s/i.test(title) || q.header.trim().toLowerCase() === `finding ${finding[1]}`;
-  const issue = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
-  return Boolean(issue && q.header.trim().toLowerCase() === `issue ${issue[1]}`);
+  // The issue identity is separate from the decision counter and section
+  // numbering. A completed "Issue 2" choice and "Finding 2.1" choice carry
+  // the same review evidence as the already-supported numbered findings.
+  const normalized = title.replace(/^D\d+\s*[—–-]\s*/i, '');
+  const identity = /^(Finding|Issue)\s+([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*[^\n?]+\?$/i.exec(normalized);
+  const parenthesized = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+  if (!identity && !parenthesized) return false;
+  const expected = identity ? `${identity[1]} ${identity[2]}`.toLowerCase() : `issue ${parenthesized![1]}`;
+  const header = q.header.trim().toLowerCase();
+  const numberedHeader = /^(?:finding|issue)\s+[1-9]\d*(?:\.[1-9]\d*)*$/.test(header);
+  // A descriptive header is fine; a supplied identity must not contradict
+  // the finding. Preserve the original section/parenthesis binding guards.
+  return !(numberedHeader || parenthesized || /\(Section\s/i.test(title)) || header === expected;
 }
 
 export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
@@ -2367,9 +2387,53 @@ function engSharedMutableCacheAUQ(fp: AskUserQuestionFingerprint): boolean {
     core(accepted.description ?? '') === 'Note the shared-global pattern in the review report as a known risk. Leave the plan unchanged. Suitable only if the runtime is single-threaded and concurrent mutation is architecturally impossible.');
 }
 
+/** A completed explicit issue retains its identity when question tuning omits qids. */
+function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      Object.keys(call.answers ?? {}).length !== 1 ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+      !Number.isFinite(Date.parse(call.answeredAt ?? ''))) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || q.options.length < 2 || q.options.length > 4 ||
+      new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
+      fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      /<gstack-qid/i.test(q.question)) return false;
+  const title = q.question.split('\n')[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '');
+  const issue = /^(?:Issue|Finding)\s+([1-9]\d*(?:\.[1-9]\d*)*)(?:\s*\(D[1-9]\d*\))?\s*[—–:-]\s*([^\n?]+\?)$/i.exec(title);
+  const header = /^(?:Arch(?:itecture)?|Code\s+Q(?:uality)?|Tests?|Perf(?:ormance)?)\s+([1-9]\d*(?:\.[1-9]\d*)*)$/i.exec(q.header.trim());
+  if (!issue || !header || issue[1] !== header[1]) return false;
+  // A title number or verb can also label report administration. Keep the
+  // concrete defect, implementation query and offered technical alternatives
+  // together. Unknown issue families remain on the existing qid paths.
+  const label = (s: string) => s.trim().replace(/^[1-9]\d*[A-Z]\)\s*/i, '').replace(/\s*\(recommended\)$/i, '');
+  const alternatives = (a: RegExp, b: RegExp) => [a, b].every(pattern =>
+    q.options.some(option => pattern.test(label(option.label)) && Boolean(option.description?.trim())));
+  const body = issue[2]!;
+  return (
+    /^[A-Za-z_$][\w$]* is a (?:global|shared) mutable module-level export that (?:two|multiple|\d+) services mutate\. Inject it(?: instead)?\?$/i.test(body) &&
+      alternatives(/^Constructor[- ]inject$/i, /^Getter \+ reset hook$/i)
+  ) || (
+    /^Two writers, no serialization: an? [A-Za-z_$][\w$]* write can land after an? [A-Za-z_$][\w$]* invalidation and resurrect a revoked token\. (?:Guard it|Serialize the writes)\?$/i.test(body) &&
+      alternatives(/^Invalidation epoch in [A-Za-z_$][\w$]*$/i, /^Re-check before write$/i)
+  ) || (
+    /^[A-Za-z_$][\w$]*\(\) is \d+ lines with (?:two|three|multiple|\d+) nested try\/catch blocks that each swallow a different error class\. Restructure it\?$/i.test(body) &&
+      alternatives(/^Split \+ typed Result$/i, /^Flatten \+ log$/i)
+  ) || (
+    /^Planned coverage is unit \+ integration on the new components only\. Add an? end-to-end [\w -]+ test across (?:two|multiple|\d+) tenants\?$/i.test(body) &&
+      alternatives(/^Add E2E journey test$/i, /^Facade isolation test only$/i)
+  ) || (
+    /^Token validation makes \d+ sequential [A-Za-z_$][\w$]* calls that are independent\. Parallelize, and with what failure semantics\?$/i.test(body) &&
+      alternatives(/^Promise\.all \+ timeouts \+ typed errors$/i, /^Bare Promise\.all$/i)
+  );
+}
+
 /** An answered substantive finding can start review even in a mixed setup packet. */
 export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
-  if (engExplicitRepairAUQ(fp) || engArchitectureChoiceAUQ(fp) || engDependencyBindingAUQ(fp) || engSharedMutableCacheAUQ(fp)) return true;
+  if (engNumberedFindingAUQ(fp) || engExplicitRepairAUQ(fp) || engArchitectureChoiceAUQ(fp) || engDependencyBindingAUQ(fp) || engSharedMutableCacheAUQ(fp)) return true;
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   return call.questions.some(q => {
@@ -3203,7 +3267,7 @@ export async function runPlanSkillCounting(opts: {
   /** Accepted artifact rendering is not a finding; its answer still requires a fresh report. */
   isArtifactGenerationAUQ?: Step0BoundaryPredicate;
   /** Optional issue classifier across phases; receives full native call metadata. */
-  isReviewAUQ?: (fp: AskUserQuestionFingerprint) => boolean;
+  isReviewAUQ?: (fp: AskUserQuestionFingerprint, priorCalls?: readonly NativePlanQuestionCall[]) => boolean;
   /** Narrow caller-specific selection; null retains the normal answer policy.
    * The first argument retains full pending metadata for existing callers.
    * Native-bound selection uses activeCapture, whose metadata is present only
@@ -3354,7 +3418,7 @@ export async function runPlanSkillCounting(opts: {
       if (transcript.status === 'error') {
         return snapshot('transcript_unavailable', transcript.error!, visible);
       }
-      for (const call of transcript.calls) {
+      for (const [callIndex, call] of transcript.calls.entries()) {
         const signature = `${call.sessionId}:${call.toolUseId}`;
         if (!call.answered || countedCalls.has(signature)) continue;
         const fp = nativePlanCallFingerprint(call, Date.now() - startedAt, !boundaryFired);
@@ -3364,7 +3428,7 @@ export async function runPlanSkillCounting(opts: {
           fp.administrative = phase.administrative;
           administrativeCount += 1;
         } else {
-          fp.preReview = opts.isReviewAUQ ? !opts.isReviewAUQ(fp) : phase.preReview;
+          fp.preReview = opts.isReviewAUQ ? !opts.isReviewAUQ(fp, transcript.calls.slice(0, callIndex)) : phase.preReview;
           if (fp.preReview) step0Count += 1;
           else reviewCount += 1;
         }

@@ -69,6 +69,39 @@ export function installDisabledPlanReviewFixture(rendered: string, repo: string,
   return { workflowPath, instructions, generated, stateDir, cliDispatchLog, reviewLogPath, priorRecord, env };
 }
 
+/** Check each completion mention; a historical record cannot excuse a later current claim. */
+function hasUnattributedOutsideCompletion(output: string): boolean {
+  const marker = /\b(?:both reviewers agree|outside_status["']*\s*[:=]\s*["']*completed)\b/gi;
+  const clauses = output.replace(/[*`]/g, '').split(/\r?\n|(?<=[.!?;])\s+|\b(?:but|however|nevertheless|yet)\b[:,]?\s*/i);
+  return clauses.some(clause => [...clause.matchAll(marker)].some(match => {
+    const before = clause.slice(0, match.index).trimEnd();
+    // A quoted phrase is not automatically a denial. Require the local no-claim
+    // statement, so a second positive assertion in the same paragraph still fails.
+    const denied = /\bno\s*["'“”‘’]*\s*$/i.test(before)
+      || /\b(?:(?:do|did|will|would|can|could)\s+not|cannot|can't|won't)\s+(?:claim|say|state|report)\s*["'“”‘’]*\s*$/i.test(before)
+      || /\b(?:am|is|are)\s+not\s+(?:claiming|saying|stating|reporting)\s*["'“”‘’]*\s*$/i.test(before);
+    if (denied) return false;
+    // Agreement is a current prose claim unless explicitly denied; an old
+    // log entry only establishes the provenance of its recorded status value.
+    if (/^both reviewers agree$/i.test(match[0])) return true;
+    const record = [...before.matchAll(/\b(?:earlier|prior|historical|old)\s+(?:entry|record)\b/gi)].at(-1);
+    if (!record) return true;
+    // Bind this occurrence to an old record's reported value. A mere mention
+    // of a record, a second status, or a new reporting subject cannot inherit
+    // its historical attribution, even without a sentence boundary.
+    const prefix = before.slice(record.index + record[0].length);
+    const report = /^(?:\s*,?\s*timestamped\b[^,;.!?]{1,160},?)?\s*(?:(?:claiming|shows?|showed|says?|said|records?|recorded|reported)\b|:)\s*/i.exec(prefix);
+    // Only intervening review-log metadata belongs to this reported value.
+    // Arbitrary prose could switch to a new subject without an earlier status.
+    const field = String.raw`["']?(?:status|source|host|outside_provider|phase|timestamp)["']?\s*[:=]\s*["']?[a-z0-9_.:+-]+["']?`;
+    const metadata = new RegExp(String.raw`^(?:${field}\s*(?:,\s*|(?:with|and)\s*))*$`, 'i');
+    const reportsOldValue = report !== null && metadata.test(prefix.slice(report[0].length).trim());
+    const attribution = clause.slice(record.index).replace(/\bbefore\s+this\s+(?:run|session|workflow)\b/gi, 'beforehand');
+    const current = /\b(?:now|currently|current|today|new|updat\w*|append\w*|chang\w*|mark\w*|set|write|wrote)\b|\bthis\s+(?:run|session|workflow)\b/i.test(attribution);
+    return !reportsOldValue || current;
+  }));
+}
+
 export function disabledPlanReviewEvidence(result: {
   exitReason: string; output: string; transcript: any[];
 }, cliDispatchLog: string, reviewLog = '', priorRecord?: Record<string, unknown>) {
@@ -89,7 +122,7 @@ export function disabledPlanReviewEvidence(result: {
   const disabledAttribution = /outside_status["'`*]*\s*[:=]\s*["'`*]*disabled\b/i.test(result.output)
     || result.output.split('\n').some(line => /\b(?:outside(?:\s+(?:voice|review))?|codex(?:\s+review)?)\b/i.test(line)
       && /\bdisabled\b/i.test(line) && !/\bnot\s+disabled\b/i.test(line));
-  const falseCompletion = /\b(?:both reviewers agree|outside_status["'`*]*\s*[:=]\s*["'`*]*completed)\b/i.test(result.output);
+  const falseCompletion = hasUnattributedOutsideCompletion(result.output);
   // Native CLI releases expose the requested subagent as Agent or Task.
   // Availability never permits dispatch: fallbackCalls rejects both names.
   const agentAvailable = Array.isArray(init?.tools) && init.tools.some((tool: unknown) => tool === 'Agent' || tool === 'Task');

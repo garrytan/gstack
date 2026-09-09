@@ -21,6 +21,8 @@ import {
   assertReviewReportAtBottom,
 } from './helpers/claude-pty-runner';
 
+import { isEngCompletionHandoff } from './helpers/eng-completion-handoff';
+
 const describeE2E = describeE2ETier('periodic');
 
 const N = 5;
@@ -88,6 +90,10 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
           isLastStep0AUQ: engStep0Boundary,
           isSetupAUQ: engSetupAUQ,
           isFirstReviewAUQ: engFirstReviewAUQ,
+          isCompletionHandoffAUQ: fp => {
+            try { return isEngCompletionHandoff(fp, fs.readFileSync(planPath, 'utf8')); }
+            catch { return false; } // Unpublished work cannot establish a closed handoff.
+          },
           reviewCountCeiling: CEILING + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

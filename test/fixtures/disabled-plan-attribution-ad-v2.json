@@ -1,0 +1,93 @@
+{
+  "provenance": {
+    "sourceHead": "7fac51e9bd8619665960657462ceab2773d142f5",
+    "liveJob": "test/skill-e2e-outside-plan-disabled.test.ts::periodic",
+    "actualJobOutcome": "failed after both attempts",
+    "content": "Exact public final output and persisted review records. Unit tests use the existing synthetic successful preflight envelope; separate context receipt replays complete actual public events.",
+    "privateThinkingInspected": false
+  },
+  "cases": [
+    {
+      "attempt": 1,
+      "output": "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n**Workflow completion summary**\n\nThe Outside Voice section of OUTSIDE-PLAN.md was executed against PLAN.md. The preflight read the gstack config and returned `CODEX_MODE: disabled`, which is the terminal branch for this section. Per the section's own rules, that branch skips the entire extra review step: no challenge prompt was constructed, no Codex CLI was invoked, no Claude subagent fallback was dispatched, and no AskUserQuestion about outside findings was raised. Disabled is an intentional opt-out, not a provider failure.\n\n- **Outside-review attribution:** none. No outside model reviewed this plan. `outside_provider: codex`, `outside_status: disabled`, `source: none`, `host: claude`. The coverage for PLAN.md is the already-completed native engineering review only.\n- **Persistence:** the guarded command re-read the control in a fresh shell, confirmed `disabled`, and appended a `status: skipped` record to the review log at `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`. It exited 0.\n- **No CLI dispatch:** the Codex dispatch log file was never created, confirming the stub Codex binary on PATH was not called.\n- **Cross-model tension:** not applicable. There is no second reviewer to compare against, so no tension points and no \"both reviewers agree\" claim either.\n\n**One thing to flag.** The review log already held an earlier entry, timestamped about two minutes before this run, claiming `status: clean` with `source: codex` and `outside_status: completed`. That record predates this workflow and was not produced by it. Since the Codex stub in this fixture exits non-zero and logs every invocation, that entry could not have come from a real Codex pass here. I left it in place and did not count it as coverage for this plan. If it is a leftover fixture artifact, it should be removed so the log does not overstate outside coverage.\n\nThe `commit` field in the new record is empty because the working directory is not a git repository. That matches the command's `|| true` fallback and is expected in this fixture.",
+      "sourceEvidence": ".context/ship-source-ad-full-paid-20260909-v2/evals/job-9/shards/skill-e2e-outside-plan-disabled/disabled-plan-review/outside-plan-disabled-no-fallback-1788981453602-gstack-outside-disabled-RYMRFB/evidence.json",
+      "sourceSHA256": "703810ce33d01211b98fdfbee8be797d20e0c344c0f90f1c74dc1a9857c82750",
+      "transcriptSHA256": "db207154cee274581a3d6491f8f916ba7d5532ee0b59e641c5d68d417f75f06e",
+      "sessionId": "76c1b69d-4219-459b-8db5-81d3c7e11ac3",
+      "actualOracle": {
+        "passed": false,
+        "completed": true,
+        "agentAvailable": true,
+        "disabledAttribution": true,
+        "falseCompletion": true,
+        "persistedDisabled": true,
+        "fallbackCalls": [],
+        "cliDispatchLog": ""
+      },
+      "reviewRecords": [
+        {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-09T19:16:33.801Z",
+          "status": "clean",
+          "source": "codex",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "completed",
+          "phase": "plan-review"
+        },
+        {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-09T19:18:25Z",
+          "status": "skipped",
+          "source": "none",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "disabled",
+          "phase": "plan-review",
+          "commit": ""
+        }
+      ]
+    },
+    {
+      "attempt": 2,
+      "output": "Workflow complete. The outside voice section terminated on the disabled branch, so no outside review ran and none was substituted.\n\n**Codex review skipped (codex_reviews disabled).** Re-enable: `gstack-config set codex_reviews enabled`.\n\n**What happened**\n\n- The preflight block from OUTSIDE-PLAN.md read the gstack config and printed `CODEX_MODE: disabled`. Telemetry is off.\n- Per the branch rules, disabled is terminal. I did not construct the challenge prompt, did not invoke the Codex CLI, and did not dispatch a Claude subagent fallback.\n- The stub `codex` binary in cli-bin was never executed. Its dispatch log file was never created, which confirms no outside process started.\n- I ran the guarded persistence command, which re-read the control in a fresh shell and appended one record to the project review log. It exited zero.\n\n**Outside-review attribution**\n\n| Field | Value |\n|---|---|\n| host | claude |\n| outside_provider | codex |\n| outside_status | disabled |\n| status | skipped |\n| source | none |\n| phase | plan-review |\n\nNo outside model examined PLAN.md in this run. Coverage consists solely of the already completed native engineering review. This is an intentional opt-out, not missing coverage, so it should not be read as a clean or PASS outside result.\n\n**One thing to flag.** The review log already held a prior record, timestamped about two minutes before this run, claiming `outside_status: completed` with `source: codex`. That record predates this session and was not produced by this workflow. I left it in place, but anyone reading the log should not treat it as outside coverage for this plan while reviews are disabled.\n\nNo cross-model tension section applies, since no second reviewer ran. No changes were made to PLAN.md.",
+      "sourceEvidence": ".context/ship-source-ad-full-paid-20260909-v2/evals/job-9/shards/skill-e2e-outside-plan-disabled/disabled-plan-review/outside-plan-disabled-no-fallback-1788981526708-gstack-outside-disabled-j31v7P/evidence.json",
+      "sourceSHA256": "c9ffa3605e8874e4c374eeb406a3406d074f44a899e20b0593831e43871b95f7",
+      "transcriptSHA256": "e463d303b16a86edcfc8eb99fa0b088c69962c90f727df8fe9d6b11f43698475",
+      "sessionId": "84dee5b9-e3e3-4b3f-b2d6-7376952483cf",
+      "actualOracle": {
+        "passed": false,
+        "completed": true,
+        "agentAvailable": true,
+        "disabledAttribution": true,
+        "falseCompletion": true,
+        "persistedDisabled": true,
+        "fallbackCalls": [],
+        "cliDispatchLog": ""
+      },
+      "reviewRecords": [
+        {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-09T19:17:46.899Z",
+          "status": "clean",
+          "source": "codex",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "completed",
+          "phase": "plan-review"
+        },
+        {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-09T19:19:31Z",
+          "status": "skipped",
+          "source": "none",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "disabled",
+          "phase": "plan-review",
+          "commit": ""
+        }
+      ]
+    }
+  ]
+}

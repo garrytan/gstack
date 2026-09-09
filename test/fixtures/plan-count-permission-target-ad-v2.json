@@ -1,0 +1,50 @@
+{
+  "provenance": {
+    "run": "ship-source-ad-full-paid-20260909-v2",
+    "sourceScreen": ".context/ship-source-ad-full-paid-20260909-v2/pty-current-checkpoint-20260909-1929/526d34baa550/terminal.screen.log",
+    "sourceScreenSHA256": "9b38023b26edc962770a3ed1a8c1746838f40aee0fd3d8d55c5ef102c5bde1b0",
+    "actualOutcome": "timeout",
+    "actualAt": "2026-09-09T19:27:05.394Z",
+    "hookState": "not retained after owned cleanup; tests explicitly synthesize valid hook epochs, never historical authorization"
+  },
+  "cwd": "/tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-plan-count-yBLwZl",
+  "config": "/tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-hermetic-1638041-TRh7i1/with-skills/.claude",
+  "sessionId": "e71c124f-4404-4b8b-920c-d672320bce56",
+  "expected": "/tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-e2e-plan-ceo-9iugxu/gstack-test-plan-ceo.md",
+  "events": [
+    {
+      "timestamp": "2026-09-09T19:06:39.489Z",
+      "type": "request",
+      "id": "toolu_01XKdLhbiVr68hDFon5exBBG",
+      "name": "Write",
+      "path": "/tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-e2e-plan-ceo-9iugxu/gstack-test-plan-ceo.md"
+    },
+    {
+      "timestamp": "2026-09-09T19:06:41.730Z",
+      "type": "result",
+      "id": "toolu_01XKdLhbiVr68hDFon5exBBG",
+      "is_error": false
+    },
+    {
+      "timestamp": "2026-09-09T19:08:39.700Z",
+      "type": "request",
+      "id": "toolu_01RJtsV7cugAsWmeMJoLrEx3",
+      "name": "Edit",
+      "path": "/tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-e2e-plan-ceo-9iugxu/gstack-test-plan-ceo.md"
+    },
+    {
+      "timestamp": "2026-09-09T19:08:41.873Z",
+      "type": "result",
+      "id": "toolu_01RJtsV7cugAsWmeMJoLrEx3",
+      "is_error": false
+    },
+    {
+      "timestamp": "2026-09-09T19:09:21.623Z",
+      "type": "request",
+      "id": "toolu_015cxFri1PdUx3jQyCwf2JkJ",
+      "name": "Edit",
+      "path": "/tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-e2e-plan-ceo-9iugxu/gstack-test-plan-ceo.md"
+    }
+  ],
+  "screen": " ../gstack-e2e-plan-ceo-9iugxu/gstack-test-plan-ceo.md\n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n 185  Rule check: no catch-all rescue anywhere in the remedies; every rescue names\n 186  the mail client's specific classes and logs event id, user id, payment intent\n 187  id, and the attempted operation.\n 188 +                                                                                                                  \n 189 +**Decision 2.1 (D4) \u2014 APPROVED 2.1A:** send the notification only after the                                       \n 190 +DB transaction commits and dedup records completion; rescue the mail client's                                     \n 191 +specific delivery and timeout exception classes (no `StandardError`); log at                                      \n 192 +warn with event id, user id, payment intent id, operation; return 200. The                                        \n 193 +existing mail failure-rate dashboard/alert and runbook carry the retry. Tests:                                    \n 194 +provider 5xx and timeout each assert user remains paid and response is 200.                                       \n 195 +                                                                                                                  \n 196 +## Section 3: Security and threat model                                                                           \n 197 +                                                                                                                  \n 198 +| # | Threat | Likelihood | Impact | Plan mitigates? |                                                            \n 199 +|---|---|---|---|---|                                                                                             \n 200 +| 3.1 | SQL injection through `params.userId` interpolated into a raw fragment. Metadata is merchant-set, but the \n     +contract says it is unsanitized; a leaked key, dashboard edit, or upstream bug puts arbitrary text into SQL. | Med\n     + | High (read/alter any user row) | NO |                                                                          \n 201 +| 3.1b | Nonempty malformed `user_id` (\"abc\", 2 KB string, unicode) raises a cast error, wrapper returns 500, Stri\n     +pe retries a permanently bad event for 3 days and alerts each time. | Med | Med (alert noise, wasted retries) | NO\n     + |                                                                                                                \n 202 +| 3.2 | `payment_intent.succeeded` for any amount/currency marks the user paid; no check that the intent matches w\n     +hat the user owes. | Low | High (unpaid access) | NO |                                                            \n 203 +| 3.3 | Authorization / IDOR: user_id chosen by whoever creates the PaymentIntent (merchant server), not the end u\n     +ser; signature guard holds. | Low | High | Yes (retained) |                                                       \n 204 +| 3.4 | Replay of a captured webhook | Low | Low | Yes (signature timestamp + dedup) |                            \n 205 +| 3.5 | PII in logs (email address) | Low | Med | Remedy 2.1 logs user id, not address |                          \n 206 +| 3.6 | New secrets / dependencies | none | none | n/a |                                                          \n 207 +| 3.7 | Audit trail of the payment mutation | n/a | n/a | Yes (traced DB client with event id) |                  \n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n Do you want to make this edit to gstack-test-plan-ceo.md?\n \u276f 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-Y3pEVj/tmp/gstack-e2e-plan-ceo-9iugxu for this session (shift+tab)\n   3. No\n\n Esc to cancel \u00b7 Tab to amend\n"
+}

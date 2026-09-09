@@ -372,3 +372,64 @@ describe('S native same-finding ordered trace', () => {
     ['explicit defect dismissal', finding + '\nThis is not a defect; no fix is required.\n'],
   ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
 });
+
+// Actual v2 SDK review identifies the missing fill/write coordination directly.
+// The full delivered report is retained in run evidence; this is its exact finding.
+describe('explicit uncoordinated cache-fill freshness violation', () => {
+  const finding = [
+    "**[Amended: D2, D3, D4, D5]** The original sketch had no coordination between a",
+    "cache fill and a write and omitted the single-flight wrapper and the absence",
+    "sentinel; finding F1 showed that violates the read-after-write rule. The",
+    "ordering rules below replace it. `flight` is the existing per-key single-flight",
+    "wrapper extended with `invalidate(key)` and `invalidateAll()`; a fill ticket is",
+    "`live()` until its key is invalidated. `ProfileNotFound` stands for the",
+    "repository's existing typed not-found error class.",
+  ].join('\n');
+  test('accepts the actual finding without requiring its separate execution diagram', () => {
+    expect(hasStaleFillRaceFinding(finding)).toBe(true);
+    expect(hasStaleFillRaceFinding('## Proposed wrapper integration\nKeep the current read-through repository interface and shared adapters.\n' + finding)).toBe(true);
+  });
+  test.each([
+    ['current wrapper', finding.replace('original sketch had', 'current wrapper has')],
+    ['proposed implementation', finding.replace('original sketch had', 'proposed implementation has')],
+    ['freshness contract', finding.replace('read-after-write rule', 'read-after-write contract')],
+  ])('recognizes equivalent %s evidence', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(true));
+  test.each([
+    ['no violation asserted', finding.replace('finding F1 showed that violates the read-after-write rule.', '')],
+    ['negated violation', finding.replace('that violates', 'that does not violate')],
+    ['uncertain violation', finding.replace('that violates', 'that might violate')],
+    ['conditional premise', 'If ' + finding],
+    ['coordination exists', finding.replace('had no coordination', 'had coordination')],
+    ['different operations', finding.replace('cache fill and a write', 'cache hit and a read')],
+    ['wrong contract', finding.replace('read-after-write', 'read-before-write')],
+    ['dismissed defect', finding + '\n\nThis is not a defect; no fix is required.'],
+    ['accepted stale consequence', finding + '\n\nA subsequent stale read is permitted by the amended contract.'],
+    ['quoted finding', finding.split('\n').map(line => '> ' + line).join('\n')],
+    ['indented finding', finding.split('\n').map(line => '    ' + line).join('\n')],
+    ['quoted paragraph', '"' + finding + '"'],
+    ['source preface', 'Example of report format:\n' + finding],
+    ['separate source preface', 'Example of report format:\n\n' + finding],
+    ['backtick source fence', '````text\n' + finding + '\n````'],
+    ['tilde source fence', '~~~text\n' + finding + '\n~~~'],
+    ['unclosed source fence', '```text\n' + finding],
+    ['split unrelated paragraphs', finding.replace('sentinel; finding', 'sentinel.\n\n### Separate issue\nFinding')],
+  ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
+});
+
+// Peer counterexamples: embedded, uncertain and hypothetical assertions stay closed.
+describe('coordination findings require directly asserted premises and conclusions', () => {
+  const premise = 'The original sketch had no coordination between a cache fill and a write. ';
+  const claim = 'This violates the read-after-write rule.';
+  test('accepts a direct assertion', () => expect(hasStaleFillRaceFinding(premise + claim)).toBe(true));
+  test.each([
+    ['negated embedded conclusion', premise + 'It is false that this violates the read-after-write rule.'],
+    ['unproven conclusion', premise + 'We have not shown that it violates the read-after-write rule.'],
+    ['uncertain conclusion', premise + 'It is unclear whether this violates the read-after-write rule.'],
+    ['question rather than assertion', premise + claim.replace('.', '?')],
+    ['separate issue without blank line', premise + '\n## A different issue\nReplica lag is high. ' + claim],
+    ['hypothetical premise', 'Suppose ' + premise + claim],
+    ['suggested report', 'A suggested report sentence: ' + premise + claim],
+    ['nested unmatched fence', '````text\n' + premise + claim + '\n```\n' + premise + claim + '\n````'],
+    ['mismatched fence', '~~~text\n' + premise + claim + '\n```\n' + premise + claim],
+  ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
+});

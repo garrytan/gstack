@@ -97,6 +97,7 @@ const planDesign5Findings = (planPath: string) => [
   // The skill explicitly supports this opt-out. The cadence test measures
   // review findings; generated-variant preference questions have separate evals.
   'Text-only review; skip mockups. Review all seven design dimensions.',
+  'Native design review only: skip optional outside voices. Finish after the design review; I will handle subsequent reviews manually.',
   '',
   '# Plan: Settings Page UI redesign',
   '',

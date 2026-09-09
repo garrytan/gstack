@@ -88,7 +88,7 @@ function unsupportedSetup(visible: string, question: AskUserQuestionFingerprint,
 }
 
 /** Pure routing policy; native packet validation still requires every displayed identity. */
-function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporarySkip: boolean) {
+function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporarySkip: boolean, knownSetupOffer = false) {
   const primary = question.promptSnippet.replace(/^(?:Routing\s*rules|CLAUDE\.md)\s*/i, '').split('?', 1)[0]!;
   const prompt = primary.replace(/\s+/g, '');
   const options = question.options.map(option => ({
@@ -128,8 +128,55 @@ function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporar
   // project setup rather than a product routing or taste decision.
   const claudeTarget = /CLAUDE\.md/i.test(prompt);
   const quotedPremise = /\b(?:plan|spec|document)\s+(?:quotes?|cites?|references?)\b/i.test(primary);
-  if (!claudeTarget || quotedPremise || (!routingId && !routingPremise)) return null;
+  if (!claudeTarget || quotedPremise || (!knownSetupOffer && !routingId && !routingPremise)) return null;
   return { add, decline };
+}
+
+/** A direct setup offer can carry a decision brief without changing its actions. */
+function contextualPacketSetup(question: NativePlanQuestion, pending: NativePlanQuestionCall) {
+  if (pending.answered !== false || pending.failed !== false || !pending.sessionId || !pending.toolUseId ||
+      question.options.length !== 2 || question.options.some(option => !option.description?.trim())) return null;
+  const ids = [...question.question.matchAll(/<gstack-qid:[a-z0-9-]+>/gi)];
+  const text = question.question.replace(/<gstack-qid:[a-z0-9-]+>/gi, '').trim();
+  const split = /^([^?]+\?)([\s\S]+)$/.exec(text);
+  if (!split || !split[2]!.trim() || split[2]!.includes('?')) return null;
+  // Strip one presentation label, then match the complete substantive offer.
+  // A quoted/conditional/adjacent offer cannot borrow another tab's actions.
+  const offer = split[1]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/, '').replace(/\s+/g, ' ').trim();
+  const context = [split[2]!.trim(), ...question.options.map(option => option.description!.trim())].join('\n');
+  if (/(?:^|\n|[.!]\s+)(?:Also|Then)\b|\bonly\s+(?:if|after)\b|\bunless\b|\bprovided\s+that\b/i.test(context) ||
+      /\b(?:must|need\s+to|have\s+to)\s+(?:run|complete|finish)\s*\/office-hours\b/i.test(context) ||
+      /(?:\/office-hours|design\s+doc(?:ument)?)\s+(?:is\s+)?(?:required|mandatory)\b/i.test(context) ||
+      /\breview\s+is\s+(?:forbidden|blocked)\b|\b(?:skip|bypass|omit)\s+(?:(?:the|this|full|standard|entire|CEO|design|DX|engineering)\s+)*review\b/i.test(context)) return null;
+  const descriptions = question.options.map(option => option.description!.trim().replace(/^[✅❌]\s*/, ''));
+  const fp: AskUserQuestionFingerprint = { signature: '', observedAtMs: 0, preReview: true,
+    promptSnippet: `${question.header} ${question.question}`,
+    options: question.options.map((option, index) => ({ index: index + 1, label: option.label })) };
+  if (/^Routing(?: rules)?$/i.test(question.header.trim()) &&
+      /^Add\s+(?:gstack\s+)?(?:skill\s+)?routing\s+rules\s+to\s+CLAUDE\.md\?$/i.test(offer) &&
+      (!ids.length || ids.length === 1 && ids[0]![0].toLowerCase() === '<gstack-qid:routing-injection>')) {
+    const actions = routingSetupActions(fp, true, true);
+    if (!actions || actions.add.length !== 1 || actions.decline.length !== 1 ||
+        actions.add[0]!.index === actions.decline[0]!.index) return null;
+    const add = actions.add[0]!.index, decline = actions.decline[0]!.index;
+    if (/^(?:Do not|Don't|Never|Skip|Decline)\s+(?:add(?:ing)?\s+)?routing\s+rules\b/i.test(descriptions[add - 1]!) ||
+        /^Add\s+(?:skill\s+)?routing\s+rules\b/i.test(descriptions[decline - 1]!)) return null;
+    return { kind: 'routing', pick: add };
+  }
+  if (!/^(?:Design doc|Prerequisites?(?: doc)?)$/i.test(question.header.trim()) || ids.length ||
+      !/^Run\s*\/office-hours\s+(?:now|first)(?:\s+for\s+(?:a|the)\s+design\s+doc(?:ument)?)?\?$/i.test(offer)) return null;
+  const run = question.options.findIndex(option => /^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(option.label));
+  const skip = question.options.findIndex(option => /^Skip\s*[—–-]\s*(?:proceed\s+with\s+)?standard\s+review(?:\s*\(recommended\))?$/i.test(option.label));
+  if (run < 0 || skip < 0 || run === skip ||
+      /^(?:Skip|Don't|Do not)\b/i.test(descriptions[run]!) ||
+      /^Run\s*\/office-hours\b/i.test(descriptions[skip]!)) return null;
+  // Corroborate the selected label with its short action clause; the rest
+  // of the description may explain tradeoffs without changing that action.
+  const sentence = /^([^.!?]+)([.!?]|$)/.exec(descriptions[skip]!);
+  const action = sentence?.[1]?.trim() ?? '';
+  if (sentence?.[2] === '?' || !/^(?:Review\s+(?:starts?|begins?)\s+(?:immediately|now)|(?:Start|Begin)\s+(?:the\s+)?(?:standard\s+)?review\s+(?:immediately|now)|Proceed\s+(?:directly\s+)?with\s+(?:the\s+)?standard\s+review)(?:\s+(?:using|with|on)\s+[^.!?]+)?$/i.test(action) ||
+      /\b(?:after|when|once|until|if|unless|provided|not|never)\b|n['’]t\b/i.test(action)) return null;
+  return { kind: 'prerequisite', pick: skip + 1 };
 }
 
 /** Numbered setup wording may vary; newly admitted forms still consume every description. */
@@ -189,7 +236,8 @@ function setupPacketDecision(visible: string, seen: ReadonlySet<string>, pending
     // Require an actual prerequisite offer, not a product question that
     // happens to mention the absence of an office-hours design document.
     const offer = /^No\s+design\s+doc\s+(?:found|exists)(?:\s+for\s+(?:this|the)\s+(?:branch|project))?\.\s*(?:\/office-hours\s+(?:produces|creates|provides)\s+(?:a\s+)?(?:structured\s+)?(?:design\s+doc(?:ument)?|problem\s+statement)(?:,?\s+(?:and\s+)?(?:premise\s+challenge|(?:explored\s+)?alternatives))*(?:\s*[—–-]\s*(?:sharper|better)\s+input\s+for\s+(?:the|this)\s+review)?\.\s*)?(?:Want\s+to\s+|Would\s+you\s+like\s+to\s+)?Run\s+(?:it|\/office-hours)\s+(?:now|first)(?:\s+or\s+proceed\s+with\s+standard\s+review)?\s*\?$/i.test(offerText);
-    return prerequisite !== null && run.length === 1 && offer ? { kind: 'prerequisite', pick: prerequisite } : numberedPacketSetup(question, pending);
+    return prerequisite !== null && run.length === 1 && offer ? { kind: 'prerequisite', pick: prerequisite }
+      : numberedPacketSetup(question, pending) ?? contextualPacketSetup(question, pending);
   });
   if (policies.some(policy => !policy) || new Set(policies.map(policy => policy!.kind)).size !== 2) return waiting;
 

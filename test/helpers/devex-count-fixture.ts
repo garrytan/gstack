@@ -1,4 +1,5 @@
 import type { AskUserQuestionFingerprint } from './claude-pty-runner';
+import type { NativePlanQuestionCall } from './plan-count-transcript';
 
 /** Concrete product decisions, separate from the skill's mandatory Step-0 confirmations. */
 export const DEVEX_COUNT_FILES: Record<string, string> = {
@@ -120,6 +121,8 @@ module and its sample data are included and work as documented.
 export function planDevexCountFixture(planPath: string): string {
   return [
     `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+    'This is an interactive review; a responder is available for AskUserQuestion.',
+    'Present each unresolved decision and wait for its answer.',
     '',
     '# Plan: EvalKit SDK beta release polish',
     '',
@@ -428,9 +431,174 @@ function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
   return absentPackageFile || conflictingGate || unshippedQuickstart || unreachableBenchmark;
 }
 
+/** An explicitly quoted developer account plus accuracy-only choices adds no repair. */
+function answeredQuotedAccuracy(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false ||
+      call.questions.length !== 1 || fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      Object.keys(call.answers ?? {}).length !== 1 || !Number.isFinite(Date.parse(call.answeredAt ?? ''))) return false;
+  const q = call.questions[0]!;
+  if (q.header !== 'Narrative' || q.multiSelect || q.options.length !== 3 || fp.options.length !== 3 ||
+      !fp.options.every((o,i) => o.index === i+1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => call.answers?.[q.question] === o.label) || /<gstack-qid/i.test(q.question)) return false;
+  const expectedOptions = [
+    ['This is accurate, proceed', 'Use this narrative as the Developer Perspective section and continue to friction-point decisions.'],
+    ['Some of this is wrong, let me correct it', 'Tell me which steps differ; I will fold corrections in before scoring.'],
+    ['This is way off, the actual experience is...', 'Describe the real flow and I will rebuild the narrative from it.'],
+  ];
+  if (!q.options.every((o,i) => o.label.replace(/ \(recommended\)$/i, '') === expectedOptions[i]![0] && o.description === expectedOptions[i]![1])) return false;
+  const parts = q.question.replace(/^D\d+\s*[—–-]\s*/, '').split(/\n\s*\n/);
+  if (parts.length < 5 || parts[0] !== 'Empathy narrative: does this match what your ML engineer experiences today?' ||
+      !/^Project\/branch\/task: [\w/-]+ branch, [\w. -]+ beta polish, tracing the README getting-started path as written\.$/.test(parts[1]!) ||
+      parts[2] !== 'Here is what I think your ML engineer experiences today:') return false;
+  const quoted = parts.slice(3,-1).join('\n\n');
+  // These are source words in an explicitly bounded quotation, not approval
+  // of any action they mention. No unquoted paragraph may intervene.
+  if (!/^"I [\s\S]+"$/.test(quoted) || (quoted.match(/"/g)?.length ?? 0) !== 2) return false;
+  const explanatory = [
+    "ELI10: This narrative becomes the 'Developer Perspective' section the implementer reads. If it is wrong, the whole review is calibrated against a fake developer.",
+    'Stakes if we pick wrong: we fix friction your developer never hits, or miss the one that actually loses them.',
+    'Recommendation: A because every step above quotes a documented contract in README.md, docs/api.md, docs/current-contracts.md, or docs/package-contents.txt rather than a guess.',
+    'Note: options differ in kind, not coverage — no completeness score.',
+    'A) This is accurate, proceed with this understanding (recommended)',
+    '✅ Every friction point is grounded in a specific documented line, not hypothesized',
+    '✅ Lets the review move straight to per-friction-point decisions with shared context',
+    '❌ If the docs lag the real runtime, a fixed contract could be reviewed as if still broken',
+    'B) Some of this is wrong, let me correct it',
+    '✅ Corrections get folded into the narrative before any scoring happens',
+    '✅ Catches doc-versus-runtime drift the repo cannot show me',
+    '❌ Requires you to spell out which steps differ and how',
+    'C) This is way off, the actual experience is...',
+    '✅ Resets the review against your real onboarding flow',
+    '✅ Prevents scoring against contracts that no longer exist',
+    '❌ Discards a trace that matches the docs line for line, so the docs would also need fixing',
+    'Net: trading trust in the checked-in docs against knowledge only you have about the live SDK.',
+  ];
+  const tail = parts.at(-1)!.split('\n').map(line => line.trim());
+  return tail.length === explanatory.length && tail.every((line,i) => line === explanatory[i]);
+}
+
+/** A missing release measurement is new work even though its benchmark already exists. */
+function answeredMeasurementGate(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false ||
+      call.questions.length !== 1 || fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      Object.keys(call.answers ?? {}).length !== 1 || !Number.isFinite(Date.parse(call.answeredAt ?? ''))) return false;
+  const q = call.questions[0]!;
+  if (q.header !== 'Measurement' || q.multiSelect || q.options.length < 2 || q.options.length > 4 ||
+      new Set(q.options.map(o => o.label)).size !== q.options.length || fp.options.length !== q.options.length ||
+      !fp.options.every((o,i) => o.index === i+1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => call.answers?.[q.question] === o.label) || /<gstack-qid/i.test(q.question)) return false;
+  const title = q.question.split('\n')[0]!.replace(/^D\d+\s*[—–-]\s*/, '');
+  return /^Pass \d+ \(DX Measurement\): the < \d+(?:\.\d+)? min target is asserted but never re-measured after the fixes\.$/.test(title) &&
+    /^Evidence: [^\n]+\. Nothing in the plan re-runs that same study after D\d+[–-]D\d+ land, so the beta could ship with the target still unmet and nobody would know until the survey\.$/m.test(q.question) &&
+    q.options.some(o => /^Fix in plan: re-run study as ship gate, record demo and live TTHW(?: \(recommended\))?$/.test(o.label) &&
+      /^Same protocol as docs\/benchmarks\.md on the release candidate; demo TTHW < \d+(?:\.\d+)? min required before tagging\.$/.test(o.description ?? ''));
+}
+
+/** A recap can confirm existing approvals, but its text cannot manufacture them. */
+function answeredRoleplayRecap(fp: AskUserQuestionFingerprint, priorCalls: readonly NativePlanQuestionCall[]): boolean {
+  const call = fp.nativeCall;
+  const completed = (c: NativePlanQuestionCall) => c.answered === true && c.failed === false &&
+    Boolean(c.sessionId && c.toolUseId) && c.questions.length === 1 && !c.questions[0]!.multiSelect &&
+    Array.isArray(c.unansweredQuestionIndices) && c.unansweredQuestionIndices.length === 0 &&
+    Object.keys(c.answers ?? {}).length === 1 && Number.isFinite(Date.parse(c.answeredAt ?? '')) &&
+    c.questions[0]!.options.filter(o => o.label === c.answers?.[c.questions[0]!.question]).length === 1;
+  if (!call || !completed(call) || fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return false;
+  const q = call.questions[0]!;
+  if (q.header !== 'Roleplay' || q.options.length !== 4 || fp.options.length !== 4 ||
+      !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      new Set(q.options.map(o => o.label)).size !== 4 || /<gstack-qid/i.test(q.question)) return false;
+  const labels = q.options.map(o => o.label.replace(/ \(recommended\)$/i, ''));
+  if (labels.join('|') !== 'All of them, fix every confusion point|Let me pick which ones matter|Critical ones only (#1, #2, #5)|This is unrealistic, our developers already know the context' ||
+      call.answers?.[q.question] !== q.options[0]!.label) return false;
+  const mapping = /^Address #1 through #(\d+), matching the D(\d+)[–-]D(\d+) decisions\.$/.exec(q.options[0]!.description ?? '');
+  if (!mapping) return false;
+  const [size, first, last] = mapping.slice(1).map(Number);
+  if (size !== 5 || last! - first! + 1 !== size || first! < 1 || last! > 1000) return false;
+  if (q.options[1]!.description !== 'Tell me which numbers to keep and which to drop.' ||
+      q.options[2]!.description !== 'Fix quickstart, CI gate, and upgrade; leave signature order and auth error.' ||
+      q.options[3]!.description !== 'Skip the confusion points; keep contracts as drafted.') return false;
+  const prior: NativePlanQuestionCall[] = [];
+  for (let decision = first!; decision <= last!; decision++) {
+    const matches = priorCalls.filter(c => c.sessionId === call.sessionId && completed(c) &&
+      c.toolUseId !== call.toolUseId && Date.parse(c.answeredAt!) < Date.parse(call.answeredAt!) &&
+      new RegExp(`^D${decision}\\s*[—–-]\\s*`).test(c.questions[0]!.question));
+    if (matches.length !== 1 || !/^Fix in plan:/.test(matches[0]!.answers![matches[0]!.questions[0]!.question]!)) return false;
+    prior.push(matches[0]!);
+  }
+  // Each observed confusion point refers to the same already-approved contract.
+  // The fixture's five independent defects remain explicit; new measurement,
+  // documentation or TODO decisions do not enter this confirmation path.
+  const subjects = [/examples\/first_eval\.py/, /\bCI\b/, /\brun_eval\b[\s\S]*\brun_batch\b|\brun_batch\b[\s\S]*\brun_eval\b/, /\bAuthError\b/, /Client\.evaluate\(\)/i];
+  if (prior.some((c, i) => !subjects[i]!.test(c.questions[0]!.question))) return false;
+  // Sharing a subject or a "fix" prefix is not approval of this remedy. Bind
+  // each chosen option and its entire consequence to the contract recapped.
+  const approvedRepairs = [
+    ['Fix in plan: demo-first quickstart + resolve first_eval.py', 'README leads with python -m evalkit.demo; ship or remove first_eval.py; add a packaging check for documented paths.'],
+    ['Fix in plan: no CI check on mock-transport runs; gate the first live eval instead', 'Demo returns immediately; CI check with existing progress/timeout messaging moves to the first keyed evaluation.'],
+    ['Fix in plan: align order + keyword-only + clear TypeError', 'run_batch(dataset, evaluator) matching run_eval; keyword-only enforcement; positional misuse raises a TypeError naming the expected call.'],
+    ['Fix in plan: coded, causal AuthError with fix and redaction', 'Error code, key source, cause, console fix URL, redacted key prefix, help link. Matches the existing error pattern.'],
+    ['Fix in plan: alias + DeprecationWarning + migration guide + codemod', 'evaluate() delegates to run() with a warning through 2.x betas; changelog and docs/api.md gain a migration section; sed/codemod recipe shipped.'],
+  ];
+  if (prior.some((c, i) => {
+    const question = c.questions[0]!;
+    const selected = question.options.find(o => o.label === c.answers![question.question])!;
+    return selected.label.replace(/ \(recommended\)$/i, '') !== approvedRepairs[i]![0] ||
+      selected.description !== approvedRepairs[i]![1];
+  })) return false;
+  const parts = q.question.replace(/^D\d+\s*[—–-]\s*/, '').split(/\n\s*\n/);
+  if (parts.length !== 5 || parts[0] !== 'First-time developer roleplay: which confusion points should the plan address?' ||
+      !/^Project\/branch\/task: [\w/-]+ branch, [\w. -]+ beta polish; roleplayed your ML engineer through the README as written\.$/.test(parts[1]!) ||
+      parts[2] !== 'I roleplayed as your ML engineer attempting the getting started flow. Here is what confused me, with timestamps:') return false;
+  const observed = parts[3]!.split('\n');
+  const source = String.raw`[\w./-]+:\d+(?:-\d+)?`;
+  const observation = [
+    new RegExp(String.raw`^T\+\d+:\d+ +#1 \x60python examples/first_eval\.py\x60 fails: file not in package or archive \(${source}, ${source}\)\. "[^"\n]+"$`),
+    new RegExp(String.raw`^T\+\d+:\d+ +#2 Keyless demo starts a remote CI check on a sample-project binding I never created \(${source}, ${source}\)\. "[^"\n]+"$`),
+    new RegExp(String.raw`^T\+\d+:\d+ +Scores print\. Works, but \d+ min vs the \d+ min target \(${source}\)\. Impression: slow\.$`),
+    new RegExp(String.raw`^T\+\d+:\d+ +#3 run_batch fails inside the evaluator because its argument order is the reverse of run_eval \(${source}\)\. "[^"\n]+"$`),
+    new RegExp(String.raw`^T\+\d+:\d+ +#4 \x60AuthError: request failed\x60 on a wrong-project key; I check network and server status first because nothing says "key" \(${source}\)\.$`),
+    new RegExp(String.raw`^T\+\d+:\d+ +#5 v1 project upgraded: every client\.evaluate\(\) raises AttributeError; changelog has no migration entry \(${source}\)\. Final state: file an issue or pin v1\.$`),
+  ];
+  if (observed.length !== observation.length || observed.some((line, i) => !observation[i]!.test(line))) return false;
+  // Consume the complete decision explanation too. Additional work under a
+  // valid heading or in a choice description must remain substantive.
+  const range = `D${first}–D${last}`;
+  const tail = parts[4]!.replace(new RegExp(`D${first}[–-]D${last}`, 'g'), range).split('\n');
+  const expected = [
+    'ELI10: Each numbered point is a place a real first-time user stops and asks a question nobody is there to answer. The plan should remove every one it reasonably can.',
+    'Stakes if we pick wrong: leave one in and that is the step where the developer\'s session ends; each maps to a contract PLAN.md explicitly asked to be reviewed.',
+    `Recommendation: A because all five map one-to-one to the ${range} decisions you already resolved as "fix in plan", so addressing all of them is consistent with those calls.`,
+    'Completeness: A=10/10, B=depends on selection, C=6/10, D=1/10',
+    'A) All of them, fix every confusion point (recommended)',
+    `✅ Consistent with ${range}; every confusion point already has an agreed fix`,
+    '✅ Leaves no known dead end in the first 30 minutes of use',
+    '❌ Full set of fixes touches README, client.py, demo gate, error class, and changelog (human: ~3 days / CC: ~1.5 hours)',
+    'B) Let me pick which ones matter',
+    '✅ Lets you drop a point if you know something the docs do not show',
+    '✅ Keeps the plan focused on what you consider blocking',
+    `❌ Reopens decisions ${range} that were just settled`,
+    'C) The critical ones only (#1, #2, #5), skip #3 and #4',
+    '✅ Covers the broken quickstart, the TTHW blocker, and the upgrade break',
+    '✅ Smaller diff to review',
+    '❌ Ships an inconsistent API and an undiagnosable auth error in a DX polish release',
+    'D) This is unrealistic, our developers already know the context',
+    '✅ Zero work now',
+    '✅ Valid if every beta user is internal and already trained',
+    '❌ README.md:3-5 describes an external ML engineer meeting the SDK fresh, which contradicts this',
+    'Net: trading a known, already-scoped set of fixes against leaving a documented dead end in the first session.',
+  ];
+  return tail.length === expected.length && tail.every((line, i) => line.trim() === expected[i]);
+}
+
 /** A batched native call remains one decision; the caller owns call-ID deduplication. */
-export function isDevexReviewIssue(fp: AskUserQuestionFingerprint): boolean {
-  return answeredSetupRepair(fp) || answeredContractRepair(fp) || answeredKeylessDemoRepair(fp) || answeredDocumentationFollowup(fp) || questionRecords(fp, true).some(substantiveIssue);
+export function isDevexReviewIssue(fp: AskUserQuestionFingerprint, priorCalls: readonly NativePlanQuestionCall[] = []): boolean {
+  if (answeredQuotedAccuracy(fp) || answeredRoleplayRecap(fp, priorCalls)) return false;
+  return answeredMeasurementGate(fp) || answeredSetupRepair(fp) || answeredContractRepair(fp) || answeredKeylessDemoRepair(fp) || answeredDocumentationFollowup(fp) || questionRecords(fp, true).some(substantiveIssue);
 }
 
 /** Key acquisition docs and eliminating the demo's key requirement are distinct work. */

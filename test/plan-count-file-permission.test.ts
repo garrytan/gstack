@@ -67,11 +67,12 @@ describe('native repeated report permission identity',()=>{
  });
 });
 
-for (const variant of ['basic', 'intervening', 'cropped', 'same-basename']) test.skipIf(process.platform==='win32')(`real fake CLI grants each current request once: ${variant}`,async()=>{
+for (const variant of ['basic', 'intervening', 'cropped', 'same-basename', 'path-cropped']) test.skipIf(process.platform==='win32')(`real fake CLI grants each current request once: ${variant}`,async()=>{
  const intervening = variant === 'intervening';
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'count-edit-pty-'));const fake=path.join(dir,'fake-claude');const worker=path.join(dir,'worker.ts');const events=path.join(dir,'events.jsonl');const output=path.join(dir,'output.json');const expected=path.join(dir,variant==='same-basename'?'PLAN.md':'report.md');fs.writeFileSync(expected,'original');
  const cropped=capturedAc.rows.find(row=>row.job===5)!;
- let screen=variant==='cropped' ? cropped.screen.replaceAll(path.dirname(cropped.hook.expected),path.dirname(expected)).replaceAll(path.basename(cropped.hook.expected),'report.md')
+ let screen=variant==='path-cropped' ? capturedPath.screen.replace(capturedPath.screen.split('\n')[0]!,expected).replaceAll(path.dirname(capturedPath.expected),path.dirname(expected)).replaceAll(path.basename(capturedPath.expected),'report.md')
+  : variant==='cropped' ? cropped.screen.replaceAll(path.dirname(cropped.hook.expected),path.dirname(expected)).replaceAll(path.basename(cropped.hook.expected),'report.md')
   : captured.screen.replaceAll(captured.expectedPath,expected).replace('../gstack-e2e-plan-ceo-paired-2Rv5Bi/gstack-test-plan-ceo-paired.md',expected).replaceAll('gstack-test-plan-ceo-paired.md','report.md');
  if(variant==='same-basename')screen=screen.replaceAll(expected,'__ACTIVE_PLAN_PATH__').replaceAll('report.md','PLAN.md');
  fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
@@ -111,3 +112,70 @@ process.stdin.setRawMode?.(true);process.stdin.on('data',async data=>{
   expect(()=>process.kill(rows[0].pid,0)).toThrow();expect(fs.existsSync(rows[0].cwd)).toBe(false);
  }finally{clearTimeout(killer);child.kill('SIGKILL');if(fs.existsSync(events)){const first=JSON.parse(fs.readFileSync(events,'utf8').split('\n')[0]!);try{process.kill(first.pid,'SIGKILL');}catch{}}fs.rmSync(dir,{recursive:true,force:true});}
 },35000);
+
+import capturedPath from './fixtures/plan-count-permission-target-ad-v2.json';
+function pathCroppedFixture(){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'count-path-cropped-'));
+ // Retain the captured relative layout inside this run's disposable temp root.
+ const relocate=(value:string)=>value.replaceAll(path.dirname(capturedPath.cwd),dir);
+ const cwd=relocate(capturedPath.cwd),config=relocate(capturedPath.config),expected=relocate(capturedPath.expected);
+ const screen=relocate(capturedPath.screen),sessionId=capturedPath.sessionId;
+ const recorder=createFilePermissionRecorder(cwd,config,expected)!;const startedAt=Date.now()-1000;
+ const transcript:any={status:'ready',calls:[],assistantMessages:[{sessionId,text:'Reviewing',timestamp:new Date().toISOString()}]};
+ // The public screen/identity are retained; these hook events are synthetic.
+ const record=(name:string,id:string)=>recordFilePermission(JSON.stringify({hook_event_name:name,tool_name:'Edit',session_id:sessionId,tool_use_id:id,cwd,transcript_path:path.join(config,'projects','owned',sessionId+'.jsonl'),tool_input:{file_path:expected}}),recorder.file,cwd,config,expected);
+ const read=(viewport=screen)=>currentFilePermissionEpoch(recorder.file,expected,cwd,config,startedAt,transcript,viewport);
+ return {recorder,startedAt,transcript,record,read,screen,expected,close(){recorder.dispose();fs.rmSync(dir,{recursive:true,force:true});}};
+}
+test('AD v2 retained path-only heading needs the exact current owned epoch',()=>{
+ const f=pathCroppedFixture();try{
+  expect(capturedPath.provenance.actualOutcome).toBe('timeout');
+  expect(classifyPlanCountFrame(f.screen)).toBe('permission');
+  expect(f.read()).toBeNull();f.record('PreToolUse','first');
+  expect(f.read()?.pendingId).toBe(capturedPath.sessionId+':first');
+  const guard=createPlanCountPermissionGuard();expect(guard(f.screen,'',f.read())).toBe('grant');
+  expect(guard(f.screen,'',f.read())).toBe('handled');
+ }finally{f.close();}
+});
+
+test('AD v2 path-only target retains native success and replay boundaries',()=>{
+ const f=pathCroppedFixture();try{
+  const guard=createPlanCountPermissionGuard();const read=()=>guard(f.screen,'',f.read());
+  f.record('PreToolUse','first');expect(read()).toBe('grant');
+  f.record('PostToolUseFailure','first');f.record('PreToolUse','second');expect(read()).toBe('handled');
+  f.record('PostToolUse','second');f.record('PreToolUse','third');expect(read()).toBe('handled');
+ }finally{f.close();}
+ const g=pathCroppedFixture();try{
+  const guard=createPlanCountPermissionGuard();g.record('PreToolUse','first');expect(guard(g.screen,'',g.read())).toBe('grant');
+  g.record('PostToolUse','first');expect(guard(g.screen,'',g.read())).toBe('handled');
+  g.record('PreToolUse','second');expect(guard(g.screen,'',g.read())).toBe('grant');
+  g.record('PostToolUse','second');g.record('PreToolUse','first');expect(guard(g.screen,'',g.read())).toBe('handled');
+ }finally{g.close();}
+});
+
+test('AD v2 path-only heading must agree with full menu target and current metadata',()=>{
+ const f=pathCroppedFixture();try{
+  f.record('PreToolUse','first');const screen=f.screen,lines=screen.split('\n');
+  expect(f.read([f.expected,...lines.slice(1)].join('\n'))?.pendingId).toBe(capturedPath.sessionId+':first');
+  const wrong=[
+   [' ../sibling/'+path.basename(f.expected),...lines.slice(1)].join('\n'),
+   [' '+f.expected+' extra',...lines.slice(1)].join('\n'),
+   [lines[0],'/tmp/other/'+path.basename(f.expected),...lines.slice(1)].join('\n'),
+   [lines[0],...lines.slice(2)].join('\n'),
+   'Example:\n'+screen,'```text\n'+screen,screen+'\nContinue with a different action.',
+   screen.replace('❯ 1. Yes','❯ 2. Yes'),screen.replace('Esc to cancel · Tab to amend','Esc to cancel'),
+   screen.replace('always allow access to '+path.dirname(f.expected),'always allow access to /tmp/sibling'),
+  ];
+  for(const altered of wrong){expect(altered).not.toBe(screen);expect(f.read(altered)).toBeNull();}
+  const valid=JSON.parse(fs.readFileSync(f.recorder.file,'utf8'));
+  for(const delta of [{timestamp:new Date(f.startedAt-1).toISOString()},{sessionId:'foreign'},{pendingId:valid.completedId},{cwd:'/foreign'},{expected:'/foreign'}]){
+   fs.writeFileSync(f.recorder.file,JSON.stringify({...valid,...delta}));expect(f.read()).toBeNull();
+  }
+ }finally{f.close();}
+});
+
+import {E2E_TOUCHFILES,selectTests} from './helpers/touchfiles';
+test('AD v2 cropped target fixture selects all existing file-permission consumers',()=>{
+ expect(selectTests(['test/fixtures/plan-count-permission-target-ad-v2.json'],E2E_TOUCHFILES,[]).selected)
+  .toEqual(selectTests(['test/plan-count-file-permission.test.ts'],E2E_TOUCHFILES,[]).selected);
+});

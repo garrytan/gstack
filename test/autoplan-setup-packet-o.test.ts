@@ -264,3 +264,102 @@ fs.writeFileSync(${JSON.stringify(resultFile)},JSON.stringify(results));
     }fs.rmSync(dir,{recursive:true,force:true});
   }
 },30000);
+
+const adV2Packet = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/autoplan-setup-ad-v2-packet.json'), 'utf8')) as {pendingCall: NativePlanQuestionCall; screen: string};
+test('AD v2 actual setup packet chooses routing and standard review with the existing native identity',()=>{
+ const seen=new Set<string>(),call=adV2Packet.pendingCall;
+ expect(autoplanSetupDecision(adV2Packet.screen,seen).kind).toBe('waiting');
+ commit(adV2Packet.screen,seen,call,'1');
+ // Only the first pane was retained live. Later panes are explicit native-question projections.
+ commit(pane(call,1,[0]),seen,call,'2');
+ commit(pane(call,2,[0,1]),seen,call,'\r');
+});
+
+test('AD v2 setup policy uses the task and actions across presentation and option order',()=>{
+ for(const variant of ['numbered','unprefixed','different explanation'])for(const reverseQuestions of [false,true])for(const reverseOptions of [false,true]){
+  const call=structuredClone(adV2Packet.pendingCall);
+  call.questions.forEach((q,index)=>{
+   q.question=q.question.replace(/^D\d+\s*[—–:-]\s*/,variant==='unprefixed'?'':`D${31+index}: `);
+   if(variant==='different explanation')q.question=q.question.split('\n')[0]+'\nProject/branch/task: disposable review fixture, another branch and release.\nELI10: This setup changes how later sessions find workflow context.\nStakes if we pick wrong: an extra setup step.\nRecommendation: Keep the offered actions explicit.\nNet: setup now versus a direct review.';
+  });
+  if(reverseQuestions)call.questions.reverse();if(reverseOptions)call.questions.forEach(q=>q.options.reverse());
+  const seen=new Set<string>();
+  for(let i=0;i<2;i++){
+   const ordinary=call.questions[i]!.header==='Routing'?1:2;
+   commit(pane(call,i,i===1?[0]:[]),seen,call,String(reverseOptions?3-ordinary:ordinary));
+  }
+  commit(pane(call,2,[0,1]),seen,call,'\r');
+ }
+});
+
+test('AD v2 setup cannot borrow a header, subject or adjacent question for a different decision',()=>{
+ const changes:Array<(c:NativePlanQuestionCall)=>void>=[
+  c=>{c.questions[0]!.header='Product router';},
+  c=>{c.questions[1]!.header='Deployment';},
+  c=>{[c.questions[0]!.header,c.questions[1]!.header]=[c.questions[1]!.header,c.questions[0]!.header];},
+  c=>{c.questions[0]!.question=c.questions[0]!.question.replace(/^.*\n/,'D1 — Should the application route requests through a proxy?\n');},
+  c=>{c.questions[1]!.question=c.questions[1]!.question.replace(/^.*\n/,'D2 — Should we add an office-hours page to the product?\n');},
+  c=>{c.questions[0]!.question='The plan quotes: '+c.questions[0]!.question;},
+  c=>{c.questions[1]!.question='```text\n'+c.questions[1]!.question+'\n```';},
+  c=>{c.questions[1]!.question=c.questions[1]!.question.split('\n').map(l=>'> '+l).join('\n');},
+  c=>{c.questions[1]!.question+=' Should we remove the authorization check?';},
+  c=>{c.questions[1]={...structuredClone(c.questions[1]!),question:'Approve deployment to production?',header:'Approval'};},
+ ];
+ for(const change of changes){const call=structuredClone(adV2Packet.pendingCall);change(call);const seen=new Set<string>();
+  expect(autoplanSetupDecision(pane(call,0),seen,call).kind).toBe('waiting');expect(seen.size).toBe(0);}
+});
+
+test('AD v2 setup rejects conditional, contradictory and ambiguous actions in either tab',()=>{
+ const changes:Array<(c:NativePlanQuestionCall)=>void>=[
+  c=>{c.questions[0]!.options[0]!.description='Do not add routing rules to CLAUDE.md.';},
+  c=>{c.questions[0]!.options[1]!.description='Add routing rules to CLAUDE.md after declining.';},
+  c=>{c.questions[1]!.options[0]!.description='Skip the design doc and begin the review now.';},
+  c=>{c.questions[1]!.options[1]!.description='Run /office-hours first, then proceed with standard review.';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review after completing /office-hours.';},
+  c=>{c.questions[1]!.options[1]!.description='No review will run.';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review?';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review but do not run it.';},
+  c=>{c.questions[1]!.options[1]!.description='Review starts now, but not yet.';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review when /office-hours completes.';},
+  c=>{c.questions[1]!.options[1]!.description='Review starts immediately after completing /office-hours.';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review once the design doc is complete.';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review if the tests pass.';},
+  c=>{c.questions[1]!.options[1]!.description='Skip the CEO review and proceed directly to engineering.';},
+  c=>{c.questions[1]!.options[1]!.description='Proceed with standard review only if the tests pass.';},
+  c=>{c.questions[1]!.question+=' You must run /office-hours before the review.';},
+  c=>{c.questions[1]!.question+=' Standard review is forbidden until /office-hours completes.';},
+  c=>{c.questions[0]!.options[0]!.label+=' and implement the feature';},
+  c=>{c.questions[1]!.options[1]!.label+=' if the tests pass';},
+  c=>{c.questions[0]!.options[0]!.description+=' Also delete the authorization check.';},
+  c=>{c.questions[1]!.options[1]!.description+=' Also deploy to production.';},
+  c=>{c.questions[0]!.options[1]=structuredClone(c.questions[0]!.options[0]!);},
+  c=>{c.questions[1]!.options.push({label:'Skip the remaining review phases'});},
+ ];
+ for(const change of changes){const call=structuredClone(adV2Packet.pendingCall);change(call);const seen=new Set<string>();
+  expect(autoplanSetupDecision(pane(call,0),seen,call).kind).toBe('waiting');expect(seen.size).toBe(0);}
+});
+
+test('AD v2 setup retains complete native identity and current-pane requirements',()=>{
+ const first=adV2Packet.screen,call=adV2Packet.pendingCall;
+ // The example label must introduce the panel, not precede unrelated earlier transcript rows.
+ for(const screen of ['Example panel:\n'+pane(call,0),'```text\n'+first,first+'\nContinuing.',
+  first.replace('Design doc','Different tab'),first.replace('Esc to cancel','Esc to'),
+  first.replace('Add routing rules to CLAUDE.md (recommended)','Add routing rules to OTHER.md (recommended)')]){
+  expect(screen).not.toBe(first);expect(autoplanSetupDecision(screen,new Set(),call).kind).toBe('waiting');
+ }
+ for(const delta of [{answered:true},{failed:true},{sessionId:''},{toolUseId:''}])
+  expect(autoplanSetupDecision(first,new Set(),{...call,...delta}).kind).toBe('waiting');
+});
+
+test('AD v2 setup fixture selects the existing Autoplan paid case only',()=>{
+ expect(E2E_TOUCHFILES['autoplan-chain-pty']).toContain('test/fixtures/autoplan-setup-ad-v2-packet.json');
+ const owners=Object.entries(E2E_TOUCHFILES).filter(([,files])=>files.includes('test/fixtures/autoplan-setup-ad-v2-packet.json')).map(([name])=>name);
+ expect(owners).toEqual(['autoplan-chain-pty']);
+});
+
+test('AD v2 selected review action allows short affirmative descriptions with dynamic tradeoffs',()=>{
+ for(const description of ['Proceed with standard review. The plan already states its goals.', 'Review begins now using the existing plan. No separate design artifact is created.', 'Start the standard review immediately with the supplied context.']){
+  const call=structuredClone(adV2Packet.pendingCall);call.questions[1]!.options[1]!.description=description;
+  expect(autoplanSetupDecision(pane(call,0),new Set(),call).kind).toBe('input');
+ }
+});

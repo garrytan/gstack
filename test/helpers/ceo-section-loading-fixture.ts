@@ -164,9 +164,19 @@ export function hasStaleFillRaceFinding(report: string): boolean {
 
 function hasProseStaleFillFinding(report: string): boolean {
   // Copied source, diagrams and quoted examples cannot supply a finding.
-  const prose = report.replace(/```[\s\S]*?```/g, '').replace(/^\s*>.*$/gm, '');
+  let fence: { char: string; length: number } | null = null;
+  const prose = report.split('\n').map(line => {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (!fence) fence = { char: run[0]!, length: run.length };
+      else if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) fence = null;
+      return '';
+    }
+    return fence || /^\s*>/.test(line) || /^(?: {4}|\t)/.test(line) ? '' : line;
+  }).join('\n');
   // Independent list items and table rows cannot borrow each other's words.
-  const blocks = prose.split(/\n\s*\n|\n(?=\s*(?:\||\d+\.\s|[-*]\s))/).map(block => block.trim());
+  const blocks = prose.split(/\n\s*\n|\n(?=\s*(?:#{1,6}\s|\||\d+\.\s|[-*]\s))/).map(block => block.trim());
   const normalize = (text: string) => text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
   return blocks.some((block, index) => {
     const text = normalize(block);
@@ -177,7 +187,15 @@ function hasProseStaleFillFinding(report: string): boolean {
     const fill = fillPattern.test(text);
     const invalidation = /\b(?:invalidat|evict|write|commit|delet)\w*\b/i.test(text);
     const ordering = /\b(?:after|later|resum\w*)\b|out[- ]of[- ]order/i.test(text);
-    if (!stale || !inFlight || !read || !fill || !invalidation || !ordering) return false;
+    // A review may identify the ordering defect directly as missing coordination
+    // between cache fills and writes that violates read-after-write freshness.
+    // That is independent evidence even when the old-value trace is a diagram.
+    const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(?:sketch|wrapper|implementation)\s+(?:had|has)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b/i.exec(text);
+    const conclusion = /(?:^|[.;]\s+)(?:finding\s+[\w.-]+\s+(?:showed|shows)\s+)?(?:this|that|it)\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:[.!](?=\s|$)|$)/i.exec(text);
+    const coordinationGap = premise !== null && conclusion !== null && premise.index < conclusion.index
+      && !/["“”]|\b(?:if|example|template|quoted)\b/i.test(text)
+      && !/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(blocks[index - 1] ?? '');
+    if ((!stale || !inFlight || !read || !fill || !invalidation || !ordering) && !coordinationGap) return false;
 
     // A neighboring explanation/remedy belongs to this paragraph only until
     // another named finding/section/table row begins. In particular, a
