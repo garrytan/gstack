@@ -1179,18 +1179,19 @@ descriptions of what 10/10 looks like.
 
 Confirm you Read the review section the Section index named, and executed all 7 design passes, the required outputs, and the review report in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
 
-Before the completion summary, review log, next-step menu, or ExitPlanMode,
-reconcile every proposed fix with the exact user decision for that issue. A new
-accepted task, raised score, or "decision made" needs its individual approval;
-an explicit deferral stays unresolved. Existing accepted requirements need no repeat approval.
-Keep the preamble's authorized auto-decisions distinct and record their per-issue basis.
-If an issue has no such decision, ask about it now and wait; a next-step answer
-cannot approve it. If a draft applied it, return that change to pending before continuing.
+Before summaries, review logs or next-step menus, run approval check 0 below.
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 
 Before calling ExitPlanMode, run this self-check. If any item fails, do the
 missing work — do NOT call ExitPlanMode:
+
+0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+   Never group distinct issues. DESIGN.md tokens and navigation are not approval.
+   Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
+   record why. Deferrals remain unresolved.
+   If missing, reset drafts to pending, ask and wait. After answers or resets,
+   refresh the plan, report and review log; rerun this gate.
 
 1. Read the plan file with the Read tool (after your most recent write to it).
 2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.

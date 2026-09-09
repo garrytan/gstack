@@ -219,6 +219,14 @@ function answeredSetupRepair(fp: AskUserQuestionFingerprint): boolean {
       /\b(?:mandatory|blocks?|retains? the CI block)\b/i.test(text) &&
       /(?:^|[—–:]\s*)add\s+(?:an?\s+)?(?:skip flag|--skip-ci|offline(?:[- ]first[- ]run)? path)\b/i.test(label);
   }
+  if (id === 'plan-devex-review-tthw-ci-block' && /^TTHW target$/i.test(header)) {
+    // A confirmed benchmark does not approve a new CI bypass. This captured
+    // menu asserts the broken target and selects an explicit repair.
+    const headline = question.question.split('\n')[0]!.replace(/<gstack-qid:[^>]+>/i, '').trim();
+    return Array.isArray(call.unansweredQuestionIndices) && call.unansweredQuestionIndices.length === 0 &&
+      /^D\s*\d+\s*[—–:-]\s*Journey Stage HELLO WORLD:\s*The \d+[- ]minute mandatory CI block makes the under-\d+[- ]minute TTHW target unreachable\.\s*$/i.test(headline) &&
+      /^Add (?:a )?demo-mode CI skip flag(?:\s*\(Recommended\))?$/i.test(label);
+  }
   if (id === 'plan-devex-review-magical-moment' && /^Magical moment$/i.test(header)) {
     // The selected option adds progress feedback beyond the already chosen
     // demo vehicle and prior CI-bypass decision. An unselected remedy or
@@ -229,9 +237,33 @@ function answeredSetupRepair(fp: AskUserQuestionFingerprint): boolean {
   return false;
 }
 
+/** A current first-pass repair can name the broken contract without its file path. */
+function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.answered || call.failed || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length || fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
+      administrativeQuestion(q.header, q.question, q.options)) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      !/^plan-devex-(?:review-)?[a-z0-9-]+$/i.test(ids[0]![1]!) ||
+      /(?:^|-)(?:mode|setup|scope|routing|prerequisite|next-steps?)(?:-|$)/i.test(ids[0]![1]!)) return false;
+  const body = q.question.replace(/<gstack-qid:[^>]+>/i, '').trim().replace(/\s+/g, ' ');
+  if (!/^D\s*\d+\s*[—–:-]\s*Pass\s+1\s*\(Getting Started\):/i.test(body)) return false;
+  const statement = body.replace(/^D\s*\d+\s*[—–:-]\s*Pass\s+1\s*\(Getting Started\):\s*/i, '');
+  const absentPackageFile = /^(?:The )?(?:README )?quickstart points to a file that doesn['’]t exist in the (?:published )?package\b/i.test(statement) &&
+    /\bhow should (?:the plan|we) fix (?:it|this)\?$/i.test(body);
+  const conflictingGate = /^(?:The )?plan targets TTHW\b[^.!?]*\bbut retains a mandatory\b[^.!?]*\bCI gate with no skip path\b/i.test(statement) &&
+    /\b(?:these are mutually exclusive|these contradict each other)\b/i.test(body) &&
+    /\bhow should (?:the plan|we) resolve (?:this|it)\?$/i.test(body);
+  return absentPackageFile || conflictingGate;
+}
+
 /** A batched native call remains one decision; the caller owns call-ID deduplication. */
 export function isDevexReviewIssue(fp: AskUserQuestionFingerprint): boolean {
-  return answeredSetupRepair(fp) || questionRecords(fp, true).some(substantiveIssue);
+  return answeredSetupRepair(fp) || answeredContractRepair(fp) || questionRecords(fp, true).some(substantiveIssue);
 }
 
 /** Select POLISH only on the recognized mode menu; leave all other answers unchanged. */

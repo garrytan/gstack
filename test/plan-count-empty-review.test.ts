@@ -7,13 +7,14 @@ import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { isQuestionlessNativePlanExit, hasNativePlanTerminal } from './helpers/claude-pty-runner';
 import type { PlanCountTranscript } from './helpers/plan-count-transcript';
+import setupCapture from './fixtures/ceo-count-s-distinct.json';
 
 // Exact caller-owned report from a native zero-question run; the Run header is
 // intentional. Diagnostic failure must not depend on the positive coverage header.
 const GATE = 'Exit plan mode?\n\nClaude wants to exit plan mode\n❯ 1. Yes, and switch to default (ask each time) for this session\n  2. No\n';
 const REPORT = fs.readFileSync(path.join(import.meta.dir, 'fixtures/plan-count-design-questionless-report.md'), 'utf8');
 
-test.skipIf(process.platform === 'win32')('real PTY fails promptly at an owned native exit with no recorded questions', async () => {
+test.skipIf(process.platform === 'win32').each(['none', 'setup'] as const)('real PTY fails promptly at an owned native exit with %s questions', async (questions) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-native-review-'));
   const fake = path.join(dir, 'fake-claude');
   const worker = path.join(dir, 'worker.ts');
@@ -39,7 +40,12 @@ process.stdin.on('data', data => {
   if (sent) return; sent = true;
   fs.writeFileSync(process.env.PROBE_PLAN, process.env.PROBE_REPORT);
   setTimeout(() => {
-    fs.writeFileSync(transcript, JSON.stringify({cwd:process.cwd(), sessionId, isSidechain:false,
+    const records = JSON.parse(process.env.PROBE_SETUP_CALLS || '[]').flatMap((call, index) => {
+      const timestamp = new Date(Date.now() - 20 + index * 2).toISOString();
+      return [{cwd:process.cwd(), sessionId, isSidechain:false, timestamp, message:{role:'assistant',content:[{type:'tool_use', id:call.toolUseId,name:'AskUserQuestion',input:{questions:call.questions}}]}},
+        {cwd:process.cwd(), sessionId,isSidechain:false,timestamp:new Date(Date.parse(timestamp)+1).toISOString(),toolUseResult:{answers:call.answers},message:{role:'user',content:[{type:'tool_result',tool_use_id:call.toolUseId,content:'Your questions have been answered: '+Object.entries(call.answers).map(([q,a])=>JSON.stringify(q)+'='+JSON.stringify(a)).join(', ')+'. You can now continue with these answers in mind.'}]}}];
+    });
+    fs.writeFileSync(transcript, records.map(record=>JSON.stringify(record)+'\n').join('') + JSON.stringify({cwd:process.cwd(), sessionId, isSidechain:false,
       timestamp:new Date().toISOString(), message:{role:'assistant', content:[
         {type:'tool_use', id:'empty-review-exit', name:'ExitPlanMode', input:{}}
       ]}}) + '\n');
@@ -49,9 +55,9 @@ process.stdin.on('data', data => {
 process.stdin.resume();
 `);
   fs.chmodSync(fake, 0o755);
-  fs.writeFileSync(worker, `import { runPlanSkillCounting } from ${JSON.stringify(runner)};\n` +
+  fs.writeFileSync(worker, `import { runPlanSkillCounting, ceoStep0Boundary, ceoFirstReviewAUQ } from ${JSON.stringify(runner)};\n` +
     `if (process.env.BROWSE_TERMINAL_BINARY !== ${JSON.stringify(fake)}) throw new Error('fake CLI not selected');\n` +
-    `const result = await runPlanSkillCounting({skillName:'plan-design-review',slashCommand:'/plan-design-review',followUpPrompt:'# Empty review fixture',expectedPlanPath:${JSON.stringify(report)},isLastStep0AUQ:()=>false,reviewCountCeiling:8,timeoutMs:33000,env:${JSON.stringify({PROBE_PLAN:report,PROBE_INPUTS:inputs,PROBE_PID:pidFile,PROBE_REPORT:REPORT})}});\n` +
+    `const result = await runPlanSkillCounting({skillName:'plan-design-review',slashCommand:'/plan-design-review',followUpPrompt:'# Empty review fixture',expectedPlanPath:${JSON.stringify(report)},isLastStep0AUQ:ceoStep0Boundary,isFirstReviewAUQ:ceoFirstReviewAUQ,reviewCountCeiling:8,timeoutMs:33000,env:${JSON.stringify({PROBE_PLAN:report,PROBE_INPUTS:inputs,PROBE_PID:pidFile,PROBE_REPORT:REPORT,PROBE_SETUP_CALLS:JSON.stringify(questions === 'setup' ? setupCapture.calls : [])})}});\n` +
     `await Bun.write(${JSON.stringify(resultFile)},JSON.stringify(result));\n`);
   const child = Bun.spawn([process.execPath, worker], {
     env: { ...process.env, EVALS_HERMETIC:'1', EVALS_RUN_ID:'', BROWSE_TERMINAL_BINARY:fake },
@@ -62,10 +68,10 @@ process.stdin.resume();
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, out + err).toBe(0);
     const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
-    expect(result.outcome).toBe('no_review_questions');
+    expect(result.outcome, JSON.stringify({summary:result.summary,calls:result.transcript.calls})).toBe('no_review_questions');
     expect(result.reviewCount).toBe(0);
-    expect(result.step0Count).toBe(0);
-    expect(result.transcript.calls).toHaveLength(0);
+    expect(result.step0Count).toBe(questions === 'setup' ? 4 : 0);
+    expect(result.transcript.calls).toHaveLength(questions === 'setup' ? 4 : 0);
     expect(result.transcript.planReadyRequests).toHaveLength(1);
     expect(fs.readFileSync(inputs,'utf8').trim().split('\n').map(line => JSON.parse(line))).toEqual(['/plan-design-review\r']);
     expect(() => process.kill(JSON.parse(fs.readFileSync(pidFile,'utf8')).pid, 0)).toThrow();

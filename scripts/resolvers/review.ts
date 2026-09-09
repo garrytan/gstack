@@ -177,13 +177,25 @@ there — the user then sees a plan whose review report is not at the bottom and
 (correctly) rejects it.`;
 }
 
-export function generateExitPlanModeGate(_ctx: TemplateContext): string {
+export function generateExitPlanModeGate(ctx: TemplateContext): string {
+  // These reviews reconcile issue decisions before summaries and logging.
+  // Writing a report or choosing the review's approach cannot supply approval.
+  const noApproval = ctx.skillName === 'plan-design-review'
+    ? 'DESIGN.md tokens and navigation' : 'Setup, mode, approach and navigation';
+  const approvals = ['plan-design-review', 'plan-ceo-review'].includes(ctx.skillName) ? `0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+   Never group distinct issues. ${noApproval} are not approval.
+   Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
+   record why. Deferrals remain unresolved.
+   If missing, reset drafts to pending, ask and wait. After answers or resets,
+   refresh the plan, report and review log; rerun this gate.
+
+` : '';
   return `## EXIT PLAN MODE GATE (BLOCKING)
 
 Before calling ExitPlanMode, run this self-check. If any item fails, do the
 missing work — do NOT call ExitPlanMode:
 
-1. Read the plan file with the Read tool (after your most recent write to it).
+${approvals}1. Read the plan file with the Read tool (after your most recent write to it).
 2. Confirm the LAST \`## \` heading in the file is \`## GSTACK REVIEW REPORT\`.
    In-body prose that mentions "outside voice", "codex findings", or similar
    does NOT count — only the structured \`## GSTACK REVIEW REPORT\` section

@@ -77,6 +77,26 @@ semantics, or adding new product surfaces. The repository interface preserves a
 future replacement path without introducing a general cache framework now.
 `;
 
+/** All six events must form one ordered, same-key, post-write reader trace. */
+function hasNumberedStaleFillTrace(text: string): boolean {
+  const events = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  if (events.length !== 6) return false;
+  const arrow = String.raw`\s*(?:→|->)\s*`;
+  const backArrow = String.raw`\s*(?:←|<-)\s*`;
+  const identifier = String.raw`([A-Za-z_$][\w$]*)`;
+  const read = String.raw`readProfile\(\s*${identifier}\s*\)`;
+  const write = String.raw`writeProfile\(\s*${identifier}\s*\)`;
+  const first = new RegExp(String.raw`^t1:\s*${read}${arrow}cache miss${arrow}(?:single-flight${arrow})?await DB read(?: \(suspends\))?$`, 'i').exec(events[0]!);
+  if (!first) return false;
+  // Prose keywords are case-insensitive; identifiers remain case-sensitive.
+  const sameKey = (event: string, pattern: string) => new RegExp(pattern, 'i').exec(event)?.[1] === first[1];
+  return sameKey(events[1]!, String.raw`^t2:\s*${write}${arrow}await DB write(?: \(suspends\))?$`)
+    && sameKey(events[2]!, String.raw`^t3:\s*DB write completes${arrow}cache\.delete\(\s*${identifier}\s*\)${arrow}writeProfile returns$`)
+    && new RegExp(String.raw`^t4:\s*DB read \(from t1\) completes${arrow}returns (?:old|stale) (?:snapshot|value)$`, 'i').test(events[3]!)
+    && sameKey(events[4]!, String.raw`^t5:\s*cache\.set\(\s*${identifier}\s*,\s*(?:(?:OLD|STALE)_VALUE|(?:old|stale) (?:snapshot|value))\s*\)${backArrow}(?:old|stale) (?:value|snapshot) (?:re-inserted|refilled) after invalidation!?$`)
+    && sameKey(events[5]!, String.raw`^t6:\s*(?:next|new|subsequent) ${read}${arrow}cache HIT${arrow}returns (?:old|stale) (?:value|snapshot)${backArrow}(?:INVARIANT|CONTRACT) (?:VIOLATED|VIOLATION)!?$`);
+}
+
 /** A named finding may put its ordering evidence in a trace, not one paragraph. */
 function hasStructuredStaleFillFinding(report: string): boolean {
   const lines = report.split('\n');
@@ -100,12 +120,30 @@ function hasStructuredStaleFillFinding(report: string): boolean {
     if (!fence && !/^\s*>/.test(line) && !/^(?: {4}|\t)/.test(line)) prose[i] = line;
   }
   for (let i = 0; i < lines.length; i++) {
-    if (!/^\*\*CRITICAL FINDING\s*[—–:-].*\*\*\s*$/.test(prose[i]!)) continue;
-    const previous = prose.slice(0, i).filter(value => value.trim()).at(-1) ?? '';
+    const legacy = /^\*\*CRITICAL FINDING\s*[—–:-].*\*\*\s*$/.test(prose[i]!);
+    let previousIndex = i - 1;
+    while (previousIndex >= 0 && !prose[previousIndex]!.trim()) previousIndex--;
+    const numbered = /^\*\*CRITICAL GAP\*\*\s*[—–:-]/.test(prose[i]!)
+      && /^#{1,6}\s+Critical Finding:\s+\S.*$/i.test(prose[previousIndex] ?? '');
+    if (!legacy && !numbered) continue;
+    const previous = prose.slice(0, numbered ? previousIndex : i).filter(value => value.trim()).at(-1) ?? '';
     if (/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(previous)) continue;
     let end = i + 1;
     while (end < lines.length && !/^(?:#{1,6}\s|\*\*(?:(?:CRITICAL|HIGH|MEDIUM|LOW)\s+)?(?:FINDING|GAP)\b)/i.test(prose[end]!)) end++;
-    const claim = prose.slice(i + 1, end).join('\n');
+    const claim = prose.slice(numbered ? i : i + 1, end).join('\n');
+    if (numbered) {
+      // A quoted requirement alone is insufficient: the same finding must
+      // independently assert that the current wrapper violates it.
+      if (!/^\*\*CRITICAL GAP\*\*\s*[—–:-]\s*The plan states: "Every read begun after that write completes must observe the committed version\.(?: TTL expiry is not a substitute for this rule\.)?" The proposed wrapper violates this invariant\.\s*$/m.test(claim)) continue;
+      for (const trace of traces.filter(trace => trace.start > i && trace.end < end)) {
+        if (!hasNumberedStaleFillTrace(trace.text)) continue;
+        // Only this validated same-finding trace becomes prose evidence.
+        // Reuse all existing dismissal/accepted-staleness checks unchanged;
+        // this recognizes a finding, not the correctness of its proposed fix.
+        if (hasProseStaleFillFinding((claim + '\n' + trace.text).replace(/\s+/g, ' '))) return true;
+      }
+      continue;
+    }
     if (!/^This\s+violates\s+the\s+stated\s+(?:invariant|contract):/m.test(claim) ||
         !/Every read begun after that write\s+completes must observe the committed version/.test(claim)) continue;
     if (/\b(?:not\s+(?:a\s+)?(?:gap|bug|defect|issue)|no\s+(?:fix|change|guard)\s+(?:is\s+)?(?:needed|required))\b/i.test(claim)) continue;
@@ -121,7 +159,10 @@ function hasStructuredStaleFillFinding(report: string): boolean {
 
 /** Require an unresolved late-fill defect, not a keyword-bearing dismissal. */
 export function hasStaleFillRaceFinding(report: string): boolean {
-  if (hasStructuredStaleFillFinding(report)) return true;
+  return hasStructuredStaleFillFinding(report) || hasProseStaleFillFinding(report);
+}
+
+function hasProseStaleFillFinding(report: string): boolean {
   // Copied source, diagrams and quoted examples cannot supply a finding.
   const prose = report.replace(/```[\s\S]*?```/g, '').replace(/^\s*>.*$/gm, '');
   // Independent list items and table rows cannot borrow each other's words.

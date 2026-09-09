@@ -79,10 +79,10 @@ describe('autoplan phase execution checkpoints', () => {
     expect(intake).toContain('Do not prefetch future phase sections or review skills');
     for (const phase of phases) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
-      expect(section).toMatch(/^Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+\}\} and its triggered sections in full/);
+      expect(section).toMatch(/^Before dispatch, fully Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+\}\} \+ triggered sections/);
       const load = section.split('**Override rules:**')[0]!;
-      expect(load).toContain('Before dispatch, record successful Read start/end/total ranges');
-      expect(load).toContain('fetch gaps to EOF');
+      expect(load).toContain('record successful start/end/total ranges');
+      expect(load).toContain('fill gaps to EOF');
       expect(load).toContain('Load skip-listed sections; skip execution');
     }
   });
@@ -102,17 +102,21 @@ describe('autoplan phase execution checkpoints', () => {
       expect(dispatch).toContain('all criteria + plan');
       expect(dispatch).toContain('if its schema exposes it');
       expect(dispatch).toContain('isAsync: true');
-      expect(dispatch).toContain('Claude Code: immediately end this response with');
-      expect(dispatch).toContain('Do no more tool calls or review work until that ID');
-      expect(dispatch).toContain('For completed native reviews, match INPUT phase/hash');
-      expect(dispatch).toContain('retry this dispatch once, then use failure policy');
-      expect(dispatch).toContain('Other hosts: await that ID');
+      expect(dispatch).toContain('Claude Code: end response immediately');
+      expect(dispatch).toContain('No further tool calls/review until');
+      expect(dispatch).toContain('Completed-native INPUT must match snapshot phase/hash');
+      expect(dispatch).toContain('Retry invalid input once; then failure policy if still invalid');
+      expect(dispatch).toContain('Other hosts await that ID');
       expect(dispatch).toContain("Then outside → this phase's review ONLY");
       expect(dispatch).toContain('No inline substitute; apply failure policy');
       // Provider preflight, timeout and native fallback remain at every call.
       expect(section).toContain('Outer tool timeout: 720000ms');
       expect(section).toContain('disabled → skip outside. Both retain the native pass.');
       expect(section).toContain(`{{OUTSIDE_PROVENANCE:${phase}}}`);
+      expect(section).toContain('Missing/disabled');
+      expect(section).toContain('N/A');
+      expect(section).toContain('primary cannot replace');
+      expect(section).toContain(phase === 'design' ? 'not CONFIRMED' : 'never CONFIRMED');
     });
   }
 
@@ -131,6 +135,7 @@ describe('autoplan phase execution checkpoints', () => {
     expect(contract).toContain('Pending is not unavailable');
     expect(contract).toContain('Time/context pressure or your own review never permits\nskipping native passes or required sections');
     expect(contract).toContain('Never read raw agent transcripts');
+    expect(tmpl).toContain('LOG each decision and amend ALL accepted obligations in `Implementation plan` in the SAME edit');
   });
 
   test('each completed phase announces only after persisted full outputs and settled reviewers', () => {
@@ -141,18 +146,23 @@ describe('autoplan phase execution checkpoints', () => {
       expect(barrier).toBeGreaterThan(-1);
       expect(barrier).toBeLessThan(announcement);
       const checkpoint = section.slice(barrier, announcement);
-      expect(checkpoint).toContain('Require full load ranges');
+      expect(checkpoint).toContain('Require full skill/section Read ranges');
       expect(checkpoint).toContain('successful writes');
       expect(checkpoint).toContain('terminal reviewers');
       expect(checkpoint).toContain('matched INPUT for completed native reviews');
       expect(checkpoint).toContain('(unavailable/disabled allowed)');
-      expect(checkpoint).toContain('this check result');
-      expect(checkpoint).toContain('actual assistant message');
-      expect(checkpoint).toContain('Edit accepted changes into `Implementation plan`');
-      expect(checkpoint).toContain('Verify returned text against decisions');
-      expect(checkpoint).toContain('taste:\npending final approval');
-      expect(checkpoint).toContain('unresolved User Challenges: retain original direction');
-      expect(checkpoint).toContain('Only then emit');
+      expect(checkpoint).toContain('successful writes/check');
+      expect(checkpoint).toContain(phase === 'eng'
+        ? 'announce completion and proceed to final synthesis/approval'
+        : 'announce completion AND load/create/dispatch the next phase');
+      expect(checkpoint).toContain('record EVERY accepted');
+      expect(checkpoint).toContain('obligation (split bundles) → exact `Implementation plan` text. Edit omissions');
+      expect(checkpoint).toContain('Reread full phase `Review record`');
+      expect(checkpoint).toContain('Verify each mapping in readback');
+      expect(checkpoint).toContain('bytes prove neither completeness nor correctness');
+      expect(checkpoint).toContain('Taste: provisional');
+      expect(checkpoint).toContain('unresolved User Challenges: original direction');
+      expect(checkpoint).toContain('Only then announce');
     }
   });
 
@@ -209,7 +219,7 @@ describe('autoplan current implementation-plan identity', () => {
       expect(section).toContain('Reads `nativePromptPath` to EOF');
       expect(section).toContain(`Outside prompt: inline the full contents of <${phase.toUpperCase()}_INPUT>`);
       expect(section).toContain(`check ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>" changed`);
-      expect(section).toContain('Use `unchanged` only if no implementation changes were accepted');
+      expect(section).toContain('No accepted implementation change: `unchanged` + reason');
       expect(section).toContain('Report/task edits do not count');
       expect(section).not.toContain('<review_plan_path>');
       expect(section).not.toContain('<plan_path>');

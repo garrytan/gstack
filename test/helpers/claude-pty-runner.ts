@@ -1710,19 +1710,32 @@ function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, m
   } catch { return false; }
 }
 
-/** A final owned gate with no recorded questions is missing coverage, never success. */
+/** A final owned gate with no review questions is missing coverage, never success.
+ * The caller may identify completed setup/navigation calls; unclassified,
+ * pending, or failed questions cannot be dismissed by this failure diagnostic.
+ */
 export function isQuestionlessNativePlanExit(
   transcript: PlanCountTranscript, expectedPlanPath: string, startedAt: number, screen: string,
+  nonReviewCalls: ReadonlySet<string> = new Set(),
 ): boolean {
   if (!isCurrentPlanApprovalScreen(screen)) return false;
-  if (transcript.status !== 'ready' || transcript.calls.length) return false;
+  if (transcript.status !== 'ready' || transcript.calls.some(call =>
+    !call.sessionId || !call.toolUseId || !call.answered || call.failed ||
+    !nonReviewCalls.has(`${call.sessionId}:${call.toolUseId}`) ||
+    !call.questions.length || call.questions.some(q => !call.answers?.[q.question]) ||
+    !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length)) return false;
   const ready = [...(transcript.planReadyRequests ?? [])]
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).at(-1);
   if (!ready || ready.failed || !ready.sessionId || !ready.toolUseId) return false;
   const at = Date.parse(ready.timestamp);
-  const sessions = new Set([...transcript.assistantMessages.map(m => m.sessionId),
+  const sessions = new Set([...transcript.calls.map(call => call.sessionId),
+    ...transcript.assistantMessages.map(m => m.sessionId),
     ...(transcript.planReadyRequests ?? []).map(r => r.sessionId)]);
   return sessions.size === 1 && Number.isFinite(at) && at >= startedAt && at <= Date.now() &&
+    transcript.calls.every(call => {
+      const answerAt = Date.parse(call.answeredAt ?? '');
+      return Number.isFinite(answerAt) && answerAt >= startedAt && answerAt < at;
+    }) &&
     hasCompletePlanReport(expectedPlanPath, startedAt, at, true);
 }
 
@@ -2002,8 +2015,27 @@ export const engSetupAUQ: Step0BoundaryPredicate = (fp) => {
   });
 };
 
+/** A native architecture repair may state the defect without an "issue" label. */
+function engExplicitRepairAUQ(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.answered || call.failed || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length || fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || !/^Architecture$/i.test(q.header.trim()) || q.options.length < 2 ||
+      new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      !/^plan-eng-(?:review-)?arch(?:itecture)?-[a-z0-9-]+$/i.test(ids[0]![1]!) ||
+      /(?:^|-)(?:scope|focus|mode|setup|routing|learnings|prerequisite|onboarding|next-steps?)(?:-|$)/i.test(ids[0]![1]!)) return false;
+  const body = q.question.replace(/<gstack-qid:[^>]+>/i, '').trim().replace(/\s+/g, ' ');
+  const issue = /^D\s*\d+\s*[—–:-]\s*Architecture:\s+((?:shared|a|an|the)\s+[^.!?]+)\s+is a race condition\.\s+How should (?:it be fixed|we fix it)\?$/i.exec(body);
+  return Boolean(issue && !/\b(?:false|not|never|no longer|denies?|claim|assertion|example)\b/i.test(issue[1]!));
+}
+
 /** An answered substantive finding can start review even in a mixed setup packet. */
 export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
+  if (engExplicitRepairAUQ(fp)) return true;
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   return call.questions.some(q => {
@@ -3041,10 +3073,12 @@ export async function runPlanSkillCounting(opts: {
       // its report/native evidence before input routing; verified gates still
       // pass the existing silent-write check below. A positively matched
       // native question above takes precedence over gate text.
-      if (opts.expectedPlanPath && terminalHint === 'plan_ready' && countedCalls.size === 0 &&
-          isQuestionlessNativePlanExit(transcript, opts.expectedPlanPath, startedAt, visible)) {
+      const nonReviewCalls = new Set(fingerprints.filter(fp => fp.preReview || fp.administrative)
+        .map(fp => fp.signature));
+      if (opts.expectedPlanPath && terminalHint === 'plan_ready' && reviewCount === 0 &&
+          isQuestionlessNativePlanExit(transcript, opts.expectedPlanPath, startedAt, visible, nonReviewCalls)) {
         return snapshot('no_review_questions',
-          'Native plan approval reached with zero recorded AskUserQuestion calls; review coverage is missing', visible);
+          'Native plan approval reached with zero review-phase AskUserQuestion calls; review coverage is missing', visible);
       }
       if (opts.expectedPlanPath && terminalHint === 'plan_ready' && !verifiedTerminal) continue;
       const permission = nativeQuestionVisible || terminalHint === 'plan_ready'

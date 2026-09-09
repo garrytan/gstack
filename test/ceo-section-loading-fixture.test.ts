@@ -207,3 +207,56 @@ describe('CEO R report requirement weakening remains rejected', () => {
     expect(hasStaleFillRaceFinding(report)).toBe(false);
   });
 });
+
+// Exact S output names the original-contract defect but proposes an ineffective
+// guard. Detection and remedy correctness remain separate assertions.
+describe('S native same-finding ordered trace', () => {
+  const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-s-trace-report.md'), 'utf8');
+  const finding = report.slice(report.indexOf('### Critical Finding: Stale Re-insertion After Write Invalidation'), report.indexOf('### State Machine: Cache Entry'));
+  test('recognizes the exact delivered S finding without certifying its remedy', () => {
+    expect(hasStaleFillRaceFinding(report)).toBe(true);
+    expect(hasStaleFillRaceFinding(finding)).toBe(true);
+    expect(report).toContain('if (cache.get(key) === undefined)');
+  });
+  test('the same ordered evidence tolerates whitespace and a consistent key name', () => {
+    expect(hasStaleFillRaceFinding(finding.replaceAll('(key', '(accountKey').replaceAll('  t', '    t'))).toBe(true);
+    expect(hasStaleFillRaceFinding(finding.replaceAll('(key', '($key'))).toBe(true);
+  });
+  test.each([
+    ['optional single-flight label', finding.replace('single-flight → ', '')],
+    ['old/stale value vocabulary', finding.replace('OLD snapshot', 'stale value').replace('OLD_VALUE', 'STALE_VALUE').replace('stale value re-inserted', 'old snapshot refilled').replace('next readProfile', 'subsequent readProfile')],
+    ['prose payload vocabulary', finding.replace('OLD_VALUE', 'old value').replace('returns stale value', 'returns old snapshot')],
+    ['ASCII arrows and compact spacing', finding.replaceAll(' → ', '->').replaceAll(' ← ', '<-')],
+    ['trace keyword case', finding.replace(/t[1-6]:[^\n]*/g, (event: string) => event.toLowerCase())],
+    ['call whitespace and optional suspension annotation', finding.replaceAll('(key)', '( key )').replace('(key, OLD_VALUE)', '( key , OLD_VALUE )').replaceAll(' (suspends)', '')],
+  ])('accepts equivalent %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(true));
+  test.each([
+    ['only the trace', finding.slice(finding.indexOf('```'), finding.indexOf('```', finding.indexOf('```') + 3) + 3)],
+    ['quoted whole finding', finding.split('\n').map((line: string) => '> ' + line).join('\n')],
+    ['indented whole finding', finding.split('\n').map((line: string) => '    ' + line).join('\n')],
+    ['source format preface', 'Example of report format:\n' + finding],
+    ['outer fenced source', '````text\n' + finding + '\n````'],
+    ['missing independent violation', finding.replace('The proposed wrapper violates this invariant.', '')],
+    ['negated independent violation', finding.replace('The proposed wrapper violates this invariant.', 'The proposed wrapper does not violate this invariant.')],
+    ['unrelated heading', finding.replace('### Critical Finding:', '### Example:')],
+    ['separate named finding', finding.replace('Race sequence', '### Another finding\nRace sequence')],
+    ['separate bold finding', finding.replace('Race sequence', '**HIGH FINDING — unrelated issue**\nRace sequence')],
+    ['missing write completion', finding.replace('DB write completes', 'DB write remains pending')],
+    ['no invalidation', finding.replace('cache.delete(key) → writeProfile returns', 'cache.get(key) → writeProfile returns')],
+    ['missing late old fill', finding.replace('cache.set(key, OLD_VALUE)', 'cache.set(key, NEW_VALUE)')],
+    ['different filled key', finding.replace('cache.set(key, OLD_VALUE)', 'cache.set(otherKey, OLD_VALUE)')],
+    ['case-distinct filled key', finding.replace('cache.set(key, OLD_VALUE)', 'cache.set(KEY, OLD_VALUE)')],
+    ['different later key', finding.replace('next readProfile(key)', 'next readProfile(otherKey)')],
+    ['only original pending reader', finding.replace('next readProfile(key)', 'original pending readProfile(key)')],
+    ['later reader misses', finding.replace('cache HIT → returns stale value', 'cache MISS → returns committed value')],
+    ['nonviolating trace', finding.replace('← INVARIANT VIOLATED', '← INVARIANT PRESERVED')],
+    ['reverse order labels', finding.replace('t3:', 't4:').replace('t4: DB read', 't3: DB read')],
+    ['missing event', finding.replace(/^.*t4:.*\n/m, '')],
+    ['unclosed trace', finding.replace('```\n\nThe plan says', '\nThe plan says')],
+    ['source-code trace fence', finding.replace('```\n  t1:', '```javascript\n  t1:')],
+    ['split traces', finding.replace('  t4:', '```\n\n```\n  t4:')],
+    ['accepted stale trace', finding + '\nThis stale-read behavior is accepted; no guard is required.\n'],
+    ['allowed new-reader consequence', finding + '\nA subsequent stale read is permitted by the amended contract.\n'],
+    ['explicit defect dismissal', finding + '\nThis is not a defect; no fix is required.\n'],
+  ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
+});

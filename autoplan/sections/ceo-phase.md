@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` and its triggered sections in full. Before dispatch, record successful Read start/end/total ranges; fetch gaps to EOF. Load skip-listed sections; skip execution.
+Before dispatch, fully Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` + triggered sections; record successful start/end/total ranges; fill gaps to EOF. Load skip-listed sections; skip execution.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
@@ -26,19 +26,17 @@ bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>"
 
   **Claude CEO subagent** (via Agent tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
-  Other hosts: use foreground dispatch and await completion when supported.
+  Other hosts: foreground dispatch; await completion when supported.
 
   Send `nativeDispatchPrompt` verbatim: ONLY/FINAL tool call this response.
   Keep native Reads enabled. Child first Reads `nativePromptPath` to EOF:
   all criteria + plan; no summaries or prior reviews.
 
-  **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
-  Claude Code: immediately end this response with "Waiting for <agent ID>."
-  Do no more tool calls or review work until that ID's terminal notification is
-  delivered. Other hosts: await that ID. Then outside → this phase's review ONLY.
-  For completed native reviews, match INPUT phase/hash to this snapshot. Missing
-  or mismatched INPUT: retry this dispatch once, then use failure policy if
-  still invalid.
+  **Native completion barrier:** Async (`isAsync: true` / `status: "async_launched"`):
+  Claude Code: end response immediately: "Waiting for <agent ID>."
+  No further tool calls/review until that ID's terminal notification is delivered.
+  Other hosts await that ID. Then outside → this phase's review ONLY.
+  Completed-native INPUT must match snapshot phase/hash. Retry invalid input once; then failure policy if still invalid.
   No inline substitute; apply failure policy.
 
   **Codex CEO voice** (via Bash):
@@ -137,8 +135,8 @@ CEO DUAL VOICES — CONSENSUS TABLE:
   5. Competitive/market risks covered? —       —      —
   6. 6-month trajectory sound?         —       —      —
 ═══════════════════════════════════════════════════════════════
-CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
-Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
+CONFIRMED = native + outside agree; primary cannot replace outside. DISAGREE → taste.
+Missing/disabled voice = N/A, never CONFIRMED. Flag any single-voice critical finding.
 ```
 
 Sections 1-10 — for EACH section, run the evaluation criteria from the loaded skill file:
@@ -155,17 +153,18 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Dream state delta (where this plan leaves us vs 12-month ideal)
 - Completion Summary (the full summary table from the CEO skill)
 
-**Close this phase:** Edit accepted changes into `Implementation plan` (taste:
-pending final approval; unresolved User Challenges: retain original direction).
-Report/task edits do not count. After successful Edit:
+**Close this phase:** Reread full phase `Review record`; record EVERY accepted
+obligation (split bundles) → exact `Implementation plan` text. Edit omissions.
+Taste: provisional; unresolved User Challenges: original direction.
+Report/task edits do not count.
 ```bash
 bun "<SNAPSHOT_TOOL>" check ceo "<ACTIVE_PLAN>" "<CEO_INPUT>" changed
 ```
-Use `unchanged` only if no implementation changes were accepted; explain why.
-Verify returned text against decisions; hashes prove bytes, not correctness.
-Require full load ranges, matched INPUT for completed native reviews, consumed
-terminal reviewers (unavailable/disabled allowed), successful writes and this check result.
-Only then emit this actual assistant message:
+No accepted implementation change: `unchanged` + reason.
+Verify each mapping in readback; bytes prove neither completeness nor correctness.
+Require full skill/section Read ranges, matched INPUT for completed native reviews, consumed
+terminal reviewers (unavailable/disabled allowed), successful writes/check.
+Only then announce completion AND load/create/dispatch the next phase:
 
 **Phase 1 complete.**
 Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].

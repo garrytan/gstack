@@ -59,6 +59,21 @@ function describedEngNavigation(question: string, descriptions: string[], contex
     closedNavigationContext(context);
 }
 
+/** The next sentence may name the required gate with "it" after the Eng query. */
+function pronounEngGate(question: string, descriptions: string[], context: string): boolean {
+  if (!/^(?:The\s+)?CEO\s+review\s+is\s+(?:complete|cleared|clean|done)[.!]\s+Run\s+\/plan-eng-review\s+next\?\s+It(?:['’]s|\s+is)\s+the\s+required(?:\s+shipping)?\s+gate\.$/i.test(question)) return false;
+  const topics = String.raw`(?:architecture|security|test quality|performance)`;
+  const covers = new RegExp(String.raw`^Covers\s+${topics}(?:,\s+${topics})*(?:,?\s+and\s+${topics})?$`, 'i');
+  const sentences = descriptions.flatMap(description => description.trim().split(/[.!](?:\s+|$)/)
+    .map(sentence => sentence.trim()).filter(Boolean));
+  return sentences.every(sentence => covers.test(sentence) ||
+    /^Required\s+gate\s+before\s+shipping$/i.test(sentence) ||
+    /^This\s+CEO\s+review\s+found\s+no\s+architecture\s+concerns,\s+so\s+eng\s+review\s+should\s+be\s+fast$/i.test(sentence) ||
+    /^Proceed\s+without\s+the\s+eng\s+review\s+gate$/i.test(sentence) ||
+    /^You\s+own\s+ensuring\s+correctness\s+before\s+shipping$/i.test(sentence)) &&
+    closedNavigationContext(context);
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -105,7 +120,8 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
     describedEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
   const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
-    /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);
+    /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext) ||
+    pronounEngGate(questionText, q.options.map(option => option.description ?? ''), gateContext);
   // These native next-review identities share a closed navigation contract;
   // the question or a following recap cannot hide a new repair obligation.
   if (id && /^(?:ceo-plan-next-steps|ceo-review-next-(?:steps?|review))$/.test(id) &&

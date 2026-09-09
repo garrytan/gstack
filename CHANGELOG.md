@@ -17,7 +17,7 @@
 - Failed, refused, empty, or malformed outside reviews can no longer count as a clean pass. Claude runner failures include authentication, timeout, and output overflow diagnoses, and stale skills stop before invoking their own harness.
 - Spec review stops when redaction fails, before sending the spec to a reviewer or saving it downstream.
 - Planning reviews request each unresolved decision before editing and carry approved remedies across sections without asking again. Choosing a scope or approach does not approve every finding. Reviews preserve stated requirements unless you authorize changing them.
-- Autoplan preserves the original plan and gives each reviewer the complete current phase input. It reads the review skills installed for the current harness, waits for its reviewers, and reports completion after saving the required outputs. Disabling extra plan or documentation review also skips replacement reviewers.
+- Autoplan preserves the original plan and carries every approved obligation into the next phase’s input. It reads the review skills installed for the current harness, waits for each phase’s reviewers and verified plan updates before starting the next phase, and reports completion after saving the required outputs. Disabling extra plan or documentation review also skips replacement reviewers.
 
 ## [1.83.0.0] - 2026-09-09
 

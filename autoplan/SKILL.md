@@ -661,7 +661,7 @@ context models lack. See Decision Classification above.
 - PRODUCE every output the section requires (diagrams, tables, registries, artifacts)
 - IDENTIFY every issue the section is designed to catch
 - DECIDE each issue using the 6 principles (instead of asking the user)
-- LOG each decision in the audit trail
+- LOG each decision and amend ALL accepted obligations in `Implementation plan` in the SAME edit
 - WRITE all required artifacts to disk
 
 **You MUST NOT:**

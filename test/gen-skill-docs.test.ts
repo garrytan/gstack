@@ -1823,17 +1823,54 @@ describe('Design approval reconciliation', () => {
     expect(section).toContain('With no unresolved findings, no issue question is required.');
   });
 
-  test('finish-time check requires exact issue decisions and repairs prematurely accepted drafts', () => {
+  test('Design blocking Exit checklist reconciles approvals and refreshes stale output after a decision', () => {
     const main = fs.readFileSync(path.join(ROOT, 'plan-design-review/SKILL.md'), 'utf8');
     const check = extractMarkdownSection(main, '## Section self-check');
-    expect(check).toContain('reconcile every proposed fix with the exact user decision for that issue');
-    expect(check).toContain('an explicit deferral stays unresolved');
-    expect(check).toContain('Existing accepted requirements need no repeat approval');
-    expect(check).toContain("preamble's authorized auto-decisions");
-    expect(check).toContain('return that change to pending before continuing');
-    const exitGate = main.indexOf('\n## EXIT PLAN MODE GATE (BLOCKING)');
-    expect(exitGate).toBeGreaterThan(0);
-    expect(main.indexOf('reconcile every proposed fix')).toBeLessThan(exitGate);
+    expect(check).toContain('Before summaries, review logs or next-step menus, run approval check 0 below.');
+    const gate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)');
+    expect(gate.indexOf('0. Approvals:')).toBeGreaterThanOrEqual(0);
+    expect(gate.indexOf('0. Approvals:')).toBeLessThan(gate.indexOf('1. Read the plan file'));
+    expect(gate).toContain("each issue's remedy needs its own AskUserQuestion call and answer.");
+    expect(gate).toContain("Never group distinct issues.");
+    expect(gate).toContain('Never group distinct issues. DESIGN.md tokens and navigation are not approval.');
+    expect(gate).toContain('Honor prior exact decisions and preamble-authorized per-issue auto-decisions;');
+    expect(gate).toContain('preamble-authorized');
+    expect(gate).toContain('record why. Deferrals remain unresolved.');
+    expect(gate).toContain('If missing, reset drafts to pending, ask and wait.');
+    expect(gate).toContain('refresh the plan, report and review log; rerun this gate.');
+    expect(gate).toContain('after your most recent write to it');
+  });
+
+  test('CEO blocking Exit checklist rejects setup and approach as issue approval', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/SKILL.md'), 'utf8');
+    const check = extractMarkdownSection(main, '## Section self-check');
+    expect(check).toContain('Before summaries, review logs or next-step menus, run approval check 0 below.');
+    const gate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)');
+    expect(gate.indexOf('0. Approvals:')).toBeGreaterThanOrEqual(0);
+    expect(gate.indexOf('0. Approvals:')).toBeLessThan(gate.indexOf('1. Read the plan file'));
+    expect(gate).toContain("each issue's remedy needs its own AskUserQuestion call and answer.");
+    expect(gate).toContain("Never group distinct issues.");
+    expect(gate).toContain('Never group distinct issues. Setup, mode, approach and navigation are not approval.');
+    expect(gate).toContain('Honor prior exact decisions and preamble-authorized per-issue auto-decisions;');
+    expect(gate).toContain('preamble-authorized');
+    expect(gate).toContain('record why. Deferrals remain unresolved.');
+    expect(gate).toContain('If missing, reset drafts to pending, ask and wait.');
+    expect(gate).toContain('refresh the plan, report and review log; rerun this gate.');
+    expect(check).toContain('Read and execute every section and output');
+    expect(check).toContain('STOP, Read it and redo the review');
+    expect(main).toContain('one tool_use per issue, no batching');
+    expect(main).toContain('even obvious fixes');
+    expect(main).toContain('wait for approval before changing the plan');
+    expect(main).toContain('Zero findings: state "No issues, moving on"');
+  });
+
+  test('approval entry does not alter other review Exit checklists', () => {
+    for (const skill of ['plan-eng-review', 'plan-devex-review']) {
+      const gate = extractMarkdownSection(readSkillUnion(skill), '## EXIT PLAN MODE GATE (BLOCKING)');
+      expect(gate).not.toContain('0. Approvals:');
+      expect(gate).toContain('1. Read the plan file');
+      expect(gate).toContain('5. If a plan file is in context');
+    }
   });
 
   test('task and decision reporting require approval while preserving unanswered findings', () => {
