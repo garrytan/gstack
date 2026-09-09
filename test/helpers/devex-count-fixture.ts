@@ -247,7 +247,20 @@ function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
       q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
       administrativeQuestion(q.header, q.question, q.options)) return false;
   const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
-  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+  if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return false;
+  if (ids[0]![1] === 'devex-demo-ci-bypass') {
+    // A demo is a first result too. Require an affirmative measured timing
+    // contradiction and a direct bypass decision, not benchmark confirmation.
+    if (call.failed !== false || !/^Demo CI gate$/i.test(q.header.trim()) ||
+        /(?:^|\n)[ \t]*(?:>|`{3}|~{3}|example:)/im.test(q.question)) return false;
+    const headline = /^D\s*\d+\s*[—–:-]\s*[a-z][a-z0-9 -]{0,60} demo command: should it bypass the mandatory CI check to reach the <(\d+(?:\.\d+)?) min TTHW target\?$/i.exec(q.question.split('\n')[0]!.trim());
+    const timing = /^ELI10:\s*The agreed onboarding target is under (\d+(?:\.\d+)?) minutes(?: \([^\n)]+\))?\.\s+Today `[^`\n]+` blocks for (\d+(?:\.\d+)?) minutes waiting for a CI check, giving a measured TTHW of (\d+(?:\.\d+)?) minutes(?: [—–-] Red Flag tier vs\. Competitor [A-Z]['’]s \d+(?:\.\d+)? minutes)?\.(?:\s|$)/im.exec(q.question);
+    if (!headline || !timing) return false;
+    const [target, wait, measured] = timing.slice(1).map(Number);
+    return [target, wait, measured].every(n => Number.isFinite(n) && n! > 0) &&
+      Number(headline[1]) === target && wait! >= target! && measured! >= wait!;
+  }
+  if (
       !/^plan-devex-(?:review-)?[a-z0-9-]+$/i.test(ids[0]![1]!) ||
       /(?:^|-)(?:mode|setup|scope|routing|prerequisite|next-steps?)(?:-|$)/i.test(ids[0]![1]!)) return false;
   const body = q.question.replace(/<gstack-qid:[^>]+>/i, '').trim().replace(/\s+/g, ' ');
@@ -258,7 +271,15 @@ function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
   const conflictingGate = /^(?:The )?plan targets TTHW\b[^.!?]*\bbut retains a mandatory\b[^.!?]*\bCI gate with no skip path\b/i.test(statement) &&
     /\b(?:these are mutually exclusive|these contradict each other)\b/i.test(body) &&
     /\bhow should (?:the plan|we) resolve (?:this|it)\?$/i.test(body);
-  return absentPackageFile || conflictingGate;
+  // A first-run decision may describe shipment, or compare the measured gate
+  // directly with the benchmark. Require the complete affirmative claim and
+  // its repair question; setup/quoted/negated recaps still fail above/below.
+  const completedNative = call.answered === true && call.failed === false;
+  const unshippedQuickstart = completedNative &&
+    /^(?:The )?(?:README )?quickstart points to a file that doesn['’]t ship in the (?:published )?package\. Should we fix the quickstart path in the plan\?$/i.test(statement);
+  const unreachableBenchmark = completedNative &&
+    /^(?:The )?benchmarks set an? <\d+(?:\.\d+)? min TTHW target, but the mandatory \d+(?:\.\d+)?[- ]minute CI gate makes that unreachable\. The plan retains the gate\. How should this plan handle the contradiction\?$/i.test(statement);
+  return absentPackageFile || conflictingGate || unshippedQuickstart || unreachableBenchmark;
 }
 
 /** A batched native call remains one decision; the caller owns call-ID deduplication. */

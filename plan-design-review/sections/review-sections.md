@@ -211,6 +211,7 @@ If visual mockups were generated in Step 0.5, evaluate them against the AI slop 
 Rate 0-10: Does the plan align with DESIGN.md?
 FIX TO 10: If DESIGN.md exists, annotate with specific tokens/components; when it has YAML front matter (the open DESIGN.md format), cite tokens by path (`{colors.primary}`, `{rounded.md}`) so the plan and the file share one vocabulary. If no DESIGN.md, flag the gap and recommend `/design-consultation`.
 Flag any new component — does it fit the existing vocabulary?
+Before offering a token-alignment fix, check whether an earlier pass already approved that outcome. If so, apply the established tokens and update every stale gap/reference under that decision; changing the plan location or spelling out the same fix is not a new issue. Ask again only if new evidence exposes an unresolved requirement or tradeoff, and name it. An unapproved violation still needs its first individual decision.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 6: Responsive & Accessibility

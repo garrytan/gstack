@@ -1261,7 +1261,7 @@ function planCountPermissionMenu(visible: string): {
   // The native question panel has its own header and navigation footer.
   // Its actual finding may discuss file creation or permission policy.
   if (header && !/❯\s*[1-9]\./.test(before.slice(header.index)) &&
-      /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(menu)) return null;
+      /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*(?:n\s*to\s*add\s*notes\s*·\s*)?Esc\s*to\s*cancel/i.test(menu)) return null;
   // Anchor redraw identity to its question line; prior tool output and
   // the preceding menu's footer must not change a permission signature.
   const prompt = [...before.matchAll(/^[^\n]*\?[^\n]*$/gm)].at(-1)?.[0].trim()
@@ -1289,7 +1289,7 @@ function matchesClippedNativeQuestion(visible: string, call: NativePlanQuestionC
   if (suffix.split('\n').filter(line => line.trim()).length < 2 || displayed.length < 160 ||
       displayed.length > native.length || !native.endsWith(displayed)) return false;
   const menu = visible.slice(cursor.index);
-  const footer = /Enter\s*to\s*select\s*·\s*(?:↑\/↓\s*to\s*navigate|Tab\/Arrow\s*keys\s*to\s*navigate)\s*·\s*Esc\s*to\s*cancel/i.exec(menu);
+  const footer = /Enter\s*to\s*select\s*·\s*(?:↑\/↓\s*to\s*navigate(?:\s*·\s*n\s*to\s*add\s*notes)?|Tab\/Arrow\s*keys\s*to\s*navigate)\s*·\s*Esc\s*to\s*cancel/i.exec(menu);
   if (!footer || !/^[\s│┃─━└┘]*$/.test(menu.slice(footer.index + footer[0].length))) return false;
   const options = parseNumberedOptions(visible);
   const offered = options.slice(0, question.options.length);
@@ -1335,7 +1335,7 @@ export function planCountQuestionInput(visible: string, fp: AskUserQuestionFinge
   const packet = /←[^\r\n]*[☐☒][^\r\n]*✔\s*Submit\s*→[\s\S]*❯\s*1\./.test(visible) &&
     /Enter\s*to\s*select\s*·\s*Tab\/Arrow\s*keys\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(visible);
   const single = /(?:^|[\r\n])[\t │┃]*[☐□][^\r\n]+[\s\S]*❯\s*1\./.test(visible) &&
-    /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(visible);
+    /Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*(?:n\s*to\s*add\s*notes\s*·\s*)?Esc\s*to\s*cancel/i.test(visible);
   const panel = packet || single;
   return panel ? String(index) : `${index}\r`;
 }
@@ -1357,9 +1357,10 @@ export function matchesNativePlanQuestion(visible: string, call: NativePlanQuest
   const identity = question.question.match(/<gstack-qid:[^>]+>/i)?.[0] ?? question.question;
   if (!compact(before.slice(header.index)).includes(compact(identity))) return false;
   // Preserve the captured damaged-option path when the native panel's
-  // complete footer is intact. With a damaged footer, require the full
+  // complete footer is intact, including the optional native preview notes key.
+  // With a damaged footer, require the full
   // question and every offered label instead of guessing from keywords.
-  if (/Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(tail.slice(cursor.index))) return true;
+  if (/Enter\s*to\s*select\s*·\s*↑\/↓\s*to\s*navigate\s*·\s*(?:n\s*to\s*add\s*notes\s*·\s*)?Esc\s*to\s*cancel/i.test(tail.slice(cursor.index))) return true;
   const displayed = before.slice(header.index).replace(/^[\t ─━┄┅┈┉┌┐└┘├┤┬┴┼│┃☐□■]+/gm, '');
   const options = parseNumberedOptions(visible);
   return compact(displayed) === compact(`${question.header} ${question.question}`) &&

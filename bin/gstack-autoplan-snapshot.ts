@@ -181,14 +181,95 @@ function obligationState(plan: string, phase: string, prior: string) {
   return { bounds, implementation, recorded, applied, block };
 }
 
+// A small exact-replacement record explains baseline byte changes. It cannot
+// establish who approved them or whether every decision was recorded correctly.
+function baselineEditRecords(review: string) {
+  let fence: { char: string; length: number } | null = null;
+  const records = new Map<string, { sourceSha256: string; replacements: Array<{ oldText: string; newText: string }> }>();
+  for (const raw of review.split(/(?<=\n)/)) {
+    const line = raw.replace(/\r?\n$/, '');
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (fence) {
+        if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) fence = null;
+      } else if (run[0] !== '`' || !delimiter[2]!.includes('`')) fence = { char: run[0]!, length: run.length };
+    } else if (!fence && /^<!-- \/?autoplan-baseline-edits:/.test(line)) {
+      const marker = /^<!-- autoplan-baseline-edits:(ceo|design|dx|eng) (\{.*\}) -->$/.exec(line);
+      if (!marker || records.has(marker[1]!)) throw new Error('Malformed or duplicate baseline-edit record');
+      const record = JSON.parse(marker[2]!);
+      // Canonical compact JSON also rejects duplicate keys and hidden extra fields.
+      if (!record || Object.keys(record).join(',') !== 'sourceSha256,replacements' ||
+          !/^[a-f0-9]{64}$/.test(record.sourceSha256) || !Array.isArray(record.replacements) ||
+          JSON.stringify(record) !== marker[2]) throw new Error('Expected exact compact baseline-edit JSON');
+      for (const edit of record.replacements) {
+        if (!edit || Object.keys(edit).join(',') !== 'oldText,newText' || typeof edit.oldText !== 'string' ||
+            !edit.oldText || typeof edit.newText !== 'string' ||
+            [edit.oldText, edit.newText].some(value => Buffer.from(value).toString('utf8') !== value)) {
+          throw new Error('Baseline replacements require nonempty oldText and UTF-8 newText only');
+        }
+      }
+      records.set(marker[1]!, record);
+    }
+  }
+  return records;
+}
+
+function editedBaseline(review: string, phase: string, prior: string): string {
+  const record = baselineEditRecords(review).get(phase);
+  if (!record) return prior;
+  if (record.sourceSha256 !== sha256(prior)) throw new Error('Baseline-edit source SHA does not match immutable input');
+  const protectedBlocks = [...acceptedBlocks(prior).values()];
+  const spans = record.replacements.map(edit => {
+    const start = prior.indexOf(edit.oldText);
+    if (start < 0 || prior.indexOf(edit.oldText, start + 1) >= 0) throw new Error('Baseline oldText must occur exactly once');
+    const end = start + edit.oldText.length;
+    if (protectedBlocks.some(block => start < block.end && end > block.start)) {
+      throw new Error('Baseline replacements cannot touch prior accepted blocks');
+    }
+    return { ...edit, start, end };
+  }).sort((a, b) => a.start - b.start);
+  for (let i = 1; i < spans.length; i++) {
+    if (spans[i]!.start < spans[i - 1]!.end) throw new Error('Baseline replacement anchors overlap');
+  }
+  let result = prior;
+  for (const edit of spans.reverse()) result = result.slice(0, edit.start) + edit.newText + result.slice(edit.end);
+  if (baselineEditRecords(result).size) throw new Error('Baseline-edit metadata belongs only in Review record');
+  // Edits may change requirements, never manufacture or hide retention structure.
+  const afterBlocks = acceptedBlocks(result);
+  if (afterBlocks.size !== protectedBlocks.length || protectedBlocks.some(block => afterBlocks.get(block.phase)?.raw !== block.raw)) {
+    throw new Error('Baseline replacements changed accepted-block structure');
+  }
+  return result;
+}
+
+function withAcceptedBlock(baseline: string, block: AcceptedBlock) {
+  const existing = acceptedBlocks(baseline).get(block.phase);
+  return block.none ? baseline : existing
+    ? baseline.slice(0, existing.start) + block.raw + block.newline + baseline.slice(existing.end)
+    : baseline + (baseline.endsWith('\n') ? '' : '\n') + '\n' + block.raw + block.newline;
+}
+
+function expectedAmendment(plan: string, phase: string, prior: string, state: ReturnType<typeof obligationState>) {
+  const baseline = editedBaseline(plan.slice(state.bounds.reviewStart), phase, prior);
+  const implementation = withAcceptedBlock(baseline, state.block);
+  if (state.block.none && baseline !== prior) throw new Error('None cannot authorize baseline replacements');
+  return { baseline, implementation };
+}
+
 /** The CLI close check adds exact recorded-obligation retention to the byte check. */
 export function checkPhaseImplementation(phase: string, activePlan: string, snapshotPath: string, expected: string) {
   const checked = checkImplementation(phase, activePlan, snapshotPath, expected);
-  const state = obligationState(readFileSync(checked.activePlan, 'utf8'), phase, snapshotIdentity(phase, activePlan, snapshotPath).original);
+  const plan = readFileSync(checked.activePlan, 'utf8');
+  const prior = snapshotIdentity(phase, activePlan, snapshotPath).original;
+  const state = obligationState(plan, phase, prior);
   if (state.block.none ? state.applied.has(phase) : state.applied.get(phase)?.raw !== state.block.raw) {
     throw new Error(`Accepted ${phase} obligations are not retained exactly in Implementation plan; run amend`);
   }
   if (state.block.none && expected !== 'unchanged') throw new Error('None requires unchanged with its recorded reason');
+  if (state.implementation !== expectedAmendment(plan, phase, prior, state).implementation) {
+    throw new Error('Unrecorded Implementation rewrite; preserve immutable input or record exact baseline replacements');
+  }
   return { ...checked, recordedObligations: { phase, sha256: sha256(state.block.raw), none: state.block.none },
     limitation: 'Exact recorded text retained; approval, enumeration and semantic correctness still require review.' };
 }
@@ -201,11 +282,17 @@ export function amendImplementation(phase: string, activePlan: string, snapshotP
   // Reuse the unchanged snapshot identity checks without assuming current changes.
   checkImplementation(phase, source, snapshotPath, extractImplementationPlan(original) === prior ? 'unchanged' : 'changed');
   const state = obligationState(original, phase, prior);
+  const planned = expectedAmendment(original, phase, prior, state);
+  const allowed = [prior, planned.baseline, planned.implementation];
+  const current = state.applied.get(phase);
+  // The current phase may accumulate more obligations after an earlier amend.
+  // Only its block may differ; its surrounding baseline must still be exact.
+  if (current) allowed.push(withAcceptedBlock(prior, current), withAcceptedBlock(planned.baseline, current));
+  if (!allowed.includes(state.implementation)) {
+    throw new Error('Unrecorded Implementation rewrite; no overwrite; preserve input or record exact baseline replacements');
+  }
   if (state.block.none) return checkPhaseImplementation(phase, source, snapshotPath, 'unchanged');
-  const existing = state.applied.get(phase);
-  const nextImplementation = existing
-    ? state.implementation.slice(0, existing.start) + state.block.raw + state.block.newline + state.implementation.slice(existing.end)
-    : state.implementation + (state.implementation.endsWith('\n') ? '' : '\n') + '\n' + state.block.raw + state.block.newline;
+  const nextImplementation = planned.implementation;
   const next = original.slice(0, state.bounds.start) + nextImplementation + original.slice(state.bounds.end);
   // Validate the assembled text before publishing, including its section boundary.
   const validated = obligationState(next, phase, prior);
@@ -393,7 +480,10 @@ If the file cannot be fully read, report the read failure instead of a completed
     writeFileSync(snapshotPath, content, { flag: 'wx', mode: 0o444 });
     writeFileSync(nativePromptPath, nativePrompt, { flag: 'wx', mode: 0o444 });
     writeFileSync(join(directory, 'snapshot.json'), JSON.stringify(manifest) + '\n', { flag: 'wx', mode: 0o444 });
-    return { ...manifest, nativePrompt };
+    return { ...manifest, nativePrompt, baselineEdits: {
+      record: `<!-- autoplan-baseline-edits:${phase} ${JSON.stringify({ sourceSha256: manifest.sourceSha256, replacements: [] })} -->`,
+      instructions: 'Optional: put one unfenced record in Review record only. Use this exact compact JSON shape; each replacement is {"oldText":"exact unique old span","newText":"replacement (empty deletes)"}. Bind sourceSha256 to this snapshot. Replacements must not overlap or touch accepted blocks. Leave all other Implementation bytes intact; amend also accepts the untouched snapshot baseline. Describe approved replacements in current accepted requirements. This verifies explained bytes, not approval or completeness.'
+    } };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;

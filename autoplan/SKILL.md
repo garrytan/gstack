@@ -683,9 +683,9 @@ State what you examined and why nothing was flagged (1-2 sentences minimum).
 ```
 Phase: `ceo|design|dx|eng`. Record accepted requirements here;
 no analysis/severity/verdict/consensus. No changes: `None: reason`.
-`amend` copies atomically, checks exact retention, returns full Implementation;
-None checks unchanged. Prior blocks immutable; state replacements in current block.
-Reconcile all decisions with block/readback:
+`amend` checks exact retention atomically; full readback; None unchanged.
+Baseline edits: `create`'s `baselineEdits`. Prior blocks immutable;
+state replacements in current block. Reconcile all decisions with readback.
 Transport ≠ approval/complete enumeration/correctness.
 
 ---

@@ -1,0 +1,234 @@
+[
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_01MxehX219oH2HnxmXrNBL52",
+    "questions": [
+      {
+        "question": "D1 \u2014 Pass 2/3/5: The plan identifies that saving takes 2-5 seconds with no feedback (frozen page). DESIGN.MD fully specifies the fix: inline spinner beside \"Saving\u2026\" inside the disabled Save button, aria-busy=true, reduced-motion support. The plan names this as a gap but adds no implementation task. Should we add it? <gstack-qid:plan-design-review-save-spinner>",
+        "header": "Save spinner",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add implementation task (Recommended)",
+            "description": "Add a concrete task: apply DESIGN.MD pending-state pattern \u2014 spinner + 'Saving\u2026' in disabled button, aria-busy=true, prefers-reduced-motion support. Fix: ~30 min CC / ~2h human. Resolves Issues 2.1, 3 (step 6 emotional arc), and 5.5 in one task."
+          },
+          {
+            "label": "Leave as gap description",
+            "description": "Keep the gap named but untasked. Developer reads the plan gap section and decides implementation during build. Risk: the pattern is non-trivial and may ship without reduced-motion support."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Pass 2/3/5: The plan identifies that saving takes 2-5 seconds with no feedback (frozen page). DESIGN.MD fully specifies the fix: inline spinner beside \"Saving\u2026\" inside the disabled Save button, aria-busy=true, reduced-motion support. The plan names this as a gap but adds no implementation task. Should we add it? <gstack-qid:plan-design-review-save-spinner>": "Add implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:53:07.541Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_01AZ2KWABJtBzHYDoPAhQo14",
+    "questions": [
+      {
+        "question": "D2 \u2014 Pass 5: Visual Hierarchy. Save, Reset, Cancel, and Export are all rendered identically \u2014 same size, weight, and color. Nothing signals which is primary. DESIGN.MD specifies: Save is the only filled primary action (#1d4ed8 bg, white text); Reset, Cancel, Export are neutral ghost buttons. The plan names this gap but adds no implementation task. Should we add it? <gstack-qid:plan-design-review-primary-button>",
+        "header": "Primary button",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add implementation task (Recommended)",
+            "description": "Add task: Apply Button primary variant (#1d4ed8 fill, white text) to Save; ghost variant to Reset, Cancel, Export. Fix aligns with DESIGN.MD exactly. ~15 min CC / ~1h human. Resolves Issue 5.1."
+          },
+          {
+            "label": "Leave as gap description",
+            "description": "Keep gap named but untasked. Risk: developer ships all four buttons identical, user has no visual cue which action is primary \u2014 most critical UX gap on this page."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Pass 5: Visual Hierarchy. Save, Reset, Cancel, and Export are all rendered identically \u2014 same size, weight, and color. Nothing signals which is primary. DESIGN.MD specifies: Save is the only filled primary action (#1d4ed8 bg, white text); Reset, Cancel, Export are neutral ghost buttons. The plan names this gap but adds no implementation task. Should we add it? <gstack-qid:plan-design-review-primary-button>": "Add implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:53:15.554Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_01A5JA2y1jfNUU6d78Ma6G5B",
+    "questions": [
+      {
+        "question": "D3 \u2014 Pass 5: Spacing. The plan reports 16px spacing appearing in a third location, alongside 24px (field groups) and 32px (sections) which match DESIGN.MD. But the plan doesn't say WHERE the 16px appears. DESIGN.MD's scale has no 16px slot: sections=32px, field groups=24px, label-to-input=8px. How should we handle this? <gstack-qid:plan-design-review-spacing-16px>",
+        "header": "Spacing fix",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add task to locate and correct 16px spacing (Recommended)",
+            "description": "Add task: audit spacing in the header action group and between InlineStatus and first fieldset \u2014 most likely candidates for the 16px outlier. Replace with the correct DESIGN.MD value (8px, 24px, or 32px depending on context). ~20 min CC / ~30 min human."
+          },
+          {
+            "label": "Leave location ambiguous",
+            "description": "Keep gap named without specifying location. Developer hunts during implementation. Risk: they fix the wrong instance, or the 16px inconsistency survives because its location was never pinned."
+          },
+          {
+            "label": "Escalate \u2014 need clarification on exact location",
+            "description": "Pause for the user to identify which spacing element uses 16px. Safest if you know where it is. Adds one more conversation round before work begins."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Pass 5: Spacing. The plan reports 16px spacing appearing in a third location, alongside 24px (field groups) and 32px (sections) which match DESIGN.MD. But the plan doesn't say WHERE the 16px appears. DESIGN.MD's scale has no 16px slot: sections=32px, field groups=24px, label-to-input=8px. How should we handle this? <gstack-qid:plan-design-review-spacing-16px>": "Add task to locate and correct 16px spacing (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:53:25.574Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_018Cx5mafCD7jxsaibDvoWa1",
+    "questions": [
+      {
+        "question": "D4 \u2014 Pass 5/6: Error Color \u2014 WCAG AA failure. The current error style (red text on light pink background) has ~3:1 contrast. WCAG AA requires 4.5:1 for normal-weight text. This fails both accessibility law and DESIGN.MD, which specifies: error.text #991b1b on error.surface #fef2f2, with an icon and explicit text. The plan names the gap but adds no implementation task. Should we add it? <gstack-qid:plan-design-review-error-contrast>",
+        "header": "Error contrast",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add implementation task (Recommended)",
+            "description": "Add task: Set error text to #991b1b on #fef2f2 background, add icon + explicit error text label. Fixes both the WCAG AA violation and DESIGN.MD alignment. ~15 min CC / ~1h human. Resolves Issues 5.3 and 6.1."
+          },
+          {
+            "label": "Leave as gap description",
+            "description": "Keep gap named but untasked. Risk: WCAG AA violation ships \u2014 legal and accessibility liability, plus poor experience for users with low vision or in challenging lighting."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Pass 5/6: Error Color \u2014 WCAG AA failure. The current error style (red text on light pink background) has ~3:1 contrast. WCAG AA requires 4.5:1 for normal-weight text. This fails both accessibility law and DESIGN.MD, which specifies: error.text #991b1b on error.surface #fef2f2, with an icon and explicit text. The plan names the gap but adds no implementation task. Should we add it? <gstack-qid:plan-design-review-error-contrast>": "Add implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:53:35.599Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_012vDse8oLT3o1hM7CqHd1sn",
+    "questions": [
+      {
+        "question": "D5 \u2014 Pass 5: Typography. Three font sizes are used (14px, 16px, 18px) across form labels. DESIGN.MD specifies two roles only: 16px body/form labels/helper text; 20px section headings. The 14px violates the Universal Rule (body text must be \u226516px) and WCAG readability. The 18px conflicts with section heading size (20px) creating a muddled hierarchy. Should we add a consolidation task? <gstack-qid:plan-design-review-typography-sizes>",
+        "header": "Typography",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add implementation task (Recommended)",
+            "description": "Add task: audit all form label and helper text sizes; replace 14px with 16px and 18px with 16px or 20px depending on element role. Verify no occurrence of 14px or 18px ships. ~20 min CC / ~1h human. Resolves Issue 5.4 and the <16px universal rule violation."
+          },
+          {
+            "label": "Leave as gap description",
+            "description": "Keep gap named but untasked. Risk: 14px text ships (below minimum; violates Universal Rules), and the muddled 18px/20px near-match confuses hierarchy for sighted users and may confuse screen reader users too."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 Pass 5: Typography. Three font sizes are used (14px, 16px, 18px) across form labels. DESIGN.MD specifies two roles only: 16px body/form labels/helper text; 20px section headings. The 14px violates the Universal Rule (body text must be \u226516px) and WCAG readability. The 18px conflicts with section heading size (20px) creating a muddled hierarchy. Should we add a consolidation task? <gstack-qid:plan-design-review-typography-sizes>": "Add implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:53:43.615Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_01Mkr9iX2J2GTch2YMHxuTU7",
+    "questions": [
+      {
+        "question": "D6 \u2014 Pass 6: Reduced-motion save behavior. The plan says 'Respect reduced motion' and DESIGN.MD says the spinner has 'reduced-motion support' \u2014 but neither specifies what the user actually sees when prefers-reduced-motion: reduce is active. An animated spinner that ignores reduced-motion ships a broken accessibility experience. Which behavior should be specified? <gstack-qid:plan-design-review-reduced-motion>",
+        "header": "Reduced motion",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Static spinner + 'Saving\u2026' text (Recommended)",
+            "description": "Under prefers-reduced-motion: reduce, render the spinner as a static (non-animating) icon beside 'Saving\u2026'. Users still get visual feedback but no motion. Matches what most spinner libraries produce under reduced-motion."
+          },
+          {
+            "label": "'Saving\u2026' text only, no spinner",
+            "description": "Hide the spinner entirely under reduced-motion; show 'Saving\u2026' text alone inside the disabled button. Simpler, zero animation artifacts, but removes the visual progress indicator entirely."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 Pass 6: Reduced-motion save behavior. The plan says 'Respect reduced motion' and DESIGN.MD says the spinner has 'reduced-motion support' \u2014 but neither specifies what the user actually sees when prefers-reduced-motion: reduce is active. An animated spinner that ignores reduced-motion ships a broken accessibility experience. Which behavior should be specified? <gstack-qid:plan-design-review-reduced-motion>": "Static spinner + 'Saving\u2026' text (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:53:51.630Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_01KkdZitbTn6SvNCpZpKA2rq",
+    "questions": [
+      {
+        "question": "D7 \u2014 Pass 7: InlineStatus layout stability. The persistent status area transitions between three states: blank (before first save), 'Unsaved changes', and 'Saved at HH:mm'. If no minimum height is reserved, the content below it (Profile fieldset) will shift up/down each time the text appears or disappears. Neither the plan nor DESIGN.MD specifies whether a min-height should hold the space. What should the plan specify? <gstack-qid:plan-design-review-inline-status-height>",
+        "header": "Status height",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Reserve min-height equal to one text line (Recommended)",
+            "description": "Add spec: InlineStatus container has min-height: 1 line-height (approximately 24px). Blank state renders empty space; text transitions without layout shift. Matches the 'Unsaved changes' line height as the stable baseline."
+          },
+          {
+            "label": "Allow layout shift (no min-height)",
+            "description": "No min-height; content shifts when status text appears. Simpler CSS. Risk: noticeable layout jump on first edit or save \u2014 may feel broken, especially combined with the focus ring on the Save button."
+          },
+          {
+            "label": "Defer \u2014 decide during implementation",
+            "description": "Leave this unspecified; let the developer decide during build. Risk: inconsistent between future form pages if not codified."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 \u2014 Pass 7: InlineStatus layout stability. The persistent status area transitions between three states: blank (before first save), 'Unsaved changes', and 'Saved at HH:mm'. If no minimum height is reserved, the content below it (Profile fieldset) will shift up/down each time the text appears or disappears. Neither the plan nor DESIGN.MD specifies whether a min-height should hold the space. What should the plan specify? <gstack-qid:plan-design-review-inline-status-height>": "Reserve min-height equal to one text line (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:54:07.678Z"
+  },
+  {
+    "sessionId": "ab2c7ff1-970e-40ec-84b1-59560fcd165a",
+    "toolUseId": "toolu_01QeeStZr3jXcFNm2spvvn3S",
+    "questions": [
+      {
+        "question": "Design review complete (6/10 \u2192 9/10). 7 decisions resolved, 6 implementation tasks added, 0 deferred. The design review added significant interaction specs (spinner pending-state, reduced-motion behavior, layout stability) that have architectural implications. Eng review is the required shipping gate. What next? <gstack-qid:plan-design-review-next-step>",
+        "header": "Next step",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Run /plan-eng-review next (Recommended)",
+            "description": "Eng review is the required gate before shipping. This design review added spinner behavior, reduced-motion spec, and InlineStatus layout constraints \u2014 architectural implications worth validating before implementation starts."
+          },
+          {
+            "label": "Skip \u2014 handle next steps manually",
+            "description": "Exit plan mode and proceed on your own. You have 6 concrete implementation tasks ready to build from."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Design review complete (6/10 \u2192 9/10). 7 decisions resolved, 6 implementation tasks added, 0 deferred. The design review added significant interaction specs (spinner pending-state, reduced-motion behavior, layout stability) that have architectural implications. Eng review is the required shipping gate. What next? <gstack-qid:plan-design-review-next-step>": "Run /plan-eng-review next (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T07:57:37.838Z"
+  }
+]

@@ -35,6 +35,35 @@ function metadataClosedReviewNavigation(declaration: string, context: string): b
     closedNavigationContext(context);
 }
 
+/** Scope/risk explanations can contain "if" and "not" without reopening CEO work. */
+function explainedMetadataNavigation(declaration: string, descriptions: string[]): boolean {
+  const question = declaration.replace(/<gstack-qid:[^>]+>/gi, '').trim();
+  if (!isMetadataNavigationQuestion(question)) return false;
+  const sentences = [question.split('\n').slice(1).join('\n'), ...descriptions]
+    .flatMap(text => text.trim().split(/[.!](?:\s+|$)/).map(sentence => sentence.trim()).filter(Boolean));
+  const resolved = /^(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) assertion spec gaps were caught and resolved$/i;
+  const noDesignScope = /^No UI scope was detected, so a design review is not needed$/i;
+  const stakes = /^Stakes if we pick wrong: skipping the eng review means shipping without an architecture \+ code quality pass$/i;
+  // Validate every whole sentence before discounting the two inert phrases.
+  // Additional repair, conditional closure, or a different review denial is
+  // substantive even when it follows a valid metadata heading or recap.
+  if (sentences.filter(sentence => resolved.test(sentence)).length !== 1 ||
+      !sentences.every(sentence => resolved.test(sentence) || noDesignScope.test(sentence) || stakes.test(sentence) ||
+        /^ELI10: The CEO review is (?:done|complete|cleared|clean)$/i.test(sentence) ||
+        /^The plan is now ready for the Eng Review, which is the required gate before shipping$/i.test(sentence) ||
+        /^For test code this is lower risk than production code, but the eng review also validates that the test infrastructure is used correctly$/i.test(sentence) ||
+        /^Recommendation: [A-Z] because eng review is the required shipping gate, and this plan is ready for it$/i.test(sentence) ||
+        /^Required gate$/i.test(sentence) ||
+        /^Validates architecture, test infrastructure usage, code quality, and that the \d+-test plan will be implementable without hidden issues$/i.test(sentence) ||
+        /^Proceed to implementation without the eng review$/i.test(sentence) ||
+        /^Lower confidence that the test infrastructure is wired correctly, but acceptable for low-risk test coverage work$/i.test(sentence))) return false;
+  const normalized = [question.split('\n')[0]!, ...sentences
+    .filter(sentence => !noDesignScope.test(sentence))
+    .map(sentence => stakes.test(sentence) ? sentence.replace(/^Stakes if we pick wrong:/i, 'Stakes:') : sentence)]
+    .join('\n');
+  return metadataClosedReviewNavigation(question, normalized);
+}
+
 /** A direct Eng/manual choice can put its unconditional CEO recap in a native description. */
 function describedEngNavigation(question: string, descriptions: string[], context: string): boolean {
   if (!/^Run\s+\/plan-eng-review\s+(?:next|now)\s*\((?:the\s+)?required(?:\s+shipping)?\s+gate\),?\s+or\s+handle\s+reviews\s+manually\?$/i.test(question)) return false;
@@ -134,7 +163,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const describedCompletion = (recappedNavigation || (genericCompletion && q.options.some(option => closedCeoRecap(option.description ?? '')))) &&
     !/\b(?:unresolved|outstanding|remains?|remaining|pending)\b/i.test(unfinished) &&
     !/(?:^|[.!?;]\s+|\b(?:please|must|need\s+to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(gateContext);
-  const metadataCompletion = Boolean(id) && metadataClosedReviewNavigation(declaration, gateContext);
+  const metadataCompletion = Boolean(id) && (metadataClosedReviewNavigation(declaration, gateContext) ||
+    (call.failed === false && q.options.length === 2 &&
+      explainedMetadataNavigation(declaration, q.options.map(option => option.description ?? ''))));
   if (isMetadataNavigationQuestion(questionText) && /\n[ \t]*ELI10:/i.test(questionText) && !metadataCompletion) return null;
   const describedEngCompletion = q.options.length === 2 &&
     describedEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);

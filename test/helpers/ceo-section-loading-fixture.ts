@@ -170,7 +170,7 @@ function hasProseStaleFillFinding(report: string): boolean {
   const normalize = (text: string) => text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
   return blocks.some((block, index) => {
     const text = normalize(block);
-    const stale = /\b(?:stale|outdated)\b|\bold(?:er)?\s+(?:value|data|result|version|snapshot)\b/i.test(text);
+    const stale = /\b(?:stale|outdated)\b|\b(?:old(?:er)?|pre[- ]write)\s+(?:value|data|result|version|snapshot)\b/i.test(text);
     const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text);
     const read = /\b(?:read|fetch)\w*\b/i.test(text);
     const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
@@ -213,7 +213,7 @@ function hasProseStaleFillFinding(report: string): boolean {
       const previousClaim = claims[claimIndex - 1] ?? '';
       const explicitStaleSubject = /^(?:this|the|an?)\s+(?:bounded\s+)?(?:inconsistency|staleness|stale[- ](?:read|fill)|stale\s+(?:read|fill|refill))(?:\s+(?:window|behavior|behaviour|race|consequence))?$/i.test(subject);
       const impliedStaleSubject = /^this$/i.test(subject)
-        && /\b(?:stale|outdated|old(?:er)?\s+(?:value|snapshot|data))\b/i.test(previousClaim)
+        && /\b(?:stale|outdated|old(?:er)?\s+(?:value|snapshot|data)|pre[- ]write\s+(?:value|data|result|version|snapshot))\b/i.test(previousClaim)
         && /\b(?:read|fetch|fill|refill|repopulat)\w*\b/i.test(previousClaim)
         && !/\b(?:must|shall|requires?|violat\w*|not|cannot|can't)\b/i.test(previousClaim);
       const acceptedStaleModel = Boolean(modelDeclaration) && (explicitStaleSubject || impliedStaleSubject);
@@ -225,7 +225,7 @@ function hasProseStaleFillFinding(report: string): boolean {
       if (!dismissal) continue;
       const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);
       const onlyEarlierReturn = originalCaller && /\b(?:return|receiv|observ)\w*\b/i.test(claim)
-        && /\b(?:old|earlier|previous)\s+(?:snapshot|value|result|version)\b/i.test(claim)
+        && /\b(?:old|earlier|previous|pre[- ]write)\s+(?:snapshot|value|result|version)\b/i.test(claim)
         && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
       if (!(onlyEarlierReturn && subsequentRead && (violation || remedy))) return false;
     }

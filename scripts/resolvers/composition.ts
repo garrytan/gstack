@@ -56,7 +56,14 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
   if (!skill || !['plan-ceo-review', 'plan-design-review', 'plan-devex-review', 'plan-eng-review'].includes(skill)) {
     throw new Error('AUTOPLAN_REVIEW_FILE requires an autoplan review skill');
   }
-  if (ctx.host === 'claude') return `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
+  const withSections = args?.[1] === 'with-sections';
+  if ((args?.length ?? 0) > 2 || (args?.[1] !== undefined && !withSections)) {
+    throw new Error('AUTOPLAN_REVIEW_FILE only accepts with-sections');
+  }
+  if (ctx.host === 'claude') {
+    const entry = `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
+    return withSections ? `${entry} and \`sections/review-sections.md\` beside it` : entry;
+  }
 
   const host = getHostConfig(ctx.host);
   const file = `gstack-${skill}/SKILL.md`;
@@ -65,6 +72,7 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
   // Resolve from the discovered entrypoint's directory: GSTACK_ROOT is an
   // independently configurable runtime asset tree, not a skill registry.
   // This also preserves custom CODEX_HOME installations without guessing HOME.
+  // Other hosts inline the review sections into this full registry file.
   return `the sibling registry file \`../${file}\`, relative to the installed \`/autoplan\` SKILL.md directory (local: \`${local}\`; global: \`${global}\`${ctx.host === 'codex' ? ', or the corresponding skills directory under CODEX_HOME when configured' : ''})`;
 }
 

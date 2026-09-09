@@ -180,10 +180,25 @@ export function hasNativePostAnswerCeoPosture(
   });
 }
 
+type PosturePacket = { headers: string[]; screens: string[]; next: number; nativeId?: string; submitted: boolean };
+const postureContinuations = new WeakMap<Set<string>, { modeId: string; packet?: PosturePacket }>();
+
+/** The complete native bar binds delayed-JSONL tabs to one bounded AUQ. */
+function posturePacketBar(visible: string): { headers: string[]; answered: boolean[] } | null {
+  const bars = [...visible.matchAll(/←([^\r\n]+)✔\s*Submit\s*→/g)];
+  const bar = bars.at(-1);
+  if (!bar) return null;
+  const tabs = [...bar[1]!.matchAll(/([☐☒])\s*([^☐☒]+)/g)];
+  if (tabs.length < 2 || tabs.length > 4 || bar[1]!.slice(0, tabs[0]!.index).trim()) return null;
+  const headers = tabs.map(tab => tab[2]!.trim().replace(/\s+/g, ' '));
+  if (headers.some(header => !header) || new Set(headers).size !== headers.length) return null;
+  return { headers, answered: tabs.map(tab => tab[1] === '☒') };
+}
+
 /**
  * Claude can defer persisting assistant prose until the next AUQ resolves.
- * Permit one fresh downstream question to finish that turn, after the native
- * mode answer is confirmed. A mode redraw or permission is never that question.
+ * Permit one fresh downstream call, including its remaining tabs and Submit.
+ * Native completion still supplies all posture evidence; UI only drives input.
  */
 export function nextCeoPostureContinuation(
   visible: string,
@@ -193,11 +208,62 @@ export function nextCeoPostureContinuation(
   seenQuestions: Set<string>,
   alreadyContinued: boolean,
   completionHistory = visible,
-): 'permission' | 'question' | null {
+): 'permission' | 'question' | 'submission' | null {
   const pending = transcript.calls.find(call => !call.answered && !call.failed);
   const permission = pending && matchesNativePlanQuestion(visible, pending) ? null : ceoPermissionAction(visible, seenQuestions, completionHistory);
   if (permission !== null) return permission === 'grant' ? 'permission' : null;
-  if (alreadyContinued || !nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt)) return null;
+  const selected = nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt);
+  if (!selected) return null;
+  const modeId = `${selected.sessionId}:${selected.toolUseId}`;
+  const state = postureContinuations.get(seenQuestions);
+  if (state && state.modeId !== modeId) return null;
+  const bar = posturePacketBar(visible);
+  const packet = state?.packet;
+  if (state || alreadyContinued) {
+    if (!packet || packet.submitted || !bar ||
+        JSON.stringify(bar.headers) !== JSON.stringify(packet.headers) ||
+        !bar.answered.every((answered, i) => answered === (i < packet.next))) return null;
+    const sameHeaders = (call: NativePlanQuestionCall) => JSON.stringify(call.questions.map(q =>
+      q.header.trim().replace(/\s+/g, ' '))) === JSON.stringify(packet.headers);
+    const recorded = transcript.calls.slice(transcript.calls.indexOf(selected) + 1).find(sameHeaders);
+    const call = packet.nativeId
+      ? transcript.calls.find(call => `${call.sessionId}:${call.toolUseId}` === packet.nativeId)
+      : pending ?? recorded;
+    if (packet.nativeId && !call) return null;
+    if (call) {
+      if (call.sessionId !== selected.sessionId || call.answered || call.failed ||
+          !sameHeaders(call) || (pending && pending !== call) ||
+          !packet.screens.every((screen, i) => capturePlanCountQuestion(
+            screen, new Set(), 0, false, call)?.nativeQuestionIndex === i)) return null;
+      packet.nativeId = `${call.sessionId}:${call.toolUseId}`;
+    }
+    if (packet.next === packet.headers.length) {
+      if (planCountSubmissionInput(visible) !== '\r') return null;
+      packet.submitted = true;
+      return 'submission';
+    }
+  } else if (bar && bar.answered.some(Boolean)) return null;
+  // With native metadata present, require the same call and exact displayed
+  // tab. Without it, the complete bar, footer and ordered answered transitions
+  // are required; another menu cannot spend this call's remaining tab budget.
+  if (bar) {
+    if (!/Enter\s*to\s*select\s*·\s*Tab\/Arrow\s*keys\s*to\s*navigate\s*·\s*Esc\s*to\s*cancel/i.test(visible)) return null;
+    if (pending && (pending.sessionId !== selected.sessionId ||
+        !matchesNativePlanQuestion(visible, pending) ||
+        JSON.stringify(pending.questions.map(q => q.header.trim().replace(/\s+/g, ' '))) !== JSON.stringify(bar.headers))) return null;
+  }
   const action = nextCeoModeNavigation(visible, targetMode, seenQuestions, pending, completionHistory);
-  return action.kind === 'question' ? 'question' : null;
+  if (action.kind !== 'question') return null;
+  if (bar) {
+    const current = packet ?? { headers: bar.headers, screens: [], next: 0, submitted: false };
+    if (action.question.nativeCall) {
+      const nativeId = `${action.question.nativeCall.sessionId}:${action.question.nativeCall.toolUseId}`;
+      if ((current.nativeId && current.nativeId !== nativeId) || action.question.nativeQuestionIndex !== current.next) return null;
+      current.nativeId = nativeId;
+    }
+    current.screens.push(visible);
+    current.next++;
+    postureContinuations.set(seenQuestions, { modeId, packet: current });
+  } else postureContinuations.set(seenQuestions, { modeId });
+  return 'question';
 }

@@ -1,3 +1,7 @@
+import capturedURetry from './fixtures/devex-count-u-retry-calls.json';
+import capturedU from './fixtures/devex-count-u-calls.json';
+
+
 import { describe, expect, test } from 'bun:test';
 import type { AskUserQuestionFingerprint } from './helpers/claude-pty-runner';
 import capturedL from './fixtures/devex-review-l-calls.json';
@@ -370,5 +374,124 @@ describe('T native documentation follow-up decisions', () => {
       c.questions[0]!.options.reverse();
       expect([c].filter(c => isDevexReviewIssue(fp(c)))).toHaveLength(1);
     }
+  });
+});
+
+describe('U completed first-pass contract decisions', () => {
+  const calls = () => structuredClone(capturedU.calls) as NativePlanQuestionCall[];
+  const fp = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
+  const change = (call: NativePlanQuestionCall, transform: (s: string) => string) => {
+    const q = call.questions[0]!; const answer = call.answers![q.question]!;
+    q.question = transform(q.question); call.answers = {[q.question]: answer}; return call;
+  };
+  test('all five actual seed decisions count once, without mutating evidence', () => {
+    const actual = calls(); const before = structuredClone(actual);
+    expect(actual.map(call => isDevexReviewIssue(fp(call)))).toEqual([true, true, true, true, true]);
+    expect(actual).toEqual(before);
+  });
+  for (const index of [0, 1]) {
+    test(`decision ${index + 1} requires complete native identity and an offered answer`, () => {
+      expect(isDevexReviewIssue(fp(calls()[index]!))).toBe(true);
+      for (const mutate of [
+        (c: NativePlanQuestionCall) => { c.answered = false; },
+        (c: NativePlanQuestionCall) => { c.failed = true; },
+        (c: NativePlanQuestionCall) => { delete c.failed; },
+        (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+        (c: NativePlanQuestionCall) => { delete c.unansweredQuestionIndices; },
+        (c: NativePlanQuestionCall) => { c.answers = {}; },
+        (c: NativePlanQuestionCall) => { c.answers = {[c.questions[0]!.question]: 'Foreign answer'}; },
+        (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+        (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
+        (c: NativePlanQuestionCall) => { c.questions[0]!.options.push(structuredClone(c.questions[0]!.options[0]!)); },
+      ]) { const c = calls()[index]!; mutate(c); expect(isDevexReviewIssue(fp(c))).toBe(false); }
+      const foreign = fp(calls()[index]!); foreign.signature = 'foreign:tool'; expect(isDevexReviewIssue(foreign)).toBe(false);
+      const ui = fp(calls()[index]!); delete ui.nativeCall; expect(isDevexReviewIssue(ui)).toBe(false);
+    });
+    test(`decision ${index + 1} cannot borrow issue words for setup or quoted examples`, () => {
+      for (const transform of [
+        (s: string) => '> ' + s,
+        (s: string) => '```text\n' + s + '\n```',
+        (s: string) => s.replace(/Pass 1 \(Getting Started\):/, 'Pass 1 (Getting Started): It is false that'),
+        (s: string) => s.replace(/<gstack-qid:[^>]+>/, '<gstack-qid:plan-devex-review-mode>'),
+        (s: string) => s + ' <gstack-qid:another>',
+      ]) expect(isDevexReviewIssue(fp(change(calls()[index]!, transform)))).toBe(false);
+      const c = calls()[index]!; c.questions[0]!.header = 'Review mode'; expect(isDevexReviewIssue(fp(c))).toBe(false);
+    });
+    test(`decision ${index + 1} keeps a distinct accepted or deferred decision independent of option order`, () => {
+      const c = calls()[index]!; const q = c.questions[0]!;
+      q.options.reverse(); expect(isDevexReviewIssue(fp(c))).toBe(true);
+      c.answers = {[q.question]: q.options[0]!.label}; expect(isDevexReviewIssue(fp(c))).toBe(true);
+    });
+  }
+  test('resolved or negated first-run contracts and pure navigation do not count', () => {
+    for (const transform of [
+      (s: string) => s.replace("doesn't ship", 'already ships'),
+      (s: string) => s.replace('quickstart points to', 'quickstart no longer points to'),
+      (s: string) => s.replace('Should we fix the quickstart path in the plan?', 'Should we begin the review?'),
+      (s: string) => s.replace('Should we fix', 'Should we not fix'),
+    ]) expect(isDevexReviewIssue(fp(change(calls()[0]!, transform)))).toBe(false);
+    for (const transform of [
+      (s: string) => s.replace('makes that unreachable', 'makes that reachable'),
+      (s: string) => s.replace('makes that unreachable', 'does not make that unreachable'),
+      (s: string) => s.replace('The plan retains the gate.', 'The plan already skips the gate.'),
+      (s: string) => s.replace('How should this plan handle the contradiction?', 'Should we begin the review?'),
+    ]) expect(isDevexReviewIssue(fp(change(calls()[1]!, transform)))).toBe(false);
+  });
+});
+
+
+describe('U demo timing decision after completed measurements', () => {
+  const captured = () => structuredClone(capturedURetry[0]!) as NativePlanQuestionCall;
+  const fp = (c: NativePlanQuestionCall) => nativePlanCallFingerprint(c, 0, true);
+  function replace(c: NativePlanQuestionCall, from: string, to: string) {
+    const q = c.questions[0]!; const old = q.question; q.question = old.replace(from, to);
+    if (c.answers) c.answers = { [q.question]: c.answers[old]! };
+    return c;
+  }
+  test('all five actual completed calls are independent issue decisions', () => {
+    const calls = structuredClone(capturedURetry) as NativePlanQuestionCall[];
+    expect(calls.map(c => isDevexReviewIssue(fp(c)))).toEqual([true, true, true, true, true]);
+    expect(calls).toEqual(capturedURetry);
+    const c = captured(); c.questions[0]!.options.reverse();
+    expect(isDevexReviewIssue(fp(c))).toBe(true);
+    c.answers = { [c.questions[0]!.question]: c.questions[0]!.options[0]!.label };
+    expect(isDevexReviewIssue(fp(c))).toBe(true); // Deferring the repair is still this decision.
+  });
+  test('timings are compared instead of pinning the observed minutes', () => {
+    let c = captured();
+    for (const [from,to] of [['<2 min','<3 min'],['under 2 minutes','under 3 minutes'],['blocks for 5 minutes','blocks for 4 minutes'],['measured TTHW of 6 minutes','measured TTHW of 5 minutes']]) c=replace(c,from!,to!);
+    expect(isDevexReviewIssue(fp(c))).toBe(true);
+    for (const [from,to] of [['blocks for 5 minutes','blocks for 1 minutes'],['measured TTHW of 6 minutes','measured TTHW of 4 minutes'],['under 2 minutes','under 9 minutes']])
+      expect(isDevexReviewIssue(fp(replace(captured(),from!,to!)))).toBe(false);
+  });
+  test('setup, negated, quoted and merely hypothetical timing claims remain outside the new arm', () => {
+    for (const [from,to] of [
+      ['should it bypass the mandatory CI check to reach the <2 min TTHW target?', 'which TTHW target should we confirm?'],
+      ['ELI10: The agreed onboarding target is under 2 minutes', 'Example: ELI10: The agreed onboarding target is under 2 minutes'],
+      ['ELI10: The agreed onboarding target is under 2 minutes', '> ELI10: The agreed onboarding target is under 2 minutes'],
+      ['ELI10: The agreed onboarding target is under 2 minutes', '```text\nELI10: The agreed onboarding target is under 2 minutes'],
+      ['Today `python -m evalkit.demo` blocks', 'Today `python -m evalkit.demo` no longer blocks'],
+      ['Today `python -m evalkit.demo` blocks', 'It is false that `python -m evalkit.demo` blocks'],
+      ['Today `python -m evalkit.demo` blocks', 'If `python -m evalkit.demo` blocks'],
+      ['giving a measured TTHW of 6 minutes', 'giving a measured TTHW of 6 minutes only if the optional slow simulation is enabled'],
+      ['giving a measured TTHW of 6 minutes', 'giving a measured TTHW of 6 minutes only in a hypothetical example'],
+      ['devex-demo-ci-bypass', 'plan-devex-review-tthw-tier'],
+    ]) expect(isDevexReviewIssue(fp(replace(captured(),from!,to!)))).toBe(false);
+    const c = captured(); c.questions[0]!.header = 'TTHW target'; expect(isDevexReviewIssue(fp(c))).toBe(false);
+  });
+  test('the new measured branch requires one complete matched native decision', () => {
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { delete c.failed; },
+      (c: NativePlanQuestionCall) => { c.answered = false; },
+      (c: NativePlanQuestionCall) => { delete c.unansweredQuestionIndices; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+      (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options.push(structuredClone(c.questions[0]!.options[0]!)); },
+      (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'unoffered answer' }; },
+    ]) { const c=captured(); mutate(c); expect(isDevexReviewIssue(fp(c))).toBe(false); }
+    expect(isDevexReviewIssue({...fp(captured()), signature:'foreign:call'})).toBe(false);
+    expect(isDevexReviewIssue({...fp(captured()), nativeCall:undefined})).toBe(false);
   });
 });

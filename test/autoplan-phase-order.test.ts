@@ -79,11 +79,12 @@ describe('autoplan phase execution checkpoints', () => {
     expect(intake).toContain('Do not prefetch future phase sections or review skills');
     for (const phase of phases) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
-      expect(section).toMatch(/^Before dispatch, fully Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+\}\} \+ triggered sections/);
+      expect(section).toMatch(/^Before dispatch, fully Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+:with-sections\}\}/);
       const load = section.split('**Override rules:**')[0]!;
-      expect(load).toContain('record successful start/end/total ranges');
+      expect(load).toContain('log successful start/end/total');
       expect(load).toContain('fill gaps to EOF');
-      expect(load).toContain('Load skip-listed sections; skip execution');
+      expect(load).toContain('Skip-listed: load only');
+      expect(section.indexOf(':with-sections}}')).toBeLessThan(section.indexOf('create ' + phase));
     }
   });
 

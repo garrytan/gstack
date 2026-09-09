@@ -5,6 +5,43 @@ import {
   hasStaleFillRaceFinding,
 } from './helpers/ceo-section-loading-fixture';
 
+describe('pre-write snapshot vocabulary in the actual U finding', () => {
+  const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-u-report.md'), 'utf8');
+  const paragraph = report.slice(report.indexOf('After T4 the cache correctly reflects'), report.indexOf('**Recommended fix (auto-decided):**')).trim();
+
+  test('recognizes the exact delivered report and its complete asserted paragraph independently of the bad remedy', () => {
+    expect(paragraph).toContain('re-populates the cache with the pre-write snapshot');
+    expect(paragraph).toContain('This violates the invariant:');
+    expect(hasStaleFillRaceFinding(paragraph)).toBe(true);
+    expect(hasStaleFillRaceFinding(report)).toBe(true);
+  });
+
+  test.each(['pre-write snapshot', 'pre write snapshot', 'pre-write value', 'pre-write data', 'pre-write version'])('recognizes an old snapshot synonym: %s', value => {
+    expect(hasStaleFillRaceFinding(`An in-flight read re-populates the cache with the ${value} after write invalidation. A new reader sees it, violating the contract.`)).toBe(true);
+  });
+
+  test.each([
+    'A pending read returns the pre-write snapshot to its original caller; that return is permitted.',
+    'An in-flight read re-populates the cache with the post-write snapshot after invalidation.',
+    'The pre-write snapshot expires after 30 seconds. The LRU byte cap is adequate.',
+    'If invalidation throws after a write, the cache retains the pre-write snapshot. Log the failure and bypass the cache.',
+    'An in-flight read re-populates the cache with the pre-write snapshot after invalidation. This is allowed behavior for subsequent reads.',
+    'An in-flight read re-populates the cache with the pre-write snapshot after invalidation. This is the accepted consistency model.',
+    'An in-flight read re-populates the cache with the pre-write snapshot after invalidation, so a new reader receives that version. This is the accepted consistency model.',
+    'An in-flight read re-populates the cache with the pre-write snapshot after invalidation. It is not a bug; no guard is required.',
+    'An in-flight read cannot re-populate the cache with the pre-write snapshot after invalidation. No race remains.',
+    '> An in-flight read re-populates the pre-write snapshot after write invalidation; a new read sees it, violating the contract.',
+    '```text\nAn in-flight read re-populates the pre-write snapshot after write invalidation; a new read sees it, violating the contract.\n```',
+    '* An in-flight read re-populates the pre-write snapshot after invalidation.\n* Telemetry retry handling has a bug.',
+  ])('retains original-caller, freshness, dismissal and source boundaries: %s', value => {
+    expect(hasStaleFillRaceFinding(value)).toBe(false);
+  });
+
+  test('permission for the original caller still cannot excuse a later-reader violation', () => {
+    expect(hasStaleFillRaceFinding('The original pending caller may receive the pre-write snapshot; that return is permitted. However, an in-flight read refills the cache with the pre-write snapshot after write invalidation, so a new reader violates the contract. Guard cache fills with a generation token.')).toBe(true);
+  });
+});
+
 describe('CEO section-loading cache fixture', () => {
   test('the exact proposed wrapper retains a reproducible stale-fill race', async () => {
     let releaseRead!: (value: string) => void;

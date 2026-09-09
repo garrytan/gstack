@@ -106,7 +106,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string): PlanCou
                 throw new Error('conflicting question metadata for one tool call');
               }
               if (!prior) calls.set(key, { sessionId: record.sessionId, toolUseId: block.id,
-                questions: block.input.questions, answered: false });
+                questions: block.input.questions, answered: false, failed: false });
             } else if (record.message.role === 'user' && block.type === 'tool_result' &&
                        typeof block.tool_use_id === 'string') {
               const ready = planReadyRequests.get(`${record.sessionId}:${block.tool_use_id}`);

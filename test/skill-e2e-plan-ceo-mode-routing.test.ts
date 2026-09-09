@@ -209,6 +209,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             if (continuation !== null) {
               if (continuation === 'question') continuedQuestion = true;
               if (continuation === 'permission') await selectPtyNumberedOption(session, 1);
+              else if (continuation === 'submission') session.send('\r');
               else {
                 const pending = transcript.calls.find(call => !call.answered && !call.failed);
                 const question = capturePlanCountQuestion(currentInput, new Set(), 0, false, pending)!;

@@ -1,0 +1,170 @@
+{
+  "sourceRun": "ship-source-u-full-paid-20260909-0740",
+  "status": "Captured first attempt; historical raw2setup3review floor failure remains unchanged",
+  "calls": [
+    {
+      "sessionId": "5ce81f31-e588-4876-9e18-b6c6c352d1f1",
+      "toolUseId": "toolu_01BMxq3Rbo8Pf84iMiswFJAZ",
+      "questions": [
+        {
+          "question": "D1 \u2014 Pass 1 (Getting Started): The README quickstart points to a file that doesn't ship in the package. Should we fix the quickstart path in the plan? <gstack-qid:plan-devex-quickstart-missing-file>",
+          "header": "Quickstart fix",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Fix README to use python -m evalkit.demo (Recommended)",
+              "description": "ELI10: The README says to run `python examples/first_eval.py` \u2014 but docs/package-contents.txt confirms that file is absent from the published package and the release archive. Every developer who follows the README quickstart hits a file-not-found error before seeing a single line of output. The fix is to update the quickstart to use `python -m evalkit.demo`, which IS shipped and produces the documented score output. Completeness: 10/10. \u2705 Immediate fix; closes a hard first-run failure before it ships. \u2705 The demo module is already described in the README and produces the correct output. \u274c Requires a coordinated README edit as part of the release plan. Recommendation: Fix this \u2014 a broken quickstart on the first command violates Zero Friction at T0 and will produce immediate negative word-of-mouth."
+            },
+            {
+              "label": "Add examples/first_eval.py to the package",
+              "description": "Ship the missing file so the README quickstart works as written. Completeness: 9/10. \u2705 Keeps the README as-is, no doc changes needed. \u2705 Offers two distinct entry points (file + module). \u274c Requires authoring and publishing a new file, which may widen the release scope. \u274c The plan says package contents are settled; this adds to them."
+            },
+            {
+              "label": "Document the gap, leave for post-beta",
+              "description": "Acknowledge the broken path in the plan, add a note to fix it post-beta. Completeness: 3/10. \u2705 Zero change to release scope. \u274c Ships a known broken quickstart \u2014 the very first thing an ML engineer tries will fail. \u274c Contradicts DX POLISH posture."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Pass 1 (Getting Started): The README quickstart points to a file that doesn't ship in the package. Should we fix the quickstart path in the plan? <gstack-qid:plan-devex-quickstart-missing-file>": "Fix README to use python -m evalkit.demo (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T07:49:47.733Z"
+    },
+    {
+      "sessionId": "5ce81f31-e588-4876-9e18-b6c6c352d1f1",
+      "toolUseId": "toolu_01AzrEXtn1SgaosyQHGWB7nx",
+      "questions": [
+        {
+          "question": "D2 \u2014 Pass 1 (Getting Started): The benchmarks set a <2 min TTHW target, but the mandatory 5-minute CI gate makes that unreachable. The plan retains the gate. How should this plan handle the contradiction? <gstack-qid:plan-devex-tthw-ci-gate>",
+          "header": "TTHW gate",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add --local flag to skip CI gate for demo only (Recommended)",
+              "description": "ELI10: benchmarks.md says the agreed target is under 2 minutes, but the 5-minute CI wait is mandatory with no skip path. A Python ML engineer running `python -m evalkit.demo` for the first time waits 5 minutes for a CI check on bundled sample data that never changes \u2014 the wait is pointless for a demo. The fix: add a `--local` or `--offline` mode to `evalkit.demo` that uses the bundled mock transport and skips the CI gate. Completeness: 10/10. \u2705 Achieves the <2 min target for the demo/first-run experience the plan actually promises. \u2705 The current contracts already document a mock transport and offline sample data. \u2705 CI gate stays required for real evaluations \u2014 no behavior change for production use. \u274c Requires a plan addition (one flag, demo module only), slightly widens scope. Recommendation: Add the flag \u2014 a 5-minute wait on bundled sample data is indefensible friction; the mock transport already exists.",
+              "preview": "# What the demo would do with --local\npython -m evalkit.demo --local\n# Skips CI gate, uses bundled mock transport\n# Output in ~2s:\n  example 1: score=0.80\n  example 2: score=1.00\n  overall: score=0.90"
+            },
+            {
+              "label": "Revise target to 6 min to match reality",
+              "description": "Update the plan's TTHW target to reflect the actual 6-minute measured time (including the CI gate). Completeness: 5/10. \u2705 Honest; no scope change. \u274c The benchmark showed competitors at 2-4 min; accepting 6 min leaves EvalKit in Red Flag tier. \u274c The target was the agreed goal \u2014 revising it down is a regression, not a fix."
+            },
+            {
+              "label": "Accept the contradiction, note in plan as known gap",
+              "description": "Keep the <2 min target in the plan but document the CI gate as a known TTHW blocker. Completeness: 2/10. \u2705 Zero scope change. \u274c Ships a plan with an internally inconsistent TTHW claim. \u274c The ML engineer arrives at minute 5 of a '2 minute' demo and abandons."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Pass 1 (Getting Started): The benchmarks set a <2 min TTHW target, but the mandatory 5-minute CI gate makes that unreachable. The plan retains the gate. How should this plan handle the contradiction? <gstack-qid:plan-devex-tthw-ci-gate>": "Add --local flag to skip CI gate for demo only (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T07:50:07.775Z"
+    },
+    {
+      "sessionId": "5ce81f31-e588-4876-9e18-b6c6c352d1f1",
+      "toolUseId": "toolu_01Y9EfNisbCNCJgixcQdbc9x",
+      "questions": [
+        {
+          "question": "D3 \u2014 Pass 2 (API Design): run_eval and run_batch take the same two arguments in reversed order. Should the plan fix this? <gstack-qid:plan-devex-api-arg-order>",
+          "header": "API arg order",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Standardize to consistent order with keyword-only enforcement (Recommended)",
+              "description": "ELI10: docs/api.md defines `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)` \u2014 the same two arguments, but swapped. This is a classic footgun: an ML engineer who learns one function will pass args to the other in the wrong order and get silently wrong results or a runtime type error. The fix: pick one order (dataset first, then evaluator) and enforce keyword arguments in both functions \u2014 `run_eval(*, dataset, evaluator)`. The plan note says 'neither function requires keyword arguments', which is exactly the problem. Completeness: 10/10. \u2705 Eliminates silent misuse; the two functions now share a single mental model. \u2705 Keyword enforcement makes the wrong call a NameError, not a subtle bug. \u274c Breaking change for any positional callers \u2014 but this is a beta, the right moment for it. Recommendation: Fix now \u2014 this is a beta; swapping arg order post-GA is a major breaking change.",
+              "preview": "# Before (confusing)\nresult = run_eval(my_dataset, my_evaluator)   # dataset first\nresult = run_batch(my_evaluator, my_dataset)  # evaluator first\n\n# After (consistent, keyword-enforced)\nresult = run_eval(dataset=my_dataset, evaluator=my_evaluator)\nresult = run_batch(dataset=my_dataset, evaluator=my_evaluator)"
+            },
+            {
+              "label": "Add runtime validation with a clear error",
+              "description": "Keep the inconsistent order but add a runtime check that raises if the types are wrong. Completeness: 6/10. \u2705 No breaking change to positional order. \u274c Relies on type mismatch being detectable at runtime \u2014 won't catch cases where dataset and evaluator have compatible types. \u274c Does not fix the underlying design inconsistency."
+            },
+            {
+              "label": "Document the order prominently, leave the API as-is",
+              "description": "Add a docstring/README warning about the reversed order. Completeness: 4/10. \u2705 Zero code change. \u274c Puts the burden on the developer to remember an arbitrary exception. \u274c 'This API is surprising but documented' is still a DX failure \u2014 the Pit of Success principle means the right usage should be the obvious usage."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Pass 2 (API Design): run_eval and run_batch take the same two arguments in reversed order. Should the plan fix this? <gstack-qid:plan-devex-api-arg-order>": "Standardize to consistent order with keyword-only enforcement (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T07:50:31.820Z"
+    },
+    {
+      "sessionId": "5ce81f31-e588-4876-9e18-b6c6c352d1f1",
+      "toolUseId": "toolu_01Qb1UdjTVfGTk2uczoVFKyi",
+      "questions": [
+        {
+          "question": "D4 \u2014 Pass 3 (Error Messages): AuthError(\"request failed\") gives the developer nothing to act on. Should the plan fix this message? <gstack-qid:plan-devex-auth-error-message>",
+          "header": "Auth error msg",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Fix to include cause + actionable fix (Recommended)",
+              "description": "ELI10: When a developer sets the wrong API key, they get `AuthError: request failed`. That message tells them nothing: not that the key is wrong, not what to check, not where to get a valid key. The ML engineer will stare at it and Google 'evalkit AuthError request failed' \u2014 and find nothing, because it could be anything. The fix is three lines of message: what happened (authentication rejected), why (invalid key), what to do (set EVALKIT_API_KEY to a valid key from the dashboard). Completeness: 10/10. \u2705 Eliminates the most common first-run failure mode with a self-service fix. \u2705 No API surface change \u2014 same exception class, better message. \u274c Requires updating the message string in the SDK (noted as separately maintained, but the plan can specify the new message).",
+              "preview": "# Before\nAuthError: request failed\n\n# After\nAuthError: Authentication failed. Your EVALKIT_API_KEY was rejected.\nSet a valid key: export EVALKIT_API_KEY=<key>\nGet your key at: evalkit.io/dashboard/keys"
+            },
+            {
+              "label": "Add an error code, keep brief message",
+              "description": "Raise `AuthError(code='auth_invalid', message='request failed')` with a structured error code. Completeness: 7/10. \u2705 Machine-readable for tools/integrations. \u274c Still says 'request failed' to the human \u2014 doesn't tell them the key is wrong or how to fix it."
+            },
+            {
+              "label": "Retain the current message",
+              "description": "The plan already documents this gap; accept it for beta. Completeness: 1/10. \u2705 Zero change. \u274c The plan explicitly notes this message has no cause or fix instruction. DX POLISH means fixing it, not documenting it."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Pass 3 (Error Messages): AuthError(\"request failed\") gives the developer nothing to act on. Should the plan fix this message? <gstack-qid:plan-devex-auth-error-message>": "Fix to include cause + actionable fix (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T07:50:45.849Z"
+    },
+    {
+      "sessionId": "5ce81f31-e588-4876-9e18-b6c6c352d1f1",
+      "toolUseId": "toolu_01BM4QEudSA79eLa5KCeBqEt",
+      "questions": [
+        {
+          "question": "D5 \u2014 Pass 5 (Upgrade Path): Client.evaluate() is removed immediately in v2 with no alias, no deprecation warning, and no migration guide. Should the plan fix this? <gstack-qid:plan-devex-v1-v2-migration>",
+          "header": "v1\u2192v2 migration",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add deprecated alias + migration guide (Recommended)",
+              "description": "ELI10: docs/api.md says v1's `Client.evaluate()` is immediately replaced by v2's `Client.run()` with no transition path. A developer upgrading from v1 gets `AttributeError: 'Client' object has no attribute 'evaluate'` with no hint that they should call `run()` instead. For a beta release targeting existing evaluators, this is upgrade-fear territory. The fix is two things: (1) a `Client.evaluate()` alias that calls `run()` and emits a `DeprecationWarning` with the migration instruction in the message, and (2) a one-page migration guide in the docs. Completeness: 9/10. \u2705 v1 code continues to work with a clear signal to upgrade. \u2705 Lowers the cost of adoption for existing users. \u274c Small scope addition \u2014 one alias, one doc page.",
+              "preview": "# With deprecated alias\nimport warnings\nclass Client:\n    def evaluate(self, *args, **kwargs):\n        warnings.warn(\n            \"evaluate() is deprecated. Use run() instead. \"\n            \"See: evalkit.io/docs/migrate-v1-v2\",\n            DeprecationWarning, stacklevel=2\n        )\n        return self.run(*args, **kwargs)"
+            },
+            {
+              "label": "Migration guide only, no alias",
+              "description": "Add a v1-to-v2 migration guide doc but do not add a compatibility alias. Completeness: 7/10. \u2705 Documents the change clearly. \u274c v1 code still breaks immediately on upgrade \u2014 the developer must read the guide before they can run anything."
+            },
+            {
+              "label": "Retain immediate hard break, document in changelog",
+              "description": "Keep the current plan (no alias, no guide) and note the breaking change prominently in the changelog. Completeness: 3/10. \u2705 Zero code change. \u274c Upgrade-fear is the #1 reason developers freeze on old versions. An undocumented AttributeError in a v2 beta will generate support tickets and negative reviews."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 Pass 5 (Upgrade Path): Client.evaluate() is removed immediately in v2 with no alias, no deprecation warning, and no migration guide. Should the plan fix this? <gstack-qid:plan-devex-v1-v2-migration>": "Add deprecated alias + migration guide (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T07:50:59.874Z"
+    }
+  ]
+}

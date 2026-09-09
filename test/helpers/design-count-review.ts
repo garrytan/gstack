@@ -45,6 +45,34 @@ export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolea
   });
 }
 
+/** A closed recap may explain why Eng is next; it cannot request another fix. */
+function closedDesignGateRecap(tail: string, descriptions: string[]): boolean {
+  const navigation = /\bWhat(?:['’]s)?\s+next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.exec(tail);
+  if (!navigation) return false;
+  const body = tail.slice(0, navigation.index).trim();
+  const gate = /^(?:Eng(?:ineering)? Review is (?:the )?required (?:shipping gate|gate before shipping))[.!]?$/i;
+  const sentences = (text: string) => text.split(/[.!]\s+|[.!]$/).map(s => s.trim()).filter(Boolean);
+  const recap = (text: string): boolean => {
+    // Each count describes completed or explicitly absent work. A positive
+    // deferred/open count is not a closed review, regardless of its title.
+    const count = /^(?:(?:\d+|all)\s+(?:design\s+)?(?:decisions|findings|issues)\s+(?:(?:are|were)\s+)?(?:resolved|approved|addressed|closed)|\d+\s+(?:implementation\s+)?tasks\s+(?:(?:are|were)\s+)?(?:added|recorded|ready)|(?:no|zero|0)\s+(?:deferred(?:\s+(?:decisions|findings|issues|tasks|items))?|(?:unresolved|open|pending|outstanding)\s+(?:decisions|findings|issues|tasks|items)))$/i;
+    if (text.split(/,\s*(?:and\s+)?|\s+and\s+/i).every(part => count.test(part))) return true;
+    // Only a declarative completed-review subject can introduce explanatory
+    // content. Separate clauses, questions and conditional/future work fail.
+    if (!/^(?:The|This)\s+(?:design\s+)?review\s+(?:has\s+)?(?:added|recorded|approved|addressed|specified|covered|resolved)\s+\S/i.test(text)) return false;
+    if (/[;?<>]|\b(?:if|unless|until|once|when|should|must|need|needs|will|would|could|please|then|also|still|missing|unresolved)\b|\b(?:and|but)\s+(?:first\s+)?(?:do|add|fix|repair|implement|resolve|decide|configure|remove|delete|pick|choose)\b/i.test(text)) return false;
+    const clauses = text.split(/\s+[—–]\s+/);
+    return clauses.length <= 2 && (clauses.length === 1 || /^(?:architectural|engineering|implementation)\s+(?:implications|considerations|details)\b/i.test(clauses[1]!));
+  };
+  const parts = sentences(body);
+  if (parts.filter(part => gate.test(part)).length !== 1 ||
+      !parts.every(part => gate.test(part) || recap(part))) return false;
+  return descriptions.every(description => sentences(description).every(part =>
+    gate.test(part) || recap(part) ||
+    /^Exit plan mode and proceed on your own$/i.test(part) ||
+    /^You have \d+ (?:concrete )?(?:implementation )?tasks ready to build from$/i.test(part)));
+}
+
 function designHandoff(fp: AskUserQuestionFingerprint): { manualIndex: number | null } | null {
   const call = fp.nativeCall;
   if (!call || call.failed || call.questions.length !== 1 ||
@@ -60,7 +88,9 @@ function designHandoff(fp: AskUserQuestionFingerprint): { manualIndex: number | 
   const completed = /^Design\s+review\s+(?:is\s+)?complete(?:[.!]|\s+\((?:\d+(?:\.\d+)?(?:\/10)?\s*(?:→|->|to)\s*)?\d+(?:\.\d+)?\/10(?:,\s*\d+\s+decisions?(?:\s+(?:made|added))?)?\)[.!])(?:\s|$)/i.exec(declaration);
   if (!completed) return null;
   const requiredGateOffer = /^The required next gate is Eng(?:ineering)? Review\s*[—–-]\s*want me to run it now\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
-  const requiredGateQuestion = requiredGateOffer || /^(?:\d+ implementation tasks ready\.\s*)?Eng(?:ineering)? Review is the required shipping gate\.\s*What next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
+  const closedRecap = q.options.length === 2 && closedDesignGateRecap(
+    declaration.slice(completed[0].length).trim(), q.options.map(option => option.description ?? ''));
+  const requiredGateQuestion = requiredGateOffer || closedRecap || /^(?:\d+ implementation tasks ready\.\s*)?Eng(?:ineering)? Review is the required shipping gate\.\s*What next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
   // The offered Eng action can carry the required-gate declaration while the
   // closed question asks only what is next. Its descriptions remain part of
   // the decision, so they cannot conceal a new repair or conditional closure.

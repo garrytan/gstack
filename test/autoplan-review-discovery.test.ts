@@ -69,6 +69,30 @@ describe('autoplan reads installed host methodology', () => {
           expect(loaded).toBe(fs.readFileSync(generatedReview, 'utf8'));
           expect(loaded).not.toContain('STALE FOREIGN HARNESS SKILL');
           if (host.name === 'codex') expect(loaded).toContain('"outside_provider":"claude-code"');
+          const phase = review === 'plan-devex-review' ? 'dx' : review.split('-')[1]!;
+          const phaseBody = host.name === 'claude'
+            ? fs.readFileSync(path.join(generatedRoot, 'autoplan', 'sections', `${phase}-phase.md`), 'utf8')
+            : body;
+          const directive = phaseBody.split('\n').find(line => line.startsWith('Before dispatch, fully Read ')
+            && (line.includes(`/${review}/SKILL.md`) || line.includes(`/gstack-${review}/SKILL.md`)));
+          expect(directive).toBeDefined();
+          expect(phaseBody.indexOf(directive!)).toBeLessThan(phaseBody.indexOf(`create ${phase} `));
+          // U's CEO loaded this section only after its child finished. Pin the
+          // concrete prerequisite, then resolve the rendered path in real
+          // copy/symlink installations; references alone are not its contents.
+          if (host.name === 'claude') {
+            expect(directive).toContain('and `sections/review-sections.md` beside it');
+            const relative = directive!.match(/and `([^`]+)` beside it/)![1]!;
+            const sectionSource = path.join(generatedRoot, review, relative);
+            const sectionInstalled = path.resolve(path.dirname(entry), reference, '..', relative);
+            installFile(sectionSource, sectionInstalled, mode);
+            const section = fs.readFileSync(sectionInstalled, 'utf8');
+            expect(section).toBe(fs.readFileSync(sectionSource, 'utf8'));
+            expect(section).toContain('## Review Sections');
+          } else {
+            expect(directive).not.toContain('sections/review-sections.md');
+            expect(loaded).toContain('## Review Sections');
+          }
         }
       }
     });
@@ -82,6 +106,7 @@ describe('autoplan reads installed host methodology', () => {
         expect(generateAutoplanReviewFile({ ...ctx, model: 'gpt' }, [review])).toBe(generateAutoplanReviewFile({ ...ctx, model: 'claude' }, [review]));
       }
       expect(() => generateAutoplanReviewFile(ctx, ['../foreign'])).toThrow();
+      expect(() => generateAutoplanReviewFile(ctx, ['plan-ceo-review', '../foreign'])).toThrow();
     }
   });
 

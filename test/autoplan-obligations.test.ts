@@ -8,6 +8,7 @@ import { createSnapshot, extractImplementationPlan } from '../bin/gstack-autopla
 
 const TOOL = join(import.meta.dir, '../bin/gstack-autoplan-snapshot.ts');
 const captured = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/t-ceo-omitted-obligations.json'), 'utf8'));
+const lost = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/autoplan/u-ceo-original-loss.json'), 'utf8'));
 const owned: string[] = [];
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
@@ -44,6 +45,10 @@ test('whole recorded T obligations retain omitted guards and every nested verifi
   writeFileSync(f.active, captured.activeAtBoundary + accepted);
   const reviewBefore = readFileSync(f.active, 'utf8').split('## Review record\n')[1];
   expect(invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed').status).toBe(1);
+  const rewritten = readFileSync(f.active, 'utf8');
+  expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(1);
+  expect(readFileSync(f.active, 'utf8')).toBe(rewritten);
+  writeFileSync(f.active, '## Implementation plan\n' + captured.initialImplementation + '## Review record\n' + reviewBefore);
   const amended = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
   expect(amended.status, amended.stderr).toBe(0);
   const checked = invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed');
@@ -66,6 +71,135 @@ test('whole recorded T obligations retain omitted guards and every nested verifi
   expect(readFileSync(f.restore, 'utf8')).toBe('Original restore bytes\n');
 });
 
+const editRecord = (phase: string, sourceSha256: string, replacements: Array<{ oldText: string; newText: string }>) =>
+  `<!-- autoplan-baseline-edits:${phase} ${JSON.stringify({ sourceSha256, replacements })} -->\n`;
+
+test('actual U canonical block cannot conceal a rewritten original baseline at amend or check', () => {
+  const f = setup(lost.initialImplementation);
+  writeFileSync(f.active, lost.activeAfterAmend);
+  for (const command of ['amend', 'check']) {
+    const result = invoke(command, 'ceo', f.active, f.snapshot.snapshotPath, ...(command === 'check' ? ['changed'] : []));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Unrecorded Implementation rewrite');
+    expect(readFileSync(f.active, 'utf8')).toBe(lost.activeAfterAmend);
+  }
+});
+
+test('unchanged U source retains every original byte when accepted requirements are appended', () => {
+  const f = setup(lost.initialImplementation);
+  appendRecord(f.active, block('ceo', '- Preserve each contract and add a loading state.\n  Verify: reject cross-workspace requests.'));
+  const amended = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+  expect(amended.status, amended.stderr).toBe(0);
+  expect(JSON.parse(amended.stdout).implementation.startsWith(lost.initialImplementation)).toBe(true);
+  const next = createSnapshot('design', f.active, f.restore);
+  expect(readFileSync(next.snapshotPath, 'utf8').startsWith(lost.initialImplementation)).toBe(true);
+  expect(readFileSync(f.snapshot.sourceSnapshotPath, 'utf8')).toBe(lost.initialImplementation);
+});
+
+test('exact replacements and deletion preserve untouched CRLF/Unicode bytes and produce only effective blind input', () => {
+  const baseline = 'Keep café ✓.\r\nUse a blue button.\r\nObsolete behavior.\r\nKeep 日本語.\r\n';
+  for (const alreadyEdited of [false, true]) {
+    const f = setup(baseline);
+    const replacements = [{ oldText: 'blue', newText: 'green' }, { oldText: 'Obsolete behavior.\r\n', newText: '' }];
+    const edited = baseline.replace('blue', 'green').replace('Obsolete behavior.\r\n', '');
+    if (alreadyEdited) writeFileSync(f.active, `## Implementation plan\n${edited}## Review record\n`);
+    appendRecord(f.active, editRecord('ceo', f.snapshot.sourceSha256, replacements) +
+      block('ceo', '- Replace blue with green; remove obsolete behavior.\n  Verify: green renders; obsolete behavior is absent.'));
+    const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).implementation.startsWith(edited)).toBe(true);
+    const first = readFileSync(f.active, 'utf8');
+    expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
+    expect(readFileSync(f.active, 'utf8')).toBe(first);
+    expect(invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed').status).toBe(0);
+    const next = createSnapshot('design', f.active, f.restore);
+    expect(next.nativePrompt).not.toContain('autoplan-baseline-edits');
+    expect(next.nativePrompt).not.toContain('Use a blue button.');
+    expect(next.nativePrompt.endsWith(readFileSync(next.snapshotPath, 'utf8'))).toBe(true);
+    expect(readFileSync(next.snapshotPath, 'utf8').startsWith(edited)).toBe(true);
+  }
+});
+
+test('baseline edit record rejects stale source, ambiguous/overlapping anchors and malformed or quoted edits without writes', () => {
+  const f = setup('Keep owner permission.\nRepeat repeat.\n');
+  const original = readFileSync(f.active, 'utf8');
+  const accepted = block('ceo', '- Preserve scope.\n  Verify: permission is checked.');
+  const hash = f.snapshot.sourceSha256;
+  const good = editRecord('ceo', hash, [{ oldText: 'owner', newText: 'member' }]);
+  const bad = [
+    editRecord('ceo', '0'.repeat(64), [{ oldText: 'owner', newText: 'member' }]),
+    editRecord('ceo', hash, [{ oldText: '', newText: 'inserted' }]),
+    editRecord('ceo', hash, [{ oldText: 'missing', newText: 'present' }]),
+    editRecord('ceo', hash, [{ oldText: 'e', newText: 'E' }]),
+    editRecord('ceo', hash, [{ oldText: 'owner', newText: 'member' }, { oldText: 'owner', newText: 'admin' }]),
+    editRecord('ceo', hash, [{ oldText: 'owner permission', newText: 'member' }, { oldText: 'permission', newText: 'scope' }]),
+    editRecord('ceo', hash, [{ oldText: 'owner', newText: '\ud800' }]),
+    good + good, good.replace('"replacements":', '"unknown":'), good.replace('ceo ', 'invalid '),
+    good.replace(' -->', ''), good.replace('"oldText":"owner"', '"oldText":"owner","extra":true'),
+    good.replace('"oldText":"owner"', '"oldText":"other","oldText":"owner"'),
+    editRecord('ceo', hash, [{ oldText: 'owner', newText: '\n' + good }]),
+    editRecord('ceo', hash, [{ oldText: 'owner', newText: 'owner\n## Review record\n' }]),
+  ];
+  for (const record of bad) {
+    const plan = original + accepted + record; writeFileSync(f.active, plan);
+    expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status, record).toBe(1);
+    expect(readFileSync(f.active, 'utf8')).toBe(plan);
+  }
+  for (const record of ['```html\n' + good + '```\n', '> ' + good, '    ' + good]) {
+    const plan = original.replace('owner', 'member') + accepted + record; writeFileSync(f.active, plan);
+    expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(1);
+    expect(readFileSync(f.active, 'utf8')).toBe(plan);
+  }
+});
+
+test('later exact baseline revisions preserve earlier accepted blocks and reject edits into them', () => {
+  const f = setup('Use blue.\n');
+  const ceo = block('ceo', '- Preserve owner authorization.\n  Verify: reject cross-user access.');
+  appendRecord(f.active, ceo);
+  expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
+  const design = createSnapshot('design', f.active, f.restore);
+  const original = readFileSync(f.active, 'utf8');
+  const accepted = block('design', '- Replace the blue baseline with green.\n  Verify: green keeps the authorized action.');
+  for (const oldText of ['owner authorization', ceo, 'Use blue.\n\n' + ceo]) {
+    const plan = original + accepted + editRecord('design', design.sourceSha256, [{ oldText, newText: 'replacement' }]);
+    writeFileSync(f.active, plan);
+    expect(invoke('amend', 'design', f.active, design.snapshotPath).status).toBe(1);
+    expect(readFileSync(f.active, 'utf8')).toBe(plan);
+  }
+  writeFileSync(f.active, original + accepted + editRecord('design', design.sourceSha256, [{ oldText: 'blue', newText: 'green' }]));
+  const result = invoke('amend', 'design', f.active, design.snapshotPath);
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout).implementation).toContain(ceo);
+  expect(JSON.parse(result.stdout).implementation.startsWith('Use green.\n')).toBe(true);
+  const next = createSnapshot('dx', f.active, f.restore);
+  expect(readFileSync(next.snapshotPath, 'utf8')).toContain('Preserve owner authorization.');
+  expect(next.nativePrompt).not.toContain('sourceSha256');
+});
+
+test('empty exact-edit list supports honest unchanged closure; declared edits cannot hide behind None', () => {
+  const f = setup(); const original = readFileSync(f.active, 'utf8');
+  appendRecord(f.active, block('ceo', 'None: Existing baseline suffices.') + editRecord('ceo', f.snapshot.sourceSha256, []));
+  const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout).changed).toBe(false);
+  writeFileSync(f.active, original + block('ceo', 'None: Existing baseline suffices.') +
+    editRecord('ceo', f.snapshot.sourceSha256, [{ oldText: 'dashboard', newText: 'inbox' }]));
+  const before = readFileSync(f.active, 'utf8');
+  expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(1);
+  expect(readFileSync(f.active, 'utf8')).toBe(before);
+});
+
+test('create returns an exact current-source edit record without adding reviewer metadata to immutable payloads', () => {
+  const f = setup();
+  expect(f.snapshot.baselineEdits.record).toBe(editRecord('ceo', f.snapshot.sourceSha256, []).trimEnd());
+  expect(f.snapshot.baselineEdits.instructions).toContain('not approval or completeness');
+  const manifest = readFileSync(join(f.snapshot.snapshotPath, '..', 'snapshot.json'), 'utf8');
+  expect(manifest).not.toContain('baselineEdits');
+  expect(readFileSync(f.snapshot.nativePromptPath, 'utf8')).toBe(f.snapshot.nativePrompt);
+  expect(f.snapshot.nativePrompt).not.toContain('autoplan-baseline-edits');
+  expect(statSync(f.snapshot.sourceSnapshotPath).mode & 0o777).toBe(0o444);
+});
+
 test('amend is idempotent and check rejects a dropped condition or verification line', () => {
   const f = setup(); const accepted = block('ceo', '- Disable while pending.\n  Verify: two clicks fire one request.');
   appendRecord(f.active, accepted);
@@ -77,6 +211,27 @@ test('amend is idempotent and check rejects a dropped condition or verification 
   const checked = invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed');
   expect(checked.status).toBe(1);
   expect(checked.stderr).toContain('not retained exactly');
+});
+
+test('the current phase can grow its accepted block without permitting an unrelated baseline rewrite', () => {
+  const f = setup('Use blue.\nKeep ownership checks.\n');
+  const first = block('ceo', '- Disable the action while pending.\n  Verify: one request.');
+  const second = block('ceo', '- Disable the action while pending.\n  Verify: one request.\n- Replace blue with green.\n  Verify: green renders.');
+  appendRecord(f.active, first);
+  expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(0);
+  const current = readFileSync(f.active, 'utf8');
+  const boundary = current.indexOf('## Review record\n');
+  const revised = current.slice(0, boundary) + current.slice(boundary).replace(first, second) +
+    editRecord('ceo', f.snapshot.sourceSha256, [{ oldText: 'blue', newText: 'green' }]);
+  writeFileSync(f.active, revised.replace('Keep ownership checks.\n', ''));
+  const invalid = readFileSync(f.active, 'utf8');
+  expect(invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath).status).toBe(1);
+  expect(readFileSync(f.active, 'utf8')).toBe(invalid);
+  writeFileSync(f.active, revised);
+  const result = invoke('amend', 'ceo', f.active, f.snapshot.snapshotPath);
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout).implementation).toBe('Use green.\nKeep ownership checks.\n\n' + second);
+  expect(invoke('check', 'ceo', f.active, f.snapshot.snapshotPath, 'changed').status).toBe(0);
 });
 
 test('none requires a reason and unchanged implementation, without creating a fake amendment', () => {

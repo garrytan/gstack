@@ -1880,6 +1880,20 @@ describe('DESIGN_HARD_RULES resolver', () => {
 });
 
 describe('Design approval reconciliation', () => {
+  test('token alignment reuses the approved outcome while preserving first decisions and new tradeoffs', () => {
+    const section = fs.readFileSync(path.join(ROOT, 'plan-design-review/sections/review-sections.md'), 'utf8');
+    const pass = extractMarkdownSection(section, '### Pass 5: Design System Alignment');
+    const stop = pass.indexOf('**STOP.**');
+    expect(stop).toBeGreaterThan(0);
+    const beforeQuestion = pass.slice(0, stop);
+    expect(beforeQuestion).toContain('check whether an earlier pass already approved that outcome');
+    expect(beforeQuestion).toContain('apply the established tokens and update every stale gap/reference under that decision');
+    expect(beforeQuestion).toContain('changing the plan location or spelling out the same fix is not a new issue');
+    expect(beforeQuestion).toContain('Ask again only if new evidence exposes an unresolved requirement or tradeoff, and name it');
+    expect(beforeQuestion).toContain('An unapproved violation still needs its first individual decision');
+    expect(pass.slice(stop)).toContain('AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.');
+  });
+
   test('loaded review section distinguishes individual issue decisions from navigation', () => {
     const section = fs.readFileSync(path.join(ROOT, 'plan-design-review/sections/review-sections.md'), 'utf8');
     expect(section).toContain('Complete one decision cycle per unresolved finding');

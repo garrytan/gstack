@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from design-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, fully Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` + triggered sections; record successful start/end/total ranges; fill gaps to EOF. Load skip-listed sections; skip execution.
+Before dispatch, fully Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` and `sections/review-sections.md` beside it; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
