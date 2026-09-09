@@ -12,6 +12,7 @@ import rCalls from './fixtures/ceo-completion-handoff-r-calls.json';
 import tHandoff from './fixtures/ceo-completion-handoff-t-call.json';
 import uHandoff from './fixtures/ceo-completion-handoff-u-call.json';
 import vHandoff from './fixtures/ceo-completion-handoff-v-call.json';
+import wHandoff from './fixtures/ceo-completion-handoff-w-call.json';
 
 type CapturedCall = typeof captures.cases[number]['calls'][number];
 function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativePlanQuestionCall {
@@ -24,6 +25,108 @@ function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativeP
 }
 const handoff = () => nativeCall(captures.cases[0]!.calls.at(-1)!);
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, false);
+
+describe('W unconditional CLEAR recap and required Eng pronoun navigation', () => {
+  const actual = () => structuredClone(wHandoff.calls.at(-1)!) as NativePlanQuestionCall;
+  const pending = (call: NativePlanQuestionCall) => {
+    const copy = structuredClone(call); copy.answered = false; delete copy.answers; delete copy.unansweredQuestionIndices;
+    return fingerprint(copy);
+  };
+  const answer = (call: NativePlanQuestionCall) => {
+    call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+    return call;
+  };
+  test('exact seven calls retain two issue decisions and select the offered manual action', () => {
+    const calls = structuredClone(wHandoff.calls) as NativePlanQuestionCall[];
+    expect(replay(calls, false, ceoFirstReviewAUQ))
+      .toMatchObject({ step0Count: 4, reviewCount: 2, administrativeCount: 1 });
+    expect(isCeoCompletionHandoff(fingerprint(actual()))).toBe(true);
+    expect(pickCeoCompletionHandoff(pending(actual()))).toBe(2);
+    expect(pickCeoCompletionHandoff(fingerprint(actual()))).toBeNull();
+    expect(calls).toEqual(wHandoff.calls);
+  });
+  test('case, gap count and pure navigation option order do not change the meaning', () => {
+    const call = actual(); const q = call.questions[0]!;
+    q.question = q.question.toLowerCase().replace(' — ', ' - ');
+    q.options[0]!.description = q.options[0]!.description!.replace('2 assertion gaps', '12 assertion gaps');
+    q.options.reverse(); answer(call);
+    expect(isCeoCompletionHandoff(fingerprint(call))).toBe(true);
+    expect(pickCeoCompletionHandoff(pending(call))).toBe(1);
+  });
+  test('conditional, negated, quoted or additional question text is not a closed handoff', () => {
+    const source = actual().questions[0]!.question;
+    for (const question of [
+      source.replace('is CLEAR.', 'is not CLEAR.'), source.replace('is CLEAR.', 'will be CLEAR.'),
+      source.replace('is CLEAR.', 'is CLEAR after tests pass.'), 'Once ' + source,
+      source.replace('required shipping gate', 'optional shipping check'),
+      source.replace('Eng review', 'Design review'), source.replace('run it next?', 'repair its findings next?'),
+      source + ' Remove the failing test.', source + ' Should we change the error contract?',
+      '> ' + source, 'Example: ' + source, '`' + source + '`',
+      source + ' <gstack-qid:ceo-plan-next-steps>',
+    ]) {
+      const call = actual(); call.questions[0]!.question = question; answer(call);
+      expect(isCeoCompletionHandoff(fingerprint(call)), question).toBe(false);
+      expect(pickCeoCompletionHandoff(pending(call)), question).toBeNull();
+    }
+  });
+  test('every description sentence must be closed navigation, including unknown action verbs', () => {
+    for (const extra of [
+      'Delete the authorization test.', 'Grant access to all accounts.', 'Repair the missing assertion.',
+      'One gap remains unresolved.', 'The CEO review is CLEAR only if we change the contract.',
+      'The CEO review will be CLEAR after another fix.', 'Should we add another test?',
+      'Quoted source: CEO review is CLEAR.',
+    ]) {
+      for (const index of [0, 1]) {
+        const call = actual(); call.questions[0]!.options[index]!.description += ' ' + extra;
+        expect(isCeoCompletionHandoff(fingerprint(call)), extra).toBe(false);
+        expect(pickCeoCompletionHandoff(pending(call)), extra).toBeNull();
+      }
+    }
+    for (const description of ['', 'This CEO review held scope and resolved some assertion gaps — eng review verifies the test structure is sound.',
+      'This CEO review held scope and resolved 2 assertion gaps after changing the contract — eng review verifies the test structure is sound.']) {
+      const call = actual(); call.questions[0]!.options[0]!.description = description;
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+      expect(pickCeoCompletionHandoff(pending(call))).toBeNull();
+    }
+  });
+  test('native identity, complete answers, Eng/manual choices and a single question remain required', () => {
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { delete c.failed; },
+      (c: NativePlanQuestionCall) => { c.answered = false; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+      (c: NativePlanQuestionCall) => { delete c.unansweredQuestionIndices; },
+      (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'Fix another issue' }; },
+      (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'New finding'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.label = 'Run /plan-design-review'; answer(c); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.label = 'Fix remaining issues manually'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options.push(structuredClone(c.questions[0]!.options[1]!)); },
+    ]) { const call = actual(); mutate(call); expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false); }
+    expect(pickCeoCompletionHandoff({ ...pending(actual()), signature: 'foreign:call' })).toBeNull();
+    expect(pickCeoCompletionHandoff({ ...pending(actual()), nativeCall: undefined })).toBeNull();
+  });
+  test('controlled report time excludes the handoff but still rejects a later real issue answer', () => {
+    expect(wHandoff.provenance.reportMtimeMs).toBeNull(); // No historical filesystem-time claim.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-w-handoff-'));
+    try {
+      const calls = structuredClone(wHandoff.calls) as NativePlanQuestionCall[];
+      const issueAt = Date.parse(calls.at(-2)!.answeredAt!);
+      const navigationAt = Date.parse(calls.at(-1)!.answeredAt!);
+      const syntheticWritten = Math.floor((issueAt + navigationAt) / 2);
+      const file = path.join(dir, 'report.md'); fs.writeFileSync(file, wHandoff.reportContent);
+      fs.utimesSync(file, syntheticWritten / 1000, syntheticWritten / 1000);
+      const transcript = { status: 'ready' as const, calls, assistantMessages: [], planReadyRequests: wHandoff.planReadyRequests };
+      const admin = new Set(calls.filter(c => isCeoCompletionHandoff(fingerprint(c))).map(c => `${c.sessionId}:${c.toolUseId}`));
+      const start = Date.parse('2026-09-09T09:28:55Z');
+      expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready', new Set())).toBe(false);
+      expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready', admin)).toBe(true);
+      calls.at(-2)!.answeredAt = new Date(syntheticWritten + 1000).toISOString();
+      expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready', admin)).toBe(false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
 
 describe('V closed CEO recap with a resolved-gap count', () => {
   const actual = () => structuredClone(vHandoff.calls.at(-1)!) as NativePlanQuestionCall;

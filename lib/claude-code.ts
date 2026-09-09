@@ -47,6 +47,16 @@ export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resu
     '--settings', '{"disableAllHooks":true}',
     '--permission-mode', 'default',
   ];
+  if (options.access === 'none') {
+    // The CLI's default coding prompt can otherwise elicit simulated tool
+    // transcripts even with an empty tool list. State the actual capability
+    // separately from the caller's unmodified prompt; missing context stays missing.
+    args.push('--append-system-prompt',
+      'No tools are available in this invocation. Analyze only the supplied prompt and review material. '
+      + 'Do not attempt or simulate tool calls, command output, repository inspection, or file changes. '
+      + 'Return your findings and the conclusion requested by the caller directly. '
+      + 'If essential context is missing, identify it explicitly instead of inventing observations.');
+  }
   if (options.access === 'read-only') args.push('--allowedTools', 'Read,Grep,Glob');
   if (options.resume) args.push('--resume', options.resume);
   return args;

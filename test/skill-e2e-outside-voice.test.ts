@@ -8,7 +8,8 @@ import { runSkillTest } from './helpers/session-runner';
 import { runCodexSkill } from './helpers/codex-session-runner';
 import { EvalCollector } from './helpers/eval-store';
 import { createOutsideReviewRepo, installOutsideReviewFixture } from './helpers/outside-voice-fixture';
-import { claudeOutsideExecutions, codexOutsideExecutions, foundInvoiceAuthorizationDefect, outsideExecutionTranscript } from './helpers/outside-voice-evidence';
+import { claudeOutsideExecutions, codexOutsideExecutions, codexExecutionTranscript, foundInvoiceAuthorizationDefect, outsideExecutionTranscript } from './helpers/outside-voice-evidence';
+import { createOutsideReceiptRuntime } from './helpers/outside-voice-receipt';
 import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -45,7 +46,8 @@ describeLive('Installed workflows dispatch outside their host harness', () => {
 
   testIfSelected('outside-voice-codex-to-claude-code', async () => {
     const repo = createOutsideReviewRepo(fixtureRoot, 'codex');
-    const skillDir = installOutsideReviewFixture(rendered, 'codex', repo, ROOT);
+    const receiptRuntime = createOutsideReceiptRuntime(ROOT, fixtureRoot, repo);
+    const skillDir = installOutsideReviewFixture(rendered, 'codex', repo, receiptRuntime.runtimeRoot);
     const result = await runCodexSkill({
       skillDir, skillName: 'gstack-review', cwd: repo, prompt: prompt('gstack-review'),
       // Reviewer scratch files and review logs need writes; this is an isolated
@@ -53,11 +55,14 @@ describeLive('Installed workflows dispatch outside their host harness', () => {
       sandbox: 'danger-full-access', timeoutMs: CAPTURE_LONG_MS,
     });
     const executions = codexOutsideExecutions(result.rawLines);
-    const dispatched = foundInvoiceAuthorizationDefect(executions, 'claude-code');
+    const observed = receiptRuntime.read();
+    const dispatched = foundInvoiceAuthorizationDefect(executions, 'claude-code') ||
+      foundInvoiceAuthorizationDefect(observed.executions, 'claude-code');
     const passed = result.exitCode === 0 && dispatched;
     collector?.addTest({ name: 'outside-voice-codex-to-claude-code', suite: 'outside-voice', tier: 'e2e', passed,
       duration_ms: result.durationMs, cost_usd: 0, output: result.output.slice(0, 2000),
-      transcript: outsideExecutionTranscript(executions, 'claude-code'),
+      transcript: [...outsideExecutionTranscript(executions, 'claude-code'), ...codexExecutionTranscript(executions),
+        ...observed.receipts.map(receipt => ({ type: 'outside_cli_receipt', provider: 'claude-code', receipt }))],
       turns_used: result.toolCalls.length, exit_reason: result.exitCode === 0 ? 'success' : `exit_${result.exitCode}` });
     expect(result.exitCode).toBe(0);
     expect(dispatched).toBe(true);

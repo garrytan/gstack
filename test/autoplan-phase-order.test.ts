@@ -75,7 +75,7 @@ describe('autoplan phase execution checkpoints', () => {
 
   test('loads full review skills at phase entry instead of prefetching future phases', () => {
     const intake = tmpl.split('### Step 3:')[1]?.split('## Phase 0.5:')[0] ?? '';
-    expect(intake).toContain('At each phase, follow its full-load checkpoint');
+    expect(intake).toContain("Resolve this phase's source to absolute `<REVIEW_SKILL>`; load via its checkpoint");
     expect(intake).toContain('Do not prefetch future phase sections or review skills');
     for (const phase of phases) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);

@@ -294,6 +294,7 @@ Rules for this run:
       workingDirectory: opts.planDir,
       allowedTools: ['Read', 'Grep', 'Glob', 'Write'],
       tools: ['Read', 'Grep', 'Glob', 'Write'],
+      publicStreamDiagnostics: true,
       maxTurns: opts.maxTurns ?? 25,
       timeout: opts.timeout ?? 300_000,
       testName: opts.testName,

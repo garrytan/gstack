@@ -1099,10 +1099,10 @@ export interface AskUserQuestionFingerprint {
   options: Array<{ index: number; label: string }>;
   /** Wall-clock when first observed (ms since the helper started polling). */
   observedAtMs: number;
-  /** True for setup classification; completed administrative handoffs are false plus their marker. */
+  /** True for setup classification; administrative calls are false plus their marker. */
   preReview: boolean;
-  /** A completed handoff is preserved but adds neither setup nor finding coverage. */
-  administrative?: 'completion-handoff';
+  /** An administrative call is preserved but adds neither setup nor finding coverage. */
+  administrative?: 'completion-handoff' | 'artifact-generation';
   /** Lossless source metadata for observed calls; UI-only fingerprints omit it. */
   nativeCall?: NativePlanQuestionCall;
   /** Active tab for UI answering; completed coverage still counts the whole call once. */
@@ -1145,10 +1145,12 @@ export function planCountQuestionPhase(
   isFirstReviewAUQ?: Step0BoundaryPredicate,
   isSetupAUQ?: Step0BoundaryPredicate,
   isCompletionHandoffAUQ?: Step0BoundaryPredicate,
-): { preReview: boolean; reviewStarted: boolean; administrative?: 'completion-handoff' } {
+  isArtifactGenerationAUQ?: Step0BoundaryPredicate,
+): { preReview: boolean; reviewStarted: boolean; administrative?: 'completion-handoff' | 'artifact-generation' } {
   // A completion menu cannot start review or satisfy a finding floor, even
   // if its summary mentions defects that a first-finding predicate recognizes.
   if (isCompletionHandoffAUQ?.(fp)) return { preReview: false, reviewStarted, administrative: 'completion-handoff' };
+  if (isArtifactGenerationAUQ?.(fp)) return { preReview: false, reviewStarted, administrative: 'artifact-generation' };
   const inReview = reviewStarted || Boolean(isFirstReviewAUQ?.(fp));
   return { preReview: Boolean(isSetupAUQ?.(fp)) || !inReview, reviewStarted: inReview || isLastStep0AUQ(fp) };
 }
@@ -2022,8 +2024,23 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
     const title = q.question.split('\n')[0];
-    return /^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title) &&
-      /\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title);
+    if (!/^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title)) return false;
+    if (/\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title)) return true;
+    // Native decision briefs often put the question in the title and explain
+    // the plan's defect in ELI10. Read that evidence without treating a setup
+    // or navigation decision's recap of findings as its first review question.
+    if (/^(?:review )?(?:mode|scope|approach|routing|prerequisites?|setup|next steps|completion)$/i.test(q.header.trim()) ||
+        q.options.some(option => MODE_RE.test(option.label))) return false;
+    const body = q.question.slice(title.length)
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^\s*>.*$/gm, '')
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""').trim();
+    // Match an assertion boundary, not a substring inside "if ..." or
+    // "it is not true that ...". The brief may introduce it with ELI10/but.
+    const omission = /(?:^|[.!?]\s+|\bELI10:\s*|\bbut\s+)(?:the|this) plan\s+(?:(?:says|states|calls for|requires)\b[^\n.!?]{0,240}?(?:without\s+defining|(?:doesn['’]t|does not)\s+(?:define|specify|cover|mention))|(?:doesn['’]t|does not)\s+(?:define|specify|cover|mention))\b/i.test(body);
+    const amendment = q.options.some(option => [option.label, option.description ?? ''].some(text =>
+      /^(?:(?:Specify|Define|Clarify|Require|Amend|Update)\b|Add to (?:the )?plan\b|Plan specifies:)/i.test(text.trim())));
+    return omission && amendment;
   }) ?? false;
 
 /** Native setup needs an answered scope decision, not a particular model-chosen qid. */
@@ -2882,11 +2899,11 @@ export interface PlanSkillCountObservation {
   fingerprints: AskUserQuestionFingerprint[];
   /** Actual native calls, including unanswered/failed ones that add no coverage. */
   transcript: PlanCountTranscript;
-  /** Setup questions; administrative completion handoffs are excluded. */
+  /** Setup questions; administrative calls are excluded. */
   step0Count: number;
-  /** Review questions; administrative completion handoffs are excluded. */
+  /** Review questions; administrative calls are excluded. */
   reviewCount: number;
-  /** Answered administrative completion handoffs, preserved separately. */
+  /** Answered administrative handoffs and artifact rendering, preserved separately. */
   administrativeCount: number;
 }
 
@@ -2949,6 +2966,8 @@ export async function runPlanSkillCounting(opts: {
   isSetupAUQ?: Step0BoundaryPredicate;
   /** Optional native completed-review handoff identity, excluded from both count bands. */
   isCompletionHandoffAUQ?: Step0BoundaryPredicate;
+  /** Accepted artifact rendering is not a finding; its answer still requires a fresh report. */
+  isArtifactGenerationAUQ?: Step0BoundaryPredicate;
   /** Optional issue classifier across phases; receives full native call metadata. */
   isReviewAUQ?: (fp: AskUserQuestionFingerprint) => boolean;
   /** Narrow caller-specific selection; null retains the normal answer policy.
@@ -3105,7 +3124,7 @@ export async function runPlanSkillCounting(opts: {
         const signature = `${call.sessionId}:${call.toolUseId}`;
         if (!call.answered || countedCalls.has(signature)) continue;
         const fp = nativePlanCallFingerprint(call, Date.now() - startedAt, !boundaryFired);
-        const phase = planCountQuestionPhase(fp, boundaryFired, opts.isLastStep0AUQ, opts.isFirstReviewAUQ, opts.isSetupAUQ, opts.isCompletionHandoffAUQ);
+        const phase = planCountQuestionPhase(fp, boundaryFired, opts.isLastStep0AUQ, opts.isFirstReviewAUQ, opts.isSetupAUQ, opts.isCompletionHandoffAUQ, opts.isArtifactGenerationAUQ);
         if (phase.administrative) {
           fp.preReview = false;
           fp.administrative = phase.administrative;
@@ -3156,7 +3175,7 @@ export async function runPlanSkillCounting(opts: {
       const newlyMatched = pending && matchesNativePlanQuestion(visible, pending);
       if (newlyMatched) lastMatchedNativeQuestion = pending;
       const renderedFrame = classifyPlanCountFrame(visible);
-      const administrative = new Set(fingerprints.filter(fp => fp.administrative).map(fp => fp.signature));
+      const administrative = new Set(fingerprints.filter(fp => fp.administrative === 'completion-handoff').map(fp => fp.signature));
       // A long completed summary may scroll its heading off the viewport.
       // With no active input UI, retain the existing native/report validator;
       // neither display text nor a missing heading supplies completion evidence.
@@ -3168,6 +3187,10 @@ export async function runPlanSkillCounting(opts: {
       const isTerminalHint = terminalFrame === 'completion_summary' || terminalFrame === 'plan_ready';
       const verifiedTerminal = nativeSummary || (opts.expectedPlanPath && isTerminalHint &&
         hasNativePlanTerminal(transcript, opts.expectedPlanPath, startedAt, terminalFrame, administrative));
+      if (reviewCount === 0 && fingerprints.some(fp => fp.administrative === 'artifact-generation') &&
+          (nativeCompletion || verifiedTerminal)) {
+        return snapshot('no_review_questions', 'Completed artifact generation supplied no review finding decisions', visible);
+      }
       // A streamed heading cannot dismiss the last bound native question.
       // Only an accepted terminal may supersede its answered redraw; otherwise
       // permission wording inside that question could queue a stray answer.

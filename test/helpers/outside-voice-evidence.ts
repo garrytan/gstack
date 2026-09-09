@@ -161,6 +161,13 @@ export function codexOutsideExecutions(lines: string[]): OutsideExecution[] {
   });
 }
 
+/** Host command diagnostics retain wrapper executions without granting outside credit. */
+export function codexExecutionTranscript(executions: OutsideExecution[]) {
+  return executions.map(({ command, output, succeeded }) => ({
+    type: 'host_execution' as const, host: 'codex' as const, command, output, succeeded,
+  }));
+}
+
 function outsideInvocation(provider: 'codex' | 'claude-code'): RegExp {
   return provider === 'codex' ? /\bcodex\s+(?:exec|review)\b/
     : /\bgstack-claude-code(?:['"])?\s+--/;

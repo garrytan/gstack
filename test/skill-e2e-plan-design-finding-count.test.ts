@@ -11,6 +11,7 @@
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
+import { isDesignArtifactGeneration } from './helpers/design-artifact-question';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -194,6 +195,7 @@ describeE2E('/plan-design-review per-finding AskUserQuestion count (periodic)', 
           isLastStep0AUQ: designStep0Boundary,
           isFirstReviewAUQ: isDesignCountFirstReview,
           isCompletionHandoffAUQ: isDesignCompletionHandoff,
+          isArtifactGenerationAUQ: isDesignArtifactGeneration,
           fixtureFiles: { 'DESIGN.md': designSystem },
           // Design's explicit opt-in is separate from codex_reviews. Keep
           // this native-cadence fixture within its declared review scope.

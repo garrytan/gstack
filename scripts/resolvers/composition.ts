@@ -62,7 +62,10 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
   }
   if (ctx.host === 'claude') {
     const entry = `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
-    return withSections ? `${entry} and \`sections/review-sections.md\` beside it` : entry;
+    const phase = skill === 'plan-devex-review' ? 'dx' : skill.split('-')[1]!;
+    return withSections
+      ? `\`methodologyPath\` from \`bun "<SNAPSHOT_TOOL>" methodology ${phase} "<REVIEW_SKILL>" "<RESTORE_PATH>"\``
+      : entry;
   }
 
   const host = getHostConfig(ctx.host);

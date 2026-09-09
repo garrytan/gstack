@@ -136,6 +136,25 @@ function countedCeoNavigation(question: string, descriptions: string[]): boolean
       /^The dashboard will show NOT CLEARED until it runs$/i.test(sentence));
 }
 
+/** An unconditional CLEAR recap followed by one direct required-Eng query. */
+function clearRequiredEngNavigation(question: string, descriptions: string[], context: string): boolean {
+  if (!/^(?:The\s+)?CEO\s+review\s+is\s+CLEAR\.\s+Eng\s+review\s+is\s+the\s+required\s+shipping\s+gate\s+[—–-]\s+run\s+it\s+next\?$/i.test(question) ||
+      descriptions.some(description => !description.trim())) return false;
+  const topics = String.raw`(?:architecture|code quality|tests|performance)`;
+  const topicsReview = new RegExp(String.raw`^${topics}(?:,\s+${topics})*(?:,?\s+and\s+${topics})?\s+review$`, 'i');
+  const resolved = /^This\s+CEO\s+review\s+held\s+scope\s+and\s+resolved\s+[1-9]\d*\s+assertion\s+gaps\s+[—–-]\s+eng\s+review\s+verifies\s+the\s+test\s+structure\s+is\s+sound$/i;
+  const sentences = descriptions.flatMap(description => description.trim().split(/[.!](?:\s+|$)/)
+    .map(sentence => sentence.trim()).filter(Boolean));
+  // CLEAR is accepted only with this complete navigation grammar. Do not add
+  // it to the permissive legacy completion regex or discard appended prose.
+  return sentences.filter(sentence => resolved.test(sentence)).length === 1 &&
+    sentences.every(sentence => resolved.test(sentence) || topicsReview.test(sentence) ||
+      /^Required\s+gate\s+before\s+shipping$/i.test(sentence) ||
+      /^You\s+manage\s+the\s+review\s+pipeline\s+yourself$/i.test(sentence) ||
+      /^Note:\s+eng\s+review\s+is\s+required\s+to\s+CLEAR\s+for\s+\/ship$/i.test(sentence)) &&
+    closedNavigationContext(context);
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -186,7 +205,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
     describedPostReviewNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
   const countedCompletion = !id && call.failed === false && q.options.length === 2 &&
     countedCeoNavigation(questionText, q.options.map(option => option.description ?? ''));
-  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion || describedPostReviewCompletion || countedCompletion;
+  const clearCompletion = !id && call.failed === false && q.options.length === 2 &&
+    clearRequiredEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
+  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion || describedPostReviewCompletion || countedCompletion || clearCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext) ||
     pronounEngGate(questionText, q.options.map(option => option.description ?? ''), gateContext);
@@ -199,6 +220,7 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   if (!/^next\s+(?:review|steps?)$/i.test(q.header.trim()) || !completion || !requiredEng) return null;
 
   const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').trim());
+  if (clearCompletion && !labels.some(label => /^Run\s+\/plan-eng-review(?:\s+(?:next|now))?$/i.test(label))) return null;
   const runs = labels.map(label => /^Run\s+\/plan-(?:eng|design)-review(?:\s+(?:next|now))?(?:\s*\(required gate\))?$/i.test(label));
   const manual = labels.map(label => /^(?:Skip|Done)\s*[—–-]\s*(?:I['’]ll\s+)?handle\s+(?:reviews\s+)?manually$/i.test(label));
   // Deferring the next review until after already-approved implementation is

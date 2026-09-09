@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, fully Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` and `sections/review-sections.md` beside it; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
+Before dispatch, fully Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology ceo "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION

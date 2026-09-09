@@ -489,6 +489,72 @@ function phaseName(phase: string): string {
   return phase;
 }
 
+/** One complete current-phase load target, not evidence that an agent read it. */
+export function prepareMethodology(phase: string, skillFile: string, restorePath: string) {
+  phaseName(phase);
+  const skill = `plan-${phase === 'dx' ? 'devex' : phase}-review`;
+  if (!isAbsolute(skillFile) || basename(skillFile) !== 'SKILL.md') throw new Error('Expected an absolute installed SKILL.md path');
+  const restore = realpathSync(restorePath);
+  if (!statSync(restore).isFile()) throw new Error('Expected the existing restore-point file');
+  const readPart = (file: string) => {
+    const resolved = realpathSync(file);
+    if (!statSync(resolved).isFile()) throw new Error('Methodology source must be a regular file');
+    const bytes = readFileSync(resolved);
+    const text = bytes.toString('utf8');
+    if (!Buffer.from(text).equals(bytes)) throw new Error('Methodology source must be valid UTF-8');
+    return { path: file, resolvedPath: resolved, bytes, text };
+  };
+  const main = readPart(skillFile);
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(main.text);
+  if (!frontmatter?.[1]!.split(/\r?\n/).includes(`name: ${skill}`)) {
+    throw new Error('Methodology skill identity does not match this phase');
+  }
+  const mainProse = referenceProse(main.text).join('\n');
+  const indexHeadings = [...mainProse.matchAll(/^## Section index[^\r\n]*$/gm)];
+  const parts = [main];
+  if (indexHeadings.length) {
+    if (indexHeadings.length !== 1 || /^## Review Sections\b/m.test(mainProse)) throw new Error('Ambiguous methodology layout');
+    const index = mainProse.slice(indexHeadings[0]!.index! + indexHeadings[0]![0].length).split(/\n## /)[0]!;
+    const sections = [...index.matchAll(/`(sections\/[^`]+)`/g)].map(match => match[1]!);
+    if (sections.length !== 1 || sections[0] !== 'sections/review-sections.md') throw new Error('Expected the one complete current review section');
+    const section = readPart(join(dirname(skillFile), sections[0]));
+    const sectionProse = referenceProse(section.text).join('\n');
+    if ([...sectionProse.matchAll(/^## Review Sections\b/gm)].length !== 1 ||
+        /^## Section index\b/m.test(sectionProse) || /sections\/[\w.-]+\.md/.test(sectionProse)) {
+      throw new Error('Missing or nested methodology review section');
+    }
+    parts.push(section);
+  } else if ([...mainProse.matchAll(/^## Review Sections\b/gm)].length !== 1) {
+    throw new Error('Inline methodology is missing its complete review section');
+  }
+  // Read and validate every source before creating anything. Preserve source
+  // bytes inside explicit ranges; separators never replace a source newline.
+  const chunks: Buffer[] = [];
+  let offset = 0;
+  const sources = parts.map(part => {
+    const header = Buffer.from(`<!-- Autoplan methodology source: ${JSON.stringify(part.path)} -->\n`);
+    chunks.push(header, part.bytes, Buffer.from('\n\n'));
+    const startByte = offset + header.length;
+    offset = startByte + part.bytes.length + 2;
+    return { path: part.path, resolvedPath: part.resolvedPath, sha256: sha256(part.text), bytes: part.bytes.length,
+      startByte, endByte: startByte + part.bytes.length };
+  });
+  const content = Buffer.concat(chunks);
+  const directory = mkdtempSync(join(dirname(restore), `autoplan-${phase}-methodology-`));
+  try {
+    const methodologyPath = join(directory, 'methodology.md');
+    const manifest = { phase, methodologyPath, sha256: sha256(content.toString('utf8')), bytes: content.length,
+      lines: content.toString('utf8').split('\n').length, sources,
+      instruction: 'Read methodologyPath completely before phase snapshot creation or dispatch; log successful ranges through EOF. Apply the existing Autoplan skip list and overrides. This artifact supplies exact methodology, not proof of reading or execution.' };
+    writeFileSync(methodologyPath, content, { flag: 'wx', mode: 0o444 });
+    writeFileSync(join(directory, 'methodology.json'), JSON.stringify(manifest) + '\n', { flag: 'wx', mode: 0o444 });
+    return manifest;
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export function createSnapshot(phase: string, activePlan: string, restorePath: string) {
   phaseName(phase);
   const source = realpathSync(activePlan);
@@ -597,6 +663,9 @@ if (import.meta.main) {
     if (command === 'init') {
       if (args.length !== 3 || args.some(arg => !arg)) throw new Error('Usage: init SOURCE_PLAN ACTIVE_PLAN RESTORE_PATH');
       process.stdout.write(JSON.stringify(initializePlan(args[0]!, args[1]!, args[2]!)) + '\n');
+    } else if (command === 'methodology') {
+      if (args.length !== 3 || args.some(arg => !arg)) throw new Error('Usage: methodology PHASE SKILL_FILE RESTORE_PATH');
+      process.stdout.write(JSON.stringify(prepareMethodology(args[0]!, args[1]!, args[2]!)) + '\n');
     } else if (command === 'scope') {
       const [activePlan, ...flags] = args;
       if (!activePlan || flags.some(flag => !['--developer-tool', '--agent-primary'].includes(flag)) ||

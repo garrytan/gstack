@@ -85,6 +85,11 @@ describe('Claude Code restricted execution', () => {
     expect(capture().auth).toBe('fake-test-credential');
     const args = capture().args;
     expect(args[args.indexOf('--tools') + 1]).toBe('');
+    const capability = args[args.indexOf('--append-system-prompt') + 1];
+    expect(capability).toContain('No tools are available');
+    expect(capability).toContain('Do not attempt or simulate tool calls');
+    expect(capability).toContain('If essential context is missing, identify it explicitly');
+    expect(capability).not.toContain(prompt);
     expect(args).toContain('--disable-slash-commands');
     expect(args).toContain('--strict-mcp-config');
     expect(JSON.parse(args[args.indexOf('--mcp-config') + 1])).toEqual({mcpServers:{}});
@@ -106,6 +111,7 @@ describe('Claude Code restricted execution', () => {
     const args = capture().args;
     expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
     expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob');
+    expect(args).not.toContain('--append-system-prompt');
     expect(args[args.indexOf('--resume') + 1]).toBe(resume);
     expect(args).not.toContain('--no-session-persistence');
   });

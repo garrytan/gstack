@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { captureSectionReads, hasDisabledOutsideReview, LONG_SECTION_CAPTURE_MS } from './helpers/auq-sdk-capture';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { getHermeticDirs } from './helpers/hermetic-env';
@@ -54,7 +55,41 @@ const FAKE_CLAUDE = String.raw`
   fs.writeFileSync('observed.json', JSON.stringify(observed));
   const outputFile = fs.existsSync('active-plan-output') ? 'PLAN.md' : 'REPORT.md';
   console.log(JSON.stringify({ type: 'system', subtype: 'init' }));
-  if (fs.existsSync('fail-cli')) {
+  if (fs.existsSync('diagnostic-case')) {
+    if (fs.readFileSync('diagnostic-case', 'utf8') === 'non-objects') {
+      for (const value of [null, ['PRIVATE_NON_OBJECT'], 'PRIVATE_NON_OBJECT', 42, true]) console.log(JSON.stringify(value));
+    }
+    const emit = event => console.log(JSON.stringify({ type: 'stream_event', session_id: 'fixture-session', event }));
+    emit({ type: 'message_start', message: { id: 'fixture-message' } });
+    emit({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: 'PRIVATE_START' } });
+    emit({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'PRIVATE_DELTA' } });
+    emit({ type: 'content_block_stop', index: 0 });
+    console.log(JSON.stringify({ type: 'assistant', message: { content: [
+      { type: 'thinking', thinking: 'PRIVATE_COMPLETE', signature: 'PRIVATE_SIGNATURE' },
+      { type: 'redacted_thinking', data: 'PRIVATE_REDACTED' },
+    ] } }));
+    emit({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'partial-write', name: 'Write', input: {} } });
+    for (const partial_json of ['{"file_path":"PLAN.md",', '"content":"marker😀"}']) {
+      emit({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json } });
+    }
+    emit({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'partial-read', name: 'Read', input: {} } });
+    emit({ type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"file_path":"sections/review-sections.md"}' } });
+    emit({ type: 'content_block_stop', index: 2 });
+    if (fs.readFileSync('diagnostic-case', 'utf8') !== 'partial') {
+      emit({ type: 'content_block_stop', index: 1 });
+      console.log(JSON.stringify({ type: 'assistant', message: { content: [
+        { type: 'tool_use', id: 'real-read', name: 'Read', input: { file_path: 'sections/review-sections.md' } },
+        { type: 'tool_use', id: 'real-write', name: 'Write', input: { file_path: 'PLAN.md', content: 'complete report' } },
+      ] } }));
+      emit({ type: 'message_delta', delta: { stop_reason: 'tool_use' } });
+      emit({ type: 'message_stop' });
+      console.log(JSON.stringify({ type: 'result', subtype: 'success', result: 'Finished' }));
+    } else {
+      // An old report marker and partial Read/Write blocks cannot satisfy capture.
+      fs.writeFileSync(outputFile, '## GSTACK REVIEW REPORT\nold artifact');
+      await Bun.sleep(60_000);
+    }
+  } else if (fs.existsSync('fail-cli')) {
     const failure = fs.readFileSync('fail-cli', 'utf8');
     const report = '## GSTACK REVIEW REPORT\nA report written before the run failed.\n';
     fs.writeFileSync(outputFile, report);
@@ -217,7 +252,72 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
     await withFakeClaude(async (dir, observed) => {
       await runSkillTest({ prompt: 'Default tools', workingDirectory: dir, allowedTools: ['Read'], timeout: 5_000 });
       expect(observed().args).not.toContain('--tools');
+      expect(observed().args).not.toContain('--include-partial-messages');
       expect(flagValue(observed().args, '--allowed-tools')).toBe('Read');
+    });
+  });
+
+  test('public stream diagnostics retain timing and input sizes without counting partial tools', async () => {
+    await withFakeClaude(async (dir, observed) => {
+      fs.writeFileSync(path.join(dir, 'diagnostic-case'), 'complete');
+      const result = await runSkillTest({ prompt: 'diagnose', workingDirectory: dir,
+        publicStreamDiagnostics: true, tools: ['Read', 'Write'], timeout: 5_000 });
+      expect(observed().args).toContain('--include-partial-messages');
+      expect(result.exitReason).toBe('success');
+      expect(result.output).toBe('Finished');
+      expect(result.toolCalls).toEqual([
+        { tool: 'Read', input: { file_path: 'sections/review-sections.md' }, output: '' },
+        { tool: 'Write', input: { file_path: 'PLAN.md', content: 'complete report' }, output: '' },
+      ]);
+      const diagnostics = result.transcript.filter(e => e.type === 'public_stream_diagnostic');
+      const stop = diagnostics.find(e => e.kind === 'content_block_stop' && e.index === 1);
+      const input = '{"file_path":"PLAN.md","content":"marker😀"}';
+      expect(stop).toMatchObject({ messageId: 'fixture-message', session_id: 'fixture-session',
+        blockType: 'tool_use', toolName: 'Write', inputBytes: Buffer.byteLength(input),
+        inputSha256: createHash('sha256').update(input).digest('hex') });
+      expect(diagnostics.every(e => Number.isInteger(e.elapsedMs) && e.elapsedMs >= 0)).toBe(true);
+      expect(diagnostics.some(e => e.kind === 'content_block_start' && e.blockType === 'thinking')).toBe(true);
+      expect(diagnostics.some(e => e.kind === 'content_block_stop' && e.blockType === 'thinking')).toBe(true);
+      expect(diagnostics.find(e => e.kind === 'message_delta').stopReason).toBe('tool_use');
+      const retained = JSON.stringify(result.transcript);
+      expect(retained).not.toContain('PRIVATE_');
+      expect(retained).not.toContain('partial_json');
+      expect(retained).not.toContain('marker😀');
+    });
+  });
+
+  test('section capture opts into diagnostics but partial Write and old report still time out', async () => {
+    await withFakeClaude(async (dir, observed) => {
+      fs.writeFileSync(path.join(dir, 'diagnostic-case'), 'partial');
+      const started = Date.now();
+      const result = await captureSectionReads({ planDir: dir, skillName: 'plan-ceo-review',
+        scenario: 'Complete the review', testName: 'partial-write', timeout: 1_500,
+        reportMarker: /## GSTACK REVIEW REPORT/ });
+      expect(observed().args).toContain('--include-partial-messages');
+      expect(result.toolCalls).toEqual([]);
+      expect([...result.readSections]).toEqual([]);
+      expect(result.reportProduced).toBe(false);
+      expect(Date.now() - started).toBeLessThan(4_000);
+      expect(result.output).toContain('## GSTACK REVIEW REPORT');
+    });
+  }, 5_000);
+
+  test('public diagnostics consume non-object JSON without ending the stream', async () => {
+    await withFakeClaude(async (dir) => {
+      fs.writeFileSync(path.join(dir, 'diagnostic-case'), 'non-objects');
+      for (const publicStreamDiagnostics of [false, true]) {
+        const result = await runSkillTest({ prompt: 'diagnose', workingDirectory: dir,
+          publicStreamDiagnostics, tools: ['Read', 'Write'], timeout: 5_000 });
+        expect(result.exitReason).toBe('success');
+        expect(result.output).toBe('Finished');
+        expect(result.toolCalls.map(c => c.tool)).toEqual(['Read', 'Write']);
+        if (publicStreamDiagnostics) {
+          const rows = result.transcript.filter(e => e?.kind === 'non_object_line');
+          expect(rows).toHaveLength(5);
+          expect(rows.every(e => e.bytes > 0 && e.elapsedMs >= 0)).toBe(true);
+          expect(JSON.stringify(rows)).not.toContain('PRIVATE_');
+        }
+      }
     });
   });
 

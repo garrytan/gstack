@@ -748,7 +748,7 @@ bun "<SNAPSHOT_TOOL>" scope "<ACTIVE_PLAN>"
 
 ### Step 3: Locate review skills; load each at phase entry
 
-At each phase, follow its full-load checkpoint and lazy-section triggers:
+Resolve this phase's source to absolute `<REVIEW_SKILL>`; load via its checkpoint:
 - Phase 1: `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
 - Phase 2: `~/.claude/skills/gstack/plan-design-review/SKILL.md` (only if UI scope detected)
 - Phase 2.5: `~/.claude/skills/gstack/plan-devex-review/SKILL.md` (only if DX scope detected)

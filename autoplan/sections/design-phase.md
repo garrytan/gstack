@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from design-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, fully Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` and `sections/review-sections.md` beside it; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
+Before dispatch, fully Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology design "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)

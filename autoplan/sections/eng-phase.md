@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from eng-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, fully Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` and `sections/review-sections.md` beside it; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
+Before dispatch, fully Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology eng "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful start/end/total; fill gaps to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)

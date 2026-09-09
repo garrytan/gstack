@@ -70,7 +70,7 @@ export function withPendingExit(
   transcript: PlanCountTranscript, file: string | undefined, cwd: string,
   configDir: string | null, startedAt: number, screen: string,
 ): PlanCountTranscript {
-  if (!file || !configDir || transcript.status !== 'ready' || !transcript.calls.length ||
+  if (!file || !configDir || transcript.status !== 'ready' ||
       !isCurrentPlanApprovalScreen(screen)) return transcript;
   try {
     const stat = fs.lstatSync(file);
@@ -83,6 +83,12 @@ export function withPendingExit(
         sessions.size !== 1 || !sessions.has(record.sessionId) ||
         !scopedTranscript(record.transcriptPath, configDir, record.sessionId) ||
         !Number.isFinite(time) || time < startedAt || time > Date.now()) return transcript;
+    // A zero-question review still needs its owned gate for failure diagnostics.
+    // Bind it to actual current-session assistant output; this adds no coverage.
+    if (!transcript.calls.length && !transcript.assistantMessages.some(message =>
+      message.sessionId === record.sessionId && message.text.trim() &&
+      Number.isFinite(Date.parse(message.timestamp)) && Date.parse(message.timestamp) >= startedAt &&
+      Date.parse(message.timestamp) <= time)) return transcript;
     const requests = transcript.planReadyRequests ?? [];
     // A flushed native record, including a failed result, always wins.
     if (requests.some(request => request.sessionId === record.sessionId && request.toolUseId === record.toolUseId)) return transcript;

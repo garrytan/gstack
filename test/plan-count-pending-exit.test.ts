@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createPendingExitRecorder, isCurrentPlanApprovalScreen, recordPendingExit, withPendingExit } from './helpers/plan-count-pending-exit';
-import { hasNativePlanTerminal } from './helpers/claude-pty-runner';
+import { hasNativePlanTerminal, isQuestionlessNativePlanExit } from './helpers/claude-pty-runner';
+import capturedQuestionless from './fixtures/ceo-questionless-w-native.json';
 import type { PlanCountTranscript } from './helpers/plan-count-transcript';
 
 const GATE = '────────────────────────────────────────────────────────\n' +
@@ -40,6 +41,41 @@ function fixture() {
 }
 
 describe('pending native ExitPlanMode identity', () => {
+  test('actual W zero-call owned gate supplies failure-only termination', () => {
+    const f = fixture();
+    try {
+      const actual = capturedQuestionless;
+      const transcript = structuredClone(actual.transcript) as PlanCountTranscript;
+      fs.writeFileSync(f.report, actual.report);
+      fs.utimesSync(f.report, new Date(actual.binding.reportMtimeMs), new Date(actual.binding.reportMtimeMs));
+      fs.writeFileSync(f.recorder.file, JSON.stringify(actual.hook));
+      const observe = (t = transcript, screen = actual.screen) => withPendingExit(t, f.recorder.file,
+        actual.hook.cwd, actual.binding.hook.config, actual.binding.startedAt, screen);
+      expect(transcript.calls).toEqual([]);
+      expect(isCurrentPlanApprovalScreen(actual.screen)).toBe(true);
+      const projected = observe();
+      expect(projected.calls).toEqual([]);
+      expect(projected.planReadyRequests?.[0]?.source).toBe('pre_tool_use');
+      expect(isQuestionlessNativePlanExit(projected, f.report, actual.binding.startedAt, actual.screen)).toBe(true);
+      expect(hasNativePlanTerminal(projected, f.report, actual.binding.startedAt, 'plan_ready')).toBe(false);
+      for (const change of [
+        (t: PlanCountTranscript) => { t.assistantMessages = []; },
+        (t: PlanCountTranscript) => { t.assistantMessages = t.assistantMessages.map(m => ({ ...m, text: '' })); },
+        (t: PlanCountTranscript) => { t.assistantMessages[0]!.sessionId = 'foreign'; },
+        (t: PlanCountTranscript) => { t.assistantMessages = t.assistantMessages.map(m => ({ ...m, timestamp: new Date(actual.binding.startedAt - 1).toISOString() })); },
+        (t: PlanCountTranscript) => { t.planReadyRequests = [{ sessionId: actual.hook.sessionId, toolUseId: actual.hook.toolUseId, timestamp: actual.hook.timestamp, failed: true }]; },
+      ]) {
+        const value = structuredClone(transcript); change(value);
+        expect(isQuestionlessNativePlanExit(observe(value), f.report, actual.binding.startedAt, actual.screen)).toBe(false);
+      }
+      for (const patch of [{ sessionId: 'foreign' }, { cwd: '/foreign' },
+        { timestamp: new Date(actual.binding.startedAt - 1).toISOString() }]) {
+        fs.writeFileSync(f.recorder.file, JSON.stringify({ ...actual.hook, ...patch }));
+        expect(observe().planReadyRequests).toBeUndefined();
+      }
+    } finally { f.cleanup(); }
+  });
+
   test('the captured gate can complete only with real pending identity and a fresh report', () => {
     const f = fixture();
     try {

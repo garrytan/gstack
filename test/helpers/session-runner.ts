@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
 import { Readable } from 'node:stream';
+import { createHash, type Hash } from 'node:crypto';
 import { getProjectEvalDir } from './eval-store';
 import { hermeticChildEnv, isHermeticEnabled } from './hermetic-env';
 import { killProcessGroup } from '../../scripts/test-strict-output';
@@ -126,6 +127,58 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
+/** Diagnostic-only projection. Partial input never becomes a complete tool call. */
+function publicStreamProjection(startTime: number): (line: string) => string {
+  let messageId: string | undefined;
+  const blocks = new Map<number, { type: string; tool?: string; bytes: number; hash: Hash }>();
+  return (line) => {
+    let row: any;
+    try { row = JSON.parse(line); } catch {
+      // A truncated line may contain private reasoning or unfinished tool input.
+      return JSON.stringify({ type: 'public_stream_diagnostic', kind: 'unparseable_line',
+        elapsedMs: Date.now() - startTime, bytes: Buffer.byteLength(line) });
+    }
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+      return JSON.stringify({ type: 'public_stream_diagnostic', kind: 'non_object_line',
+        elapsedMs: Date.now() - startTime, bytes: Buffer.byteLength(line) });
+    }
+    if (row.type === 'stream_event') {
+      const event = row.event ?? {};
+      if (event.type === 'message_start') {
+        messageId = event.message?.id;
+        blocks.clear();
+      }
+      const index = event.index;
+      if (event.type === 'content_block_start' && Number.isInteger(index)) {
+        blocks.set(index, { type: event.content_block?.type, tool: event.content_block?.name,
+          bytes: 0, hash: createHash('sha256') });
+      }
+      const block = blocks.get(index);
+      if (event.type === 'content_block_delta' && block?.type === 'tool_use'
+        && event.delta?.type === 'input_json_delta' && typeof event.delta.partial_json === 'string') {
+        const chunk = Buffer.from(event.delta.partial_json);
+        block.bytes += chunk.length;
+        block.hash.update(chunk);
+      }
+      const diagnostic = { type: 'public_stream_diagnostic', kind: event.type,
+        session_id: row.session_id, messageId, index, elapsedMs: Date.now() - startTime,
+        blockType: block?.type, toolName: block?.tool, deltaType: event.delta?.type,
+        ...(block?.type === 'tool_use' ? { inputBytes: block.bytes,
+          inputSha256: block.hash.copy().digest('hex') } : {}),
+        ...(event.type === 'message_delta' ? { stopReason: event.delta?.stop_reason } : {}),
+      };
+      if (event.type === 'content_block_stop') blocks.delete(index);
+      return JSON.stringify(diagnostic);
+    }
+    if (Array.isArray(row.message?.content)) {
+      row.message.content = row.message.content.map((block: any) =>
+        block.type === 'thinking' || block.type === 'redacted_thinking'
+          ? { type: block.type, omitted: true } : block);
+    }
+    return JSON.stringify(row);
+  };
+}
+
 // --- Main runner ---
 
 export async function runSkillTest(options: {
@@ -136,6 +189,8 @@ export async function runSkillTest(options: {
   allowedTools?: string[];
   /** Optional built-in tool availability. Omit to preserve the CLI defaults. */
   tools?: string[];
+  /** Opt-in public block timing/input-size diagnostics; never completion evidence. */
+  publicStreamDiagnostics?: boolean;
   timeout?: number;
   testName?: string;
   runId?: string;
@@ -204,6 +259,7 @@ export async function runSkillTest(options: {
   // only --tools removes unrelated built-ins such as Agent, Bash, and Skill.
   // Keep this opt-in: existing workflow evals intentionally use CLI defaults.
   if (options.tools !== undefined) args.push('--tools', options.tools.join(','));
+  if (options.publicStreamDiagnostics) args.push('--include-partial-messages');
   // Hermetic children get zero MCP servers (no --mcp-config is passed).
   // Gated on the same call-time check as the env scrub so EVALS_HERMETIC=0
   // restores operator MCP along with the operator env.
@@ -300,6 +356,7 @@ export async function runSkillTest(options: {
   const reader = stdoutWeb.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  const projectLine = options.publicStreamDiagnostics ? publicStreamProjection(startTime) : (line: string) => line;
 
   try {
     while (true) {
@@ -308,8 +365,9 @@ export async function runSkillTest(options: {
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      for (const rawLine of lines) {
+        if (!rawLine.trim()) continue;
+        const line = projectLine(rawLine);
         collectedLines.push(line);
 
         // Track time to first NDJSON line (measures latency from spawn to first Claude response)
@@ -382,7 +440,11 @@ export async function runSkillTest(options: {
 
   // Flush remaining buffer
   if (buf.trim()) {
-    collectedLines.push(buf);
+    const line = projectLine(buf);
+    collectedLines.push(line);
+    if (options.publicStreamDiagnostics && runDir && safeName) {
+      try { fs.appendFileSync(path.join(runDir, `${safeName}.ndjson`), line + '\n'); } catch { /* non-fatal */ }
+    }
   }
 
   // Same orphan hazard as stdout: an orphaned grandchild holding stderr open

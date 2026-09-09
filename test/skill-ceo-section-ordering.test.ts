@@ -38,6 +38,18 @@ describe('plan-ceo-review carve — static ordering', () => {
   const STOP = 'sections/review-sections.md'; // appears in the index row + STOP directive
   const GATE = 'GSTACK REVIEW REPORT';
 
+  test('the interactive anti-shortcut contract is available before audit or lazy section loading', () => {
+    const contract = '**Anti-shortcut clause:**';
+    const audit = skeleton.indexOf('## PRE-REVIEW SYSTEM AUDIT');
+    expect(skeleton.indexOf(contract)).toBeGreaterThan(-1);
+    expect(skeleton.indexOf(contract)).toBeLessThan(audit);
+    expect(skeleton.split(contract)).toHaveLength(2);
+    expect(section).not.toContain(contract);
+    // Relocate the shared instruction intact; do not weaken or duplicate it.
+    expect(skeleton).toContain('the path from finding to ExitPlanMode goes THROUGH AskUserQuestion');
+    expect(skeleton).toContain('Zero findings in every section is the only path');
+  });
+
   test('skeleton emits a STOP-Read directive pointing at the section', () => {
     expect(skeleton).toContain('> **STOP.**');
     expect(skeleton).toContain('plan-ceo-review/sections/review-sections.md');
