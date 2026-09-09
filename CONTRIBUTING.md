@@ -137,6 +137,20 @@ never touches a symlinked or non-gstack directory.
 
 ## Testing & evals
 
+Codex evals and the GPT benchmark adapter default to `gpt-6-astra`:
+explicit model > `GSTACK_CODEX_MODEL` > default. Claude capture and judge
+defaults are `claude-fable-5-1`, resolved through `lib/eval-model.ts`:
+
+- Claude session, PTY, and Agent SDK eval runners and the Claude benchmark adapter: explicit model > `EVALS_MODEL` > `GSTACK_EVAL_MODEL_CAPTURE` > `GSTACK_EVAL_MODEL` > default.
+- Shared judge calls (including benchmark quality scoring): explicit model > `GSTACK_EVAL_MODEL_JUDGE` > `GSTACK_EVAL_MODEL` > default. `EVALS_MODEL` applies to capture runners, not judges.
+
+Warmup stays on `claude-haiku-4-5`; distill stays on
+`claude-haiku-4-5-20251001`. Explicit test and historical benchmark model
+selections still win. Known frontier defaults are maintained in releases;
+there is no automatic model discovery. Paid-run costs shown below are
+historical estimates from before this default change, not measurements of
+the new defaults.
+
 ### Setup
 
 Development and tests require Bun 1.4.0 or newer; CI pins and tests 1.4.0.
@@ -294,7 +308,7 @@ Artifacts are never cleaned up — they accumulate in `~/.gstack-dev/` for post-
 
 ### Tier 3: LLM-as-judge (~$0.15/run)
 
-Uses Claude Sonnet to score generated SKILL.md docs on three dimensions.
+Uses `claude-fable-5-1` by default to score generated SKILL.md docs on three dimensions.
 Override the judge model per run with `GSTACK_EVAL_MODEL_JUDGE`:
 
 - **Clarity** — Can an AI agent understand the instructions without ambiguity?
@@ -307,7 +321,7 @@ Each dimension is scored 1-5. Threshold: every dimension must score **≥ 4**. T
 # Needs ANTHROPIC_API_KEY in .env — included in bun run test:evals
 ```
 
-- Uses `claude-sonnet-4-6` for scoring stability
+- Resolves the judge model through `lib/eval-model.ts`, using the override order above
 - Tests live in `test/skill-llm-eval.test.ts`
 - Calls the Anthropic API directly (not `claude -p`), so it works from anywhere including inside Claude Code
 

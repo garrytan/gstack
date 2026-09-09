@@ -85,9 +85,9 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/Do NOT remove the user's primary working tree/);
   });
 
-  test("MERGED branch continues to §4a CI auto-deploy detection", () => {
+  test("MERGED branch continues to §4b CI auto-deploy detection", () => {
     const body = readTmpl();
-    expect(body).toMatch(/continue to §4a/);
+    expect(body).toMatch(/continue to §4b \(CI auto-deploy detection\)/);
   });
 
   // #2656: the failed merge carried --delete-branch; the recovery path must

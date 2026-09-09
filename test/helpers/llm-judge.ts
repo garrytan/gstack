@@ -11,7 +11,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-import { resolveEvalModel } from '../../lib/eval-model';
+import { CLAUDE_FRONTIER_EVAL_MODEL, resolveEvalModel } from '../../lib/eval-model';
 
 export interface JudgeScore {
   clarity: number;       // 1-5
@@ -55,37 +55,32 @@ export interface RecommendationScore {
 /**
  * Call an Anthropic model with a prompt, extract JSON response.
  * Jittered exponential backoff over three 429 retries. Model resolves via
- * lib/eval-model's `judge` kind (Sonnet default); pass a model id
+ * lib/eval-model's `judge` kind (frontier Claude default); pass a model id
  * (e.g. claude-haiku-4-5-20251001) for cheaper bounded judgments like
  * judgeRecommendation.
  */
-// Default judge model: Sonnet. D1a tried Haiku 4.5 here and the first live
-// run regressed the doc-rubric family — a controlled A/B on the identical
-// health-rubric prompt scored 2/2/2 under Haiku vs 4/3/4 under Sonnet (both
-// with coherent reasoning; Haiku is simply a harsher grader on long-document
-// rubrics, and every >=4 threshold in skill-llm-eval was calibrated against
-// months of Sonnet baselines). Per D1a's pin-on-regressors protocol the
-// default stays Sonnet; recalibrating the 25 rubrics for Haiku is separately
-// scoped work. Override per run with GSTACK_EVAL_MODEL_JUDGE; Haiku remains
-// the right default for classifier-grade duties (pty hung/working, warmup,
-// distill — see lib/eval-model.ts).
+// Default judge model: the current frontier Claude eval model. Override per run
+// with GSTACK_EVAL_MODEL_JUDGE; Haiku remains the right default for
+// classifier-grade duties (pty hung/working, warmup, distill — see
+// lib/eval-model.ts).
 export async function callJudge<T>(
   prompt: string,
   model?: string,
   opts?: { temperature?: number; max_tokens?: number },
 ): Promise<T> {
   // Routed through the documented single resolution point: explicit arg >
-  // GSTACK_EVAL_MODEL_JUDGE > GSTACK_EVAL_MODEL > sonnet default. The old
+  // GSTACK_EVAL_MODEL_JUDGE > GSTACK_EVAL_MODEL > frontier default. The old
   // inline `GSTACK_EVAL_MODEL_JUDGE || sonnet` silently ignored the global
   // GSTACK_EVAL_MODEL override that every other eval call site honors.
-  // opts (temperature/max_tokens) exist for bounded judgments like armJudge;
-  // defaults preserve prior behavior.
+  // Thinking and answer text share max_tokens. The old 1024-token budget
+  // could be exhausted before a frontier judge emitted any JSON.
   const resolvedModel = resolveEvalModel('judge', model);
+  const maxTokens = opts?.max_tokens ?? 8192;
   const client = new Anthropic();
 
   const makeRequest = () => client.messages.create({
     model: resolvedModel,
-    max_tokens: opts?.max_tokens ?? 1024,
+    max_tokens: maxTokens,
     ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
     messages: [{ role: 'user', content: prompt }],
   });
@@ -110,7 +105,13 @@ export async function callJudge<T>(
     }
   }
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error(`Judge response truncated at max_tokens=${maxTokens} (model=${resolvedModel})`);
+  }
+  const text = response.content
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n');
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
   return JSON.parse(jsonMatch[0]) as T;
@@ -369,7 +370,7 @@ export interface ArmJudgeScore {
  * point of a research instrument; a per-run judge swap silently moves the
  * ruler.
  */
-export const ARM_JUDGE_MODEL = 'claude-sonnet-4-6';
+export const ARM_JUDGE_MODEL = CLAUDE_FRONTIER_EVAL_MODEL;
 
 /** Bounded retry-on-malformed loop: total attempts, not extra retries. */
 export const ARM_JUDGE_ATTEMPTS = 2;
@@ -468,7 +469,7 @@ export async function armJudge(
   let lastError: unknown;
   for (let attempt = 1; attempt <= ARM_JUDGE_ATTEMPTS; attempt++) {
     try {
-      const raw = await call<Record<string, unknown>>(prompt, ARM_JUDGE_MODEL, { temperature: 0 });
+      const raw = await call<Record<string, unknown>>(prompt, ARM_JUDGE_MODEL);
       return parseArmJudgeResponse(raw);
     } catch (err) {
       lastError = err;

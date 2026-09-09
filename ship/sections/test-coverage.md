@@ -8,9 +8,10 @@
 
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
-> You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push — report only.
->
-> 100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
+````text
+You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
+
+100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
 
 ### Test Framework Detection
 
@@ -37,7 +38,7 @@ ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pyt
 git ls-files | grep -cE '(^|/)(tests?|spec|__tests__)/|(^|/)tests?\.py$|(^|/)test_[^/]+\.py$|_test\.(go|py|rb|ts|js|exs)$|\.(test|spec)\.[jt]sx?$|_spec\.rb$|Test\.(java|kt)$' | sed 's/^/TESTFILES:/'
 ```
 
-3. **If no framework detected:** falls through to the Test Framework Bootstrap step (Step 4) which handles full setup.
+3. **If no framework detected:** use the bootstrap decision already made in Step 4; report diagram-only coverage if setup was declined. Do not restart bootstrap from this audit.
 
 **0. Before/after test count:**
 
@@ -131,8 +132,6 @@ A regression is when:
 
 When uncertain whether a change is a regression, err on the side of writing the test.
 
-Format: commit as `test: regression test for {what broke}`
-
 **4. Output ASCII coverage diagram:**
 
 Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
@@ -168,14 +167,14 @@ If test framework detected (or bootstrapped in Step 4):
 - For paths marked [→E2E]: generate integration/E2E tests using the project's E2E framework (Playwright, Cypress, Capybara, etc.)
 - For paths marked [→EVAL]: generate eval tests using the project's eval framework, or flag for manual eval if none exists
 - Write tests that exercise the specific uncovered path with real assertions
-- Run each test. Passes → commit as `test: coverage for {feature}`
+- Run each test. Passes → keep the change and report its path; the parent commits in Step 15.
 - Fails → fix once. Still fails → revert, note gap in diagram.
 
 Caps: 30 code paths max, 20 tests generated max (code + user flow combined), 2-min per-test exploration cap.
 
 If no test framework AND user declined bootstrap → diagram only, no generation. Note: "Test generation skipped — no test framework configured."
 
-**Diff is test-only changes:** Skip Step 7 entirely: "No new application code paths to audit."
+**Diff is test-only changes:** Return a skipped audit with null coverage, zero gaps, and "No new application code paths to audit."
 
 **6. After-count and coverage summary:**
 
@@ -185,40 +184,7 @@ git ls-files 2>/dev/null | grep -E '(\.test\.|\.spec\.|_test\.|_spec\.)' | wc -l
 ```
 
 For PR body: `Tests: {before} → {after} (+{delta} new)`
-Coverage line: `Test Coverage Audit: N new code paths. M covered (X%). K tests generated, J committed.`
-
-**7. Coverage gate:**
-
-Before proceeding, check CLAUDE.md for a `## Test Coverage` section with `Minimum:` and `Target:` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
-
-Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y (Z%)` line):
-
-- **>= target:** Pass. "Coverage gate: PASS ({X}%)." Continue.
-- **>= minimum, < target:** Use AskUserQuestion:
-  - "AI-assessed coverage is {X}%. {N} code paths are untested. Target is {target}%."
-  - RECOMMENDATION: Choose A because untested code paths are where production bugs hide.
-  - Options:
-    A) Generate more tests for remaining gaps (recommended)
-    B) Ship anyway — I accept the coverage risk
-    C) These paths don't need tests — mark as intentionally uncovered
-  - If A: Loop back to substep 5 (generate tests) targeting the remaining gaps. After second pass, if still below target, present AskUserQuestion again with updated numbers. Maximum 2 generation passes total.
-  - If B: Continue. Include in PR body: "Coverage gate: {X}% — user accepted risk."
-  - If C: Continue. Include in PR body: "Coverage gate: {X}% — {N} paths intentionally uncovered."
-
-- **< minimum:** Use AskUserQuestion:
-  - "AI-assessed coverage is critically low ({X}%). {N} of {M} code paths have no tests. Minimum threshold is {minimum}%."
-  - RECOMMENDATION: Choose A because less than {minimum}% means more code is untested than tested.
-  - Options:
-    A) Generate tests for remaining gaps (recommended)
-    B) Override — ship with low coverage (I understand the risk)
-  - If A: Loop back to substep 5. Maximum 2 passes. If still below minimum after 2 passes, present the override choice again.
-  - If B: Continue. Include in PR body: "Coverage gate: OVERRIDDEN at {X}%."
-
-**Coverage percentage undetermined:** If the coverage diagram doesn't produce a clear numeric percentage (ambiguous output, parse error), **skip the gate** with: "Coverage gate: could not determine percentage — skipping." Do not default to 0% or block.
-
-**Test-only diffs:** Skip the gate (same as the existing fast-path).
-
-**100% coverage:** "Coverage gate: PASS (100%)." Continue.
+Coverage line: `Test Coverage Audit: N new code paths. M covered (X%). K tests generated, awaiting parent commit.`
 
 ### Test Plan Artifact
 
@@ -250,9 +216,11 @@ Repo: {owner/repo}
 ## Critical Paths
 - {end-to-end flow that must work}
 ```
->
-> After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-> `{"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...]}`
+
+After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+{"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...]}
+Use null for an undetermined or skipped coverage percentage, not zero. Include every remaining gap in the diagram so the parent can target a second pass.
+````
 
 **Parent processing:**
 
@@ -262,5 +230,41 @@ Repo: {owner/repo}
 4. Print a one-line summary: `Coverage: {coverage_pct}%, {gaps} gaps. {tests_added.length} tests added.`
 
 **If the subagent fails, times out, returns invalid JSON, or never completes (backgrounded despite the flag, or no final output after ~10 minutes — stop waiting; if a backgrounded task is still running, stop it first so a late result never races the fallback):** Fall back to running the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
+
+
+**7. Coverage gate:**
+
+The parent owns this gate after receiving the audit result, including after an inline fallback. Generated tests stay uncommitted until Step 15. Any further generation uses the same audit prompt with the remaining gaps and pass count supplied.
+
+Before proceeding, check CLAUDE.md for a `## Test Coverage` section with `Minimum:` and `Target:` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
+
+Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y (Z%)` line):
+
+- **>= target:** Pass. "Coverage gate: PASS ({X}%)." Continue.
+- **>= minimum, < target:** Use AskUserQuestion:
+  - "AI-assessed coverage is {X}%. {N} code paths are untested. Target is {target}%."
+  - RECOMMENDATION: Choose A because untested code paths are where production bugs hide.
+  - Options:
+    A) Generate more tests for remaining gaps (recommended)
+    B) Ship anyway — I accept the coverage risk
+    C) These paths don't need tests — mark as intentionally uncovered
+  - If A: Dispatch one more generation pass targeting remaining gaps, then re-evaluate the result here. Maximum 2 generation passes total. At the cap, offer only B/C or stop; do not offer another generation pass.
+  - If B: Continue. Include in PR body: "Coverage gate: {X}% — user accepted risk."
+  - If C: Continue. Include in PR body: "Coverage gate: {X}% — {N} paths intentionally uncovered."
+
+- **< minimum:** Use AskUserQuestion:
+  - "AI-assessed coverage is critically low ({X}%). {N} of {M} code paths have no tests. Minimum threshold is {minimum}%."
+  - RECOMMENDATION: Choose A because less than {minimum}% means more code is untested than tested.
+  - Options:
+    A) Generate tests for remaining gaps (recommended)
+    B) Override — ship with low coverage (I understand the risk)
+  - If A: Dispatch one more generation pass. Maximum 2 passes total. At the cap, offer only B or stop; do not offer another generation pass.
+  - If B: Continue. Include in PR body: "Coverage gate: OVERRIDDEN at {X}%."
+
+**Coverage percentage undetermined:** If the coverage diagram doesn't produce a clear numeric percentage (ambiguous output, parse error), **skip the gate** with: "Coverage gate: could not determine percentage — skipping." Do not default to 0% or block.
+
+**Test-only diffs:** Skip the gate (same as the existing fast-path).
+
+**100% coverage:** "Coverage gate: PASS (100%)." Continue.
 
 ---

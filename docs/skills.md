@@ -1056,6 +1056,19 @@ This is my **second opinion mode**.
 
 `/codex` brings OpenAI Codex CLI to review the same diff independently. It is available on every harness except Codex itself. External harnesses install it as `/gstack-codex`. Compare its findings with the native review to distinguish corroborated findings from issues only one reviewer caught.
 
+gstack-owned Codex calls default to `gpt-6-astra`, including resumed consult
+sessions. Set `GSTACK_CODEX_MODEL=<model>` to change the default, or name a
+model in your request to override it for that invocation. Generated commands
+pass the selection through `-c model=...`, overriding the CLI's configured model.
+Native review also sets `-c review_model=...` to that selection, overriding any
+separate review-model pin.
+
+On Codex hosts, the Claude outside-voice skill is `gstack-claude-code`. Its
+review, challenge, and consult calls preserve Claude's configured model.
+`GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
+sessions; a model named in your request takes precedence. Harness routing is
+independent of model selection.
+
 ### Three modes
 
 **Review** — run `codex review` against the current diff. Codex reads every changed file, classifies findings by severity (P1 critical, P2 high, P3 medium), and returns a PASS/FAIL verdict. Any P1 finding = FAIL. The review is fully independent — Codex doesn't see Claude's review.

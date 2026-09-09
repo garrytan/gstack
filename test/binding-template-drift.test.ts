@@ -63,8 +63,8 @@ describe('content-binding template drift', () => {
 
   test('release-body write side carries the banner tripwire (and it actually fires)', () => {
     const body = rendered('document-release/sections/release-body.md');
-    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" /tmp/gstack-pr-body-$$.md');
-    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" /tmp/gstack-pr-body-orig-$$.md');
+    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" "<run-dir>/body.md"');
+    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" "<run-dir>/body-original.md"');
     // The fail-open shape: grep -c prints 0 AND exits 1 on no-match, so an
     // `|| echo 0` double-emits and breaks the -gt into the clean branch.
     expect(body).not.toContain('|| echo 0');
@@ -94,8 +94,8 @@ describe('content-binding template drift', () => {
         fs.writeFileSync(path.join(dir, 'orig.md'), origContent);
         fs.writeFileSync(path.join(dir, 'new.md'), newContent);
         return block![0]
-          .replaceAll('/tmp/gstack-pr-body-orig-$$.md', path.join(dir, 'orig.md'))
-          .replaceAll('/tmp/gstack-pr-body-$$.md', path.join(dir, 'new.md'));
+          .replaceAll('<run-dir>/body-original.md', path.join(dir, 'orig.md'))
+          .replaceAll('<run-dir>/body.md', path.join(dir, 'new.md'));
       };
 
       // Banner leaked into the outgoing body → the ABORT branch fires, loudly.

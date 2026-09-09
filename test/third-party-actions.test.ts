@@ -24,6 +24,8 @@ import { Glob } from "bun";
 import { generateThirdPartyActions } from "../scripts/resolvers/third-party-actions";
 import { generateAsideSetup } from "../scripts/resolvers/aside";
 import { HOST_PATHS } from "../scripts/resolvers/types";
+import { asideDriveOptions } from './helpers/third-party-actions';
+import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
 
 const ROOT = path.resolve(import.meta.dir, "..");
 
@@ -35,6 +37,39 @@ const ctx = {
 };
 
 const section = generateThirdPartyActions(ctx);
+
+describe('consent offer extraction', () => {
+  test('helper changes select the consent gate evals', () => {
+    expect(selectTests(['test/helpers/third-party-actions.ts'], E2E_TOUCHFILES, []).selected.sort()).toEqual([
+      'tpa-absent-darwin', 'tpa-absent-linux', 'tpa-apple-ban', 'tpa-broken', 'tpa-present',
+    ]);
+  });
+
+  test('an unavailable-option explanation is not an offer', () => {
+    expect(asideDriveOptions(`B) I drive it in gstack's own visible browser
+C) Manual instructions
+D) Defer
+
+(Option A, driving in your Aside browser, is unavailable because Aside was not detected.)`)).toEqual([]);
+  });
+
+  test('detects plain, bulleted, bold, and multiline drive offers', () => {
+    for (const option of [
+      'A) I drive it in your Aside browser',
+      '- **A)** I drive it in your Aside browser',
+      '**A)** I drive it in your Aside browser',
+      'A. I drive it in your Aside browser',
+      'A) Open the Aside app first\n   then I drive the token creation.',
+    ]) {
+      expect(asideDriveOptions(option), option).toHaveLength(1);
+    }
+  });
+
+  test('allows recovery questions but rejects conditional drive consent', () => {
+    expect(asideDriveOptions('A) Open the Aside app so I can re-run the probe.')).toEqual([]);
+    expect(asideDriveOptions('A) Open the Aside app; if READY, I drive the dashboard.')).toHaveLength(1);
+  });
+});
 
 /** Generated skill markdown: every SKILL.md + carved sections at repo root. */
 function generatedSkillDocs(): string[] {
@@ -233,6 +268,8 @@ describe("THIRD_PARTY_ACTIONS contract pins", () => {
     expect(section).toContain("Only `READY` counts as detected");
     expect(section).toContain("only after a consented drive has started");
     expect(section).toContain("treat Aside as not detected for this task");
+    expect(section).toContain("Until a probe actually returns `READY`, omit the Aside drive option entirely");
+    expect(section).toContain("even a conditional offer");
   });
 
   // Aside first, gstack's stack as fallback: the four-option question when

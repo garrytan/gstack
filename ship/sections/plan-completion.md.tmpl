@@ -6,23 +6,28 @@
 
 **Subagent prompt:** Pass these instructions to the subagent:
 
-> You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff <base>...HEAD` to see what shipped. Do not commit or push — report only.
->
-> {{PLAN_COMPLETION_AUDIT_SHIP}}
->
-> After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-> `{"total_items":N,"done":N,"changed":N,"deferred":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}`
+````text
+You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff <base>...HEAD` to see what shipped. Do not commit or push. Report only: classify every item, but do not execute Gate Logic, ask the user, or advance the workflow. The parent applies those gates to your report.
+
+{{PLAN_COMPLETION_AUDIT_SHIP}}
+
+After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}
+Counts map one-to-one to the classifications above and sum to total_items. No plan or no actionable items means all counts are zero with the skip reason in summary. Do not classify work as deferred; only the parent can record a user-approved deferral.
+````
 
 **Parent processing:**
 
 1. Parse the LAST line of the subagent's output as JSON.
-2. Store `done`, `deferred`, `unverifiable` for Step 20 metrics; use `summary` in PR body.
-3. If `deferred > 0` or `unverifiable > 0` and no user override, present the items via the appropriate AskUserQuestion (see Gate Logic priority order above) before continuing.
-4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). If `unverifiable > 0` and the user picked option A in the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` listing each user-confirmed item.
+2. Store the counts for Step 20 metrics; use `summary` in PR body.
+3. Apply Gate Logic below to `not_done` and `unverifiable` before continuing. Track user-approved deferrals separately; `partial` items receive a PR note, not the NOT DONE gate.
+4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). For the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` with each Y response's evidence and each D response's dropped item.
 
 **If the subagent fails, returns invalid JSON, or never completes (backgrounded despite the flag, or no final output after ~10 minutes — stop waiting; if a backgrounded task is still running, stop it first so a late result never races the fallback):** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit AskUserQuestion: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
 
 ---
+
+{{PLAN_COMPLETION_GATE_SHIP}}
 
 {{PLAN_VERIFICATION_EXEC}}
 

@@ -92,8 +92,7 @@ decisions:
 - **If we're wrong, the cost is:** (what happens if the user's original direction
   was right and we changed it)
 
-The user's original direction is the default. The models must make the case for
-change, not the other way around.
+Default to the user's original direction. The models must justify changing it.
 
 **Exception:** If both models flag the change as a security vulnerability or
 feasibility blocker (not a preference), the AskUserQuestion framing explicitly
@@ -271,7 +270,7 @@ Review skills will load at each phase entry. Starting full review pipeline with 
 
 {{OUTSIDE_PREFLIGHT:autoplan}}
 
-If disabled or unavailable, preserve the native pass in every applicable phase. Recheck before each outside dispatch. A completed CEO phase never establishes design, DX, or engineering coverage. For every phase, track provider and completed/unavailable/disabled/skipped independently. Missing voices appear as N/A, never CONFIRMED. A skipped scope phase remains skipped.
+Disabled/unavailable: retain each applicable native pass. Recheck before each outside dispatch. Track provider and completed/unavailable/disabled/skipped per phase; CEO completion covers only CEO. Missing voices: N/A, never CONFIRMED. Skipped scope stays skipped.
 
 
 ## Phase 1: CEO Review (Strategy & Scope)

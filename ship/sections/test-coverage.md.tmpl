@@ -6,12 +6,15 @@
 
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
-> You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push — report only.
->
-> {{TEST_COVERAGE_AUDIT_SHIP}}
->
-> After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-> `{"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...]}`
+````text
+You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
+
+{{TEST_COVERAGE_AUDIT_SHIP}}
+
+After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+{"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...]}
+Use null for an undetermined or skipped coverage percentage, not zero. Include every remaining gap in the diagram so the parent can target a second pass.
+````
 
 **Parent processing:**
 
@@ -21,5 +24,7 @@
 4. Print a one-line summary: `Coverage: {coverage_pct}%, {gaps} gaps. {tests_added.length} tests added.`
 
 **If the subagent fails, times out, returns invalid JSON, or never completes (backgrounded despite the flag, or no final output after ~10 minutes — stop waiting; if a backgrounded task is still running, stop it first so a late result never races the fallback):** Fall back to running the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
+
+{{TEST_COVERAGE_GATE_SHIP}}
 
 ---

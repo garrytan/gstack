@@ -19,6 +19,20 @@
 - Planning reviews request each unresolved decision before editing and carry approved remedies across sections without asking again. Choosing a scope or approach does not approve every finding. Reviews preserve stated requirements unless you authorize changing them.
 - Autoplan preserves the original plan and checks that each phase’s recorded requirements reach the next reviewer. It reconciles approvals with that record, reads the review skills installed for the current harness, and waits for reviewers and verified plan updates before advancing. Disabling extra plan or documentation review also skips replacement reviewers.
 
+## [1.84.1.0] - 2026-09-09
+
+### Changed
+- Codex reviews, consultations, and evals now default to GPT-6 Astra. Choose another model with `GSTACK_CODEX_MODEL` or an explicit model in your request; the readiness probe checks that same selection.
+- Claude outside voices and eval capture/judging now default to Fable 5.1. Outside voices accept `GSTACK_CLAUDE_MODEL`; evals retain their explicit and environment model overrides. Warmup and distillation keep their cheaper defaults.
+
+### Fixed
+- Native Codex reviews honor the selected model even when the CLI has a separate review-model pin. Claude judges parse text after thinking blocks, and arm judgments omit the temperature setting Fable does not support.
+- Frontier judges have enough output budget for thinking and JSON. Workflow evals read generated sections in execution order, without duplicated content.
+- Ship and plan reviews keep approval gates with the parent agent, preserve readiness checks, and use project-native test commands. QA scoring and monitoring rules are explicit; Aside drive options wait for a successful readiness probe.
+- Benchmark timing uses the navigation entry's actual fields. Deploy setup collects missing configuration, and failed vendored upgrades restore their backup instead of deleting it.
+- Retro reports distinguish verified merges from PR references, use the session date for snapshots, and define report ordering. The quality eval includes compare-mode instructions instead of cutting them off.
+- Documentation review runs before publication so approved fixes reach the PR. Changelog protection, unavailable-review handling, and raw/enveloped PR-body handling are consistent across the workflow.
+
 ## [1.84.0.0] - 2026-09-09
 
 **gstack's design skills now start with 61 deterministic anti-pattern checks, in your voice, then spend their judgment where a detector cannot.**

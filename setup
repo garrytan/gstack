@@ -875,9 +875,9 @@ trap cleanup_copied_bun EXIT
 # .agents/ unconditionally, and existing ~/.codex/skills symlinks point into it —
 # a plain `./setup` on a Sol user's machine must not clobber their profile with
 # the hardcoded fallback. The resolver is a read-only TOML lookup that falls
-# back to gpt when no Codex config exists.
-CODEX_GENERATION_MODEL="gpt"
-CODEX_GENERATION_MODEL_SOURCE="default (gpt)"
+# back to the current frontier Codex profile when no Codex config exists.
+CODEX_GENERATION_MODEL="gpt-6-astra"
+CODEX_GENERATION_MODEL_SOURCE="default (gpt-6-astra)"
 _CODEX_MODEL_ARGS=(run scripts/resolve-codex-generation-model.ts)
 if [ "$MODEL_OVERRIDE_SET" -eq 1 ]; then
   _CODEX_MODEL_ARGS+=(--explicit "$MODEL_OVERRIDE")
@@ -888,7 +888,7 @@ if [ -z "$CODEX_GENERATION_MODEL" ]; then
   echo "gstack setup failed: Codex model resolver returned no model" >&2
   exit 1
 fi
-if [ "$INSTALL_CODEX" -eq 1 ] || [ "$CODEX_GENERATION_MODEL" != "gpt" ]; then
+if [ "$INSTALL_CODEX" -eq 1 ] || [ "$CODEX_GENERATION_MODEL" != "gpt-6-astra" ]; then
   log "Codex skill profile: $CODEX_GENERATION_MODEL"
   log "Source: $CODEX_GENERATION_MODEL_SOURCE"
 fi

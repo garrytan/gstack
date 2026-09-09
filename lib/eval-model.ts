@@ -12,25 +12,25 @@
  *   per-kind default                                         — last resort
  *
  * Kinds and their defaults:
- *   capture — AskUserQuestion SDK capture runs: sonnet (D1a)
+ *   capture — AskUserQuestion SDK capture runs: current frontier Claude model
  *   warmup  — PTY warm-up ping (cheapest thing that answers): haiku
  *   distill — free-text distillation (cheap, structured): haiku (pinned)
- *   judge   — LLM-judge rubric calls: sonnet (D1a pin-on-regressors — the
- *             Haiku A/B regressed the doc-rubric family; see llm-judge.ts)
+ *   judge   — LLM-judge rubric calls: current frontier Claude model
  */
+
+export const CLAUDE_FRONTIER_EVAL_MODEL = "claude-fable-5-1";
 
 // `as const satisfies` keeps EvalModelKind the literal union
 // 'capture' | 'warmup' | 'distill' — a `Record<string, string>` annotation
 // would widen it to string and let any typo through the type gate.
 const DEFAULTS = {
-  // D1a (2026-08 test-infra review): capture runs default to Sonnet, matching
-  // session-runner — the old Opus default was an inconsistency between
-  // runners, not a choice; tests needing Opus pass it explicitly or set
-  // GSTACK_EVAL_MODEL_CAPTURE.
-  capture: "claude-sonnet-4-6",
+  // Keep eval capture/judge on the current frontier Claude model by default.
+  // Tests needing a cheaper or historical ruler pass it explicitly or set
+  // GSTACK_EVAL_MODEL_CAPTURE / GSTACK_EVAL_MODEL_JUDGE / GSTACK_EVAL_MODEL.
+  capture: CLAUDE_FRONTIER_EVAL_MODEL,
   warmup: "claude-haiku-4-5",
   distill: "claude-haiku-4-5-20251001",
-  judge: "claude-sonnet-4-6",
+  judge: CLAUDE_FRONTIER_EVAL_MODEL,
 } as const satisfies Record<string, string>;
 
 export type EvalModelKind = keyof typeof DEFAULTS;

@@ -34,8 +34,7 @@ You are running the `/document-release` workflow. This runs **after `/ship`** (c
 exists or about to exist) but **before the PR merges**. Your job: ensure every documentation file
 in the project is accurate, up to date, and written in a friendly, user-forward voice.
 
-You are mostly automated. Make obvious factual updates directly. Stop and ask only for risky or
-subjective decisions.
+Make factual updates directly; ask about risky or subjective decisions.
 
 **When dispatched as a subagent (spawned session):** spawned mode triggers ONLY from the
 preamble's `SESSION_KIND: spawned` STATUS echo — a dispatching workflow marks the session by
@@ -84,20 +83,29 @@ prompt narrows scope further (e.g. /ship's docs-sync-only guard), the prompt's r
 
 ## Step 1: Pre-flight & Diff Analysis
 
+`<base>` and the hosting platform come from the shared Step 0 above this workflow.
+Resolve the release merge-base, stopping if neither ref exists.
+Use the printed SHA for `<diff-base>` in later commands, not a shell variable:
+
+```bash
+DOC_DIFF_BASE=$(git merge-base origin/<base> HEAD 2>/dev/null || git merge-base <base> HEAD) || exit 1
+echo "DOC_DIFF_BASE: $DOC_DIFF_BASE"
+```
+
 1. Check the current branch. If on the base branch, **abort**: "You're on the base branch. Run from a feature branch."
 
 2. Gather context about what changed:
 
 ```bash
-git diff <base>...HEAD --stat
+git diff <diff-base> HEAD --stat
 ```
 
 ```bash
-git log <base>..HEAD --oneline
+git log <diff-base>..HEAD --oneline
 ```
 
 ```bash
-git diff <base>...HEAD --name-only
+git diff <diff-base> HEAD --name-only
 ```
 
 3. Discover all documentation files in the repo:
@@ -122,7 +130,7 @@ Before touching any documentation file, build a **coverage map** of what shipped
 documented. This is inspired by the Diataxis framework (tutorial / how-to / reference / explanation)
 — but applied as an audit lens, not a generation tool.
 
-1. **Extract public surface changes from the diff.** Scan `git diff <base>...HEAD` for:
+1. **Extract public surface changes from the diff.** Scan `git diff <diff-base> HEAD` for:
    - New exported functions, classes, commands, CLI flags, config options, API endpoints
    - New skills, workflows, or user-facing capabilities
    - Renamed or removed public surface (modules, commands, features)

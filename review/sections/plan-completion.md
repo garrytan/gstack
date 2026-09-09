@@ -122,7 +122,7 @@ Plan: {plan file path}
   [UNVERIFIABLE] Supabase auth allowlist contains user email — external system, confirm in Supabase dashboard
 
 ─────────────────────────────────
-COMPLETION: 5/9 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
+COMPLETION: 4/10 DONE, 1 PARTIAL, 2 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 ─────────────────────────────────
 ```
 

@@ -220,7 +220,7 @@ Logging simplification's advisories as \`findings: 0\` would auto-gate the
 lens into permanent silence after 10 dispatches.
 
 Include the Design specialist even though it uses \`design-checklist.md\` instead of the specialist schema files.
-Remember these stats — you will need them for the review-log entry in Step 5.8.`;
+Remember these stats — you will need them for ${persistRef}.`;
 }
 
 function generateRedTeam(ctx: TemplateContext): string {

@@ -26,7 +26,7 @@ bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyP
 
   **Claude CEO subagent** (via Agent tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
-  Other hosts: foreground dispatch; await completion when supported.
+  Other hosts: foreground; await completion when supported.
 
   Send `nativeDispatchPrompt` verbatim: ONLY/FINAL tool call this response.
   Keep native Reads enabled. Child first Reads `nativePromptPath` to EOF:
@@ -73,7 +73,7 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
-_gstack_codex_timeout_wrapper 600 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_gstack_codex_timeout_wrapper 600 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
 _OUTSIDE_EXIT=$?
 # Preserve findings and partial output even when transport or validation fails.
 cat "$_OUTSIDE_TMP/text"
@@ -115,9 +115,9 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0B: Existing code leverage map (sub-problems → existing code)
 - 0C: Dream state diagram (CURRENT → THIS PLAN → 12-MONTH IDEAL)
 - 0C-bis: Implementation alternatives table (2-3 approaches with effort/risk/pros/cons)
+- 0F: Mode selection confirmation
 - 0D: Mode-specific analysis with scope decisions logged
 - 0E: Temporal interrogation (HOUR 1 → HOUR 6+)
-- 0F: Mode selection confirmation
 
 Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS
 (CEO — strategy challenge) and Claude SUBAGENT (CEO — strategic independence).

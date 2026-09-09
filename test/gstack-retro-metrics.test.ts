@@ -177,7 +177,7 @@ describe('gstack-retro-metrics contract', () => {
     expect(tmpl).toContain('".claude/skills/gstack/bin/gstack-retro-metrics"');
     expect(tmpl).toContain('--base "<default>" --since "<since>"');
     expect(tmpl).toContain(
-      'RETRO_METRICS: unavailable — stale install (compute metrics manually from the steps below)',
+      'RETRO_METRICS: unavailable — stale install (read the helper source for manual computation)',
     );
     // Degraded-mode prose keys off the proto handshake.
     expect(tmpl).toContain('RETRO_METRICS_PROTO: 1');

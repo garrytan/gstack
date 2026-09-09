@@ -1414,7 +1414,9 @@ describe('Retro test health tracking', () => {
   test('retro/SKILL.md has Test Health metrics row', () => {
     const content = readSkillUnion('retro');
     expect(content).toContain('Test Health');
-    expect(content).toContain('regression tests');
+    expect(content).toContain('N test files');
+    expect(content).toContain('M changed this period');
+    expect(content).toContain('K regression test commits');
   });
 
   test('retro/SKILL.md has Test Health narrative section', () => {

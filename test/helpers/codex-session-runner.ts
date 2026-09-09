@@ -20,6 +20,7 @@ import { Readable } from 'node:stream';
 import { hermeticChildEnv } from './hermetic-env';
 import { extractSkillSections } from './skill-fixture';
 import { killProcessGroup } from '../../scripts/test-strict-output';
+import { CODEX_FRONTIER_MODEL } from '../../scripts/resolvers/constants';
 
 // --- Interfaces ---
 
@@ -227,7 +228,7 @@ export async function runCodexSkill(opts: {
     // exactly that. Empirically verified against codex on this machine.
     const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
     if (ignoreUserConfig) args.push('--ignore-user-config');
-    if (model) args.push('--model', model);
+    args.push('--model', model ?? process.env.GSTACK_CODEX_MODEL ?? CODEX_FRONTIER_MODEL);
     for (const override of configOverrides) args.push('-c', override);
     args.push(prompt);
 

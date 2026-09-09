@@ -135,7 +135,8 @@ digest's first line shows its gstack version; re-copy it after upgrading.
 
 For Codex, setup reads the top-level `model` from
 `${CODEX_HOME:-~/.codex}/config.toml` and generates the matching behavioral
-profile. `gpt-5.6-sol` automatically receives bounded-scope instructions that
+profile, falling back to `gpt-6-astra` when no usable model is configured.
+`gpt-5.6-sol` automatically receives bounded-scope instructions that
 finish the requested lake without expanding into adjacent cleanup or speculative
 hardening. The Sol profile is exact-match only: dated snapshots and other 5.6
 variants get the generic GPT profile, and setup warns on near-misses like
@@ -143,6 +144,15 @@ variants get the generic GPT profile, and setup warns on near-misses like
 override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
+
+gstack-owned Codex invocations and evals default to `gpt-6-astra`. Set
+`GSTACK_CODEX_MODEL=<model>` to override that runtime default; an explicitly
+requested model takes precedence. Runtime model selection is separate from
+the setup-time behavioral profile above. `/claude-code` (`gstack-claude-code`
+on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
+or name a model in your request to override it for the invocation, including
+resumed consultations. See [eval defaults and overrides](CONTRIBUTING.md#testing--evals)
+for capture, judge, and benchmark model selection.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.

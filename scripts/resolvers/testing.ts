@@ -55,7 +55,7 @@ Map the markers to the command you will OFFER — never to one you run on a gues
 
 **If ANY existing-test evidence appears** (a config file, a declared test script or make target, a nonzero \`TESTFILES:\` count, or \`TESTS:rust in-source\`): the project has tests. **Do NOT bootstrap.** Print "Existing tests detected: {the evidence}." Then get the command the same way Step 5 does — CLAUDE.md/TESTING.md if documented, otherwise AskUserQuestion offering the candidates from the table above plus "Other", and persist the answer to CLAUDE.md's \`## Testing\` section so it is never asked again. When the ecosystem ships a runner (Django, Go, Rust, Elixir, Maven/Gradle), that runner is the candidate — never install a second framework beside a working one.
 Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
-Store conventions as prose context for use in Phase 8e.5 or Step 7. **Skip the rest of bootstrap.**
+Store conventions as prose context for use in ${ctx.skillName === 'ship' ? 'Step 7' : 'Phase 8e.5 or Step 7'}. **Skip the rest of bootstrap.**
 
 Absent config files and absent \`tests/\` directories are NOT evidence of "no tests": Django keeps tests in \`<app>/tests.py\`, Go in \`*_test.go\` beside the source, Rust in \`#[test]\` blocks inside \`src/\`. A green \`python manage.py test\` with no \`pytest.ini\` is a tested project, not a bootstrap candidate.
 
@@ -214,8 +214,9 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 type CoverageAuditMode = 'plan' | 'ship' | 'review';
 
-function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
+function generateTestCoverageAuditInner(mode: CoverageAuditMode, part: 'audit' | 'gate' = 'audit'): string {
   const sections: string[] = [];
+  let gate = '';
 
   // ── Intro (mode-specific) ──
   if (mode === 'ship') {
@@ -253,7 +254,7 @@ ls jest.config.* vitest.config.* playwright.config.* cypress.config.* .rspec pyt
 git ls-files | grep -cE '(^|/)(tests?|spec|__tests__)/|(^|/)tests?\\.py$|(^|/)test_[^/]+\\.py$|_test\\.(go|py|rb|ts|js|exs)$|\\.(test|spec)\\.[jt]sx?$|_spec\\.rb$|Test\\.(java|kt)$' | sed 's/^/TESTFILES:/'
 \`\`\`
 
-3. **If no framework detected:**${mode === 'ship' ? ' falls through to the Test Framework Bootstrap step (Step 4) which handles full setup.' : ' still produce the coverage diagram, but skip test generation.'}`);
+3. **If no framework detected:**${mode === 'ship' ? ' use the bootstrap decision already made in Step 4; report diagram-only coverage if setup was declined. Do not restart bootstrap from this audit.' : ' still produce the coverage diagram, but skip test generation.'}`);
 
   // ── Before/after count (ship only) ──
   if (mode === 'ship') {
@@ -369,7 +370,7 @@ A regression is when:
 - The existing test suite (if any) doesn't cover the changed path
 - The change introduces a new failure mode for existing callers
 
-When uncertain whether a change is a regression, err on the side of writing the test.${mode !== 'plan' ? '\n\nFormat: commit as `test: regression test for {what broke}`' : ''}`);
+When uncertain whether a change is a regression, err on the side of writing the test.${mode === 'review' ? '\n\nFormat: commit as `test: regression test for {what broke}`' : ''}`);
 
   // ── ASCII coverage diagram (shared) ──
   sections.push(`
@@ -457,14 +458,14 @@ If test framework detected (or bootstrapped in Step 4):
 - For paths marked [→E2E]: generate integration/E2E tests using the project's E2E framework (Playwright, Cypress, Capybara, etc.)
 - For paths marked [→EVAL]: generate eval tests using the project's eval framework, or flag for manual eval if none exists
 - Write tests that exercise the specific uncovered path with real assertions
-- Run each test. Passes → commit as \`test: coverage for {feature}\`
+- Run each test. Passes → keep the change and report its path; the parent commits in Step 15.
 - Fails → fix once. Still fails → revert, note gap in diagram.
 
 Caps: 30 code paths max, 20 tests generated max (code + user flow combined), 2-min per-test exploration cap.
 
 If no test framework AND user declined bootstrap → diagram only, no generation. Note: "Test generation skipped — no test framework configured."
 
-**Diff is test-only changes:** Skip Step 7 entirely: "No new application code paths to audit."
+**Diff is test-only changes:** Return a skipped audit with null coverage, zero gaps, and "No new application code paths to audit."
 
 **6. After-count and coverage summary:**
 
@@ -474,9 +475,12 @@ git ls-files 2>/dev/null | grep -E '(\\.test\\.|\\.spec\\.|_test\\.|_spec\\.)' |
 \`\`\`
 
 For PR body: \`Tests: {before} → {after} (+{delta} new)\`
-Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests generated, J committed.\`
+Coverage line: \`Test Coverage Audit: N new code paths. M covered (X%). K tests generated, awaiting parent commit.\``);
 
+    gate = `
 **7. Coverage gate:**
+
+The parent owns this gate after receiving the audit result, including after an inline fallback. Generated tests stay uncommitted until Step 15. Any further generation uses the same audit prompt with the remaining gaps and pass count supplied.
 
 Before proceeding, check CLAUDE.md for a \`## Test Coverage\` section with \`Minimum:\` and \`Target:\` fields. If found, use those percentages. Otherwise use defaults: Minimum = 60%, Target = 80%.
 
@@ -490,7 +494,7 @@ Using the coverage percentage from the diagram in substep 4 (the \`COVERAGE: X/Y
     A) Generate more tests for remaining gaps (recommended)
     B) Ship anyway — I accept the coverage risk
     C) These paths don't need tests — mark as intentionally uncovered
-  - If A: Loop back to substep 5 (generate tests) targeting the remaining gaps. After second pass, if still below target, present AskUserQuestion again with updated numbers. Maximum 2 generation passes total.
+  - If A: Dispatch one more generation pass targeting remaining gaps, then re-evaluate the result here. Maximum 2 generation passes total. At the cap, offer only B/C or stop; do not offer another generation pass.
   - If B: Continue. Include in PR body: "Coverage gate: {X}% — user accepted risk."
   - If C: Continue. Include in PR body: "Coverage gate: {X}% — {N} paths intentionally uncovered."
 
@@ -500,14 +504,14 @@ Using the coverage percentage from the diagram in substep 4 (the \`COVERAGE: X/Y
   - Options:
     A) Generate tests for remaining gaps (recommended)
     B) Override — ship with low coverage (I understand the risk)
-  - If A: Loop back to substep 5. Maximum 2 passes. If still below minimum after 2 passes, present the override choice again.
+  - If A: Dispatch one more generation pass. Maximum 2 passes total. At the cap, offer only B or stop; do not offer another generation pass.
   - If B: Continue. Include in PR body: "Coverage gate: OVERRIDDEN at {X}%."
 
 **Coverage percentage undetermined:** If the coverage diagram doesn't produce a clear numeric percentage (ambiguous output, parse error), **skip the gate** with: "Coverage gate: could not determine percentage — skipping." Do not default to 0% or block.
 
 **Test-only diffs:** Skip the gate (same as the existing fast-path).
 
-**100% coverage:** "Coverage gate: PASS (100%)." Continue.`);
+**100% coverage:** "Coverage gate: PASS (100%)." Continue.`;
 
     // ── Test plan artifact (ship mode) ──
     sections.push(`
@@ -575,7 +579,7 @@ This is INFORMATIONAL — does not block /review. But it makes low coverage visi
 If coverage percentage cannot be determined, skip the warning silently.`);
   }
 
-  return sections.join('\n');
+  return part === 'gate' ? gate : sections.join('\n');
 }
 
 export function generateTestCoverageAuditPlan(_ctx: TemplateContext): string {
@@ -584,4 +588,8 @@ export function generateTestCoverageAuditPlan(_ctx: TemplateContext): string {
 
 export function generateTestCoverageAuditShip(_ctx: TemplateContext): string {
   return generateTestCoverageAuditInner('ship');
+}
+
+export function generateTestCoverageGateShip(_ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('ship', 'gate');
 }

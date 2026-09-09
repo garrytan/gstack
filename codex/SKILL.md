@@ -510,9 +510,13 @@ source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null && _gstack_cod
 ## Step 0.5: Auth probe + model probe + version check
 
 Before building expensive prompts, verify Codex has valid auth, that the account
-can actually USE its configured model, AND the installed CLI version isn't in the
+can actually USE gstack's selected model, AND the installed CLI version isn't in the
 known-bad list. Sourcing `gstack-codex-probe` loads the shared helpers that both
 `/codex` and `/autoplan` use.
+
+If the user names a model for this request, set `GSTACK_CODEX_MODEL` to that model
+before this probe and use it for every invocation in the request. The probe must
+check the requested model, including when the frontier default is unavailable.
 
 ```bash
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
@@ -543,8 +547,8 @@ If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
 
 If the output contains `MODEL_UNUSABLE`, stop — auth exists but the account
-cannot use the configured model (a stale `model =` pin in
-`~/.codex/config.toml` is the usual cause). Relay the probe's HINT lines and
+cannot use gstack's selected model (`GSTACK_CODEX_MODEL` or the `gpt-6-astra`
+default). Relay the probe's HINT lines and
 follow the "Model not supported (HTTP 400)" recovery steps in
 `## Error Handling` below. Running the modes anyway just burns four
 invocations on the same 400 (#2477).
@@ -798,10 +802,12 @@ must be the file's terminal heading.
 
 ## Model & Reasoning
 
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass it through — but the flag differs
-by mode (see below).
+**Model:** gstack defaults Codex invocations to the current frontier agentic coding
+model via `-c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\""` (currently `gpt-6-astra`). A user can override
+the default for a shell with `GSTACK_CODEX_MODEL=<model>`, or for one request by naming a
+model in the `/codex` prompt.
+Native `codex review` also sets `review_model` to the selected model so a separate
+review pin in the CLI config cannot override the request.
 
 **Reasoning effort (per-mode defaults):**
 - **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
@@ -820,16 +826,13 @@ codex >=0.144), the `-c` form explicitly overrides any top-level
 web search regardless of configuration, so on the default Review path the flag is a
 harmless no-op — only exec-based modes actually search.
 
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max` or
-`/codex challenge -m gpt-5.2`), the flag to pass depends on the underlying command:
-
-- **Exec-based modes** (Challenge, Consult, and the custom-instructions Review path)
-  run `codex exec`, which takes `-m <model>` — pass it through as-is.
-- **Default Review mode** runs `codex review`, which REJECTS `-m`
-  (`error: unexpected argument '-m' found`, verified on 0.147.0 — its help lists no
-  `-m`/`--model` option). Translate the user's `-m <model>` into the config form:
-  `-c model="<model>"`. Same shape as the `--base`-vs-prompt incompatibility above:
-  review mode takes its knobs through flags/config, never through extra arguments.
+If the user specifies a model (e.g., `/codex review -m gpt-5.6-sol` or
+`/codex challenge --model gpt-daybreak-blue-latest`), translate it to the same config
+form and replace the default model flag with `-c "model=\"<model>\""`. Native review
+also requires `-c "review_model=\"<model>\""`; replace both model values together.
+Review mode runs `codex review`, which REJECTS `-m` (`error: unexpected argument '-m' found`,
+verified on 0.147.0), while `-c model=...` is accepted by both `codex review` and
+`codex exec`.
 
 ---
 
@@ -868,18 +871,15 @@ If token count is not available, display: `Tokens: unknown`
   `--base <base>` is actually on the command line.
 - **Model not supported (HTTP 400):** stderr shows
   `The '<model>' model is not supported when using Codex with a ChatGPT account`
-  (a `status: 400` / `invalid_request_error` naming a model). This is an
-  entitlement/stale-pin problem, not an auth or network failure, and the auth probe
-  cannot catch it. The rejected model comes from the `model = "..."` line in
-  `~/.codex/config.toml`. Recovery, in order:
-  1. Read `~/.codex/config.toml` and check the `[notice.model_migrations]` table —
-     Codex records the intended replacement there (e.g. `"gpt-5.4" = "gpt-5.5"`).
-  2. Retry with the replacement model explicitly: exec-based modes (Challenge,
-     Consult, custom-instructions Review) take `-m <replacement>`; the default
-     Review path uses `codex review`, which REJECTS `-m` — pass
-     `-c model="<replacement>"` there instead.
-  3. Tell the user the one-line permanent fix: update the `model = ` pin in
-     `~/.codex/config.toml`.
+  (a `status: 400` / `invalid_request_error` naming a model). This is a
+  model-entitlement problem, not an auth or network failure, and the auth probe
+  cannot catch it. Recovery, in order:
+  1. Check whether `GSTACK_CODEX_MODEL` is set. If so, update it to a model the
+     account can use.
+  2. If no override is set, gstack defaults to `gpt-6-astra`. If the account cannot
+     use it yet, set `GSTACK_CODEX_MODEL=<supported-model>` or replace the default
+     flag with `-c "model=\"<supported-model>\""`.
+  3. If Codex printed `[notice.model_migrations]`, use that replacement model.
   Never present this as a model stall or a PASS — it is a fail-closed gate result.
 - **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
   "Codex returned no response. Check stderr for errors."

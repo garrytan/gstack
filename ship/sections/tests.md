@@ -55,7 +55,7 @@ Map the markers to the command you will OFFER — never to one you run on a gues
 
 **If ANY existing-test evidence appears** (a config file, a declared test script or make target, a nonzero `TESTFILES:` count, or `TESTS:rust in-source`): the project has tests. **Do NOT bootstrap.** Print "Existing tests detected: {the evidence}." Then get the command the same way Step 5 does — CLAUDE.md/TESTING.md if documented, otherwise AskUserQuestion offering the candidates from the table above plus "Other", and persist the answer to CLAUDE.md's `## Testing` section so it is never asked again. When the ecosystem ships a runner (Django, Go, Rust, Elixir, Maven/Gradle), that runner is the candidate — never install a second framework beside a working one.
 Read 2-3 existing test files to learn conventions (naming, imports, assertion style, setup patterns).
-Store conventions as prose context for use in Phase 8e.5 or Step 7. **Skip the rest of bootstrap.**
+Store conventions as prose context for use in Step 7. **Skip the rest of bootstrap.**
 
 Absent config files and absent `tests/` directories are NOT evidence of "no tests": Django keeps tests in `<app>/tests.py`, Go in `*_test.go` beside the source, Rust in `#[test]` blocks inside `src/`. A green `python manage.py test` with no `pytest.ini` is a tested project, not a bootstrap candidate.
 
@@ -194,11 +194,13 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 ## Step 5: Run tests (on merged code)
 
-**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
+Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
+
+**For Rails projects using `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
 `db:test:prepare` internally, which loads the schema into the correct lane database.
 Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
 
-Run both test suites in parallel, each wrapped in the evidence ledger. The
+Run independent test suites in parallel, each wrapped in the evidence ledger. The
 wrapper is transparent (streams output live, exit code passes through) and
 records `{command, exit, working-tree fingerprint, log path}` to
 `~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
@@ -210,7 +212,7 @@ record instead of re-running when the content hasn't changed:
 wait
 ```
 
-After both complete, check the `gstack-evidence: recorded label=... exit=...
+After all suites complete, check the `gstack-evidence: recorded label=... exit=...
 log=...` summary lines — each carries the lane's exit code and a per-run log
 file (no shared /tmp collisions between concurrent ships). Read the log files
 for failure detail.
@@ -331,6 +333,8 @@ Use AskUserQuestion:
 
 Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
 
+Use the project's documented eval selection and pre-merge command first (including changed skill templates and judge/harness code). The Rails patterns and commands below apply only when that runner exists. For other stacks, use their native eval scripts and dependency map. If prompts changed but no eval command is documented, report the missing validation and ask before shipping; never silently treat that as no affected prompts.
+
 **1. Check if the diff touches prompt-related files:**
 
 ```bash
@@ -346,7 +350,7 @@ Match against these patterns (from CLAUDE.md):
 - `config/system_prompts/*.txt`
 - `test/evals/**/*` (eval infrastructure changes affect all suites)
 
-**If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 9.
+**If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 7.
 
 **2. Identify affected eval suites:**
 
@@ -392,7 +396,7 @@ poller is reaped.
 **4. Check results:**
 
 - **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
-- **If all pass:** Note pass counts and cost. Continue to Step 9.
+- **If all pass:** Note pass counts and cost. Continue to Step 7.
 
 **5. Save eval output** — include eval results and cost dashboard in the PR body (Step 19).
 

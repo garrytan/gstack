@@ -460,6 +460,19 @@ describe('golden-file regression', () => {
     fs.rmSync(GOLDEN_OUT, { recursive: true, force: true });
   });
 
+  test('every Claude outside-voice mode uses the restricted runner and exposes an explicit model override', () => {
+    const rendered = fs.readFileSync(path.join(GOLDEN_OUT, '.agents/skills/gstack-claude-code/SKILL.md'), 'utf8');
+    const calls = rendered.split('\n').filter(line => line.includes('"$CLAUDE_RUNNER" --cwd'));
+    expect(calls).toHaveLength(3);
+    expect(rendered.match(/CLAUDE_RUNNER="\$RUNTIME_ROOT\/bin\/gstack-claude-code"/g)).toHaveLength(3);
+    for (const call of calls) {
+      expect(call).toContain('--timeout-ms 600000');
+    }
+    expect(rendered).toContain('GSTACK_CLAUDE_MODEL=<model>');
+    expect(rendered).toContain('Without an override, retain Claude');
+    expect(fs.existsSync(path.join(GOLDEN_OUT, '.agents/skills/gstack-claude/SKILL.md'))).toBe(false);
+  });
+
   test('Claude ship skill matches golden baseline', () => {
     // Deliberately reads the TRACKED ship/SKILL.md (a read, not a write):
     // the claude golden pins the committed render. Freshness of the tracked
@@ -487,7 +500,7 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex defaults to generic GPT while all existing hosts retain Claude', () => {
+  test('Codex host renders with generic GPT overlay while existing hosts retain Claude overlay', () => {
     expect(codex.defaultModel).toBe('gpt');
     for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
       expect(host.defaultModel).toBe('claude');

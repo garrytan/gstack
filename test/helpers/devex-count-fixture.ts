@@ -137,13 +137,13 @@ function empathyAccuracyConfirmation(header: string, question: string, options: 
       !options || options.length < 2 || options.length > 4) return false;
   const clean = (value: string) => value.trim().replace(/\s*\(recommended\)\s*$/i, '').trim();
   const confirm = (label: string) => /^(?:Accurate|Yes\s*[—–-]\s*accurate)\s*[—–-]\s*proceed(?: with this understanding)?$/i.test(clean(label));
-  const correct = (label: string) => /^(?:Partly wrong\s*[—–-]\s*let me correct it|Mostly right\s*[—–-]\s*minor corrections|Wrong path\s*[—–-]\s*the actual flow is different|Wrong\s*[—–-]\s*actual experience differs|The experience is different\s*[—–-]\s*let me describe it)$/i.test(clean(label));
+  const correct = (label: string) => /^(?:Part(?:ly|ially) wrong\s*[—–-]\s*let me correct it|Mostly right\s*[—–-]\s*minor corrections|Wrong path\s*[—–-]\s*the actual flow is different|Wrong\s*[—–-]\s*actual experience differs|The experience is different\s*[—–-]\s*let me describe it)$/i.test(clean(label));
   const labels = options.map(option => clean(option.label));
   if (new Set(labels).size !== labels.length || labels.filter(confirm).length !== 1 ||
       !labels.some(correct) || !labels.every(label => confirm(label) || correct(label))) return false;
   // Consume each description completely: an accuracy label must not also
   // approve a remedy hidden in a subsequent sentence or clause.
-  const description = /^(?:(?:The (?:narrative|trace) is (?:correct|accurate)\.[ ]*)?Proceed with this understanding(?: for the full DX review)?\.|Some details are off; I['’]ll clarify before we continue\.|The (?:real|actual) (?:getting-started path|flow|experience) differs(?: significantly)? from what was traced\.)$/i;
+  const description = /^(?:(?:The (?:narrative|trace) is (?:correct|accurate)\.[ ]*)?Proceed with this understanding(?: for the full DX review)?\.|Some details are off; I['’]ll clarify (?:before we continue|the actual experience)\.|This matches the actual developer experience; use it as the basis for the review\.|The (?:real|actual) (?:getting-started path|flow|experience) differs(?: significantly)? from what was traced\.)$/i;
   if (options.some(option => option.description && !description.test(clean(option.description)))) return false;
   const ids = question.match(/<gstack-qid:[^>]+>/gi) ?? [];
   if (ids.length > 1 || (question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return false;
@@ -152,12 +152,34 @@ function empathyAccuracyConfirmation(header: string, question: string, options: 
   const paragraphs = text.split(/\n\s*\n/);
   const opening = paragraphs.shift() ?? '';
   const closing = paragraphs.pop() ?? '';
-  if (!/^(?:Empathy (?:narrative|trace): does this match (?:the [\w.-]+ (?:getting-started|onboarding|first-run) )?reality\?|Does (?:this|the) (?:empathy narrative|first-person developer trace) match reality\?)$/i.test(opening) ||
+  if (!/^(?:Empathy (?:narrative|trace): does this match (?:(?:the [\w.-]+ (?:getting-started|onboarding|first-run) )?reality|your actual developer experience)\?|Does (?:this|the) (?:empathy narrative|first-person developer trace) match reality\?)$/i.test(opening) ||
       !/^Does this match (?:reality|the actual experience)\?(?: Where am I wrong\?)?$/i.test(closing)) return false;
   // Only quoted journey evidence and an observational preface may intervene.
   // Additional questions or instructions outside the quote remain decisions.
   const source = String.raw`(?:the docs|[\w-]+(?:[/.][\w-]+)+)`;
   const role = String.raw`(?:(?:Python|JavaScript|TypeScript|Go|Rust|Java|Ruby) )?(?:(?:ML|backend|frontend|full-stack) )?(?:developer|engineer)`;
+  // A first-person journey may be delimited with horizontal rules instead
+  // of blockquotes. Keep its observation preface and both boundaries exact;
+  // an obligation outside that evidence is still a substantive decision.
+  const narrated = new RegExp(String.raw`^Here['’]s what I think a ${role} experiences today with [\w.-]+:$`, 'i');
+  if (narrated.test(paragraphs[0] ?? '')) {
+    const journey = paragraphs.slice(2, -1);
+    const observed = /^(?:I (?:find|found|open|read|run|try|install|look|wait|see|notice|receive|got|get|check|search|browse|start|follow)\b|After (?:scanning|reading|checking|searching|browsing)\b[^.!?\n]*\bI (?:find|spot|see|notice)\b)/i;
+    const decision = /\b(?:approv\w*|recommend\w*|suggest\w*|propos\w*|authoriz\w*|consent\w*|decid\w*|request\w*)\b|\b(?:should|could|can|may|must|shall|would) (?:we|you|I)\b|\b(?:we|you|I) (?:should|could|must|shall|will|would|need to|want to)\b|\blet['’]s\b|(?:^|[.!?;:]\s+|\b(?:please|also|then|and)\s+)(?:add|fix|package|remove|change|implement|enable|disable|repair|rewrite|apply|replace)\b/i;
+    // Every unquoted sentence must still describe an observation. Delimiters
+    // cannot turn a new imperative (including an unknown action verb) into
+    // quoted evidence. Explicit requests and obligations fail independently
+    // of which action they name.
+    const obligation = /\b(?:please|must|should|shall|ought|need(?:s)? to|ha(?:ve|s) to|required to)\b/i;
+    const sentences = journey.flatMap(part => part
+      .replace(/`[^`]*`|"(?:[^"\\]|\\.)*"|“[^”]*”/g, quote =>
+        '[source]' + (/[.!?]["”]$/.test(quote) ? quote.at(-2) : ''))
+      .split(/(?<=[.!?;])\s+/));
+    const observation = /^(?:(?:(?:Fine,|But)\s+)?I (?:find|found|open|read|run|try|install|look|wait|see|notice|receive|got|get|check|search|browse|start|follow|go|sit|lost|burned|don['’]t know)\b|After (?:scanning|reading|checking|searching|browsing)\b[^.!?\n]*\bI (?:find|spot|see|notice)\b|(?:The )?README (?:then says:|pointed me at)\s|First thing I see: install with \[source\]\.?$|Then: (?:set )?\[source\]\.?$|It starts [—–-] nothing happens\.?$|[\w]+ (?:seconds?|minutes?) (?:later: \[source\]|pass)\.?$|Wait, what\?$|A local demo needs a CI check\?$|Is something broken\?$|\[source\]\.?$)/i;
+    return paragraphs.length >= 4 && paragraphs[1] === '---' && paragraphs.at(-1) === '---' &&
+      journey.every(part => observed.test(part) && !decision.test(part) && !obligation.test(part)) &&
+      sentences.every(sentence => observation.test(sentence));
+  }
   const goal = String.raw`(?: who just heard about [\w.-]+ and wants to verify it works locally before integrating it into their team['’]s CI pipeline)?`;
   const preface = new RegExp(String.raw`^(?:Here['’]s what I (?:traced|observed) from ${source}(?:, ${source})*(?: and ${source})?\.\s*)?(?:The persona: ${role}${goal}\.)?$`, 'i');
   let quoted = false;

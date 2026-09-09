@@ -1,5 +1,6 @@
 import type { TemplateContext } from './types';
-import { CODEX_WEB_SEARCH_FLAG } from './constants';
+import { CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG } from './constants';
+import { CLAUDE_FRONTIER_EVAL_MODEL } from '../../lib/eval-model';
 
 /**
  * {{CODEX_WEB_SEARCH_FLAG}} — the non-deprecated codex web-search flag
@@ -8,6 +9,23 @@ import { CODEX_WEB_SEARCH_FLAG } from './constants';
  */
 export function generateCodexWebSearchFlag(_ctx: TemplateContext): string {
   return CODEX_WEB_SEARCH_FLAG;
+}
+
+/**
+ * {{CODEX_MODEL_CONFIG_FLAG}} — the default frontier Codex model override.
+ * Users can override it with GSTACK_CODEX_MODEL, or replace it with a
+ * request-specific `-c model="..."` when the skill input names a model.
+ */
+export function generateCodexModelConfigFlag(_ctx: TemplateContext): string {
+  return CODEX_MODEL_CONFIG_FLAG;
+}
+
+export function generateCodexReviewModelConfigFlag(_ctx: TemplateContext): string {
+  return CODEX_REVIEW_MODEL_CONFIG_FLAG;
+}
+
+export function generateClaudeModelFlag(_ctx: TemplateContext): string {
+  return `--model "\${GSTACK_CLAUDE_MODEL:-${CLAUDE_FRONTIER_EVAL_MODEL}}"`;
 }
 
 export function generateSlugEval(ctx: TemplateContext): string {
@@ -339,23 +357,36 @@ console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK
 
 Compute each category score (0-100), then take the weighted average.
 
+### Counting
+- Deduplicate the same root cause across pages. Use one primary category, first applicable: Links (navigation), Accessibility (access barriers), Functional (behavior), Performance (speed), Visual (layout), Content (copy), UX (friction), Console (remaining errors). No double deductions.
+- Exclude **untested** categories; label partial scores **provisional** with coverage. None tested: "not scored". Compare only identical coverage.
+
 ### Console (weight: 15%)
+Deduplicate reproducible errors/exceptions by message+source across pages. Exclude warnings, info, and defects scored elsewhere.
 - 0 errors → 100
 - 1-3 errors → 70
 - 4-10 errors → 40
-- 10+ errors → 10
+- 11+ errors → 10
 
 ### Links (weight: 10%)
+Count unique broken destinations, including client-side routes: repeatable 4xx/5xx, missing routes/anchors, or timeouts. Exclude expected auth redirects and resource/API requests.
 - 0 broken → 100
 - Each broken link → -15 (minimum 0)
 
 ### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
-Each category starts at 100. Deduct per finding:
+Start at 100; deduct per finding:
 - Critical issue → -25
 - High issue → -15
 - Medium issue → -8
 - Low issue → -3
-Minimum 0 per category.
+Floor: 0.
+
+Use the highest applicable severity; record impact/workaround:
+- **Critical:** data loss, security/privacy exposure, or core app unusable for all users.
+- **High:** core/major task blocked without a workaround.
+- **Medium:** task impaired but a workaround exists.
+- **Low:** cosmetic/copy/friction issue without lost task completion.
+Console/Links use counts instead.
 
 ### Weights
 | Category | Weight |
@@ -370,7 +401,7 @@ Minimum 0 per category.
 | Accessibility | 15% |
 
 ### Final Score
-\`score = Σ (category_score × weight)\`
+Use decimal weights (15% = 0.15): \`score = Σ (category_score × weight) / Σ tested weights\`. Round only the final score to the nearest integer (0.5 rounds up).
 
 ---
 

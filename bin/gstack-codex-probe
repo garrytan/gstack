@@ -4,7 +4,7 @@
 #
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
-#   _gstack_codex_model_probe     — round-trip probe of the configured model (#2477)
+#   _gstack_codex_model_probe     — round-trip probe of gstack's selected model (#2477)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
@@ -38,17 +38,16 @@ _gstack_codex_auth_probe() {
 
 _gstack_codex_model_probe() {
   # Auth-exists is a weaker signal than the auth probe implies: a ChatGPT
-  # account with a stale `model = "..."` pin in ~/.codex/config.toml passes
-  # the auth probe, then EVERY invocation dies with an HTTP 400 ("The
-  # '<model>' model is not supported when using Codex with a ChatGPT
-  # account") and no guidance. A short real round trip with the configured
-  # model catches model rejection, entitlement changes, and stale pins in
-  # one shot (#2477).
+  # account can be valid while the model gstack will request is unavailable.
+  # A short real round trip with gstack's selected model catches model
+  # rejection and entitlement changes in one shot (#2477). gstack pins a
+  # frontier default rather than inheriting Codex CLI's built-in default,
+  # because that default can lag the most capable available model.
   #
   # Contract:
   #   MODEL_OK (exit 0)              — round trip succeeded; cached 1h.
   #   MODEL_UNUSABLE (exit 1)        — deterministic model 400; hints printed.
-  #     Cached 15 min: the 400 is config-driven, so re-probing every preflight
+  #     Cached 15 min: the 400 is model/entitlement-driven, so re-probing every preflight
   #     charged the affected user a 30s round trip + real tokens per review
   #     section, forever. Editing config.toml (the fix) changes the cache
   #     signature and re-probes immediately; the short TTL covers server-side
@@ -66,19 +65,22 @@ _gstack_codex_model_probe() {
   local _codex_home="${CODEX_HOME:-$HOME/.codex}"
   local _gstack_home="${GSTACK_HOME:-$HOME/.gstack}"
   local _cache="$_gstack_home/.codex-model-probe"
-  # Cache signature: config.toml + auth.json mtimes. Editing the model pin
-  # or re-logging-in invalidates the cached MODEL_OK immediately.
+  local _model="${GSTACK_CODEX_MODEL:-gpt-6-astra}"
+  # Cache signature: config.toml + auth.json mtimes + gstack model selection.
+  # Editing the model env/config or re-logging-in invalidates the cached result
+  # immediately.
   # GNU-first stat order + numeric validation (the #2195 pattern): on GNU
   # stat, `-f` means FILESYSTEM mode, so the BSD-first form emitted a
   # multi-line filesystem block on Linux — the signature then never matched
   # its own cache line and the cache missed on every read. BSD stat rejects
   # `-c` cleanly, so GNU-first degrades correctly on macOS.
-  local _cfg_m _auth_m _sig
+  local _cfg_m _auth_m _model_sig _sig
   _cfg_m=$(stat -c %Y "$_codex_home/config.toml" 2>/dev/null || stat -f %m "$_codex_home/config.toml" 2>/dev/null || echo 0)
   _auth_m=$(stat -c %Y "$_codex_home/auth.json" 2>/dev/null || stat -f %m "$_codex_home/auth.json" 2>/dev/null || echo 0)
   case "$_cfg_m" in ''|*[!0-9]*) _cfg_m=0 ;; esac
   case "$_auth_m" in ''|*[!0-9]*) _auth_m=0 ;; esac
-  _sig="${_cfg_m}-${_auth_m}"
+  _model_sig=$(printf '%s' "$_model" | sed 's/[^A-Za-z0-9._:-]/_/g')
+  _sig="${_cfg_m}-${_auth_m}-${_model_sig}"
   local _now
   _now=$(date +%s 2>/dev/null || echo 0)
   if [ -f "$_cache" ]; then
@@ -94,13 +96,13 @@ _gstack_codex_model_probe() {
     fi
     if [ "$_c_status" = "MODEL_UNUSABLE" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 900 ]; then
       echo "MODEL_UNUSABLE (cached)"
-      echo "HINT: the rejected model comes from the 'model = ' line in $_codex_home/config.toml."
-      echo "HINT: check its [notice.model_migrations] table — Codex records the intended replacement there."
+      echo "HINT: gstack requested model '$_model'."
+      echo "HINT: set GSTACK_CODEX_MODEL=<supported-model> or pass an explicit -c model=... override."
       return 1
     fi
   fi
   local _out _code
-  _out=$(_gstack_codex_timeout_wrapper 30 codex exec --skip-git-repo-check -s read-only "reply OK" </dev/null 2>&1)
+  _out=$(_gstack_codex_timeout_wrapper 30 codex exec --skip-git-repo-check -s read-only -c "model=\"$_model\"" "reply OK" </dev/null 2>&1)
   _code=$?
   if [ "$_code" -eq 0 ]; then
     mkdir -p "$_gstack_home" 2>/dev/null || true
@@ -113,8 +115,8 @@ _gstack_codex_model_probe() {
     printf 'MODEL_UNUSABLE %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null || true
     echo "MODEL_UNUSABLE"
     printf '%s\n' "$_out" | grep -i "model" | head -3
-    echo "HINT: the rejected model comes from the 'model = ' line in $_codex_home/config.toml."
-    echo "HINT: check its [notice.model_migrations] table — Codex records the intended replacement there."
+    echo "HINT: gstack requested model '$_model'."
+    echo "HINT: set GSTACK_CODEX_MODEL=<supported-model> or pass an explicit -c model=... override."
     _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
     return 1
   fi

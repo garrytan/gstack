@@ -1,0 +1,36 @@
+{
+  "sessionId": "abff750e-b5df-42fa-a1cf-a4abd940e117",
+  "toolUseId": "toolu_019fZWZV41QiqKrrudHhjLXo",
+  "questions": [
+    {
+      "question": "D3 — Which review mode should I use for this test coverage plan? <gstack-qid:ceo-mode-selection>",
+      "header": "Review mode",
+      "options": [
+        {
+          "label": "SCOPE EXPANSION — Dream big, propose ambitious version",
+          "description": "Push scope up. Surface the 10x version of this test suite (property-based tests, mutation testing, chaos scenarios). Every expansion is your opt-in."
+        },
+        {
+          "label": "SELECTIVE EXPANSION — Hold scope, cherry-pick extras",
+          "description": "Hold the two-test baseline. Surface expansion opportunities individually (e.g. contract assertions, mock-call-count checks). You choose which to add."
+        },
+        {
+          "label": "HOLD SCOPE — Maximum rigor (Recommended)",
+          "description": "Accept the plan's scope (two minimal tests). Review it with maximum rigor: architecture, error paths, edge cases, observability. No expansions surfaced. Default for test coverage plans."
+        },
+        {
+          "label": "SCOPE REDUCTION — Strip to essentials",
+          "description": "Find the minimum viable version. Ruthlessly cut anything that isn’t absolutely required."
+        }
+      ],
+      "multiSelect": false
+    }
+  ],
+  "answered": true,
+  "failed": false,
+  "answers": {
+    "D3 — Which review mode should I use for this test coverage plan? <gstack-qid:ceo-mode-selection>": "SCOPE EXPANSION — Dream big, propose ambitious version"
+  },
+  "unansweredQuestionIndices": [],
+  "answeredAt": "2026-09-09T13:51:25.511Z"
+}

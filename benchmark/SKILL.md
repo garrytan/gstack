@@ -294,13 +294,13 @@ await closeTab(pg); console.log("GSTACK_STEP_OK");
 
 `NAV=` is the navigation timing entry, `PAINT=` the paint entries (FCP lives here), `LCP=` the largest-contentful-paint start time (`null` if the page emitted no LCP entry within 3s), `RESOURCES=` the 15 slowest resources, `SCRIPTS=` / `CSS=` the bundle inventory, `SUMMARY=` request count, total transfer, and requests by type. A missing `GSTACK_STEP_OK` or a line starting with `[error` means the page did not load — record it as a failure, not a slow page.
 
-Extract key metrics from `NAV=`:
+Extract key metrics from the labelled lines (`NAV=` unless stated otherwise):
 - **TTFB** (Time to First Byte): `responseStart - requestStart`
 - **FCP** (First Contentful Paint): the `first-contentful-paint` entry in `PAINT=`
 - **LCP** (Largest Contentful Paint): the `LCP=` line (`null` if the page emitted no LCP entry — record it as missing, not 0)
-- **DOM Interactive**: `domInteractive - navigationStart`
-- **DOM Complete**: `domComplete - navigationStart`
-- **Full Load**: `loadEventEnd - navigationStart`
+- **DOM Interactive**: `domInteractive - startTime`
+- **DOM Complete**: `domComplete - startTime`
+- **Full Load**: `loadEventEnd - startTime`
 
 Load times jitter with the network. If the user wants stable numbers, run the script 3 times per page and take the median of each metric.
 
@@ -335,10 +335,12 @@ Save metrics to baseline file:
 ```
 
 Write to `.gstack/benchmark-reports/baselines/baseline.json`.
+Also retain an immutable `{UTC-timestamp}-baseline.json` beside it for trends. Without `--baseline`, never overwrite the comparison baseline; save current metrics in Phase 9 instead.
 
 ### Phase 5: Comparison
 
 If baseline exists, compare current metrics against it:
+Without a baseline, report absolute measurements and budgets only, mark comparison unavailable, and recommend a `--baseline` run. Missing metrics remain N/A. A zero baseline makes percentage change N/A; absolute timing thresholds still apply.
 
 ```
 PERFORMANCE REPORT — [url]
@@ -353,25 +355,27 @@ TTFB                120ms       135ms       +15ms    OK
 FCP                 450ms       480ms       +30ms    OK
 LCP                 800ms       1600ms      +800ms   REGRESSION
 DOM Interactive     600ms       650ms       +50ms    OK
-DOM Complete        1200ms      1350ms      +150ms   WARNING
+DOM Complete        1200ms      1350ms      +150ms   OK
 Full Load           1400ms      2100ms      +700ms   REGRESSION
 Total Requests      42          58          +16      WARNING
 Transfer Size       1.2MB       1.8MB       +0.6MB   REGRESSION
 JS Bundle           450KB       720KB       +270KB   REGRESSION
 CSS Bundle          85KB        88KB        +3KB     OK
 
-REGRESSIONS DETECTED: 3
+REGRESSIONS DETECTED: 4
   [1] LCP doubled (800ms → 1600ms) — likely a large new image or blocking resource
   [2] Total transfer +50% (1.2MB → 1.8MB) — check new JS bundles
   [3] JS bundle +60% (450KB → 720KB) — new dependency or missing tree-shaking
+  [4] Full load +700ms (1400ms → 2100ms) — inspect the slowest resources
 ```
 
 **Regression thresholds:**
 - Timing metrics: >50% increase OR >500ms absolute increase = REGRESSION
 - Timing metrics: >20% increase = WARNING
-- Bundle size: >25% increase = REGRESSION
-- Bundle size: >10% increase = WARNING
-- Request count: >30% increase = WARNING
+- Bundle size and total transfer: >25% increase = REGRESSION
+- Bundle size and total transfer: >10% increase = WARNING
+- Request count: >30% increase = WARNING (no separate regression threshold)
+Apply REGRESSION before WARNING; otherwise OK. Negative deltas are improvements.
 
 ### Phase 6: Slowest Resources
 
@@ -395,6 +399,7 @@ RECOMMENDATIONS:
 ### Phase 7: Performance Budget
 
 Check against industry budgets:
+For each available metric, FAIL at or above the budget, WARNING from 90% to below 100%, otherwise PASS. Missing metrics are N/A and excluded. Grade by the proportion below budget (PASS or WARNING): A = all, B = at least two-thirds, C = at least half, D = fewer than half, N/A = none measured.
 
 ```
 PERFORMANCE BUDGET CHECK

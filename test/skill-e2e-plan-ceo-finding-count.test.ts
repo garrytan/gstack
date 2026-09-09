@@ -71,7 +71,7 @@ const CEILING_PAIRED = 4;
 // contracts. Live controls correctly found extra ingress, missing-user,
 // observability, and rollout gaps when those baseline facts were unspecified.
 const planCeo5Findings = (planPath: string) => [
-  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  `Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
   '',
   '# Plan: Payment Processing Integration',
   '',
@@ -143,7 +143,7 @@ const planCeo5Findings = (planPath: string) => [
 ].join('\n');
 
 const planCeo2PairedFindings = (planPath: string) => [
-  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  `Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
   '',
   '# Plan: Payment Processing — Test Coverage',
   '',

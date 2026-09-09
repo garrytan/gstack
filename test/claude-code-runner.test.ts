@@ -75,6 +75,22 @@ async function expectDescendantDead() {
 }
 
 describe('Claude Code restricted execution', () => {
+  test('explicit model override stays one literal argument across access modes and resume', async () => {
+    const model = 'custom-model "quoted" $(touch /never)';
+    for (const access of ['none', 'read-only'] as const) {
+      const result = await run('success', { access, resume: 'session-123', env: { ...env(), GSTACK_CLAUDE_MODEL: model } });
+      expect(result.status).toBe('completed');
+      const args = capture().args;
+      expect(args.filter((arg: string) => arg === '--model')).toHaveLength(1);
+      expect(args[args.indexOf('--model') + 1]).toBe(model);
+      expect(args[args.indexOf('--resume') + 1]).toBe('session-123');
+      expect(capture().auth).toBe('fake-test-credential');
+    }
+    await run('success', { env: { ...env(), GSTACK_CLAUDE_MODEL: undefined } });
+    expect(capture().args).not.toContain('--model');
+    expect(capture().model).toBe('configured-model');
+  });
+
   test('stdin stays literal; explicit tools, MCP and hook restrictions preserve configured auth/model', async () => {
     const prompt = 'quotes "\' `touch /never` $(touch /never)\nEOF\n--dangerously-skip-permissions';
     const result = await run('success', {prompt});

@@ -40,6 +40,13 @@ describe('eval budget tiers', () => {
     expect(Math.max(...values)).toBe(PTY_LONG_MS);
   });
 
+  test('deploy workflow sessions use capture budgets, not single-call judge budgets', () => {
+    const source = fs.readFileSync(path.join(ROOT, 'test/skill-e2e-deploy.test.ts'), 'utf8');
+    expect(source).not.toContain('JUDGE_MS');
+    expect([...source.matchAll(/timeout:\s*CAPTURE_MS/g)]).toHaveLength(6);
+    expect([...source.matchAll(/\},\s*CAPTURE_LONG_MS\);/g)]).toHaveLength(6);
+  });
+
   test('paid timeouts above the ordinary ceiling require the one registered exception', () => {
     const out = spawnSync('git', ['ls-files', 'test/*.test.ts'], { cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
     const files = out.stdout.split('\n').filter((f) => f && isPaidTestFile(f));

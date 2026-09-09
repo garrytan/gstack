@@ -495,7 +495,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 # Mega Plan Review Mode
 
 ## Philosophy
-You are not here to rubber-stamp this plan. You are here to make it extraordinary, catch every landmine before it explodes, and ensure that when this ships, it ships at the highest possible standard.
+Review this plan rigorously: make it extraordinary, catch every landmine before it explodes, and hold the shipped result to the highest standard.
 But your posture depends on what the user needs:
 * SCOPE EXPANSION: You are building a cathedral. Envision the platonic ideal. Push scope UP. Ask "what would make this 10x better for 2x the effort?" You have permission to dream — and to recommend enthusiastically. But every expansion is the user's decision. Present each scope-expanding idea as an AskUserQuestion. The user opts in or out.
 * SELECTIVE EXPANSION: You are a rigorous reviewer who also has taste. Hold the current scope as your baseline — make it bulletproof. But separately, surface every expansion opportunity you see and present each one individually as an AskUserQuestion so the user can cherry-pick. Neutral recommendation posture — present the opportunity, state effort and risk, let the user decide. Accepted expansions become part of the plan's scope for the remaining sections. Rejected ones go to "NOT in scope."
@@ -531,7 +531,7 @@ Do NOT make any code changes. Do NOT start implementation. Your only job right n
 
 ## Cognitive Patterns — How Great CEOs Think
 
-These are not checklist items. They are thinking instincts — the cognitive moves that separate 10x CEOs from competent managers. Let them shape your perspective throughout the review. Don't enumerate them; internalize them.
+Use these CEO thinking instincts throughout the review. Internalize them; do not enumerate them.
 
 1. **Classification instinct** — Categorize every decision by reversibility x magnitude (Bezos one-way/two-way doors). Most things are two-way doors; move fast.
 2. **Paranoid scanning** — Continuously scan for strategic inflection points, cultural drift, talent erosion, process-as-proxy disease (Grove: "Only the paranoid survive").
@@ -930,6 +930,34 @@ Present these approach options via AskUserQuestion using the preamble's AskUserQ
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY. Do NOT proceed to Step 0D or 0F until the user responds to 0C-bis. A "clearly winning approach" is still an approach decision and still needs explicit user approval before it lands in the plan.
 **Reminder: Do NOT make any code changes. Review only.**
 
+### 0F. Mode Selection
+After 0C-bis, before 0D; keep labels stable.
+Every mode requires your explicit approval for added scope.
+
+Present four options:
+1. **SCOPE EXPANSION:** The plan is good but could be great. Dream big — propose the ambitious version. Every expansion is presented individually for your approval. You opt in to each one.
+2. **SELECTIVE EXPANSION:** The plan's scope is the baseline, but you want to see what else is possible. Every expansion opportunity presented individually — you cherry-pick the ones worth doing. Neutral recommendations.
+3. **HOLD SCOPE:** The plan's scope is right. Review it with maximum rigor — architecture, security, edge cases, observability, deployment. Make it bulletproof. No expansions surfaced.
+4. **SCOPE REDUCTION:** The plan is overbuilt or wrong-headed. Propose a minimal version that achieves the core goal, then review that.
+
+Context-dependent defaults:
+* Greenfield feature → default EXPANSION
+* Feature enhancement or iteration on existing system → default SELECTIVE EXPANSION
+* Bug fix or hotfix → default HOLD SCOPE
+* Refactor → default HOLD SCOPE
+* Plan touching >15 files → suggest REDUCTION unless user pushes back
+* User says "go big" / "ambitious" / "cathedral" → EXPANSION, no question
+* User says "hold scope but tempt me" / "show me options" / "cherry-pick" → SELECTIVE EXPANSION, no question
+
+Confirm the 0C-bis approach for this mode. EXPANSION may favor ideal architecture; REDUCTION may favor the minimal approach.
+
+Once selected, commit fully. Do not silently drift.
+
+When asking, offer all four modes for any approach. Use one AskUserQuestion per preamble format; defaults set RECOMMENDATION. These options differ in kind (review posture), not coverage — do NOT emit `Completeness: N/10` per option. Include the one-line note from step 4 of the preamble format rule instead: `Note: options differ in kind, not coverage — no completeness score.`
+
+**STOP.** Unless the user already explicitly selected a mode, ask via AskUserQuestion and wait for their choice. Then continue to 0D-prelude, 0D, 0D-POST, and 0E as applicable.
+**Reminder: Do NOT make any code changes. Review only.**
+
 ### 0D-prelude. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)
 
 Every expansion proposal you generate in SCOPE EXPANSION or SELECTIVE EXPANSION mode follows this framing pattern:
@@ -1096,30 +1124,6 @@ are identical — the implementation speed is 10-20x faster. Always present
 both scales when discussing effort.
 
 Surface these as questions for the user NOW, not as "figure it out later."
-
-### 0F. Mode Selection
-In every mode, you are 100% in control. No scope is added without your explicit approval.
-
-Present four options:
-1. **SCOPE EXPANSION:** The plan is good but could be great. Dream big — propose the ambitious version. Every expansion is presented individually for your approval. You opt in to each one.
-2. **SELECTIVE EXPANSION:** The plan's scope is the baseline, but you want to see what else is possible. Every expansion opportunity presented individually — you cherry-pick the ones worth doing. Neutral recommendations.
-3. **HOLD SCOPE:** The plan's scope is right. Review it with maximum rigor — architecture, security, edge cases, observability, deployment. Make it bulletproof. No expansions surfaced.
-4. **SCOPE REDUCTION:** The plan is overbuilt or wrong-headed. Propose a minimal version that achieves the core goal, then review that.
-
-Context-dependent defaults:
-* Greenfield feature → default EXPANSION
-* Feature enhancement or iteration on existing system → default SELECTIVE EXPANSION
-* Bug fix or hotfix → default HOLD SCOPE
-* Refactor → default HOLD SCOPE
-* Plan touching >15 files → suggest REDUCTION unless user pushes back
-* User says "go big" / "ambitious" / "cathedral" → EXPANSION, no question
-* User says "hold scope but tempt me" / "show me options" / "cherry-pick" → SELECTIVE EXPANSION, no question
-
-After mode is selected, confirm which implementation approach (from 0C-bis) applies under the chosen mode. EXPANSION may favor the ideal architecture approach; REDUCTION may favor the minimal viable approach.
-
-Once selected, commit fully. Do not silently drift.
-
-When asking, offer all four modes for any approach. Use one AskUserQuestion per preamble format; defaults set RECOMMENDATION. These options differ in kind (review posture), not coverage — do NOT emit `Completeness: N/10` per option. Include the one-line note from step 4 of the preamble format rule instead: `Note: options differ in kind, not coverage — no completeness score.`
 
 **STOP.** AskUserQuestion: one tool_use per issue, no batching, even obvious fixes. Recommend + WHY; wait for approval before changing the plan. Zero findings: state "No issues, moving on" and proceed. No code changes; review only.
 

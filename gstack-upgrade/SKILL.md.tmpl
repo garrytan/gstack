@@ -39,7 +39,7 @@ _AUTO=""
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
-**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
+**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. On setup failure, follow Step 4's install-specific recovery: vendored installs restore their backup; git installs stop with the pre-upgrade commit recorded, without a destructive reset. Never claim restoration unless it actually succeeded.
 
 **Otherwise**, use AskUserQuestion:
 - Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
@@ -109,6 +109,7 @@ echo "Install type: $INSTALL_TYPE at $INSTALL_DIR"
 ```
 
 The install type and directory path printed above will be used in all subsequent steps.
+Resolve `INSTALL_DIR` to an absolute path. Carry `INSTALL_TYPE`, `INSTALL_DIR`, `OLD_VERSION`, and later `NEW_VERSION` forward explicitly: if tool calls use fresh shells, reassign them from captured output before running a block. Do not rely on a prior call's working directory or shell variables.
 
 ### Step 3: Save old version
 
@@ -116,6 +117,7 @@ Use the install directory from Step 2's output below:
 
 ```bash
 OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
+echo "OLD_VERSION=$OLD_VERSION"
 ```
 
 ### Step 4: Upgrade
@@ -135,11 +137,18 @@ cd "$INSTALL_DIR"
 # ~/.gstack/render), so discarding is lossless.
 git checkout -- 'SKILL.md' '*/SKILL.md' '*/sections/*.md' 2>/dev/null || true
 git fetch origin
-git pull --ff-only --autostash origin main && ./setup && echo "FF_OK"
+PRE_UPGRADE_COMMIT=$(git rev-parse HEAD)
+echo "PRE_UPGRADE_COMMIT=$PRE_UPGRADE_COMMIT"
+if git pull --ff-only --autostash origin main; then
+  if ./setup; then echo "FF_OK"; else echo "SETUP_FAILED: git update succeeded; stop and inspect setup output (previous commit: $PRE_UPGRADE_COMMIT)" >&2; exit 1; fi
+else
+  echo "FF_REFUSED"
+fi
 ```
 
 If the output ends with `FF_OK`, the upgrade is done — skip the fallback
 below entirely.
+On `SETUP_FAILED`, STOP; keep user changes and report the recovery commit. There is no `.bak` on the git path. Do not enter the divergence fallback merely because setup failed. Enter it only on `FF_REFUSED`, after inspecting the pull error; network/auth failures stop for repair, not reset.
 
 **Fallback (ff-only refused — local commits or divergence).** `git reset
 --hard` DESTROYS things: a clean tree with unpushed local commits still loses
@@ -174,10 +183,17 @@ PARENT=$(dirname "$INSTALL_DIR")
 [ -e "$INSTALL_DIR.bak" ] && { echo "ERROR: stale backup exists at $INSTALL_DIR.bak (from a previous failed upgrade?) — inspect it, salvage/remove it, then re-run." >&2; exit 1; }
 TMP_DIR=$(mktemp -d) || { echo "ERROR: mktemp failed — aborting upgrade (install untouched)." >&2; exit 1; }
 git clone --depth 1 https://github.com/garrytan/gstack.git "$TMP_DIR/gstack" || { echo "ERROR: clone failed — aborting upgrade (install untouched)." >&2; rm -rf "$TMP_DIR"; exit 1; }
-mv "$INSTALL_DIR" "$INSTALL_DIR.bak"
+mv "$INSTALL_DIR" "$INSTALL_DIR.bak" || { rm -rf "$TMP_DIR"; exit 1; }
 if mv "$TMP_DIR/gstack" "$INSTALL_DIR"; then
-  cd "$INSTALL_DIR" && {{SETUP_COMMAND}}
-  rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
+  if (cd "$INSTALL_DIR" && {{SETUP_COMMAND}}); then
+    rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
+  else
+    rm -rf "$INSTALL_DIR"
+    mv "$INSTALL_DIR.bak" "$INSTALL_DIR" || { echo "ERROR: restore failed; backup retained." >&2; exit 1; }
+    rm -rf "$TMP_DIR"
+    echo "ERROR: setup failed; previous install restored." >&2
+    exit 1
+  fi
 else
   mv "$INSTALL_DIR.bak" "$INSTALL_DIR"
   echo "ERROR: swap failed — previous install restored; upgrade aborted." >&2
@@ -219,20 +235,19 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 
 **If `LOCAL_GSTACK` is non-empty AND `TEAM_MODE` is NOT `true`:** Update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
 ```bash
-mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
-cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
-rm -rf "$LOCAL_GSTACK/.git"
-cd "$LOCAL_GSTACK" && {{SETUP_COMMAND}}
-rm -rf "$LOCAL_GSTACK.bak"
+[ -e "$LOCAL_GSTACK.bak" ] && { echo "ERROR: stale vendored backup; inspect it before retrying." >&2; exit 1; }
+mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak" || exit 1
+if cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK" && rm -rf "$LOCAL_GSTACK/.git" && (cd "$LOCAL_GSTACK" && {{SETUP_COMMAND}}); then
+  rm -rf "$LOCAL_GSTACK.bak"
+  echo "LOCAL_SYNC_OK"
+else
+  rm -rf "$LOCAL_GSTACK"
+  mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK" || { echo "ERROR: restore failed; backup retained." >&2; exit 1; }
+  echo "ERROR: sync failed; previous vendored copy restored." >&2
+  exit 1
+fi
 ```
-Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
-
-If `./setup` fails, restore from backup and warn the user:
-```bash
-rm -rf "$LOCAL_GSTACK"
-mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK"
-```
-Tell user: "Sync failed — restored previous version at `$LOCAL_GSTACK`. Run `/gstack-upgrade` manually to retry."
+Only on `LOCAL_SYNC_OK`, tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready." Otherwise stop and report the recovery outcome; do not continue migrations or announce success.
 
 ### Step 4.75: Run version migrations
 

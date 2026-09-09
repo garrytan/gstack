@@ -49,6 +49,11 @@ direct argument arrays and the prompt on stdin. It enforces:
 - A 10-minute wall timeout and a 32 MiB combined output cap. Every execution
   failure, `is_error`, malformed JSON, or empty response exits nonzero.
 
+Set `GSTACK_CLAUDE_MODEL=<model>` for an explicit override, including resumed
+consultations. If the user names a model, pass that value through this environment
+variable for every runner call. Without an override, retain Claude's configured
+model; harness routing never chooses a model family.
+
 Do not infer authentication state from credential files or environment variables.
 Run the actual runner invocation in the host's normal execution context. On a
 host with shell sandboxing, use its normal approval mechanism if required for

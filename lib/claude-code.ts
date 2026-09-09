@@ -37,7 +37,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Keep argument construction separate so wrappers never interpolate a prompt. */
-export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resume'>, command: ClaudeCommand): string[] {
+export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resume'>, command: ClaudeCommand, env: NodeJS.ProcessEnv = process.env): string[] {
   const args = [
     ...command.argsPrefix, '-p', '--output-format', 'json',
     '--disable-slash-commands',
@@ -58,6 +58,9 @@ export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resu
       + 'If essential context is missing, identify it explicitly instead of inventing observations.');
   }
   if (options.access === 'read-only') args.push('--allowedTools', 'Read,Grep,Glob');
+  // An explicit gstack override wins; otherwise leave native CLI configuration
+  // and ANTHROPIC_MODEL intact instead of replacing the user's selected model.
+  if (env.GSTACK_CLAUDE_MODEL) args.push('--model', env.GSTACK_CLAUDE_MODEL);
   if (options.resume) args.push('--resume', options.resume);
   return args;
 }
@@ -133,7 +136,7 @@ export async function runClaudeCode(options: ClaudeCodeOptions): Promise<ClaudeC
 
   let child: ChildProcess;
   try {
-    child = spawn(command.command, claudeCodeArgs(options, command), {
+    child = spawn(command.command, claudeCodeArgs(options, command, env), {
       cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32', windowsHide: true,
     });

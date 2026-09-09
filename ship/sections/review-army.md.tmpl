@@ -1,6 +1,8 @@
 ## Step 9: Pre-Landing Review
 
-Review the diff for structural issues that tests don't catch.
+Review structural issues tests don't catch. Order: calibrate, checklist, design, specialists, deduplicate, fix, persist. All phases below belong to Step 9; only continue to Step 10 after item 9.
+
+{{CONFIDENCE_CALIBRATION}}
 
 1. Read `~/.claude/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
@@ -10,8 +12,6 @@ Review the diff for structural issues that tests don't catch.
    - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
    - **Pass 2 (INFORMATIONAL):** All remaining categories
 
-{{CONFIDENCE_CALIBRATION}}
-
 {{DESIGN_REVIEW_LITE}}
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
@@ -19,6 +19,8 @@ Review the diff for structural issues that tests don't catch.
 {{REVIEW_ARMY}}
 
 {{CROSS_REVIEW_DEDUP}}
+
+### Step 9: Fix-First and persistence (items 4-9)
 
 4. **Classify each finding from both the checklist pass and specialist review (Step 9.1-Step 9.2) as AUTO-FIX or ASK** per the Fix-First Heuristic in
    checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
@@ -33,9 +35,9 @@ Review the diff for structural issues that tests don't catch.
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
 7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) on the fixed code, then re-run this review (Step 9 items 2-6) against the updated diff. Repeat until one full pass applies ZERO fixes — tests green and review clean — then continue to Step 12. NEVER stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no user decision in it, and stopping there breaks the fully-automated contract (#2391).
+   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) on the fixed code, then re-run this review (Step 9 items 2-6) against the updated diff. Repeat until one full pass applies ZERO fixes — tests green and review clean — then summarize and persist (items 8-9). NEVER stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no user decision in it, and stopping there breaks the fully-automated contract (#2391).
    - **Bound: 3 fix cycles.** If the 3rd cycle still applies fixes, STOP and report which findings keep reappearing — a review that won't converge is a genuine blocker worth human eyes, not a re-run request.
-   - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 12.
+   - If no fixes applied (all ASK items skipped, or no issues found): summarize and persist (items 8-9).
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 

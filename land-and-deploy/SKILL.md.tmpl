@@ -159,7 +159,7 @@ gh pr checks --json name,state,status,conclusion
 Parse the output:
 1. If any required checks are **FAILING**: **STOP.** "CI is failing on this PR. Here are the failing checks: {list}. Fix these before deploying — I won't merge code that hasn't passed CI."
 2. If required checks are **PENDING**: Tell the user "CI is still running. I'll wait for it to finish." Proceed to Step 3.
-3. If all checks pass (or no required checks): Tell the user "CI passed." Skip Step 3, go to Step 4.
+3. If all checks pass (or no required checks): Tell the user "CI passed." Skip only Step 3's wait loop; continue to Step 3.4, then Step 3.5 before merging.
 
 Also check for merge conflicts:
 ```bash
@@ -179,7 +179,7 @@ gh pr checks --watch --fail-fast
 
 Record the CI wait time for the deploy report.
 
-If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 4.
+If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 3.4, then Step 3.5 before merging.
 If CI fails: **STOP.** "CI failed. Here's what broke: {failures}. This needs to pass before I can merge."
 If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that's unusual. Check the GitHub Actions tab to see if something is stuck."
 
@@ -383,7 +383,7 @@ git push origin <base>
 If the revert has conflicts: "The revert has merge conflicts — this can happen if other changes landed on {base} after your merge. You'll need to resolve the conflicts manually. The merge commit SHA is `<sha>` — run `git revert <sha>` to try again."
 
 If the base branch has push protections: "This repo has branch protections, so I can't push the revert directly. I'll create a revert PR instead — merge it to roll back."
-Then create a revert PR: `gh pr create --title 'revert: <original PR title>'`
+Keep the local revert commit. Create a new branch at that commit (`git switch -c "revert/pr-<PR_NUMBER>-<timestamp>"`), push it with `git push -u origin HEAD`, then create the revert PR with `gh pr create --base <base> --title 'revert: <original PR title>'`. Report rollback as pending until this PR merges and deploys, not REVERTED.
 
 After a successful revert: Tell the user "Revert pushed to {base}. The deploy should roll back automatically once CI passes. Keep an eye on the site to confirm." Note the revert commit SHA and continue to Step 9 with status REVERTED.
 

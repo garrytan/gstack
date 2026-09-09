@@ -25,7 +25,7 @@
  * The three skillify keys run gate-tier; the two scrape keys are periodic
  * (/scrape is Aside-first and its fallback no longer prescribes the match +
  * prototype flow they assert — see E2E_TIERS). ~$0.50–$1.50 each.
- * Set EVALS=1 to enable. Set EVALS_MODEL to override (default sonnet-4-6).
+ * Set EVALS=1 to enable. Set EVALS_MODEL to override (default frontier Claude).
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';

@@ -67,8 +67,10 @@ describe('CEO mode option matching', () => {
     ], 'HOLD SCOPE')).toBeNull();
   });
 
-  test('helper and regression changes select only the mode-routing paid eval', () => {
-    for (const file of ['test/helpers/ceo-mode-option.ts', 'test/ceo-mode-option.test.ts', 'test/pty-option-selection.test.ts']) {
+  test('the shared parser selects both callers while mode-specific regressions stay scoped', () => {
+    expect(selectTests(['test/helpers/ceo-mode-option.ts'], E2E_TOUCHFILES).selected)
+      .toEqual(['plan-ceo-mode-routing', 'plan-ceo-finding-count']);
+    for (const file of ['test/ceo-mode-option.test.ts', 'test/pty-option-selection.test.ts']) {
       expect(selectTests([file], E2E_TOUCHFILES).selected).toEqual(['plan-ceo-mode-routing']);
     }
   });

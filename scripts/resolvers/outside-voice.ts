@@ -2,7 +2,7 @@
  * Callers own prompts, opt-in rules, timeouts, gates, and native fallbacks.
  */
 import { toShellPath, type TemplateContext } from './types';
-import { CODEX_WEB_SEARCH_FLAG, codexPreflight } from './constants';
+import { CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG, codexPreflight } from './constants';
 import { getHostConfig } from '../../hosts';
 
 export function outsideVoiceFor(ctx: Pick<TemplateContext, 'host'>) {
@@ -112,8 +112,8 @@ export function outsideVoiceCommand(ctx: TemplateContext, opts: OutsideCommandOp
   const root = toShellPath(ctx.paths.skillRoot);
   const prompt = sh(opts.promptFile ?? '<prepared-prompt-file>');
   const codex = opts.structuredBase
-    ? `codex review --base ${sh(opts.structuredBase)} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`
-    : `codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`;
+    ? `codex review --base ${sh(opts.structuredBase)} ${CODEX_REVIEW_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`
+    : `codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`;
   const invocation = v.id === 'codex'
     ? `source "${bin}/gstack-codex-probe" || exit 1
 _gstack_codex_timeout_wrapper ${Math.ceil(opts.timeoutMs / 1000)} ${codex} >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"

@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { resolveClaudeCommand } from '../../../lib/claude-bin';
+import { resolveEvalModel } from '../../../lib/eval-model';
 
 /**
  * Claude adapter — wraps the `claude` CLI via claude -p.
@@ -60,8 +61,9 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       throw new Error('claude CLI not resolvable (set GSTACK_CLAUDE_BIN or install)');
     }
+    const model = opts.model ?? process.env.EVALS_MODEL ?? resolveEvalModel('capture');
     const args = [...resolved.argsPrefix, '-p', '--output-format', 'json'];
-    if (opts.model) args.push('--model', opts.model);
+    args.push('--model', model);
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
     try {
@@ -81,27 +83,27 @@ export class ClaudeAdapter implements ProviderAdapter {
         tokens: parsed.tokens,
         durationMs: Date.now() - start,
         toolCalls: parsed.toolCalls,
-        modelUsed: parsed.modelUsed || opts.model || 'claude-opus-4-7',
+        modelUsed: parsed.modelUsed || model,
       };
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
       const stderr = e.stderr?.toString() ?? '';
       if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
-        return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
+        return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, model);
       }
       if (/unauthorized|auth|login/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
+        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, model);
       }
       if (/rate[- ]?limit|429/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
+        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, model);
       }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, model);
     }
   }
 
   estimateCost(tokens: { input: number; output: number; cached?: number }, model?: string): number {
-    return estimateCostUsd(tokens, model ?? 'claude-opus-4-7');
+    return estimateCostUsd(tokens, model ?? resolveEvalModel('capture'));
   }
 
   /**
@@ -137,7 +139,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       tokens: { input: 0, output: 0 },
       durationMs,
       toolCalls: 0,
-      modelUsed: model ?? 'claude-opus-4-7',
+      modelUsed: model ?? resolveEvalModel('capture'),
       error,
     };
   }

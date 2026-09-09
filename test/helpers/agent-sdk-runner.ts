@@ -36,6 +36,7 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveClaudeBinary as resolveClaudeBinaryShared } from '../../lib/claude-bin';
+import { resolveEvalModel } from '../../lib/eval-model';
 import { hermeticChildEnv } from './hermetic-env';
 import type { SkillTestResult } from './session-runner';
 
@@ -299,10 +300,9 @@ export async function runAgentSdkTest(
   const sem = getApiSemaphore();
   const maxRetries = opts.maxRetries ?? 3;
   const queryImpl: QueryProvider = opts.queryProvider ?? query;
-  // Default matches session-runner's Sonnet (D1a, 2026-08): the old Opus
-  // default was an inconsistency between the two runners, not a choice —
-  // tests that need Opus pin it via opts.model (30+ already do).
-  const model = opts.model ?? 'claude-sonnet-4-6';
+  // Default matches session-runner's frontier eval fallback. Tests that need a
+  // cheaper or historical model pin it via opts.model or EVALS_MODEL.
+  const model = opts.model ?? process.env.EVALS_MODEL ?? resolveEvalModel('capture');
 
   // NOTE on env: the SDK child gets the COMPLETE hermetic env (allowlist
   // scrub + ANTHROPIC_API_KEY + hermetic CLAUDE_CONFIG_DIR/GSTACK_HOME), with
