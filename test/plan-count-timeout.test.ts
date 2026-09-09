@@ -145,6 +145,16 @@ setInterval(()=>{},1000);
 const mode=process.env.BOUNDARY_MODE;
 let start=0, reads=0;
 const log=(event,extra={})=>fs.appendFileSync(process.env.BOUNDARY_EVENTS,JSON.stringify({event,at:Date.now(),invocation:1,...extra})+'\n');
+if(mode==='boot') {
+  const sleep=Bun.sleep.bind(Bun);
+  Bun.sleep=async ms=>{
+    if(typeof ms==='number' && ms>1000 && ms<8000) {
+      log('early-clipped-wake',{requested:ms});
+      return sleep(Math.max(0,ms-250));
+    }
+    return sleep(ms);
+  };
+}
 if(mode==='screen') mock.module(screenModule,()=>({createPtyScreen:async(...args)=>{
   const screen=await originalScreen(...args);
   return {...screen,read:async()=>{reads++; await Bun.sleep(Math.max(0,start+13200-Date.now()));return screen.read();}};
@@ -176,6 +186,7 @@ log('returned',{outcome:observation.outcome,elapsed:Date.now()-start,reads,fixtu
       expect(returned.elapsed).toBeLessThan(mode==='boot'?12000:18000);
       const input=events.filter(e=>e.event==='input').map(e=>e.data).join('');
       expect(input).toBe(mode==='boot'?'':mode==='screen'?'/plan-design-review\r':'/plan-design-review\r2');
+      if(mode==='boot') expect(events.some(e=>e.event==='early-clipped-wake')).toBe(true);
       if(mode==='screen') { expect(returned.reads).toBe(1);expect(events.some(e=>e.event==='picker')).toBe(false); }
       expect(ownedFake(events.find(e=>e.event==='ready'),fake)).toBe(false);
     }));

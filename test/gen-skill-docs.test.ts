@@ -1814,6 +1814,39 @@ describe('DESIGN_HARD_RULES resolver', () => {
   });
 });
 
+describe('Design approval reconciliation', () => {
+  test('loaded review section distinguishes individual issue decisions from navigation', () => {
+    const section = fs.readFileSync(path.join(ROOT, 'plan-design-review/sections/review-sections.md'), 'utf8');
+    expect(section).toContain('Complete one decision cycle per unresolved finding');
+    expect(section).toContain('Scope, focus, setup, and next-step choices approve no remedies.');
+    expect(section).toContain('Never use the final next-step AskUserQuestion to satisfy the issue-approval loop.');
+    expect(section).toContain('With no unresolved findings, no issue question is required.');
+  });
+
+  test('finish-time check requires exact issue decisions and repairs prematurely accepted drafts', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'plan-design-review/SKILL.md'), 'utf8');
+    const check = extractMarkdownSection(main, '## Section self-check');
+    expect(check).toContain('reconcile every proposed fix with the exact user decision for that issue');
+    expect(check).toContain('an explicit deferral stays unresolved');
+    expect(check).toContain('Existing accepted requirements need no repeat approval');
+    expect(check).toContain("preamble's authorized auto-decisions");
+    expect(check).toContain('return that change to pending before continuing');
+    const exitGate = main.indexOf('\n## EXIT PLAN MODE GATE (BLOCKING)');
+    expect(exitGate).toBeGreaterThan(0);
+    expect(main.indexOf('reconcile every proposed fix')).toBeLessThan(exitGate);
+  });
+
+  test('task and decision reporting require approval while preserving unanswered findings', () => {
+    const section = fs.readFileSync(path.join(ROOT, 'plan-design-review/sections/review-sections.md'), 'utf8');
+    const reconcile = section.indexOf('Before synthesizing tasks or the completion summary');
+    expect(reconcile).toBeGreaterThan(0);
+    expect(reconcile).toBeLessThan(section.indexOf('## Implementation Tasks'));
+    expect(section).toContain('Export only agreed implementation work; retain unapproved remedies as pending findings.');
+    expect(section).toContain('Count only individually approved new decisions');
+    expect(section).toContain('including a finding not yet asked');
+  });
+});
+
 // --- Extended DESIGN_SKETCH resolver tests ---
 
 describe('DESIGN_SKETCH extended with outside voices', () => {
@@ -3437,6 +3470,26 @@ describe('voice-triggers processing', () => {
     const invFm = investigate.slice(0, investigate.indexOf('\n---', 4));
     expect(invFm).toContain('hooks:');
     expect(invFm).toContain('gbrain:');
+  });
+});
+
+describe('CEO accepted requirement preservation', () => {
+  test('HOLD SCOPE includes implementation work needed to meet accepted requirements', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/SKILL.md'), 'utf8');
+    const hold = main.slice(main.indexOf('**For HOLD SCOPE**'), main.indexOf('**For SCOPE REDUCTION**'));
+    expect(hold).toContain('Keep stated invariants and acceptance criteria; repairs needed to meet them are in scope.');
+  });
+
+  test('loaded sections keep requirement conflicts unresolved until an authorized decision', () => {
+    const section = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/sections/review-sections.md'), 'utf8');
+    const policy = section.slice(section.indexOf('**Preserve accepted requirements.**'), section.indexOf('### Section 1:'));
+    expect(policy).toContain('report an implementation\ngap and propose a remedy that meets the requirement');
+    expect(policy).toContain('it does not authorize weakening the required behavior');
+    expect(policy).toContain('changing a test to expect the prohibited result');
+    expect(policy).toContain('keep that proposal pending and the original gap unresolved');
+    expect(policy).toContain('Earlier explicitly approved requirement changes and explicit authority to change\nthat scope remain valid');
+    expect(policy).toContain('Routine auto-decide permission alone cannot override an\nexplicit user constraint or non-goal');
+    expect(policy).toContain('Preserve the distinction in findings, tasks,\nand the completion report');
   });
 });
 

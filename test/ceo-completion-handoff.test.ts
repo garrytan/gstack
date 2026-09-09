@@ -8,6 +8,7 @@ import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captures from './fixtures/ceo-completion-handoff-calls.json';
 import currentHandoffs from './fixtures/ceo-completion-handoff-j-calls.json';
 import kHandoffs from './fixtures/ceo-completion-handoff-k-calls.json';
+import rCalls from './fixtures/ceo-completion-handoff-r-calls.json';
 
 type CapturedCall = typeof captures.cases[number]['calls'][number];
 function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativePlanQuestionCall {
@@ -20,6 +21,81 @@ function nativeCall(record: CapturedCall, sessionId = 'native-capture'): NativeP
 }
 const handoff = () => nativeCall(captures.cases[0]!.calls.at(-1)!);
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, false);
+
+describe('native direct Eng/manual handoff with described CEO closure', () => {
+  const captured = () => structuredClone(rCalls.at(-1)!) as NativePlanQuestionCall;
+  const pending = (call: NativePlanQuestionCall) => {
+    const copy = structuredClone(call); copy.answered = false; delete copy.answers;
+    delete copy.unansweredQuestionIndices;
+    return fingerprint(copy);
+  };
+  test('actual R calls retain zero findings and choose offered manual instead of starting Eng', () => {
+    const calls = structuredClone(rCalls) as NativePlanQuestionCall[];
+    expect(replay(calls, false, ceoFirstReviewAUQ)).toMatchObject({ step0Count: 3, reviewCount: 0, administrativeCount: 1, reviewStarted: true });
+    expect(replay(calls, false, ceoFirstReviewAUQ).reviewCount).toBeLessThan(2); // Existing paired floor still fails.
+    expect(isCeoCompletionHandoff(fingerprint(captured()))).toBe(true);
+    expect(pickCeoCompletionHandoff(pending(captured())) ?? 1).toBe(2);
+    expect(calls).toEqual(rCalls);
+  });
+  test('manual choice follows real option order and still requires pending native identity', () => {
+    const call = captured(); call.questions[0]!.options.reverse();
+    expect(pickCeoCompletionHandoff(pending(call))).toBe(1);
+    expect(pickCeoCompletionHandoff(fingerprint(call))).toBeNull();
+    expect(pickCeoCompletionHandoff({ ...pending(call), signature: 'foreign-call' })).toBeNull();
+    expect(pickCeoCompletionHandoff({ ...pending(call), nativeCall: undefined })).toBeNull();
+    call.failed = true;
+    expect(pickCeoCompletionHandoff(pending(call))).toBeNull();
+  });
+  test('same native menu retains every incomplete, conditional, quoted or substantive obligation', () => {
+    const changes: Array<(c: NativePlanQuestionCall) => void> = [
+      c => { c.questions[0]!.question = 'Should we fix the missing authorization test before the next review?'; },
+      c => { c.questions[0]!.question += ' First repair the missing assertion.'; },
+      c => { c.questions[0]!.question = 'The review did not finish. ' + c.questions[0]!.question; },
+      c => { c.questions[0]!.header = 'Authorization gap'; },
+      c => { c.questions[0]!.question += ' <gstack-qid:ceo-security-finding>'; },
+      c => { c.questions[0]!.options[1]!.label = 'Skip'; },
+      c => { c.questions[0]!.options[1]!.label = 'Repair authorization before Eng'; },
+      c => { c.questions[0]!.options.push({ ...c.questions[0]!.options[1]! }); },
+      c => { c.questions[0]!.options.push({ label: 'Run /plan-design-review' }); },
+      c => { c.questions[0]!.options[1]!.description = 'The CEO review is not clear.'; },
+      c => { c.questions[0]!.options[1]!.description = 'The CEO review remains incomplete.'; },
+      c => { c.questions[0]!.options[1]!.description = 'The CEO review is clear once tests pass.'; },
+      c => { c.questions[0]!.options[1]!.description = 'Once tests pass, the CEO review will be clear.'; },
+      c => { c.questions[0]!.options[1]!.description += ' All findings become resolved after tests pass.'; },
+      c => { c.questions[0]!.options[1]!.description += ' The contrast gap remains unresolved.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Not all decisions are resolved.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Repair the missing authorization test.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Recommendation: repair the missing assertion.'; },
+      c => { c.questions[0]!.options[1]!.description += ' We may repair the missing assertion.'; },
+      c => { c.questions[0]!.options[1]!.description += ' We must add the authorization test.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Delete the failing regression test before Eng.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Remove the owner check before Eng.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Change the guarantee to permit old results.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Rewrite the acceptance criteria before shipping.'; },
+      c => { c.questions[0]!.options[1]!.description += ' Do you want me to fix the missing test?'; },
+      c => { c.questions[0]!.options[1]!.description = 'Example: The CEO review is clear.'; },
+      c => { c.questions[0]!.options[1]!.description = '> The CEO review is clear.'; },
+      c => { c.questions[0]!.options[1]!.description = '```text\nThe CEO review is clear.'; },
+    ];
+    for (const change of changes) {
+      const call = captured(); change(call);
+      call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+      expect(pickCeoCompletionHandoff(pending(call))).toBeNull();
+    }
+  });
+  test('an unconditional completed recap permits next Eng sequencing but no failed or free-form answer', () => {
+    const call = captured();
+    call.questions[0]!.options[1]!.description = 'The CEO review is complete. Run /plan-eng-review after implementation and before shipping.';
+    expect(isCeoCompletionHandoff(fingerprint(call))).toBe(true);
+    expect(pickCeoCompletionHandoff(pending(call))).toBe(2);
+    call.answers = { [call.questions[0]!.question]: 'First fix the missing receipt assertion' };
+    expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+    call.answers = { [call.questions[0]!.question]: call.questions[0]!.options[0]!.label };
+    call.unansweredQuestionIndices = [0];
+    expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+  });
+});
 
 function replay(calls: NativePlanQuestionCall[], reviewStarted = true, firstReview = (_fp: ReturnType<typeof fingerprint>) => true) {
   const counts = { step0Count: 0, reviewCount: 0, administrativeCount: 0 };

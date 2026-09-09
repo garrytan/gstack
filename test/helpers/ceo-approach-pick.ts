@@ -13,8 +13,10 @@ export function pickCeoRecommendedApproach(fp: AskUserQuestionFingerprint): numb
   if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return null;
   const qid = ids[0]![1]!.toLowerCase();
   const question = q.question.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
-  const planApproach = qid === 'plan-ceo-approach' &&
-    /^Which implementation approach should this plan use\?(?:\s|$)/i.test(question);
+  // Native approach menus vary their routing id and use/follow wording. Match
+  // the selector's structure, retaining the explicit recommendation below.
+  const planApproach = /^plan-ceo(?:-review)?-approach(?:-selection)?$/.test(qid) &&
+    /^Which implementation approach should this plan (?:use|follow)\?(?:\s|$)/i.test(question);
   const testApproach = qid === 'plan-ceo-review-impl-approach' &&
     /^Which implementation approach for the [a-z_$][\w$]*(?:\.[a-z_$][\w$]*)*\(\) tests\?(?:\s|$)/i.test(question);
   if (!planApproach && !testApproach) return null;

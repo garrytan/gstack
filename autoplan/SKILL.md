@@ -623,12 +623,12 @@ Phases MUST execute in strict order: CEO → Design (if UI scope) → DX (if
 developer-facing scope) → Eng. Eng runs LAST, always, reviewing all prior amendments.
 Keep ONE phase active, completing these gates in order:
 1. Load its phase instructions and full skill/sections, recording complete Read ranges.
-2. Create the fresh snapshot and dispatch its generated nativePrompt unchanged.
+2. Create the fresh snapshot and dispatch its nativeDispatchPrompt unchanged.
 3. Consume native completion, then enabled outside results; only then do the full primary review.
 4. Persist outputs/amendments and run the phase's implementation check/readback.
 5. Emit actual completion; only then load the next required phase.
 A missing gate means the current phase remains open, even if a reviewer finished.
-INPUT correlates reported input; it is not independent proof of uptake or review quality.
+Read requests/self-reports and INPUT hashes do not prove uptake or review quality.
 Never draft future-phase reviews or outputs. Headings/promises are not completion.
 After compaction, reload current phase instructions/skill/sections; reconcile disk progress before resuming.
 
@@ -689,10 +689,14 @@ Prefix every Codex prompt:
 
 ### Step 1: Capture restore point
 
-Pin absolute paths: SOURCE_PLAN is the input; ACTIVE_PLAN is the harness-assigned
-plan, else SOURCE_PLAN. All amendments/outputs go to ACTIVE_PLAN. Save
-SOURCE_PLAN's full current state externally:
+Absolute paths: SOURCE_PLAN (input), ACTIVE_PLAN (harness-assigned plan, else SOURCE_PLAN).
+Write all amendments/outputs to ACTIVE_PLAN. Resolve SNAPSHOT_TOOL once:
+```bash
 
+bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "$HOME/.claude/skills/gstack/bin/gstack-autoplan-snapshot.ts"
+```
+
+Fresh external RESTORE_PATH:
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
@@ -700,28 +704,15 @@ DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "RESTORE_PATH=$HOME/.gstack/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
 ```
 
-Write SOURCE_PLAN's full contents to the restore path with this header:
-```
-# /autoplan Restore Point
-Captured: [timestamp] | Branch: [branch] | Commit: [short hash]
-
-## Re-run Instructions
-1. Copy "Original Plan State" below back to your plan file
-2. Invoke /autoplan
-
-## Original Plan State
-[verbatim plan file contents]
-```
-
-Copy SOURCE_PLAN into ACTIVE_PLAN's `## Implementation plan` without dropping
-requirements. Keep analyses/audit in `## Review record`. Prepend:
-`<!-- /autoplan restore point: [RESTORE_PATH] -->`
-
-Save this absolute path as SNAPSHOT_TOOL for all shells. Stop on helper errors:
+Before scope/review:
 ```bash
-
-bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "$HOME/.claude/skills/gstack/bin/gstack-autoplan-snapshot.ts"
+bun "<SNAPSHOT_TOOL>" init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"
 ```
+Use returned paths/`scope`; never hand-wrap. init backs up SOURCE_PLAN exactly,
+then initializes ACTIVE_PLAN atomically without losing requirements.
+Reviewers get only `## Implementation plan`; analysis stays in `## Review record`,
+including structured inputs. On helper errors, stop; no stderr hiding/grep fallback.
+Re-run: copy RESTORE_PATH's bytes to SOURCE_PLAN, then /autoplan.
 
 ### Step 2: Read context
 
@@ -730,11 +721,11 @@ bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "$HOME/.claude
 - Detect UI scope: grep the plan for view/rendering terms (component, screen, form,
   button, modal, layout, dashboard, sidebar, nav, dialog). Require 2+ matches. Exclude
   false positives ("page" alone, "UI" in acronyms).
-- Detect DX scope from the full implementation input:
+- Use init's full-input `scope`. For changed input or semantic enabling flags, rerun:
 ```bash
 bun "<SNAPSHOT_TOOL>" scope "<ACTIVE_PLAN>"
 ```
-  Use returned `dxRequired` and record its input hash/matched terms. The existing
+  Use returned `dxRequired` (initially `scope.dxRequired`) and record its input hash/matched terms. The existing
   threshold is 2+ term matches (occurrences, not distinct terms). Also enable DX when the product is a developer tool
   (developers install, integrate or build on it) or an AI agent is the primary user:
   add `--developer-tool` or `--agent-primary` to this command. These flags only enable

@@ -96,12 +96,16 @@ describe('autoplan phase execution checkpoints', () => {
       expect(native).toBeLessThan(outside);
       const dispatch = section.slice(native, outside);
       expect(dispatch).toContain('run_in_background: false');
+      expect(dispatch).toContain("ONLY/FINAL tool call");
+      expect(dispatch).toContain('Keep native Reads enabled');
+      expect(dispatch).toContain('Child first Reads `nativePromptPath` to EOF');
+      expect(dispatch).toContain('all criteria + plan');
       expect(dispatch).toContain('if its schema exposes it');
       expect(dispatch).toContain('isAsync: true');
       expect(dispatch).toContain('Claude Code: immediately end this response with');
       expect(dispatch).toContain('Do no more tool calls or review work until that ID');
       expect(dispatch).toContain('For completed native reviews, match INPUT phase/hash');
-      expect(dispatch).toContain('retry the full payload once, then use failure policy');
+      expect(dispatch).toContain('retry this dispatch once, then use failure policy');
       expect(dispatch).toContain('Other hosts: await that ID');
       expect(dispatch).toContain("Then outside → this phase's review ONLY");
       expect(dispatch).toContain('No inline substitute; apply failure policy');
@@ -118,12 +122,12 @@ describe('autoplan phase execution checkpoints', () => {
     expect(contract).toContain('Never draft future-phase reviews or outputs');
     expect(contract).toContain('After compaction, reload current phase instructions/skill/sections; reconcile disk progress before resuming');
     expect(contract).toContain('Load its phase instructions and full skill/sections');
-    expect(contract).toContain('Create the fresh snapshot and dispatch its generated nativePrompt unchanged');
+    expect(contract).toContain('Create the fresh snapshot and dispatch its nativeDispatchPrompt unchanged');
     expect(contract).toContain('Consume native completion, then enabled outside results; only then do the full primary review');
     expect(contract).toContain("Persist outputs/amendments and run the phase's implementation check/readback");
     expect(contract).toContain('Emit actual completion; only then load the next required phase');
     expect(contract).toContain('A missing gate means the current phase remains open');
-    expect(contract).toContain('INPUT correlates reported input; it is not independent proof of uptake or review quality');
+    expect(contract).toContain('Read requests/self-reports and INPUT hashes do not prove uptake or review quality');
     expect(contract).toContain('Pending is not unavailable');
     expect(contract).toContain('Time/context pressure or your own review never permits\nskipping native passes or required sections');
     expect(contract).toContain('Never read raw agent transcripts');
@@ -166,12 +170,14 @@ describe('autoplan phase execution checkpoints', () => {
 describe('autoplan current implementation-plan identity', () => {
   test('pins the assigned active plan and keeps accepted amendments separate from review analyses', () => {
     const intake = read('autoplan/SKILL.md.tmpl').split('## Phase 0: Intake')[1]?.split('### Step 2:')[0] ?? '';
-    expect(intake).toContain('ACTIVE_PLAN is the harness-assigned');
-    expect(intake).toContain('All amendments/outputs go to ACTIVE_PLAN');
-    expect(intake).toContain("SOURCE_PLAN's full current state externally");
-    expect(intake).toContain('without dropping\nrequirements');
-    expect(intake).toContain("Copy SOURCE_PLAN into ACTIVE_PLAN's `## Implementation plan`");
-    expect(intake).toContain('Keep analyses/audit in `## Review record`');
+    expect(intake).toContain('ACTIVE_PLAN (harness-assigned plan, else SOURCE_PLAN)');
+    expect(intake).toContain('Write all amendments/outputs to ACTIVE_PLAN');
+    expect(intake).toContain("init backs up SOURCE_PLAN exactly");
+    expect(intake).toContain('without losing requirements');
+    expect(intake).toContain('init "<SOURCE_PLAN>" "<ACTIVE_PLAN>" "<RESTORE_PATH>"');
+    expect(intake).toContain('Use returned paths/`scope`');
+    expect(intake).toContain('On helper errors, stop');
+    expect(intake).toContain('analysis stays in `## Review record`');
     // Binding belongs to the lazy execution site, not a stale intake variable.
     expect(intake).not.toContain('Bind `<review_plan_path>`');
   });
@@ -199,8 +205,8 @@ describe('autoplan current implementation-plan identity', () => {
       expect(preparation).toContain(`create ${phase} "<ACTIVE_PLAN>" "<RESTORE_PATH>"`);
       expect(preparation).toContain('`snapshotPath` as `<' + phase.toUpperCase() + '_INPUT>` for both voices');
       expect(preparation).toContain('excludes `Review record`');
-      expect(section).toContain('Send `nativePrompt` verbatim');
-      expect(section).toContain('Read `nativePromptPath` to EOF');
+      expect(section).toContain('Send `nativeDispatchPrompt` verbatim');
+      expect(section).toContain('Reads `nativePromptPath` to EOF');
       expect(section).toContain(`Outside prompt: inline the full contents of <${phase.toUpperCase()}_INPUT>`);
       expect(section).toContain(`check ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>" changed`);
       expect(section).toContain('Use `unchanged` only if no implementation changes were accepted');

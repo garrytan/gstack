@@ -16,15 +16,16 @@ bun "<SNAPSHOT_TOOL>" create eng "<ACTIVE_PLAN>" "<RESTORE_PATH>"
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   Other hosts: use foreground dispatch and await completion when supported.
 
-  Send `nativePrompt` verbatim. If truncated, Read `nativePromptPath` to EOF.
-  It contains all criteria and snapshot bytes; no summaries or prior reviews.
+  Send `nativeDispatchPrompt` verbatim: ONLY/FINAL tool call this response.
+  Keep native Reads enabled. Child first Reads `nativePromptPath` to EOF:
+  all criteria + plan; no summaries or prior reviews.
 
   **Native completion barrier:** If `isAsync: true` / `status: "async_launched"`,
   Claude Code: immediately end this response with "Waiting for <agent ID>."
   Do no more tool calls or review work until that ID's terminal notification is
   delivered. Other hosts: await that ID. Then outside → this phase's review ONLY.
   For completed native reviews, match INPUT phase/hash to this snapshot. Missing
-  or mismatched INPUT: retry the full payload once, then use failure policy if
+  or mismatched INPUT: retry this dispatch once, then use failure policy if
   still invalid.
   No inline substitute; apply failure policy.
 

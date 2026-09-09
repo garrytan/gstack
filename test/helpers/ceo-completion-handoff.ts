@@ -35,6 +35,30 @@ function metadataClosedReviewNavigation(declaration: string, context: string): b
     closedNavigationContext(context);
 }
 
+/** A direct Eng/manual choice can put its unconditional CEO recap in a native description. */
+function describedEngNavigation(question: string, descriptions: string[], context: string): boolean {
+  if (!/^Run\s+\/plan-eng-review\s+(?:next|now)\s*\((?:the\s+)?required(?:\s+shipping)?\s+gate\),?\s+or\s+handle\s+reviews\s+manually\?$/i.test(question)) return false;
+  const recap = /^(?:The\s+)?CEO\s+review\s+is\s+(?:clear|complete|cleared|clean|done)(?:\s+but\s+eng\s+review\s+is\s+the\s+(?:required\s+)?shipping\s+gate)?$/i;
+  const topics = String.raw`(?:test isolation|factory patterns|test coverage|architecture|dependencies)`;
+  const reviewExplanation = new RegExp(String.raw`^(?:Validates|Checks|Reviews)\s+${topics}(?:,\s+${topics})*(?:,?\s+and\s+(?:${topics}|confirms no hidden dependencies))?$`, 'i');
+  const sentences = descriptions.flatMap(description => description.trim().split(/[.!](?:\s+|$)/).map(sentence => sentence.trim()).filter(Boolean));
+  const closedRecap = sentences.some(sentence => recap.test(sentence));
+  // Every sentence must explain this closed handoff. Arbitrary prose after
+  // a valid recap could add work (including verbs no blacklist anticipates).
+  if (!sentences.every(sentence => recap.test(sentence) || reviewExplanation.test(sentence) ||
+      /^Required(?:\s+shipping)?\s+gate\s+before\s+(?:shipping|merging|implementation)$/i.test(sentence) ||
+      /^(?:You['’]ll|You will)\s+need\s+to\s+run\s+\/plan-eng-review\s+(?:separately\s+)?before\s+(?:merging|shipping)$/i.test(sentence) ||
+      /^Run\s+\/plan-eng-review\s+(?:next|now|before\s+(?:merging|shipping)|after\s+implementation\s+and\s+before\s+shipping)$/i.test(sentence) ||
+      /^(?:Fast|Quick|Short)\s+(?:run|review)\s+expected\s+given\s+(?:zero|no|0)\s+CEO\s+findings$/i.test(sentence))) return false;
+  if (!closedRecap || /`{3}|~{3}|(?:^|\n)[ \t]*>|\b(?:example|quoted source)\s*:/im.test(context) ||
+      /\b(?:incomplete|unfinished|not|never)\b|n['’]t\b/i.test(context)) return false;
+  // "Clear" is also a closure claim here; a future condition cannot supply it.
+  const clearClosure = String.raw`(?:(?:the\s+)?CEO|the)\s+review\s+(?:(?:is|was|becomes?|became|(?:will|would|can|could|may|might)\s+(?:be|become))\s+)?clear`;
+  if (new RegExp(String.raw`\b(?:once|when|after)\b[^.!?]{0,180}\b${clearClosure}\b|\b${clearClosure}\b[^.!?]{0,100}\b(?:once|when|after)\b`, 'i').test(context)) return false;
+  return !/(?:^|[.!?;:]\s+|\b(?:proceed to|continue to|should|must|will|need to|can|could|would|may|might)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|repair|implement|resolve|decide)\b/im.test(context) &&
+    closedNavigationContext(context);
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -77,7 +101,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
     !/(?:^|[.!?;]\s+|\b(?:please|must|need\s+to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(gateContext);
   const metadataCompletion = Boolean(id) && metadataClosedReviewNavigation(declaration, gateContext);
   if (isMetadataNavigationQuestion(questionText) && /\n[ \t]*ELI10:/i.test(questionText) && !metadataCompletion) return null;
-  const completion = explicitCompletion || describedCompletion || metadataCompletion;
+  const describedEngCompletion = q.options.length === 2 &&
+    describedEngNavigation(questionText, q.options.map(option => option.description ?? ''), gateContext);
+  const completion = explicitCompletion || describedCompletion || metadataCompletion || describedEngCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);
   // These native next-review identities share a closed navigation contract;

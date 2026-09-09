@@ -194,3 +194,16 @@ describe('accepted consistency model is not a stale-fill finding', () => {
     expect(hasStaleFillRaceFinding(text)).toBe(true);
   });
 });
+
+
+describe('CEO R report requirement weakening remains rejected', () => {
+  test('a race trace followed by acceptance and a weaker guarantee is not an unresolved defect', async () => {
+    // Exact delivered R retry report; the existing oracle already rejects it.
+    // This pins the policy failure without changing the paid fixture or oracle.
+    const report = await Bun.file(new URL('./fixtures/ceo-section-r-rejected-report.md', import.meta.url)).text();
+    expect(report).toContain('Every read begun after that write completes must');
+    expect(report).toContain('this is an accepted design choice, not a quality gap');
+    expect(report).toContain('Verify: new reads see stale value until TTL');
+    expect(hasStaleFillRaceFinding(report)).toBe(false);
+  });
+});

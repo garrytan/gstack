@@ -23,6 +23,21 @@ still needs its own decision; explain what the earlier remedy does not cover.
 This does not approve an unraised finding or a new TODO: continue to present each
 new finding and each potential TODO individually under the rules below.
 
+**Preserve accepted requirements.** Compare the implementation with the stated
+invariants and acceptance criteria. If they conflict, report an implementation
+gap and propose a remedy that meets the requirement. In HOLD SCOPE, that work is
+in scope even when the sketch omits the necessary mechanism. A sketch describes
+what is proposed; it does not authorize weakening the required behavior.
+Do not resolve the gap by rewriting the guarantee, calling the violation
+acceptable, or changing a test to expect the prohibited result. Low frequency,
+bounded impact, and documentation do not satisfy a stricter requirement.
+Changing a requirement needs an explicit decision under the existing approval
+rules; until approved, keep that proposal pending and the original gap unresolved.
+Earlier explicitly approved requirement changes and explicit authority to change
+that scope remain valid. Routine auto-decide permission alone cannot override an
+explicit user constraint or non-goal. Preserve the distinction in findings, tasks,
+and the completion report.
+
 ### Section 1: Architecture Review
 Evaluate and diagram:
 * Overall system design and component boundaries. Draw the dependency graph.

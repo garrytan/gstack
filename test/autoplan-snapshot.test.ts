@@ -28,6 +28,69 @@ function cli(...args: string[]) {
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe('Autoplan phase snapshot continuity', () => {
+  test('short native dispatch binds the complete immutable file for each phase', () => {
+    const f = fixture();
+    for (const phase of ['ceo', 'design', 'dx', 'eng']) {
+      const result = cli('create', phase, f.active, f.restore);
+      expect(result.status, result.stderr).toBe(0);
+      const generated = JSON.parse(result.stdout);
+      expect(generated.nativeDispatchPrompt).toBeString();
+      expect(generated.nativeDispatchPrompt).toContain(`Read file: ${JSON.stringify(generated.nativePromptPath)}`);
+      expect(generated.nativeDispatchPrompt).toContain('FIRST tool action');
+      expect(generated.nativeDispatchPrompt).toContain('line 1 through EOF');
+      expect(generated.nativeDispatchPrompt).toContain('Continue successful ranges until every line is loaded');
+      expect(generated.nativeDispatchPrompt).toContain('Execute every criterion');
+      expect(generated.nativeDispatchPrompt).toContain(`INPUT: ${phase} ${generated.sha256}`);
+      expect(generated.nativeDispatchPrompt).toContain('report the read failure instead of a completed review');
+      expect(generated.nativeDispatchPrompt).toContain(generated.nativePromptSha256);
+      expect(generated.nativeDispatchPrompt).toContain(`${generated.nativePromptBytes} UTF-8 bytes`);
+      expect(generated.nativePromptBytes).toBe(Buffer.byteLength(generated.nativePrompt));
+      // Blank physical lines count; only the empty split after a final LF is not a line.
+      expect(generated.nativePromptLines).toBe([...generated.nativePrompt.matchAll(/[^\n]*\n|[^\n]+$/g)].length);
+      expect(generated.nativeDispatchPrompt).not.toContain('Mutations already require CSRF tokens');
+      expect(Buffer.byteLength(generated.nativeDispatchPrompt)).toBeLessThan(1600);
+      const manifest = JSON.parse(readFileSync(join(generated.nativePromptPath, '..', 'snapshot.json'), 'utf8'));
+      expect(manifest.nativeDispatchPrompt).toBe(generated.nativeDispatchPrompt);
+      expect(manifest.nativePromptLines).toBe(generated.nativePromptLines);
+      expect(manifest.nativePromptBytes).toBe(generated.nativePromptBytes);
+    }
+  });
+
+  test('a standalone file reader can recover all criteria and late plan bytes from only the dispatch', () => {
+    // This is transport evidence with a deterministic child, not evidence that
+    // a model followed the instruction. Paid validation must inspect its own child.
+    const f = fixture();
+    const location = join(f.dir, process.platform === 'win32' ? '資料 with spaces' : '資料 "quoted" with spaces');
+    mkdirSync(location);
+    const restore = join(location, 'original.md'); writeFileSync(restore, f.body);
+    const body = f.body + '\n' + Array.from({ length: 2200 }, (_, i) => `Contract ${i}: preserve the entire input.\r\n`).join('') + 'LAST REQUIREMENT: tenant isolation + CSRF. 🧪\n';
+    writeFileSync(f.active, `## Implementation plan\n${body}## Review record\nPRIVATE PRIOR REVIEW\n`);
+    const created = cli('create', 'ceo', f.active, restore);
+    expect(created.status, created.stderr).toBe(0);
+    const generated = JSON.parse(created.stdout);
+    expect(generated.nativeDispatchPrompt).toBeString();
+    const child = spawnSync(process.execPath, ['-e', `
+      const dispatch = await Bun.stdin.text();
+      const matched = /^Read file: (.+)$/m.exec(dispatch);
+      if (!matched) throw new Error('Dispatch has no complete file path');
+      const content = require('node:fs').readFileSync(JSON.parse(matched[1]), 'utf8');
+      process.stdout.write(JSON.stringify({ content, bytes: Buffer.byteLength(content),
+        sha256: require('node:crypto').createHash('sha256').update(content).digest('hex') }));
+    `], { input: generated.nativeDispatchPrompt, encoding: 'utf8', timeout: 10_000 });
+    expect(child.status, child.stderr).toBe(0);
+    const read = JSON.parse(child.stdout);
+    expect(read.content).toBe(generated.nativePrompt);
+    expect(read.bytes).toBe(generated.nativePromptBytes);
+    expect(read.sha256).toBe(generated.nativePromptSha256);
+    expect(read.content.endsWith(body)).toBe(true);
+    expect(read.content).toContain('What alternatives were dismissed without sufficient analysis?');
+    expect(read.content).toContain('LAST REQUIREMENT: tenant isolation + CSRF. 🧪');
+    expect(read.content).not.toContain('PRIVATE PRIOR REVIEW');
+    expect(generated.nativePromptLines).toBeGreaterThan(2200);
+    expect(generated.nativeDispatchPrompt).toContain(`${generated.nativePromptLines} lines`);
+    expect(Buffer.byteLength(generated.nativeDispatchPrompt)).toBeLessThan(1600);
+  });
+
   test('generated native dispatch carries every snapshot byte instead of the observed abbreviated input', () => {
     const f = fixture();
     for (const phase of ['ceo', 'design', 'dx', 'eng']) {

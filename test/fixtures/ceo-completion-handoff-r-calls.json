@@ -1,0 +1,119 @@
+[
+  {
+    "sessionId": "2aa1d111-e41c-4305-b511-560f75c591f6",
+    "toolUseId": "toolu_01TFNyYCkuEbD4ka29tNm3cq",
+    "questions": [
+      {
+        "question": "No design doc found for this branch. `/office-hours` produces a structured problem statement, premise challenge, and explored alternatives — it gives this review much sharper input to work with. Takes about 10 minutes. The design doc is per-feature, not per-product — it captures the thinking behind this specific change. Run it first, or skip straight to the standard review?",
+        "header": "Prerequisites",
+        "options": [
+          {
+            "label": "Skip — proceed with standard review (recommended)",
+            "description": "The plan is small and the problem is well-defined: add 2 unit tests for processPayment(). /office-hours is for exploring what to build; this plan already knows exactly what to build."
+          },
+          {
+            "label": "Run /office-hours now",
+            "description": "Produces a deeper problem statement and premise challenge before the CEO review. Best for large or ambiguous feature plans."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "No design doc found for this branch. `/office-hours` produces a structured problem statement, premise challenge, and explored alternatives — it gives this review much sharper input to work with. Takes about 10 minutes. The design doc is per-feature, not per-product — it captures the thinking behind this specific change. Run it first, or skip straight to the standard review?": "Skip — proceed with standard review (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T04:41:29.182Z"
+  },
+  {
+    "sessionId": "2aa1d111-e41c-4305-b511-560f75c591f6",
+    "toolUseId": "toolu_01HBKnGS2bULyawnQhA8RZY4",
+    "questions": [
+      {
+        "question": "Which implementation approach should this plan follow? <gstack-qid:plan-ceo-review-approach>",
+        "header": "Approach",
+        "options": [
+          {
+            "label": "Minimal — 2 tests as written",
+            "description": "Exactly 2 tests matching the spec: happy path + 502. Assertions are left as the plan describes them ('assert correct receipt is generated', 'assert retry-with-backoff fires once, then fails clean'). Fast, small diff. Completeness: 7/10 — tests exist but assertion specifics are left to the implementer.",
+            "preview": "test 'happy path: successful Stripe charge' do\n  receipt = process_payment(factory.valid_card)\n  assert receipt.generated?  # vague\nend\n\ntest '502 error: retry once, then fail' do\n  result = process_payment(factory.bad_card)\n  assert result.failed?  # vague\nend"
+          },
+          {
+            "label": "Assertions-complete — 2 tests with explicit assertions (recommended)",
+            "description": "Same 2 tests, but the plan specifies: (1) which receipt fields to assert for the happy path, (2) the exact failure type for the 502 path, (3) Stripe call count == 2, and (4) backoff was recorded. Same file count, ~20 extra lines of assertion clarity. Completeness: 9/10 — tests are complete enough to catch real regressions.",
+            "preview": "test 'happy path: successful Stripe charge' do\n  receipt = process_payment(factory.valid_card)\n  assert_equal stripe_mock.charge_id, receipt.stripe_charge_id\n  assert_equal 100_00, receipt.amount_cents\n  assert_equal 'paid', receipt.status\nend\n\ntest '502 error: retry once, then fail' do\n  assert_raises(PaymentError) { process_payment(factory.bad_card) }\n  assert_equal 2, stripe_mock.call_count  # original + 1 retry\n  assert virtual_sleeper.backoff_recorded?\nend"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Which implementation approach should this plan follow? <gstack-qid:plan-ceo-review-approach>": "Minimal — 2 tests as written"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T04:42:01.283Z"
+  },
+  {
+    "sessionId": "2aa1d111-e41c-4305-b511-560f75c591f6",
+    "toolUseId": "toolu_01DjcTXd1dvAsF63ZXP6kzvx",
+    "questions": [
+      {
+        "question": "Which review mode? <gstack-qid:plan-ceo-review-mode>",
+        "header": "Review mode",
+        "options": [
+          {
+            "label": "HOLD SCOPE — make the 2 tests bulletproof (recommended)",
+            "description": "Default for test coverage work. The plan's scope (2 unit tests) is locked. Review focuses on rigor: correct assertions, failure observability, test isolation, and naming. No scope additions. Note: options differ in kind, not coverage — no completeness score."
+          },
+          {
+            "label": "SELECTIVE EXPANSION — hold scope but surface adjacent opportunities",
+            "description": "Same HOLD SCOPE rigor, but also surfaces adjacent test opportunities (402, 429, idempotency) as individual cherry-picks you can accept or skip. Good if you want to see what’s nearby without committing to it. Note: options differ in kind, not coverage — no completeness score."
+          },
+          {
+            "label": "SCOPE REDUCTION — strip to the absolute minimum",
+            "description": "Find the smallest test that proves payment works. Could reduce to a single smoke test. Use if timeline is the constraint. Note: options differ in kind, not coverage — no completeness score."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Which review mode? <gstack-qid:plan-ceo-review-mode>": "HOLD SCOPE — make the 2 tests bulletproof (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T04:42:13.320Z"
+  },
+  {
+    "sessionId": "2aa1d111-e41c-4305-b511-560f75c591f6",
+    "toolUseId": "toolu_01UHbAH2Ls8okH8qSocge4J3",
+    "questions": [
+      {
+        "question": "Run /plan-eng-review next (the required shipping gate), or handle reviews manually?",
+        "header": "Next review",
+        "options": [
+          {
+            "label": "Run /plan-eng-review next (recommended)",
+            "description": "Required gate before shipping. Validates test isolation, factory patterns, and confirms no hidden dependencies. Fast run expected given zero CEO findings."
+          },
+          {
+            "label": "Skip — I’ll handle reviews manually",
+            "description": "You’ll need to run /plan-eng-review separately before merging. The CEO review is clear but eng review is the shipping gate."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Run /plan-eng-review next (the required shipping gate), or handle reviews manually?": "Run /plan-eng-review next (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T04:48:18.389Z"
+  }
+]

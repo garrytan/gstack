@@ -4,7 +4,15 @@
 
 **Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-7) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
-**Anti-shortcut clause:** The plan file is the OUTPUT of the interactive review, not a substitute for it. Writing every finding into one plan write and calling ExitPlanMode without firing AskUserQuestion is the precise failure mode of the May 2026 transcript bug — the model explored, found issues, and dumped them into a deliverable rather than walking the user through them. If you have ANY non-trivial finding in any review section, the path from finding to ExitPlanMode goes THROUGH AskUserQuestion. Zero findings in every section is the only path to ExitPlanMode that bypasses AskUserQuestion. If you find yourself wanting to write a plan with findings before asking, stop and call AskUserQuestion now — that's the bug, recognize it.
+**Anti-shortcut clause:** Complete one decision cycle per unresolved finding:
+explain the gap, recommend options, obtain its individual decision, then apply
+the selected fix. Scope, focus, setup, and next-step choices approve no remedies.
+Writing a report, mapping a token, creating a mockup, or listing a task does not
+approve a remedy. Inherited exact decisions and preamble-authorized per-issue
+auto-decisions remain valid; do not re-ask them.
+If findings exist but only navigation was answered, the review is still waiting
+for its first issue decision. Never use the final next-step AskUserQuestion to satisfy the issue-approval loop.
+With no unresolved findings, no issue question is required.
 
 ## Prior Learnings
 
@@ -242,6 +250,11 @@ For design debt: missing a11y, unresolved responsive behavior, deferred empty st
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
+Before synthesizing tasks or the completion summary, perform the approval
+reconciliation from the Section self-check. Export only agreed implementation work; retain unapproved remedies as pending findings.
+Count only individually approved new decisions in "Decisions made" and the
+review log; a proposed remedy or next-step answer contributes zero.
+
 ## Implementation Tasks
 
 Before closing this review, synthesize the findings above into a flat list of
@@ -343,7 +356,7 @@ If all passes 8+: "Plan is design-complete. Run /design-review after implementat
 If any below 8: note what's unresolved and why (user chose to defer).
 
 ### Unresolved Decisions
-If any AskUserQuestion goes unanswered, note it here. Never silently default to an option.
+List every unresolved finding here, including a finding not yet asked or an unanswered AskUserQuestion. Never silently default to an option.
 
 ### Approved Mockups
 

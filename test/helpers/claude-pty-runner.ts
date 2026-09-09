@@ -1450,7 +1450,7 @@ export function createPlanCountPermissionGuard(): (visible: string, completionHi
 }
 
 /** Keep a seeded count plan intact by declining its optional prerequisite. */
-export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint): number | null {
+export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint, activeCapture: AskUserQuestionFingerprint = fp): number | null {
   // Require the recognized prerequisite body AND both opposed labels. A
   // generic Skip, an outside-review offer, or a review finding keeps its
   // existing answer policy. Collapsed whitespace occurs in captured PTYs.
@@ -1460,6 +1460,24 @@ export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint): numbe
   const skip = fp.options.filter(({ label }) =>
     /^Skip\s*[—–-]\s*(?:proceed\s*with\s*)?standard\s*review(?:\s*\(recommended\))?$/i.test(label));
   if (run.length === 1 && skip.length === 1) return skip[0].index;
+  // Short labels such as "Skip — proceed" need their full native meaning.
+  // A visible generic Skip alone cannot authorize leaving a review question.
+  const call = activeCapture.nativeCall;
+  if (call && call.answered === false && call.failed === false && activeCapture.preReview && call.questions.length === 1 &&
+      activeCapture.signature === `${call.sessionId}:${call.toolUseId}` &&
+      fp.signature === activeCapture.signature &&
+      (activeCapture.nativeQuestionIndex === undefined || activeCapture.nativeQuestionIndex === 0)) {
+    const q = call.questions[0]!;
+    const optionsMatch = (capture: AskUserQuestionFingerprint) => capture.options.length === q.options.length &&
+      capture.options.every((option, i) => option.index === i + 1 && option.label === q.options[i]!.label);
+    if (!q.multiSelect && q.options.length === 2 && optionsMatch(fp) && optionsMatch(activeCapture)) {
+      const nativeRun = q.options.findIndex(option => /^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(option.label));
+      const nativeSkip = q.options.findIndex(option =>
+        /^Skip\s*[—–-]\s*proceed(?:\s*\(recommended\))?$/i.test(option.label) &&
+        /^(?:(?:The\s+)?plan\s+(?:scope\s+)?is\s+(?:already\s+)?(?:precise|clear|well-defined|explicit)\.\s*)?Proceed\s+with\s+standard(?:\s+DX(?:\s+(?:POLISH|EXPANSION|TRIAGE))?)?\s+review\.?$/i.test((option.description ?? '').trim()));
+      if (nativeRun >= 0 && nativeSkip >= 0 && nativeRun !== nativeSkip) return nativeSkip + 1;
+    }
+  }
   // The same prerequisite also offers "Skip — review now" or a direct
   // "Proceed with standard review". Require exactly
   // the two opposed actions so this wording cannot skip a mixed finding.
@@ -2848,8 +2866,11 @@ export async function runPlanSkillCounting(opts: {
   async function waitForWork(ms: number): Promise<boolean> {
     const remaining = remainingWork();
     if (remaining <= 0) return false;
+    const clipped = ms >= remaining;
     await Bun.sleep(Math.min(ms, remaining));
-    return remainingWork() > 0;
+    // A clipped wait cannot finish the requested interval. Timers may wake
+    // just before the fractional deadline; that is no license to advance.
+    return !clipped && remainingWork() > 0;
   }
 
   const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true, files: opts.fixtureFiles });
@@ -3105,7 +3126,7 @@ export async function runPlanSkillCounting(opts: {
       // Press to advance — first AUQ may use the override pick.
       const routing = pending?.questions.length === 1
         ? nativePlanCallFingerprint(pending, fp.observedAtMs, fp.preReview) : fp;
-      const prerequisitePick = planCountPrerequisitePick(routing);
+      const prerequisitePick = planCountPrerequisitePick(routing, fp);
       // Native tool records may flush only after the answer. Let a guarded
       // caller recognize that visible menu. A known packet needs a positively
       // matched active tab before a caller can change that tab's choice.

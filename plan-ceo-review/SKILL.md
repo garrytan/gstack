@@ -959,6 +959,7 @@ Both are outcome-framed. Only one makes the user feel the cathedral. Lead with t
 **For HOLD SCOPE** — run this:
 1. Complexity check: If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
 2. What is the minimum set of changes that achieves the stated goal? Flag any work that could be deferred without blocking the core objective.
+3. Keep stated invariants and acceptance criteria; repairs needed to meet them are in scope.
 
 **For SCOPE REDUCTION** — run this:
 1. Ruthless cut: What is the absolute minimum that ships value to a user? Everything else is deferred. No exceptions.

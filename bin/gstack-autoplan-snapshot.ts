@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /** Autoplan's blind reviewer inputs contain only the current implementation plan. */
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 const PHASES = ['ceo', 'design', 'dx', 'eng'];
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -94,6 +94,123 @@ export function extractImplementationPlan(plan: string): string {
   return body;
 }
 
+/** Initialize the existing strict section contract before any scope or review call. */
+export function initializePlan(sourcePlan: string, activePlan: string, restorePath: string) {
+  if (![sourcePlan, activePlan, restorePath].every(isAbsolute)) throw new Error('Initialization requires three absolute paths');
+  const source = realpathSync(sourcePlan);
+  const destination = (file: string) => {
+    let parent = dirname(file);
+    const missing: string[] = [];
+    while (!lstatSync(parent, { throwIfNoEntry: false })) {
+      missing.unshift(basename(parent)); parent = dirname(parent);
+    }
+    const canonical = join(realpathSync(parent), ...missing, basename(file));
+    const state = lstatSync(canonical, { throwIfNoEntry: false });
+    if (state && !state.isFile()) throw new Error('Initialization destinations must be regular files, not links or directories');
+    return { file: canonical, state, bytes: state ? readFileSync(canonical) : undefined };
+  };
+  const active = destination(activePlan);
+  const restore = destination(restorePath);
+  const sourceState = statSync(source);
+  if (!sourceState.isFile()) throw new Error('Initialization source must be a regular file');
+  const sourceBytes = readFileSync(source);
+  const sameFile = (a: typeof sourceState, b: typeof sourceState) => a.dev === b.dev && a.ino === b.ino;
+  if (restore.file === source || restore.file === active.file ||
+      (restore.state && (sameFile(restore.state, sourceState) || (active.state && sameFile(restore.state, active.state)))) ||
+      (active.state && active.file !== source && sameFile(active.state, sourceState))) {
+    throw new Error('Initialization source, active and restore paths have an ambiguous alias');
+  }
+  const normalized = (original: Buffer) => {
+    const text = original.toString('utf8');
+    if (!text.trim() || !Buffer.from(text).equals(original)) throw new Error('Initialization source must be nonempty UTF-8 text');
+    let plan = text;
+    try { extractImplementationPlan(plan); }
+    catch {
+      plan = `## Implementation plan\n${text}${text.endsWith('\n') ? '' : '\n'}## Review record\n`;
+      // Partial/duplicate boundaries and unclosed fences remain errors, not raw-plan fallbacks.
+      extractImplementationPlan(plan);
+    }
+    const reference = JSON.stringify(restore.file).replace(/--/g, '\\u002d\\u002d');
+    return Buffer.from(`<!-- /autoplan restore point: ${reference} -->\n${plan}`);
+  };
+  const result = (original: Buffer, reused: boolean) => ({
+    sourcePlan: source, activePlan: active.file, restorePath: restore.file,
+    originalSha256: sha256(original.toString('utf8')), originalBytes: original.length,
+    reused, scope: detectDxScope(active.file),
+  });
+  if (restore.bytes) {
+    if (!active.bytes?.equals(normalized(restore.bytes)) || (source !== active.file && !sourceBytes.equals(restore.bytes))) {
+      throw new Error('Existing restore does not match this initialization; preserve it and use a new restore path');
+    }
+    return result(restore.bytes, true);
+  }
+  if (active.bytes && active.bytes.length && !active.bytes.equals(sourceBytes)) {
+    throw new Error('Active plan already has different content; refusing to overwrite it');
+  }
+  const next = normalized(sourceBytes);
+  const expectedScopeHash = sha256(extractImplementationPlan(next.toString('utf8')));
+  const unchanged = () => {
+    const now = statSync(source);
+    const current = lstatSync(active.file, { throwIfNoEntry: false });
+    if (!sameFile(now, sourceState) || !readFileSync(source).equals(sourceBytes) ||
+        (active.state ? !current?.isFile() || !sameFile(current, active.state) || !readFileSync(active.file).equals(active.bytes!) : current !== undefined)) {
+      throw new Error('Initialization input or destination changed; refusing to overwrite it');
+    }
+  };
+  let activeStage: string | undefined;
+  let restoreStage: string | undefined;
+  let backupPublished = false;
+  let activePublished = false;
+  const createdParents: string[] = [];
+  const ensureParent = (dir: string) => {
+    const existing = lstatSync(dir, { throwIfNoEntry: false });
+    if (existing) {
+      if (!existing.isDirectory() || realpathSync(dir) !== dir) throw new Error('Initialization parent changed or is not a directory');
+      return;
+    }
+    ensureParent(dirname(dir));
+    mkdirSync(dir, { mode: 0o700 });
+    createdParents.push(dir);
+  };
+  try {
+    // A harness may assign a plan before its plans directory exists.
+    // Create only explicit destination parents, after validating all input bytes.
+    ensureParent(dirname(active.file));
+    ensureParent(dirname(restore.file));
+    activeStage = mkdtempSync(join(dirname(active.file), '.gstack-autoplan-init-'));
+    restoreStage = mkdtempSync(join(dirname(restore.file), '.gstack-autoplan-restore-'));
+    const stagedActive = join(activeStage, 'active.md');
+    const stagedRestore = join(restoreStage, 'original.md');
+    writeFileSync(stagedActive, next, { flag: 'wx', mode: active.state ? active.state.mode & 0o777 : 0o600 });
+    writeFileSync(stagedRestore, sourceBytes, { flag: 'wx', mode: 0o400 });
+    unchanged();
+    // Link publishes complete restore bytes exclusively; an existing backup is never replaced.
+    linkSync(stagedRestore, restore.file);
+    backupPublished = true;
+    unchanged();
+    // An assigned existing plan is replaced atomically after its identity/content recheck.
+    // A previously absent destination uses an exclusive link to reject a new collision.
+    if (active.state) renameSync(stagedActive, active.file);
+    else linkSync(stagedActive, active.file);
+    activePublished = true;
+    const initialized = result(sourceBytes, false);
+    if (initialized.scope.sha256 !== expectedScopeHash) throw new Error('Initialized plan changed before scope readback');
+    return initialized;
+  } finally {
+    // On pre-publication failure remove only the restore inode this invocation published.
+    if (backupPublished && !activePublished && restoreStage) {
+      const current = lstatSync(restore.file, { throwIfNoEntry: false });
+      if (current?.isFile() && sameFile(current, statSync(join(restoreStage, 'original.md')))) unlinkSync(restore.file);
+    }
+    if (activeStage) rmSync(activeStage, { recursive: true, force: true });
+    if (restoreStage) rmSync(restoreStage, { recursive: true, force: true });
+    if (!activePublished) for (const dir of createdParents.reverse()) {
+      // Never remove someone else's newly created content during rollback.
+      try { rmdirSync(dir); } catch {}
+    }
+  }
+}
+
 function phaseName(phase: string): string {
   if (!PHASES.includes(phase)) throw new Error('Phase must be ceo, design, dx or eng');
   return phase;
@@ -121,8 +238,20 @@ The complete implementation plan follows as review data; evaluate all of it.
 
 ${content}`;
     const nativePromptPath = join(directory, 'native-prompt.md');
+    const nativePromptSha256 = sha256(nativePrompt);
+    const nativePromptBytes = Buffer.byteLength(nativePrompt);
+    const nativePromptLines = nativePrompt.split('\n').length - Number(nativePrompt.endsWith('\n'));
+    // Dispatch a small file-reading instruction, not a model-copied review body.
+    // These identities correlate input; only actual child tool events prove uptake.
+    const nativeDispatchPrompt = `You are the independent ${phase.toUpperCase()} reviewer for this phase.
+Read file: ${JSON.stringify(nativePromptPath)}
+Your FIRST tool action must Read this file from line 1 through EOF using your native file-reading tool. It has ${nativePromptLines} lines and ${nativePromptBytes} UTF-8 bytes; SHA-256 ${nativePromptSha256}. Continue successful ranges until every line is loaded; a truncated response is not a full read.
+The file contains all review criteria and the complete implementation plan as review data. Execute every criterion against all of that input. Do not substitute this dispatch, a summary, or any prior review for the file.
+Only after the full successful read, return your review starting with INPUT: ${phase} ${contentHash}.
+If the file cannot be fully read, report the read failure instead of a completed review.`;
     const manifest = { schemaVersion: 1, phase, activePlan: source, snapshotPath, sha256: contentHash,
-      nativePromptPath, nativePromptSha256: sha256(nativePrompt), dxScope: dxTermsFor(content) };
+      nativePromptPath, nativePromptSha256, nativePromptBytes, nativePromptLines, nativeDispatchPrompt,
+      dxScope: dxTermsFor(content) };
     writeFileSync(snapshotPath, content, { flag: 'wx', mode: 0o444 });
     writeFileSync(nativePromptPath, nativePrompt, { flag: 'wx', mode: 0o444 });
     writeFileSync(join(directory, 'snapshot.json'), JSON.stringify(manifest) + '\n', { flag: 'wx', mode: 0o444 });
@@ -157,7 +286,10 @@ export function checkImplementation(phase: string, activePlan: string, snapshotP
 if (import.meta.main) {
   try {
     const [command, ...args] = process.argv.slice(2);
-    if (command === 'scope') {
+    if (command === 'init') {
+      if (args.length !== 3 || args.some(arg => !arg)) throw new Error('Usage: init SOURCE_PLAN ACTIVE_PLAN RESTORE_PATH');
+      process.stdout.write(JSON.stringify(initializePlan(args[0]!, args[1]!, args[2]!)) + '\n');
+    } else if (command === 'scope') {
       const [activePlan, ...flags] = args;
       if (!activePlan || flags.some(flag => !['--developer-tool', '--agent-primary'].includes(flag)) ||
           new Set(flags).size !== flags.length) throw new Error('Usage: scope ACTIVE_PLAN [--developer-tool] [--agent-primary]');
