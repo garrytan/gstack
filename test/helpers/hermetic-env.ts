@@ -250,12 +250,71 @@ export function getHermeticDirs(): HermeticDirs {
 let cachedSkillsConfigDir: string | null = null;
 
 /**
+ * Canonical paths without exposing the checkout to Claude's recursive markdown
+ * file index. Directory links would also expose .context, dependencies, and
+ * generated host registries. Expand owned runtime directories and link files
+ * individually, preserving their source realpaths and executable bits.
+ */
+export function seedHermeticRuntimeView(root: string, destination: string): void {
+  const sourceRoot = fs.realpathSync(root);
+  const excluded = new Set(['node_modules', 'test', 'tests']);
+  const roots = new Set([
+    'SKILL.md', 'ETHOS.md', 'VERSION', 'package.json', 'bin', 'lib', 'scripts',
+    'browse', 'browser-skills', 'design', 'extension', 'model-overlays', 'agents',
+    // On-demand protocol/reference files explicitly read by shipped skills.
+    'docs/askuserquestion-split.md', 'docs/askuserquestion-cjk.md',
+    'docs/designs/PLAN_TUNING_V0.md', 'docs/designs/PLAN_TUNING_V1.md',
+    ...skillCensus(root).physicalSkillFiles.filter(file => file !== 'SKILL.md').map(file => path.dirname(file)),
+  ]);
+  const allowed = [...roots].filter(name => fs.existsSync(path.join(root, name))).map(name => ({
+    path: fs.realpathSync(path.join(root, name)), directory: fs.statSync(path.join(root, name)).isDirectory(),
+  }));
+  function link(source: string, target: string, ancestors: Set<string>): void {
+    const real = fs.realpathSync(source);
+    if (real !== sourceRoot && !real.startsWith(sourceRoot + path.sep))
+      throw new Error(`Runtime asset leaves the owned checkout: ${source}`);
+    if (path.relative(sourceRoot, real).split(path.sep).some(name =>
+      name.startsWith('.') || excluded.has(name) || name.endsWith('.tmpl')))
+      throw new Error(`Runtime asset resolves into an excluded tree: ${source}`);
+    if (real !== sourceRoot && !allowed.some(asset => real === asset.path ||
+      asset.directory && real.startsWith(asset.path + path.sep)))
+      throw new Error(`Runtime asset resolves into an excluded tree: ${source}`);
+    const stat = fs.statSync(source);
+    if (stat.isDirectory()) {
+      if (ancestors.has(real)) throw new Error(`Circular runtime asset: ${source}`);
+      fs.mkdirSync(target);
+      const next = new Set([...ancestors, real]);
+      for (const name of fs.readdirSync(source)) {
+        if (name.startsWith('.') || excluded.has(name) || name.endsWith('.tmpl')) continue;
+        link(path.join(source, name), path.join(target, name), next);
+      }
+    } else if (stat.isFile()) {
+      fs.symlinkSync(source, target, 'file');
+    }
+  }
+  fs.mkdirSync(destination);
+  try {
+    for (const name of roots) {
+      const source = path.join(root, name);
+      if (fs.existsSync(source)) {
+        const target = path.join(destination, name);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        link(source, target, new Set([sourceRoot]));
+      }
+    }
+  } catch (error) {
+    fs.rmSync(destination, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
  * A hermetic CLAUDE_CONFIG_DIR with the repo's shipped skills REGISTERED in
  * user scope, mirroring ./setup's registration exactly: each discovered skill
  * gets a REAL directory `<configDir>/skills/<registryName>/` containing a
  * SYMLINK to that skill's SKILL.md (absolute path), plus symlinks to its
- * runtime assets using setup's exclusions. The gstack checkout itself also
- * lives at `<configDir>/skills/gstack`, as in an installed setup, so canonical
+ * runtime assets using setup's exclusions. An owned runtime view also
+ * lives at `<configDir>/skills/gstack`, so canonical
  * lazy-section paths work alongside flattened discovery. registryName is the frontmatter `name:`
  * (dir-name fallback), NO gstack- prefix; the root SKILL.md router registers
  * as `_gstack-command`. skillCensus().registryEntries is the authoritative
@@ -318,10 +377,9 @@ export function hermeticSkillsConfigDir(): string {
       }
     }
   }
-  // Claude can resolve canonical skill paths from CLAUDE_CONFIG_DIR rather
-  // than HOME. Expose the same runtime checkout here as well as the flattened
-  // entries above; never send a missing lazy-section lookup to operator state.
-  fs.symlinkSync(root, path.join(skillsDir, 'gstack'), 'dir');
+  // Canonical lazy paths remain available without letting native file-index
+  // discovery recursively read the source checkout's historical artifacts.
+  seedHermeticRuntimeView(root, path.join(skillsDir, 'gstack'));
   cachedSkillsConfigDir = configDir;
   return configDir;
 }

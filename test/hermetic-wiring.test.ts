@@ -156,8 +156,18 @@ describe('hermetic wiring tripwire', () => {
     const repoRootReal = fs.realpathSync(ROOT) + path.sep;
     for (const entry of fs.readdirSync(skillsDir)) {
       if (entry === 'gstack') {
-        expect(fs.lstatSync(path.join(skillsDir, entry)).isSymbolicLink()).toBe(true);
-        expect(fs.realpathSync(path.join(skillsDir, entry)) + path.sep).toBe(repoRootReal);
+        const verifyRuntime = (directory: string) => {
+          expect(fs.lstatSync(directory).isDirectory()).toBe(true);
+          for (const name of fs.readdirSync(directory)) {
+            const file = path.join(directory, name);
+            if (fs.statSync(file).isDirectory()) verifyRuntime(file);
+            else {
+              expect(fs.lstatSync(file).isSymbolicLink()).toBe(true);
+              expect(fs.realpathSync(file).startsWith(repoRootReal), file).toBe(true);
+            }
+          }
+        };
+        verifyRuntime(path.join(skillsDir, entry));
         continue;
       }
       const target = fs.readlinkSync(path.join(skillsDir, entry, 'SKILL.md'));

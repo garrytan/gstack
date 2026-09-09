@@ -49,11 +49,13 @@ const args = process.argv.slice(2);
 const addDir = args.includes('--add-dir') ? args[args.indexOf('--add-dir')+1] : null;
 const phase = spawnSync('bash',['-c','cat ~/.claude/skills/gstack/autoplan/sections/ceo-phase.md'],{timeout:5000});
 const config = spawnSync('bash',['-c','"$HOME/.claude/skills/gstack/bin/gstack-config" get codex_reviews'],{timeout:5000});
+const canonicalConfig = process.env.CLAUDE_CONFIG_DIR && spawnSync('bash',['-c','"$CLAUDE_CONFIG_DIR/skills/gstack/bin/gstack-config" get codex_reviews'],{timeout:5000});
 const codexHome = process.env.CODEX_HOME || path.join(process.env.HOME,'.codex');
 const record = {
   pid:process.pid, home:process.env.HOME, root:fs.realpathSync(root), args,
   phaseExit:phase.status, phaseHash:createHash('sha256').update(phase.stdout).digest('hex'),
   configExit:config.status, configValue:config.stdout.toString().trim(),
+  canonicalConfigExit:canonicalConfig?.status, canonicalConfigValue:canonicalConfig?.stdout.toString().trim(),
   configDir:process.env.CLAUDE_CONFIG_DIR, state:process.env.GSTACK_HOME,
   runtimeAllowed:addDir !== null && fs.realpathSync(addDir) === fs.realpathSync(root),
   claudeAuthPreserved:process.env.ANTHROPIC_API_KEY === 'fixture-api-key',
@@ -128,6 +130,7 @@ try {
           expect(result.home).not.toBe(operatorHome);
           expect(result.root).toBe(fs.realpathSync(ROOT));
           expect(result.configValue).toBe('disabled'); expect(result.runtimeAllowed).toBe(true);
+          expect(result.canonicalConfigExit).toBe(0); expect(result.canonicalConfigValue).toBe('disabled');
           for (const asset of result.discovery) {
             expect(asset.home, item.name + ': HOME discovery ' + asset.relative).toBe(fs.realpathSync(path.join(ROOT,asset.relative)));
             expect(asset.config, item.name + ': config discovery ' + asset.relative).toBe(asset.home);

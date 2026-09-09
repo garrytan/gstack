@@ -19,10 +19,12 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import {
   hermeticSkillsConfigDir,
   getHermeticDirs,
   buildSeedConfig,
+  seedHermeticRuntimeView,
 } from './helpers/hermetic-env';
 import { skillCensus } from './helpers/skill-census';
 
@@ -37,14 +39,118 @@ describe('hermeticSkillsConfigDir', () => {
     expect(configDir.startsWith(getHermeticDirs().runRoot + path.sep)).toBe(true);
   });
 
-  test('exact skill registry plus the canonical runtime checkout', () => {
+  test('exact skill registry plus the canonical runtime view', () => {
     const seeded = fs.readdirSync(skillsDir).sort();
     expect(seeded).toEqual([...skillCensus(ROOT).registryEntries, 'gstack'].sort());
     const runtime = path.join(skillsDir, 'gstack');
-    expect(fs.lstatSync(runtime).isSymbolicLink()).toBe(true);
-    expect(fs.realpathSync(runtime)).toBe(fs.realpathSync(ROOT));
+    expect(fs.lstatSync(runtime).isDirectory()).toBe(true);
     expect(fs.readFileSync(path.join(runtime, 'plan-design-review/sections/review-sections.md'), 'utf8'))
       .toBe(fs.readFileSync(path.join(ROOT, 'plan-design-review/sections/review-sections.md'), 'utf8'));
+    for (const rel of ['bin/gstack-config', 'lib/claude-bin.ts', 'SKILL.md', 'ETHOS.md', 'extension/manifest.json',
+      'browser-skills/hackernews-frontpage/script.ts', 'browser-skills/hackernews-frontpage/script.test.ts',
+      'docs/askuserquestion-split.md', 'docs/askuserquestion-cjk.md',
+      'docs/designs/PLAN_TUNING_V0.md', 'docs/designs/PLAN_TUNING_V1.md'])
+      expect(fs.realpathSync(path.join(runtime, rel))).toBe(fs.realpathSync(path.join(ROOT, rel)));
+    expect(fs.readdirSync(path.join(runtime, 'docs')).sort()).toEqual(['askuserquestion-cjk.md', 'askuserquestion-split.md', 'designs']);
+    expect(fs.readdirSync(path.join(runtime, 'docs/designs')).sort()).toEqual(['PLAN_TUNING_V0.md', 'PLAN_TUNING_V1.md']);
+    for (const rel of ['.context', '.git', 'node_modules', '.agents', 'hosts', 'test'])
+      expect(fs.existsSync(path.join(runtime, rel)), rel).toBe(false);
+  });
+
+  test('recursive installed discovery cannot read historical or dependency markdown', () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-view-'));
+    const source = path.join(fixture, 'source');
+    const view = path.join(fixture, 'view');
+    const files = {
+      'SKILL.md': '---\nname: router\n---\nCurrent router',
+      'review/SKILL.md': '---\nname: review\n---\nCurrent review',
+      'review/sections/method.md': 'CURRENT METHOD',
+      'review/references/example.md': 'CURRENT REFERENCE',
+      'bin/tool': '#!/bin/sh\nexit 0\n',
+      'lib/helper.ts': 'export const current = true;',
+      'browse/dist/browse': 'CURRENT BUILT RUNTIME',
+      '.context/old-review.md': 'HISTORICAL SENTINEL',
+      '.git/history.md': 'GIT SENTINEL',
+      'node_modules/pkg/README.md': 'DEPENDENCY SENTINEL',
+      '.agents/skills/review/SKILL.md': 'GENERATED HOST SENTINEL',
+      'hosts/review.md': 'HOST SOURCE SENTINEL',
+      'review/sections/node_modules/pkg/README.md': 'NESTED DEPENDENCY SENTINEL',
+      'review/test/fixture.md': 'TEST SENTINEL',
+      'review/sections/method.md.tmpl': 'TEMPLATE SENTINEL',
+    };
+    try {
+      for (const [rel, content] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(source, rel)), { recursive: true });
+        fs.writeFileSync(path.join(source, rel), content, { mode: 0o755 });
+      }
+      fs.symlinkSync(path.join(source, 'review'), path.join(source, 'review-alias'), 'dir');
+      seedHermeticRuntimeView(source, view);
+      const markdown: string[] = [];
+      const scan = (dir: string) => {
+        for (const name of fs.readdirSync(dir)) {
+          const file = path.join(dir, name);
+          if (fs.statSync(file).isDirectory()) {
+            expect(fs.lstatSync(file).isSymbolicLink()).toBe(false);
+            scan(file);
+          } else {
+            expect(fs.realpathSync(file)).toBe(fs.realpathSync(path.join(source, path.relative(view, file))));
+            if (name.endsWith('.md')) markdown.push(fs.readFileSync(file, 'utf8'));
+          }
+        }
+      };
+      scan(view);
+      expect(markdown).toContain('CURRENT METHOD');
+      expect(markdown).toContain('CURRENT REFERENCE');
+      expect(markdown.some(content => content.includes('SENTINEL'))).toBe(false);
+      expect(fs.readFileSync(path.join(view, 'browse/dist/browse'), 'utf8')).toBe('CURRENT BUILT RUNTIME');
+      expect(fs.statSync(path.join(view, 'bin/tool')).mode & 0o111).toBe(0o111);
+      expect(fs.existsSync(path.join(view, 'review/sections/method.md.tmpl'))).toBe(false);
+    } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+  });
+
+  test('rejects escaped or circular assets and removes only its partial view', () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-view-owned-'));
+    try {
+      const source = path.join(fixture, 'source');
+      fs.mkdirSync(path.join(source, 'bin'), { recursive: true });
+      const external = path.join(fixture, 'outside.md');
+      fs.writeFileSync(external, 'OUTSIDE');
+      fs.symlinkSync(external, path.join(source, 'bin/escape.md'));
+      const view = path.join(fixture, 'view');
+      expect(() => seedHermeticRuntimeView(source, view)).toThrow('owned checkout');
+      expect(fs.existsSync(view)).toBe(false);
+      expect(fs.readFileSync(external, 'utf8')).toBe('OUTSIDE');
+      fs.unlinkSync(path.join(source, 'bin/escape.md'));
+      fs.symlinkSync(source, path.join(source, 'bin/cycle'), 'dir');
+      expect(() => seedHermeticRuntimeView(source, view)).toThrow('Circular');
+      expect(fs.existsSync(view)).toBe(false);
+      fs.mkdirSync(view); fs.writeFileSync(path.join(view, 'owner.md'), 'OWNED ELSEWHERE');
+      expect(() => seedHermeticRuntimeView(source, view)).toThrow();
+      expect(fs.readFileSync(path.join(view, 'owner.md'), 'utf8')).toBe('OWNED ELSEWHERE');
+    } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+  });
+
+  test('ordinary aliases cannot reopen excluded directories or files', () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-runtime-view-alias-'));
+    const source = path.join(fixture, 'source');
+    const view = path.join(fixture, 'view');
+    try {
+      fs.mkdirSync(path.join(source, 'review/sections'), { recursive: true });
+      fs.writeFileSync(path.join(source, 'review/SKILL.md'), '---\nname: review\n---\nCURRENT');
+      for (const forbidden of ['.context', 'node_modules', 'test', '.agents/skills', 'hosts', 'docs/history']) {
+        const hidden = path.join(source, forbidden);
+        fs.mkdirSync(hidden, { recursive: true });
+        fs.writeFileSync(path.join(hidden, 'sentinel.md'), 'FORBIDDEN HISTORY');
+        for (const directory of [true, false]) {
+          const alias = path.join(source, 'review/sections', directory ? 'archive' : 'ordinary.md');
+          fs.symlinkSync(directory ? hidden : path.join(hidden, 'sentinel.md'), alias, directory ? 'dir' : 'file');
+          expect(() => seedHermeticRuntimeView(source, view)).toThrow('excluded tree');
+          expect(fs.existsSync(view)).toBe(false);
+          expect(fs.readFileSync(path.join(hidden, 'sentinel.md'), 'utf8')).toBe('FORBIDDEN HISTORY');
+          fs.unlinkSync(alias);
+        }
+      }
+    } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
   });
 
   test('every SKILL.md is a symlink resolving to a real file', () => {
