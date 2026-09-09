@@ -108,17 +108,13 @@ describe('Codex E2E hermetic model pin', () => {
 describe('Sol E2E tree hygiene', () => {
   const solTest = fs.readFileSync(path.join(ROOT, 'test', 'codex-e2e-sol-scope.test.ts'), 'utf8');
 
-  test('snapshots and restores the exact prior .agents tree around the Sol render', () => {
-    // The Sol render must not persist in the shared .agents tree (host-config
-    // golden, parallel shard worktree copies, live symlinked installs) — and
-    // the restore must be the operator's EXACT prior render, not a forced
-    // default profile.
-    const backupAt = solTest.indexOf('gstack-agents-backup-');
-    const solRenderAt = solTest.indexOf("'--model', 'gpt-5.6-sol'");
-    const restoreAt = solTest.indexOf('fs.cpSync(priorAgentsBackup, agentsDir');
-    expect(backupAt).toBeGreaterThan(-1);
-    expect(solRenderAt).toBeGreaterThan(backupAt);
-    expect(restoreAt).toBeGreaterThan(solRenderAt);
+  test('renders Sol in its own output tree without changing the installed profile', () => {
+    // Even a temporary shared render races parallel worktree copies. External
+    // hosts support --out-dir, so no installed-tree backup or mutation is needed.
+    expect(solTest).toContain("'--model', 'gpt-5.6-sol', '--out-dir', renderDir");
+    expect(solTest).toContain("path.join(renderDir, '.agents', 'skills', 'gstack-investigate')");
+    expect(solTest).not.toContain('priorAgentsBackup');
+    expect(solTest).not.toContain("path.join(ROOT, '.agents')");
     // Scope-widening detection must see untracked + staged files, not just
     // unstaged tracked modifications.
     expect(solTest).toContain("['status', '--porcelain']");
