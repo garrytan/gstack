@@ -30,6 +30,7 @@ import {
   isNumberedOptionListVisible,
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
+import { autoplanArtifactPermissionInput } from './helpers/autoplan-artifact-permission';
 import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
@@ -96,8 +97,9 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         let commandStartedAt = Date.now();
         const saveSnapshot = createPlanCountSnapshotWriter();
         let artifacts: { artifactDir?: string; artifactError?: string } = {};
+        let publicTools: NativePublicToolEvent[] = [];
         const observe = () => {
-          const publicTools: NativePublicToolEvent[] = [];
+          publicTools = [];
           transcript = session.hermeticConfigDir
             ? readPlanCountTranscript(session.hermeticConfigDir, tempDir, event => publicTools.push(event))
             : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated autoplan transcript directory' };
@@ -112,6 +114,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
             observation: { state, hits, native: transcript, pendingSetupQuestion, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
+              ownedArtifactStateRoot: session.hermeticSkillStateRoot,
               pendingQuestionRecorder:pendingQuestionRecorderStatus(session.pendingQuestionFile, tempDir, session.hermeticConfigDir),
               retention: 'Current raw/visible/viewport and parsed native metadata only; full parent JSONL retention is not guaranteed.' },
           });
@@ -126,6 +129,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           const budgetMs = AUTOPLAN_CHAIN_BUDGET.workMs;
           const start = Date.now();
           let lastPermSig = '';
+          const seenArtifactPermissions = new Set<string>();
           let lastCheckpointAt = start;
           const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
@@ -142,6 +146,19 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               break;
             }
             const visible = viewport;
+
+            // Cropped artifact edits require current native identity and owned
+            // file/diff binding. Option 1 grants only this request, once per ID.
+            const artifactPermission = autoplanArtifactPermissionInput(visible, {
+              cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot,
+              commandStartedAt, transcriptStatus: transcript.status, publicTools,
+            }, seenArtifactPermissions);
+            if (artifactPermission) {
+              seenArtifactPermissions.add(artifactPermission.signature);
+              session.send(artifactPermission.input);
+              await Bun.sleep(2000);
+              continue;
+            }
 
             // Auto-grant any permission dialog so autoplan can keep moving
             // through its phases. The autoplan template auto-decides review

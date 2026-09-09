@@ -162,6 +162,8 @@ export interface ClaudePtySession {
    * the dir name ends in `/.claude` by contract).
    */
   hermeticConfigDir: string | null;
+  /** Owned HOME/.gstack created by the seeded launcher; absent for caller overrides. */
+  hermeticSkillStateRoot?: string;
   /** Owned pre-tool identity record, removed by close(). */
   pendingPlanReadyFile?: string;
   pendingQuestionFile?: string;
@@ -2534,11 +2536,13 @@ export async function launchClaudePty(
   // Hermetic by default (test/helpers/hermetic-env.ts): operator session
   // context never reaches the child; per-test opts.env merges last.
   let childEnv = hermeticChildEnv(opts.env);
+  let hermeticSkillStateRoot: string | undefined;
   if (opts.seedSkills && hermetic && !opts.env?.CLAUDE_CONFIG_DIR) {
     childEnv.CLAUDE_CONFIG_DIR = hermeticSkillsConfigDir();
     if (opts.env?.HOME === undefined) {
       const runtime = withHermeticSkillRuntime(childEnv);
       childEnv = runtime.env;
+      hermeticSkillStateRoot = runtime.stateRoot;
       // Installed sections and generated ~/.gstack snapshots are owned inputs
       // outside the fixture cwd. Grant only these two runtime directories;
       // explicit GSTACK_HOME paths and operator permission settings stay separate.
@@ -2762,6 +2766,7 @@ export async function launchClaudePty(
     exited: () => exited,
     exitCode: () => exitCodeCaptured,
     hermeticConfigDir: hermetic ? childEnv.CLAUDE_CONFIG_DIR ?? null : null,
+    hermeticSkillStateRoot,
     pendingPlanReadyFile: pendingExit?.file,
     pendingQuestionFile: pendingQuestion?.file,
     pendingFilePermissionFiles: pendingFiles.map(({ expected, recorder }) => ({ expected, file: recorder.file })),

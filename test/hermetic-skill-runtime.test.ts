@@ -112,6 +112,10 @@ try {
   try { await session.waitFor('RUNTIME_PROBE_READY',{timeoutMs:7000,pollMs:20}); }
   catch (error) { failed = true; if (!${Boolean(item.failure)}) throw error; }
   if (failed !== ${Boolean(item.failure)}) throw new Error('unexpected startup outcome');
+  const recordPath = ${JSON.stringify(record)};
+  const record = JSON.parse(await Bun.file(recordPath).text());
+  record.ownedStateRoot = session.hermeticSkillStateRoot ?? null;
+  await Bun.write(recordPath, JSON.stringify(record));
 } finally { await session.close(); }
 `);
         const child = Bun.spawn([process.execPath,worker], {
@@ -142,6 +146,7 @@ try {
           // an inherited/explicit GSTACK_HOME, or a broad policy-setting answer.
           expect(result.methodologyAllowed, item.name + ': owned methodology Read is covered').toBe(true);
           expect(result.stateDirectoryExists).toBe(true);
+          expect(result.ownedStateRoot).toBe(result.stateDirectory);
           expect(result.addDirs).toEqual([path.join(result.home,'.claude','skills','gstack'),path.join(result.home,'.gstack')]);
           for (const external of [operatorHome,state,path.dirname(result.home),result.codexHome,result.browserCache])
             expect(result.addDirs).not.toContain(external);
@@ -163,6 +168,7 @@ try {
           expect(result.home).toBe(operatorHome); expect(result.phaseHash).toBe(originalSection);
           expect(result.configValue).toBe('stale-runtime'); expect(result.runtimeAllowed).toBe(false);
           expect(result.addDirs).toEqual([]); expect(result.methodologyAllowed).toBe(false);
+          expect(result.ownedStateRoot).toBeNull();
         }
         if (item.name === 'explicit-config') expect(result.configDir).toBe(customConfig);
         expect(() => process.kill(result.pid,0)).toThrow();

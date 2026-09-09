@@ -1,8 +1,9 @@
 /**
- * /plan-eng-review per-finding AskUserQuestion count (periodic, paid, real-PTY).
+ * /plan-eng-review seeded issue coverage (periodic, paid, real-PTY).
  *
- * Same shape as skill-e2e-plan-ceo-finding-count: drives /plan-eng-review
- * against a 5-finding seeded plan and asserts review-phase AUQ count ∈ [N-1, N+2].
+ * Each of four seeded decisions needs its own completed native AskUserQuestion.
+ * The fifth seed, legacy regression coverage, is auto-added by the skill and
+ * needs affirmative final-plan or public-narration evidence, not another AUQ.
  * Plus D19: review report at bottom of produced plan file.
  *
  * Tier: periodic (~25 min, ~$5/run). Sequential by default per plan §D15.
@@ -22,12 +23,9 @@ import {
 } from './helpers/claude-pty-runner';
 
 import { isEngCompletionHandoff } from './helpers/eng-completion-handoff';
+import { evaluateEngSeedCoverage } from './helpers/eng-seeded-coverage';
 
 const describeE2E = describeE2ETier('periodic');
-
-const N = 5;
-const FLOOR = N - 1; // 4
-const CEILING = N + 2; // 7
 
 // Native controls found separate cache-validity, tenant-key, and new-code
 // coverage gaps when these surrounding contracts were omitted. The shared
@@ -71,9 +69,9 @@ const planEng5Findings = (planPath: string) => [
   'SessionMint, AuthCache, RequestPolicy). Worth flagging the complexity check.',
 ].join('\n');
 
-describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () => {
+describeE2E('/plan-eng-review seeded issue coverage (periodic)', () => {
   test(
-    `5-finding plan emits ${FLOOR}-${CEILING} review-phase AskUserQuestions`,
+    '5-finding plan receives distinct native decisions and a completed review report',
     async () => {
       // Per-run artifact dir: a hardcoded shared /tmp path collides under
       // --retry, EVALS_JOBS>1, or concurrent worktrees (a sibling's finally-
@@ -82,6 +80,7 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
       const planPath = path.join(tmpDir, 'gstack-test-plan-eng.md');
 
       try {
+        const startedAt = Date.now();
         const obs = await runPlanSkillCounting({
           skillName: 'plan-eng-review',
           slashCommand: '/plan-eng-review',
@@ -94,12 +93,14 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
             try { return isEngCompletionHandoff(fp, fs.readFileSync(planPath, 'utf8')); }
             catch { return false; } // Unpublished work cannot establish a closed handoff.
           },
-          reviewCountCeiling: CEILING + 1,
+          // Extra legitimate decisions are not a failure. The unchanged wall limit
+          // bounds runaway reviews; coverage below uses scoped completed native calls.
+          reviewCountCeiling: Infinity,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });
 
-        if (!['plan_ready', 'completion_summary', 'ceiling_reached'].includes(obs.outcome)) {
+        if (!['plan_ready', 'completion_summary'].includes(obs.outcome)) {
           throw new Error(
             `plan-eng-review finding-count FAILED: outcome=${obs.outcome}\n` +
               `step0=${obs.step0Count} review=${obs.reviewCount} elapsed=${obs.elapsedMs}ms\n` +
@@ -114,23 +115,6 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
               `\n--- evidence (last 3KB) ---\n${obs.evidence}`,
           );
         }
-        if (obs.reviewCount < FLOOR) {
-          throw new Error(
-            `BAND FAIL (below floor): reviewCount=${obs.reviewCount} < FLOOR=${FLOOR}.\n` +
-              `Likely batching regression. Review-phase fingerprints:\n` +
-              obs.fingerprints
-                .filter((f) => !f.preReview)
-                .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
-                .join('\n'),
-          );
-        }
-        if (obs.reviewCount > CEILING) {
-          throw new Error(
-            `BAND FAIL (above ceiling): reviewCount=${obs.reviewCount} > CEILING=${CEILING}.\n` +
-              `Captured observation:\n${JSON.stringify(obs, null, 2)}`,
-          );
-        }
-
         if (!fs.existsSync(planPath)) {
           throw new Error(
             `D19 FAIL: agent did not produce expected plan file at ${planPath}. ` +
@@ -138,6 +122,10 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
           );
         }
         const planContent = fs.readFileSync(planPath, 'utf-8');
+        const coverage = evaluateEngSeedCoverage(obs.transcript, planContent, startedAt, Date.now());
+        if (!coverage.ok) {
+          throw new Error(`SEED COVERAGE FAIL: ${JSON.stringify(coverage)}; observed reviewCount=${obs.reviewCount}`);
+        }
         const verdict = assertReviewReportAtBottom(planContent);
         if (!verdict.ok) {
           throw new Error(

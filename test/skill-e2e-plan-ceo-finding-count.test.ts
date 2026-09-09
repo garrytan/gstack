@@ -72,6 +72,8 @@ const CEILING_PAIRED = 4;
 // observability, and rollout gaps when those baseline facts were unspecified.
 const planCeo5Findings = (planPath: string) => [
   `Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  'Proceed directly to the requested CEO review; skip the optional /office-hours prerequisite.',
+  'Finish after this CEO review; I will handle subsequent reviews manually.',
   '',
   '# Plan: Payment Processing Integration',
   '',
@@ -144,6 +146,8 @@ const planCeo5Findings = (planPath: string) => [
 
 const planCeo2PairedFindings = (planPath: string) => [
   `Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  'Proceed directly to the requested CEO review; skip the optional /office-hours prerequisite.',
+  'Finish after this CEO review; I will handle subsequent reviews manually.',
   '',
   '# Plan: Payment Processing — Test Coverage',
   '',

@@ -50,6 +50,14 @@ Completed native transcript calls establish question counts and phase coverage.
 Report-aware count tests also require a fresh, complete report and native
 completion evidence before accepting a completion heading.
 
+The engineering and DX finding fixtures check coverage of their seeded issues
+rather than cap the total number of review questions. Each decision needs a
+distinct, completed native question with an offered answer; accepting, rejecting,
+or deferring a recommendation all count as reviewing it. Engineering's mandatory
+legacy regression tests also need affirmative plan or public-narration evidence.
+Additional useful questions are allowed within the existing time limits. Generic
+question counts remain diagnostic, and a fresh final review report is required.
+
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack/projects/<slug>/evals/` (legacy
 fallback `~/.gstack-dev/evals/`) with auto-comparison

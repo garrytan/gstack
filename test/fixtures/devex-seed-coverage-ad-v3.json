@@ -1,0 +1,368 @@
+{
+  "sourceHead": "4636893f5201e9357f9af2dd3cbbfb679e57bfdc",
+  "provenance": "Exact five seeded native questions and completions from each naturally failed V3 attempt; additional real work is preserved in the retained full census, not relabeled as a pass.",
+  "attempts": [
+    {
+      "attempt": 1,
+      "calls": [
+        {
+          "sessionId": "4ee2d851-255c-425b-976f-9f207925627d",
+          "toolUseId": "toolu_01VXrmuvLXa6RMo8tRHbZFqb",
+          "questions": [
+            {
+              "question": "D3 — Journey stage INSTALL / HELLO WORLD: the README quickstart points at a file that does not ship. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 1 of 5.\nELI10: README.md:10-11 tells the developer to run `python examples/first_eval.py` right after pip install. docs/package-contents.txt:8-9 confirms that file is in neither the published wheel nor the examples archive. Your ML engineer's very first command after install fails with \"No such file or directory\". Meanwhile the command that actually works, `python -m evalkit.demo`, is two paragraphs lower. This violates Zero Friction at T0: the golden path is broken at step 2 of 2.\nStakes if we pick wrong: Minute 1 ends in a file-not-found error and a developer who now doubts every other line of the README.\nRecommendation: A because the demo module is already shipped and working (package-contents.txt:9-10), so the README should point at it and the missing file should stop being referenced anywhere.\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: one golden path that exists vs maintaining two entry points, one of which must still be built.",
+              "header": "Quickstart",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Point quickstart at evalkit.demo (recommended)",
+                  "description": "✅ The command already ships and works; README.md:11 changes to `python -m evalkit.demo` and the missing-file reference is removed everywhere. ✅ One golden path, no decision fatigue, matches the approved delivery vehicle. ❌ Drops the idea of a standalone editable example script from the quickstart. (human: ~30 min / CC: ~2 min)"
+                },
+                {
+                  "label": "Ship examples/first_eval.py too",
+                  "description": "✅ Gives developers an editable script to copy into their own project. ✅ Makes the existing README line true instead of rewriting it. ❌ Adds a second first-run path and a new file that must be packaged, tested, and kept in sync with the demo. (human: ~half day / CC: ~15 min)"
+                },
+                {
+                  "label": "Add a note that the file is coming",
+                  "description": "✅ Smallest possible edit to the README. ✅ No packaging change. ❌ The first command still does nothing useful, and a 'coming soon' in a quickstart reads as abandonment."
+                },
+                {
+                  "label": "Acceptable friction, skip",
+                  "description": "✅ No work in this release. ✅ Developers who read the whole README will find the demo. ❌ The documented first command fails for every new developer at minute 1."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 — Journey stage INSTALL / HELLO WORLD: the README quickstart points at a file that does not ship. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 1 of 5.\nELI10: README.md:10-11 tells the developer to run `python examples/first_eval.py` right after pip install. docs/package-contents.txt:8-9 confirms that file is in neither the published wheel nor the examples archive. Your ML engineer's very first command after install fails with \"No such file or directory\". Meanwhile the command that actually works, `python -m evalkit.demo`, is two paragraphs lower. This violates Zero Friction at T0: the golden path is broken at step 2 of 2.\nStakes if we pick wrong: Minute 1 ends in a file-not-found error and a developer who now doubts every other line of the README.\nRecommendation: A because the demo module is already shipped and working (package-contents.txt:9-10), so the README should point at it and the missing file should stop being referenced anywhere.\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: one golden path that exists vs maintaining two entry points, one of which must still be built.": "Point quickstart at evalkit.demo (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:10:11.801Z"
+        },
+        {
+          "sessionId": "4ee2d851-255c-425b-976f-9f207925627d",
+          "toolUseId": "toolu_01ABAQJEV6AovtsUCJWLiWq7",
+          "questions": [
+            {
+              "question": "D4 — Journey stage HELLO WORLD: the keyless local demo blocks up to 300s on a remote CI check. Keep, gate, or remove for first local results?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 2 of 5.\nELI10: docs/current-contracts.md:3-5 says the first local evaluation requires a successful remote CI check and blocks for five minutes, with no skip flag or offline path. README.md:17-23 confirms even the keyless bundled demo (mock transport, sample data, no credentials) waits on it. The approved target is under 2 minutes to first result (docs/benchmarks.md:8). A 300-second wait cannot fit inside a 120-second budget, so the plan as written promises a target it cannot meet. The progress lines and timeout message are good, but they polish a wait that should not exist for a local, mock-transport evaluation. This violates Zero Friction at T0 and Decide-for-me-let-me-override (no escape hatch). Peer SDK A finishes everything in 2 minutes.\nStakes if we pick wrong: Your ML engineer, who explicitly wants a local result before touching CI, alt-tabs at minute 2 and half of them never come back; the magical moment arrives after they have left.\nRecommendation: A because local evaluations over the mock transport or sample data have nothing to verify against CI, and the check still runs when it matters: the first remote, keyed evaluation.\nCompleteness: A=10/10, B=8/10, C=5/10\nNet: deliver the demo scores in seconds and keep the CI gate for remote work, vs keeping a mandatory wait that makes the approved target impossible.",
+              "header": "CI gate",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "No CI gate for local/mock evals (recommended)",
+                  "description": "✅ `python -m evalkit.demo` and any mock-transport or offline evaluation return in seconds; the CI binding check moves to the first live, keyed evaluation where it verifies something real. ✅ Makes the under-2-minute target achievable; existing progress and timeout messaging is reused unchanged on the remote path. ❌ Changes a documented contract; the plan must state the new rule and update current-contracts.md. (human: ~1 day / CC: ~30 min)"
+                },
+                {
+                  "label": "Keep gate, add --skip-ci-check / EVALKIT_SKIP_CI_CHECK",
+                  "description": "✅ Preserves the existing default behavior for anyone relying on it. ✅ Gives an explicit, documented escape hatch and lets the demo pass the flag by default. ❌ The default first-run path still waits 300s unless the developer discovers the flag; the README must lead with it. (human: ~half day / CC: ~20 min)"
+                },
+                {
+                  "label": "Keep gate, run it in the background",
+                  "description": "✅ Demo scores print immediately from the mock transport while the CI check completes asynchronously. ✅ No contract removal, just reordering. ❌ A check the result never depends on is theater; developers will ask why it exists. (human: ~1 day / CC: ~30 min)"
+                },
+                {
+                  "label": "Keep the mandatory wait as documented",
+                  "description": "✅ Zero change to a contract the plan says to retain. ✅ Progress lines and timeout messages already exist. ❌ The under-2-minute target is arithmetically unreachable and the review must record it as a blocking DX debt."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 — Journey stage HELLO WORLD: the keyless local demo blocks up to 300s on a remote CI check. Keep, gate, or remove for first local results?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 2 of 5.\nELI10: docs/current-contracts.md:3-5 says the first local evaluation requires a successful remote CI check and blocks for five minutes, with no skip flag or offline path. README.md:17-23 confirms even the keyless bundled demo (mock transport, sample data, no credentials) waits on it. The approved target is under 2 minutes to first result (docs/benchmarks.md:8). A 300-second wait cannot fit inside a 120-second budget, so the plan as written promises a target it cannot meet. The progress lines and timeout message are good, but they polish a wait that should not exist for a local, mock-transport evaluation. This violates Zero Friction at T0 and Decide-for-me-let-me-override (no escape hatch). Peer SDK A finishes everything in 2 minutes.\nStakes if we pick wrong: Your ML engineer, who explicitly wants a local result before touching CI, alt-tabs at minute 2 and half of them never come back; the magical moment arrives after they have left.\nRecommendation: A because local evaluations over the mock transport or sample data have nothing to verify against CI, and the check still runs when it matters: the first remote, keyed evaluation.\nCompleteness: A=10/10, B=8/10, C=5/10\nNet: deliver the demo scores in seconds and keep the CI gate for remote work, vs keeping a mandatory wait that makes the approved target impossible.": "No CI gate for local/mock evals (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:10:33.870Z"
+        },
+        {
+          "sessionId": "4ee2d851-255c-425b-976f-9f207925627d",
+          "toolUseId": "toolu_01Sw8ezPFGmW8Az8Z1fArHhp",
+          "questions": [
+            {
+              "question": "D5 — Journey stage REAL USAGE: run_eval and run_batch take the same two arguments in opposite positional order. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 3 of 5.\nELI10: docs/api.md:5-9 documents `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Same concepts, reversed order, positional only, and the draft calls the reversal intentional. Your ML engineer learns one call from the demo, writes the other by analogy, and passes a dataset where an evaluator is expected. Best case a confusing type error; worst case both are duck-typed iterables and it runs wrong. This is a beta with the version bump to 2.0 already happening, which is the cheapest moment there will ever be to make the two signatures agree. Violates Usable (consistent grammar) and the one-example test: a developer cannot use the API correctly after seeing one example.\nStakes if we pick wrong: Every developer who uses both functions pays a debugging session for an inconsistency the SDK chose on purpose, and fixing it after GA becomes a breaking change.\nRecommendation: A because 2.0.0b1 is the last free moment to align the order; the alias-and-warn path costs nothing for beta users who have no v2 code yet.\nCompleteness: A=10/10, B=8/10, C=6/10\nNet: fix the grammar once now while it is free, vs shipping a known trap into a 2.x contract.",
+              "header": "Signatures",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Align order to (dataset, evaluator) in 2.0 (recommended)",
+                  "description": "✅ `run_batch(dataset, evaluator)` matches `run_eval`; one signature shape to learn, and the docs show both with the same example. ✅ A runtime check raises a clear TypeError when an evaluator lands in the dataset slot, so a swapped call fails loudly with the fix in the message. ❌ Changes a documented signature in the beta; anyone on 2.0.0b1 pre-release code with positional run_batch calls must swap two arguments. (human: ~half day / CC: ~15 min)"
+                },
+                {
+                  "label": "Keep order, require keyword arguments",
+                  "description": "✅ `run_batch(*, dataset, evaluator)` makes the order irrelevant and every call self-documenting. ✅ No silent argument swap is possible. ❌ Positional calls break for both functions, a bigger change than aligning one; more verbose for the common case. (human: ~half day / CC: ~15 min)"
+                },
+                {
+                  "label": "Keep order, document it loudly",
+                  "description": "✅ No code change. ✅ A warning box in docs/api.md and a docstring note. ❌ Documentation does not stop the by-analogy mistake; developers do not read the reference before their second call."
+                },
+                {
+                  "label": "Acceptable friction, skip",
+                  "description": "✅ Zero work; the draft already calls the reversal intentional. ✅ Existing tests keep passing. ❌ Ships a known inconsistency into a 2.x public contract that will cost a breaking change to fix later."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 — Journey stage REAL USAGE: run_eval and run_batch take the same two arguments in opposite positional order. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 3 of 5.\nELI10: docs/api.md:5-9 documents `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Same concepts, reversed order, positional only, and the draft calls the reversal intentional. Your ML engineer learns one call from the demo, writes the other by analogy, and passes a dataset where an evaluator is expected. Best case a confusing type error; worst case both are duck-typed iterables and it runs wrong. This is a beta with the version bump to 2.0 already happening, which is the cheapest moment there will ever be to make the two signatures agree. Violates Usable (consistent grammar) and the one-example test: a developer cannot use the API correctly after seeing one example.\nStakes if we pick wrong: Every developer who uses both functions pays a debugging session for an inconsistency the SDK chose on purpose, and fixing it after GA becomes a breaking change.\nRecommendation: A because 2.0.0b1 is the last free moment to align the order; the alias-and-warn path costs nothing for beta users who have no v2 code yet.\nCompleteness: A=10/10, B=8/10, C=6/10\nNet: fix the grammar once now while it is free, vs shipping a known trap into a 2.x contract.": "Align order to (dataset, evaluator) in 2.0 (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:10:55.952Z"
+        },
+        {
+          "sessionId": "4ee2d851-255c-425b-976f-9f207925627d",
+          "toolUseId": "toolu_01LdUtpia2udSkQVnau2ZjkR",
+          "questions": [
+            {
+              "question": "D6 — Journey stage DEBUG: an invalid API key raises AuthError(\"request failed\") with no code, cause, or fix. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 4 of 5.\nELI10: docs/api.md:11-13 says a bad key raises `AuthError(\"request failed\")` and the plan retains that message. docs/current-contracts.md:21-23 says every OTHER error already names the cause, the argument or file, and a fix, and redacts secrets. So auth is the one error that is below the SDK's own bar, and it is the first error your ML engineer is likely to hit: right after the demo, on their first live call, with a pasted key. \"request failed\" could mean network, key, rate limit, or server. Violates Fight Uncertainty: every error must state problem, cause, and fix. The CI timeout message (EVALKIT_CI_TIMEOUT plus URL plus help link) is already the house style; auth just needs to match it.\nStakes if we pick wrong: The first live call fails with a message that gives no direction, the developer suspects the network, and the console page with the fix is one URL they are never shown.\nRecommendation: A because it brings the one substandard error up to the pattern the SDK already uses everywhere else, at trivial cost.\nCompleteness: A=10/10, B=7/10\nNet: one consistent error contract vs a lone opaque message on the most common first failure.",
+              "header": "AuthError",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Match house style: code + cause + fix + link (recommended)",
+                  "description": "✅ Raise `AuthError` with code EVALKIT_AUTH_INVALID_KEY, message naming the cause (key rejected for project X, or EVALKIT_API_KEY unset), the fix (create or rotate at the console URL, export the variable), and a help link; key value redacted, last 4 chars shown. ✅ Distinguish unset key, malformed key, and rejected key as separate codes so the fix is exact. ❌ Changes the exception message text; any test asserting on \"request failed\" must be updated. (human: ~half day / CC: ~15 min)"
+                },
+                {
+                  "label": "Add a code and docs link only",
+                  "description": "✅ Minimal change: `AuthError(\"request failed\", code=EVALKIT_AUTH)` with a link to the auth troubleshooting page. ✅ Keeps the message text stable for existing assertions. ❌ The developer still leaves the terminal to learn the cause; unset vs invalid vs revoked are not distinguished."
+                },
+                {
+                  "label": "Keep AuthError(\"request failed\")",
+                  "description": "✅ No change to a retained contract. ✅ No test churn. ❌ The one error most new developers hit stays the one error the SDK explains worst."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D6 — Journey stage DEBUG: an invalid API key raises AuthError(\"request failed\") with no code, cause, or fix. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 4 of 5.\nELI10: docs/api.md:11-13 says a bad key raises `AuthError(\"request failed\")` and the plan retains that message. docs/current-contracts.md:21-23 says every OTHER error already names the cause, the argument or file, and a fix, and redacts secrets. So auth is the one error that is below the SDK's own bar, and it is the first error your ML engineer is likely to hit: right after the demo, on their first live call, with a pasted key. \"request failed\" could mean network, key, rate limit, or server. Violates Fight Uncertainty: every error must state problem, cause, and fix. The CI timeout message (EVALKIT_CI_TIMEOUT plus URL plus help link) is already the house style; auth just needs to match it.\nStakes if we pick wrong: The first live call fails with a message that gives no direction, the developer suspects the network, and the console page with the fix is one URL they are never shown.\nRecommendation: A because it brings the one substandard error up to the pattern the SDK already uses everywhere else, at trivial cost.\nCompleteness: A=10/10, B=7/10\nNet: one consistent error contract vs a lone opaque message on the most common first failure.": "Match house style: code + cause + fix + link (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:11:16.020Z"
+        },
+        {
+          "sessionId": "4ee2d851-255c-425b-976f-9f207925627d",
+          "toolUseId": "toolu_016VW8iF54h58quZ73na58Zt",
+          "questions": [
+            {
+              "question": "D7 — Journey stage UPGRADE: v2 removes Client.evaluate() outright with no alias, warning, migration guide, or codemod. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 5 of 5.\nELI10: docs/api.md:15-17 says v1's `Client.evaluate()` becomes `Client.run()` in v2 and the old name is removed immediately. Your ML engineer already has v1 scripts in a repo and possibly in CI. They bump the pin to 2.0.0b1 and every script dies with `AttributeError: 'Client' object has no attribute 'evaluate'`, a message that does not mention `run()`. The changelog is otherwise complete (docs/api.md:18), so this is the one break without a trail. Violates Credible (upgrade fear) and Upgrades-should-be-boring. TypeScript never breaks JS; a one-line alias with a DeprecationWarning is the Python equivalent.\nStakes if we pick wrong: The upgrade is the first thing existing users do with 2.0, and it fails for all of them with no pointer to the fix.\nRecommendation: A because a deprecated alias is a few lines, gives every v1 user a working upgrade plus the exact new name in the warning, and the removal can land in 3.0 with notice.\nCompleteness: A=10/10, B=7/10, C=5/10\nNet: a boring upgrade with a warning and a guide vs a hard break on day one of 2.0.",
+              "header": "v1 to v2",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Alias + DeprecationWarning + migration guide (recommended)",
+                  "description": "✅ `Client.evaluate()` stays as a thin alias that emits `DeprecationWarning: Client.evaluate() is deprecated, use Client.run(); removed in 3.0` with a link to docs/migrating-v1-to-v2.md. ✅ Migration guide covers every 2.0 break (this rename plus the run_batch order fix from D5) with before/after snippets and a one-line sed or pyupgrade-style codemod. ❌ Keeps one legacy name alive through 2.x, a small maintenance cost. (human: ~1 day / CC: ~30 min)"
+                },
+                {
+                  "label": "Remove, but raise a helpful error",
+                  "description": "✅ Clean 2.0 surface, no legacy name. ✅ `__getattr__` intercepts `evaluate` and raises `AttributeError: Client.evaluate() was renamed to Client.run() in 2.0; see <guide url>` so the break explains itself. ❌ Every v1 script still breaks on upgrade; the developer must edit code before anything runs. (human: ~half day / CC: ~15 min)"
+                },
+                {
+                  "label": "Remove, document in changelog only",
+                  "description": "✅ Zero runtime code. ✅ Changelog entry plus a migration section in docs/api.md. ❌ The runtime error stays a bare AttributeError; developers hit the break before they read the changelog."
+                },
+                {
+                  "label": "Acceptable friction, skip",
+                  "description": "✅ The plan already says to retain this behavior. ✅ No work. ❌ Every existing v1 user's first 2.0 experience is an unexplained crash."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D7 — Journey stage UPGRADE: v2 removes Client.evaluate() outright with no alias, warning, migration guide, or codemod. Fix how?\nProject/branch/task: EvalKit SDK beta polish on main; DX POLISH, Step 0F friction point 5 of 5.\nELI10: docs/api.md:15-17 says v1's `Client.evaluate()` becomes `Client.run()` in v2 and the old name is removed immediately. Your ML engineer already has v1 scripts in a repo and possibly in CI. They bump the pin to 2.0.0b1 and every script dies with `AttributeError: 'Client' object has no attribute 'evaluate'`, a message that does not mention `run()`. The changelog is otherwise complete (docs/api.md:18), so this is the one break without a trail. Violates Credible (upgrade fear) and Upgrades-should-be-boring. TypeScript never breaks JS; a one-line alias with a DeprecationWarning is the Python equivalent.\nStakes if we pick wrong: The upgrade is the first thing existing users do with 2.0, and it fails for all of them with no pointer to the fix.\nRecommendation: A because a deprecated alias is a few lines, gives every v1 user a working upgrade plus the exact new name in the warning, and the removal can land in 3.0 with notice.\nCompleteness: A=10/10, B=7/10, C=5/10\nNet: a boring upgrade with a warning and a guide vs a hard break on day one of 2.0.": "Alias + DeprecationWarning + migration guide (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:11:36.110Z"
+        }
+      ],
+      "historicalOutcome": "ceiling_reached",
+      "legacyReviewCount": 8,
+      "genuineDecisions": 8,
+      "observationSha256": "7d0eee358241a9ad11d1fdb8216ee9c0eb46d0b050d86a8f92558863fcacfb11"
+    },
+    {
+      "attempt": 2,
+      "calls": [
+        {
+          "sessionId": "5139711c-562b-47db-81ea-387b171beaed",
+          "toolUseId": "toolu_012AY75Qigv791YdPqtb9s2N",
+          "questions": [
+            {
+              "question": "D3 — Journey stage HELLO WORLD: the mandatory 5-minute remote CI check blocks the first local result, including the keyless demo. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; tracing python -m evalkit.demo against the settled under-2-minute target.\nELI10: docs/current-contracts.md lines 3-5 say every first local evaluation must pass a remote CI check and blocks for five minutes, with no skip flag or offline path. README.md lines 17-23 confirm the keyless demo waits too. docs/benchmarks.md measured EvalKit at 6 minutes, 5 of which is this wait, against peers at 2 to 4 minutes and an agreed target under 2 minutes. The demo uses a mock transport and bundled data, so the check verifies a sample-project binding the developer does not own. The ML engineer wanted a local number before touching CI, and instead the SDK forces CI on them at minute one.\nStakes if we pick wrong: The 6-minute TTHW is the Needs Work tier and the target is mathematically unreachable while the gate stays. Developers alt-tab during the wait and many do not come back.\nRecommendation: A because it is the only option that hits the settled target, and the progress and timeout messages already in the contract stay useful on the live path. Violates Zero friction at T0 and Decide for me, let me override.\nCompleteness: A=10/10, B=7/10, C=5/10, D=2/10\nA) Move the CI check off the local and demo path; it runs on the first live keyed evaluation or via an explicit verify command (recommended) (human: ~3 days / CC: ~30 min)\n  ✅ Demo and first local eval return in seconds; TTHW drops from 6 min to about 1 min, under target\n  ✅ The check still guards production use where the sample-project binding actually matters\n  ❌ Changes a documented first-run contract; needs a changelog entry and a docs update\nB) Keep the gate but make it non-blocking: print local results immediately, run the check in the background, report its outcome (human: ~3 days / CC: ~30 min)\n  ✅ Developer sees scores at once while the binding still gets verified on every first run\n  ✅ Preserves the existing progress and timeout messaging almost unchanged\n  ❌ Background failure after success is confusing, and CI runners may exit before the check finishes\nC) Add an opt-out flag or offline mode, default stays blocking (human: ~1 day / CC: ~15 min)\n  ✅ Small change to the contract and easy to document in the quickstart\n  ✅ Gives the noninteractive CI mode a clean way to skip a check it does not need\n  ❌ Default path still misses the target; the developer has to know the flag exists to escape\nD) Acceptable friction, keep the mandatory wait\n  ✅ Zero implementation cost and no contract change in the beta\n  ✅ Nothing to re-test in the first-run code path\n  ❌ Locks in a 6-minute TTHW and abandons the agreed under-2-minute target\nNet: trading a documented but adoption-killing gate against a contract change that finally makes the settled benchmark reachable.",
+              "header": "CI gate",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Move check to live path (recommended)",
+                  "description": "Demo and first local eval run without the remote CI check; the check runs on first keyed live eval or an explicit verify command."
+                },
+                {
+                  "label": "B) Non-blocking background check",
+                  "description": "Return local results immediately; run the CI check in the background and report when done."
+                },
+                {
+                  "label": "C) Opt-out flag, default blocking",
+                  "description": "Add a documented skip flag or offline mode; the default first run still waits."
+                },
+                {
+                  "label": "D) Keep mandatory wait",
+                  "description": "Accept the 6-minute first run and miss the under-2-minute target."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 — Journey stage HELLO WORLD: the mandatory 5-minute remote CI check blocks the first local result, including the keyless demo. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; tracing python -m evalkit.demo against the settled under-2-minute target.\nELI10: docs/current-contracts.md lines 3-5 say every first local evaluation must pass a remote CI check and blocks for five minutes, with no skip flag or offline path. README.md lines 17-23 confirm the keyless demo waits too. docs/benchmarks.md measured EvalKit at 6 minutes, 5 of which is this wait, against peers at 2 to 4 minutes and an agreed target under 2 minutes. The demo uses a mock transport and bundled data, so the check verifies a sample-project binding the developer does not own. The ML engineer wanted a local number before touching CI, and instead the SDK forces CI on them at minute one.\nStakes if we pick wrong: The 6-minute TTHW is the Needs Work tier and the target is mathematically unreachable while the gate stays. Developers alt-tab during the wait and many do not come back.\nRecommendation: A because it is the only option that hits the settled target, and the progress and timeout messages already in the contract stay useful on the live path. Violates Zero friction at T0 and Decide for me, let me override.\nCompleteness: A=10/10, B=7/10, C=5/10, D=2/10\nA) Move the CI check off the local and demo path; it runs on the first live keyed evaluation or via an explicit verify command (recommended) (human: ~3 days / CC: ~30 min)\n  ✅ Demo and first local eval return in seconds; TTHW drops from 6 min to about 1 min, under target\n  ✅ The check still guards production use where the sample-project binding actually matters\n  ❌ Changes a documented first-run contract; needs a changelog entry and a docs update\nB) Keep the gate but make it non-blocking: print local results immediately, run the check in the background, report its outcome (human: ~3 days / CC: ~30 min)\n  ✅ Developer sees scores at once while the binding still gets verified on every first run\n  ✅ Preserves the existing progress and timeout messaging almost unchanged\n  ❌ Background failure after success is confusing, and CI runners may exit before the check finishes\nC) Add an opt-out flag or offline mode, default stays blocking (human: ~1 day / CC: ~15 min)\n  ✅ Small change to the contract and easy to document in the quickstart\n  ✅ Gives the noninteractive CI mode a clean way to skip a check it does not need\n  ❌ Default path still misses the target; the developer has to know the flag exists to escape\nD) Acceptable friction, keep the mandatory wait\n  ✅ Zero implementation cost and no contract change in the beta\n  ✅ Nothing to re-test in the first-run code path\n  ❌ Locks in a 6-minute TTHW and abandons the agreed under-2-minute target\nNet: trading a documented but adoption-killing gate against a contract change that finally makes the settled benchmark reachable.": "A) Move check to live path (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:17:49.115Z"
+        },
+        {
+          "sessionId": "5139711c-562b-47db-81ea-387b171beaed",
+          "toolUseId": "toolu_01LwsoPGRLus2fTk1fjkfFTA",
+          "questions": [
+            {
+              "question": "D4 — Journey stage INSTALL/QUICKSTART: README.md tells the developer to run examples/first_eval.py, but that file is not in the wheel or the examples archive. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; tracing the quickstart command in README.md line 11 against docs/package-contents.txt.\nELI10: The quickstart's second step is python examples/first_eval.py. docs/package-contents.txt lists the published files: __init__.py, client.py, demo.py, sample_responses.json, README.md. No examples directory, and the release examples archive lacks the file too. So the ML engineer's first command after pip install fails with a file-not-found error. The working demo, python -m evalkit.demo, sits three paragraphs lower. The quickstart points at the broken path and buries the working one.\nStakes if we pick wrong: The very first thing the developer runs fails. Some scroll and recover; some conclude the beta is broken and leave before ever seeing the demo output.\nRecommendation: A because the demo module already exists, already works, and is the settled magical-moment vehicle, so the quickstart should lead with it and nothing else needs shipping. Violates Zero friction at T0 and Learn by doing.\nCompleteness: A=10/10, B=8/10, C=4/10\nA) Make python -m evalkit.demo the one quickstart command; remove the examples/first_eval.py reference (recommended) (human: ~1 hour / CC: ~5 min)\n  ✅ One golden path with a command that is verified to exist in the published package\n  ✅ Puts the settled magical moment first, right after pip install, where the clock is ticking\n  ❌ Developers who wanted a script they can copy and edit have to open demo.py instead\nB) Ship examples/first_eval.py in the package and archive so the current README works as written (human: ~half day / CC: ~15 min)\n  ✅ Gives the developer an editable script they can turn into their own first live eval\n  ✅ Keeps the README text stable across the beta\n  ❌ Two competing first-run paths cause decision fatigue, and the new file needs its own tests and packaging check\nC) Leave the README, add a note that the file is coming later\n  ✅ No packaging or docs restructuring in the beta\n  ✅ Signals the roadmap to early adopters\n  ❌ The first documented command still fails for every developer who follows the quickstart\nNet: one verified command as the golden path versus preserving a script reference that currently sends every new developer into a dead end.",
+              "header": "Quickstart",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Demo is the quickstart (recommended)",
+                  "description": "Point the quickstart at python -m evalkit.demo and drop the missing first_eval.py reference."
+                },
+                {
+                  "label": "B) Ship first_eval.py",
+                  "description": "Add the example script to the package and archive so the current README works."
+                },
+                {
+                  "label": "C) Note it as coming later",
+                  "description": "Keep the README and add a note that the example file is not yet published."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 — Journey stage INSTALL/QUICKSTART: README.md tells the developer to run examples/first_eval.py, but that file is not in the wheel or the examples archive. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; tracing the quickstart command in README.md line 11 against docs/package-contents.txt.\nELI10: The quickstart's second step is python examples/first_eval.py. docs/package-contents.txt lists the published files: __init__.py, client.py, demo.py, sample_responses.json, README.md. No examples directory, and the release examples archive lacks the file too. So the ML engineer's first command after pip install fails with a file-not-found error. The working demo, python -m evalkit.demo, sits three paragraphs lower. The quickstart points at the broken path and buries the working one.\nStakes if we pick wrong: The very first thing the developer runs fails. Some scroll and recover; some conclude the beta is broken and leave before ever seeing the demo output.\nRecommendation: A because the demo module already exists, already works, and is the settled magical-moment vehicle, so the quickstart should lead with it and nothing else needs shipping. Violates Zero friction at T0 and Learn by doing.\nCompleteness: A=10/10, B=8/10, C=4/10\nA) Make python -m evalkit.demo the one quickstart command; remove the examples/first_eval.py reference (recommended) (human: ~1 hour / CC: ~5 min)\n  ✅ One golden path with a command that is verified to exist in the published package\n  ✅ Puts the settled magical moment first, right after pip install, where the clock is ticking\n  ❌ Developers who wanted a script they can copy and edit have to open demo.py instead\nB) Ship examples/first_eval.py in the package and archive so the current README works as written (human: ~half day / CC: ~15 min)\n  ✅ Gives the developer an editable script they can turn into their own first live eval\n  ✅ Keeps the README text stable across the beta\n  ❌ Two competing first-run paths cause decision fatigue, and the new file needs its own tests and packaging check\nC) Leave the README, add a note that the file is coming later\n  ✅ No packaging or docs restructuring in the beta\n  ✅ Signals the roadmap to early adopters\n  ❌ The first documented command still fails for every developer who follows the quickstart\nNet: one verified command as the golden path versus preserving a script reference that currently sends every new developer into a dead end.": "A) Demo is the quickstart (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:18:09.216Z"
+        },
+        {
+          "sessionId": "5139711c-562b-47db-81ea-387b171beaed",
+          "toolUseId": "toolu_01Axt6dTLrfDUfQPJzePRkAz",
+          "questions": [
+            {
+              "question": "D5 — Journey stage REAL USAGE: run_eval(dataset, evaluator) and run_batch(evaluator, dataset) take the same two concepts in reversed positional order. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; reviewing the public signatures in docs/api.md lines 3-9.\nELI10: The two evaluation functions are the whole public surface the ML engineer touches after the demo. One takes dataset first, the other evaluator first, both positional, and docs/api.md says the reversal is intentional. A developer who learns run_eval and then reaches for run_batch will swap the arguments. In Python nothing catches that until runtime, and depending on duck typing it may silently score the wrong thing. The good API test is: can this developer use it correctly after seeing one example? Here, no.\nStakes if we pick wrong: Swapped arguments produce confusing runtime errors or silently wrong scores in the first real script, and the beta signature becomes the thing 2.0 final has to break again.\nRecommendation: A because the beta is the last cheap moment to fix a signature, and making both functions keyword-friendly with the same order costs almost nothing. Violates Pit of Success and Fight uncertainty.\nCompleteness: A=10/10, B=7/10, C=2/10\nA) Same order in both functions, dataset then evaluator, with a clear runtime TypeError naming both arguments when a swap is detected (recommended) (human: ~half day / CC: ~15 min)\n  ✅ One mental model across the API; learning run_eval teaches run_batch for free\n  ✅ The swap check turns a silent wrong score into an actionable error on the first call\n  ❌ run_batch callers written against the current draft order must flip their arguments before 2.0 final\nB) Keep both orders but make the arguments keyword-only so positional swaps are impossible (human: ~2 hours / CC: ~10 min)\n  ✅ Eliminates the silent swap without changing either documented order\n  ✅ Call sites become self-documenting: run_batch(evaluator=e, dataset=d)\n  ❌ Every call gets longer, and the inconsistency stays in the docs as a permanent oddity\nC) Keep the reversed positional order as documented\n  ✅ No signature change and no changelog entry in the beta\n  ✅ Existing draft call sites keep working untouched\n  ❌ The first thing the developer learns about the API is that it does not follow its own pattern\nNet: fixing the signature once now, while a beta can still change, versus carrying an inconsistency that every future caller has to memorize.",
+              "header": "Signatures",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Unify order + swap guard (recommended)",
+                  "description": "Both functions take dataset then evaluator; a swap raises a TypeError that names both arguments."
+                },
+                {
+                  "label": "B) Keyword-only arguments",
+                  "description": "Keep both orders but require keyword arguments so positional swaps cannot happen."
+                },
+                {
+                  "label": "C) Keep reversed order",
+                  "description": "Ship the signatures exactly as documented in docs/api.md."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 — Journey stage REAL USAGE: run_eval(dataset, evaluator) and run_batch(evaluator, dataset) take the same two concepts in reversed positional order. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; reviewing the public signatures in docs/api.md lines 3-9.\nELI10: The two evaluation functions are the whole public surface the ML engineer touches after the demo. One takes dataset first, the other evaluator first, both positional, and docs/api.md says the reversal is intentional. A developer who learns run_eval and then reaches for run_batch will swap the arguments. In Python nothing catches that until runtime, and depending on duck typing it may silently score the wrong thing. The good API test is: can this developer use it correctly after seeing one example? Here, no.\nStakes if we pick wrong: Swapped arguments produce confusing runtime errors or silently wrong scores in the first real script, and the beta signature becomes the thing 2.0 final has to break again.\nRecommendation: A because the beta is the last cheap moment to fix a signature, and making both functions keyword-friendly with the same order costs almost nothing. Violates Pit of Success and Fight uncertainty.\nCompleteness: A=10/10, B=7/10, C=2/10\nA) Same order in both functions, dataset then evaluator, with a clear runtime TypeError naming both arguments when a swap is detected (recommended) (human: ~half day / CC: ~15 min)\n  ✅ One mental model across the API; learning run_eval teaches run_batch for free\n  ✅ The swap check turns a silent wrong score into an actionable error on the first call\n  ❌ run_batch callers written against the current draft order must flip their arguments before 2.0 final\nB) Keep both orders but make the arguments keyword-only so positional swaps are impossible (human: ~2 hours / CC: ~10 min)\n  ✅ Eliminates the silent swap without changing either documented order\n  ✅ Call sites become self-documenting: run_batch(evaluator=e, dataset=d)\n  ❌ Every call gets longer, and the inconsistency stays in the docs as a permanent oddity\nC) Keep the reversed positional order as documented\n  ✅ No signature change and no changelog entry in the beta\n  ✅ Existing draft call sites keep working untouched\n  ❌ The first thing the developer learns about the API is that it does not follow its own pattern\nNet: fixing the signature once now, while a beta can still change, versus carrying an inconsistency that every future caller has to memorize.": "A) Unify order + swap guard (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:18:29.315Z"
+        },
+        {
+          "sessionId": "5139711c-562b-47db-81ea-387b171beaed",
+          "toolUseId": "toolu_01Snhr6ovogM3veYuae8g3tp",
+          "questions": [
+            {
+              "question": "D6 — Journey stage DEBUG: an invalid API key raises AuthError(\"request failed\") with no code, cause, or fix. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; reviewing the authentication error in docs/api.md lines 11-13.\nELI10: After the demo, the ML engineer creates a key in the console, exports EVALKIT_API_KEY, and runs their first live evaluation. If the key is mistyped, expired, revoked, or scoped to the wrong project, they see the two words request failed. That message is indistinguishable from a network outage or a server error. docs/current-contracts.md line 22 says every other error already names the cause and an actionable fix, so this is the one error that breaks the SDK's own standard, and it fires at the exact moment the developer goes from demo to real usage.\nStakes if we pick wrong: The developer cannot tell whether to fix their key, their network, or wait for the service. They open a support ticket or give up at the first live call.\nRecommendation: A because the SDK's other errors already follow the problem-cause-fix formula, so matching it here is consistency, not new design. Violates Fight uncertainty.\nCompleteness: A=10/10, B=7/10, C=1/10\nA) Structured auth error: code EVALKIT_AUTH_INVALID_KEY, cause (rejected key, redacted prefix, project), fix (create or rotate key at the console URL, re-export the variable), and a docs link (recommended) (human: ~half day / CC: ~15 min)\n  ✅ Matches the Stripe tier: type, code, message, param, doc_url, so the developer and any log parser know exactly what failed\n  ✅ Reuses the redaction and help-link patterns the other errors already have\n  ❌ Needs the console key-management URL and the error code documented in the API reference\nB) Better message text only: AuthError(\"Invalid API key: check EVALKIT_API_KEY or create a new key at <console URL>\") (human: ~1 hour / CC: ~5 min)\n  ✅ Tells the developer the cause and the fix in one line with minimal code change\n  ✅ No new error-code registry to maintain in the beta\n  ❌ No machine-readable code, so CI logs and support triage still grep for prose\nC) Keep AuthError(\"request failed\") as documented\n  ✅ Zero change to the error contract in the beta\n  ✅ Nothing new to document in docs/api.md\n  ❌ The one error most developers will hit first is the one that tells them nothing\nNet: bringing the auth error up to the standard the SDK's other errors already meet versus leaving the first live-call failure unexplained.",
+              "header": "Auth error",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Structured code + cause + fix + link (recommended)",
+                  "description": "EVALKIT_AUTH_INVALID_KEY with redacted key prefix, project, console URL for rotate/create, and a docs link."
+                },
+                {
+                  "label": "B) Better message text only",
+                  "description": "One-line message naming the env var and console URL; no error code."
+                },
+                {
+                  "label": "C) Keep request failed",
+                  "description": "Ship the auth error exactly as documented."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D6 — Journey stage DEBUG: an invalid API key raises AuthError(\"request failed\") with no code, cause, or fix. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; reviewing the authentication error in docs/api.md lines 11-13.\nELI10: After the demo, the ML engineer creates a key in the console, exports EVALKIT_API_KEY, and runs their first live evaluation. If the key is mistyped, expired, revoked, or scoped to the wrong project, they see the two words request failed. That message is indistinguishable from a network outage or a server error. docs/current-contracts.md line 22 says every other error already names the cause and an actionable fix, so this is the one error that breaks the SDK's own standard, and it fires at the exact moment the developer goes from demo to real usage.\nStakes if we pick wrong: The developer cannot tell whether to fix their key, their network, or wait for the service. They open a support ticket or give up at the first live call.\nRecommendation: A because the SDK's other errors already follow the problem-cause-fix formula, so matching it here is consistency, not new design. Violates Fight uncertainty.\nCompleteness: A=10/10, B=7/10, C=1/10\nA) Structured auth error: code EVALKIT_AUTH_INVALID_KEY, cause (rejected key, redacted prefix, project), fix (create or rotate key at the console URL, re-export the variable), and a docs link (recommended) (human: ~half day / CC: ~15 min)\n  ✅ Matches the Stripe tier: type, code, message, param, doc_url, so the developer and any log parser know exactly what failed\n  ✅ Reuses the redaction and help-link patterns the other errors already have\n  ❌ Needs the console key-management URL and the error code documented in the API reference\nB) Better message text only: AuthError(\"Invalid API key: check EVALKIT_API_KEY or create a new key at <console URL>\") (human: ~1 hour / CC: ~5 min)\n  ✅ Tells the developer the cause and the fix in one line with minimal code change\n  ✅ No new error-code registry to maintain in the beta\n  ❌ No machine-readable code, so CI logs and support triage still grep for prose\nC) Keep AuthError(\"request failed\") as documented\n  ✅ Zero change to the error contract in the beta\n  ✅ Nothing new to document in docs/api.md\n  ❌ The one error most developers will hit first is the one that tells them nothing\nNet: bringing the auth error up to the standard the SDK's other errors already meet versus leaving the first live-call failure unexplained.": "A) Structured code + cause + fix + link (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:18:51.429Z"
+        },
+        {
+          "sessionId": "5139711c-562b-47db-81ea-387b171beaed",
+          "toolUseId": "toolu_01J1oQKw9i4Ye2v7KEcFfGDg",
+          "questions": [
+            {
+              "question": "D7 — Journey stage UPGRADE: v2 removes Client.evaluate() immediately in favor of Client.run(), with no alias, warning, migration guide, or codemod. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; reviewing the v1-to-v2 client change in docs/api.md lines 15-18.\nELI10: Every v1 user who pins to 2.0.0b1 gets AttributeError: 'Client' object has no attribute 'evaluate' on the first call, with nothing pointing them at run(). docs/api.md says the changelog is otherwise complete, so this is the one breaking change with no path across. Upgrades should be boring. Right now the ML engineer's production CI job fails at import time with a stack trace and a guess.\nStakes if we pick wrong: v1 users hold at v1, or their CI breaks on upgrade and the first thing they learn about 2.0 is that it broke them without warning.\nRecommendation: A because a one-method alias with a DeprecationWarning is a few lines, the warning text doubles as the migration guide, and the alias can be removed at 3.0 on a schedule. Violates Upgrade fear and Credible.\nCompleteness: A=10/10, B=7/10, C=4/10, D=1/10\nA) Keep Client.evaluate() as a deprecated alias for run() through 2.x with a DeprecationWarning naming the replacement and removal version, plus a migration section in the changelog and docs (recommended) (human: ~half day / CC: ~15 min)\n  ✅ v1 code keeps working on upgrade; the warning tells the developer exactly what to change and by when\n  ✅ Cheap: one forwarding method, one warning string, one changelog section\n  ❌ Carries the old name through the 2.x line, which the removal schedule has to enforce\nB) Deprecated alias plus a codemod that rewrites .evaluate( to .run( (human: ~2 days / CC: ~30 min)\n  ✅ Next.js-style one-command upgrade; large codebases migrate in seconds\n  ✅ The alias still protects anyone who does not run the codemod\n  ❌ A codemod is a new tool to test and support for a single-method rename; oversized for the beta\nC) No alias, but a migration guide and a clear AttributeError hint pointing at run() (human: ~2 hours / CC: ~10 min)\n  ✅ Keeps the v2 surface clean with no legacy name\n  ✅ The hint turns a bare AttributeError into an actionable one-line fix\n  ❌ v1 code still breaks on upgrade; only the error message improves\nD) Remove evaluate() immediately as documented\n  ✅ No compatibility code to maintain\n  ✅ Nothing new to write in the beta\n  ❌ Every v1 user breaks with no warning and no pointer to the new name\nNet: a few lines of alias and warning text versus a hard break that teaches v1 users not to trust EvalKit upgrades.",
+              "header": "v1 to v2",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Deprecated alias + warning + guide (recommended)",
+                  "description": "evaluate() forwards to run() with a DeprecationWarning through 2.x; changelog gets a migration section."
+                },
+                {
+                  "label": "B) Alias + codemod",
+                  "description": "Same as A plus a script that rewrites .evaluate( to .run( across a codebase."
+                },
+                {
+                  "label": "C) Guide + AttributeError hint, no alias",
+                  "description": "Remove the method but make the error and changelog point at run()."
+                },
+                {
+                  "label": "D) Remove immediately",
+                  "description": "Ship the hard removal exactly as documented."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D7 — Journey stage UPGRADE: v2 removes Client.evaluate() immediately in favor of Client.run(), with no alias, warning, migration guide, or codemod. Fix it in the plan?\nProject/branch/task: EvalKit SDK beta polish on main; reviewing the v1-to-v2 client change in docs/api.md lines 15-18.\nELI10: Every v1 user who pins to 2.0.0b1 gets AttributeError: 'Client' object has no attribute 'evaluate' on the first call, with nothing pointing them at run(). docs/api.md says the changelog is otherwise complete, so this is the one breaking change with no path across. Upgrades should be boring. Right now the ML engineer's production CI job fails at import time with a stack trace and a guess.\nStakes if we pick wrong: v1 users hold at v1, or their CI breaks on upgrade and the first thing they learn about 2.0 is that it broke them without warning.\nRecommendation: A because a one-method alias with a DeprecationWarning is a few lines, the warning text doubles as the migration guide, and the alias can be removed at 3.0 on a schedule. Violates Upgrade fear and Credible.\nCompleteness: A=10/10, B=7/10, C=4/10, D=1/10\nA) Keep Client.evaluate() as a deprecated alias for run() through 2.x with a DeprecationWarning naming the replacement and removal version, plus a migration section in the changelog and docs (recommended) (human: ~half day / CC: ~15 min)\n  ✅ v1 code keeps working on upgrade; the warning tells the developer exactly what to change and by when\n  ✅ Cheap: one forwarding method, one warning string, one changelog section\n  ❌ Carries the old name through the 2.x line, which the removal schedule has to enforce\nB) Deprecated alias plus a codemod that rewrites .evaluate( to .run( (human: ~2 days / CC: ~30 min)\n  ✅ Next.js-style one-command upgrade; large codebases migrate in seconds\n  ✅ The alias still protects anyone who does not run the codemod\n  ❌ A codemod is a new tool to test and support for a single-method rename; oversized for the beta\nC) No alias, but a migration guide and a clear AttributeError hint pointing at run() (human: ~2 hours / CC: ~10 min)\n  ✅ Keeps the v2 surface clean with no legacy name\n  ✅ The hint turns a bare AttributeError into an actionable one-line fix\n  ❌ v1 code still breaks on upgrade; only the error message improves\nD) Remove evaluate() immediately as documented\n  ✅ No compatibility code to maintain\n  ✅ Nothing new to write in the beta\n  ❌ Every v1 user breaks with no warning and no pointer to the new name\nNet: a few lines of alias and warning text versus a hard break that teaches v1 users not to trust EvalKit upgrades.": "A) Deprecated alias + warning + guide (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-09T20:19:15.558Z"
+        }
+      ],
+      "historicalOutcome": "ceiling_reached",
+      "legacyReviewCount": 8,
+      "genuineDecisions": 8,
+      "observationSha256": "8412dec128155b28ce10dc0c9aaae82069bf3dfd5d22e3afabf70d1ba39da2ff"
+    }
+  ]
+}

@@ -210,7 +210,9 @@ function hasProseStaleFillFinding(report: string): boolean {
       (/\b(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\w*\b/i.test(sentence) &&
         /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(sentence)) ||
       /\bper[- ]key\s+(?:epoch|generation|version)\b/i.test(sentence));
-    const claims = context.split(/(?:[.!?]\s+|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i);
+    // Table cells and semicolon-separated statements have separate owners;
+    // retain an explicit "that return" continuation with the return it names.
+    const claims = context.split(/(?:[.!?]\s+|;\s+(?!that\s+return\b)|\s+\|\s+|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i);
     const violation = claims.some(claim => /\b(?:violat\w*|break\w*)\b[^.!?]*\b(?:contract|guarantee|consistency|rule)\b/i.test(claim)
       && !/\b(?:not|no|never)\b/i.test(claim));
     for (const [claimIndex, claim] of claims.entries()) {
@@ -226,7 +228,8 @@ function hasProseStaleFillFinding(report: string): boolean {
       // The model declaration must accept the stale consequence itself.
       // A normative freshness requirement called an accepted model is not a
       // dismissal. Bare "This" can refer only to the preceding stale claim.
-      const modelDeclaration = /^(.+?)\s+(?:is|remains)\s+(?:(?:the|an?)\s+)?(?:accepted|expected|intentional|documented)\s+consistency\s+(?:model|contract|policy|semantics)\b/i.exec(allowanceText.trim());
+      const modelDeclaration = /^(.+?)\s+(?:is|remains)\s+(?:(?:the|an?)\s+)?(?:accepted|expected|intentional|documented)\s+consistency\s+(?:model|contract|policy|semantics)\b/i.exec(allowanceText.trim())
+        ?? /^(.+?)\s+(?:is|remains)\s+(?:accepted|expected|intentional|documented)[.!?]?$/i.exec(allowanceText.trim());
       const subject = modelDeclaration?.[1] ?? '';
       const previousClaim = claims[claimIndex - 1] ?? '';
       const explicitStaleSubject = /^(?:this|the|an?)\s+(?:bounded\s+)?(?:inconsistency|staleness|stale[- ](?:read|fill)|stale\s+(?:read|fill|refill))(?:\s+(?:window|behavior|behaviour|race|consequence))?$/i.test(subject);
@@ -235,7 +238,7 @@ function hasProseStaleFillFinding(report: string): boolean {
         && /\b(?:read|fetch|fill|refill|repopulat)\w*\b/i.test(previousClaim)
         && !/\b(?:must|shall|requires?|violat\w*|not|cannot|can't)\b/i.test(previousClaim);
       const acceptedStaleModel = Boolean(modelDeclaration) && (explicitStaleSubject || impliedStaleSubject);
-      const dismissal = /\b(?:not|isn't)\s+(?:a\s+|an\s+)?(?:gap|bug|defect|issue|violation|problem)\b|\bno\s+(?:gap|bug|defect|issue|violation|race)\b/i.test(claim)
+      const dismissal = /\b(?:not|isn't)\s+(?:a\s+|an\s+)?(?:(?:stale|late)[- ]fill\s+)?(?:gap|bug|defect|issue|violation|problem|race)\b|\bno\s+(?:(?:stale|late)[- ]fill\s+)?(?:gap|bug|defect|issue|violation|race)\b/i.test(claim)
         || /\b(?:accepted|expected|intentional|documented)\s+(?:invariant|behavior|trade[- ]off|stale[- ]read\s+window)\b|\b(?:allowed|permitted|acceptable)\b/i.test(allowanceText)
         || acceptedStaleModel
         || (!proposedPrevention && /\b(?:cannot|can't|never|does not|will not)\s+(?:\w+\s+){0,3}(?:refill|repopulate|populate|insert|store|cache|set|violate)\b/i.test(claim))
@@ -243,10 +246,16 @@ function hasProseStaleFillFinding(report: string): boolean {
         || /\bno\s+(?:fix|change|coordination|guard)\s+(?:is\s+)?(?:needed|required)\b/i.test(claim);
       if (!dismissal) continue;
       const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);
+      // A finding can name versions instead of calling them "old". Explicit
+      // start-before-commit and return-to-own-caller evidence scopes this
+      // allowance to that already-started call, never to cache/later readers.
+      const explicitlyEarlierCall = originalCaller && /\bto\s+its\s+own\s+caller\b/i.test(claim)
+        && !/\b(?:if|unless|whether|might|may|could)\b/i.test(claim)
+        && /\b(?:it|(?:the\s+)?(?:original\s+)?(?:read|request|call))\s+(?:began|started)\s+before\s+(?:(?:the|that)\s+)?(?:write\s+)?commit\b/i.test(claim);
       const onlyEarlierReturn = originalCaller && /\b(?:return|receiv|observ)\w*\b/i.test(claim)
-        && /\b(?:old|earlier|previous|pre[- ]write)\s+(?:snapshot|value|result|version)\b/i.test(claim)
+        && (/\b(?:old|earlier|previous|pre[- ]write)\s+(?:snapshot|value|result|version)\b/i.test(claim) || explicitlyEarlierCall)
         && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
-      if (!(onlyEarlierReturn && subsequentRead && (violation || remedy))) return false;
+      if (!(onlyEarlierReturn && subsequentRead && (violation || remedy || explicitlyEarlierCall))) return false;
     }
     return finding || subsequentRead || remedy;
   });
