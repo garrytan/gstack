@@ -81,6 +81,7 @@ describe('autoplan phase execution checkpoints', () => {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
       expect(section).toMatch(/^Before dispatch, Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+:with-sections\}\}/);
       const load = section.split('**Override rules:**')[0]!;
+      expect(load).toContain('per `readRanges`');
       expect(load).toContain('log successful ranges/total');
       expect(load).toContain('to EOF');
       expect(load).toContain('Skip-listed: load only');
@@ -209,7 +210,7 @@ describe('autoplan current implementation-plan identity', () => {
   test('every native and outside call site binds the fresh snapshot, retaining requested outside consensus', () => {
     for (const phase of ['ceo', 'design', 'dx', 'eng']) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
-      const bind = section.indexOf("**Bind this phase's input:**");
+      const bind = section.indexOf("**Bind phase input:**");
       const native = section.indexOf('subagent**');
       const outside = section.indexOf('{{OUTSIDE_INVOCATION:autoplan}}');
       expect(bind).toBeGreaterThan(-1);

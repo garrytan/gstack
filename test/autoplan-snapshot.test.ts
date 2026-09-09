@@ -33,6 +33,29 @@ afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: tr
 
 
 describe('methodology preparation is a required snapshot input', () => {
+  test('all phases return an exact contiguous schedule through the final partial chunk', () => {
+    const f = fixture();
+    for (const phase of ['ceo', 'design', 'dx', 'eng']) {
+      const skill = join(ROOT, `plan-${phase === 'dx' ? 'devex' : phase}-review`, 'SKILL.md');
+      const method = prepareMethodology(phase, skill, f.restore);
+      const lines = readFileSync(method.methodologyPath, 'utf8').split('\n');
+      expect(method.readRanges.length).toBeGreaterThan(1);
+      let next = 1;
+      const delivered: string[] = [];
+      for (const range of method.readRanges) {
+        expect(range.offset).toBe(next);
+        expect(range.limit).toBeGreaterThan(0);
+        expect(range.limit).toBeLessThanOrEqual(600);
+        expect(range.endLine).toBe(range.offset + range.limit - 1);
+        delivered.push(...lines.slice(range.offset - 1, range.endLine));
+        next = range.endLine + 1;
+      }
+      expect(next).toBe(method.lines + 1);
+      expect(delivered.join('\n')).toBe(readFileSync(method.methodologyPath, 'utf8'));
+      expect(method.readRanges.at(-1)!.limit).toBe((method.lines - 1) % 600 + 1);
+    }
+  });
+
   test('actual Y three-argument create cannot return a native dispatch for any phase', () => {
     const f = fixture();
     const before = readdirSync(f.dir).sort();
@@ -63,7 +86,7 @@ describe('methodology preparation is a required snapshot input', () => {
   });
 
   test('altered manifest identities and bundle bytes cannot authorize snapshot publication', () => {
-    for (const kind of ['phase', 'restore', 'hash', 'lines', 'source-offset', 'source-hash', 'bundle']) {
+    for (const kind of ['phase', 'restore', 'hash', 'lines', 'read-ranges', 'source-offset', 'source-hash', 'bundle']) {
       const f = fixture(); const method = methodology('ceo', f.restore);
       const manifestPath = join(method, '..', 'methodology.json');
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -74,6 +97,7 @@ describe('methodology preparation is a required snapshot input', () => {
         if (kind === 'restore') manifest.restoreSha256 = '0'.repeat(64);
         if (kind === 'hash') manifest.sha256 = '0'.repeat(64);
         if (kind === 'lines') manifest.lines--;
+        if (kind === 'read-ranges') manifest.readRanges.pop();
         if (kind === 'source-offset') manifest.sources[0].startByte++;
         if (kind === 'source-hash') manifest.sources[0].sha256 = '0'.repeat(64);
         chmodSync(manifestPath, 0o600); writeFileSync(manifestPath, JSON.stringify(manifest)); chmodSync(manifestPath, 0o444);

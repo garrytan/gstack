@@ -1,10 +1,10 @@
-Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-eng-review:with-sections}}; log successful ranges/total to EOF. Skip-listed: load only.
+Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-eng-review:with-sections}} per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
 - Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
 
-  **Bind this phase's input:** Run; use returned `snapshotPath` as `<ENG_INPUT>` for both voices:
+  **Bind phase input:** Run; use `snapshotPath` as `<ENG_INPUT>` for both voices:
 ```bash
 bun "<SNAPSHOT_TOOL>" create eng "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```

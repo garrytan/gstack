@@ -21,6 +21,19 @@ export interface NativePlanQuestionCall {
   answeredAt?: string;
 }
 
+/** Optional public tool projection for the Autoplan delivery audit; never thinking. */
+export interface NativePublicToolEvent {
+  sessionId: string;
+  timestamp: string;
+  toolUseId: string;
+  kind: 'use' | 'result';
+  name?: string;
+  input?: Record<string, unknown>;
+  content?: unknown;
+  file?: unknown;
+  isError?: boolean;
+}
+
 export interface PlanCountTranscript {
   status: 'missing' | 'ready' | 'error';
   calls: NativePlanQuestionCall[];
@@ -56,7 +69,9 @@ function validQuestions(value: unknown): value is NativePlanQuestion[] {
  * Partial final lines remain pending; missing/foreign/sidechain records add
  * no coverage. Traversal stays inside the owned config's projects directory.
  */
-export function readPlanCountTranscript(configDir: string, cwd: string): PlanCountTranscript {
+export function readPlanCountTranscript(configDir: string, cwd: string,
+  onPublicToolEvent?: (event: NativePublicToolEvent) => void,
+): PlanCountTranscript {
   const calls = new Map<string, NativePlanQuestionCall>();
   const assistantMessages: PlanCountTranscript['assistantMessages'] = [];
   const planReadyRequests = new Map<string, NonNullable<PlanCountTranscript['planReadyRequests']>[number]>();
@@ -88,6 +103,19 @@ export function readPlanCountTranscript(configDir: string, cwd: string): PlanCou
           matched = true;
           for (const block of record.message.content) {
             if (!object(block)) continue;
+            if (onPublicToolEvent && validTimestamp(record.timestamp)) {
+              if (record.message.role === 'assistant' && block.type === 'tool_use' &&
+                  typeof block.id === 'string' && typeof block.name === 'string' && object(block.input)) {
+                onPublicToolEvent({ sessionId: record.sessionId, timestamp: record.timestamp,
+                  toolUseId: block.id, kind: 'use', name: block.name, input: block.input });
+              } else if (record.message.role === 'user' && block.type === 'tool_result' &&
+                         typeof block.tool_use_id === 'string') {
+                onPublicToolEvent({ sessionId: record.sessionId, timestamp: record.timestamp,
+                  toolUseId: block.tool_use_id, kind: 'result', content: block.content,
+                  file: record.toolUseResult?.file, isError: block.is_error === true });
+              }
+            }
+
             if (record.message.role === 'assistant' && block.type === 'text' &&
                 typeof block.text === 'string' && block.text.trim() && validTimestamp(record.timestamp)) {
               assistantMessages.push({ sessionId: record.sessionId, text: block.text, timestamp: record.timestamp });

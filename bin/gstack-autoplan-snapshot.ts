@@ -540,6 +540,15 @@ function methodologyContent(phase: string, skillFile: string) {
   return { content, sources };
 }
 
+/** Explicit pagination avoids losing a final partial chunk; it is not Read evidence. */
+function methodologyReadRanges(lines: number) {
+  return Array.from({ length: Math.ceil(lines / 600) }, (_, index) => {
+    const offset = index * 600 + 1;
+    const limit = Math.min(600, lines - offset + 1);
+    return { offset, limit, endLine: offset + limit - 1 };
+  });
+}
+
 /** One complete current-phase load target, not evidence that an agent read it. */
 export function prepareMethodology(phase: string, skillFile: string, restorePath: string) {
   const restore = realpathSync(restorePath);
@@ -550,8 +559,9 @@ export function prepareMethodology(phase: string, skillFile: string, restorePath
     const methodologyPath = join(directory, 'methodology.md');
     const manifest = { phase, methodologyPath, restorePath: restore, restoreSha256: sha256(readFileSync(restore)),
       sha256: sha256(content.toString('utf8')), bytes: content.length,
-      lines: content.toString('utf8').split('\n').length, sources,
-      instruction: 'Read methodologyPath completely before phase snapshot creation or dispatch; log successful ranges through EOF. Apply the existing Autoplan skip list and overrides. This artifact supplies exact methodology, not proof of reading or execution.' };
+      lines: content.toString('utf8').split('\n').length,
+      readRanges: methodologyReadRanges(content.toString('utf8').split('\n').length), sources,
+      instruction: 'Read methodologyPath at every readRanges offset/limit, including the final chunk, before create or dispatch; log successful ranges through EOF. Apply the existing Autoplan skip list and overrides. This artifact supplies exact methodology, not proof of reading or execution.' };
     writeFileSync(methodologyPath, content, { flag: 'wx', mode: 0o444 });
     writeFileSync(join(directory, 'methodology.json'), JSON.stringify(manifest) + '\n', { flag: 'wx', mode: 0o444 });
     return manifest;
@@ -588,6 +598,7 @@ function requireMethodology(phase: string, restore: string, methodologyPath: str
   const { content, sources } = methodologyContent(phase, manifest.sources[0].path);
   if (!readFileSync(methodologyPath).equals(content) || manifest.sha256 !== sha256(content.toString('utf8')) ||
       manifest.bytes !== content.length || manifest.lines !== content.toString('utf8').split('\n').length ||
+      JSON.stringify(manifest.readRanges) !== JSON.stringify(methodologyReadRanges(manifest.lines)) ||
       JSON.stringify(manifest.sources) !== JSON.stringify(sources)) {
     throw new Error('Methodology source or artifact changed; prepare and Read a fresh bundle');
   }

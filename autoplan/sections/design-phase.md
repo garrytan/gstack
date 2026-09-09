@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from design-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology design "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful ranges/total to EOF. Skip-listed: load only.
+Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology design "<REVIEW_SKILL>" "<RESTORE_PATH>"` per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
@@ -9,7 +9,7 @@ Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology 
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
-  **Bind this phase's input:** Run; use returned `snapshotPath` as `<DESIGN_INPUT>` for both voices:
+  **Bind phase input:** Run; use `snapshotPath` as `<DESIGN_INPUT>` for both voices:
 ```bash
 bun "<SNAPSHOT_TOOL>" create design "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```

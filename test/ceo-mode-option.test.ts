@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { findCeoModeOption, hasPostAnswerCeoPosture, hasNativePostAnswerCeoPosture, nativeCeoModeAnswer, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
-import { parseNumberedOptions, stripAnsi } from './helpers/claude-pty-runner';
+import { parseNumberedOptions, stripAnsi, planCountQuestionInput, nativePlanCallFingerprint } from './helpers/claude-pty-runner';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
 import type { PlanCountTranscript } from './helpers/plan-count-transcript';
 import * as fs from 'node:fs';
@@ -319,3 +319,164 @@ try {
     }
   }, 10_000);
 });
+
+
+const sidebarModeScreen = fs.readFileSync(path.join(import.meta.dir, 'fixtures/ceo-mode-preview-aa-screen.txt'), 'utf8');
+// The AA first SCOPE pane was retained in the terminal failure, but its native
+// mode call never flushed. This pending call is synthetic identity coverage.
+function sidebarPendingMode() {
+  return {sessionId:'sidebar-fixture', toolUseId:'sidebar-mode', answered:false, failed:false,
+    questions:[{header:'Review mode', question:'Which review mode should I use for this plan?', multiSelect:false,
+      options:[
+        {label:'SELECTIVE EXPANSION — baseline + cherry-pick (Recommended)'},
+        {label:'HOLD SCOPE — maximum rigor, no expansions'},
+        {label:'SCOPE EXPANSION — dream big'},
+        {label:'SCOPE REDUCTION — strip to essentials'},
+      ]}]};
+}
+
+describe('AA mode sidebar preview protocol', () => {
+  test('submits the independently retained CEO count pane when Notes sits on a wrapped option line', () => {
+    const screen=fs.readFileSync(path.join(import.meta.dir,'fixtures/ceo-count-mode-preview-aa-screen.txt'),'utf8');
+    const action=nextCeoModeNavigation(screen,'HOLD SCOPE',new Set());
+    expect(action.kind).toBe('mode');
+    if(action.kind!=='mode')throw new Error('Expected mode');
+    expect(action.index).toBe(1);
+    expect(planCountQuestionInput(screen,action.question,1)).toBe('1\r');
+    const native=nativePlanCallFingerprint(sidebarPendingMode(),0,true);
+    for(const altered of [screen.replace('    bigger','  bigger'),screen.replace('  4. SCOPE EXPANSION — dream','  Unrelated unnumbered message'),screen.replace('    bigger','    bigger│')]) {
+      expect(planCountQuestionInput(altered,native,1)).toBe('1');
+    }
+  });
+
+
+  test('submits all four offered modes from the exact pane, with or without pending metadata', () => {
+    for (const [mode,index] of [['SELECTIVE EXPANSION',1],['HOLD SCOPE',2],['SCOPE EXPANSION',3],['SCOPE REDUCTION',4]] as const) {
+      for (const pending of [undefined,sidebarPendingMode()]) {
+        const action=nextCeoModeNavigation(sidebarModeScreen,mode,new Set(),pending);
+        expect(action.kind).toBe('mode');
+        if(action.kind!=='mode')throw new Error('Expected mode');
+        expect(action.index).toBe(index);
+        expect(action.question.nativeCall).toBe(pending);
+        expect(planCountQuestionInput(sidebarModeScreen,action.question,index)).toBe(`${index}\r`);
+      }
+    }
+  });
+
+  test('requires a complete aligned preview and exact notes protocol', () => {
+    const fp=nativePlanCallFingerprint(sidebarPendingMode(),0,true);
+    for(const frame of [
+      sidebarModeScreen.replace('Notes: press n to add notes','Notes: press n to run a command'),
+      sidebarModeScreen.replace('      Notes:','     Notes:'),
+      sidebarModeScreen.replace(/┌─+┐/,'no preview box'),
+      sidebarModeScreen.replace(/└─+┘/,'no preview bottom'),
+      sidebarModeScreen.replace('└──','└─'),
+      sidebarModeScreen+'\n☐ Next question\nWhat now?\n❯ 1. Continue\n  2. Stop\nEnter to select · ↑/↓ to navigate · n to add notes · Esc to cancel',
+      sidebarModeScreen.replace(' · n to add notes',''),
+      sidebarModeScreen.replace(' · Esc to cancel',''),
+      sidebarModeScreen.replace('☐ Review mode','quoted Review mode'),
+      sidebarModeScreen.replace('n to add notes · ','n to add notes · n to add notes · '),
+      sidebarModeScreen+'\nUnrelated active prompt',
+      sidebarModeScreen.split('\n').map(line=>'> '+line).join('\n'),
+    ])expect(planCountQuestionInput(frame,fp,3)).toBe('3');
+    const checkbox=sidebarPendingMode();checkbox.questions[0]!.multiSelect=true;
+    expect(planCountQuestionInput(sidebarModeScreen,nativePlanCallFingerprint(checkbox,0,true),3)).toBe('3');
+  });
+
+  test('keeps the actual retry missing-target failure and independent answer/posture gates', () => {
+    const omitted=[
+      {index:1,label:'HOLD SCOPE — make the client-side plan bulletproof (Recommended)'},
+      {index:2,label:'SELECTIVE EXPANSION — hold core scope but surface cherry-pick options'},
+      {index:3,label:'SCOPE REDUCTION — cut to absolute minimum'},
+      {index:4,label:'Type something.'},{index:5,label:'Chat about this'},
+    ];
+    expect(()=>findCeoModeOption(omitted,'SCOPE EXPANSION')).toThrow('target "SCOPE EXPANSION" not in option labels');
+    const t:PlanCountTranscript={status:'ready',calls:[sidebarPendingMode()],assistantMessages:[
+      {sessionId:'sidebar-fixture',timestamp:new Date().toISOString(),text:'I will explore expansion opportunities.'},
+    ]};
+    expect(hasNativePostAnswerCeoPosture(t,'SCOPE EXPANSION',/expansion/i,0)).toBe(false);
+    const foreign=sidebarPendingMode();foreign.questions[0]!.header='Other';
+    const action=nextCeoModeNavigation(sidebarModeScreen,'SCOPE EXPANSION',new Set(),foreign);
+    expect(action.kind).toBe('mode');
+    if(action.kind==='mode')expect(action.question.nativeCall).toBeUndefined();
+  });
+});
+
+test.skipIf(process.platform==='win32')('AA sidebar fake CLI requires submission before native mode posture',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mode-sidebar-'));
+  const fake=path.join(dir,'fake-claude');const worker=path.join(dir,'worker.ts');const output=path.join(dir,'result.json');
+  const cases=[
+    {mode:'SELECTIVE EXPANSION',index:1},{mode:'HOLD SCOPE',index:2},
+    {mode:'SCOPE EXPANSION',index:3},{mode:'SCOPE REDUCTION',index:4},
+    {mode:'SCOPE EXPANSION',index:3,digitOnly:true},
+  ].map((item,i)=>({...item,cwd:path.join(dir,String(i)),record:path.join(dir,`${i}.jsonl`)}));
+  for(const item of cases)fs.mkdirSync(item.cwd);
+  fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
+import fs from 'node:fs';import path from 'node:path';
+const item=JSON.parse(process.env.SIDEBAR_REPLAY);const record=row=>fs.appendFileSync(item.record,JSON.stringify(row)+'\n');
+const sid='sidebar-'+process.pid;const file=path.join(process.env.CLAUDE_CONFIG_DIR,'projects',sid,sid+'.jsonl');fs.mkdirSync(path.dirname(file),{recursive:true});
+const native=(role,content,extra={})=>fs.appendFileSync(file,JSON.stringify({cwd:process.cwd(),sessionId:sid,isSidechain:false,timestamp:new Date().toISOString(),message:{role,content},...extra})+'\n');
+record({type:'start',pid:process.pid});native('assistant',[{type:'text',text:'Review preview: expansion, rigor, and reduction.'}]);
+let focused=1;let done=false;process.stdin.setRawMode?.(true);
+process.stdin.on('data',data=>{
+ const input=data.toString();record({type:'input',input});
+ if(done){record({type:'unexpected',input});return;}
+ const digit=/[1-4]/.exec(input)?.[0];
+ if(digit)setTimeout(()=>{focused=Number(digit);record({type:'focus',focused});},25);
+ if(!input.includes('\r'))return;done=true;
+ const answer=item.question.options[focused-1].label;
+ native('assistant',[{type:'tool_use',name:'AskUserQuestion',id:'mode',input:{questions:[item.question]}}]);
+ native('user',[{type:'tool_result',tool_use_id:'mode',content:'Answered'}],{toolUseResult:{answers:{[item.question.question]:answer}}});
+ record({type:'answer',answer});
+ setTimeout(()=>{native('assistant',[{type:'text',text:'I will apply '+answer+' to assess this plan thoroughly.'}]);process.stdout.write('\r\nANSWER_READY\r\n');},25);
+});
+process.stdout.write('\x1b[2J\x1b[H'+item.screen.replaceAll('\n','\r\n'));process.on('SIGINT',()=>process.exit(0));process.stdin.resume();
+`);fs.chmodSync(fake,0o755);
+  const moduleUrl=(name:string)=>pathToFileURL(path.join(import.meta.dir,'helpers',name)).href;
+  fs.writeFileSync(worker,`
+import {launchClaudePty,selectPtyNumberedOption,planCountQuestionInput} from ${JSON.stringify(moduleUrl('claude-pty-runner.ts'))};
+import {nextCeoModeNavigation,hasNativePostAnswerCeoPosture} from ${JSON.stringify(moduleUrl('ceo-mode-option.ts'))};
+import {readPlanCountTranscript} from ${JSON.stringify(moduleUrl('plan-count-transcript.ts'))};
+const cases=${JSON.stringify(cases)};const screen=${JSON.stringify(sidebarModeScreen)};const question=${JSON.stringify(sidebarPendingMode().questions[0])};
+const results=await Promise.all(cases.map(async item=>{
+ const session=await launchClaudePty({cwd:item.cwd,observeScreen:true,timeoutMs:5000,env:{SIDEBAR_REPLAY:JSON.stringify({...item,screen,question})}});
+ try{
+  await session.waitFor('Which review mode',{timeoutMs:2000,pollMs:20});
+  const visible=await session.currentScreen();const action=nextCeoModeNavigation(visible,item.mode,new Set());
+  if(action.kind!=='mode')throw new Error('Mode not captured');
+  const started=Date.now();const before=readPlanCountTranscript(session.hermeticConfigDir,item.cwd);
+  const beforeMatched=hasNativePostAnswerCeoPosture(before,item.mode,new RegExp(item.mode,'i'),started);
+  const input=item.digitOnly?String(action.index):planCountQuestionInput(visible,action.question,action.index);
+  if(input.includes('\\r'))await selectPtyNumberedOption(session,action.index);else session.send(input);
+  if(!item.digitOnly)await session.waitFor('ANSWER_READY',{timeoutMs:1500,pollMs:20});else await Bun.sleep(150);
+  const transcript=readPlanCountTranscript(session.hermeticConfigDir,item.cwd);
+  return {mode:item.mode,digitOnly:!!item.digitOnly,index:action.index,input,beforeMatched,matched:hasNativePostAnswerCeoPosture(transcript,item.mode,new RegExp(item.mode,'i'),started)};
+ }finally{await session.close();}
+}));await Bun.write(${JSON.stringify(output)},JSON.stringify(results));
+`);
+  const child=Bun.spawn([process.execPath,worker],{env:{...process.env,BROWSE_TERMINAL_BINARY:fake,EVALS_HERMETIC:'1'},stdout:'pipe',stderr:'pipe'});
+  const timer=setTimeout(()=>child.kill('SIGKILL'),10000);
+  try{
+    const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+    expect(code,out+err).toBe(0);
+    const results=JSON.parse(fs.readFileSync(output,'utf8'));
+    for(const [i,item] of cases.entries()){
+      expect(results[i]).toEqual({mode:item.mode,digitOnly:!!item.digitOnly,index:item.index,input:String(item.index)+(item.digitOnly?'':'\r'),beforeMatched:false,matched:!item.digitOnly});
+      const rows=fs.readFileSync(item.record,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+      expect(rows.filter(row=>row.type==='input').map(row=>row.input)).toEqual(item.digitOnly?[String(item.index)]:[String(item.index),'\r']);
+      expect(rows.filter(row=>row.type==='answer').length).toBe(item.digitOnly?0:1);
+      expect(rows.some(row=>row.type==='unexpected')).toBe(false);
+      expect(()=>process.kill(rows[0].pid,0)).toThrow();
+    }
+  }finally{
+    clearTimeout(timer);child.kill('SIGKILL');await child.exited;
+    for(const item of cases){
+      if(!fs.existsSync(item.record))continue;const first=JSON.parse(fs.readFileSync(item.record,'utf8').split('\n')[0]!);
+      try{
+        const argv=process.platform==='linux'?fs.readFileSync('/proc/'+first.pid+'/cmdline','utf8').split('\0'):Bun.spawnSync(['ps','-p',String(first.pid),'-o','command='],{timeout:1000}).stdout.toString().trim().split(/\s+/);
+        if(argv.includes(fake))process.kill(first.pid,'SIGKILL');
+      }catch{/* owned child already closed */}
+    }
+    fs.rmSync(dir,{recursive:true,force:true});
+  }
+},12000);

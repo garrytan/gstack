@@ -1,4 +1,4 @@
-Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-design-review:with-sections}}; log successful ranges/total to EOF. Skip-listed: load only.
+Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-design-review:with-sections}} per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
@@ -7,7 +7,7 @@ Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-design-review:with-sections}};
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
 
-  **Bind this phase's input:** Run; use returned `snapshotPath` as `<DESIGN_INPUT>` for both voices:
+  **Bind phase input:** Run; use `snapshotPath` as `<DESIGN_INPUT>` for both voices:
 ```bash
 bun "<SNAPSHOT_TOOL>" create design "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```

@@ -32,7 +32,9 @@ import {
 } from './helpers/claude-pty-runner';
 import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
-import { readPlanCountTranscript, type PlanCountTranscript } from './helpers/plan-count-transcript';
+import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
+import { auditAutoplanMethodReads, loadAutoplanMethodologyBinding, type AutoplanMethodReadAudit } from './helpers/autoplan-method-read-audit';
+import { getHermeticDirs } from './helpers/hermetic-env';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
 import { createNativeReviewState } from './helpers/plan-count-fixture';
 
@@ -81,7 +83,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
 
         let hits: AutoplanPhaseHit[] = [];
         let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
-        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' = 'timeout';
+        let methodologyAudit: AutoplanMethodReadAudit[] = [];
+        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' = 'timeout';
         let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
         let evidence = '';
         let viewport = '';
@@ -91,16 +94,19 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         const saveSnapshot = createPlanCountSnapshotWriter();
         let artifacts: { artifactDir?: string; artifactError?: string } = {};
         const observe = () => {
+          const publicTools: NativePublicToolEvent[] = [];
           transcript = session.hermeticConfigDir
-            ? readPlanCountTranscript(session.hermeticConfigDir, tempDir)
+            ? readPlanCountTranscript(session.hermeticConfigDir, tempDir, event => publicTools.push(event))
             : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated autoplan transcript directory' };
+          methodologyAudit = auditAutoplanMethodReads(publicTools, prompt =>
+            loadAutoplanMethodologyBinding(prompt, [getHermeticDirs().runRoot, nativeState!.env.GSTACK_HOME!]));
           hits = autoplanPhaseCompletions(transcript, commandStartedAt);
         };
         const capture = (state: string) => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
-            observation: { state, hits, native: transcript, exitCode: session.exitCode(), unsupportedSetup,
+            observation: { state, hits, native: transcript, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
               retention: 'Current raw/visible/viewport and parsed native metadata only; full parent JSONL retention is not guaranteed.' },
           });
         };
@@ -165,6 +171,14 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               break;
             }
 
+            // Prepared files and completion announcements cannot replace actual
+            // successful parent content delivery before the native dispatch.
+            if (methodologyAudit.some(audit => !audit.passed)) {
+              outcome = 'incomplete_methodology';
+              evidence = JSON.stringify(methodologyAudit);
+              break;
+            }
+
             // Terminal: Phase 3 (Eng) seen — chain reached the required end.
             if (hits.some(h => h.phase === 3)) {
               outcome = 'chain_complete';
@@ -188,11 +202,16 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             viewport = await session.currentScreen();
             fullSessionEvidence = diagnosticTail(session.visibleText());
             observe();
+            // Final retained records can include a dispatch published after the loop break.
+            if (methodologyAudit.some(audit => !audit.passed)) {
+              outcome = 'incomplete_methodology';
+              evidence = JSON.stringify(methodologyAudit);
+            }
             capture(outcome);
           } finally { await session.close(); }
         }
 
-        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup') {
+        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup' || outcome === 'incomplete_methodology') {
           throw new Error(
             `autoplan chain test FAILED: outcome=${outcome}, exitCode=${exitCode}, hits=${JSON.stringify(hits)}\n` +
               `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
@@ -213,6 +232,12 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
               `--- evidence ---\n${evidence}`,
           );
+        }
+
+        // Every required phase needs its own actual dispatch and complete
+        // successful parent methodology delivery; unknown dispatches add no credit.
+        for (const phase of ['ceo', 'design', 'dx', 'eng']) {
+          expect(methodologyAudit.some(audit => audit.phase === phase && audit.passed)).toBe(true);
         }
 
         // This fixture has UI and API scope: all four phases are required.

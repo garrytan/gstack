@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from dx-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology dx "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful ranges/total to EOF. Skip-listed: load only.
+Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology dx "<REVIEW_SKILL>" "<RESTORE_PATH>"` per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Mode selection: DX POLISH
@@ -13,7 +13,7 @@ Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology 
 - DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
-  **Bind this phase's input:** Run; use returned `snapshotPath` as `<DX_INPUT>` for both voices:
+  **Bind phase input:** Run; use `snapshotPath` as `<DX_INPUT>` for both voices:
 ```bash
 bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```

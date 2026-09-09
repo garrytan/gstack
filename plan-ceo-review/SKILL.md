@@ -1119,7 +1119,7 @@ After mode is selected, confirm which implementation approach (from 0C-bis) appl
 
 Once selected, commit fully. Do not silently drift.
 
-Present these mode options via AskUserQuestion using the preamble's AskUserQuestion Format section: include RECOMMENDATION. These options differ in kind (review posture), not coverage — do NOT emit `Completeness: N/10` per option. Include the one-line note from step 4 of the preamble format rule instead: `Note: options differ in kind, not coverage — no completeness score.`
+When asking, offer all four modes for any approach. Use one AskUserQuestion per preamble format; defaults set RECOMMENDATION. These options differ in kind (review posture), not coverage — do NOT emit `Completeness: N/10` per option. Include the one-line note from step 4 of the preamble format rule instead: `Note: options differ in kind, not coverage — no completeness score.`
 
 **STOP.** AskUserQuestion: one tool_use per issue, no batching, even obvious fixes. Recommend + WHY; wait for approval before changing the plan. Zero findings: state "No issues, moving on" and proceed. No code changes; review only.
 

@@ -203,6 +203,32 @@ function unrunEngNavigation(fp: AskUserQuestionFingerprint, question: string): n
   return manual + 1;
 }
 
+/** A completed review can explain the cost of skipping its next required gate. */
+function explainedRequiredEngNavigation(fp: AskUserQuestionFingerprint, question: string): number | null {
+  const call = fp.nativeCall!, q = call.questions[0]!;
+  if (!call.sessionId || !call.toolUseId || call.failed !== false ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+      q.header.trim() !== 'Next step' || q.options.length !== 2 || fp.options.length !== 2 ||
+      !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label)) return null;
+  if (call.answered === false) {
+    if (call.answers !== undefined || call.answeredAt !== undefined ||
+        (call.unansweredQuestionIndices !== undefined &&
+          (call.unansweredQuestionIndices.length !== 1 || call.unansweredQuestionIndices[0] !== 0))) return null;
+  } else if (call.answered !== true || !Array.isArray(call.unansweredQuestionIndices) ||
+      call.unansweredQuestionIndices.length || Object.keys(call.answers ?? {}).length !== 1) return null;
+  const compact = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+  const match = /^What(?:['’]s| is) next after this CEO review\? ELI10: The CEO review is done and the plan is CLEARED\. But Eng Review is the required shipping gate [—–-] it covers architecture, test plan rigor, and implementation correctness in more depth\. Running it next locks in the plan before implementation starts\. Stakes if we pick wrong: Skipping eng review means the plan goes to implementation without a required gate check [—–-] leaving architecture and test-correctness gaps unverified\. Recommendation: ([A-Z]) because the dashboard shows Eng Review at 0 runs [—–-] required gate, not yet cleared\. Note: options differ in kind, not coverage [—–-] no completeness score\.$/.exec(compact(question));
+  if (!match) return null;
+  const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).]\s*/, '').replace(/\s*\(Recommended\)$/, ''));
+  const run = labels.indexOf('Run /plan-eng-review next'), manual = labels.indexOf('Skip — handle reviews manually');
+  if (run < 0 || manual < 0 || run === manual || !q.options[run]!.label.startsWith(`${match[1]}) `)) return null;
+  // All question prose and each role-specific description must be closed
+  // navigation. The risk explanation is not a new CEO repair decision.
+  if (!/^Required shipping gate\. Covers implementation correctness, test plan rigor, and any architecture concerns\. Takes ~[1-9]\d* minutes\.$/.test(compact(q.options[run]!.description)) ||
+      compact(q.options[manual]!.description) !== 'Proceed to implementation without the eng review gate. CEO review findings still apply.') return null;
+  return manual + 1;
+}
+
 /** Shared closed-review guards; next-review sequencing is still navigation. */
 function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
@@ -238,6 +264,8 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const questionText = declaration.replace(/<gstack-qid:[^>]+>/gi, '').trim();
   const unrunNavigation = id ? unrunEngNavigation(fp, questionText) : null;
   if (unrunNavigation !== null) return unrunNavigation;
+  const explainedNavigation = id ? explainedRequiredEngNavigation(fp, questionText) : null;
+  if (explainedNavigation !== null) return explainedNavigation;
   const recappedNavigation = Boolean(id) &&
     /^What(?:['’]s|\s+is)\s+the\s+next\s+(?:steps?|review)\s+after\s+(?:this|the)\s+CEO\s+review\?$/i.test(questionText) &&
     q.options.some(option => resolvedCeoRecap(option.description ?? ''));

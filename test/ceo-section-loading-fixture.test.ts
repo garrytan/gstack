@@ -5,6 +5,47 @@ import {
   hasStaleFillRaceFinding,
 } from './helpers/ceo-section-loading-fixture';
 
+describe('future-reader vocabulary in the actual AA finding', () => {
+  const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-aa-report.md'), 'utf8');
+  const paragraph = report.slice(report.indexOf('**S4-1 (CRITICAL'), report.indexOf('\n\nNo UI scope.', report.indexOf('**S4-1 (CRITICAL')));
+
+  test('recognizes the exact complete report and its same-paragraph post-write consequence', () => {
+    expect(paragraph).toContain('A read in-flight when a write');
+    expect(paragraph).toContain('stale snapshot after `cache.delete` fires');
+    expect(paragraph).toContain('future callers with stale data');
+    expect(hasStaleFillRaceFinding(paragraph)).toBe(true);
+    expect(hasStaleFillRaceFinding(report)).toBe(true);
+    expect(hasStaleFillRaceFinding(paragraph.replace('future callers', 'subsequent callers'))).toBe(true);
+  });
+
+  test.each(['future reads', 'future requests', 'future callers'])('recognizes a later consumer: %s', reader => {
+    expect(hasStaleFillRaceFinding(`An in-flight read inserts a stale snapshot after write invalidation, leaving ${reader} with stale data.`)).toBe(true);
+  });
+
+  test.each([
+    'An in-flight read inserts a stale snapshot after write invalidation. Future work documents the cache.',
+    'An in-flight read inserts a fresh snapshot after write invalidation, leaving future callers with fresh data.',
+    'An in-flight read inserts a stale snapshot before write invalidation, leaving future callers with stale data.',
+    'A completed read inserts a stale snapshot after write invalidation, leaving future callers with stale data.',
+    'An in-flight read returns a stale snapshot after write invalidation to its original pending caller.',
+    'An in-flight read inserts a stale snapshot after write invalidation. Future callers seeing stale data is allowed behavior.',
+    'An in-flight read inserts a stale snapshot after write invalidation, leaving future callers with stale data. This is the accepted consistency model.',
+    'An in-flight read cannot refill stale data after write invalidation. Future callers observe committed data.',
+    'An in-flight read inserts a stale snapshot after write invalidation, leaving future callers with stale data. This is not a bug; no guard is required.',
+    '> An in-flight read inserts a stale snapshot after write invalidation, leaving future callers with stale data.',
+    '```text\nAn in-flight read inserts a stale snapshot after write invalidation, leaving future callers with stale data.\n```',
+    'An in-flight read inserts a stale snapshot after write invalidation.\n\n## A different section\nFuture callers need documentation.',
+    '* An in-flight read inserts a stale snapshot after write invalidation.\n* Future callers need documentation.',
+  ])('retains ordering, stale-value, source and dismissal boundaries: %s', text => {
+    expect(hasStaleFillRaceFinding(text)).toBe(false);
+  });
+
+  test('the original-caller exception cannot permit the same stale value for future callers', () => {
+    expect(hasStaleFillRaceFinding('An in-flight read refills stale data after write invalidation, so new reads see old data. The original pending caller may receive an old snapshot and future callers observe it; this is permitted. Guard cache fills with a generation token.')).toBe(false);
+    expect(hasStaleFillRaceFinding('The original pending caller may receive an old snapshot; that return is permitted. However, an in-flight read refills stale data after write invalidation, so future callers violate the contract. Guard cache fills with a generation token.')).toBe(true);
+  });
+});
+
 describe('restore vocabulary in the actual Y finding', () => {
   const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-y-report.md'), 'utf8');
   const amendment = report.slice(report.indexOf('**AMENDMENT (Finding 1'), report.indexOf('```javascript')).trim();

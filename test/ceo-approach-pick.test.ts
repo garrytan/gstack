@@ -9,6 +9,7 @@ import recorded from './fixtures/ceo-approach-q-call.json';
 import pairedRecorded from './fixtures/ceo-approach-q-paired-call.json';
 import handoffs from './fixtures/ceo-completion-handoff-m-call.json';
 import recordedY from './fixtures/ceo-approach-y-call.json';
+import recordedAA from './fixtures/ceo-approach-aa-call.json';
 
 function pending(source: NativePlanQuestionCall = recorded as NativePlanQuestionCall): NativePlanQuestionCall {
   const call = structuredClone(source);
@@ -18,6 +19,65 @@ function pending(source: NativePlanQuestionCall = recorded as NativePlanQuestion
   return call;
 }
 const fingerprint = (call: NativePlanQuestionCall, preReview = true) => nativePlanCallFingerprint(call, 0, preReview);
+
+describe('numbered native approach identity', () => {
+  test('the actual AA question selects its offered recommendation with a projected pending binding', () => {
+    // Only completed live versions survived capture. Preserve the actual A
+    // answer; this projection tests routing, not live metadata availability.
+    const call = pending(recordedAA as NativePlanQuestionCall);
+    const active = capturePlanCountQuestion(screen(call), new Set(), 0, true, call)!;
+    expect(active.nativeCall).toBe(call);
+    expect(pickCeoCountQuestion(fingerprint(call), active)).toBe(2);
+    expect(planCountQuestionInput(screen(call), active, 2)).toBe('2');
+    expect(recordedAA.answers[recordedAA.questions[0]!.question]).toBe(recordedAA.questions[0]!.options[0]!.label);
+    expect(pickCeoCountQuestion(fingerprint(recordedAA as NativePlanQuestionCall))).toBeNull();
+  });
+
+  test('decision numbers and option positions may change together without changing policy', () => {
+    for (const decision of ['2', '37']) {
+      const call = pending(recordedAA as NativePlanQuestionCall);
+      const q = call.questions[0]!;
+      q.question = q.question.replace(/^D1/, `D${decision}`).replace('approach-d1>', `approach-d${decision}>`);
+      q.options.reverse();
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBe(2);
+      q.options.unshift(q.options.pop()!);
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBe(3);
+    }
+  });
+
+  test('numbered identities must agree with the explicit decision and remain a supported approach id', () => {
+    for (const id of ['plan-ceo-review-approach-d2', 'plan-ceo-review-approach-d0',
+      'plan-ceo-review-approach-d01', 'plan-ceo-review-approach-d1-extra',
+      'plan-eng-review-approach-d1', 'plan-ceo-review-mode-d1']) {
+      const call = pending(recordedAA as NativePlanQuestionCall);
+      call.questions[0]!.question = call.questions[0]!.question.replace('plan-ceo-review-approach-d1', id);
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBeNull();
+    }
+    for (const prefix of ['', 'D2 — ', 'Example: D1 — ', '> D1 — ']) {
+      const call = pending(recordedAA as NativePlanQuestionCall);
+      call.questions[0]!.question = call.questions[0]!.question.replace(/^D1 — /, prefix);
+      expect(pickCeoRecommendedApproach(fingerprint(call))).toBeNull();
+    }
+  });
+
+  test('numbered ids retain the native binding, phase, question and sole recommendation guards', () => {
+    const call = pending(recordedAA as NativePlanQuestionCall);
+    const fp = fingerprint(call);
+    const unbound = capturePlanCountQuestion(screen(call), new Set(), 0, true)!;
+    expect(pickCeoCountQuestion(fp, unbound)).toBeNull();
+    expect(pickCeoCountQuestion({...fp, preReview: false})).toBeNull();
+    expect(pickCeoCountQuestion({...fp, signature: 'foreign:call'})).toBeNull();
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = c.questions[0]!.question.replace('should this plan use?', 'should this plan not use?'); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'Mode'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.label += ' (Recommended)'; },
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+    ]) {
+      const changed = pending(recordedAA as NativePlanQuestionCall); mutate(changed);
+      expect(pickCeoRecommendedApproach(fingerprint(changed))).toBeNull();
+    }
+  });
+});
 
 describe('Y named component approach menu', () => {
   const actualScreen = readFileSync(join(import.meta.dir, 'fixtures/ceo-approach-y-screen.txt'), 'utf8');

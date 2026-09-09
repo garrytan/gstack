@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology ceo "<REVIEW_SKILL>" "<RESTORE_PATH>"`; log successful ranges/total to EOF. Skip-listed: load only.
+Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology ceo "<REVIEW_SKILL>" "<RESTORE_PATH>"` per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
@@ -18,7 +18,7 @@ Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology 
   Run Claude first, then Codex, sequentially;
   both must complete before consensus.
 
-  **Bind this phase's input:** Run; use returned `snapshotPath` as `<CEO_INPUT>` for both voices:
+  **Bind phase input:** Run; use `snapshotPath` as `<CEO_INPUT>` for both voices:
 ```bash
 bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```

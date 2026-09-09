@@ -1,4 +1,4 @@
-Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-ceo-review:with-sections}}; log successful ranges/total to EOF. Skip-listed: load only.
+Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-ceo-review:with-sections}} per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
@@ -16,7 +16,7 @@ Before dispatch, Read {{AUTOPLAN_REVIEW_FILE:plan-ceo-review:with-sections}}; lo
   Run {{NATIVE_LABEL}} first, then {{OUTSIDE_LABEL}}, sequentially;
   both must complete before consensus.
 
-  **Bind this phase's input:** Run; use returned `snapshotPath` as `<CEO_INPUT>` for both voices:
+  **Bind phase input:** Run; use `snapshotPath` as `<CEO_INPUT>` for both voices:
 ```bash
 bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
 ```

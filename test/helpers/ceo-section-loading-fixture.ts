@@ -187,7 +187,7 @@ function hasProseStaleFillFinding(report: string): boolean {
     const context = text + (independent ? '' : ' ' + normalize(next));
 
     const finding = /\b(?:P[0-3]|missing|gap|bug|defect|violat\w*|unsafe|incorrect)\b|\bno\s+mention\s+of\s+(?:this|the)\s+race\b/i.test(context);
-    const subsequentRead = /\b(?:next|later|subsequent|new|fresh)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(context);
+    const subsequentRead = /\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(context);
     const remedy = context.split(/[.!?]\s+/).some(sentence =>
       (/\b(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\w*\b/i.test(sentence) &&
         /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(sentence)) ||
@@ -227,7 +227,7 @@ function hasProseStaleFillFinding(report: string): boolean {
       const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);
       const onlyEarlierReturn = originalCaller && /\b(?:return|receiv|observ)\w*\b/i.test(claim)
         && /\b(?:old|earlier|previous|pre[- ]write)\s+(?:snapshot|value|result|version)\b/i.test(claim)
-        && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
+        && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
       if (!(onlyEarlierReturn && subsequentRead && (violation || remedy))) return false;
     }
     return finding || subsequentRead || remedy;

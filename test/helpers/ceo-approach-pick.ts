@@ -12,10 +12,16 @@ export function pickCeoRecommendedApproach(fp: AskUserQuestionFingerprint): numb
   const ids = [...q.question.matchAll(/<gstack-qid:\s*([a-z0-9-]+)\s*>/gi)];
   if (ids.length !== 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return null;
   const qid = ids[0]![1]!.toLowerCase();
+  const decision = /^D\s*([1-9]\d*)\s*[—–:-]\s*/i.exec(q.question.trim());
+  const approachId = /^plan-ceo(?:-review)?-approach(?:-selection)?(?:-d([1-9]\d*))?$/.exec(qid);
+  // Native routing ids may carry the explicit decision number. An id for a
+  // different decision cannot borrow this question's recommendation policy.
+  const planApproachId = approachId !== null &&
+    (!approachId[1] || approachId[1] === decision?.[1]);
   const question = q.question.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   // Native approach menus vary their routing id and use/follow wording. Match
   // the selector's structure, retaining the explicit recommendation below.
-  const planApproach = /^plan-ceo(?:-review)?-approach(?:-selection)?$/.test(qid) &&
+  const planApproach = planApproachId &&
     /^Which implementation approach should this plan (?:use|follow)\?(?:\s|$)/i.test(question);
   const testApproach = qid === 'plan-ceo-review-impl-approach' &&
     /^Which implementation approach for the [a-z_$][\w$]*(?:\.[a-z_$][\w$]*)*\(\) tests\?(?:\s|$)/i.test(question);
@@ -23,7 +29,7 @@ export function pickCeoRecommendedApproach(fp: AskUserQuestionFingerprint): numb
   // complete direct question; the routing id alone cannot authorize a choice.
   const directQuestion = question.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '').trim();
   const component = /^Which implementation approach for (?:the|this) ((?:[a-z_$][\w$.-]*\s+){0,5})(?:handler|endpoint|service|module|component|adapter|client|worker|pipeline|integration)\?$/i.exec(directQuestion);
-  const componentApproach = /^plan-ceo(?:-review)?-approach(?:-selection)?$/.test(qid) &&
+  const componentApproach = planApproachId &&
     component !== null && !/\b(?:and|or|then)\b/i.test(component[1]!);
   if (!planApproach && !testApproach && !componentApproach) return null;
   if (fp.options.length !== q.options.length || !fp.options.every((option, i) =>

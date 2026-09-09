@@ -1346,6 +1346,31 @@ function nativePacketQuestionIndex(visible: string, call: NativePlanQuestionCall
   return matched.length === 1 ? matched[0]! : null;
 }
 
+/** Notes can share the left option row while remaining aligned to the preview. */
+function hasSidebarPreviewNotes(visible: string): boolean {
+  // The footer and active pane establish the protocol. A notes phrase in an
+  // option label alone is insufficient: require its aligned, complete box.
+  if (!/(?:^|\n)[\t │┃]*(?:[☐□][^\n]+|←[^\n]*[☐☒][^\n]*✔\s*Submit\s*→)[\s\S]*❯\s*[1-9]\.[\s\S]*\nEnter\s+to\s+select\s*·\s*↑\/↓\s+to\s+navigate\s*·\s*n\s+to\s+add\s+notes\s*·\s*(?:Tab\s+to\s+switch\s+questions\s*·\s*)?Esc\s+to\s+cancel\s*$/i.test(visible)) return false;
+  const header = [...visible.matchAll(/(?:^|\n)[\t │┃]*(?:[☐□][^\n]+|←[^\n]*[☐☒][^\n]*✔\s*Submit\s*→)/g)].at(-1);
+  if (!header) return false;
+  const lines = visible.slice(header.index).split('\n');
+  return lines.some((line, notesIndex) => {
+    if (!/[\t ]{2,}Notes: press n to add notes[\t ]*$/i.test(line)) return false;
+    const column = line.indexOf('Notes:');
+    // The hint may align with a wrapped continuation of the option label.
+    let optionIndex = notesIndex;
+    while (optionIndex > 0 && /^[\t ]{4,}\S[^│┌└]*$/.test(lines[optionIndex]!.slice(0, column).trimEnd())) optionIndex--;
+    if (!/^[\t ]*(?:❯\s*)?[1-9]\.\s*\S[^│┌└]*$/.test(lines[optionIndex]!.slice(0, column).trimEnd())) return false;
+    const before = lines.slice(0, notesIndex);
+    const top = before.findLastIndex(row => /^┌─+┐[\t ]*$/.test(row.slice(column)));
+    const bottom = before.findLastIndex(row => /^└─+┘[\t ]*$/.test(row.slice(column)));
+    const width = top < 0 ? 0 : before[top]!.slice(column).trimEnd().length;
+    return top >= 0 && bottom > top + 1 && before[bottom]!.slice(column).trimEnd().length === width &&
+      before.slice(top + 1, bottom).every(row => /^│[^\n]*│[\t ]*$/.test(row.slice(column)) &&
+        row.slice(column).trimEnd().length === width);
+  });
+}
+
 /** Preview digits focus an option; ordinary native digits accept or toggle it. */
 export function planCountQuestionInput(visible: string, fp: AskUserQuestionFingerprint, index: number): string {
   if (!Number.isInteger(index) || index < 1 || index > 9) throw new RangeError(`Invalid numbered option: ${index}`);
@@ -1357,7 +1382,7 @@ export function planCountQuestionInput(visible: string, fp: AskUserQuestionFinge
   // flushed yet. Require the complete active pane, not a quoted notes hint.
   const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
   const preview = /(?:^|\n)[\t │┃]*(?:[☐□][^\n]+|←[^\n]*[☐☒][^\n]*✔\s*Submit\s*→)[\s\S]*❯\s*[1-9]\.[\s\S]*\n[\t │┃]*Notes:[^\n]*\n[\s\S]*\nEnter\s+to\s+select\s*·\s*↑\/↓\s+to\s+navigate\s*·\s*n\s+to\s+add\s+notes\s*·\s*(?:Tab\s+to\s+switch\s+questions\s*·\s*)?Esc\s+to\s+cancel\s*$/i.test(normalized);
-  if (preview) return `${index}\r`;
+  if (preview || hasSidebarPreviewNotes(normalized)) return `${index}\r`;
   if (native) return String(index);
   if (/❯?\s*[1-9]\.\s*\[[ ✓✔xX]\]/m.test(visible)) return `${index}\r`;
   // Native JSONL may flush only after submission. Its complete tab bar and
@@ -1883,7 +1908,7 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   if (!call.answered || call.failed || call.questions.length !== 1 ||
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
-  if (resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call)) return true;
+  if (resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call) || architecturalDxTaskNavigation(call)) return true;
   const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
   const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const completionLines: string[] = [];
@@ -1950,6 +1975,30 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   return labels.every(label => runEng(label) || ready(label) || manual(label)) &&
     labels.filter(runEng).length === 1 && labels.filter(manual).length === 1 &&
     q.options.some(o => o.label === call.answers?.[q.question]);
+}
+
+/** The next gate may validate architecture already decided by this DX review. */
+function architecturalDxTaskNavigation(call: NativePlanQuestionCall): boolean {
+  const q = call.questions[0]!;
+  if (call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      q.multiSelect || q.header.trim() !== 'Next steps' || q.options.length !== 3 ||
+      new Set(q.options.map(o => o.label)).size !== 3 || Object.keys(call.answers ?? {}).length !== 1) return false;
+  const compact = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+  const match = /^D[1-9]\d* [—–-] Next steps: DX Review is complete \((?:10|[0-9])\/10 → (?:10|[0-9])\/10, ([1-9]\d*) P1 tasks, TTHW target achievable\)\. The ([1-9]\d*) fixes include architectural decisions \(demo CI exemption, arg order normalization\) that should go through an engineering gate\. What next\? <gstack-qid:plan-devex-next-steps>$/.exec(compact(q.question));
+  if (!match || match[1] !== match[2]) return false;
+  const labels = q.options.map(o => o.label.trim().replace(/\s*\(Recommended\)$/, ''));
+  const expected = ['Run /plan-eng-review next', 'Ready to implement — run /devex-review after shipping', "Skip, I'll handle next steps manually"];
+  const descriptions = [
+    'The demo CI exemption and argument order change are architectural decisions. Eng review validates the approach before implementation and is the required shipping gate.',
+    `Skip eng review and implement the ${match[1]} tasks directly. Run /devex-review on the live SDK to verify the TTHW target was actually hit.`,
+    'Take the plan file and implementation tasks and proceed independently.',
+  ];
+  // Consume every offered description in its own navigation role; an appended
+  // remedy or unapproved scope change still requires a later report write.
+  return new Set(labels).size === 3 && labels.every((label, index) => {
+    const role = expected.indexOf(label);
+    return role >= 0 && compact(q.options[index]!.description) === descriptions[role];
+  }) && q.options.some(o => o.label === call.answers?.[q.question]);
 }
 
 /** A completed DX recap can offer navigation over already specified tasks. */
