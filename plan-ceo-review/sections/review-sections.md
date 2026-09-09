@@ -419,7 +419,7 @@ THE PLAN:
 
 **If `CODEX_MODE: ready` — run Codex:**
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -455,7 +455,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
 Present the full output verbatim:
 
@@ -477,7 +477,10 @@ Immediately before dispatching, check the preflight result again. On
 `CODEX_MODE: disabled`, finish this section with `outside_status: disabled`;
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight, or a failed outside invocation.
-The disabled branch never reaches this fallback.
+The disabled branch never reaches this fallback. In this section, `under_codex`
+or `under_current_harness` also follows this native fallback: run no outside CLI,
+report the setup repair and `outside_status: unavailable`, then use the native
+subagent below. A native result never supplies outside coverage.
 
 Dispatch via the Agent tool with `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 Bound it the same way as Codex: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -514,7 +517,11 @@ For each substantive tension point, use AskUserQuestion:
 > argues [Y]. [One sentence on what context you might be missing.]"
 >
 > RECOMMENDATION: Choose [A or B] because [one-line reason explaining which argument
-> is more compelling and why]. Completeness: A=X/10, B=Y/10.
+> is more compelling and why].
+
+Score completeness only when the concrete remedies differ in coverage. Otherwise,
+use the preamble's kind-not-coverage note; accepting, keeping, investigating, and
+deferring do not themselves imply completeness scores.
 
 Options:
 - A) Accept the outside voice's recommendation (I'll apply this change)
@@ -566,6 +573,11 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each finding — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan.
 
 ## Required Outputs
+
+Write the prose sections, registries, diagrams, and Markdown Implementation Tasks
+below into the active plan file, reflecting only approved changes. Also show the
+Completion Summary in the conversation. The task JSONL artifact and approved
+TODOS.md updates use their explicit destinations below.
 
 ### "NOT in scope" section
 List work considered and explicitly deferred, with one-line rationale each.
@@ -726,7 +738,7 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
   | TODOS.md updates     | ___ items proposed                          |
   | Scope proposals      | ___ proposed, ___ accepted (EXP + SEL)      |
   | CEO plan             | written / skipped (HOLD/REDUCTION)           |
-  | Outside voice        | ran (codex/claude) / skipped                 |
+  | Outside voice        | provider + completed/unavailable/disabled/skipped |
   | Lake Score           | X/Y recommendations chose complete option   |
   | Diagrams produced    | ___ (list types)                            |
   | Stale diagrams found | ___                                         |
@@ -1042,40 +1054,23 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || tru
 
 
 ## Mode Quick Reference
-```
-  ┌────────────────────────────────────────────────────────────────────────────────┐
-  │                            MODE COMPARISON                                     │
-  ├─────────────┬──────────────┬──────────────┬──────────────┬────────────────────┤
-  │             │  EXPANSION   │  SELECTIVE   │  HOLD SCOPE  │  REDUCTION         │
-  ├─────────────┼──────────────┼──────────────┼──────────────┼────────────────────┤
-  │ Scope       │ Push UP      │ Hold + offer │ Maintain     │ Push DOWN          │
-  │             │ (opt-in)     │              │              │                    │
-  │ Recommend   │ Enthusiastic │ Neutral      │ N/A          │ N/A                │
-  │ posture     │              │              │              │                    │
-  │ 10x check   │ Mandatory    │ Surface as   │ Optional     │ Skip               │
-  │             │              │ cherry-pick  │              │                    │
-  │ Platonic    │ Yes          │ No           │ No           │ No                 │
-  │ ideal       │              │              │              │                    │
-  │ Delight     │ Opt-in       │ Cherry-pick  │ Note if seen │ Skip               │
-  │ opps        │ ceremony     │ ceremony     │              │                    │
-  │ Complexity  │ "Is it big   │ "Is it right │ "Is it too   │ "Is it the bare    │
-  │ question    │  enough?"    │  + what else │  complex?"   │  minimum?"         │
-  │             │              │  is tempting"│              │                    │
-  │ Taste       │ Yes          │ Yes          │ No           │ No                 │
-  │ calibration │              │              │              │                    │
-  │ Temporal    │ Full (hr 1-6)│ Full (hr 1-6)│ Key decisions│ Skip               │
-  │ interrogate │              │              │  only        │                    │
-  │ Observ.     │ "Joy to      │ "Joy to      │ "Can we      │ "Can we see if     │
-  │ standard    │  operate"    │  operate"    │  debug it?"  │  it's broken?"     │
-  │ Deploy      │ Infra as     │ Safe deploy  │ Safe deploy  │ Simplest possible  │
-  │ standard    │ feature scope│ + cherry-pick│  + rollback  │  deploy            │
-  │             │              │  risk check  │              │                    │
-  │ Error map   │ Full + chaos │ Full + chaos │ Full         │ Critical paths     │
-  │             │  scenarios   │ for accepted │              │  only              │
-  │ CEO plan    │ Written      │ Written      │ Skipped      │ Skipped            │
-  │ Phase 2/3   │ Map accepted │ Map accepted │ Note it      │ Skip               │
-  │ planning    │              │ cherry-picks │              │                    │
-  │ Design      │ "Inevitable" │ If UI scope  │ If UI scope  │ Skip               │
-  │ (Sec 11)    │  UI review   │  detected    │  detected    │                    │
-  └─────────────┴──────────────┴──────────────┴──────────────┴────────────────────┘
-```
+
+The selected mode changes scope posture, not review coverage. Review every section
+for the accepted scope; Section 11 is skipped only when that scope has no UI.
+
+| Step | SCOPE EXPANSION | SELECTIVE EXPANSION | HOLD SCOPE | SCOPE REDUCTION |
+|------|-----------------|---------------------|------------|-----------------|
+| Scope proposals | Offer additions individually | Offer cherry-picks individually | No expansions | Offer cuts individually |
+| 10x check | Required; additions need approval | Required; additions need approval | Skip | Skip |
+| Platonic ideal | Required | Skip | Skip | Skip |
+| Delight opportunities | At least 5, each opt-in | At least 5, each opt-in | Skip | Skip |
+| Complexity | Review accepted ambition | Review baseline and accepted additions | Simplest correct accepted scope | Minimum valuable scope |
+| Temporal interrogation (0E) | Run | Run | Run | Skip |
+| Error and rescue map | Full accepted scope | Full accepted scope | Full accepted scope | Full remaining scope |
+| Observability and deployment | Review all accepted requirements | Review all accepted requirements | Review all accepted requirements | Review all remaining requirements |
+| Separate CEO archive (0D-POST) | Write | Write | Skip | Skip |
+| Future direction (Section 10) | Review accepted trajectory | Review accepted cherry-picks | Review maintainability; no expansions | Review maintainability of remaining scope |
+| Design (Section 11) | Review if UI scope | Review if UI scope | Review if UI scope | Review if UI scope |
+
+All modes persist approved findings and the required outputs in the active plan.
+The separate CEO archive is additional persistence for expansion modes.

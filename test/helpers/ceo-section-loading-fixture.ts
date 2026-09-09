@@ -162,6 +162,27 @@ export function hasStaleFillRaceFinding(report: string): boolean {
   return hasStructuredStaleFillFinding(report) || hasProseStaleFillFinding(report);
 }
 
+/** An ordered execution can establish overlap without naming it "in-flight". */
+function hasOrderedStaleFillOperations(text: string): boolean {
+  const separator = String.raw`\s*[,;.]\s*(?:then\s+)?`;
+  const subject = String.raw`(?:(?:a|the)\s+)?`;
+  const sameObject = String.raw`(?:\s+(?:(?:the\s+)?same\s+)?(?:cache\s+)?(?:key|entry))?`;
+  const read = String.raw`${subject}read\s+(?:misses|gets\s+a\s+cache\s+miss)`;
+  const write = String.raw`${subject}write\s+commits\s+(?:and|then)\s+(?:deletes|invalidates|evicts)${sameObject}(?:\s*\(no-op\))?`;
+  const fill = String.raw`${subject}(?:(?:original|same)\s+)?reader\s+(?:(?:then|later)\s+)?(?:fills|refills|repopulates)\s+(?:the\s+)?(?:old|stale|pre[- ](?:write|commit))\s+(?:snapshot|value|data)`;
+  const later = String.raw`(?:(?:every|all|the)\s+)?(?:later|next|new|subsequent)\s+readers?\s+(?:sees?|gets?|observes?|receives?)\s+(?:the\s+)?(?:stale|old|outdated)\s+(?:data|value|snapshot)`;
+  const findingPrefix = String.raw`(?:(?:F[1-9]\d*|(?:Finding|Issue)\s+[1-9]\d*)\s*[—–:-]\s*)?(?:P[0-3]\s*[—–:-]\s*)?`;
+  const sequence = new RegExp(String.raw`^${findingPrefix}${read}${separator}${write}${separator}${fill}${separator}${later}(?=[\s.!?;]|$)`, 'i');
+  // Table cells cannot lend operation order to each other. Bare "reader"
+  // refers back to the missed read; explicit foreign cache/key references,
+  // quoted examples and conditional/negated executions cannot establish it.
+  return text.split(/\s*\|\s*/).some(cell =>
+    !/["“”?]|\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|quoted)\b/i.test(cell)
+    && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(cell)
+    && !/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(cell)
+    && sequence.test(cell));
+}
+
 function hasProseStaleFillFinding(report: string): boolean {
   // Copied source, diagrams and quoted examples cannot supply a finding.
   let fence: { char: string; length: number } | null = null;
@@ -181,7 +202,8 @@ function hasProseStaleFillFinding(report: string): boolean {
   return blocks.some((block, index) => {
     const text = normalize(block);
     const stale = /\b(?:stale|outdated)\b|\b(?:old(?:er)?|pre[- ]write)\s+(?:value|data|result|version|snapshot)\b/i.test(text);
-    const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text);
+    const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text)
+      || hasOrderedStaleFillOperations(text);
     const read = /\b(?:read|fetch)\w*\b/i.test(text);
     const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor|restor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
     const fill = fillPattern.test(text);

@@ -830,7 +830,7 @@ Then add the context block and mode-appropriate instructions:
 
 3. Run Codex with the assembled prompt:
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -866,7 +866,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to Claude subagent.
@@ -1134,12 +1134,12 @@ If Codex is available, use AskUserQuestion:
 > A) Yes — get outside design voices
 > B) No — proceed without
 
-If user chooses A, launch both voices simultaneously:
+If user chooses A, run both independent voices below and wait for both results before synthesis. They may overlap when the host supports parallel tool calls; the native subagent call remains blocking.
 
 1. **Codex** (via Bash, `model_reasoning_effort="medium"`):
 Prompt: "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." Include the approved product approach and wireframe source in the prepared prompt.
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. No defect severity or no-findings conclusion is required. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -1175,7 +1175,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation marker, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
 For this phase (design-sketch), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design-sketch"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 

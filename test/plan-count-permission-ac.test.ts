@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import captured from './fixtures/plan-count-permission-ac.json';
 import capturedAd from './fixtures/plan-count-permission-ad.json';
+import capturedAe from './fixtures/plan-count-permission-ae.json';
 import { classifyPlanCountFrame, createPlanCountPermissionGuard } from './helpers/claude-pty-runner';
 import { recordFilePermission, currentFilePermissionEpoch, currentFilePermissionBinding } from './helpers/plan-count-file-permission';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
@@ -149,9 +150,9 @@ test('a later exact owned binding wins over an earlier same-basename block', () 
   } finally { f.close(); }
 });
 
-// Exact current screens plus content-free native identity from the full AD run.
+// Exact current screens plus content-free native identity from full AD/AE runs.
 // The replay projections do not assert these pending writes ever completed.
-const cases = capturedAd.rows.map(row => ({
+const cases = [...capturedAd.rows, capturedAe].map(row => ({
   p: row, screen: row.screen, binding: {expected: row.state.expected, state: row.state},
   observation: {transcript: {status: row.transcriptStatus, calls: [],
     assistantMessages: row.transcriptSessions.map(sessionId => ({sessionId}))}},
@@ -177,7 +178,8 @@ for (const c of cases) {
   });
   test(`AD isolating the rejected rendering guard ${c.p.pid} preserves native identity`, () => {
     // These are explicitly normalized controls; the actual captured screen is unchanged above.
-    const normalized = c.p.pid === 1332470 ? c.screen.replace('3. Nohift+tab)', '3. No') : c.screen.replace(/^     \+/, ' 99 +');
+    const normalized = c.p.pid === capturedAe.pid ? c.screen.replace(/^[╌─━]{3,}[ \t]*\n/, '')
+      : c.p.pid === 1332470 ? c.screen.replace('3. Nohift+tab)', '3. No') : c.screen.replace(/^     \+/, ' 99 +');
     expect(normalized).not.toBe(c.screen);
     expect(adEpoch(c, normalized)?.pendingId).toBe(c.binding.state.pendingId);
   });
@@ -233,4 +235,17 @@ test('AD crop fixture selects the exact existing permission regression callers',
   expect(selectTests(['test/fixtures/plan-count-permission-ad.json'], E2E_TOUCHFILES).selected.sort()).toEqual(
     selectTests(['test/fixtures/plan-count-permission-ac.json'], E2E_TOUCHFILES).selected.sort());
   expect(selectTests(['test/fixtures/plan-count-permission-ad.json'], E2E_TOUCHFILES).selected).toContain('plan-ceo-finding-count');
+});
+
+test('AE crop admits one native divider only and preserves its exact existing caller selection', () => {
+  const c = cases.find(item => item.p.pid === capturedAe.pid)!;
+  const firstLine = c.screen.slice(0, c.screen.indexOf('\n') + 1);
+  for (const screen of [firstLine + c.screen, 'unrelated prose\n' + c.screen,
+    firstLine + 'Example:\n' + c.screen.slice(firstLine.length),
+    c.screen.replace(firstLine, firstLine.trimEnd() + ' extra action\n')]) {
+    expect(adEpoch(c, screen)).toBeNull();
+    expect(createPlanCountPermissionGuard()(screen, '', adEpoch(c, screen))).not.toBe('grant');
+  }
+  expect(selectTests(['test/fixtures/plan-count-permission-ae.json'], E2E_TOUCHFILES).selected.sort()).toEqual(
+    selectTests(['test/fixtures/plan-count-permission-ad.json'], E2E_TOUCHFILES).selected.sort());
 });

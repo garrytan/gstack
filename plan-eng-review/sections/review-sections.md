@@ -448,7 +448,7 @@ THE PLAN:
 
 **If `CODEX_MODE: ready` — run Codex:**
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -484,7 +484,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
 Present the full output verbatim:
 
@@ -506,7 +506,10 @@ Immediately before dispatching, check the preflight result again. On
 `CODEX_MODE: disabled`, finish this section with `outside_status: disabled`;
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight, or a failed outside invocation.
-The disabled branch never reaches this fallback.
+The disabled branch never reaches this fallback. In this section, `under_codex`
+or `under_current_harness` also follows this native fallback: run no outside CLI,
+report the setup repair and `outside_status: unavailable`, then use the native
+subagent below. A native result never supplies outside coverage.
 
 Dispatch via the Agent tool with `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 Bound it the same way as Codex: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -543,7 +546,11 @@ For each substantive tension point, use AskUserQuestion:
 > argues [Y]. [One sentence on what context you might be missing.]"
 >
 > RECOMMENDATION: Choose [A or B] because [one-line reason explaining which argument
-> is more compelling and why]. Completeness: A=X/10, B=Y/10.
+> is more compelling and why].
+
+Score completeness only when the concrete remedies differ in coverage. Otherwise,
+use the preamble's kind-not-coverage note; accepting, keeping, investigating, and
+deferring do not themselves imply completeness scores.
 
 Options:
 - A) Accept the outside voice's recommendation (I'll apply this change)

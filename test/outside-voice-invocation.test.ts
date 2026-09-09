@@ -77,6 +77,21 @@ function invoke(host: 'codex' | 'claude', options: Partial<OutsideCommandOptions
 function capture() { return JSON.parse(fs.readFileSync(CAPTURE,'utf8')); }
 
 describe('generated outside-review dispatch', () => {
+  for (const host of ['codex', 'claude'] as const) {
+    test(`${host}: creative direction retains the completed recommendation gate`, () => {
+      const options = { purpose: 'design-direction' as const };
+      const completed = invoke(host, options, {
+        FAKE_RESPONSE: 'Recommendation: use a cardless triage table because daily operators need to compare many rows quickly.',
+      });
+      expect(completed.status).toBe(0);
+      expect(completed.stdout).toContain('OUTSIDE_STATUS: completed');
+      for (const response of ['A blue palette could be nice.', 'I cannot provide a design proposal.']) {
+        const incomplete = invoke(host, options, { FAKE_RESPONSE: response });
+        expect(incomplete.status).not.toBe(0);
+        expect(incomplete.stdout).not.toContain('OUTSIDE_STATUS: completed');
+      }
+    });
+  }
   for (const host of ['codex','claude'] as const) {
     test(`${host} dispatches the other CLI and keeps hostile prompt/path text literal`, () => {
       const result = invoke(host);

@@ -117,7 +117,7 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
     cleanupFixture(fixture.workDir);
   });
 
-  testConcurrentIfSelected('hook directly invoked → log fills', async () => {
+  testConcurrentIfSelected('plan-tune-hook-capture', async () => {
     // Direct hook invocation simulates Claude Code's PostToolUse delivery.
     // E2E verifies the hook + bin chain works against real bins on disk
     // (the unit test exercises this with mocks).
@@ -179,7 +179,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
     cleanupFixture(fixture.workDir);
   });
 
-  testConcurrentIfSelected('PreToolUse hook denies + logs auto-decided event', async () => {
+  testConcurrentIfSelected('plan-tune-enforcement', async () => {
     const hookPath = path.join(
       fixture.workDir,
       'hosts',
@@ -265,7 +265,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
     cleanupFixture(fixture.workDir);
   });
 
-  testConcurrentIfSelected('PreToolUse hook surfaces memory nugget on defer', async () => {
+  testConcurrentIfSelected('plan-tune-annotation', async () => {
     const hookPath = path.join(
       fixture.workDir,
       'hosts',
@@ -345,7 +345,7 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
     cleanupFixture(fixture.workDir);
   });
 
-  testConcurrentIfSelected('importer extracts events with codex-import-marker source', async () => {
+  testConcurrentIfSelected('plan-tune-codex-import', async () => {
     const bin = path.join(fixture.workDir, 'bin', 'gstack-codex-session-import');
     const res = spawnSync(bin, [sessionFile], {
       env: {
@@ -409,7 +409,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
     cleanupFixture(fixture.workDir);
   });
 
-  testConcurrentIfSelected('apply → re-fire → memory injected via additionalContext', async () => {
+  testConcurrentIfSelected('plan-tune-dream-cycle', async () => {
     // 1. Apply the proposal via gstack-distill-apply.
     const applyBin = path.join(fixture.workDir, 'bin', 'gstack-distill-apply');
     const applyRes = spawnSync(applyBin, ['--proposal', '0'], {

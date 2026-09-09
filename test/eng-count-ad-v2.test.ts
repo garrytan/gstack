@@ -13,6 +13,17 @@ const handoff = () => structuredClone(firstCalls.at(-1)!);
 const fp = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
 const isFirst = (call: NativePlanQuestionCall) => engFirstReviewAUQ(fp(call));
 const isHandoff = (call: NativePlanQuestionCall, plan = catalog) => isEngCompletionHandoff(fp(call), plan);
+function setupPacket(): NativePlanQuestionCall {
+  const c = issue();
+  c.questions = [
+    { header: 'Design doc', question: 'No design doc found for this branch. /office-hours produces sharper review input. Run it first?',
+      multiSelect: false, options: [{ label: 'Skip — proceed with standard review (recommended)' }, { label: 'Run /office-hours now' }] },
+    { header: 'Learnings', question: 'Search learnings from your other projects on this machine?',
+      multiSelect: false, options: [{ label: 'Enable cross-project learnings (recommended)' }, { label: 'Keep learnings project-scoped only' }] },
+  ];
+  c.answers = Object.fromEntries(c.questions.map(q => [q.question, q.options[0]!.label]));
+  return c;
+}
 function changeQuestion(call: NativePlanQuestionCall, change: (s: string) => string) {
   const q = call.questions[0]!, answer = call.answers?.[q.question];
   q.question = change(q.question); call.answers = answer ? { [q.question]: answer } : {}; return call;
@@ -31,6 +42,42 @@ function census(calls: NativePlanQuestionCall[]) {
 }
 
 describe('Eng AD v2 completed native count evidence', () => {
+  test('a completed prerequisite and learnings packet closes setup without counting it as a finding', () => {
+    for (const reverse of [false, true]) {
+      const c = setupPacket(); if (reverse) c.questions.reverse();
+      for (const answer of c.questions.find(q => q.header === 'Learnings')!.options) {
+        const learning = c.questions.find(q => q.header === 'Learnings')!;
+        c.answers![learning.question] = answer.label;
+        const phase = planCountQuestionPhase(fp(c), false, engStep0Boundary, engFirstReviewAUQ, engSetupAUQ);
+        expect(phase).toEqual({ preReview: true, reviewStarted: true });
+        expect(planCountQuestionPhase(fp(issue()), phase.reviewStarted,
+          engStep0Boundary, engFirstReviewAUQ, engSetupAUQ).preReview).toBe(false);
+      }
+    }
+  });
+
+  test('partial, ambiguous, foreign and prerequisite-running packets cannot close setup', () => {
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.answered = false; },
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [1]; },
+      (c: NativePlanQuestionCall) => { delete c.answers![c.questions[1]!.question]; },
+      (c: NativePlanQuestionCall) => { c.answers![c.questions[1]!.question] = 'unoffered'; },
+      (c: NativePlanQuestionCall) => { c.answers![c.questions[0]!.question] = c.questions[0]!.options[1]!.label; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+      (c: NativePlanQuestionCall) => { c.questions[1]!.options.push({ ...c.questions[1]!.options[0]! }); },
+      (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(issue().questions[0]!)); },
+      (c: NativePlanQuestionCall) => { c.answeredAt = 'invalid'; },
+    ]) {
+      const c = setupPacket(); mutate(c); expect(engStep0Boundary(fp(c))).toBe(false);
+    }
+    expect(engStep0Boundary({ ...fp(setupPacket()), signature: 'foreign:call' })).toBe(false);
+    expect(engStep0Boundary({ ...fp(setupPacket()), options: [] })).toBe(false);
+    const c = setupPacket();
+    c.questions[1]!.header = 'Issue 1';
+    expect(engStep0Boundary(fp(c))).toBe(false);
+  });
+
   test('first attempt retains seven substantive decisions and separates the completed D9 handoff', () => {
     const { counts, phases } = census(firstCalls);
     expect(counts).toEqual({ setup: 4, review: 7, administrative: 1 });

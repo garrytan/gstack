@@ -18,9 +18,9 @@
 //
 // Cost: ~$0.50-$1.00 per run. Periodic-tier (EVALS=1 EVALS_TIER=periodic).
 
-import { test, expect } from 'bun:test';
+import { test, expect, afterAll } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
-import { describeE2ETier } from './helpers/e2e-gate';
+import { describeE2ETier, e2eTierEnabled } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -29,10 +29,43 @@ import {
   runAgentSdkTest,
   passThroughNonAskUserQuestion,
   resolveClaudeBinary,
+  type AgentSdkResult,
 } from './helpers/agent-sdk-runner';
 import { buildSetupGbrainFixture } from './helpers/setup-gbrain-fixture';
+import { EvalCollector } from './helpers/eval-store';
+import { redactFindingSpans } from '../lib/redact-engine';
 
 const describeE2E = describeE2ETier('periodic');
+const evalCollector = e2eTierEnabled('periodic') ? new EvalCollector('e2e') : null;
+const FIXTURE_TOKEN = 'gbrain_fake_token_for_test';
+
+/** Public diagnostics only; never serialize SDK thinking or credential values. */
+function publicDiagnostics(result: AgentSdkResult) {
+  const transcript = result.events.flatMap((event: any) => {
+    if (event.type === 'system' && event.subtype === 'init') return [{
+      type: event.type, subtype: event.subtype, session_id: event.session_id,
+      cwd: event.cwd, model: event.model, tools: event.tools,
+      claude_code_version: event.claude_code_version,
+    }];
+    if (event.type !== 'assistant' && event.type !== 'user') return [];
+    const content = Array.isArray(event.message?.content) ? event.message.content.flatMap((block: any) => {
+      if (block.type === 'text') return [{ type: block.type, text: block.text }];
+      if (block.type === 'tool_use') return [{ type: block.type, id: block.id, name: block.name, input: block.input }];
+      if (block.type === 'tool_result') return [{ type: block.type, tool_use_id: block.tool_use_id,
+        is_error: block.is_error, content: typeof block.content === 'string' ? block.content :
+          Array.isArray(block.content) ? block.content.filter((b: any) => b.type === 'text').map((b: any) => ({ type: 'text', text: b.text })) : [] }];
+      return [];
+    }) : [];
+    return content.length ? [{ type: event.type, session_id: event.session_id,
+      parent_tool_use_id: event.parent_tool_use_id,
+      message: { id: event.message.id, role: event.message.role, content } }] : [];
+  });
+  const serialized = JSON.stringify({ output: result.output, transcript, browseErrors: result.browseErrors }).replaceAll(FIXTURE_TOKEN, '<REDACTED-FIXTURE-TOKEN>');
+  const redacted = redactFindingSpans(serialized, { repoVisibility: 'private' });
+  return redacted ? JSON.parse(redacted) : { output: '[Public diagnostics omitted: redaction limit]', transcript: [], browseErrors: [] };
+}
+
+afterAll(async () => { if (evalCollector) await evalCollector.finalize(); });
 
 /**
  * Minimal stub MCP server that returns success on initialize / tools/list.
@@ -165,7 +198,7 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
     };
     process.env.HOME = sandboxHome;
     process.env.PATH = `${fakeBinDir}:${path.join(path.resolve(import.meta.dir, '..'), 'bin')}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
-    process.env.GBRAIN_MCP_TOKEN = 'gbrain_fake_token_for_test';
+    process.env.GBRAIN_MCP_TOKEN = FIXTURE_TOKEN;
 
     try {
       // Carve-aware fixture (see test/helpers/setup-gbrain-fixture.ts):
@@ -187,6 +220,7 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
           `Then continue through Step 5a (MCP registration) → Step 10 (verdict). ` +
           `Do not skip Step 4.5; the test depends on the Yes path being taken.`,
         workingDirectory: sandboxHome,
+        env: { GBRAIN_MCP_TOKEN: FIXTURE_TOKEN },
         maxTurns: 25,
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit'],
         ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
@@ -217,8 +251,8 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
         },
       });
 
-      const modelOut = JSON.stringify(result);
-
+      let passed = false;
+      try {
       // Smoke test contract (codex #12: AgentSDK is non-deterministic, so this
       // E2E asserts the model followed the SPLIT-ENGINE PATH without depending
       // on the exact subcommand sequence — deterministic per-step coverage
@@ -253,7 +287,19 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
         path.join(sandboxHome, 'CLAUDE.md'),
         'utf-8',
       );
-      expect(finalClaudeMd).not.toContain('gbrain_fake_token_for_test');
+      expect(finalClaudeMd).not.toContain(FIXTURE_TOKEN);
+      passed = true;
+      } finally {
+        const diagnostics = publicDiagnostics(result);
+        evalCollector?.addTest({
+          name: 'setup-gbrain-path4-local-pglite', suite: 'setup-gbrain', tier: 'e2e',
+          passed, duration_ms: result.durationMs, cost_usd: result.costUsd,
+          output: diagnostics.output, transcript: diagnostics.transcript,
+          turns_used: result.turnsUsed, browse_errors: diagnostics.browseErrors,
+          exit_reason: result.exitReason, model: result.model,
+          first_response_ms: result.firstResponseMs, max_inter_turn_ms: result.maxInterTurnMs,
+        });
+      }
     } finally {
       if (orig.home === undefined) delete process.env.HOME;
       else process.env.HOME = orig.home;

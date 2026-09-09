@@ -30,7 +30,8 @@ import {
   isNumberedOptionListVisible,
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
-import { autoplanArtifactPermissionInput } from './helpers/autoplan-artifact-permission';
+import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, autoplanArtifactMenuKey } from './helpers/autoplan-artifact-permission';
+import { readPendingAutoplanArtifact, autoplanArtifactRecorderStatus } from './helpers/autoplan-artifact-recorder';
 import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
@@ -82,11 +83,14 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           seedSkills: true,
           observeScreen: true,
           observeSetupQuestions: true,
+          observeAutoplanArtifacts: true,
         });
 
         let hits: AutoplanPhaseHit[] = [];
         let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
         let pendingSetupQuestion: ReturnType<typeof readPendingQuestion>;
+        let pendingArtifact: ReturnType<typeof readPendingAutoplanArtifact>;
+        let viewportCapturedAt = Date.now();
         let methodologyAudit: AutoplanMethodReadAudit[] = [];
         let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' = 'timeout';
         let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
@@ -105,6 +109,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated autoplan transcript directory' };
           pendingSetupQuestion = readPendingQuestion(session.pendingQuestionFile, tempDir,
             session.hermeticConfigDir, commandStartedAt, transcript);
+          pendingArtifact = readPendingAutoplanArtifact(session.pendingAutoplanArtifactFile, tempDir,
+            session.hermeticConfigDir, session.hermeticSkillStateRoot, commandStartedAt, publicTools);
           methodologyAudit = auditAutoplanMethodReads(publicTools, prompt =>
             loadAutoplanMethodologyBinding(prompt, [getHermeticDirs().runRoot, nativeState!.env.GSTACK_HOME!]));
           hits = autoplanPhaseCompletions(transcript, commandStartedAt);
@@ -113,8 +119,9 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
-            observation: { state, hits, native: transcript, pendingSetupQuestion, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
+            observation: { state, hits, native: transcript, pendingSetupQuestion, pendingArtifact, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
               ownedArtifactStateRoot: session.hermeticSkillStateRoot,
+              artifactRecorder:autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, tempDir, session.hermeticConfigDir, session.hermeticSkillStateRoot),
               pendingQuestionRecorder:pendingQuestionRecorderStatus(session.pendingQuestionFile, tempDir, session.hermeticConfigDir),
               retention: 'Current raw/visible/viewport and parsed native metadata only; full parent JSONL retention is not guaranteed.' },
           });
@@ -134,6 +141,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
             await Bun.sleep(5000);
+            viewportCapturedAt = Date.now();
             viewport = await session.currentScreen();
             observe();
             if (Date.now() - lastCheckpointAt >= 30_000) {
@@ -152,9 +160,14 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             const artifactPermission = autoplanArtifactPermissionInput(visible, {
               cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot,
               commandStartedAt, transcriptStatus: transcript.status, publicTools,
+            }, seenArtifactPermissions) ?? pendingAutoplanArtifactPermissionInput(visible, {
+              cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,
+              transcriptStatus: transcript.status, publicTools, pending: pendingArtifact, viewportCapturedAt,
             }, seenArtifactPermissions);
             if (artifactPermission) {
               seenArtifactPermissions.add(artifactPermission.signature);
+              seenArtifactPermissions.add(autoplanArtifactMenuKey(visible));
+              capture('artifact_permission'); // Retain the exact pending metadata before input/cleanup.
               session.send(artifactPermission.input);
               await Bun.sleep(2000);
               continue;
@@ -223,6 +236,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           // status before close() deliberately terminates a live session.
           try {
             exitCode = session.exitCode();
+            viewportCapturedAt = Date.now();
             viewport = await session.currentScreen();
             fullSessionEvidence = diagnosticTail(session.visibleText());
             observe();

@@ -34,6 +34,7 @@ import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQu
 import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
 import { createPendingQuestionRecorder } from './plan-count-pending-question';
 import { createFilePermissionRecorder, currentFilePermissionBinding, type FilePermissionEpoch } from './plan-count-file-permission';
+import { createAutoplanArtifactRecorder } from './autoplan-artifact-recorder';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 
@@ -106,6 +107,8 @@ export interface ClaudePtyOptions {
   observeSetupQuestions?: boolean;
   /** Count-only native permission epochs for these exact disposable fixture/report paths. */
   observeFilePermissions?: readonly string[];
+  /** Opt-in metadata only, limited to launcher-owned Autoplan review artifacts. */
+  observeAutoplanArtifacts?: boolean;
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -167,6 +170,7 @@ export interface ClaudePtySession {
   /** Owned pre-tool identity record, removed by close(). */
   pendingPlanReadyFile?: string;
   pendingQuestionFile?: string;
+  pendingAutoplanArtifactFile?: string;
   pendingFilePermissionFiles?: Array<{ expected: string; file: string }>;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
@@ -2148,7 +2152,7 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
   fp.options.some((o) => /skip\s+interview|plan\s+immediately/i.test(o.label));
 
 /** Native finding evidence when CEO mode selection is omitted or left unanswered. */
-function qidlessCeoFinding(fp: AskUserQuestionFingerprint): boolean {
+function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionId = false): boolean {
   const call = fp.nativeCall;
   // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
   // title only after the real call completes; rendered prose is not evidence.
@@ -2159,18 +2163,35 @@ function qidlessCeoFinding(fp: AskUserQuestionFingerprint): boolean {
   const q = call.questions[0]!;
   if (q.multiSelect || fp.options.length !== q.options.length ||
       !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
-      /<gstack-qid/i.test(q.question) ||
+      (!allowQuestionId && /<gstack-qid/i.test(q.question)) ||
       /^(?:review )?(?:mode|scope|approach|routing|prerequisites?|setup|next (?:steps?|review)|completion)$/i.test(q.header.trim()) ||
       q.options.some(option => MODE_RE.test(option.label)) ||
       new Set(q.options.map(option => option.label)).size !== q.options.length ||
       !q.options.some(option => option.label === call.answers?.[q.question])) return false;
-  const title = q.question.split('\n')[0]!;
+  if (allowQuestionId && ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
+      !/<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?[a-z0-9-]+\s*>/i.test(q.question))) return false;
+  const title = q.question.split('\n')[0]!.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '');
   // The issue identity is separate from the decision counter and section
   // numbering. A completed "Issue 2" choice and "Finding 2.1" choice carry
   // the same review evidence as the already-supported numbered findings.
   const normalized = title.replace(/^D\d+\s*[—–-]\s*/i, '');
+  // A test's stated exact contract and its weaker assertion form a concrete
+  // finding even when the native header uses the affected behavior's name.
+  const assertionGap = /^Test [1-9]\d* asserts only [^,\n?]+, but the plan states ([^.!?\n]+)\. (?:Pin|Assert|Verify) [^\n?]+\?$/i.exec(normalized);
+  if (assertionGap && /\b(?:exact|exactly|full|complete)\b/i.test(assertionGap[1]!) &&
+      !/\b(?:if|unless|hypothetical|no|not|already)\b/i.test(normalized) &&
+      q.options.some(o => /^(?:[A-Z][).]\s*)?(?:Assert|Pin|Verify)\b/i.test(o.label) && Boolean(o.description?.trim())) &&
+      q.options.some(o => /^(?:[A-Z][).]\s*)?Keep\b.*\bassertion\b/i.test(o.label) && Boolean(o.description?.trim()))) return true;
   const identity = /^(Finding|Issue)\s+([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*[^\n?]+\?$/i.exec(normalized);
   const parenthesized = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+  // A native menu may put its finding identity in the short header and ask
+  // for the remedy in the title. Preserve any explicit title identity too.
+  const remedy = /^F([1-9]\d*) remedy$/i.exec(q.header.trim());
+  if (remedy && /^D[1-9]\d*\s*[—–-]\s*[^\n?]+\?$/i.test(title)) {
+    if (/^(?:Finding|Issue)\b/i.test(normalized) && !identity) return false;
+    return (!identity || identity[2] === remedy[1]) &&
+      (!parenthesized || parenthesized[1] === remedy[1]);
+  }
   if (!identity && !parenthesized) return false;
   const expected = identity ? `${identity[1]} ${identity[2]}`.toLowerCase() : `issue ${parenthesized![1]}`;
   const header = q.header.trim().toLowerCase();
@@ -2181,7 +2202,7 @@ function qidlessCeoFinding(fp: AskUserQuestionFingerprint): boolean {
 }
 
 export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
-  qidlessCeoFinding(fp) || (fp.nativeCall?.questions.some(q => {
+  nativeExplicitCeoFinding(fp) || (fp.nativeCall?.questions.some(q => {
     if (fp.nativeCall?.answered && !fp.nativeCall.answers?.[q.question]) return false;
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
@@ -2193,6 +2214,7 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     // or navigation decision's recap of findings as its first review question.
     if (/^(?:review )?(?:mode|scope|approach|routing|prerequisites?|setup|next steps|completion)$/i.test(q.header.trim()) ||
         q.options.some(option => MODE_RE.test(option.label))) return false;
+    if (nativeExplicitCeoFinding(fp, true)) return true;
     const body = q.question.slice(title.length)
       .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
       .replace(/^\s*>.*$/gm, '')
@@ -2450,7 +2472,31 @@ export const engFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
   });
 };
 
+/** A skipped optional prerequisite can share one completed native setup call. */
+function engSetupPacketBoundary(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call?.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false || call.questions.length !== 2 ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      Object.keys(call.answers ?? {}).length !== 2 || !Number.isFinite(Date.parse(call.answeredAt ?? '')) ||
+      JSON.stringify(fp.options) !== JSON.stringify(nativePlanCallFingerprint(call, 0, true).options)) return false;
+  const projected = call.questions.map(q => {
+    if (q.multiSelect || q.options.length < 2 || q.options.length > 4 ||
+        new Set(q.options.map(o => o.label)).size !== q.options.length ||
+        q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1) return null;
+    return nativePlanCallFingerprint({ ...call, questions: [q],
+      answers: { [q.question]: call.answers![q.question]! } }, fp.observedAtMs, true);
+  });
+  return projected.some((prerequisite, i) => {
+    if (!prerequisite || !projected[1 - i]) return false;
+    const skip = planCountPrerequisitePick(prerequisite);
+    return skip !== null && prerequisite.options.find(o => o.index === skip)?.label ===
+      call.answers?.[call.questions[i]!.question] && engSetupAUQ(projected[1 - i]!);
+  });
+}
+
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  engSetupPacketBoundary(fp) ||
   engSetupAUQ(fp) ||
   /scope\s*reduction\s*recommendation|cross[\s-]*project\s*learnings/i.test(
     fp.promptSnippet,
@@ -2560,6 +2606,7 @@ export async function launchClaudePty(
   let proc: any;
   let pendingExit: ReturnType<typeof createPendingExitRecorder> | undefined;
   let pendingQuestion: ReturnType<typeof createPendingQuestionRecorder> | undefined;
+  let pendingArtifact: ReturnType<typeof createAutoplanArtifactRecorder> | undefined;
   const pendingFiles: Array<{ expected: string; recorder: NonNullable<ReturnType<typeof createFilePermissionRecorder>> }> = [];
   try {
     if (opts.observePlanReady && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
@@ -2568,15 +2615,18 @@ export async function launchClaudePty(
     if (opts.observeSetupQuestions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       pendingQuestion = createPendingQuestionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
     }
+    if (opts.observeAutoplanArtifacts && hermetic && childEnv.CLAUDE_CONFIG_DIR && hermeticSkillStateRoot) {
+      pendingArtifact = createAutoplanArtifactRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, hermeticSkillStateRoot);
+    }
     if (opts.observeFilePermissions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       for (const expected of new Set(opts.observeFilePermissions)) {
         const recorder = createFilePermissionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, expected);
         if (recorder) pendingFiles.push({ expected, recorder });
       }
     }
-    if (pendingFiles.length || pendingQuestion) {
+    if (pendingFiles.length || pendingQuestion || pendingArtifact) {
       const hooks = pendingExit ? JSON.parse(pendingExit.settings).hooks : {};
-      for (const recorder of [...pendingFiles.map(p => p.recorder), ...(pendingQuestion ? [pendingQuestion] : [])]) for (const [event, entries] of Object.entries(recorder.hooks))
+      for (const recorder of [...pendingFiles.map(p => p.recorder), ...(pendingQuestion ? [pendingQuestion] : []), ...(pendingArtifact ? [pendingArtifact] : [])]) for (const [event, entries] of Object.entries(recorder.hooks))
         hooks[event] = [...(hooks[event] ?? []), ...entries];
       args.push('--settings', JSON.stringify({hooks}));
     } else if (pendingExit) args.push('--settings', pendingExit.settings);
@@ -2592,7 +2642,7 @@ export async function launchClaudePty(
     },
     cwd,
     env: childEnv,
-  }); } catch (error) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); pendingQuestion?.dispose(); await disposeScreen(); throw error; }
+  }); } catch (error) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); pendingQuestion?.dispose(); pendingArtifact?.dispose(); await disposeScreen(); throw error; }
 
   // Track exit so waitForAny can fail fast if claude crashes.
   let exitedPromise: Promise<void> = Promise.resolve();
@@ -2725,7 +2775,7 @@ export async function launchClaudePty(
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
     for (const timer of trustInputTimers) clearTimeout(timer);
-    if (exited) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); pendingQuestion?.dispose(); await disposeScreen(); return; }
+    if (exited) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); pendingQuestion?.dispose(); pendingArtifact?.dispose(); await disposeScreen(); return; }
     try {
       proc.kill?.('SIGINT');
     } catch {
@@ -2743,7 +2793,7 @@ export async function launchClaudePty(
     }
     pendingFiles.forEach(({ recorder }) => recorder.dispose());
     pendingExit?.dispose();
-    pendingQuestion?.dispose();
+    pendingQuestion?.dispose(); pendingArtifact?.dispose();
     await disposeScreen();
   }
 
@@ -2769,6 +2819,7 @@ export async function launchClaudePty(
     hermeticSkillStateRoot,
     pendingPlanReadyFile: pendingExit?.file,
     pendingQuestionFile: pendingQuestion?.file,
+    pendingAutoplanArtifactFile: pendingArtifact?.file,
     pendingFilePermissionFiles: pendingFiles.map(({ expected, recorder }) => ({ expected, file: recorder.file })),
     close,
   };

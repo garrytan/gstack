@@ -134,3 +134,114 @@ test('numbered Issue/sectioned Finding titles must agree with their native heade
   }
   expect(selectTests(['test/fixtures/ceo-count-ac-later-calls.json'], E2E_TOUCHFILES).selected).toContain('plan-ceo-finding-count');
 });
+
+function remedyCall(header: string, title: string, qid?: string) {
+  const c = finding();
+  c.questions[0]!.header = header;
+  c.questions[0]!.question = title + (qid ? `\n<gstack-qid:${qid}>` : '');
+  c.questions[0]!.options = [{ label: 'Repair the plan' }, { label: 'Keep the plan' }];
+  return reanswer(c);
+}
+
+function assertionCall(qid?: string) {
+  const c = remedyCall('Receipt shape', 'D2 — Test 1 asserts only that the receipt is truthy, but the plan states the exact receipt contract. Pin the full receipt?', qid);
+  c.questions[0]!.options = [
+    { label: 'A) Assert the exact receipt', description: 'Deep equality against the complete stated receipt.' },
+    { label: 'B) Keep truthy-only assertion', description: 'Leave the weaker planned assertion unchanged.' },
+  ];
+  return reanswer(c);
+}
+
+test('an explicit exact-contract assertion gap does not depend on a Finding header or question tuning', () => {
+  for (const qid of [undefined, 'plan-ceo-review-receipt-contract']) {
+    const c = assertionCall(qid);
+    for (const option of c.questions[0]!.options) {
+      c.answers = { [c.questions[0]!.question]: option.label };
+      expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+    }
+  }
+});
+
+test('assertion-gap evidence needs a direct contract mismatch and opposed assertion choices', () => {
+  for (const change of [
+    (s: string) => 'Example: ' + s,
+    (s: string) => '> ' + s,
+    (s: string) => s.replace('Test 1 asserts', 'If Test 1 asserts'),
+    (s: string) => s.replace('the exact receipt contract', 'no required receipt shape'),
+    (s: string) => s.replace('the exact receipt contract', 'the exact receipt contract is already covered'),
+  ]) {
+    const c = assertionCall(); c.questions[0]!.question = change(c.questions[0]!.question);
+    expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(false);
+  }
+  for (const mutate of [
+    (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.label = 'Skip this review'; },
+    (c: NativePlanQuestionCall) => { c.questions[0]!.options[0]!.description = ''; },
+    (c: NativePlanQuestionCall) => { c.answered = false; },
+    (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+  ]) { const c = assertionCall(); mutate(c); expect(ceoFirstReviewAUQ(fp(c))).toBe(false); }
+});
+
+test('completed native remedy headers and numbered Issue titles start CEO review', () => {
+  for (const c of [
+    remedyCall('F1 remedy', 'D2 — Test 1: assert the full receipt, or keep the truthy-only assertion?'),
+    remedyCall('F2 remedy', 'D3 — Test 2: assert attempt count and backoff, or only the rejection?'),
+    remedyCall('Email leg', 'D4 — Issue 1: where does the notification run relative to commit?', 'plan-ceo-review-email-leg'),
+  ]) {
+    for (const option of c.questions[0]!.options) {
+      c.answers = { [c.questions[0]!.question]: option.label };
+      expect(planCountQuestionPhase(fp(c), false, ceoStep0Boundary, ceoFirstReviewAUQ))
+        .toEqual({ preReview: false, reviewStarted: true });
+    }
+  }
+});
+
+test('a remedy header requires a matching completed decision and consistent finding identity', () => {
+  const source = remedyCall('F1 remedy', 'D2 — Assert the complete receipt?');
+  for (const mutate of [
+    (c: NativePlanQuestionCall) => { c.answered = false; },
+    (c: NativePlanQuestionCall) => { c.failed = true; },
+    (c: NativePlanQuestionCall) => { c.answers = {}; },
+    (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+    (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'unoffered' }; },
+    (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+  ]) {
+    const c = structuredClone(source); mutate(c);
+    expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+  expect(ceoFirstReviewAUQ({ ...fp(source), signature: 'foreign:call' })).toBe(false);
+  expect(ceoFirstReviewAUQ({ ...fp(source), nativeCall: undefined })).toBe(false);
+  for (const title of ['D2 — Issue 2: Assert the receipt?', 'D2 — Issue 0: Assert the receipt?',
+    'D2 — Issue 1.0: Assert the receipt?', 'Example: D2 — Assert the receipt?',
+    '> D2 — Assert the receipt?', '```\nD2 — Assert the receipt?']) {
+    expect(ceoFirstReviewAUQ(fp(remedyCall('F1 remedy', title)))).toBe(false);
+  }
+  for (const header of ['Approach', 'F1', 'Remedy', 'F0 remedy', 'Next review']) {
+    expect(ceoFirstReviewAUQ(fp(remedyCall(header, 'D2 — Assert the receipt?')))).toBe(false);
+  }
+});
+
+test('numbered Issue titles cannot bypass setup, provider or native-answer checks', () => {
+  const title = 'D4 — Issue 1: where does the notification run relative to commit?';
+  for (const qid of ['plan-ceo-review-scope', 'plan-ceo-review-next-steps', 'plan-eng-review-email', 'foreign']) {
+    expect(ceoFirstReviewAUQ(fp(remedyCall('Email leg', title, qid)))).toBe(false);
+  }
+  for (const header of ['Setup', 'Approach', 'Mode', 'Next steps', 'Issue 2']) {
+    expect(ceoFirstReviewAUQ(fp(remedyCall(header, title, 'plan-ceo-review-email')))).toBe(false);
+  }
+  for (const suffix of ['<gstack-qid:plan-ceo-review-email', '<gstack-qid:plan-ceo-review-email:foreign>',
+    '<gstack-qid:plan-ceo-review-email> <gstack-qid:plan-eng-review-email>']) {
+    const c = remedyCall('Email leg', title + '\n' + suffix);
+    expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+  for (const mutate of [
+    (c: NativePlanQuestionCall) => { c.answered = false; },
+    (c: NativePlanQuestionCall) => { c.failed = true; },
+    (c: NativePlanQuestionCall) => { c.answers = {}; },
+    (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'unoffered' }; },
+    (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+    (c: NativePlanQuestionCall) => { c.questions[0]!.options.push({ ...c.questions[0]!.options[0]! }); },
+  ]) {
+    const c = remedyCall('Email leg', title, 'plan-ceo-review-email'); mutate(c);
+    expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+});

@@ -41,6 +41,29 @@ function fixture() {
 }
 
 describe('pending native ExitPlanMode identity', () => {
+  test('the compact native gate permits its indented explanation only with owned identity and a fresh report', () => {
+    const f = fixture();
+    const screen = '   Exit plan mode?\n    \n    Claude wants to exit plan mode\n\n' +
+      '    ❯ 1. Yes, and switch to default (ask each time) for this session\n      2. No\n';
+    try {
+      expect(isCurrentPlanApprovalScreen(screen)).toBe(true);
+      expect(f.observe(screen).planReadyRequests).toBeUndefined();
+      recordPendingExit(JSON.stringify(f.event), f.recorder.file, f.dir, f.config);
+      const observed = f.observe(screen);
+      expect(observed.calls).toBe(f.transcript.calls);
+      expect(observed.planReadyRequests?.[0]?.toolUseId).toBe('native-exit');
+      expect(hasNativePlanTerminal(observed, f.report, f.startedAt, 'plan_ready')).toBe(true);
+      for (const invalid of [screen.replace('    Claude wants', '     Claude wants'),
+        screen.replace('   Exit', '    Exit'), '> ' + screen.trimStart(),
+        '```text\n' + screen, screen + 'Assistant discussion continues.\n']) {
+        expect(isCurrentPlanApprovalScreen(invalid)).toBe(false);
+        expect(f.observe(invalid).planReadyRequests).toBeUndefined();
+      }
+      fs.writeFileSync(f.report, '# Incomplete draft');
+      expect(hasNativePlanTerminal(f.observe(screen), f.report, f.startedAt, 'plan_ready')).toBe(false);
+    } finally { f.cleanup(); }
+  });
+
   test('actual W zero-call owned gate supplies failure-only termination', () => {
     const f = fixture();
     try {

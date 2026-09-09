@@ -110,7 +110,7 @@ Show each variant inline (Read tool on each PNG) for instant preview.
 
 **Before presenting, self-gate:** Would a human designer be embarrassed to sign each variant? If yes, discard and regenerate. Hard rejects: purple gradient hero, 3-column SaaS grid, centered-everything, overused display face, generic stock photo, system-ui, gradient CTA, bubble-radius everything. Any trigger requires regeneration.
 
-Tell the user the 3 product-screen directions are in the opened comparison board; choose a favorite or remix elements.
+Open the comparison board in the next step; only then invite the user to choose or remix the 3 directions.
 
 {{DESIGN_SHOTGUN_LOOP}}
 
@@ -167,7 +167,14 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-Phase 5 `$D extract` tokens are authoritative color/type/spacing values from the approved mockup; merge them with the Phase 3 rationale and context.
+Use the approved mockup's Phase 5 `$D extract` tokens for color/type/spacing, with the Phase 3 rationale.
+
+**Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
+- A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only
+- B) Revise — return to Phase 3, then confirm again
+- C) Start over — return to Phase 1
+
+Wait. Only A permits the writes below; B/C leave project files untouched. Honor prior explicit approval of these exact writes without re-asking.
 
 **If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
 
@@ -288,9 +295,9 @@ Named rules: [interaction/emphasis tokens, neutral derivation, dark-mode surface
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
 
-Use real token values, no placeholders; omit invented `components` entries. Require `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md` to print `DESIGN_MD_FORMAT: spec`.
+Use real token values, no placeholders; omit invented `components` entries. Outside plan mode, after writing DESIGN.md, require `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md` to print `DESIGN_MD_FORMAT: spec`.
 
-**Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
+**Outside plan mode, update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 
 ```markdown
 ## Design System
@@ -299,13 +306,6 @@ All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.
 In QA mode, flag any code that doesn't match DESIGN.md.
 ```
-
-**AskUserQuestion Q-final — show summary and confirm:**
-
-List all decisions. Flag any that used agent defaults without explicit user confirmation (the user should know what they're shipping). Options:
-- A) Ship it — write DESIGN.md and CLAUDE.md
-- B) I want to change something (specify what)
-- C) Start over
 
 After shipping DESIGN.md, if the session produced screen-level mockups or page layouts
 (not just system-level tokens), suggest:

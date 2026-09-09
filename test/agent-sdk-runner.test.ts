@@ -32,6 +32,7 @@ import {
 } from '../test/helpers/agent-sdk-runner';
 import {
   validateFixtures,
+  OVERLAY_FIXTURES,
   fanoutPass,
   type OverlayFixture,
 } from '../test/fixtures/overlay-nudges';
@@ -804,6 +805,56 @@ describe('validateFixtures', () => {
 // ---------------------------------------------------------------------------
 // fanoutPass predicate
 // ---------------------------------------------------------------------------
+
+describe('overlay first logical message metric', () => {
+  // Public SDK shape: separate assistant events share one message.id, and
+  // tool results may arrive between them. The initial empty public event
+  // carries no inspected private content. All IDs here are synthetic.
+  const fanout = OVERLAY_FIXTURES.filter(f => f.id.includes('-fanout-'));
+  function splitResponse(): AgentSdkResult {
+    const initial = systemInit();
+    const event = (messageId: string, id?: string) => {
+      const e = assistantTurn(id ? [{ type: 'tool_use', name: 'Read', input: {} }] : []) as any;
+      e.message.id = messageId;
+      if (id) e.message.content[0].id = id;
+      return e;
+    };
+    const turns = [event('first'), event('first', 'alpha'), event('first', 'beta'), event('first', 'gamma'), event('later', 'later-tool')];
+    const result = { type: 'user', session_id: 'test-session', parent_tool_use_id: null,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'alpha', content: 'Alpha' }] } };
+    return { events: [initial, turns[0], turns[1], result, ...turns.slice(2)], assistantTurns: turns } as unknown as AgentSdkResult;
+  }
+  test('all fanout fixtures count one split first response across interleaved results', () => {
+    expect(fanout).toHaveLength(4);
+    for (const fixture of fanout) expect(fixture.metric(splitResponse())).toBe(3);
+  });
+  test('a combined message and repeated tool ID have the same count', () => {
+    for (const combined of [false, true]) {
+      const r = splitResponse();
+      if (combined) {
+        (r.assistantTurns[0]!.message.content as any[]).push(...r.assistantTurns.slice(1, 4).flatMap(e => e.message.content as any[]));
+      } else r.assistantTurns.splice(3, 0, structuredClone(r.assistantTurns[1]!));
+      for (const fixture of fanout) expect(fixture.metric(r)).toBe(3);
+    }
+  });
+  test('child, foreign-session and later-response tools cannot inflate the first response', () => {
+    const r = splitResponse();
+    const foreign = structuredClone(r.assistantTurns[1]!) as any;
+    foreign.session_id = 'other-session'; foreign.message.content[0].id = 'foreign';
+    const child = structuredClone(r.assistantTurns[1]!) as any;
+    child.parent_tool_use_id = 'agent-tool'; child.message.content[0].id = 'child';
+    r.assistantTurns.unshift(child, foreign);
+    for (const fixture of fanout) expect(fixture.metric(r)).toBe(3);
+  });
+  test('missing first-response identity cannot borrow a later response', () => {
+    for (const field of ['id', 'session_id']) {
+      const r = splitResponse();
+      if (field === 'id') (r.assistantTurns[0]!.message as any).id = '';
+      else (r.events[0] as any).session_id = '';
+      for (const fixture of fanout) expect(fixture.metric(r)).toBe(0);
+    }
+  });
+});
 
 describe('fanoutPass predicate', () => {
   test('accepts mean lift >= 0.5 AND >=3/10 overlay trials >= 2', () => {

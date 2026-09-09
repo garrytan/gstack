@@ -949,7 +949,7 @@ Context-dependent defaults:
 * User says "go big" / "ambitious" / "cathedral" → EXPANSION, no question
 * User says "hold scope but tempt me" / "show me options" / "cherry-pick" → SELECTIVE EXPANSION, no question
 
-Confirm the 0C-bis approach for this mode. EXPANSION may favor ideal architecture; REDUCTION may favor the minimal approach.
+Keep the approved 0C-bis approach. Reopen it only if this mode requires a concrete change; explain that change and obtain approval for it.
 
 Once selected, commit fully. Do not silently drift.
 

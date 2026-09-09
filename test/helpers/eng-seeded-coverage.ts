@@ -18,8 +18,7 @@ function prose(text: string): string {
   }).join('\n').replace(/[`*]/g, '');
 }
 
-function seedSubjects(call: NativePlanQuestionCall): Seed[] {
-  const q = call.questions[0]!;
+function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   // The actual issue subject, not cross-references in recommendations or other options,
   // assigns credit. ELI10 can identify what a terse Promise.all title operates on.
   const subject = q.question.split('\n').find(line => line.trim())?.trim() ?? '';
@@ -33,7 +32,7 @@ function seedSubjects(call: NativePlanQuestionCall): Seed[] {
       /\b(?:files|classes|types|abstractions)\b/i.test(title) &&
       action(/\b(?:reduce|cut|simplify|remove|collapse|merge|pure function)\b/i)) ids.push('complexity');
   if (/\b(?:AuthCache|cache)\b/i.test(title) &&
-      /\b(?:global|module[ -]level|mutab\w*|both|shar\w*|ownership|writers)\b/i.test(title) &&
+      /\b(?:global|module[ -]level|mutab\w*|both|shar\w*|ownership|writers|same\s+(?:AuthCache|cache))\b/i.test(title) &&
       action(/\b(?:inject\w*|DI|serializ\w*|single[ -]writer|ownership|composition root)\b/i)) ids.push('shared-cache');
   if (/\b(?:validateAndDispatch|catch\w*)\b/i.test(title) &&
       /\b(?:swallow\w*|nested|silent\w*|hidden|suppres\w*)\b/i.test(title) &&
@@ -48,22 +47,31 @@ function completedDecision(call: NativePlanQuestionCall, startedAt: number, fini
   const answeredAt = Date.parse(call.answeredAt ?? '');
   if (!call.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false ||
       !Number.isFinite(answeredAt) || answeredAt < startedAt || answeredAt > finishedAt ||
-      call.questions.length !== 1 || !Array.isArray(call.unansweredQuestionIndices) ||
+      call.questions.length < 1 || call.questions.length > 4 || !Array.isArray(call.unansweredQuestionIndices) ||
       call.unansweredQuestionIndices.length !== 0) return false;
-  const q = call.questions[0]!;
-  return !q.multiSelect && q.options.length >= 2 && q.options.length <= 4 &&
+  return new Set(call.questions.map(q => q.question)).size === call.questions.length &&
+    Object.keys(call.answers ?? {}).length === call.questions.length &&
+    call.questions.every(q => q.question.trim() && !q.multiSelect && q.options.length >= 2 && q.options.length <= 4 &&
     q.options.every(o => o.label.trim()) && new Set(q.options.map(o => o.label)).size === q.options.length &&
-    Object.keys(call.answers ?? {}).length === 1 &&
-    q.options.some(o => call.answers?.[q.question] === o.label);
+    q.options.some(o => call.answers?.[q.question] === o.label));
+}
+
+/** A named required test can specify characterization without an "Add" prefix. */
+function requiredLegacyCharacterization(task: string): boolean {
+  const text = task.replace(/\s+/g, ' ');
+  return /^legacyAuthFlow(?:\(\))?\s+(?:regression|characterization)\s+tests?\.\s+Before\s+(?:the\s+)?(?:rewrite|refactor|change),\s+(?:capture|pin|record)\s+(?:the\s+)?(?:current|existing|prior)\b[^.;!?]{0,240}\bbehavior\s+of\s+legacyAuthFlow(?:\(\))?\b[^.;!?]*\.\s+The\s+rewritten\s+(?:path|flow|implementation)\s+must\s+pass\s+the\s+same\s+assertions\./i.test(text)
+    && !/["“”]|\b(?:not|never|skip\w*|defer\w*|maybe|might|could|if|unless|optional|hypothetical|unproven)\b/i.test(text)
+    && !/\bno\s+(?:(?:regression|characterization)\s+)?(?:tests?|fixtures?)\s+(?:are\s+)?(?:needed|required)\b/i.test(text);
 }
 
 function regressionEvidence(text: string): boolean {
   return prose(text).split(/\n\s*\n|\n(?=\s*[-#])/).some(block => {
     const task = block.trim().replace(/^[-+]\s+(?:\[[ xX]\]\s*)?/, '')
       .replace(/^T\d+(?:\s*\([^\n)]*\))?\s*[—–:-]\s*/, '');
+    if (requiredLegacyCharacterization(task)) return true;
     const legacySubject = /^legacyAuthFlow(?:\(\))?\s*[—–:-]\s*/i;
     const action = task.replace(legacySubject, '');
-    const instruction = action.match(/^(?:(?:I|we)\s+)?(?:add(?:ed)?|record(?:ed)?|write|wrote|require(?:d)?|include(?:d)?)\s+((?:(?:a|the|new|required|legacyAuthFlow(?:\(\))?|regression|characterization|baseline|prior-behavior)\s+)*(?:tests?|fixtures?))\b([^.;\n]*)/i);
+    const instruction = action.match(/^(?:(?:I|we)\s+)?(?:add(?:ed)?|record(?:ed)?|write|wrote|require(?:d)?|include(?:d)?)\s+((?:(?:a|the|new|required|legacyAuthFlow(?:\(\))?|regression|characterization|baseline|prior-behavior)\s+)*(?:tests?|fixtures?|suites?))\b([^.;\n]*)/i);
     const explicitTarget = instruction && /^\s+(?:for|of|covering|characterizing)\b/i.test(instruction[2]!);
     const legacyTarget = instruction && /^\s+(?:for|of|covering|characterizing)\s+(?:the\s+)?(?:prior behavior of\s+)?legacyAuthFlow\b/i.test(instruction[2]!);
     const target = instruction && (!explicitTarget || legacyTarget) &&
@@ -89,8 +97,10 @@ export function evaluateEngSeedCoverage(transcript: PlanCountTranscript, plan: s
   if (!bound) problems.push('missing, ambiguous or unbound native transcript');
   if (bound) for (const call of transcript.calls) {
     if (!completedDecision(call, startedAt, finishedAt)) continue;
-    const seeds = seedSubjects(call);
+    const seeds = call.questions.flatMap(seedSubjects);
     // One combined approval cannot replace separate decisions for independent seeds.
+    // An unrelated, separately answered setup tab may accompany the one seed;
+    // multiple seeded questions still cannot lend this call ID to several seeds.
     if (seeds.length === 1) decisions[seeds[0]!] ??= `${call.sessionId}:${call.toolUseId}`;
   }
   const missing = ENG_DECISION_SEEDS.filter(seed => !decisions[seed]);

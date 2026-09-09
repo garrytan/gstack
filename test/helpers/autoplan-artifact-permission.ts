@@ -1,6 +1,8 @@
 /** One-time input for a cropped native Edit of an already-owned review artifact. */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
+import type { PendingAutoplanArtifact } from './autoplan-artifact-recorder';
 import type { NativePublicToolEvent } from './plan-count-transcript';
 
 interface ArtifactPermissionContext {
@@ -16,7 +18,7 @@ interface ArtifactPermissionContext {
 const MAX_BYTES = 1024 * 1024;
 const compact = (text: string) => text.replace(/\s/g, '');
 
-function ownedPlan(file: string, context: ArtifactPermissionContext): boolean {
+export function ownedAutoplanArtifact(file: string, context: Pick<ArtifactPermissionContext, 'cwd' | 'ownedStateRoot'>): boolean {
   if (!context.ownedStateRoot || !path.isAbsolute(file) || path.resolve(file) !== file) return false;
   const project = path.join(context.ownedStateRoot, 'projects', path.basename(context.cwd));
   const relative = path.relative(project, file).split(path.sep).join('/');
@@ -87,7 +89,7 @@ export function autoplanArtifactPermissionInput(
       typeof edit.input.new_string !== 'string' || edit.input.new_string === edit.input.old_string ||
       (edit.input.replace_all !== undefined && edit.input.replace_all !== false)) return null;
   const signature = `${edit.sessionId}:${edit.toolUseId}`;
-  if (seen.has(signature) || !ownedPlan(edit.input.file_path, context)) return null;
+  if (seen.has(signature) || !ownedAutoplanArtifact(edit.input.file_path, context)) return null;
   const uses = new Map<string, NativePublicToolEvent>();
   const results = new Map<string, NativePublicToolEvent>();
   let previousTime = context.commandStartedAt;
@@ -110,5 +112,78 @@ export function autoplanArtifactPermissionInput(
     if (!before.includes(edit.input.old_string) ||
         !matchesCroppedEdit(viewport, edit.input.file_path, before, edit.input.old_string, edit.input.new_string)) return null;
     return { input: '1\r', signature, file: edit.input.file_path };
+  } catch { return null; }
+}
+
+/** A previously granted viewport cannot establish a newer unpublished request. */
+export const autoplanArtifactMenuKey = (viewport: string) =>
+  `menu:${createHash('sha256').update(viewport.replace(/\r\n?/g, '\n')).digest('hex')}`;
+
+/** Metadata-only fallback. Added rows are display evidence, never request content. */
+export function pendingAutoplanArtifactPermissionInput(viewport: string,
+  context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact; viewportCapturedAt: number },
+  seen: ReadonlySet<string>,
+): { input: '1\r'; signature: string; file: string } | null {
+  const p = context.pending, now = context.now ?? Date.now();
+  if (!p || !Number.isFinite(now) || context.transcriptStatus !== 'ready' || !Number.isFinite(context.commandStartedAt) ||
+      !Number.isFinite(context.viewportCapturedAt) || context.viewportCapturedAt > now ||
+      context.commandStartedAt > context.viewportCapturedAt || viewport.length > MAX_BYTES ||
+      p.source !== 'pre_tool_use' || p.tool !== 'Edit' || typeof p.file !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,160}$/.test(p.sessionId) || !/^[A-Za-z0-9_-]{1,160}$/.test(p.toolUseId) ||
+      !ownedAutoplanArtifact(p.file, context)) return null;
+  const pendingTime = Date.parse(p.timestamp), signature = `${p.sessionId}:${p.toolUseId}`;
+  if (!Number.isFinite(pendingTime) || pendingTime < context.commandStartedAt || pendingTime > context.viewportCapturedAt ||
+      seen.has(signature) || seen.has(autoplanArtifactMenuKey(viewport)) || context.publicTools.length > 10_000) return null;
+  const events = context.publicTools.filter(e => Date.parse(e.timestamp) >= context.commandStartedAt);
+  if (!events.length || context.publicTools.some(e => !Number.isFinite(Date.parse(e.timestamp)))) return null;
+  const uses = new Map<string, NativePublicToolEvent>(), results = new Map<string, NativePublicToolEvent>();
+  let last = context.commandStartedAt;
+  for (const event of events) {
+    const time = Date.parse(event.timestamp);
+    if (event.sessionId !== p.sessionId || !event.toolUseId || event.toolUseId === p.toolUseId || time < last || time > now) return null;
+    last = time;
+    const map = event.kind === 'use' ? uses : results;
+    if (map.has(event.toolUseId) || (event.kind === 'result' && !uses.has(event.toolUseId))) return null;
+    map.set(event.toolUseId, event);
+  }
+  const mutations = [...uses.values()].filter(e => e.name === 'Write' || e.name === 'Edit');
+  // Hook metadata cannot replace a published request/result or an unresolved
+  // mutation. Public successful same-file history remains mandatory.
+  if (mutations.some(e => !results.has(e.toolUseId) || Date.parse(e.timestamp) > pendingTime ||
+      Date.parse(results.get(e.toolUseId)!.timestamp) > pendingTime) ||
+      !mutations.some(e => e.input?.file_path === p.file && results.get(e.toolUseId)?.isError === false &&
+        Date.parse(results.get(e.toolUseId)!.timestamp) <= pendingTime)) return null;
+  try {
+    const text = viewport.replace(/\r\n?/g, '\n');
+    const menu = /^ {0,3}Do you want to make this edit to ([^\n?]+)\? *\n {0,3}❯ *1\. Yes *\n {0,3}2\. Yes, and switch to accept edits \(auto-approve file edits and common file commands\) for this session(?: \(shift\+tab\))? *\n {0,3}3\. No *\n\s*Esc to cancel [·•] Tab to amend\s*$/m.exec(text);
+    if (!menu || menu.index + menu[0].length !== text.length || menu[1] !== path.basename(p.file)) return null;
+    const rows = text.slice(0, menu.index).trimEnd().split('\n');
+    if (!/^[╌─]{8,}$/.test(rows.pop() ?? '')) return null;
+    if (Math.floor(fs.statSync(p.file).mtimeMs) > pendingTime) return null;
+    const originals = fs.readFileSync(p.file, 'utf8').split('\n').map(compact);
+    const chunks: Array<{kind:string; text:string; partial?:boolean}> = [];
+    let numbered = 0;
+    for (const row of rows) {
+      const full = /^ {0,3}(\d+) ([+ -])(.*)$/.exec(row);
+      if (full) {
+        if (!Number.isSafeInteger(Number(full[1])) || Number(full[1]) < 1) return null;
+        numbered++; chunks.push({kind:full[2]!, text:full[3]!});
+      } else {
+        const wrap = /^ {4}([+ -])(.*)$/.exec(row);
+        if (!wrap) return null;
+        if (!chunks.length) chunks.push({kind:wrap[1]!, text:wrap[2]!, partial:true});
+        else {
+          const previous = chunks.at(-1)!;
+          if (previous.kind !== wrap[1]) return null;
+          previous.text += wrap[2]!;
+        }
+      }
+    }
+    // A leading cropped deletion/context fragment must be an actual suffix.
+    // Complete removed/context rows must occur in the current owned file.
+    if (numbered < 2 || !chunks.some(c => c.kind === '-' && compact(c.text)) ||
+        chunks.some(c => c.kind !== '+' && !originals.some(line => c.partial
+          ? line.endsWith(compact(c.text)) : line === compact(c.text)))) return null;
+    return {input:'1\r', signature, file:p.file};
   } catch { return null; }
 }

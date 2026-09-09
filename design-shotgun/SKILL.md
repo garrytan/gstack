@@ -853,7 +853,7 @@ the approved variant.
 5. Reload the board in the user's browser (same tab) — the URL is per-board
    under daemon mode, so use `<BOARD_URL>` (from the `BOARD_URL:` stderr
    line) as the base:
-   `curl -s -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
+   `jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-`
    Under `--no-daemon` the reload endpoint is `/api/reload` at the legacy
    port; this path only matters if the caller explicitly opted out of the
    daemon.

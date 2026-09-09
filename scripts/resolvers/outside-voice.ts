@@ -103,6 +103,8 @@ export interface OutsideCommandOptions {
   diffCommand?: string;
   gate?: 'review' | 'structured' | 'spec';
   reasoningEffort?: 'high' | 'medium';
+  /** Creative proposals retain the recommendation gate with task-specific wording. */
+  purpose?: 'design-direction';
 }
 
 /** One self-contained shell body. No shell functions/variables survive between blocks. */
@@ -158,17 +160,19 @@ export function outsideVoiceInvocation(ctx: TemplateContext, opts: OutsideComman
     ? 'Request exactly SCORE: N (integer 0-10) and AMBIGUITIES: ... (or NONE), as two distinct nonempty lines.'
     : opts.gate === 'structured'
       ? 'Request severity-tagged findings or an explicit NO_FINDINGS conclusion.'
-      : 'Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.';
+      : opts.purpose === 'design-direction'
+        ? 'Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. No defect severity or no-findings conclusion is required.'
+        : 'Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.';
   const preparation = nativeStructured
     ? 'Run Codex’s built-in structured review with the selected base. It supplies its own prompt and accepts no custom prompt file with --base. Require severity-tagged findings (including native P1:/P2: labels) or an explicit no-findings conclusion; arbitrary prose or a refusal is missing coverage.'
-    : `Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal \`<prepared-prompt-file>\` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. ${completion} A refusal is never completion.`;
+    : `Use Write to save the **complete prompt and context** in a private file. Replace \`<prepared-prompt-file>\` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. ${completion} A refusal is never completion.`;
   return `${preparation}
 
 \`\`\`bash
 ${outsideVoiceCommand(ctx, opts)}
 \`\`\`
 
-Present the full response inside a \`tool-output\` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means \`outside_status: unavailable\`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. ${nativeStructured ? 'The invocation removes its own scratch directory.' : 'After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.'}`;
+Show the full response in a \`tool-output\` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, ${opts.purpose === 'design-direction' ? 'missing Recommendation marker' : 'missing score/severity/completion markers'}, timeout, or CLI failure means \`outside_status: unavailable\`. Follow this caller's fallback; missing coverage is never clean/PASS. ${nativeStructured ? 'The invocation removes its own scratch directory.' : 'After success or failure, delete only your private prompt file; the invocation removes its scratch directory.'}`;
 }
 
 export function outsideVoiceProvenance(ctx: TemplateContext, phase: string): string {

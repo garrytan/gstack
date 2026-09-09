@@ -929,7 +929,7 @@ the approved variant.
 5. Reload the board in the user's browser (same tab) — the URL is per-board
    under daemon mode, so use `<BOARD_URL>` (from the `BOARD_URL:` stderr
    line) as the base:
-   `curl -s -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
+   `jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-`
    Under `--no-daemon` the reload endpoint is `/api/reload` at the legacy
    port; this path only matters if the caller explicitly opted out of the
    daemon.
@@ -972,7 +972,7 @@ Note which direction was approved. This becomes the visual reference for all sub
 
 **If `DESIGN_NOT_AVAILABLE`:** Tell the user: "The gstack designer isn't set up yet. Run `$D setup` to enable visual mockups. Proceeding with text-only review, but you're missing the best part." Then proceed to review passes with text-based review.
 
-## Design Outside Voices (parallel)
+## Design Outside Voices (independent)
 
 Use AskUserQuestion:
 > "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent completeness review."
@@ -1007,7 +1007,13 @@ fi
 
 The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
 
-**If Codex is available**, launch both voices simultaneously:
+Declining opt-in skips both voices. Otherwise, non-ready (`not_installed`,
+`under_current_harness`, etc.) means: skip the outside CLI, keep its repair
+notice, use the native voice only, and record `outside_status: unavailable`
+even if the native voice succeeds.
+
+**When ready**, run both voices and await both before synthesis. Overlap calls
+if supported; keep the native call blocking.
 
 1. **Codex design voice** (via Bash):
 Prompt (include the actual plan/product/frontend source context, not only file paths):
@@ -1039,7 +1045,7 @@ HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, the
 
 For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging."
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -1075,10 +1081,9 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
-2. **Claude design subagent** (via Agent tool, `run_in_background: false` — subagents default to background since Claude Code v2.1.198):
-Dispatch a subagent with this prompt:
+2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
 
 1. Information hierarchy: what does the user see first, second, third? Is it right?
@@ -1096,8 +1101,7 @@ For each finding: what's wrong, severity (critical/high/medium), and the fix."
 - On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design critique):` header.
-Present subagent output under a `CLAUDE SUBAGENT (design completeness):` header.
+Output headers: `CODEX SAYS (design critique):` and `CLAUDE SUBAGENT (design completeness):`.
 
 **Synthesis — Litmus scorecard:**
 
@@ -1130,7 +1134,7 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" only if a reviewer completed with no findings, "issues_found" for findings, or "unavailable" if neither reviewer completed, SOURCE with the completed provider or in-host.
+STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed. SOURCE is the completed provider or in-host.
 
 For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 

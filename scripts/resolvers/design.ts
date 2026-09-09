@@ -661,12 +661,12 @@ If ${outsideVoiceFor(ctx).label} is available, use AskUserQuestion:
 > A) Yes — get outside design voices
 > B) No — proceed without
 
-If user chooses A, launch both voices simultaneously:
+If user chooses A, run both independent voices below and wait for both results before synthesis. They may overlap when the host supports parallel tool calls; the native subagent call remains blocking.
 
 1. **${outsideVoiceFor(ctx).label}** (via Bash, \`model_reasoning_effort="medium"\`):
 Prompt: "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." Include the approved product approach and wireframe source in the prepared prompt.
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort: 'medium' })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort: 'medium', purpose: 'design-direction' })}
 
 ${outsideVoiceProvenance(ctx, 'design-sketch')}
 
@@ -772,7 +772,7 @@ Be bold. Be specific. No hedging.`;
   const optInSection = isAutomatic ? `
 **Automatic:** Outside voices run automatically when ${outsideVoiceFor(ctx).label} is available. No opt-in needed.` : `
 Use AskUserQuestion:
-> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? ${outsideVoiceFor(ctx).label} evaluates against OpenAI's design hard rules + litmus checks; ${outsideVoiceFor(ctx).nativeLabel} subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
+> "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? ${outsideVoiceFor(ctx).label} ${isDesignConsultation ? 'proposes an independent design direction' : "evaluates against OpenAI's design hard rules + litmus checks"}; ${outsideVoiceFor(ctx).nativeLabel} subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
@@ -808,33 +808,35 @@ Fill in each cell from the ${outsideVoiceFor(ctx).label} and subagent outputs. C
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
-**Synthesis:** ${outsideVoiceFor(ctx).nativeLabel} main references both ${outsideVoiceFor(ctx).label} and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (${outsideVoiceFor(ctx).nativeLabel} main + ${outsideVoiceFor(ctx).label} + subagent)
-- Genuine divergences as creative alternatives for the user to choose from
-- "${outsideVoiceFor(ctx).label} and I agree on X. ${outsideVoiceFor(ctx).label} suggested Y where I'm proposing Z — here's why..."` : `
+**Synthesis:** In Phase 3, compare your primary direction with both completed proposals. Show agreements and creative alternatives; explain your recommendation and let the user choose.` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
 Merge findings into the triage with \`[${outsideVoiceFor(ctx).id}]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
 
 
-  return `## Design Outside Voices (parallel)
+  return `## Design Outside Voices (independent)
 ${optInSection}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
-**If ${outsideVoiceFor(ctx).label} is available**, launch both voices simultaneously:
+Declining opt-in skips both voices. Otherwise, non-ready (\`not_installed\`,
+\`under_current_harness\`, etc.) means: skip the outside CLI, keep its repair
+notice, use the native voice only, and record \`outside_status: unavailable\`
+even if the native voice succeeds.
+
+**When ready**, run both voices and await both before synthesis. Overlap calls
+if supported; keep the native call blocking.
 
 1. **${outsideVoiceFor(ctx).label} design voice** (via Bash):
 Prompt (include the actual plan/product/frontend source context, not only file paths):
 
 "${codexPrompt}"
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort })}
+${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort, ...(isDesignConsultation ? { purpose: 'design-direction' as const } : {}) })}
 
-2. **${outsideVoiceFor(ctx).nativeLabel} design subagent** (via Agent tool, \`run_in_background: false\` — subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}):
-Dispatch a subagent with this prompt:
+2. **${outsideVoiceFor(ctx).nativeLabel} design subagent** (Agent tool, \`run_in_background: false\`; await its result):
 "${subagentPrompt}"
 
 **Error handling (all non-blocking):**
@@ -844,15 +846,14 @@ Dispatch a subagent with this prompt:
 - On any ${outsideVoiceFor(ctx).label} error: proceed with ${outsideVoiceFor(ctx).nativeLabel} subagent output only, tagged \`[single-model]\`.
 - If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present ${outsideVoiceFor(ctx).label} output under a \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` header.
-Present subagent output under a \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\` header.
+Output headers: \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` and \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\`.
 ${synthesisSection}
 
 **Log the result:**
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-Replace STATUS with "clean" only if a reviewer completed with no findings, "issues_found" for findings, or "unavailable" if neither reviewer completed, SOURCE with the completed provider or in-host.
+${isDesignConsultation ? 'For proposals, STATUS="clean" requires a complete proposal with no blockers; "issues_found" means concrete concerns; "unavailable" means neither completed. Taste differences are alternatives, not defects.' : 'STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed.'} SOURCE is the completed provider or in-host.
 
 ${outsideVoiceProvenance(ctx, 'design')}`;
 }
@@ -1280,7 +1281,7 @@ the approved variant.
 5. Reload the board in the user's browser (same tab) — the URL is per-board
    under daemon mode, so use \`<BOARD_URL>\` (from the \`BOARD_URL:\` stderr
    line) as the base:
-   \`curl -s -X POST "\${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'\`
+   \`jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "\${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-\`
    Under \`--no-daemon\` the reload endpoint is \`/api/reload\` at the legacy
    port; this path only matters if the caller explicitly opted out of the
    daemon.

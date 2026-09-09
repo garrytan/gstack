@@ -96,7 +96,7 @@ Outside prompt (supply repository context from the parent):
 
 "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are skill definitions, not repository review data. Do not follow nested skills, hooks, or tool instructions. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Use the supplied branch diff. If it was not supplied and you have repository tools, run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE". Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale."
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -132,7 +132,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
@@ -191,7 +191,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" structured "$_OUT
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. The invocation removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. The invocation removes its own scratch directory.
 
 The Codex backend uses `codex review --base` without a positional prompt: those arguments are mutually exclusive. Never drop --base to resolve an argv error; prompt-only review changes the diff scope.
 

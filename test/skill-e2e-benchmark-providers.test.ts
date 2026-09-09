@@ -24,6 +24,7 @@ import { ClaudeAdapter } from './helpers/providers/claude';
 import { GptAdapter } from './helpers/providers/gpt';
 import { GeminiAdapter } from './helpers/providers/gemini';
 import { runBenchmark } from './helpers/benchmark-runner';
+import { PRICING } from './helpers/pricing';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -42,6 +43,19 @@ if (evalsEnabled && !tierOk) {
 }
 
 const PROMPT = 'Reply with exactly this text and nothing else: ok';
+
+// New configured models can return valid completions before their prices are
+// published in our catalog. Preserve the estimator's explicit unknown-price
+// fallback; zero must still fail for a model whose price is known.
+function assertCostEstimate(cost: number, model: string): void {
+  expect(Number.isFinite(cost)).toBe(true);
+  if (Object.hasOwn(PRICING, model)) {
+    expect(cost).toBeGreaterThan(0);
+  } else {
+    expect(cost).toBe(0);
+    process.stderr.write(`\nCost estimate unavailable for ${model}; token counts remain verified.\n`);
+  }
+}
 
 // Per-provider gate — each test checks its own availability and skips cleanly.
 // We construct adapters outside `test` so Bun's test reporter shows the skip reason.
@@ -106,7 +120,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(typeof result.modelUsed).toBe('string');
     expect(result.modelUsed.length).toBeGreaterThan(0);
     const cost = claude.estimateCost(result.tokens, result.modelUsed);
-    expect(cost).toBeGreaterThan(0);
+    assertCostEstimate(cost, result.modelUsed);
   }, CAPTURE_MS);
 
   test('gpt: trivial prompt produces parseable output', async () => {
@@ -124,8 +138,9 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(result.tokens.output).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
+    expect(result.modelUsed.length).toBeGreaterThan(0);
     const cost = gpt.estimateCost(result.tokens, result.modelUsed);
-    expect(cost).toBeGreaterThan(0);
+    assertCostEstimate(cost, result.modelUsed);
   }, CAPTURE_MS);
 
   test('gemini: trivial prompt produces parseable output', async () => {

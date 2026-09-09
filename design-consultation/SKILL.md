@@ -686,7 +686,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 ## Phase 1: Product Context
 
-Ask the user a single question that covers everything you need to know. Pre-fill what you can infer from the codebase.
+Start with one context question, then ask the memorable-thing question below. Pre-fill what you can infer from the codebase.
 
 **AskUserQuestion Q1 — include ALL of these:**
 1. Confirm what the product is, who it's for, what space/industry
@@ -850,10 +850,10 @@ If the user said no research, skip entirely and proceed to Phase 3 using your bu
 
 ---
 
-## Design Outside Voices (parallel)
+## Design Outside Voices (independent)
 
 Use AskUserQuestion:
-> "Want outside design voices? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent design direction proposal."
+> "Want outside design voices? Codex proposes an independent design direction; Claude subagent does an independent design direction proposal."
 >
 > A) Yes — run outside design voices
 > B) No — proceed without
@@ -885,7 +885,13 @@ fi
 
 The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
 
-**If Codex is available**, launch both voices simultaneously:
+Declining opt-in skips both voices. Otherwise, non-ready (`not_installed`,
+`under_current_harness`, etc.) means: skip the outside CLI, keep its repair
+notice, use the native voice only, and record `outside_status: unavailable`
+even if the native voice succeeds.
+
+**When ready**, run both voices and await both before synthesis. Overlap calls
+if supported; keep the native call blocking.
 
 1. **Codex design voice** (via Bash):
 Prompt (include the actual plan/product/frontend source context, not only file paths):
@@ -900,7 +906,7 @@ Prompt (include the actual plan/product/frontend source context, not only file p
 
 Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it."
 
-Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. No defect severity or no-findings conclusion is required. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -936,10 +942,9 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation marker, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
-2. **Claude design subagent** (via Agent tool, `run_in_background: false` — subagents default to background since Claude Code v2.1.198):
-Dispatch a subagent with this prompt:
+2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
 - Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
 - 2 deliberate departures from category norms
@@ -954,19 +959,15 @@ Be bold. Be specific. No hedging."
 - On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design direction):` header.
-Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
+Output headers: `CODEX SAYS (design direction):` and `CLAUDE SUBAGENT (design direction):`.
 
-**Synthesis:** Claude main references both Codex and subagent proposals in the Phase 3 proposal. Present:
-- Areas of agreement between all three voices (Claude main + Codex + subagent)
-- Genuine divergences as creative alternatives for the user to choose from
-- "Codex and I agree on X. Codex suggested Y where I'm proposing Z — here's why..."
+**Synthesis:** In Phase 3, compare your primary direction with both completed proposals. Show agreements and creative alternatives; explain your recommendation and let the user choose.
 
 **Log the result:**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" only if a reviewer completed with no findings, "issues_found" for findings, or "unavailable" if neither reviewer completed, SOURCE with the completed provider or in-host.
+For proposals, STATUS="clean" requires a complete proposal with no blockers; "issues_found" means concrete concerns; "unavailable" means neither completed. Taste differences are alternatives, not defects. SOURCE is the completed provider or in-host.
 
 For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 

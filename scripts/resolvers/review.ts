@@ -706,7 +706,10 @@ Immediately before dispatching, check the preflight result again. On
 \`CODEX_MODE: disabled\`, finish this section with \`outside_status: disabled\`;
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight, or a failed outside invocation.
-The disabled branch never reaches this fallback.
+The disabled branch never reaches this fallback. In this section, \`under_codex\`
+or \`under_current_harness\` also follows this native fallback: run no outside CLI,
+report the setup repair and \`outside_status: unavailable\`, then use the native
+subagent below. A native result never supplies outside coverage.
 
 Dispatch via the Agent tool with \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 Bound it the same way as ${outsideVoiceFor(ctx).label}: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -743,7 +746,11 @@ For each substantive tension point, use AskUserQuestion:
 > argues [Y]. [One sentence on what context you might be missing.]"
 >
 > RECOMMENDATION: Choose [A or B] because [one-line reason explaining which argument
-> is more compelling and why]. Completeness: A=X/10, B=Y/10.
+> is more compelling and why].
+
+Score completeness only when the concrete remedies differ in coverage. Otherwise,
+use the preamble's kind-not-coverage note; accepting, keeping, investigating, and
+deferring do not themselves imply completeness scores.
 
 Options:
 - A) Accept the outside voice's recommendation (I'll apply this change)
@@ -839,7 +846,10 @@ Immediately before dispatching, check the preflight result again. On
 \`CODEX_MODE: disabled\`, finish this section with \`outside_status: disabled\`;
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight, or a failed outside invocation.
-The disabled branch never reaches this fallback.
+The disabled branch never reaches this fallback. In this section, \`under_codex\`
+or \`under_current_harness\` also follows this native fallback: run no outside CLI,
+report the setup repair and \`outside_status: unavailable\`, then use the native
+subagent below. A native result never supplies outside coverage.
 
 Dispatch via the Agent tool with the same prompt, passing \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under \`DOCUMENTATION REVIEW (${outsideVoiceFor(ctx).nativeLabel} subagent):\`. If it fails: "Doc review unavailable. Continuing to Step 9." Skip the apply gate, persist \`status: unavailable\`, \`outside_status: unavailable\`, and \`source: none\` below, then continue; unavailable is not a clean review.

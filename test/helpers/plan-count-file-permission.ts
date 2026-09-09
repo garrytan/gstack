@@ -80,7 +80,8 @@ function croppedEditTarget(screen: string, cwd: string): string | undefined {
   const header = /^ {0,3}([^\n]+)\n[╌─━]{3,}[ \t]*\n/.exec(text);
   const headerPath = header?.[1]?.trim();
   const pathOnly = headerPath && (path.isAbsolute(headerPath) || /^\.\.?[/\\]/.test(headerPath));
-  const diff = pathOnly ? text.slice(header![0].length) : text;
+  // A crop can start on the single native rule immediately above the diff.
+  const diff = pathOnly ? text.slice(header![0].length) : text.replace(/^[╌─━]{3,}[ \t]*\n/, '');
   if (!/^(?:\s*\d+\s+[ +\-]?| {5}[+\-])/.test(diff) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
   const prompt = [...text.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?\/\\]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
   if (!prompt || (text.slice(0, prompt.index).match(/^\s*\d+\s+/gm)?.length ?? 0) < 2) return undefined;
