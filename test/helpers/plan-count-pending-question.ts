@@ -26,6 +26,25 @@ function questions(value: unknown): value is NativePlanQuestion[] {
     new Set(value.map(q => q.header)).size === value.length && new Set(value.map(q => q.question)).size === value.length;
 }
 
+/** Completion-only fields from Claude's permission UI; never retained as answers. */
+function completionInput(input: Record<string, any>): boolean {
+  if (!keysOnly(input, ['questions', 'answers', 'annotations'])) return false;
+  const texts = new Set(input.questions.map((q: NativePlanQuestion) => q.question));
+  if (input.answers !== undefined && (!object(input.answers) || Object.entries(input.answers).some(([key, value]) =>
+    !texts.has(key) || typeof value !== 'string'))) return false;
+  if (input.annotations !== undefined && (!object(input.annotations) || Object.entries(input.annotations).some(([key, value]) =>
+    !texts.has(key) || !object(value) || !keysOnly(value, ['preview', 'notes']) ||
+    Object.values(value).some(field => typeof field !== 'string')))) return false;
+  return true;
+}
+
+function questionIdentity(value: NativePlanQuestion[]): string {
+  // Claude normalizes object-key order after permission collection; question
+  // order, option order and every supported field must still match.
+  return JSON.stringify(value.map(q => ({header:q.header, question:q.question, multiSelect:q.multiSelect,
+    options:q.options.map(o => ({label:o.label, description:o.description}))})));
+}
+
 /** One real parent JSONL, inside the owned config; never a subagent or symlink. */
 function scopedTranscript(file: unknown, configDir: string, session: string): file is string {
   if (typeof file !== 'string' || !path.isAbsolute(file)) return false;
@@ -113,12 +132,17 @@ export function recordPendingQuestion(input: string, file: string, cwd: string, 
     if (!object(e) || e.cwd !== cwd || !['PreToolUse', 'PostToolUse', 'PostToolUseFailure'].includes(e.hook_event_name) ||
         e.tool_name !== 'AskUserQuestion' || !identifier(e.session_id) || !identifier(e.tool_use_id) ||
         !scopedTranscript(e.transcript_path, configDir, e.session_id) ||
-        !object(e.tool_input) || !keysOnly(e.tool_input, ['questions']) || !questions(e.tool_input.questions)) {
+        !object(e.tool_input) || !questions(e.tool_input.questions) ||
+        !(e.hook_event_name === 'PreToolUse' ? keysOnly(e.tool_input, ['questions']) : completionInput(e.tool_input))) {
       throw Error('invalid owned hook event');
     }
     if (old.sessionId !== undefined && old.sessionId !== e.session_id) return;
     const state: State = {...old, sessionId:e.session_id};
     const pending = old.pending;
+    if (e.hook_event_name !== 'PreToolUse' && pending?.toolUseId === e.tool_use_id &&
+        (pending.transcriptPath !== e.transcript_path || questionIdentity(pending.questions) !== questionIdentity(e.tool_input.questions))) {
+      throw Error('completion does not match pending request');
+    }
     if (e.hook_event_name === 'PreToolUse') {
       if (old.seenIds.includes(e.tool_use_id)) {
         if (pending?.toolUseId === e.tool_use_id && JSON.stringify(pending.questions) !== JSON.stringify(e.tool_input.questions)) {

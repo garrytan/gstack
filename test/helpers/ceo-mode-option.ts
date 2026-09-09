@@ -175,6 +175,53 @@ function completedQuestionTimes(call: NativePlanQuestionCall, events: ReadonlyAr
   return { requestedAt, answeredAt };
 }
 
+/** New shorthand forms must be one complete decision, not a mode mention or extra question. */
+function singleScopeBrief(text: string, descriptions: readonly string[]): boolean {
+  if ([text, ...descriptions].some(value => /(?:^|[.!?]\s+|\n)\s*(?:Also|Separately|Additionally)\b|\b(?:Please|We must|You must|The plan must)\b/i.test(value))) return false;
+  // Query parameter names such as ?view= are not another decision prompt.
+  const questions = text.replace(/\?[A-Za-z_][\w-]*=/g, '=').match(/\?/g);
+  if (questions?.length !== 1 || /```|~~~|^\s*>/m.test(text)) return false;
+  const markers = [/Project\/branch\/task:/gi, /ELI10:/gi, /Stakes if (?:we pick )?wrong:/gi,
+    /Recommendation:/gi, /Completeness:/gi, /Net:/gi];
+  let previous = -1;
+  const complete = markers.every(marker => {
+    const matches = [...text.matchAll(marker)];
+    if (matches.length !== 1 || matches[0]!.index! <= previous) return false;
+    previous = matches[0]!.index!;
+    return true;
+  });
+  // Net closes this decision brief. A following instruction is not part of its
+  // comparison; this is not a general classifier of instructions inside prose.
+  return complete && /^[^.!?;\n]+ (?:vs|versus) [^.!?;\n]+\.$/.test(text.slice(previous + 'Net:'.length).trim());
+}
+
+/** HOLD can apply its boundary in a completed defer decision, before standalone prose. */
+function hasAnsweredHoldPosture(transcript: PlanCountTranscript, selected: NativePlanQuestionCall,
+  posture: RegExp, events: ReadonlyArray<NativePublicToolEvent>): boolean {
+  const modeTimes = completedQuestionTimes(selected, events);
+  if (!modeTimes) return false;
+  return transcript.calls.some(call => {
+    if (call === selected || call.sessionId !== selected.sessionId || call.questions.length !== 1) return false;
+    const times = completedQuestionTimes(call, events);
+    if (!times || times.requestedAt <= modeTimes.answeredAt) return false;
+    const q = call.questions[0]!;
+    if (q.multiSelect || q.options.length !== 3 || !singleScopeBrief(q.question, q.options.map(o => o.description ?? ''))) return false;
+    const title = /^D\d+\s*[—–-]\s*Under HOLD SCOPE, keep or defer the (\w+)\b([\s\S]+?)\?\s+Project\/branch\/task:/i.exec(q.question);
+    if (!title || !/\bnot in the plan text\b/i.test(title[2]!) ||
+        !/\bwritten scope is the baseline\b/i.test(q.question) ||
+        !/\bpure additions,\s*not repairs to meet a stated invariant\b/i.test(q.question)) return false;
+    const labels = q.options.map(o => o.label.trim().replace(/^[A-C][):.]\s*/i, '')
+      .replace(/\s*\(recommended\)\s*$/i, '').toLowerCase());
+    const count = title[1]!.toLowerCase();
+    const defer = labels.findIndex(label => label === `defer all ${count} to todos` || label === `defer all ${count} to todos.md`);
+    const subset = labels.find(label => /^keep .+ only$/.test(label));
+    if (new Set(labels).size !== 3 || defer < 0 || !labels.includes(`keep all ${count}`) ||
+        !subset || !title[2]!.toLowerCase().includes(subset.slice(5, -5)) ||
+        call.answers?.[q.question] !== q.options[defer]!.label) return false;
+    return hasPostAnswerCeoPosture(`● ${q.question}`, posture);
+  });
+}
+
 /** A concrete, opted-in expansion brief is itself assistant posture evidence. */
 function hasAnsweredExpansionPosture(
   transcript: PlanCountTranscript, selected: NativePlanQuestionCall,
@@ -189,8 +236,12 @@ function hasAnsweredExpansionPosture(
     const question = call.questions[0]!;
     const title = question.question.split('\n')[0]!
       .replace(/\s*<gstack-qid:plan-ceo-review-expansion-[a-z0-9-]+>\s*$/i, '');
-    if (question.multiSelect || question.options.length !== 3 ||
-        !/^D\d+\s*[—–-]\s*Expansion\s+\d+\s+of\s+\d+:\s+\S.+\?\s*$/i.test(title)) return false;
+    const numbered = /^D\d+\s*[—–-]\s*Expansion\s+\d+\s+of\s+\d+:\s+\S.+\?\s*$/i.test(title);
+    const short = /^D\d+\s*[—–-]\s*E(\d+):\s+Add\s+[^?\n]+\?\s*$/i.exec(title);
+    const explicitShort = short && new RegExp(`^E${short[1]}\\s+\\S`, 'i').test(question.header) &&
+      /\nProject\/branch\/task:[^\n]+\bSCOPE EXPANSION mode\.\s*\nELI10:/i.test(question.question) &&
+      singleScopeBrief(question.question, question.options.map(o => o.description ?? ''));
+    if (question.multiSelect || question.options.length !== 3 || (!numbered && !explicitShort)) return false;
     const labels = question.options.map(option => option.label.trim()
       .replace(/^[A-C][):.]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').toLowerCase());
     if (new Set(labels).size !== 3 || !['add to scope', 'defer to todos.md', 'skip'].every(label => labels.includes(label)) ||
@@ -202,7 +253,7 @@ function hasAnsweredExpansionPosture(
   });
 }
 
-/** Match finalized assistant prose or an answered expansion after the actual mode answer. */
+/** Match finalized prose or a completed concrete scope decision after the actual mode answer. */
 export function hasNativePostAnswerCeoPosture(
   transcript: PlanCountTranscript,
   targetMode: CeoMode,
@@ -223,7 +274,8 @@ export function hasNativePostAnswerCeoPosture(
       return !/^(?:(?:You\s+)?selected(?:\s+(?:option|mode))?\s*[:：]?\s*)?(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)(?:\s+mode)?(?:\s+confirmed)?(?:\s*\(recommended\))?[.!]?$/i.test(plain);
     }).join('\n');
     return hasPostAnswerCeoPosture(`● ${prose}`, posture);
-  }) || (targetMode === 'SCOPE EXPANSION' && hasAnsweredExpansionPosture(transcript, selected, posture, publicTools));
+  }) || (targetMode === 'SCOPE EXPANSION' && hasAnsweredExpansionPosture(transcript, selected, posture, publicTools)) ||
+    (targetMode === 'HOLD SCOPE' && hasAnsweredHoldPosture(transcript, selected, posture, publicTools));
 }
 
 type PosturePacket = { headers: string[]; screens: string[]; next: number; nativeId?: string; submitted: boolean };

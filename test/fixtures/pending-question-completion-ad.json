@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "provenance": {
+    "run": "source-ad-focused-diagnostic-20260909-v1",
+    "kind": "actual public request/result projections plus code-derived completion input",
+    "rawHookEnvelopeCaptured": false,
+    "completionInputDerivation": "Frozen AskUserQuestion.call returns questions, answers and annotations from the same input passed to PostToolUse; the retained successful native result exposes those fields. Synthetic hook envelopes and owned temp paths are required in tests.",
+    "proofSHA256": "a92c6f502db270fdd292bf0ed327f4d5cfa49d17774f890b5bc0b0f66af5e323"
+  },
+  "cases": [
+    {
+      "mode": "HOLD SCOPE",
+      "sessionId": "14add4a4-0e7b-4791-814b-54a396bad1b7",
+      "toolUseId": "toolu_01TysjiG4mwuYsrxJBXfXtG3",
+      "requestedAt": "2026-09-09T17:38:37.218Z",
+      "completedAt": "2026-09-09T17:38:50.892Z",
+      "questions": [
+        {
+          "header": "Routing",
+          "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md? Project/branch/task: gstack-plan-count-bbDT0N on main, reviewing PLAN.md. ELI10: gstack works best when CLAUDE.md tells the agent which slash skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship, etc). Without it you invoke skills by hand each time. Stakes if wrong: none permanent, it's a text block you can delete. Recommendation: A because it is a two-way door and saves manual routing. Note: options differ in kind, not coverage \u2014 no completeness score. Net: convenience vs keeping a fixture CLAUDE.md untouched. (In plan mode, the edit and commit happen after plan approval.)",
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "\u2705 Future requests auto-route to the right gstack skill without typing slash names. \u2705 Two-way door: a plain text section you can delete any time. \u274c Adds a section to a CLAUDE.md that is currently a review fixture and commits it."
+            },
+            {
+              "label": "No thanks, manual invocation",
+              "description": "\u2705 CLAUDE.md stays exactly as the fixture author wrote it, no extra commit. \u2705 You keep full control over when a skill fires. \u274c Every skill has to be invoked by name each time; no proactive suggestions."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "header": "Learnings",
+          "question": "D2 \u2014 Enable cross-project learnings search? Project/branch/task: same repo, plan-ceo-review preamble. ELI10: gstack can search learnings recorded from your other projects on this machine to spot patterns that apply here. Everything stays local. Good for solo devs; skip if you juggle multiple client codebases where cross-contamination matters. Stakes if wrong: a wrong choice just means noisier or sparser prior-learning hints; flip it any time with gstack-config. Recommendation: A because a single-developer machine gets more signal from pooled learnings. Note: options differ in kind, not coverage \u2014 no completeness score. Net: more context vs strict per-project isolation.",
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "\u2705 Reviews surface 'prior learning applied' hints from every project on this machine. \u2705 Data never leaves the machine; only a local config flag changes. \u274c Learnings from unrelated client codebases could show up where they don't apply."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "\u2705 Zero risk of one client's patterns leaking into another client's review. \u2705 Learnings stay tightly relevant to this repo. \u274c This repo has 0 learnings today, so prior-learning hints will be empty for a while."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "header": "Design doc",
+          "question": "D3 \u2014 No design doc found for this branch. Run /office-hours first? Project/branch/task: PLAN.md 'Add saved project views' on main. ELI10: /office-hours produces a structured problem statement, premise challenge, and explored alternatives (about 10 minutes). It gives this CEO review sharper input. The plan here is short and clear enough that the review can also run directly. Stakes if wrong: skipping means I challenge premises myself from a 15-line plan; running it costs ~10 minutes. Recommendation: B because the goal is crisp (stop recreating filters) and this is a well-known feature shape, so the premise challenge inside Step 0A is enough. Note: options differ in kind, not coverage \u2014 no completeness score. Net: ten minutes of structured discovery vs going straight into rigor.",
+          "options": [
+            {
+              "label": "Skip, standard review (recommended)",
+              "description": "\u2705 Straight into premise challenge, alternatives, and the 11-section review now. \u2705 The plan's goal and approach are already concrete enough to challenge directly. \u274c No written design doc artifact for teammates to read later."
+            },
+            {
+              "label": "Run /office-hours now",
+              "description": "\u2705 Produces a durable design doc with problem statement and alternatives on disk. \u2705 Forces the 'why saved views and not X' conversation before any review. \u274c Adds ~10 minutes before the review begins on a plan that is already fairly clear."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "completionInput": {
+        "questions": [
+          {
+            "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md? Project/branch/task: gstack-plan-count-bbDT0N on main, reviewing PLAN.md. ELI10: gstack works best when CLAUDE.md tells the agent which slash skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship, etc). Without it you invoke skills by hand each time. Stakes if wrong: none permanent, it's a text block you can delete. Recommendation: A because it is a two-way door and saves manual routing. Note: options differ in kind, not coverage \u2014 no completeness score. Net: convenience vs keeping a fixture CLAUDE.md untouched. (In plan mode, the edit and commit happen after plan approval.)",
+            "header": "Routing",
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "\u2705 Future requests auto-route to the right gstack skill without typing slash names. \u2705 Two-way door: a plain text section you can delete any time. \u274c Adds a section to a CLAUDE.md that is currently a review fixture and commits it."
+              },
+              {
+                "label": "No thanks, manual invocation",
+                "description": "\u2705 CLAUDE.md stays exactly as the fixture author wrote it, no extra commit. \u2705 You keep full control over when a skill fires. \u274c Every skill has to be invoked by name each time; no proactive suggestions."
+              }
+            ],
+            "multiSelect": false
+          },
+          {
+            "question": "D2 \u2014 Enable cross-project learnings search? Project/branch/task: same repo, plan-ceo-review preamble. ELI10: gstack can search learnings recorded from your other projects on this machine to spot patterns that apply here. Everything stays local. Good for solo devs; skip if you juggle multiple client codebases where cross-contamination matters. Stakes if wrong: a wrong choice just means noisier or sparser prior-learning hints; flip it any time with gstack-config. Recommendation: A because a single-developer machine gets more signal from pooled learnings. Note: options differ in kind, not coverage \u2014 no completeness score. Net: more context vs strict per-project isolation.",
+            "header": "Learnings",
+            "options": [
+              {
+                "label": "Enable cross-project (recommended)",
+                "description": "\u2705 Reviews surface 'prior learning applied' hints from every project on this machine. \u2705 Data never leaves the machine; only a local config flag changes. \u274c Learnings from unrelated client codebases could show up where they don't apply."
+              },
+              {
+                "label": "Project-scoped only",
+                "description": "\u2705 Zero risk of one client's patterns leaking into another client's review. \u2705 Learnings stay tightly relevant to this repo. \u274c This repo has 0 learnings today, so prior-learning hints will be empty for a while."
+              }
+            ],
+            "multiSelect": false
+          },
+          {
+            "question": "D3 \u2014 No design doc found for this branch. Run /office-hours first? Project/branch/task: PLAN.md 'Add saved project views' on main. ELI10: /office-hours produces a structured problem statement, premise challenge, and explored alternatives (about 10 minutes). It gives this CEO review sharper input. The plan here is short and clear enough that the review can also run directly. Stakes if wrong: skipping means I challenge premises myself from a 15-line plan; running it costs ~10 minutes. Recommendation: B because the goal is crisp (stop recreating filters) and this is a well-known feature shape, so the premise challenge inside Step 0A is enough. Note: options differ in kind, not coverage \u2014 no completeness score. Net: ten minutes of structured discovery vs going straight into rigor.",
+            "header": "Design doc",
+            "options": [
+              {
+                "label": "Skip, standard review (recommended)",
+                "description": "\u2705 Straight into premise challenge, alternatives, and the 11-section review now. \u2705 The plan's goal and approach are already concrete enough to challenge directly. \u274c No written design doc artifact for teammates to read later."
+              },
+              {
+                "label": "Run /office-hours now",
+                "description": "\u2705 Produces a durable design doc with problem statement and alternatives on disk. \u2705 Forces the 'why saved views and not X' conversation before any review. \u274c Adds ~10 minutes before the review begins on a plan that is already fairly clear."
+              }
+            ],
+            "multiSelect": false
+          }
+        ],
+        "answers": {
+          "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md? Project/branch/task: gstack-plan-count-bbDT0N on main, reviewing PLAN.md. ELI10: gstack works best when CLAUDE.md tells the agent which slash skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship, etc). Without it you invoke skills by hand each time. Stakes if wrong: none permanent, it's a text block you can delete. Recommendation: A because it is a two-way door and saves manual routing. Note: options differ in kind, not coverage \u2014 no completeness score. Net: convenience vs keeping a fixture CLAUDE.md untouched. (In plan mode, the edit and commit happen after plan approval.)": "Add routing rules (recommended)",
+          "D2 \u2014 Enable cross-project learnings search? Project/branch/task: same repo, plan-ceo-review preamble. ELI10: gstack can search learnings recorded from your other projects on this machine to spot patterns that apply here. Everything stays local. Good for solo devs; skip if you juggle multiple client codebases where cross-contamination matters. Stakes if wrong: a wrong choice just means noisier or sparser prior-learning hints; flip it any time with gstack-config. Recommendation: A because a single-developer machine gets more signal from pooled learnings. Note: options differ in kind, not coverage \u2014 no completeness score. Net: more context vs strict per-project isolation.": "Enable cross-project (recommended)",
+          "D3 \u2014 No design doc found for this branch. Run /office-hours first? Project/branch/task: PLAN.md 'Add saved project views' on main. ELI10: /office-hours produces a structured problem statement, premise challenge, and explored alternatives (about 10 minutes). It gives this CEO review sharper input. The plan here is short and clear enough that the review can also run directly. Stakes if wrong: skipping means I challenge premises myself from a 15-line plan; running it costs ~10 minutes. Recommendation: B because the goal is crisp (stop recreating filters) and this is a well-known feature shape, so the premise challenge inside Step 0A is enough. Note: options differ in kind, not coverage \u2014 no completeness score. Net: ten minutes of structured discovery vs going straight into rigor.": "Skip, standard review (recommended)"
+        },
+        "annotations": {}
+      },
+      "evidenceSHA256": "4a1663f121fe618b459812f0d5dfccb32172e32a92573d1d26d047061d19f9a2"
+    },
+    {
+      "mode": "SCOPE EXPANSION",
+      "sessionId": "e59fb50d-6564-4361-a79f-05851e530a68",
+      "toolUseId": "toolu_0153fUMNJ4f5E56N2sCrZt3W",
+      "requestedAt": "2026-09-09T17:38:41.273Z",
+      "completedAt": "2026-09-09T17:38:54.927Z",
+      "questions": [
+        {
+          "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: main branch of the saved-views plan fixture; CLAUDE.md is 935 bytes and has no routing section.\nELI10: gstack works best when your project's CLAUDE.md tells Claude which skill to reach for on each kind of request. Without it, you invoke skills by hand every time. Note: we are in plan mode, so if you say yes the edit and commit happen after this review exits plan mode, not now.\nStakes if we pick wrong: minor. Either extra manual skill invocations, or a routing section you did not want in a checked-in file.\nRecommendation: A because it is a small append-only edit and it makes /investigate, /ship, and friends fire automatically.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "\u2705 Skills fire automatically on matching requests (bugs \u2192 /investigate, ship \u2192 /ship). \u2705 Append-only edit, easy to revert. \u274c Adds a section to a checked-in file; deferred until plan mode exits."
+            },
+            {
+              "label": "No thanks, manual invocation",
+              "description": "\u2705 CLAUDE.md stays exactly as the fixture defines it. \u2705 Nothing written to the repo by this review. \u274c You type /skill-name by hand every time; the offer will not repeat for this project."
+            }
+          ]
+        },
+        {
+          "question": "D2 \u2014 Search learnings across your other projects on this machine?\nProject/branch/task: same fixture; this project has zero learnings so far.\nELI10: gstack keeps notes on pitfalls and patterns it learns per project. Cross-project mode lets it also read notes from your other repos on this machine when reviewing this one. Everything stays local. Good for a solo developer; skip if you work on separate client codebases where cross-contamination matters.\nStakes if we pick wrong: low. Either you miss a relevant prior lesson, or a lesson from an unrelated codebase gets applied where it does not fit.\nRecommendation: A because this project has no learnings of its own yet, so cross-project is the only way any prior lesson can help.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: broader recall vs strict per-project isolation.",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "\u2705 Prior lessons from other repos on this machine can surface in this review. \u2705 Local only; nothing leaves the machine. \u274c A lesson from an unrelated codebase might be surfaced where it does not apply."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "\u2705 Strict isolation between codebases, safest for client work. \u2705 No cross-talk between unrelated projects. \u274c This project has zero learnings, so recall stays empty for now."
+            }
+          ]
+        },
+        {
+          "question": "D3 \u2014 Run /office-hours first, or go straight to the standard review?\nProject/branch/task: no design doc exists for this branch; PLAN.md is 15 lines.\nELI10: /office-hours produces a structured problem statement, challenges the premise, and explores alternatives before a plan is reviewed. It gives this review sharper input. It takes about 10 minutes and is per-feature, not per-product. The current plan is short, so there is real room for it to add signal, but the goal statement is already clear enough to review directly.\nStakes if we pick wrong: either 10 extra minutes you did not need, or a review that inherits an unexamined premise.\nRecommendation: B because the plan's problem statement is concrete and the premise challenge in Step 0A covers the same ground at lower cost; you can always run /office-hours later.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: deeper problem framing up front vs getting to the review now.",
+          "header": "Office hours",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip, standard review (recommended)",
+              "description": "\u2705 Review starts now; Step 0A still challenges the premise explicitly. \u2705 The goal in PLAN.md is already concrete enough to review. \u274c No written design doc for later reviews to reference."
+            },
+            {
+              "label": "Run /office-hours now",
+              "description": "\u2705 Produces a design doc with premise challenge and explored alternatives. \u2705 Review picks up right after with sharper input. \u274c About 10 more minutes (human) before the review itself begins."
+            }
+          ]
+        }
+      ],
+      "completionInput": {
+        "questions": [
+          {
+            "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: main branch of the saved-views plan fixture; CLAUDE.md is 935 bytes and has no routing section.\nELI10: gstack works best when your project's CLAUDE.md tells Claude which skill to reach for on each kind of request. Without it, you invoke skills by hand every time. Note: we are in plan mode, so if you say yes the edit and commit happen after this review exits plan mode, not now.\nStakes if we pick wrong: minor. Either extra manual skill invocations, or a routing section you did not want in a checked-in file.\nRecommendation: A because it is a small append-only edit and it makes /investigate, /ship, and friends fire automatically.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.",
+            "header": "Routing",
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "\u2705 Skills fire automatically on matching requests (bugs \u2192 /investigate, ship \u2192 /ship). \u2705 Append-only edit, easy to revert. \u274c Adds a section to a checked-in file; deferred until plan mode exits."
+              },
+              {
+                "label": "No thanks, manual invocation",
+                "description": "\u2705 CLAUDE.md stays exactly as the fixture defines it. \u2705 Nothing written to the repo by this review. \u274c You type /skill-name by hand every time; the offer will not repeat for this project."
+              }
+            ],
+            "multiSelect": false
+          },
+          {
+            "question": "D2 \u2014 Search learnings across your other projects on this machine?\nProject/branch/task: same fixture; this project has zero learnings so far.\nELI10: gstack keeps notes on pitfalls and patterns it learns per project. Cross-project mode lets it also read notes from your other repos on this machine when reviewing this one. Everything stays local. Good for a solo developer; skip if you work on separate client codebases where cross-contamination matters.\nStakes if we pick wrong: low. Either you miss a relevant prior lesson, or a lesson from an unrelated codebase gets applied where it does not fit.\nRecommendation: A because this project has no learnings of its own yet, so cross-project is the only way any prior lesson can help.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: broader recall vs strict per-project isolation.",
+            "header": "Learnings",
+            "options": [
+              {
+                "label": "Enable cross-project (recommended)",
+                "description": "\u2705 Prior lessons from other repos on this machine can surface in this review. \u2705 Local only; nothing leaves the machine. \u274c A lesson from an unrelated codebase might be surfaced where it does not apply."
+              },
+              {
+                "label": "Project-scoped only",
+                "description": "\u2705 Strict isolation between codebases, safest for client work. \u2705 No cross-talk between unrelated projects. \u274c This project has zero learnings, so recall stays empty for now."
+              }
+            ],
+            "multiSelect": false
+          },
+          {
+            "question": "D3 \u2014 Run /office-hours first, or go straight to the standard review?\nProject/branch/task: no design doc exists for this branch; PLAN.md is 15 lines.\nELI10: /office-hours produces a structured problem statement, challenges the premise, and explores alternatives before a plan is reviewed. It gives this review sharper input. It takes about 10 minutes and is per-feature, not per-product. The current plan is short, so there is real room for it to add signal, but the goal statement is already clear enough to review directly.\nStakes if we pick wrong: either 10 extra minutes you did not need, or a review that inherits an unexamined premise.\nRecommendation: B because the plan's problem statement is concrete and the premise challenge in Step 0A covers the same ground at lower cost; you can always run /office-hours later.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: deeper problem framing up front vs getting to the review now.",
+            "header": "Office hours",
+            "options": [
+              {
+                "label": "Skip, standard review (recommended)",
+                "description": "\u2705 Review starts now; Step 0A still challenges the premise explicitly. \u2705 The goal in PLAN.md is already concrete enough to review. \u274c No written design doc for later reviews to reference."
+              },
+              {
+                "label": "Run /office-hours now",
+                "description": "\u2705 Produces a design doc with premise challenge and explored alternatives. \u2705 Review picks up right after with sharper input. \u274c About 10 more minutes (human) before the review itself begins."
+              }
+            ],
+            "multiSelect": false
+          }
+        ],
+        "answers": {
+          "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: main branch of the saved-views plan fixture; CLAUDE.md is 935 bytes and has no routing section.\nELI10: gstack works best when your project's CLAUDE.md tells Claude which skill to reach for on each kind of request. Without it, you invoke skills by hand every time. Note: we are in plan mode, so if you say yes the edit and commit happen after this review exits plan mode, not now.\nStakes if we pick wrong: minor. Either extra manual skill invocations, or a routing section you did not want in a checked-in file.\nRecommendation: A because it is a small append-only edit and it makes /investigate, /ship, and friends fire automatically.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.": "Add routing rules (recommended)",
+          "D2 \u2014 Search learnings across your other projects on this machine?\nProject/branch/task: same fixture; this project has zero learnings so far.\nELI10: gstack keeps notes on pitfalls and patterns it learns per project. Cross-project mode lets it also read notes from your other repos on this machine when reviewing this one. Everything stays local. Good for a solo developer; skip if you work on separate client codebases where cross-contamination matters.\nStakes if we pick wrong: low. Either you miss a relevant prior lesson, or a lesson from an unrelated codebase gets applied where it does not fit.\nRecommendation: A because this project has no learnings of its own yet, so cross-project is the only way any prior lesson can help.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: broader recall vs strict per-project isolation.": "Enable cross-project (recommended)",
+          "D3 \u2014 Run /office-hours first, or go straight to the standard review?\nProject/branch/task: no design doc exists for this branch; PLAN.md is 15 lines.\nELI10: /office-hours produces a structured problem statement, challenges the premise, and explores alternatives before a plan is reviewed. It gives this review sharper input. It takes about 10 minutes and is per-feature, not per-product. The current plan is short, so there is real room for it to add signal, but the goal statement is already clear enough to review directly.\nStakes if we pick wrong: either 10 extra minutes you did not need, or a review that inherits an unexamined premise.\nRecommendation: B because the plan's problem statement is concrete and the premise challenge in Step 0A covers the same ground at lower cost; you can always run /office-hours later.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: deeper problem framing up front vs getting to the review now.": "Skip, standard review (recommended)"
+        },
+        "annotations": {}
+      },
+      "evidenceSHA256": "fe6de28c6d1f09784b8ca39bb1064f55819f01f494d42f0085d0b602af69ebc2"
+    }
+  ]
+}
