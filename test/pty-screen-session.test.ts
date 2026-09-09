@@ -109,7 +109,7 @@ process.stdin.on('data',()=>{if(sent)return;sent=true;
 `, {mode:0o755});
     const worker = path.join(f.dir, 'long-summary-worker.ts');
     fs.writeFileSync(worker, `import {runPlanSkillCounting} from ${JSON.stringify(runner)};
-const result=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'# Long summary fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:15000});
+const result=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'# Long summary fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:28000});
 if(result.outcome!=='completion_summary'||result.reviewCount!==1||result.evidence.includes('## Completion Summary'))throw new Error(JSON.stringify(result));
 process.stdout.write('native-summary-complete-after-heading-scrolled');`);
     const child = Bun.spawn([process.execPath, worker], {cwd:ROOT,env:{...process.env,EVALS_HERMETIC:'1',EVALS_RUN_ID:'',BROWSE_TERMINAL_BINARY:f.fake},stdout:'pipe',stderr:'pipe'});

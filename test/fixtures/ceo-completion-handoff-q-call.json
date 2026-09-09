@@ -1,0 +1,270 @@
+{
+  "source": "Q paired first native session81402884; raw timeout remains failed.",
+  "calls": [
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_01Jig6XQTh6w7RPArTTftYU6",
+      "questions": [
+        {
+          "question": "gstack works best when your project's CLAUDE.md includes skill routing rules. Add them? (Note: in plan mode, the CLAUDE.md edit + commit will happen after ExitPlanMode.)",
+          "header": "Skill routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (Recommended)",
+              "description": "Append standard gstack skill routing rules to CLAUDE.md and commit. This lets gstack auto-invoke the right skill for tasks like bugs, QA, design review, and more."
+            },
+            {
+              "label": "No thanks, manual only",
+              "description": "Skip routing rules. You'll invoke skills manually. This only prompts once per project."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack works best when your project's CLAUDE.md includes skill routing rules. Add them? (Note: in plan mode, the CLAUDE.md edit + commit will happen after ExitPlanMode.)": "Add routing rules (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:31:08.170Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_017Ba4F6EKQpWtZAww6SRxht",
+      "questions": [
+        {
+          "question": "gstack can search learnings from your other projects on this machine to find patterns that apply here. Enable cross-project learnings?",
+          "header": "Cross-project",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project learnings (Recommended)",
+              "description": "Search learnings across all projects on this machine. Stays local \u2014 no data leaves. Best for solo developers."
+            },
+            {
+              "label": "Keep learnings project-scoped only",
+              "description": "Only search learnings from this project. Safer if you work across multiple client codebases."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack can search learnings from your other projects on this machine to find patterns that apply here. Enable cross-project learnings?": "Enable cross-project learnings (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:31:20.202Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_01RgdrdtYEuN2DGi3372EaTU",
+      "questions": [
+        {
+          "question": "D3 \u2014 Which implementation approach for the processPayment() tests?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: The plan calls for 2 unit tests. The question is how precise those tests should be. A loose test says \u201cassert a receipt came back\u201d; a tight test says \u201cassert receipt.amount == 50, receipt.charge_id == mock_id, and Stripe was called exactly once.\u201d Tight tests catch more regressions but take slightly more time to write.\nStakes if we pick wrong: Loose assertions let partial regressions ship undetected \u2014 the payment goes through but the receipt is wrong. Missing call-count assertions mean the retry path could silently stop retrying and the test would still pass.\nRecommendation: B because the mock call history and virtual sleeper already exist to assert exact behavior \u2014 not using them wastes the infrastructure and leaves the retry proof hollow.\nCompleteness: A=5/10, B=7/10, C=9/10\n<gstack-qid:plan-ceo-review-impl-approach>",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Minimal as Described",
+              "description": "Add exactly 2 tests per the plan: happy path + 502. Basic assertions only (\u201ccorrect receipt generated\u201d, \u201cfails clean\u201d). Smallest diff. Effort: human ~1 hr / CC ~5 min. Completeness: 5/10."
+            },
+            {
+              "label": "B) 2 Tests + Explicit Assertions (Recommended)",
+              "description": "Same 2 tests but with concrete assertions: receipt field values, Stripe call count = 2, virtual sleeper backoff invocation recorded. Proves retry mechanism actually fired. Effort: human ~1.5 hr / CC ~8 min. Completeness: 7/10."
+            },
+            {
+              "label": "C) Coverage Sweep",
+              "description": "2 primary tests + nil/empty input cases + explicit out-of-scope comment while already in the file. Closes more gaps in one PR. Effort: human ~3 hr / CC ~15 min. Completeness: 9/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Which implementation approach for the processPayment() tests?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: The plan calls for 2 unit tests. The question is how precise those tests should be. A loose test says \u201cassert a receipt came back\u201d; a tight test says \u201cassert receipt.amount == 50, receipt.charge_id == mock_id, and Stripe was called exactly once.\u201d Tight tests catch more regressions but take slightly more time to write.\nStakes if we pick wrong: Loose assertions let partial regressions ship undetected \u2014 the payment goes through but the receipt is wrong. Missing call-count assertions mean the retry path could silently stop retrying and the test would still pass.\nRecommendation: B because the mock call history and virtual sleeper already exist to assert exact behavior \u2014 not using them wastes the infrastructure and leaves the retry proof hollow.\nCompleteness: A=5/10, B=7/10, C=9/10\n<gstack-qid:plan-ceo-review-impl-approach>": "A) Minimal as Described"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:31:46.283Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_019Q72RAptHiRFcmesFoy4BT",
+      "questions": [
+        {
+          "question": "D4 \u2014 Which review mode for this plan?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: Four review postures are available. This is a targeted test-coverage plan with no production code changes, and you\u2019ve already chosen the minimal approach (2 tests, basic assertions). HOLD SCOPE means we audit those 2 tests rigorously for correctness, edge cases, and assertion gaps. SELECTIVE EXPANSION means we also surface cherry-pick opportunities (more tests, tighter assertions) without automatically adding them.\nStakes if we pick wrong: HOLD SCOPE with a vague plan = ship tests that won\u2019t catch the regressions they\u2019re supposed to catch. EXPANSION on a minimal plan = scope drift when the user wants tight focus.\nRecommendation: HOLD SCOPE because you chose the minimal approach \u2014 maximum rigor on the 2 tests, no scope additions surfaced.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-mode-select>",
+          "header": "Review mode",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "HOLD SCOPE (Recommended)",
+              "description": "Plan scope accepted. Audit the 2 tests with maximum rigor: assertion correctness, failure modes, edge cases, test isolation. No expansions surfaced."
+            },
+            {
+              "label": "SELECTIVE EXPANSION",
+              "description": "Hold the 2-test scope as baseline, but surface cherry-pick opportunities (tighter assertions, additional edge-case tests). You opt in to each one individually. Neutral recommendation posture."
+            },
+            {
+              "label": "SCOPE EXPANSION",
+              "description": "Dream bigger. Propose a more ambitious test suite. Every expansion presented individually for approval. Good if you want to think about what comprehensive coverage looks like."
+            },
+            {
+              "label": "SCOPE REDUCTION",
+              "description": "Find the minimum version that ships value. Use if the plan feels overbuilt or you want to ship faster."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Which review mode for this plan?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: Four review postures are available. This is a targeted test-coverage plan with no production code changes, and you\u2019ve already chosen the minimal approach (2 tests, basic assertions). HOLD SCOPE means we audit those 2 tests rigorously for correctness, edge cases, and assertion gaps. SELECTIVE EXPANSION means we also surface cherry-pick opportunities (more tests, tighter assertions) without automatically adding them.\nStakes if we pick wrong: HOLD SCOPE with a vague plan = ship tests that won\u2019t catch the regressions they\u2019re supposed to catch. EXPANSION on a minimal plan = scope drift when the user wants tight focus.\nRecommendation: HOLD SCOPE because you chose the minimal approach \u2014 maximum rigor on the 2 tests, no scope additions surfaced.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-mode-select>": "HOLD SCOPE (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:32:18.385Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_016z6mJWZf6UQei8W95B8zRv",
+      "questions": [
+        {
+          "question": "D5 \u2014 What does processPayment() do when 502 retries are exhausted?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: The 502 test asserts the function \u201cfails clean\u201d after the retry is exhausted. But a test is code \u2014 it needs to call something (assert_raises, assert result == :error, etc). The plan doesn\u2019t say what processPayment() actually does when retries run out. Without this, the test author can\u2019t write the assertion.\nStakes if we pick wrong: The test passes vacuously \u2014 it doesn\u2019t assert the failure at all, or asserts the wrong thing, letting silent partial failures through.\nRecommendation: A because naming the exception class makes the assertion concrete and self-documenting.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-failure-contract>",
+          "header": "Failure contract",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Raises an exception (Recommended)",
+              "description": "processPayment() raises a specific exception class (e.g. PaymentGatewayError, StripeTimeoutError) when retries are exhausted. Test asserts: assert_raises(PaymentGatewayError) { processPayment(\u2026) }. Name the class in the plan."
+            },
+            {
+              "label": "B) Returns an error value",
+              "description": "processPayment() returns an error object or nil on failure (e.g. Result.err(:gateway_timeout), nil). Test asserts the return value. Name the value in the plan."
+            },
+            {
+              "label": "C) It\u2019s already defined \u2014 look at the existing code",
+              "description": "The failure contract is already documented or clear from context. The plan implementer knows where to look. No change needed to the plan."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 What does processPayment() do when 502 retries are exhausted?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: The 502 test asserts the function \u201cfails clean\u201d after the retry is exhausted. But a test is code \u2014 it needs to call something (assert_raises, assert result == :error, etc). The plan doesn\u2019t say what processPayment() actually does when retries run out. Without this, the test author can\u2019t write the assertion.\nStakes if we pick wrong: The test passes vacuously \u2014 it doesn\u2019t assert the failure at all, or asserts the wrong thing, letting silent partial failures through.\nRecommendation: A because naming the exception class makes the assertion concrete and self-documenting.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-failure-contract>": "A) Raises an exception (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:33:34.669Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_014fMNmBpU7sYU8bugf2zK8J",
+      "questions": [
+        {
+          "question": "D6 \u2014 How does the 502 test prove retry-with-backoff actually fired?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: The plan\u2019s purpose for the 502 test is to verify that the retry mechanism fires once before failing. But if we only assert that processPayment() raises an exception, a broken implementation that raises immediately on the first 502 (skipping the retry entirely) would also pass. The mock call history and virtual sleeper were built to catch exactly this. Choosing C means the test verifies failure but not retry.\nStakes if we pick wrong: A refactor that accidentally deletes the retry loop would not be caught by this test. The retry mechanism would silently stop working.\nRecommendation: A because it directly proves the retry fired and is the minimum addition needed to validate the spec\u2019s stated requirement.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-retry-proof>",
+          "header": "Retry proof",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Assert Stripe mock called exactly twice (Recommended)",
+              "description": "Add: assert Stripe.mock.call_count == 2. This is a one-line addition to the 502 test using the existing mock call history. Proves both retry fired AND that it stopped after one retry (max_retries=1). Effort: ~2 min."
+            },
+            {
+              "label": "B) Assert virtual sleeper invoked once",
+              "description": "Add: assert virtual_sleeper.call_count == 1. This proves the backoff delay ran, which implies the retry loop executed. Also a one-line addition. Slightly weaker than A (doesn\u2019t verify the second Stripe call happened)."
+            },
+            {
+              "label": "C) Accept the gap \u2014 exception assertion is enough",
+              "description": "The test still has value even without a retry proof. A future refactor that breaks retry would surface in the adapter suite. Document the gap explicitly in the plan."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 How does the 502 test prove retry-with-backoff actually fired?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: The plan\u2019s purpose for the 502 test is to verify that the retry mechanism fires once before failing. But if we only assert that processPayment() raises an exception, a broken implementation that raises immediately on the first 502 (skipping the retry entirely) would also pass. The mock call history and virtual sleeper were built to catch exactly this. Choosing C means the test verifies failure but not retry.\nStakes if we pick wrong: A refactor that accidentally deletes the retry loop would not be caught by this test. The retry mechanism would silently stop working.\nRecommendation: A because it directly proves the retry fired and is the minimum addition needed to validate the spec\u2019s stated requirement.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-retry-proof>": "A) Assert Stripe mock called exactly twice (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:34:20.869Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_018NcGmJzX3naAi6hHcHY9Cj",
+      "questions": [
+        {
+          "question": "D7 \u2014 TODO: Nil/empty input coverage for processPayment()\nProject: Payment Processing \u2014 Test Coverage (main)\nWhat: Add a test for processPayment(nil) and processPayment({}) \u2014 neither is currently covered by the adapter suite, regression suite, or this plan.\nWhy: processPayment() is called with payment data from user input or upstream services. Nil/empty input is a real production scenario (missing required field, serialization bug). The current plan leaves this path untested anywhere.\nELI10: The happy path and 502 path are getting tests. What happens if the payment data itself is nil or empty? Right now, nobody knows what processPayment() does in that case, and no test would catch a regression there.\nStakes if we pick wrong: A serialization bug that passes nil to processPayment() silently misbehaves in production.\nRecommendation: B because nil/empty input testing is valuable but separate scope from the 2 tests in this PR. It should live in a follow-up.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-todo-nil-input>",
+          "header": "TODO: nil input",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add to TODOS.md",
+              "description": "Track as a P2 follow-up. Effort: human ~1 hr / CC ~5 min. Scope: 1-2 new test cases for nil and empty input."
+            },
+            {
+              "label": "B) Skip \u2014 not in scope for this PR (Recommended)",
+              "description": "This is clean deferred scope. The current plan is focused on happy path + 502. Document the gap in the plan\u2019s \u2018NOT in scope\u2019 section but don\u2019t create a TODO."
+            },
+            {
+              "label": "C) Add to this PR",
+              "description": "Include nil/empty input test cases in this PR alongside the other two tests. Slight scope expansion."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 TODO: Nil/empty input coverage for processPayment()\nProject: Payment Processing \u2014 Test Coverage (main)\nWhat: Add a test for processPayment(nil) and processPayment({}) \u2014 neither is currently covered by the adapter suite, regression suite, or this plan.\nWhy: processPayment() is called with payment data from user input or upstream services. Nil/empty input is a real production scenario (missing required field, serialization bug). The current plan leaves this path untested anywhere.\nELI10: The happy path and 502 path are getting tests. What happens if the payment data itself is nil or empty? Right now, nobody knows what processPayment() does in that case, and no test would catch a regression there.\nStakes if we pick wrong: A serialization bug that passes nil to processPayment() silently misbehaves in production.\nRecommendation: B because nil/empty input testing is valuable but separate scope from the 2 tests in this PR. It should live in a follow-up.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-todo-nil-input>": "A) Add to TODOS.md"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:34:50.993Z"
+    },
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_01RxLLr5huJVqrxQpYXG299k",
+      "questions": [
+        {
+          "question": "D8 \u2014 What's next after this CEO review?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: CEO review is done and clear. Eng Review is the required shipping gate \u2014 it covers architecture, code quality, tests, and performance at the diff level. Since this is a tests-only PR with 0 critical gaps from the CEO review, it\u2019s a lightweight eng review.\nRecommendation: A because Eng Review is required before shipping and this PR is small enough that it should be fast.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-next-step>",
+          "header": "Next step",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Run /plan-eng-review next (Recommended)",
+              "description": "Eng Review is the required shipping gate. Covers architecture, code quality, tests, performance at the diff level. Fast for a tests-only PR."
+            },
+            {
+              "label": "B) Skip \u2014 I\u2019ll handle reviews manually",
+              "description": "Proceed to implementation. Run /plan-eng-review manually later or skip it (set skip_eng_review=true to suppress the prompt)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 \u2014 What's next after this CEO review?\nProject: Payment Processing \u2014 Test Coverage (main)\nELI10: CEO review is done and clear. Eng Review is the required shipping gate \u2014 it covers architecture, code quality, tests, and performance at the diff level. Since this is a tests-only PR with 0 critical gaps from the CEO review, it\u2019s a lightweight eng review.\nRecommendation: A because Eng Review is required before shipping and this PR is small enough that it should be fast.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n<gstack-qid:plan-ceo-review-next-step>": "A) Run /plan-eng-review next (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:41:08.653Z"
+    }
+  ],
+  "planReadyRequests": [
+    {
+      "sessionId": "81402884-47d1-4487-b313-43154021bd52",
+      "toolUseId": "toolu_01MzvNML9K14bHKguLY4YKT5",
+      "timestamp": "2026-09-09T03:41:20.539Z",
+      "failed": false
+    }
+  ],
+  "reportContent": "# Plan Review: Payment Processing \u2014 Test Coverage\n\n## Context\n\nThe team identified a test coverage gap in `processPayment()`: neither the happy path (successful charge \u2192 receipt) nor the 502 error path (retry-with-backoff \u2192 clean failure) has a unit test. The plan proposes exactly two targeted tests reusing existing test infrastructure. This review evaluates the plan with HOLD SCOPE rigor, surfacing concrete gaps in assertion specificity and failure contract definition.\n\n## System Audit\n\n- Fixture repo: single seed commit, no production source files visible\n- No design doc, no handoff note, no prior learnings\n- Plan is clean-scope: unit tests only, no production code changes\n- Existing infrastructure correctly identified: payment test factory (max_retries=1, Stripe mock call history), virtual sleeper, Stripe adapter suite, receipt-builder regression tests\n\n## Step 0: Scope Analysis\n\n### 0A. Premise Challenge\n\nRight problem: YES. Untested payment code is a genuine risk. The 502 retry path is hard to catch manually and fragile in refactors. The business outcome is confidence that `processPayment()` is correct on the happy path and degrades gracefully on infrastructure errors. The \"do nothing\" cost is silent regressions in critical payment flows.\n\n### 0B. Existing Code Leverage\n\nThe plan already identifies reusable infrastructure correctly. No parallel implementations needed. The mock call history and virtual sleeper are available and should be used for retry-proof assertions.\n\n### 0C. Dream State\n\n```\nCURRENT STATE          THIS PLAN              12-MONTH IDEAL\nNo unit tests     -->  2 targeted tests:  -->  Full processPayment()\nfor processPayment     - happy path           coverage including:\n                       - 502 error path       - nil/invalid inputs\n                                              - all error codes (402, 429, 503)\n                                              - receipt field contract\n                                              - idempotency key behavior\n```\n\n### 0C-bis. Implementation Approach Selected\n\n**User chose Approach A: Minimal as Described** (Completeness: 5/10)\n- 2 tests as specified, basic assertions\n- gstack-shortcut(dec-impl-approach-1): ceiling 5/10, upgrade when another developer touches processPayment() tests and needs stronger regression guarantees\n\n*Note: This review adds two specific assertions beyond \"minimal\" through D5 and D6 (exception class + call count) that are required for the tests to verify the stated behaviors.*\n\n### 0F. Mode Selected: HOLD SCOPE\n\nTest-coverage plan for existing code, no production changes. Maximum rigor on the 2 tests, no scope additions.\n\n## Key Decisions Made During Review\n\n| ID | Question | Decision |\n|----|----------|----------|\n| D5 | Failure contract for 502 path | Raises exception (specific class TBD from codebase) |\n| D6 | Retry proof assertion | Assert Stripe.mock.call_count == 2 |\n| D7 | Nil/empty input coverage | Add to TODOS.md (P2 follow-up) |\n\n## 11-Section Deep Review\n\n### Section 1: Architecture\n\nTests-only change. No new components, coupling changes, state machines, or integrations. Rollback: git revert of the test file. **No issues.**\n\n### Section 2: Error & Rescue Map\n\n**Finding (resolved via D5):** The plan states \"fails clean\" after exhausted retries but does not define the failure contract. A test cannot assert \"fails clean\" without knowing whether processPayment() raises an exception or returns an error value.\n\n**Resolution (D5):** `processPayment()` raises an exception when 502 retries are exhausted. The plan must name the specific exception class (e.g., `PaymentGatewayError`, `StripeTimeoutError` \u2014 look up in production code).\n\n```\nMETHOD/CODEPATH           | WHAT CAN GO WRONG          | EXCEPTION CLASS\n--------------------------|----------------------------|------------------\nprocessPayment()          | Stripe returns 502          | [named in codebase]\n                          | Retries exhausted (2 calls) | PaymentGatewayError (TBD)\n\nEXCEPTION CLASS           | RESCUED? | RESCUE ACTION       | USER SEES\n--------------------------|----------|---------------------|----------\n502 StripeError           | YES      | Retry once (via     | Exception raised\n                          |          | max_retries=1),     | to caller\n                          |          | then raise\n```\n\n### Section 3: Security\n\nTests only. No new attack surface, user input, data access, secrets, or dependencies. **No issues.**\n\n### Section 4: Data Flow & Interaction Edge Cases\n\nShadow paths for the happy path (nil input, empty input) are explicitly out of scope per HOLD SCOPE. The receipt_builder integration (mocked vs real) is an implementation detail; the implementer should use the same pattern as adjacent tests.\n\n```\nHAPPY PATH:\n  processPayment(valid_payment) \u2192 Stripe mock (200) \u2192 receipt generated\n\n  Shadow paths (out of scope, tracked in TODOS.md):\n  processPayment(nil)  \u2192 ?  (not tested)\n  processPayment({})   \u2192 ?  (not tested)\n\n502 PATH:\n  processPayment(valid_payment, max_retries=1)\n    \u2192 Stripe mock (502, attempt 1)\n    \u2192 virtual_sleeper.sleep(backoff_delay)\n    \u2192 Stripe mock (502, attempt 2)\n    \u2192 raise PaymentGatewayError [TBD class name]\n```\n\n**No issues** (shadow paths deferred to TODOS.md per D7).\n\n### Section 5: Code Quality\n\nPlan-level only. Failure contract clarified via D5. No additional findings.\n\n### Section 6: Test Review\n\n```\nNEW UX FLOWS: none\nNEW DATA FLOWS: none (tests exercise existing production flow)\nNEW CODEPATHS: none (tests only)\nNEW BACKGROUND JOBS: none\nNEW INTEGRATIONS: none\n\nNEW TEST COVERAGE:\n  1. processPayment() happy path (unit test)\n  2. processPayment() 502 error path (unit test)\n```\n\n**Happy path test spec:**\n- Type: Unit\n- Setup: Payment test factory (happy state), Stripe mock returning 200\n- Happy path: Stripe called once \u2192 receipt returned\n- Assertion: Receipt is not nil (Approach A \u2014 basic assertion)\n- 2am confidence test: Passes if receipt is returned; fails if Stripe mock raises\n- Hostile QA test: Would need field-level assertions (deferred per Approach A)\n- Chaos test: N/A for unit test\n\n**502 error path test spec:**\n- Type: Unit\n- Setup: Payment test factory (max_retries=1), Stripe mock configured for 502\n- Happy path (of the failure case):\n  - Stripe called twice (initial + one retry)\n  - Virtual sleeper records one backoff invocation\n  - `processPayment()` raises `[PaymentGatewayError class name]`\n- **Required assertions (from D5 + D6):**\n  1. `assert_raises(PaymentGatewayError) { processPayment(...) }` (or equivalent)\n  2. `assert_equal 2, Stripe.mock.call_count`\n- **Finding resolved via D6:** Without assertion #2, a broken implementation that raises on the first 502 (skipping retry entirely) would pass the test. The retry proof is the core of this test.\n\n**No remaining test review gaps** (within Approach A scope).\n\n### Section 7: Performance\n\nTests only. No DB queries, memory pressure, or index concerns. **No issues.**\n\n### Section 8: Observability\n\nTests only. Test output is the observability. **No issues.**\n\n### Section 9: Deployment\n\nTests only. No migrations, feature flags, deployment risk window, or rollback procedures needed. CI runs these automatically. **No issues.**\n\n### Section 10: Long-Term Trajectory\n\n- **Reversibility:** 5/5 \u2014 trivially reversible, just delete the tests\n- **Testing debt tracked:** Nil/empty input gap added to TODOS.md (D7)\n- **Path dependency:** Low \u2014 basic assertions (Approach A) are unlikely to break on schema changes\n- **Knowledge gap:** A future developer reading only these 2 tests won't see the broader coverage (adapter suite covers 402/429/502\u2192success, regression suite covers receipt-builder failures). Consider adding a comment in the test file pointing to the related suites.\n\n### Section 11: Design & UX\n\nNo UI scope. **Skipped.**\n\n## Required Outputs\n\n### NOT in Scope (correct omissions)\n\n- Stripe 402 (card decline) \u2014 covered by adapter suite\n- Stripe 429 (rate limit) \u2014 covered by adapter suite\n- 502\u2192success recovery \u2014 covered by adapter suite\n- Receipt-builder failure during successful charge \u2014 covered by regression suite\n- Nil/empty payment input \u2014 NOT covered anywhere; tracked in TODOS.md (P2)\n- Idempotency key behavior \u2014 not currently tested anywhere; not in this PR\n- processPayment() production code changes \u2014 zero changes to production behavior\n\n### What Already Exists\n\n| Existing Helper | Used In This PR | Purpose |\n|----------------|-----------------|---------|\n| Payment test factory (max_retries=1) | YES | Configures the retry limit for 502 test |\n| Stripe mock call history | YES (D6) | Asserts Stripe.mock.call_count == 2 |\n| Virtual sleeper | Available (not asserted per Approach A) | Records backoff invocations |\n| Stripe adapter suite | Referenced (not modified) | Covers 402, 429, 502\u2192success |\n| Receipt-builder regression suite | Referenced (not modified) | Covers receipt-builder failure |\n\n### Dream State Delta\n\nThis plan gets us from \"no unit tests\" to \"basic unit coverage for the two most critical paths.\" The 12-month ideal (full coverage including nil inputs, all error codes, receipt field contract, idempotency) remains future work.\n\n### Error & Rescue Registry\n\n| Method | What Can Go Wrong | Exception Class | Rescued? | Rescue Action | User Sees |\n|--------|-----------------|-----------------|----------|---------------|-----------|\n| processPayment() | Stripe returns 502 | [StripeXxx] | YES | Retry once (max_retries=1), then raise | [PaymentGatewayError TBD] |\n| processPayment() | Stripe returns 200 | N/A | N/A | N/A | Receipt returned |\n| processPayment() | nil/empty input | ? | ? | ? | ? (gap \u2014 tracked in TODOS.md) |\n\n### Failure Modes Registry\n\n```\nCODEPATH          | FAILURE MODE       | RESCUED? | TEST? | USER SEES?          | LOGGED?\n------------------|--------------------|---------:|------:|---------------------|--------\nprocessPayment()  | 502 exhausted      | YES      | YES   | Exception (named)   | ?\nprocessPayment()  | Stripe 200 success | N/A      | YES   | Receipt returned    | N/A\nprocessPayment()  | nil input          | ?        | NO    | ? (tracked TODO)    | ?\nprocessPayment()  | empty input        | ?        | NO    | ? (tracked TODO)    | ?\n```\n\n### TODOS.md Updates\n\n**TODO 1 (from D7 \u2014 user chose: Add to TODOS.md):**\n- **What:** Add processPayment() tests for nil and empty payment input\n- **Why:** Neither case is covered by the adapter suite, regression suite, or this PR. Production callers may pass nil/empty under serialization bugs or missing required fields.\n- **Pros:** Closes a known untested path; documents what processPayment() does on bad input\n- **Cons:** Nil-input behavior may reveal existing production bugs (a feature, but with sprint implications)\n- **Context:** The payment test factory and Stripe mock are already set up; these tests would live in the same file as T1/T2.\n- **Effort:** S (human ~1 hr / CC ~5 min)\n- **Priority:** P2\n- **Depends on:** T1 and T2 merged first (establishes test patterns)\n\n### Diagrams\n\n**System Architecture:**\n```\n\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502  Test Suite (new)                                      \u2502\n\u2502  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510  \u2502\n\u2502  \u2502 processPayment tests (2 new unit tests)          \u2502  \u2502\n\u2502  \u2502  \u251c\u2500\u2500 happy_path_test                             \u2502  \u2502\n\u2502  \u2502  \u2502     uses: payment_test_factory, stripe_mock   \u2502  \u2502\n\u2502  \u2502  \u2514\u2500\u2500 exhausted_502_test                          \u2502  \u2502\n\u2502  \u2502        uses: payment_test_factory (max_retries=1)\u2502  \u2502\n\u2502  \u2502              stripe_mock (502), virtual_sleeper  \u2502  \u2502\n\u2502  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518  \u2502\n\u2502                                                        \u2502\n\u2502  Existing (unchanged)                                  \u2502\n\u2502  \u251c\u2500\u2500 stripe_adapter_suite (402, 429, 502\u2192success)     \u2502\n\u2502  \u2514\u2500\u2500 receipt_builder_regression_suite                  \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n```\n\n**Data Flow \u2014 Happy Path:**\n```\n  test \u2192 processPayment(valid_payment)\n       \u2192 Stripe.charge() [mock: 200]\n       \u2192 receipt_builder.build() [existing behavior]\n       \u2192 receipt returned\n       assert receipt != nil  \u2190 basic assertion (Approach A)\n```\n\n**Data Flow \u2014 502 Error Path:**\n```\n  test \u2192 processPayment(valid_payment, max_retries=1)\n       \u2192 Stripe.charge() [mock: 502] \u2190 attempt 1\n       \u2192 virtual_sleeper.sleep(backoff) \u2190 backoff recorded\n       \u2192 Stripe.charge() [mock: 502] \u2190 attempt 2 (retry)\n       \u2192 raise PaymentGatewayError [TBD class]\n  assert_raises PaymentGatewayError  \u2190 from D5\n  assert Stripe.mock.call_count == 2  \u2190 from D6 (REQUIRED \u2014 proves retry fired)\n```\n\n**Error Flow:**\n```\n  Stripe 502 received\n       \u2502\n       \u25bc\n  max_retries exhausted?\n  \u251c\u2500\u2500 NO: virtual_sleeper.sleep(backoff) \u2192 retry Stripe.charge()\n  \u2514\u2500\u2500 YES: raise PaymentGatewayError\n```\n\n**Stale Diagram Audit:** No existing ASCII diagrams in files touched by this plan. N/A.\n\n## Implementation Tasks\n\nSynthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~1.5 hr / CC: ~8 min)** \u2014 processPayment tests \u2014 Add happy path unit test\n  - Surfaced by: Section 6 (Test Review) \u2014 no unit test for processPayment() success path\n  - Files: `[payment_test.rb or equivalent]`\n  - Assertion: receipt is returned (basic)\n  - Verify: test suite passes\n\n- [ ] **T2 (P1, human: ~1.5 hr / CC: ~8 min)** \u2014 processPayment tests \u2014 Add 502 error path test with exception + call count assertions\n  - Surfaced by: Section 2 (Error/Rescue, D5) \u2014 failure contract; Section 6 (Test Review, D6) \u2014 retry proof\n  - Files: `[payment_test.rb or equivalent]`\n  - Assertions:\n    1. `assert_raises([PaymentGatewayError class]) { processPayment(...) }`\n    2. `assert_equal 2, Stripe.mock.call_count`\n  - Verify: test passes; manually verify test FAILS when max_retries set to 0 (proving retry assertion is load-bearing)\n\n- [ ] **T3 (P1, human: ~10 min / CC: ~2 min)** \u2014 PLAN.md \u2014 Name the exception class raised when retries are exhausted\n  - Surfaced by: Section 2 (Error/Rescue, D5) \u2014 \"fails clean\" is not implementable without the class name\n  - Files: `PLAN.md`\n  - Action: Look up the exception class in production processPayment() code; add it to the plan\n\n- [ ] **T4 (P2, human: ~1 hr / CC: ~5 min)** \u2014 TODOS.md \u2014 Track nil/empty input coverage\n  - Surfaced by: Section 10 (Long-Term, D7) \u2014 evidenced gap not covered by any existing suite\n  - Files: `TODOS.md`\n  - Action: Add TODO entry with context from this review\n\n```\n+====================================================================+\n|            MEGA PLAN REVIEW \u2014 COMPLETION SUMMARY                   |\n+====================================================================+\n| Mode selected        | HOLD SCOPE                                   |\n| System Audit         | Fixture repo, plan-only review               |\n| Step 0               | Approach A (minimal), HOLD SCOPE mode        |\n| Section 1  (Arch)    | 0 issues found                              |\n| Section 2  (Errors)  | 1 error path mapped, 1 gap resolved (D5)    |\n| Section 3  (Security)| 0 issues found, 0 High severity             |\n| Section 4  (Data/UX) | 1 shadow path noted, deferred to TODOS.md  |\n| Section 5  (Quality) | 0 issues found                              |\n| Section 6  (Tests)   | Diagram produced, 1 gap resolved (D6)       |\n| Section 7  (Perf)    | 0 issues found                              |\n| Section 8  (Observ)  | 0 gaps found                                |\n| Section 9  (Deploy)  | 0 risks flagged                             |\n| Section 10 (Future)  | Reversibility: 5/5, 1 debt item \u2192 TODOS.md |\n| Section 11 (Design)  | SKIPPED (no UI scope)                       |\n+--------------------------------------------------------------------+\n| NOT in scope         | written (7 items)                            |\n| What already exists  | written                                     |\n| Dream state delta    | written                                     |\n| Error/rescue registry| 3 methods, 2 nil-input SILENT GAPS (TODOS)  |\n| Failure modes        | 4 total, 2 tracked in TODOS.md              |\n| TODOS.md updates     | 1 item proposed (nil/empty input, P2)       |\n| Scope proposals      | 0 (HOLD SCOPE)                              |\n| CEO plan             | skipped (HOLD SCOPE)                        |\n| Outside voice        | skipped (codex_reviews disabled)            |\n| Lake Score           | 2/3 decisions chose recommended option      |\n| Diagrams produced    | 4 (architecture, happy path, 502 path, error flow) |\n| Stale diagrams found | 0                                           |\n| Unresolved decisions | 0                                           |\n+====================================================================+\n```\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | clean | mode: HOLD_SCOPE, 0 critical gaps |\n| Outside Review | codex (disabled) | Independent 2nd opinion | 1 | disabled | Codex reviews disabled \u2014 re-enable: `gstack-config set codex_reviews enabled` |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | not run |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | not run |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | not run |\n\n**VERDICT:** CEO CLEARED \u2014 0 unresolved decisions, 0 critical gaps. Eng Review required before shipping.\n\nNO UNRESOLVED DECISIONS\n",
+  "reportAt": "2026-09-09T03:40:08.873Z",
+  "sourceProofSha256": "1119067252a5308498a10a2728692ef99fd75464506983f99eaee9fe3a358454",
+  "reportWrite": {
+    "toolUseId": "toolu_01JBdaKiZgYNaxb2hHS42fBD",
+    "calledAt": "2026-09-09T03:40:07.366Z",
+    "resultAt": "2026-09-09T03:40:08.873Z",
+    "failed": false
+  }
+}

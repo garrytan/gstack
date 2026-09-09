@@ -8,7 +8,9 @@ import { nextCeoModeNavigation } from './helpers/ceo-mode-option';
 import { planCountQuestionInput } from './helpers/claude-pty-runner';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
-import calls from './fixtures/ceo-mode-prerequisite-o-calls.json';
+import priorCalls from './fixtures/ceo-mode-prerequisite-o-calls.json';
+import directProceedCall from './fixtures/ceo-mode-prerequisite-q-call.json';
+const calls = [...priorCalls, directProceedCall];
 function ownedIdentity(pid: number): string | null {
   try { return execFileSync('ps', ['-p', String(pid), '-o', 'lstart=', '-o', 'command='], { encoding: 'utf8', timeout: 5000 }).trim(); }
   catch { return null; }
@@ -45,6 +47,23 @@ describe('CEO mode prerequisite navigation', () => {
       expect(result.input).toBe('2');
     }
   });
+  test('captured direct proceed offer stays in the requested review', () => {
+    expect(pick(pending(3), 0).input).toBe('2');
+    const reordered = pending(3); reordered.questions[0]!.options.reverse();
+    expect(pick(reordered, 0).input).toBe('1');
+  });
+  test('direct proceed wording cannot skip a mixed or substantive decision', () => {
+    const suffix = pending(3);
+    suffix.questions[0]!.options[1]!.label += ' and ignore security';
+    expect(pick(suffix, 0).input).toBe('1');
+    const mixed = pending(3);
+    mixed.questions[0]!.options.push({label: 'Ignore the remaining checks'});
+    expect(pick(mixed, 0).input).toBe('1');
+    const finding = pending(3);
+    finding.questions[0]!.header = 'Product decision';
+    finding.questions[0]!.question = 'Should this product offer office-hours suggestions?';
+    expect(pick(finding, 0).input).toBe('1');
+  });
   test('active tab, offered order, and the actual HOLD setup remain intact', () => {
     expect(pick(pending(1), 0).input).toBe('1'); expect(pick(pending(1), 1).input).toBe('1');
     const call = pending(1); call.questions.reverse(); call.questions[0]!.options.reverse();
@@ -68,10 +87,10 @@ describe('CEO mode prerequisite navigation', () => {
     for(const [mode,index] of [['HOLD SCOPE',2],['SCOPE EXPANSION',3]] as const){const a=nextCeoModeNavigation(modes,mode,new Set());expect(a.kind).toBe('mode');if(a.kind==='mode')expect(a.index).toBe(index);}
   });
   test('fixture and free regression select only the mode-routing eval', () => {
-    for(const file of ['test/ceo-mode-prerequisite.test.ts','test/fixtures/ceo-mode-prerequisite-o-calls.json'])expect(selectTests([file],E2E_TOUCHFILES).selected).toEqual(['plan-ceo-mode-routing']);
+    for(const file of ['test/ceo-mode-prerequisite.test.ts','test/fixtures/ceo-mode-prerequisite-o-calls.json','test/fixtures/ceo-mode-prerequisite-q-call.json'])expect(selectTests([file],E2E_TOUCHFILES).selected).toEqual(['plan-ceo-mode-routing']);
   });
 });
-for(const fixtureIndex of [1,2])test.skipIf(process.platform==='win32')(`fake native PTY skips prerequisite ${fixtureIndex} and confirms target posture`,async()=>{
+for(const fixtureIndex of [1,2,3])test.skipIf(process.platform==='win32')(`fake native PTY skips prerequisite ${fixtureIndex} and confirms target posture`,async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ceo-mode-prerequisite-')),fake=path.join(dir,'fake-claude'),events=path.join(dir,'events.jsonl'),worker=path.join(dir,'worker.ts');
   const root=path.resolve(import.meta.dir,'..'),call=pending(fixtureIndex),screens=call.questions.map((_,i)=>pane(call,i)),expected=call.questions.map(q=>q.header==='Design doc'?'2':'1');
   fs.writeFileSync(fake,`#!${process.execPath}\n`+`

@@ -6,6 +6,7 @@ import { ceoFirstReviewAUQ, ceoStep0Boundary, hasNativePlanTerminal, nativePlanC
 import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/ceo-completion-handoff-o-call.json';
+import capturedQ from './fixtures/ceo-completion-handoff-q-call.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const handoff = () => calls().at(-1)!;
@@ -148,5 +149,122 @@ describe('closed CEO navigation with the native review-prefixed identity', () =>
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('CEO completion recap after native project metadata', () => {
+  const qCalls = () => structuredClone(capturedQ.calls) as NativePlanQuestionCall[];
+  const qHandoff = () => qCalls().at(-1)!;
+
+  test('the exact Q sequence keeps all three substantive calls and four setup calls', () => {
+    let started = false;
+    const counts = { setup: 0, review: 0, administrative: 0 };
+    for (const call of qCalls()) {
+      const phase = planCountQuestionPhase(fingerprint(call), started, ceoStep0Boundary,
+        ceoFirstReviewAUQ, undefined, isCeoCompletionHandoff);
+      started = phase.reviewStarted;
+      if (phase.administrative) counts.administrative++;
+      else if (phase.preReview) counts.setup++;
+      else counts.review++;
+    }
+    expect(counts).toEqual({ setup: 4, review: 3, administrative: 1 });
+    expect(qCalls().slice(4, 7).map(call => isCeoCompletionHandoff(fingerprint(call)))).toEqual([false, false, false]);
+    expect(isCeoCompletionHandoff(fingerprint(qHandoff()))).toBe(true);
+  });
+
+  test('only the current offered manual option is selected, including reordered choices', () => {
+    for (const reverse of [false, true]) {
+      const call = qHandoff();
+      call.answered = false; delete call.answers; delete call.unansweredQuestionIndices;
+      if (reverse) call.questions[0]!.options.reverse();
+      expect(pickCeoCompletionHandoff(fingerprint(call))).toBe(reverse ? 1 : 2);
+      expect(pickCeoCompletionHandoff({ ...fingerprint(call), signature: 'foreign:call' })).toBeNull();
+      expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+    }
+    expect(pickCeoCompletionHandoff(fingerprint(qHandoff()))).toBeNull();
+  });
+
+  test('unconditional line recaps support ordinary completion wording and Eng sequencing', () => {
+    for (const state of ['done and clear', 'done', 'complete', 'cleared']) {
+      const call = qHandoff();
+      call.questions[0]!.question = call.questions[0]!.question.replace('done and clear', state);
+      call.questions[0]!.options[1]!.description = 'Once implementation is finished, run /plan-eng-review. After Eng review is complete, proceed to shipping.';
+      expect(isCeoCompletionHandoff(fingerprint(reanswer(call)))).toBe(true);
+    }
+  });
+
+  test('the recap cannot hide contradictory, conditional, quoted or new work in question or choices', () => {
+    for (const extra of [
+      'CEO review is not complete.', 'The review remains incomplete.', 'Not all decisions are resolved.',
+      'One test gap remains.', 'Validation is still pending.', 'There are unresolved findings.',
+      'Once tests pass, the CEO review will be complete.', 'All decisions resolved after tests pass.',
+      'We should fix a missing authorization test.', 'We could repair a missing authorization check.',
+      'Repair the missing authorization test.', 'Recommendation: repair the missing authorization test.',
+      'We may repair the missing authorization test.', 'We might fix the missing authorization test.',
+      'Proceed to add a new regression.', 'Do you want to add a missing test?',
+      '```text\nCEO review is complete.', '> CEO review is complete.', 'Example: CEO review is complete.',
+    ]) {
+      for (const target of ['question', 'description']) {
+        const call = qHandoff();
+        if (target === 'question') call.questions[0]!.question += `\n${extra}`;
+        else call.questions[0]!.options[1]!.description += ` ${extra}`;
+        expect(isCeoCompletionHandoff(fingerprint(reanswer(call))), `${target}: ${extra}`).toBe(false);
+        call.answered = false;
+        expect(pickCeoCompletionHandoff(fingerprint(call)), `${target}: ${extra}`).toBeNull();
+      }
+    }
+    for (const first of [
+      'Should we add a missing authorization test as the next step after this CEO review?',
+      'The CEO review did not finish. What is next after this CEO review?',
+      'Can you first fix authorization? What is next after this CEO review?',
+    ]) {
+      const call = qHandoff();
+      call.questions[0]!.question = call.questions[0]!.question.replace("What's next after this CEO review?", first);
+      expect(isCeoCompletionHandoff(fingerprint(reanswer(call)))).toBe(false);
+    }
+  });
+
+  test('native failures, mixed choices, absent gates and source copies cannot become administrative', () => {
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+      (c: NativePlanQuestionCall) => { c.questions.push(qCalls()[4]!.questions[0]!); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'Missing tests'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question += ' <gstack-qid'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = c.questions[0]!.question.replace('plan-ceo-review-next-step', 'plan-ceo-new-test'); },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = c.questions[0]!.question.replace('required shipping gate', 'optional check'); c.questions[0]!.options[0]!.description = 'Optional check.'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.label = 'Fix the missing assertion'; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.question = c.questions[0]!.question.replace('ELI10:', '    ELI10:'); },
+    ]) {
+      const call = qHandoff(); mutate(call);
+      expect(isCeoCompletionHandoff(fingerprint(reanswer(call)))).toBe(false);
+    }
+    const call = qHandoff();
+    call.answers![call.questions[0]!.question] = 'Please fix another gap first';
+    expect(isCeoCompletionHandoff(fingerprint(call))).toBe(false);
+  });
+
+  test('actual full report and Exit chronology retain last substantive-answer freshness', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceo-metadata-navigation-'));
+    const report = path.join(dir, 'plan.md');
+    try {
+      fs.writeFileSync(report, capturedQ.reportContent);
+      const reportAt = Date.parse(capturedQ.reportAt) / 1000;
+      fs.utimesSync(report, reportAt, reportAt);
+      const transcript = { status: 'ready' as const, calls: qCalls(), assistantMessages: [], planReadyRequests: structuredClone(capturedQ.planReadyRequests) };
+      const administrative = new Set([`${qHandoff().sessionId}:${qHandoff().toolUseId}`]);
+      const start = Date.parse('2026-09-09T03:25:54Z');
+      expect(hasNativePlanTerminal(transcript, report, start, 'plan_ready')).toBe(false);
+      expect(hasNativePlanTerminal(transcript, report, start, 'plan_ready', administrative)).toBe(true);
+      transcript.planReadyRequests[0]!.failed = true;
+      expect(hasNativePlanTerminal(transcript, report, start, 'plan_ready', administrative)).toBe(false);
+      transcript.planReadyRequests = structuredClone(capturedQ.planReadyRequests);
+      fs.utimesSync(report, start / 1000, start / 1000);
+      expect(hasNativePlanTerminal(transcript, report, start, 'plan_ready', administrative)).toBe(false);
+      fs.writeFileSync(report, 'Incomplete plan');
+      fs.utimesSync(report, reportAt, reportAt);
+      expect(hasNativePlanTerminal(transcript, report, start, 'plan_ready', administrative)).toBe(false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });

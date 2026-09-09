@@ -162,3 +162,35 @@ describe('structured native stale-fill finding', () => {
 
   ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
 });
+
+
+// Actual Q report amended the original contract to accept later stale reads.
+// The oracle must not count that permission paragraph as an unresolved defect.
+describe('accepted consistency model is not a stale-fill finding', () => {
+  const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-loading-q-report.md'), 'utf8');
+  const accepted = report.slice(report.indexOf('- **AMENDED (stale-fill race):**'), report.indexOf('\n\n', report.indexOf('- **AMENDED (stale-fill race):**')));
+  test('rejects the exact amended consistency paragraph', () => {
+    expect(accepted).toMatch(/accepted consistency\s+model/);
+    expect(hasStaleFillRaceFinding(accepted)).toBe(false);
+  });
+  test('rejects the complete Q report that accepts the late-fill race', () => {
+    expect(hasStaleFillRaceFinding(report)).toBe(false);
+  });
+  test.each([
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. This is the accepted consistency model; TTL expiry is the consistency deadline.',
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. This remains the documented consistency contract.',
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. This is an intentional consistency policy.',
+  ])('rejects a declared consistency allowance: %s', text => {
+    expect(hasStaleFillRaceFinding(text)).toBe(false);
+  });
+  test.each([
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. Every later read must observe the committed version; this is the accepted consistency model. The stale refill violates that contract.',
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. Every later read must observe the committed version. This is the accepted consistency model. The stale refill violates that contract.',
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value, violating the accepted consistency model.',
+    'An in-flight read refills stale data after write invalidation. The accepted consistency model requires a subsequent read to observe the committed version; this violates that contract.',
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. This is not the accepted consistency model.',
+    'An in-flight read refills stale data after write invalidation. A subsequent read sees the old value. This is not an accepted consistency model.',
+  ])('retains an unresolved later-reader violation without demanding a correct remedy: %s', text => {
+    expect(hasStaleFillRaceFinding(text)).toBe(true);
+  });
+});

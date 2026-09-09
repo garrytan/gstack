@@ -154,7 +154,7 @@ export function hasStaleFillRaceFinding(report: string): boolean {
     const claims = context.split(/(?:[.!?]\s+|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i);
     const violation = claims.some(claim => /\b(?:violat\w*|break\w*)\b[^.!?]*\b(?:contract|guarantee|consistency|rule)\b/i.test(claim)
       && !/\b(?:not|no|never)\b/i.test(claim));
-    for (const claim of claims) {
+    for (const [claimIndex, claim] of claims.entries()) {
       // "Not permitted" is a violation assertion, not permission. Scope a
       // permitted old result to its original caller; it cannot justify a
       // cache fill or a later reader observing that same old version.
@@ -164,8 +164,21 @@ export function hasStaleFillRaceFinding(report: string): boolean {
       const proposedPrevention = /^(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\b/i.test(claim.trim())
         && /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(claim)
         && /\b(?:so(?:\s+that)?|to\s+ensure)\b/i.test(claim);
+      // The model declaration must accept the stale consequence itself.
+      // A normative freshness requirement called an accepted model is not a
+      // dismissal. Bare "This" can refer only to the preceding stale claim.
+      const modelDeclaration = /^(.+?)\s+(?:is|remains)\s+(?:(?:the|an?)\s+)?(?:accepted|expected|intentional|documented)\s+consistency\s+(?:model|contract|policy|semantics)\b/i.exec(allowanceText.trim());
+      const subject = modelDeclaration?.[1] ?? '';
+      const previousClaim = claims[claimIndex - 1] ?? '';
+      const explicitStaleSubject = /^(?:this|the|an?)\s+(?:bounded\s+)?(?:inconsistency|staleness|stale[- ](?:read|fill)|stale\s+(?:read|fill|refill))(?:\s+(?:window|behavior|behaviour|race|consequence))?$/i.test(subject);
+      const impliedStaleSubject = /^this$/i.test(subject)
+        && /\b(?:stale|outdated|old(?:er)?\s+(?:value|snapshot|data))\b/i.test(previousClaim)
+        && /\b(?:read|fetch|fill|refill|repopulat)\w*\b/i.test(previousClaim)
+        && !/\b(?:must|shall|requires?|violat\w*|not|cannot|can't)\b/i.test(previousClaim);
+      const acceptedStaleModel = Boolean(modelDeclaration) && (explicitStaleSubject || impliedStaleSubject);
       const dismissal = /\b(?:not|isn't)\s+(?:a\s+|an\s+)?(?:gap|bug|defect|issue|violation|problem)\b|\bno\s+(?:gap|bug|defect|issue|violation|race)\b/i.test(claim)
         || /\b(?:accepted|expected|intentional|documented)\s+(?:invariant|behavior|trade[- ]off|stale[- ]read\s+window)\b|\b(?:allowed|permitted|acceptable)\b/i.test(allowanceText)
+        || acceptedStaleModel
         || (!proposedPrevention && /\b(?:cannot|can't|never|does not|will not)\s+(?:\w+\s+){0,3}(?:refill|repopulate|populate|insert|store|cache|set|violate)\b/i.test(claim))
         || /\bno\s+(?:fix|change|coordination|guard)\s+(?:is\s+)?(?:needed|required)\b/i.test(claim);
       if (!dismissal) continue;

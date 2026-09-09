@@ -1,0 +1,246 @@
+{
+  "sourceRun": "ship-source-q-full-paid-20260909-0325",
+  "nativeSha256": "7efda14792d1e26a713915f86548f7bdb11f9802b57a8e1e61aa0d9b5282646b",
+  "sourceProof": "/home/vercel-sandbox/gstack/.context/ship-source-q-full-paid-20260909-0325/design-closure-observation-v1/proof.json",
+  "historicalOutcome": "Still pending at capture; no historical pass is asserted.",
+  "calls": [
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_01TBHyJ3rHbngqPoeedfgmYq",
+      "questions": [
+        {
+          "question": "Pass 1 \u2014 Visual Hierarchy: The plan lists this gap but has no fix. The Save button renders with the same size, weight, and color as Reset, Cancel, and Export. DESIGN.md already specifies the remedy: Save gets #1d4ed8 fill with white text; the other three are ghost neutral buttons. Should I add this fix specification to the plan? <gstack-qid:plan-design-review-gap1-visual-hierarchy>",
+          "header": "Save button",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add DESIGN.MD fix to plan (recommended)",
+              "description": "Add a plan task specifying: Save = filled #1d4ed8/white; Reset, Cancel, Export = ghost neutral. This is a pre-approved token \u2014 no new design call needed. Implementer has unambiguous spec."
+            },
+            {
+              "label": "Defer to implementer",
+              "description": "Leave the gap description in place without a specified remedy. Risk: engineer may invent their own solution that doesn't match the design system."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Pass 1 \u2014 Visual Hierarchy: The plan lists this gap but has no fix. The Save button renders with the same size, weight, and color as Reset, Cancel, and Export. DESIGN.md already specifies the remedy: Save gets #1d4ed8 fill with white text; the other three are ghost neutral buttons. Should I add this fix specification to the plan? <gstack-qid:plan-design-review-gap1-visual-hierarchy>": "Add DESIGN.MD fix to plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:30:35.365Z"
+    },
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_013o6wpww76uhGbvtuuheSad",
+      "questions": [
+        {
+          "question": "Pass 2 \u2014 Interaction States: The Save action takes 2\u20135 seconds with no visible indicator. Users see a frozen page and may double-click or assume failure. DESIGN.md already specifies the remedy: an inline spinner beside \u201cSaving\u2026\u201d inside the disabled Save button, aria-busy=true, with reduced-motion support. Should I add this pending-state specification to the plan? <gstack-qid:plan-design-review-gap5-motion>",
+          "header": "Save pending",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add DESIGN.MD pending-state spec to plan (recommended)",
+              "description": "Add a task specifying: spinner + \u201cSaving\u2026\u201d label inside disabled button, aria-busy=true, prefers-reduced-motion respected. Closes the frozen-UI gap and the a11y pending-state gap."
+            },
+            {
+              "label": "Defer to implementer",
+              "description": "Leave the motion gap described but unspecified. Risk: implementer ships a toast, a full-page overlay, or nothing, diverging from the design system\u2019s established pending pattern."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Pass 2 \u2014 Interaction States: The Save action takes 2\u20135 seconds with no visible indicator. Users see a frozen page and may double-click or assume failure. DESIGN.md already specifies the remedy: an inline spinner beside \u201cSaving\u2026\u201d inside the disabled Save button, aria-busy=true, with reduced-motion support. Should I add this pending-state specification to the plan? <gstack-qid:plan-design-review-gap5-motion>": "Add DESIGN.MD pending-state spec to plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:30:45.386Z"
+    },
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_014HrXmHX33zRzu2A89Z5jzA",
+      "questions": [
+        {
+          "question": "Pass 5 \u2014 Design System: Spacing is inconsistent \u2014 24px in some places, 32px in others, 16px in a third. DESIGN.md specifies a clear 8px-base scale: sections 32px apart, field groups 24px, label-to-input 8px. Should I add this spacing specification to the plan? <gstack-qid:plan-design-review-gap2-spacing>",
+          "header": "Spacing scale",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add DESIGN.MD spacing scale to plan (recommended)",
+              "description": "Document the 8px-base values (32px/24px/8px) as implementation requirements. Gives the engineer exact values instead of a problem description. Uneven rhythm ships unnoticed otherwise."
+            },
+            {
+              "label": "Defer to implementer",
+              "description": "Leave the spacing gap named but without specified values. Risk: engineer picks values that feel right locally but don\u2019t match the design system, and the inconsistency persists."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Pass 5 \u2014 Design System: Spacing is inconsistent \u2014 24px in some places, 32px in others, 16px in a third. DESIGN.md specifies a clear 8px-base scale: sections 32px apart, field groups 24px, label-to-input 8px. Should I add this spacing specification to the plan? <gstack-qid:plan-design-review-gap2-spacing>": "Add DESIGN.MD spacing scale to plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:30:53.401Z"
+    },
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_016jvUA2qsEoHfK2NiMj9REw",
+      "questions": [
+        {
+          "question": "Pass 5/6 \u2014 Color & Accessibility: The error message uses red text on a light pink background at ~3:1 contrast \u2014 below WCAG AA (requires 4.5:1). DESIGN.md already specifies the fix: #991b1b text on #fef2f2 background, which computes to ~6.9:1 (verified). Should I add these exact color tokens as the required remedy? <gstack-qid:plan-design-review-gap3-error-contrast>",
+          "header": "Error contrast",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add #991b1b/#fef2f2 tokens to plan (recommended)",
+              "description": "Specify the exact DESIGN.MD error token values as the fix. Resolves the WCAG AA violation. The computed contrast (~6.9:1) well exceeds the 4.5:1 requirement."
+            },
+            {
+              "label": "Defer to implementer",
+              "description": "Leave the contrast gap described without specifying the correct colors. Risk: engineer picks a different red-on-pink combination that may or may not meet WCAG AA."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Pass 5/6 \u2014 Color & Accessibility: The error message uses red text on a light pink background at ~3:1 contrast \u2014 below WCAG AA (requires 4.5:1). DESIGN.md already specifies the fix: #991b1b text on #fef2f2 background, which computes to ~6.9:1 (verified). Should I add these exact color tokens as the required remedy? <gstack-qid:plan-design-review-gap3-error-contrast>": "Add #991b1b/#fef2f2 tokens to plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:31:03.427Z"
+    },
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_01HxoveAbVUy1V6DpmH9yNwD",
+      "questions": [
+        {
+          "question": "Pass 5 \u2014 Typography: The form uses three font sizes \u2014 14px, 16px, and 18px. DESIGN.md specifies two roles only: 16px for body/form labels/helper text, 20px for section headings. Should I add this two-size constraint to the plan, specifying which elements map to which size? <gstack-qid:plan-design-review-gap4-typography>",
+          "header": "Type scale",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add 16px/20px type scale to plan (recommended)",
+              "description": "Specify that all body text, form labels, and helper text use 16px; section headings use 20px. Gives the engineer a clear mapping and eliminates the third size."
+            },
+            {
+              "label": "Defer to implementer",
+              "description": "Leave the three-size problem named but unresolved. Risk: engineer removes one size but doesn\u2019t know which, or defaults to a system that doesn\u2019t match the type scale."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Pass 5 \u2014 Typography: The form uses three font sizes \u2014 14px, 16px, and 18px. DESIGN.md specifies two roles only: 16px for body/form labels/helper text, 20px for section headings. Should I add this two-size constraint to the plan, specifying which elements map to which size? <gstack-qid:plan-design-review-gap4-typography>": "Add 16px/20px type scale to plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:31:09.436Z"
+    },
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_01JTzc9a8SMq3mxCQSt3pC8c",
+      "questions": [
+        {
+          "question": "Design review is complete (5/10 \u2192 9/10, 5 decisions added). What\u2019s next? <gstack-qid:plan-design-review-next-steps>",
+          "header": "Next steps",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /plan-eng-review (recommended)",
+              "description": "Required gate before shipping. This design review added specific interaction specs (pending states, color tokens, spacing values) that need architectural validation."
+            },
+            {
+              "label": "Run /design-shotgun",
+              "description": "Explore visual variants for the settings form. Useful if you want to see the approved design decisions rendered before implementation."
+            },
+            {
+              "label": "Skip \u2014 handle next steps manually",
+              "description": "Close out the review here. You can run /plan-eng-review or other reviews manually when ready."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Design review is complete (5/10 \u2192 9/10, 5 decisions added). What\u2019s next? <gstack-qid:plan-design-review-next-steps>": "Run /plan-eng-review (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T03:33:57.456Z"
+    }
+  ],
+  "planReadyRequests": [
+    {
+      "sessionId": "d783a750-f024-47d5-8b67-77213e37e618",
+      "toolUseId": "toolu_015unza5DGEz6ugXgPYcJxBe",
+      "timestamp": "2026-09-09T03:34:09.253Z",
+      "failed": false,
+      "source": "pre_tool_use"
+    }
+  ],
+  "report": {
+    "content": "# Design Review: Settings Page UI Redesign\n\n## Context\n\nThis is a designer's-eye review of the Settings Page UI redesign plan. The plan updates an existing account-settings form against a checked-in DESIGN.md. The shell and components exist; the plan identifies five implementation gaps where the current form diverges from the approved design. This review's job is to ensure those gaps have specified, DESIGN.md-aligned remedies before implementation begins.\n\n---\n\n## PRE-REVIEW SYSTEM AUDIT\n\n- **DESIGN.md**: Present and comprehensive. All design decisions calibrate against it.\n- **UI scope**: Account settings form \u2014 action group, inline status, two fieldsets (Profile + Notifications). Single-column layout with responsive breakpoint at 640px.\n- **Existing components**: Button, Field, InlineStatus, ErrorSummary, ConfirmationDialog \u2014 no new component family needed.\n- **Prior design reviews**: None in review log (first run on this plan).\n- **Retrospective check**: No prior flagged areas to escalate.\n\n---\n\n## Step 0: Design Scope Assessment\n\n### 0A. Initial Rating: 5/10\n\nThe plan is thorough on **accepted behavior** (DOM order, state machine, responsive specs, a11y, confirmation dialogs, focus management). That foundation is solid. But the \"Planned implementation gaps\" section lists five bugs without fixes \u2014 naming the disease without prescribing treatment. A 10/10 plan for this scope would have: approved remedies for each gap, a journey storyboard, and an explicit implementation task list.\n\n### 0B. DESIGN.md Status\n\nDESIGN.md exists and is detailed. It prescribes specific colors, spacing values, type sizes, and interaction patterns. Every gap in the plan has a corresponding DESIGN.md token. The fix path is clear \u2014 apply what's already approved.\n\n### 0C. Existing Design Leverage\n\n| Asset | Detail |\n|---|---|\n| Button component | Save = filled #1d4ed8/white; Reset, Cancel, Export = ghost neutral |\n| Spacing scale | 8px base: sections 32px, field groups 24px, label-to-input 8px |\n| Type scale | 16px body/labels/helper; 20px section headings |\n| Error colors | `#991b1b` on `#fef2f2` (computed contrast ~6.9:1, exceeds WCAG AA) |\n| Pending pattern | Spinner + \"Saving\u2026\" inside disabled Save button, `aria-busy=true`, reduced-motion support |\n| Focus ring | 2px solid `#1d4ed8`, offset 2px; measured contrast above 3:1 |\n\n### 0D. Focus Areas\n\nUser requested all 7 dimensions. Mockups skipped (text-only review). Proceeding to passes.\n\n---\n\n## Pass 1: Information Architecture \u2014 7/10\n\n**What works:** DOM and visual order are explicitly defined. Heading hierarchy (h1 \u2192 h2 \u2192 h2) is correct and semantic. The fieldsets are labeled via `aria-labelledby`. Action group position (above InlineStatus, above fieldsets) is specified.\n\n**Gap 1 \u2014 Save button has no visual primacy (PENDING)**\n\n> The plan lists this as a known gap but provides no fix: \"The 'Save' button is rendered with the same size, weight, and color as three other buttons.\"\n\nDESIGN.md specifies: *\"Save is the only filled primary action (#1d4ed8 with white text). Reset, Cancel and Export are neutral ghost buttons.\"*\n\nWithout this distinction, users can't scan the page and know what the primary action is. All four buttons compete equally. This violates the hierarchy principle: **what should the user see/do first is visually unclear.**\n\n**Proposed remedy:** Apply `#1d4ed8` fill with white text to Save only; render Reset, Cancel, Export as ghost buttons per DESIGN.md. This is already an approved DESIGN.md token \u2014 no new decision needed, only application.\n\n**Decision: APPROVED** \u2014 Apply `#1d4ed8` fill with white text to Save; render Reset, Cancel, Export as ghost neutral buttons per DESIGN.MD.\n\n**Re-rated: 9/10** (structure solid; action group hierarchy now specified).\n\n---\n\n## Pass 2: Interaction State Coverage \u2014 7/10\n\n**State inventory vs. plan coverage:**\n\n| Feature | Loading | Empty | Error | Success | Pending | Dirty | Partial |\n|---|---|---|---|---|---|---|---|\n| Form load | Skeleton \u2713 | Defaults \u2713 | Retry \u2713 | \u2014 | \u2014 | \u2014 | \u2014 |\n| Save | **MISSING** | \u2014 | Retain edits + error \u2713 | \"Saved at HH:mm\" \u2713 | **MISSING** | \"Unsaved changes\" \u2713 | Atomic \u2713 |\n| Export | \u2014 | \u2014 | Inline error + Retry \u2713 | Clears export error \u2713 | \u2014 | \u2014 | \u2014 |\n| Reset | \u2014 | \u2014 | \u2014 | Restores save timestamp \u2713 | \u2014 | \u2014 | \u2014 |\n\n**Gap 5 \u2014 No loading/pending indicator for Save (PENDING)**\n\n> The plan states: \"The 'Save' action takes 2-5 seconds with no loading indicator. Users see a frozen page.\"\n\nDESIGN.md specifies: *\"The established pending-action pattern is an inline spinner beside 'Saving\u2026' inside the disabled Save button, aria-busy=true, with reduced-motion support.\"*\n\nWithout this: users see a frozen UI for 2-5 seconds, may double-click, may assume failure. The Save button state table has two missing cells.\n\n**Proposed remedy:** Add inline spinner + \"Saving\u2026\" text inside the disabled Save button with `aria-busy=true`; honor `prefers-reduced-motion` by reducing or removing spinner animation. This is an existing DESIGN.md pattern.\n\n**Decision: APPROVED** \u2014 Add inline spinner + \"Saving\u2026\" inside disabled Save button, `aria-busy=true`, `prefers-reduced-motion` respected (spinner hidden or replaced with static indicator).\n\n**Re-rated: 9/10**\n\n---\n\n## Pass 3: User Journey & Emotional Arc \u2014 7/10\n\nThe journey is described in prose. Rendered as the required storyboard from accepted requirements:\n\n| Step | User Does | User Feels | Plan Specifies? |\n|---|---|---|---|\n| 1 | Arrives from account navigation | Oriented \u2014 knows this is settings | \u2713 h1 \"Account settings\" + description |\n| 2 | Sees form with saved values | Safe \u2014 their data is pre-filled | \u2713 DESIGN.md defaults (account name/email, digest on, tips off) |\n| 3 | Edits a field | Engaged; slightly uncertain | \u2713 \"Unsaved changes\" status appears |\n| 4 | Clicks Save | Anxious for 2\u20135 sec (current gap) | \u2717 No spinner \u2192 frozen page |\n| 5 | Sees \"Saved at HH:mm\" | Confident, complete | \u2713 InlineStatus aria-live |\n| 6 | Considers leaving (Cancel) | Needs confirmation if dirty | \u2713 ConfirmationDialog |\n| 7 | Returns to previous page | Done | \u2713 destination-main-heading focus |\n\n**Step 4 is the emotional low point** \u2014 the frozen UI during Save erodes trust precisely when the user is most invested. This reinforces Gap 5 (Motion). No separate finding needed here; the storyboard confirms the pending-state gap is critical.\n\n**5-second test:** The h1 \"Account settings\" and action group are immediately visible. Primary action is NOT visually distinct (reinforces Gap 1). The InlineStatus gives confidence after save.\n\n**Time-horizon check:**\n- **5-sec visceral:** Layout clear, but Save doesn't stand out \u2717\n- **5-min behavioral:** State transitions (dirty\u2192saved\u2192blank) are fully specified \u2713\n- **5-yr reflective:** Users will trust the \"Saved at HH:mm\" feedback if it always appears \u2713\n\n**No new finding from Pass 3** beyond Gaps 1 and 5 already noted. Storyboard added above.\n\n**Re-rating: 8/10** (storyboard now present; Step 4 gap resolves with Gap 5 fix)\n\n---\n\n## Pass 4: AI Slop Risk \u2014 9/10\n\n**Classifier: APP UI** (account settings form \u2014 task-focused, not marketing).\n\n**Hard rejection checklist:**\n- [ ] Generic SaaS card grid as first impression \u2192 No \u2014 single-column form\n- [ ] App UI made of stacked cards instead of layout \u2192 No \u2014 fieldsets with semantic structure\n\n**Litmus checks:**\n1. Brand/product unmistakable? \u2192 Yes (persistent app nav + h1)\n2. One strong visual anchor? \u2192 Yes (action group at top)\n3. Scannable by headlines only? \u2192 Yes (h1, two h2s)\n4. Each section has one job? \u2192 Yes (Profile / Notifications are distinct)\n5. Cards necessary? \u2192 N/A \u2014 no cards\n6. Motion improves hierarchy? \u2192 Not yet (pending Gap 5 fix)\n7. Premium without decorative shadows? \u2192 Yes\n\n**Universal rule check:**\n- CSS variables for colors: not specified \u2014 PENDING (see Pass 5)\n- Font stack: `system-ui, sans-serif` \u2014 noted as accepted in the plan (\"Retain the existing system-ui, sans-serif font family\"). This is an existing choice; AI slop rule #11 flags `system-ui` as a display font cop-out, but for a settings page (utility context, not brand page), it's acceptable.\n- No placeholder-as-label: not mentioned \u2014 existing components handle this\n- Copy is utility language: \u2713 (\"Account settings\", \"Display name\", \"Weekly digest\")\n\n**No blocking AI slop findings.** Score stays 9/10. The `system-ui` font note is informational \u2014 it's an established project choice, not a new gap.\n\n---\n\n## Pass 5: Design System Alignment \u2014 4/10 \u2192 target 9/10 after fixes\n\nDESIGN.md exists and is complete. But the plan explicitly lists five divergences. Each has a clear DESIGN.md remedy:\n\n| Gap | Current | DESIGN.MD specifies | Fix |\n|---|---|---|---|\n| 1. Visual Hierarchy | All 4 buttons equal weight/color | Save: `#1d4ed8` fill / white. Others: ghost neutral | Apply button variants \u2014 **APPROVED** |\n| 2. Spacing | 24px / 32px / 16px mixed | 8px base: sections 32px, groups 24px, label 8px | Enforce spacing scale \u2014 **APPROVED** |\n| 3. Color/Contrast | Error: ~3:1 contrast | `#991b1b` on `#fef2f2` (~6.9:1) | Apply error tokens \u2014 **APPROVED** |\n| 4. Typography | 14px / 16px / 18px (3 sizes) | 16px body/labels, 20px headings (2 sizes) | Collapse to 2-size scale \u2014 **APPROVED** |\n| 5. Motion | No indicator during Save | Spinner + \"Saving\u2026\", `aria-busy=true`, reduced-motion | Apply pending pattern \u2014 **APPROVED** |\n\nGaps 1 and 5 are covered under Passes 1 and 2. Remaining gaps from this pass requiring decisions:\n\n**Gap 2 \u2014 Spacing inconsistency (PENDING)**\n\n> Mixed values: 24px/32px/16px. DESIGN.MD: sections 32px, field groups 24px, label-to-input 8px.\n\nWithout consistent rhythm, the form feels unintentional. Users subconsciously read uneven spacing as a signal of low craft.\n\n**Decision: APPROVED** \u2014 Enforce 8px-base values: sections 32px, field groups 24px, label-to-input 8px. No 16px section gaps.\n\n**Gap 3 \u2014 Error contrast below WCAG AA (APPROVED)**\n\n> Current: ~3:1. DESIGN.MD: `#991b1b` on `#fef2f2` computes to ~6.9:1 (verified).\n\nThe DESIGN.MD already specifies accessible error colors. The plan flags a violation but the fix is to use what's already approved.\n\n**Decision: APPROVED** \u2014 Use `#991b1b` text on `#fef2f2` background for all error messages. Computed contrast ~6.9:1 (exceeds WCAG AA 4.5:1).\n\n**Gap 4 \u2014 Typography: 3 sizes instead of 2 (APPROVED)**\n\n> 14px / 16px / 18px. DESIGN.MD: 16px body/labels/helper, 20px section headings.\n\nThe extra size (likely 18px field labels OR 14px helper text that diverges) creates visual ambiguity. Two sizes builds hierarchy; three creates noise.\n\n**Decision: APPROVED** \u2014 Use 16px for all body text, form labels, and helper text; 20px for section headings (h2). No 14px or 18px values.\n\n---\n\n## Pass 6: Responsive & Accessibility \u2014 9/10\n\n**What the plan specifies well:**\n- 640px breakpoint: Save full-width, three secondary in equal-column row below\n- 320px min-width without horizontal scroll (including 44px targets)\n- Focus-visible: 2px solid `#1d4ed8`, offset 2px, contrast >3:1\n- Dialog focus trap + Escape cancels\n- `role=status`, `aria-live=polite`, `aria-atomic=true` on InlineStatus\n- `aria-describedby` links errors to fields\n- Retry controls outside the live region\n- Reduced-motion specified (for pending animation)\n- Tab/DOM order preserved in responsive layout\n\n**One issue from Pass 5 lands here too:**\n\n**Gap 3 cross-reference \u2014 Error contrast**: already flagged above. Fixing the error token (#991b1b on #fef2f2) also resolves the a11y violation. No separate approval needed beyond Pass 5, Issue 3.\n\n**No new findings in Pass 6.** Re-rating: 9/10 (remains pending Gap 3 fix for full WCAG AA compliance on errors).\n\n---\n\n## Pass 7: Unresolved Design Decisions \u2014 4/10 \u2192 target 9/10\n\nFive gaps listed without remedies. Decision status:\n\n| Decision | Status | Approved Remedy |\n|---|---|---|\n| 1. Save button primary styling | **APPROVED** | `#1d4ed8` fill/white for Save; ghost neutral for Reset, Cancel, Export |\n| 2. Spacing scale enforcement | **APPROVED** | sections 32px, field groups 24px, label-to-input 8px |\n| 3. Error color/contrast | **APPROVED** | `#991b1b` on `#fef2f2` (~6.9:1 contrast) |\n| 4. Typography 2-size reduction | **APPROVED** | 16px body/labels, 20px headings \u2014 no 14px or 18px |\n| 5. Save pending indicator | **APPROVED** | Spinner + \"Saving\u2026\" inside disabled button, `aria-busy=true`, reduced-motion |\n\nAll five decisions resolved. 5 added to plan. 0 deferred.\n\n---\n\n## TODOS.md Updates\n\nNo deferred design debt to propose \u2014 all five gaps were approved and are now in implementation tasks. No new TODOS.md items.\n\n---\n\n## Completion Summary\n\n```\n+====================================================================+\n|         DESIGN PLAN REVIEW \u2014 COMPLETION SUMMARY                    |\n+====================================================================+\n| System Audit         | DESIGN.md present, UI scope = settings form |\n| Step 0               | Initial 5/10; 5 gaps, no mockups (text-only)|\n| Pass 1  (Info Arch)  | 7/10 \u2192 9/10 after Save hierarchy fix       |\n| Pass 2  (States)     | 7/10 \u2192 9/10 after pending-state fix        |\n| Pass 3  (Journey)    | 6/10 \u2192 8/10 storyboard added               |\n| Pass 4  (AI Slop)    | 9/10 \u2192 9/10 no findings (APP UI, clean)    |\n| Pass 5  (Design Sys) | 4/10 \u2192 9/10 all 5 DESIGN.MD gaps resolved  |\n| Pass 6  (Responsive) | 9/10 \u2192 9/10 no new findings                |\n| Pass 7  (Decisions)  | 5 resolved, 0 deferred                     |\n+--------------------------------------------------------------------+\n| NOT in scope         | written (6 items)                           |\n| What already exists  | written                                     |\n| TODOS.md updates     | 0 items (all gaps resolved)                 |\n| Approved Mockups     | 0 generated (text-only review)              |\n| Decisions made       | 5 added to plan                             |\n| Decisions deferred   | 0                                           |\n| Overall design score | 5/10 \u2192 9/10                                 |\n+====================================================================+\n```\n\nPlan is design-complete. Run /design-review after implementation for visual QA.\n\n---\n\n## NOT In Scope\n\n- New component families (plan explicitly excludes these)\n- Visual exploration beyond the established single-column form\n- Font family changes (system-ui is an established project choice)\n- New interaction patterns beyond existing Button, Field, InlineStatus, ErrorSummary, ConfirmationDialog\n- New default preference values beyond what DESIGN.MD specifies\n\n---\n\n## What Already Exists\n\n- **DESIGN.MD**: Complete design system for this form. All gap remedies are pre-approved tokens.\n- **Button**: Filled primary (#1d4ed8/white) and ghost neutral variants already defined\n- **InlineStatus**: role=status, aria-live, aria-atomic behavior already specified\n- **ErrorSummary**: Error display patterns (including color tokens) already defined\n- **ConfirmationDialog**: Dialog patterns (Reset / Cancel navigation) already specified\n- **Spacing scale**: 8px base with 32px/24px/8px documented values\n- **Type scale**: 16px/20px two-role system\n\n---\n\n## Implementation Tasks\n\n*(Populated after user approvals of Gaps 1\u20135)*\n\n- [ ] **T1 (P1, human: ~30min / CC: ~5min)** \u2014 Button \u2014 Apply primary/ghost button variants to action group\n  - Surfaced by: Pass 1 \u2014 Save rendered same weight as Reset/Cancel/Export\n  - Files: action group component / CSS\n  - Verify: Visual check \u2014 Save is filled blue, others are ghost; all 44px targets maintained\n- [ ] **T2 (P1, human: ~1h / CC: ~10min)** \u2014 Layout \u2014 Enforce 8px spacing scale throughout form\n  - Surfaced by: Pass 5 \u2014 mixed 16px/24px/32px values\n  - Files: Form layout / CSS spacing tokens\n  - Verify: Sections at 32px, field groups at 24px, label-to-input at 8px; no 16px section gaps\n- [ ] **T3 (P1, human: ~15min / CC: ~3min)** \u2014 ErrorSummary \u2014 Apply #991b1b/#fef2f2 error color tokens\n  - Surfaced by: Pass 5/6 \u2014 ~3:1 contrast below WCAG AA\n  - Files: Error display component / CSS color tokens\n  - Verify: Computed contrast of #991b1b on #fef2f2 \u2265 4.5:1 (actual: ~6.9:1); screen-reader test\n- [ ] **T4 (P1, human: ~30min / CC: ~5min)** \u2014 Typography \u2014 Collapse to 16px/20px two-size scale\n  - Surfaced by: Pass 5 \u2014 14px/16px/18px creates visual noise\n  - Files: Form labels / CSS type tokens\n  - Verify: Only 16px (body/labels/helper) and 20px (section headings) used; no 14px or 18px\n- [ ] **T5 (P1, human: ~1h / CC: ~15min)** \u2014 Save button \u2014 Add spinner + \"Saving\u2026\" + aria-busy pending state\n  - Surfaced by: Pass 2 \u2014 2-5s frozen UI during Save\n  - Files: Save button component / pending state handler\n  - Verify: Spinner appears on click, \"Saving\u2026\" label, button disabled, aria-busy=true; reduced-motion: spinner hidden or replaced with static indicator\n\n---\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | \u2014 | \u2014 |\n| Outside Review | \u2014 | Independent 2nd opinion | 0 | \u2014 | \u2014 |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | \u2014 |\n| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | score: 5/10 \u2192 9/10, 5 decisions |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | \u2014 |\n\n**VERDICT:** Design Review CLEAR \u2014 eng review required before shipping.\n\nNO UNRESOLVED DECISIONS\n",
+    "successfulUpdateAt": "2026-09-09T03:33:19.861Z",
+    "nativeModifications": [
+      {
+        "toolUseId": "toolu_01Vdf8ALCNVDNAXRf59ygKui",
+        "calledAt": "2026-09-09T03:30:20.268Z",
+        "succeededAt": "2026-09-09T03:30:21.930Z"
+      },
+      {
+        "toolUseId": "toolu_01N2JauknBNhPqxazCrzdHon",
+        "calledAt": "2026-09-09T03:31:26.243Z",
+        "succeededAt": "2026-09-09T03:31:27.520Z"
+      },
+      {
+        "toolUseId": "toolu_013wUGUX1gxiGxKtGFP7tRrr",
+        "calledAt": "2026-09-09T03:31:31.653Z",
+        "succeededAt": "2026-09-09T03:31:33.036Z"
+      },
+      {
+        "toolUseId": "toolu_01GUcB6gkCKfHdj7oqC4Kuae",
+        "calledAt": "2026-09-09T03:31:37.421Z",
+        "succeededAt": "2026-09-09T03:31:38.569Z"
+      },
+      {
+        "toolUseId": "toolu_01VKbXVApCrE127TCj74fpV1",
+        "calledAt": "2026-09-09T03:31:42.830Z",
+        "succeededAt": "2026-09-09T03:31:44.069Z"
+      },
+      {
+        "toolUseId": "toolu_01QxFKJCB6BMGa4miwg9c74B",
+        "calledAt": "2026-09-09T03:31:47.833Z",
+        "succeededAt": "2026-09-09T03:31:49.579Z"
+      },
+      {
+        "toolUseId": "toolu_01XjKgUbKMiSDXRv6SJ8LukY",
+        "calledAt": "2026-09-09T03:31:58.766Z",
+        "succeededAt": "2026-09-09T03:31:59.098Z"
+      },
+      {
+        "toolUseId": "toolu_014HJ5Q8ncq64PgkG3nxpj7w",
+        "calledAt": "2026-09-09T03:32:09.979Z",
+        "succeededAt": "2026-09-09T03:32:10.625Z"
+      },
+      {
+        "toolUseId": "toolu_013egZir3S1N16cEFVSjzXNX",
+        "calledAt": "2026-09-09T03:32:25.091Z",
+        "succeededAt": "2026-09-09T03:32:26.207Z"
+      },
+      {
+        "toolUseId": "toolu_01MqwaBg4uLpa5s4iCMtir4r",
+        "calledAt": "2026-09-09T03:33:18.271Z",
+        "succeededAt": "2026-09-09T03:33:19.861Z"
+      }
+    ]
+  },
+  "screen": "      319 +| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | \u2014 |                          \n      320 +                                                                                                      \n      321 +**VERDICT:** Design Review CLEAR \u2014 eng review required before shipping.                               \n      322 +                                                                                                      \n      323 +NO UNRESOLVED DECISIONS                                                                               \n\n\u25cf Now let me verify the plan file ends correctly with ## GSTACK REVIEW REPORT as the last heading and NO UNRESOLVED\n  DECISIONS as the final non-whitespace line.\n\n  Read 1 file (ctrl+o to expand)\n\n\u25cf Gate checks pass. Logging learnings and running final steps.\n\n\u25cf Bash(~/.claude/skills/gstack/bin/gstack-learnings-log\n      '{\"skill\":\"plan-design-review\",\"type\":\"operational\",\"key\":\"design-md-error-colors-contrast\",\"insight\":\"DESIGN.m\u2026)\n  \u23bf \u00a0LEARNING_LOGGED\n  \u23bf \u00a0Allowed by auto mode classifier\n\n\u25cf\u00a0User answered Claude's questions:\n  \u23bf \u00a0\u00b7 Design review is complete (5/10 \u2192 9/10, 5 decisions added). What\u2019s next?\n     <gstack-qid:plan-design-review-next-steps> \u2192 Run /plan-eng-review (recommended)\n \n\u25cf Bash(~/.claude/skills/gstack/bin/gstack-skill-end --skill \"plan-design-review\" --outcome success \\\n        --session-id \"2661353-1788924381-77a97d17\" --tel-start \"17889243\u2026)\n  \u23bf \u00a0SKILL_END: recorded outcome=success duration_s=462\n     TEL_OK\n  \u23bf \u00a0Allowed by auto mode classifier\n  \n\u25cf All done. The review report is written to\n  /tmp/gstack-paid-shard-fORfDd/tmp/gstack-e2e-plan-design-VZoWd7/gstack-test-plan-design.md.\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n Exit plan mode?\n\n  Claude wants to exit plan mode\n\n  \u276f 1. Yes, and switch to default (ask each time) for this session\n    2. No\n\n"
+}

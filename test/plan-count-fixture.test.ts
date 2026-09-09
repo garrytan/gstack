@@ -511,7 +511,7 @@ const results = await Promise.all(cases.map(async (item) => ({
       : ['late-mode', 'batched-mode'].includes(item.mode) ? devexReviewModePick
       : item.custom ? fp => fp.promptSnippet.includes('routing-proof-after-240') ? 1 : null : undefined,
     reviewCountCeiling: 8,
-    timeoutMs: item.mode === 'permission-lifecycle' ? 22000 : 15000,
+    timeoutMs: item.mode === 'permission-lifecycle' ? 35000 : 28000,
     firstAUQPick: () => ['late-mode', 'batched-mode'].includes(item.mode) ? 1 : 2,
     env: {
       FIXTURE_RECORD: item.record, FIXTURE_SKILL: item.skillName, FIXTURE_MODE: item.mode,

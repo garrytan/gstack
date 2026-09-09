@@ -1460,10 +1460,11 @@ export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint): numbe
   const skip = fp.options.filter(({ label }) =>
     /^Skip\s*[—–-]\s*(?:proceed\s*with\s*)?standard\s*review(?:\s*\(recommended\))?$/i.test(label));
   if (run.length === 1 && skip.length === 1) return skip[0].index;
-  // The same prerequisite also offers "Skip — review now". Require exactly
+  // The same prerequisite also offers "Skip — review now" or a direct
+  // "Proceed with standard review". Require exactly
   // the two opposed actions so this wording cannot skip a mixed finding.
   const choices = fp.options.filter(({ label }) => !/^(?:Typesomething\.|Chataboutthis)$/i.test(label.replace(/\s+/g, '')));
-  const reviewNow = choices.filter(({ label }) => /^Skip\s*[—–-]\s*review\s*now(?:\s*\(recommended\))?$/i.test(label));
+  const reviewNow = choices.filter(({ label }) => /^(?:Skip\s*[—–-]\s*review\s*now|Proceed\s*with\s*standard\s*review)(?:\s*\(recommended\))?$/i.test(label));
   if (choices.length !== 2 || run.length !== 1 || reviewNow.length !== 1 || run[0].index === reviewNow[0].index ||
       !/^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(run[0].label) ||
       (fp.nativeCall && (fp.nativeCall.failed || fp.nativeCall.questions.length !== 1 || fp.nativeCall.questions[0]?.multiSelect))) return null;
@@ -2824,16 +2825,32 @@ export async function runPlanSkillCounting(opts: {
    * fixture plan content, not the git diff.
    */
   firstAUQPick?: (fp: AskUserQuestionFingerprint) => number;
-  /** Total budget for skill to reach a terminal outcome. Default 1_500_000 (25 min). */
+  /** Total budget including startup and cleanup. Must exceed the 5s cleanup reserve. Default 1_500_000. */
   timeoutMs?: number;
   /** Extra env merged into the spawned `claude` process. */
   env?: Record<string, string>;
   /** Override the spawned model. Defaults via launchClaudePty's chain. */
   model?: string;
 }): Promise<PlanSkillCountObservation> {
+  const budgetStarted = performance.now();
   const startedAt = Date.now();
   const defaultPick = opts.defaultPick ?? 1;
   const timeoutMs = opts.timeoutMs ?? 1_500_000;
+  // The caller may use this same limit as its Bun timeout. Leave room for
+  // close()'s 2s graceful + 1s forced exit waits and artifact/fixture cleanup.
+  // A second work window after boot lets Bun retry while this body is alive.
+  const cleanupReserveMs = 5_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= cleanupReserveMs) {
+    throw new RangeError('Plan counting timeout must exceed the 5000ms cleanup reserve');
+  }
+  const workDeadline = budgetStarted + timeoutMs - cleanupReserveMs;
+  const remainingWork = () => Math.max(0, workDeadline - performance.now());
+  async function waitForWork(ms: number): Promise<boolean> {
+    const remaining = remainingWork();
+    if (remaining <= 0) return false;
+    await Bun.sleep(Math.min(ms, remaining));
+    return remainingWork() > 0;
+  }
 
   const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true, files: opts.fixtureFiles });
   let session: ClaudePtySession;
@@ -2841,7 +2858,9 @@ export async function runPlanSkillCounting(opts: {
     session = await launchClaudePty({
       permissionMode: 'plan',
       cwd: fixture.cwd,
-      timeoutMs: timeoutMs + 60_000,
+      // Stop new output at the work cutoff so screen drain cannot consume
+      // the reserve while the CLI continues streaming.
+      timeoutMs: Math.max(1, remainingWork()),
       env: { ...opts.env, ...fixture.env },
       model: opts.model,
       seedSkills: true,
@@ -2903,14 +2922,15 @@ export async function runPlanSkillCounting(opts: {
   }
 
   try {
-    await Bun.sleep(8000); // boot grace + auto-trust handler window
-    session.mark();
-    session.send(`${opts.slashCommand}\r`);
+    if (await waitForWork(8000)) { // boot grace is part of the total budget
+      session.mark();
+      session.send(`${opts.slashCommand}\r`);
+    }
 
-    const budgetStart = Date.now();
-    while (Date.now() - budgetStart < timeoutMs) {
-      await Bun.sleep(2000);
+    while (remainingWork() > 0) {
+      if (!await waitForWork(2000)) break;
       const visible = viewport = await session.currentScreen();
+      if (remainingWork() <= 0) break;
       transcript = session.hermeticConfigDir
         ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd)
         : { status: 'error', calls: [], assistantMessages: [], error: 'Claude count session has no isolated transcript directory' };
@@ -3009,15 +3029,17 @@ export async function runPlanSkillCounting(opts: {
       const permission = nativeQuestionVisible || terminalHint === 'plan_ready'
         ? null : filePermission(visible, session.visibleText());
       if (frame === 'permission' || (permission === 'grant' && frame === null)) {
+        if (remainingWork() <= 0) break;
         if (permission !== 'handled') session.send(`${defaultPick}\r`);
-        await Bun.sleep(1500);
+        await waitForWork(1500);
         continue;
       }
 
       const submissionInput = frame === null ? planCountSubmissionInput(visible) : null;
       if (submissionInput !== null) {
+        if (remainingWork() <= 0) break;
         session.send(submissionInput);
-        await Bun.sleep(1500);
+        await waitForWork(1500);
         continue;
       }
 
@@ -3096,17 +3118,23 @@ export async function runPlanSkillCounting(opts: {
         (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(routing) : defaultPick);
       isFirstAUQ = false;
       const questionInput = planCountQuestionInput(visible, fp, pickIdx);
-      if (questionInput.includes('\r') && (prerequisitePick !== null || callerPick !== null)) await selectPtyNumberedOption(session, pickIdx);
-      else session.send(questionInput);
+      if (remainingWork() <= 0) break;
+      if (questionInput.includes('\r') && (prerequisitePick !== null || callerPick !== null)) {
+        // The helper separates digit and Enter by 500ms. Do not let that
+        // delayed confirmation send input after this counting window closes.
+        await selectPtyNumberedOption({ send: input => {
+          if (remainingWork() > 0) session.send(input);
+        } }, pickIdx);
+      } else session.send(questionInput);
 
       // Give the agent a beat to advance to the next state.
-      await Bun.sleep(2000);
+      await waitForWork(2000);
     }
 
     return snapshot(
       'timeout',
-      `no terminal outcome within ${timeoutMs}ms (step0=${step0Count}, review=${reviewCount})`,
-      viewport = await session.currentScreen(),
+      `no terminal outcome within ${timeoutMs}ms total budget (including startup and ${cleanupReserveMs}ms cleanup reserve; step0=${step0Count}, review=${reviewCount})`,
+      viewport,
     );
   } finally {
     try {

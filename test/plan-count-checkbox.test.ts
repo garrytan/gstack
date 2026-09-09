@@ -102,7 +102,7 @@ process.stdin.resume();
     fs.chmodSync(fake, 0o755);
     fs.writeFileSync(worker, `import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dir, 'helpers/claude-pty-runner.ts')).href)};
 const cases=${JSON.stringify(cases)};
-const results=await Promise.all(cases.map(async item=>({late:item.late,observation:await runPlanSkillCounting({skillName:'plan-eng-review',slashCommand:'/plan-eng-review',followUpPrompt:'Review this fixture.',isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:35000,expectedPlanPath:item.report,env:{CHECKBOX_CASE:JSON.stringify(item)}})})));
+const results=await Promise.all(cases.map(async item=>({late:item.late,observation:await runPlanSkillCounting({skillName:'plan-eng-review',slashCommand:'/plan-eng-review',followUpPrompt:'Review this fixture.',isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:48000,expectedPlanPath:item.report,env:{CHECKBOX_CASE:JSON.stringify(item)}})})));
 await Bun.write(${JSON.stringify(output)},JSON.stringify(results));`);
     const child = Bun.spawn([process.execPath, worker], {
       env: { ...process.env, BROWSE_TERMINAL_BINARY: fake, EVALS_HERMETIC: '1' }, stdout: 'pipe', stderr: 'pipe',

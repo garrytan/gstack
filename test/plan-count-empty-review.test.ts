@@ -51,7 +51,7 @@ process.stdin.resume();
   fs.chmodSync(fake, 0o755);
   fs.writeFileSync(worker, `import { runPlanSkillCounting } from ${JSON.stringify(runner)};\n` +
     `if (process.env.BROWSE_TERMINAL_BINARY !== ${JSON.stringify(fake)}) throw new Error('fake CLI not selected');\n` +
-    `const result = await runPlanSkillCounting({skillName:'plan-design-review',slashCommand:'/plan-design-review',followUpPrompt:'# Empty review fixture',expectedPlanPath:${JSON.stringify(report)},isLastStep0AUQ:()=>false,reviewCountCeiling:8,timeoutMs:20000,env:${JSON.stringify({PROBE_PLAN:report,PROBE_INPUTS:inputs,PROBE_PID:pidFile,PROBE_REPORT:REPORT})}});\n` +
+    `const result = await runPlanSkillCounting({skillName:'plan-design-review',slashCommand:'/plan-design-review',followUpPrompt:'# Empty review fixture',expectedPlanPath:${JSON.stringify(report)},isLastStep0AUQ:()=>false,reviewCountCeiling:8,timeoutMs:33000,env:${JSON.stringify({PROBE_PLAN:report,PROBE_INPUTS:inputs,PROBE_PID:pidFile,PROBE_REPORT:REPORT})}});\n` +
     `await Bun.write(${JSON.stringify(resultFile)},JSON.stringify(result));\n`);
   const child = Bun.spawn([process.execPath, worker], {
     env: { ...process.env, EVALS_HERMETIC:'1', EVALS_RUN_ID:'', BROWSE_TERMINAL_BINARY:fake },

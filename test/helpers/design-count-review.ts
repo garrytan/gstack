@@ -57,24 +57,33 @@ function designHandoff(fp: AskUserQuestionFingerprint): { manualIndex: number | 
     .replace(/^next\s+steps?\s*:\s*/i, '');
   // Scores and a completed decision count describe a closed review. A
   // condition or unresolved gap cannot masquerade as its next-step menu.
-  const completed = /^Design\s+review\s+(?:is\s+)?complete(?:[.!]|\s+\((?:\d+(?:\.\d+)?(?:\/10)?\s*(?:→|->|to)\s*)?\d+(?:\.\d+)?\/10(?:,\s*\d+\s+decisions?(?:\s+made)?)?\)[.!])(?:\s|$)/i.exec(declaration);
+  const completed = /^Design\s+review\s+(?:is\s+)?complete(?:[.!]|\s+\((?:\d+(?:\.\d+)?(?:\/10)?\s*(?:→|->|to)\s*)?\d+(?:\.\d+)?\/10(?:,\s*\d+\s+decisions?(?:\s+(?:made|added))?)?\)[.!])(?:\s|$)/i.exec(declaration);
   if (!completed) return null;
   const requiredGateOffer = /^The required next gate is Eng(?:ineering)? Review\s*[—–-]\s*want me to run it now\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
   const requiredGateQuestion = requiredGateOffer || /^(?:\d+ implementation tasks ready\.\s*)?Eng(?:ineering)? Review is the required shipping gate\.\s*What next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim());
+  // The offered Eng action can carry the required-gate declaration while the
+  // closed question asks only what is next. Its descriptions remain part of
+  // the decision, so they cannot conceal a new repair or conditional closure.
+  const describedRequiredGate = /^What['’]s\s+next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration.slice(completed[0].length).trim()) &&
+    q.options.some(option => /^Run \/plan-eng-review(?:\s*\(recommended\))?$/i.test(option.label.trim()) &&
+      /^Required gate before shipping[.!]/i.test(option.description ?? ''));
+  const guardedNavigation = requiredGateQuestion || describedRequiredGate;
   if (!requiredGateQuestion && !/\bWhat['’]s\s+next\?\s*<gstack-qid:[a-z0-9-]+>\s*$/i.test(declaration)) return null;
   // A routing label cannot conceal a new repair in its description.
-  if (requiredGateQuestion && q.options.some(option =>
-    /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|must|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/i.test(option.description ?? ''))) return null;
+  if (guardedNavigation && q.options.some(option =>
+    /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|must|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|repair|implement|resolve|decide)\b|\b(?:(?:should|could|can|would)\s+(?:we|I)|(?:we|I)\s+(?:should|could|can|would))\s+(?:add|fix|repair|implement|resolve|decide)\b/i.test(option.description ?? '') ||
+    /\b(?:Design|the|this)\s+review\s+(?:(?:is|remains)\s+)?(?:not\s+(?:complete|done|resolved)|incomplete|unfinished)\b|\bnot\s+all\s+(?:decisions|findings|issues|gaps)\s+(?:are\s+)?(?:resolved|complete|done)\b|\b(?:decisions|findings|issues|gaps)\s+(?:are\s+)?not\s+(?:resolved|complete|done)\b/i.test(option.description ?? '') ||
+    /\b(?:once|after|when|if|unless|until)\b[^.!?]*\b(?:review|decisions?|findings?|issues?|gaps?)\b[^.!?]*\b(?:complete|done|resolved)\b|\b(?:review|decisions?|findings?|issues?|gaps?)\b[^.!?]*\b(?:complete|done|resolved)\b[^.!?]*\b(?:once|after|when|if|unless|until)\b/i.test(option.description ?? ''))) return null;
   // A closed heading does not override an affirmative outstanding-work claim
   // in its recap. Zero/no outstanding work is a compatible completion claim.
-  const outstanding = (requiredGateQuestion ? [declaration, ...q.options.map(o => o.description ?? '')].join('\n') : declaration)
+  const outstanding = (guardedNavigation ? [declaration, ...q.options.map(o => o.description ?? '')].join('\n') : declaration)
     .replace(/\b(?:no|zero|0)\s+(?:unresolved|open|pending|unaddressed|remaining|outstanding)\s+(?:[a-z-]+\s+){0,3}(?:gaps?|issues?|decisions?|requirements?|work)\b/gi, '')
     .replace(/\bno\s+(?:gaps?|issues?|decisions?|requirements?|work)\s+remains?\b/gi, '');
   if (/\b(?:unresolved|open|pending|unaddressed|remaining|outstanding)\s+(?:[a-z-]+\s+){0,3}(?:gaps?|issues?|decisions?|requirements?|work)\b|\b(?:gaps?|issues?|decisions?|requirements?|work)\s+(?:still\s+)?remains?\b|\b(?:gaps?|issues?|decisions?|requirements?|work)\s+(?:is|are)\s+still\s+(?:unresolved|open|pending|unaddressed)\b/i.test(outstanding)) return null;
   const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).]\s*/i, '')
     .replace(/\s*\(recommended\)\s*$/i, '').trim());
   const manual = labels.map(label => /^(?:Handle next steps manually|Skip\s*[—–-]\s*I['’]ll handle next steps manually)$/i.test(label) ||
-    (requiredGateQuestion && /^Skip\s*[—–-]\s*handle (?:next steps )?manually$/i.test(label)));
+    (guardedNavigation && /^Skip\s*[—–-]\s*handle (?:next steps )?manually$/i.test(label)));
   const review = labels.map(label => /^Run \/plan-eng-review(?: next)?(?: \(required gate\))?$/i.test(label));
   const navigation = labels.map(label => /^(?:Skip to implementation|Run \/plan-ceo-review(?: first)?|Run \/design-(?:shotgun|html))$/i.test(label));
   if (manual.filter(Boolean).length > 1 || !review.some(Boolean) ||

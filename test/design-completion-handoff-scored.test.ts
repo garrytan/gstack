@@ -6,6 +6,7 @@ import { designStep0Boundary, hasNativePlanTerminal, nativePlanCallFingerprint, 
 import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/design-handoff-n-calls.json';
+import capturedQ from './fixtures/design-handoff-q-calls.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const handoff = () => calls().at(-1)!;
@@ -131,6 +132,104 @@ describe('scored Design completion and required next gate', () => {
       const stale = Date.parse(input.at(-2)!.answeredAt!) / 1000 - 1;
       fs.utimesSync(file, stale, stale);
       expect(hasNativePlanTerminal(transcript, file, start, 'plan_ready', admin)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('completed Design review with added decisions and an offered manual stop', () => {
+  const qCalls = () => structuredClone(capturedQ.calls) as NativePlanQuestionCall[];
+  const qHandoff = () => qCalls().at(-1)!;
+
+  test('the actual six calls retain five findings and one completed navigation decision', () => {
+    const input = qCalls();
+    const original = structuredClone(input);
+    let started = false;
+    const counts = { setup: 0, review: 0, administrative: 0 };
+    for (const call of input) {
+      const phase = planCountQuestionPhase(fp(call), started, designStep0Boundary,
+        isDesignCountFirstReview, undefined, isDesignCompletionHandoff);
+      started = phase.reviewStarted;
+      if (phase.administrative) counts.administrative++;
+      else if (phase.preReview) counts.setup++;
+      else counts.review++;
+    }
+    expect(counts).toEqual({ setup: 0, review: 5, administrative: 1 });
+    expect(input.slice(0, -1).every(call => !isDesignCompletionHandoff(fp(call)))).toBe(true);
+    expect(input).toEqual(original);
+  });
+
+  test('pending navigation selects only the offered manual stop in its actual order', () => {
+    for (const reverse of [false, true]) {
+      const call = pending(qHandoff());
+      if (reverse) call.questions[0]!.options.reverse();
+      expect(pickDesignCountQuestion(fp(call), fp(call))).toBe(reverse ? 1 : 3);
+      expect(isDesignCompletionHandoff(fp(call))).toBe(false);
+      expect(pickDesignCountQuestion(fp(call), { ...fp(call), signature: 'foreign:call' })).toBeNull();
+    }
+    const call = pending(qHandoff());
+    call.questions[0]!.options.pop();
+    expect(pickDesignCountQuestion(fp(call), fp(call))).toBeNull();
+  });
+
+  test('the new spelling cannot hide described repairs, unfinished work or conditional closure', () => {
+    const mutations: Array<(call: NativePlanQuestionCall) => void> = [
+      call => { call.questions[0]!.question = call.questions[0]!.question.replace('is complete', 'is not complete'); },
+      call => { call.questions[0]!.question = call.questions[0]!.question.replace('What’s next?', 'Should we add the missing contrast test? What’s next?'); },
+      call => { call.questions[0]!.question = call.questions[0]!.question.replace('What’s next?', 'Once the tests pass, all decisions are resolved. What’s next?'); },
+      call => { call.questions[0]!.options[0]!.description = 'Optional next review.'; },
+      call => { call.questions[0]!.options[2]!.label += ' and fix the missing contrast test'; },
+      call => { call.questions[0]!.options[2]!.description = 'Proceed to fix the missing contrast test before Eng.'; },
+      call => { call.questions[0]!.options[2]!.description = 'Should we add the missing authorization test before Eng?'; },
+      call => { call.questions[0]!.options[2]!.description = 'We could fix the missing authorization test before Eng.'; },
+      call => { call.questions[0]!.options[2]!.description = 'One contrast gap remains unresolved; handle it manually.'; },
+      call => { call.questions[0]!.options[2]!.description = 'All decisions will be resolved after the tests pass.'; },
+      call => { call.questions[0]!.options[2]!.description = 'Design review complete after the tests pass.'; },
+      call => { call.questions[0]!.options[2]!.description = 'Design review is not complete.'; },
+      call => { call.questions[0]!.options[2]!.description = 'Not all decisions are resolved.'; },
+      call => { call.questions[0]!.options[2]!.description = 'The review remains incomplete.'; },
+      call => { call.questions[0]!.options[2]!.description = 'Required gate before shipping. We must repair the missing contrast test.'; },
+      call => { call.questions[0]!.options.push({ label: 'Add a typeface TODO' }); },
+      call => { call.questions[0]!.multiSelect = true; },
+      call => { call.questions.push(qCalls()[0]!.questions[0]!); },
+      call => { call.questions[0]!.question += ' <gstack-qid:plan-design-review-next-steps>'; },
+    ];
+    for (const mutate of mutations) {
+      const call = qHandoff();
+      mutate(call);
+      call.answers = Object.fromEntries(call.questions.map(q => [q.question, q.options[0]!.label]));
+      expect(isDesignCompletionHandoff(fp(call))).toBe(false);
+      const active = fp(pending(call));
+      expect(pickDesignCountQuestion(active, active)).toBeNull();
+    }
+  });
+
+  test('only the administrative answer may postdate the actual completed report', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-q-handoff-'));
+    const file = path.join(dir, 'plan.md');
+    try {
+      fs.writeFileSync(file, capturedQ.report.content);
+      const written = Date.parse(capturedQ.report.successfulUpdateAt) / 1000;
+      fs.utimesSync(file, written, written);
+      const input = qCalls();
+      const transcript = { status: 'ready' as const, calls: input, assistantMessages: [],
+        planReadyRequests: structuredClone(capturedQ.planReadyRequests) };
+      const administrative = new Set(input.filter(c => isDesignCompletionHandoff(fp(c))).map(c => fp(c).signature));
+      const started = Date.parse('2026-09-09T03:25:54Z');
+      expect(Date.parse(input.at(-2)!.answeredAt!)).toBeLessThan(written * 1000);
+      expect(Date.parse(input.at(-1)!.answeredAt!)).toBeGreaterThan(written * 1000);
+      expect(hasNativePlanTerminal(transcript, file, started, 'plan_ready')).toBe(false);
+      expect(hasNativePlanTerminal(transcript, file, started, 'plan_ready', administrative)).toBe(true);
+      transcript.planReadyRequests[0]!.failed = true;
+      expect(hasNativePlanTerminal(transcript, file, started, 'plan_ready', administrative)).toBe(false);
+      transcript.planReadyRequests[0]!.failed = false;
+      const stale = Date.parse(input.at(-2)!.answeredAt!) / 1000 - 1;
+      fs.utimesSync(file, stale, stale);
+      expect(hasNativePlanTerminal(transcript, file, started, 'plan_ready', administrative)).toBe(false);
+      fs.utimesSync(file, written, written);
+      fs.writeFileSync(file, '# Incomplete report\n');
+      expect(hasNativePlanTerminal(transcript, file, started, 'plan_ready', administrative)).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

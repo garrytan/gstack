@@ -16,15 +16,34 @@ function resolvedCeoRecap(description: string): boolean {
 /** A closed-review declaration plus one direct navigation query, even when its recap follows it. */
 function closedReviewNavigation(declaration: string, context: string): boolean {
   const question = declaration.replace(/<gstack-qid:[^>]+>/gi, '');
+  return /^CEO review (?:is )?(?:complete|done|cleared|clean)[.!](?:\s|$)/i.test(question) &&
+    /(?:^|[.!]\s+)What(?:['’]s)? next\?(?:\s|$)/i.test(question) && closedNavigationContext(context);
+}
+
+/** The metadata recap is native question text, not a new substantive choice. */
+function isMetadataNavigationQuestion(declaration: string): boolean {
+  return /^What(?:['’]s|\s+is)\s+(?:the\s+)?next(?:\s+(?:step|review))?\s+after\s+(?:this|the)\s+CEO\s+review\?\s*$/i.test(declaration.trim().split('\n')[0]!);
+}
+
+function metadataClosedReviewNavigation(declaration: string, context: string): boolean {
+  const question = declaration.replace(/<gstack-qid:[^>]+>/gi, '').trim();
+  return isMetadataNavigationQuestion(question) &&
+    /^[ \t]{0,3}ELI10:\s*(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|cleared|clean|done(?:\s+and\s+clear(?:ed)?)?)[.!](?:\s|$)/im.test(question) &&
+    !/`{3}|~{3}|(?:^|[.!?]\s+)[ \t]*>|\b(?:example|quoted source)\s*:/im.test(context) &&
+    !/\b(?:incomplete|unfinished)\b|\b(?:review|decisions|findings|issues|gaps)\b[^.!?\n]{0,60}\b(?:not|never)\b|\b(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\b/i.test(context) &&
+    !/(?:^|[.!?;:]\s+|\b(?:proceed to|continue to|should|must|will|need to|can|could|would|may|might)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|repair|implement|resolve|decide)\b/im.test(context) &&
+    closedNavigationContext(context);
+}
+
+/** Shared closed-review guards; next-review sequencing is still navigation. */
+function closedNavigationContext(context: string): boolean {
   const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
   // Conditional closure of this review is unfinished work. Sequencing the
   // next review after implementation does not reopen the completed CEO review.
   const stateVerb = String.raw`(?:is|are|was|were|becomes?|became|(?:will|would|can|could|may|might)\s+(?:be|become))`;
   const closure = String.raw`(?:(?:all\s+)?(?:decisions|gaps|issues|findings)\s+(?:${stateVerb}\s+)?resolved|(?:the\s+)?CEO\s+review\s+(?:${stateVerb}\s+)?(?:complete|done|cleared|clean)|the\s+review\s+(?:${stateVerb}\s+)?(?:complete|done|cleared|clean))`;
   const conditionalClosure = new RegExp(String.raw`\b(?:once|when|after)\b[^.!?]{0,180}\b${closure}\b|\b${closure}\b[^.!?]{0,100}\b(?:once|when|after)\b`, 'i');
-  return /^CEO review (?:is )?(?:complete|done|cleared|clean)[.!](?:\s|$)/i.test(question) &&
-    /(?:^|[.!]\s+)What(?:['’]s)? next\?(?:\s|$)/i.test(question) &&
-    (context.match(/\?/g)?.length ?? 0) === 1 &&
+  return (context.match(/\?/g)?.length ?? 0) === 1 &&
     !/\b(?:unresolved|outstanding|remaining|pending|if|unless|until)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b|\bstill\s+open\b/i.test(unfinished) &&
     !/\bnot\s+(?:all|no|0)\b/i.test(context) &&
     !conditionalClosure.test(context) &&
@@ -56,7 +75,9 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const describedCompletion = (recappedNavigation || (genericCompletion && q.options.some(option => closedCeoRecap(option.description ?? '')))) &&
     !/\b(?:unresolved|outstanding|remains?|remaining|pending)\b/i.test(unfinished) &&
     !/(?:^|[.!?;]\s+|\b(?:please|must|need\s+to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(gateContext);
-  const completion = explicitCompletion || describedCompletion;
+  const metadataCompletion = Boolean(id) && metadataClosedReviewNavigation(declaration, gateContext);
+  if (isMetadataNavigationQuestion(questionText) && /\n[ \t]*ELI10:/i.test(questionText) && !metadataCompletion) return null;
+  const completion = explicitCompletion || describedCompletion || metadataCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);
   // These native next-review identities share a closed navigation contract;

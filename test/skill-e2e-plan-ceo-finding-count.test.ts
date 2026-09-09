@@ -17,7 +17,8 @@
 
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
-import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
+import { isCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
+import { pickCeoCountQuestion } from './helpers/ceo-approach-pick';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -184,7 +185,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           isLastStep0AUQ: ceoStep0Boundary,
           isFirstReviewAUQ: ceoFirstReviewAUQ,
           isCompletionHandoffAUQ: isCeoCompletionHandoff,
-          pickAUQ: pickCeoCompletionHandoff,
+          pickAUQ: pickCeoCountQuestion,
           reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
           firstAUQPick: pickSkipInterview, // bypass scope-selection, route to review
           timeoutMs: 1_500_000, // 25 min
@@ -271,7 +272,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           isLastStep0AUQ: ceoStep0Boundary,
           isFirstReviewAUQ: ceoFirstReviewAUQ,
           isCompletionHandoffAUQ: isCeoCompletionHandoff,
-          pickAUQ: pickCeoCompletionHandoff,
+          pickAUQ: pickCeoCountQuestion,
           reviewCountCeiling: CEILING_PAIRED + 1,
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

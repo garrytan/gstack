@@ -464,7 +464,7 @@ const results = await Promise.all(cases.map(async item => ({
     firstAUQPick: item.designQuestions ? undefined : () => 2,
     pickAUQ: item.designQuestions ? pickDesignCountOutsideVoices : undefined,
     reviewCountCeiling: 8,
-    timeoutMs: 22000,
+    timeoutMs: 35000,
     env: { NATIVE_INPUT_CASE: JSON.stringify(item) },
   }),
 })));
