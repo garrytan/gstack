@@ -60,11 +60,13 @@ const record = {
   codexHome, codexConfig:fs.readFileSync(path.join(codexHome,'config.toml'),'utf8'),
   codexAuthPreserved:JSON.parse(fs.readFileSync(path.join(codexHome,'auth.json'),'utf8')).fixture_auth === true,
   browserCache:process.env.PLAYWRIGHT_BROWSERS_PATH,
-  discovery: ['plan-devex-review/dx-hall-of-fame.md', 'plan-devex-review/sections/review-sections.md', 'review/checklist.md'].map(relative => {
+  discovery: ['plan-design-review/sections/review-sections.md', 'plan-devex-review/dx-hall-of-fame.md', 'plan-devex-review/sections/review-sections.md', 'review/checklist.md'].map(relative => {
     const homePath = path.join(process.env.HOME, '.claude', 'skills', relative);
     const configPath = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME, '.claude'), 'skills', relative);
+    const configRuntimePath = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME, '.claude'), 'skills', 'gstack', relative);
     return {relative, home:fs.existsSync(homePath) ? fs.realpathSync(homePath) : null,
-      config:fs.existsSync(configPath) ? fs.realpathSync(configPath) : null};
+      config:fs.existsSync(configPath) ? fs.realpathSync(configPath) : null,
+      configRuntime:fs.existsSync(configRuntimePath) ? fs.realpathSync(configRuntimePath) : null};
   }),
 };
 fs.writeFileSync(process.env.RUNTIME_RECORD,JSON.stringify(record));
@@ -129,6 +131,7 @@ try {
           for (const asset of result.discovery) {
             expect(asset.home, item.name + ': HOME discovery ' + asset.relative).toBe(fs.realpathSync(path.join(ROOT,asset.relative)));
             expect(asset.config, item.name + ': config discovery ' + asset.relative).toBe(asset.home);
+            expect(asset.configRuntime, item.name + ': config runtime discovery ' + asset.relative).toBe(asset.home);
           }
           const expectedCodex = item.overrides?.CODEX_HOME !== undefined
             ? item.overrides.CODEX_HOME || codexDefault : item.configuredCodex || codexDefault;

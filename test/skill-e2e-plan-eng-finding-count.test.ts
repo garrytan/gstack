@@ -31,7 +31,8 @@ const CEILING = N + 2; // 7
 // coverage gaps when these surrounding contracts were omitted. The shared
 // mutable state and missing legacy regression below remain deliberate defects.
 const planEng5Findings = (planPath: string) => [
-  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  `Please review this plan thoroughly. Write the full reviewed implementation plan, including its final ## GSTACK REVIEW REPORT section, to ${planPath} (use Edit/Write to that exact path).`,
+  `The separate QA Test Plan artifact belongs at the skill-prescribed test-plan path; keep this requested deliverable as the full reviewed implementation plan.`,
   '',
   '# Plan: Multi-tenant Auth Refactor',
   '',

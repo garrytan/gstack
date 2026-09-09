@@ -31,7 +31,7 @@ import { withHermeticSkillRuntime } from './hermetic-skill-runtime';
 import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
-import { createPendingExitRecorder, withPendingExit } from './plan-count-pending-exit';
+import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 
@@ -1641,7 +1641,8 @@ export function hasNativePlanCompletion(
   return hasCompletePlanReport(expectedPlanPath, Math.max(startedAt, ...answerTimes), finishedAt);
 }
 
-function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, maximumMtime: number): boolean {
+function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, maximumMtime: number,
+  allowRunHeaderForFailure = false): boolean {
   if (!path.isAbsolute(expectedPlanPath)) return false;
   try {
     const stat = fs.lstatSync(expectedPlanPath);
@@ -1673,7 +1674,13 @@ function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, m
     const report = content.slice(content.indexOf('## GSTACK REVIEW REPORT'));
     // Reject a provisional heading; retain both clean and issues-open reports.
     const rows = report.split('\n');
-    const table = rows.findIndex(line => /^\|[^\n]*Review[^\n]*\|/.test(line));
+    // Positive completion keeps the canonical Review header. A failure-only
+    // diagnostic may also recognize the Run header found in a native report;
+    // it still requires a complete, fresh caller-owned deliverable.
+    const tableHeader = allowRunHeaderForFailure
+      ? /^\|(?:[^\n|]*\|)*[ \t]*(?:Review|Run)[ \t]*\|/
+      : /^\|[^\n]*Review[^\n]*\|/;
+    const table = rows.findIndex(line => tableHeader.test(line));
     const completeTable = table >= 0 && /^\|[ :|-]+\|$/.test(rows[table + 1] ?? '') &&
       /^\|.*[a-zA-Z].*\|$/.test(rows[table + 2] ?? '');
     const decisions = rows.findIndex(line => /^\*\*UNRESOLVED DECISIONS:\*\*$/.test(line));
@@ -1682,6 +1689,22 @@ function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, m
       (decisions >= 0 && trailing.length > 0 && trailing.every(line => /^[-*] \S|^\+ \d+ unresolved from prior reviews$/.test(line)));
     return completeTable && /^(?:[-*] )?(?:\*\*)?VERDICT:(?:\*\*)?[ \t]*[A-Za-z]/m.test(report) && closed;
   } catch { return false; }
+}
+
+/** A final owned gate with no recorded questions is missing coverage, never success. */
+export function isQuestionlessNativePlanExit(
+  transcript: PlanCountTranscript, expectedPlanPath: string, startedAt: number, screen: string,
+): boolean {
+  if (!isCurrentPlanApprovalScreen(screen)) return false;
+  if (transcript.status !== 'ready' || transcript.calls.length) return false;
+  const ready = [...(transcript.planReadyRequests ?? [])]
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).at(-1);
+  if (!ready || ready.failed || !ready.sessionId || !ready.toolUseId) return false;
+  const at = Date.parse(ready.timestamp);
+  const sessions = new Set([...transcript.assistantMessages.map(m => m.sessionId),
+    ...(transcript.planReadyRequests ?? []).map(r => r.sessionId)]);
+  return sessions.size === 1 && Number.isFinite(at) && at >= startedAt && at <= Date.now() &&
+    hasCompletePlanReport(expectedPlanPath, startedAt, at, true);
 }
 
 /** Native report completion is independent of the terminal's streamed headings. */
@@ -1757,13 +1780,39 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
   const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
+  const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
+  const completionLines: string[] = [];
+  let completionFence: { marker: string; length: number } | undefined;
+  for (const line of question.split('\n')) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      if (!completionFence) completionFence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+      else if (delimiter[1]![0] === completionFence.marker && delimiter[1]!.length >= completionFence.length && !delimiter[2]!.trim()) completionFence = undefined;
+    } else if (!completionFence && !/^(?: {4}|\t|\s*>)/.test(line)) completionLines.push(line);
+  }
+  const completionProse = completionLines.join('\n');
+  const closedReviewNavigation = /^What(?:['’]s)? next\?\s*\n/i.test(question) &&
+    /(?:^|\n)(?:ELI10:\s*)?(?:The )?DX review (?:is )?(?:done|complete)[.!](?:\s|$)/i.test(completionProse);
   if (q.multiSelect || !/^next(?:\s+steps?)?$/i.test(header) ||
-      !/^DX review (?:is )?(?:done|complete)[.!]/i.test(q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, ''))) return false;
+      (!closedReviewNavigation && !/^DX review (?:is )?(?:done|complete)[.!]/i.test(question))) return false;
   const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
   if ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return false;
   let resultRecap = false;
   if (ids.length) {
-    if (ids.length !== 1 || ids[0]![1] !== 'devex-next-steps') return false;
+    if (ids.length !== 1 || ids[0]![1] !== (closedReviewNavigation
+      ? 'plan-devex-review-next-steps' : 'devex-next-steps')) return false;
+    if (closedReviewNavigation) {
+      const context = [q.question, ...q.options.map(o => o.description ?? '')].join('\n');
+      const state = '(?:(?:is|are|was|were|becomes?|became)|(?:will|would|can|could|may|might) (?:be|become))';
+      const closure = `(?:the )?(?:DX review (?:${state} )?(?:done|complete)|(?:all )?(?:decisions?|gaps?|issues?|findings?) (?:${state} )?resolved)`;
+      const conditionalClosure = new RegExp(`\\b(?:once|when|after)\\b[^.!?\\n]*${closure}|${closure}[^.!?\\n]*\\b(?:once|when|after)\\b`, 'i');
+      if ((q.question.match(/\?/g)?.length ?? 0) !== 1 ||
+          q.options.some(option => /\?/.test(option.description ?? '')) ||
+          !/\brequired (?:eng review )?gate (?:for|before) shipping\b/i.test(context) ||
+          /\b(?:unresolved|pending|remaining|outstanding|if|unless|until)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(context) ||
+          /\b(?:not all|not (?:done|complete|resolved)|only after)\b/i.test(context) || conditionalClosure.test(context) ||
+          /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|can|could|would|may|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|package|implement|resolve|decide)\b/im.test(context)) return false;
+    }
   } else {
     // Some native final menus omit a qid. Require an explicit finished-review
     // declaration plus resolved findings and the navigation-only question;
@@ -1784,7 +1833,10 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
         /\b(?:unresolved|pending|remaining|outstanding)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(context) ||
         /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|package|implement|resolve|decide)\b/im.test(context)) return false;
   }
-  const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
+  const labels = q.options.map(o => {
+    const label = o.label.trim().replace(/\s*\(recommended\)\s*$/i, '');
+    return closedReviewNavigation ? label.replace(/^[A-Z][.)]\s*/i, '') : label;
+  });
   const runEng = (label: string) => /^Run \/plan-eng-review(?: next)?$/i.test(label);
   const ready = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/devex-review after shipping)?$/i.test(label) ||
     (resultRecap && /^Start implementing now$/i.test(label));
@@ -2663,6 +2715,7 @@ export interface PlanSkillCountObservation {
     | 'ceiling_reached'
     | 'silent_write'
     | 'transcript_unavailable'
+    | 'no_review_questions'
     | 'exited'
     | 'timeout';
   summary: string;
@@ -2947,6 +3000,11 @@ export async function runPlanSkillCounting(opts: {
       // its report/native evidence before input routing; verified gates still
       // pass the existing silent-write check below. A positively matched
       // native question above takes precedence over gate text.
+      if (opts.expectedPlanPath && terminalHint === 'plan_ready' && countedCalls.size === 0 &&
+          isQuestionlessNativePlanExit(transcript, opts.expectedPlanPath, startedAt, visible)) {
+        return snapshot('no_review_questions',
+          'Native plan approval reached with zero recorded AskUserQuestion calls; review coverage is missing', visible);
+      }
       if (opts.expectedPlanPath && terminalHint === 'plan_ready' && !verifiedTerminal) continue;
       const permission = nativeQuestionVisible || terminalHint === 'plan_ready'
         ? null : filePermission(visible, session.visibleText());

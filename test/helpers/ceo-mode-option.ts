@@ -9,6 +9,7 @@ import {
   isNumberedOptionListVisible,
   matchesNativePlanQuestion,
   planCountSubmissionInput,
+  planCountPrerequisitePick,
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
 import type { NativePlanQuestionCall, PlanCountTranscript } from './plan-count-transcript';
@@ -48,7 +49,7 @@ export function findCeoModeOption(
 type ModeNavigationAction =
   | { kind: 'wait' }
   | { kind: 'permission' | 'submission'; input: string }
-  | { kind: 'question'; question: AskUserQuestionFingerprint }
+  | { kind: 'question'; index: number; question: AskUserQuestionFingerprint }
   | { kind: 'mode'; index: number; question: AskUserQuestionFingerprint };
 
 // Permission state follows the navigation session without entering its AUQ
@@ -90,7 +91,11 @@ export function nextCeoModeNavigation(
   const question = capturePlanCountQuestion(visible, seenQuestions, 0, true, pending);
   if (!question) return { kind: 'wait' };
   const index = findCeoModeOption(question.options, targetMode);
-  return index === null ? { kind: 'question', question } : { kind: 'mode', index, question };
+  // Preserve the seeded review plan by declining the existing optional
+  // office-hours offer. Other navigation questions keep their first choice.
+  return index === null
+    ? { kind: 'question', index: planCountPrerequisitePick(question) ?? 1, question }
+    : { kind: 'mode', index, question };
 }
 
 /** Match new assistant prose, never the native mode menu or answer echo. */

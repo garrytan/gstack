@@ -13,6 +13,24 @@ function resolvedCeoRecap(description: string): boolean {
   return Boolean(clause && !/\b(?:if|unless|until|once|when|after|not|never|some|most|partially|only|of|but|several|few)\b|n['’]t\b/i.test(clause));
 }
 
+/** A closed-review declaration plus one direct navigation query, even when its recap follows it. */
+function closedReviewNavigation(declaration: string, context: string): boolean {
+  const question = declaration.replace(/<gstack-qid:[^>]+>/gi, '');
+  const unfinished = context.replace(/\b(?:no|0)\s+unresolved\s+(?:decisions|gaps|issues|findings)\b/gi, '');
+  // Conditional closure of this review is unfinished work. Sequencing the
+  // next review after implementation does not reopen the completed CEO review.
+  const stateVerb = String.raw`(?:is|are|was|were|becomes?|became|(?:will|would|can|could|may|might)\s+(?:be|become))`;
+  const closure = String.raw`(?:(?:all\s+)?(?:decisions|gaps|issues|findings)\s+(?:${stateVerb}\s+)?resolved|(?:the\s+)?CEO\s+review\s+(?:${stateVerb}\s+)?(?:complete|done|cleared|clean)|the\s+review\s+(?:${stateVerb}\s+)?(?:complete|done|cleared|clean))`;
+  const conditionalClosure = new RegExp(String.raw`\b(?:once|when|after)\b[^.!?]{0,180}\b${closure}\b|\b${closure}\b[^.!?]{0,100}\b(?:once|when|after)\b`, 'i');
+  return /^CEO review (?:is )?(?:complete|done|cleared|clean)[.!](?:\s|$)/i.test(question) &&
+    /(?:^|[.!]\s+)What(?:['’]s)? next\?(?:\s|$)/i.test(question) &&
+    (context.match(/\?/g)?.length ?? 0) === 1 &&
+    !/\b(?:unresolved|outstanding|remaining|pending|if|unless|until)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b|\bstill\s+open\b/i.test(unfinished) &&
+    !/\bnot\s+(?:all|no|0)\b/i.test(context) &&
+    !conditionalClosure.test(context) &&
+    !/(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to|can|could|would)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(context);
+}
+
 /** Only the CEO's finished-review menu, never a finding/TODO mentioning another skill. */
 function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const call = fp.nativeCall;
@@ -24,7 +42,7 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const ids = [...q.question.matchAll(/<gstack-qid:\s*([a-z0-9-]+)\s*>/gi)];
   if (ids.length > 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return null;
   const id = ids[0]?.[1]?.toLowerCase();
-  if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-next-step-eng-review|ceo-plan-next-steps)$/.test(id)) return null;
+  if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-review-next-(?:steps?|review)|ceo-next-step-eng-review|ceo-plan-next-steps)$/.test(id)) return null;
   const declaration = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
     .replace(/^next\s+(?:review|steps?)\s*:\s*/i, '');
   const gateContext = [q.question, ...q.options.map(option => option.description ?? '')].join('\n');
@@ -41,14 +59,10 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const completion = explicitCompletion || describedCompletion;
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);
-  // This native identity still needs an unconditional closed-review heading;
-  // a next-step label cannot conceal a new repair or an unfinished obligation.
-  if (id === 'ceo-plan-next-steps' &&
-      (!/^CEO review (?:is )?complete[.!](?:\s|$)/i.test(declaration) ||
-       !/\bWhat(?:['’]s)? next\?\s*<gstack-qid:ceo-plan-next-steps>\s*$/i.test(declaration) ||
-       (declaration.match(/\?/g)?.length ?? 0) !== 1 ||
-       /\b(?:unresolved|outstanding|remaining|pending|if|unless|until)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(gateContext) ||
-       /(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(gateContext))) return null;
+  // These native next-review identities share a closed navigation contract;
+  // the question or a following recap cannot hide a new repair obligation.
+  if (id && /^(?:ceo-plan-next-steps|ceo-review-next-(?:steps?|review))$/.test(id) &&
+      !closedReviewNavigation(declaration, gateContext)) return null;
   // A qid names the menu; it cannot replace its completed-review declaration
   // or authorize another fix. The named gate can be explained in a choice.
   if (!/^next\s+(?:review|steps?)$/i.test(q.header.trim()) || !completion || !requiredEng) return null;

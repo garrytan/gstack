@@ -254,7 +254,9 @@ let cachedSkillsConfigDir: string | null = null;
  * user scope, mirroring ./setup's registration exactly: each discovered skill
  * gets a REAL directory `<configDir>/skills/<registryName>/` containing a
  * SYMLINK to that skill's SKILL.md (absolute path), plus symlinks to its
- * runtime assets using setup's exclusions. registryName is the frontmatter `name:`
+ * runtime assets using setup's exclusions. The gstack checkout itself also
+ * lives at `<configDir>/skills/gstack`, as in an installed setup, so canonical
+ * lazy-section paths work alongside flattened discovery. registryName is the frontmatter `name:`
  * (dir-name fallback), NO gstack- prefix; the root SKILL.md router registers
  * as `_gstack-command`. skillCensus().registryEntries is the authoritative
  * set of what must appear here.
@@ -316,6 +318,10 @@ export function hermeticSkillsConfigDir(): string {
       }
     }
   }
+  // Claude can resolve canonical skill paths from CLAUDE_CONFIG_DIR rather
+  // than HOME. Expose the same runtime checkout here as well as the flattened
+  // entries above; never send a missing lazy-section lookup to operator state.
+  fs.symlinkSync(root, path.join(skillsDir, 'gstack'), 'dir');
   cachedSkillsConfigDir = configDir;
   return configDir;
 }

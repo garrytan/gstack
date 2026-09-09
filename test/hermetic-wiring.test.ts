@@ -155,6 +155,11 @@ describe('hermetic wiring tripwire', () => {
     const skillsDir = path.join(configDir, 'skills');
     const repoRootReal = fs.realpathSync(ROOT) + path.sep;
     for (const entry of fs.readdirSync(skillsDir)) {
+      if (entry === 'gstack') {
+        expect(fs.lstatSync(path.join(skillsDir, entry)).isSymbolicLink()).toBe(true);
+        expect(fs.realpathSync(path.join(skillsDir, entry)) + path.sep).toBe(repoRootReal);
+        continue;
+      }
       const target = fs.readlinkSync(path.join(skillsDir, entry, 'SKILL.md'));
       const resolved = fs.realpathSync(target);
       // Targets inside the live repo checkout are the blessed edge — exempt

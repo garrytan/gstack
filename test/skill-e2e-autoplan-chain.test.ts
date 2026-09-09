@@ -151,7 +151,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             // deduplicates the complete question before returning an input.
             const setup = autoplanSetupDecision(visible, seenSetupQuestions, transcript.calls.find(call => !call.answered && !call.failed));
             if (setup.kind === 'input') {
-              if (setup.input.includes('\r')) await selectPtyNumberedOption(session, Number(setup.input.trim()));
+              if (setup.input === '\r') session.send(setup.input); // Verified setup-packet Submit, no numbered choice.
+              else if (setup.input.includes('\r')) await selectPtyNumberedOption(session, Number(setup.input.trim()));
               else session.send(setup.input);
               for (const signature of setup.signatures) seenSetupQuestions.add(signature);
               await Bun.sleep(2000);

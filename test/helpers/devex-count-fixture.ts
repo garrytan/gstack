@@ -21,6 +21,13 @@ real per-example scores plus an overall score. It needs no hosted playground
 or new interactive UI. Like every first evaluation, it currently waits for the
 mandatory CI check described in docs/current-contracts.md.
 
+Expected completed demo output for the bundled sample responses is documented
+here; the shipped demo prints this per-example and aggregate score format:
+
+    example 1: score=0.80
+    example 2: score=1.00
+    overall: score=0.90
+
 See docs/api.md for public API and upgrade behavior, and docs/benchmarks.md for
 the completed onboarding study. These documents describe the existing SDK's
 behavior; its runtime is maintained separately from this release-planning repo.
@@ -41,6 +48,11 @@ post-beta feedback survey exist and will continue unchanged.
 On a developer's first local evaluation, the SDK requires a successful remote
 CI check and blocks for five minutes before returning an evaluation result.
 There is no skip flag or offline first-run path. The beta plan retains this gate.
+
+During the required wait, the existing SDK writes a progress line to stderr
+every 30 seconds, such as "Waiting for CI check: 90s elapsed of 300s", and reports
+when the check finishes. Progress does not bypass the check or return evaluation
+results before its required successful completion.
 
 Authentication errors behave exactly as documented in docs/api.md. All other
 errors already identify the cause, relevant argument or file, and an actionable
@@ -170,12 +182,56 @@ function substantiveIssue({ header, question, options }: QuestionRecord): boolea
   const breakingRename = /Client\.evaluate|Client\.run|\bmethod rename\b/i.test(normalized)
     && /\b(?:breaking|remov\w*|renam\w*)\b/i.test(normalized)
     && /\b(?:migration|deprecation|compatibility|alias|codemod)\b/i.test(normalized);
-  return ciGate || argumentsReversed || opaqueAuth || missingExample || breakingRename;
+  // Expected-output documentation is separate from whether its command
+  // exists. Count the actual gap plus offered documentation remedy, not a
+  // generic navigation question that merely names output in its options.
+  const outputSubject = String.raw`(?:(?:expected|sample|example)(?: demo)?|demo) output`;
+  // Consume the complete noun phrase, including a negating determiner,
+  // before judging its absence. A nested "demo output" suffix cannot
+  // escape "no sample demo output is missing" and become a finding.
+  const missingState = [...normalized.matchAll(new RegExp(String.raw`\b(?:(no|not any)\s+)?${outputSubject}\s+(?:(?:is|are|was|were)\s+)?(?:missing|absent|omitted|unspecified)\b`, 'gi'))];
+  const missingSubject = [...normalized.matchAll(new RegExp(String.raw`\b(?:(no|not any)\s+)?missing\s+${outputSubject}\b`, 'gi'))];
+  const noOutput = new RegExp(String.raw`\bno\s+${outputSubject}\s*(?:[,.;!?]|\b(?:in|from|for|yet)\b)`, 'i');
+  const outputGap = missingState.some(match => !match[1]) || missingSubject.some(match => !match[1]) || noOutput.test(normalized);
+  const missingOutput = /\b(?:README|quick[- ]?start|documentation)\b/i.test(normalized)
+    && (outputGap || /\b(?:README|quick[- ]?start|documentation)\b[^.!?;]{0,50}\b(?:doesn['’]t|does not)\s+(?:show|include)\b[^.!?;]{0,25}\boutput\b/i.test(normalized))
+    && Boolean(options?.some(option => /^(?:[A-Z][.:)]\s*)?Add\s+(?:to\s+(?:the\s+)?plan:\s*include\s+)?(?:an?\s+)?(?:expected|sample|example)(?:\s+demo)?\s+output\b[^.!?]*\b(?:README|quick[- ]?start|documentation)\b/i.test(option.label)));
+  return ciGate || argumentsReversed || opaqueAuth || missingExample || breakingRename || missingOutput;
+}
+
+/** A setup heading cannot hide a positively selected repair to the existing behavior. */
+function answeredSetupRepair(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call || call.failed || !call.answered || call.questions.length !== 1 ||
+      call.unansweredQuestionIndices?.length || fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const question = call.questions[0]!;
+  if (question.multiSelect) return false;
+  const selected = question.options.filter(option => option.label === call.answers?.[question.question]);
+  if (selected.length !== 1) return false;
+  const ids = [...question.question.matchAll(/<gstack-qid:([a-z0-9-]+)>/gi)];
+  if (ids.length !== 1 || (question.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1) return false;
+  const id = ids[0]![1]!.toLowerCase();
+  const header = question.header.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
+  const text = question.question.replace(/\s+/g, ' ');
+  const label = selected[0]!.label.replace(/^[A-Z][.):]\s*/i, '');
+  if (id === 'plan-devex-review-tthw-tier' && /^TTHW target$/i.test(header)) {
+    return /TTHW|Time-to-Hello-World/i.test(text) && /\bCI\b/i.test(text) &&
+      /\b(?:mandatory|blocks?|retains? the CI block)\b/i.test(text) &&
+      /(?:^|[—–:]\s*)add\s+(?:an?\s+)?(?:skip flag|--skip-ci|offline(?:[- ]first[- ]run)? path)\b/i.test(label);
+  }
+  if (id === 'plan-devex-review-magical-moment' && /^Magical moment$/i.test(header)) {
+    // The selected option adds progress feedback beyond the already chosen
+    // demo vehicle and prior CI-bypass decision. An unselected remedy or
+    // a confirmation of that vehicle alone remains setup.
+    return /\bdemo\b/i.test(text) && /\bsilently blocks?\b|\bsilent (?:CI )?wait\b/i.test(text) &&
+      /(?:^|[—–:]\s*)add\s+[^.!?;]{0,80}\bprogress (?:output|indicator)\b/i.test(label);
+  }
+  return false;
 }
 
 /** A batched native call remains one decision; the caller owns call-ID deduplication. */
 export function isDevexReviewIssue(fp: AskUserQuestionFingerprint): boolean {
-  return questionRecords(fp, true).some(substantiveIssue);
+  return answeredSetupRepair(fp) || questionRecords(fp, true).some(substantiveIssue);
 }
 
 /** Select POLISH only on the recognized mode menu; leave all other answers unchanged. */

@@ -1,4 +1,4 @@
-import { capturePlanCountQuestion, planCountPrerequisitePick, planCountQuestionInput, type AskUserQuestionFingerprint } from './claude-pty-runner';
+import { capturePlanCountQuestion, parseNumberedOptions, planCountPrerequisitePick, planCountQuestionInput, planCountSubmissionInput, type AskUserQuestionFingerprint } from './claude-pty-runner';
 
 import type { NativePlanQuestionCall } from './plan-count-transcript';
 
@@ -49,7 +49,7 @@ function clippedRoutingTitle(visible: string, question: AskUserQuestionFingerpri
   return title;
 }
 
-/** Fail only a complete current setup panel; absence or stale/partial metadata is not failure. */
+/** Identify a complete current setup panel; absence or stale/partial metadata is insufficient. */
 function completeSetupOptions(visible: string, pending?: NativePlanQuestionCall): Array<{ index: number; label: string }> | null {
   if (!activeSetupPanel(visible)) return null;
   const lines = visible.replace(/\r+\n?/g, '\n').trimEnd().split('\n');
@@ -87,9 +87,131 @@ function unsupportedSetup(visible: string, question: AskUserQuestionFingerprint,
     identitySource: pending ? 'native-bound' : 'current-native-panel' } : { kind: 'waiting' };
 }
 
+/** Pure routing policy; native packet validation still requires every displayed identity. */
+function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporarySkip: boolean) {
+  const primary = question.promptSnippet.replace(/^(?:Routing\s*rules|CLAUDE\.md)\s*/i, '').split('?', 1)[0]!;
+  const prompt = primary.replace(/\s+/g, '');
+  const options = question.options.map(option => ({
+    index: option.index,
+    title: option.label.split(/[│┌\r\n]/, 1)[0]!.replace(/\s+/g, ''),
+  }));
+  const add = options.filter(option => /^Add(?:routingrules(?:toCLAUDE\.md)?|toCLAUDE\.md)(?:\(Recommended\))?$/i.test(option.title));
+  // Match the declined setup action, not every English label separately:
+  // No thanks/Skip may stand alone or opt into manual invocation. A manual
+  // migration, deletion, or unrelated workflow is not the opposed action.
+  // "Only" limits the same manual action; it does not add a second action.
+  // Use one whole-label grammar with and without a courtesy/Skip prefix.
+  const manualAction = /^(?:manual(?:invocation)?|(?:I['’]ll)?invoke(?:skills)?manually)(?:[-–—]?only)?$/i;
+  // A temporary Skip is the same opposed setup action only on an intact
+  // two-choice panel. Its description may corroborate manual invocation;
+  // the routing premise and unique Add action below establish its scope.
+  const decline = options.filter(option => {
+    const title = option.title.replace(/\(Recommended\)$/i, '');
+    if (/^Skipfornow$/i.test(title)) return allowTemporarySkip;
+    // The action can stand alone or follow a short courtesy ('No thanks').
+    // Cursor redraws can damage that courtesy while leaving 'invoke skills
+    // manually' intact. Match the complete action, not the spelling of No;
+    // arbitrary preceding instructions and extra trailing actions still fail.
+    const manual = title.replace(/^[a-z]{0,3}thanks[,—–-]/i, '');
+    if (manualAction.test(manual)) return true;
+    const prefix = /^(?:Nothanks|Skip)(?:[,—–-])?/i.exec(title);
+    if (!prefix) return false;
+    // 'No thanks' can be followed by the same explicit Skip action. Strip
+    // that decline verb before checking any optional manual-invocation text.
+    const action = title.slice(prefix[0].length).replace(/^skip(?:[,—–-])?/i, '');
+    return action === '' || manualAction.test(action);
+  });
+  const routingId = /<gstack-qid:routing-injection>/i.test(question.promptSnippet);
+  const routingPremise = /gstack/i.test(prompt) && /CLAUDE\.md/i.test(prompt) && /skillroutingrules/i.test(prompt);
+  // A qid can replace the longer premise, but cannot override a question
+  // about a different target. The Add action and question must agree on
+  // project setup rather than a product routing or taste decision.
+  const claudeTarget = /CLAUDE\.md/i.test(prompt);
+  const quotedPremise = /\b(?:plan|spec|document)\s+(?:quotes?|cites?|references?)\b/i.test(primary);
+  if (!claudeTarget || quotedPremise || (!routingId && !routingPremise)) return null;
+  return { add, decline };
+}
+
+/** Answer only the known pair of setup offers, using the actual native active tab. */
+function setupPacketDecision(visible: string, seen: ReadonlySet<string>, pending: NativePlanQuestionCall): AutoplanSetupDecision {
+  const waiting: AutoplanSetupDecision = { kind: 'waiting' };
+  // Validate all questions before touching any tab: a setup question cannot
+  // lend its policy to an adjacent finding, taste decision or checkbox.
+  if (pending.questions.length !== 2) return waiting;
+  const policies = pending.questions.map(question => {
+    if (question.options.length !== 2) return null;
+    const ids = [...question.question.matchAll(/<gstack-qid:[a-z0-9-]+>/gi)];
+    if (ids.length > 1 || (question.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return null;
+    const offerText = question.question.replace(/<gstack-qid:[a-z0-9-]+>/gi, '').trim();
+    const fp: AskUserQuestionFingerprint = { signature: '', observedAtMs: 0, preReview: true,
+      promptSnippet: `${question.header} ${question.question}`,
+      options: question.options.map((option, index) => ({ index: index + 1, label: option.label })) };
+    const routing = routingSetupActions(fp, true);
+    // A packet must contain only setup. Scope the entire question, including
+    // any premise, rather than borrowing the first question mark's identity
+    // while a later sentence asks for an unrelated approval.
+    const routingOffer = /^(?:gstack\s+works\s+best\s+when\s+(?:your|this|the)\s+project['’]s\s+CLAUDE\.md\s+includes\s+skill\s+routing\s+rules\.\s*)?(?:(?:Should|Can)\s+(?:I|gstack)\s+|Would\s+you\s+like\s+(?:me|gstack)\s+to\s+)?Add\s+(?:(?:gstack\s+)?skill\s+routing\s+rules\s+to\s+(?:this\s+project['’]s\s+)?CLAUDE\.md|(?:skill\s+)?routing\s+rules(?:\s+to\s+CLAUDE\.md)?|them)(?:\s+now)?\?$/i.test(offerText);
+    if (routingOffer && routing?.add.length === 1 && routing.decline.length === 1 && routing.add[0]!.index !== routing.decline[0]!.index) {
+      return { kind: 'routing', pick: routing.add[0]!.index };
+    }
+    const prerequisite = planCountPrerequisitePick(fp);
+    const run = question.options.filter(option => /^Run\s*\/office-hours\s*(?:now|first)(?:\s*\(recommended\))?$/i.test(option.label));
+    // Require an actual prerequisite offer, not a product question that
+    // happens to mention the absence of an office-hours design document.
+    const offer = /^No\s+design\s+doc\s+(?:found|exists)(?:\s+for\s+(?:this|the)\s+(?:branch|project))?\.\s*(?:\/office-hours\s+(?:produces|creates|provides)\s+(?:a\s+)?(?:structured\s+)?(?:design\s+doc(?:ument)?|problem\s+statement)(?:,?\s+(?:and\s+)?(?:premise\s+challenge|(?:explored\s+)?alternatives))*(?:\s*[—–-]\s*(?:sharper|better)\s+input\s+for\s+(?:the|this)\s+review)?\.\s*)?(?:Want\s+to\s+|Would\s+you\s+like\s+to\s+)?Run\s+(?:it|\/office-hours)\s+(?:now|first)(?:\s+or\s+proceed\s+with\s+standard\s+review)?\s*\?$/i.test(offerText);
+    return prerequisite !== null && run.length === 1 && offer ? { kind: 'prerequisite', pick: prerequisite } : null;
+  });
+  if (policies.some(policy => !policy) || new Set(policies.map(policy => policy!.kind)).size !== 2) return waiting;
+
+  const text = visible.replace(/\r+\n?/g, '\n').trimEnd();
+  const bars = [...text.matchAll(/^ {0,3}←([^\n]*[☐☒][^\n]*)✔\s*Submit\s*→[\t ]*$/gm)];
+  const footer = /Enter[\t ]+to[\t ]+select[\t ]*·[\t ]*Tab\/Arrow[\t ]+keys[\t ]+to[\t ]+navigate[\t ]*·[\t ]*Esc[\t ]+to[\t ]+cancel$/i;
+  if (bars.length !== 1 || !footer.test(text)) return waiting;
+  const bar = bars[0]!;
+  const tabs = [...bar[1]!.matchAll(/([☐☒])\s*([^☐☒]+)/g)];
+  const compact = (value: string) => value.replace(/\s+/g, '');
+  const introduction = text.slice(0, bar.index).split('\n').findLast(line => !/^[\t ─━-]*$/.test(line)) ?? '';
+  if (/\b(?:example|sample|quot(?:e[sd]?|ed)|template|source)\b[^\n]*:\s*$/i.test(introduction) ||
+      compact(bar[1]!) !== tabs.map(tab => compact(tab[0])).join('') ||
+      tabs.length !== pending.questions.length || tabs.some((tab, index) => compact(tab[2]!) !== compact(pending.questions[index]!.header)) ||
+      /(?:^|\n)[^\n]*[1-9]\.\s*\[[ ✓✔xX]\]/.test(text)) return waiting;
+  // Project only this actual pane's decoration for the existing full-panel
+  // validator. The question, labels and native identity remain unchanged.
+  const project = (header: string) => (text.slice(0, bar.index) + '☐ ' + header +
+    text.slice(bar.index + bar[0].length).replace(footer, 'Enter to select · ↑/↓ to navigate · Esc to cancel'))
+    .replace(/(^|\n)[\t ]*[│┃][\t ]?/g, '$1');
+  if (!activeSetupPanel(project('Setup packet'))) return waiting;
+  const packetKey = 'autoplan-setup-packet:' + JSON.stringify({sessionId:pending.sessionId,toolUseId:pending.toolUseId,questions:pending.questions});
+  const choiceKey = (index: number) => `${packetKey}:choice:${index}:${policies[index]!.pick}`;
+  const submitKey = packetKey + ':submit';
+  if (planCountSubmissionInput(text) === '\r') {
+    // Checked tabs are corroboration. Only choices this caller actually
+    // sent for this same native packet can authorize its final submission.
+    const options = parseNumberedOptions(text);
+    if (!/Ready\s+to\s+submit\s+your\s+answers\?\s*❯\s*1\./.test(text) ||
+        options.length !== 2 || options[0]?.index !== 1 || options[0]?.label !== 'Submit answers' ||
+        options[1]?.index !== 2 || options[1]?.label !== 'Cancel' || seen.has(submitKey) ||
+        tabs.some((tab, index) => tab[1] !== '☒' || !seen.has(choiceKey(index)))) return waiting;
+    return { kind: 'input', input: '\r', signatures: [submitKey] };
+  }
+
+  const captured = new Set(seen);
+  const fp = capturePlanCountQuestion(text, captured, 0, true, pending);
+  const index = fp?.nativeQuestionIndex;
+  if (!fp || fp.nativeCall !== pending || index === undefined || tabs[index]?.[1] !== '☐' || seen.has(choiceKey(index))) return waiting;
+  const question = pending.questions[index]!;
+  if (!completeSetupOptions(project(question.header), { ...pending, questions: [question] })) return waiting;
+  return { kind: 'input', input: planCountQuestionInput(text, fp, policies[index]!.pick),
+    signatures: [...captured].filter(signature => !seen.has(signature)).concat(choiceKey(index)) };
+}
+
 /** Pure classification: only the caller that sends input commits returned identities. */
 export function autoplanSetupDecision(visible: string, seen: ReadonlySet<string>, pending?: NativePlanQuestionCall): AutoplanSetupDecision {
-  if (pending && (pending.answered || pending.failed || pending.questions.length !== 1 || pending.questions[0]?.multiSelect)) return { kind: 'waiting' };
+  if (pending && (pending.answered || pending.failed || !pending.questions.length || pending.questions.some(question => question.multiSelect))) return { kind: 'waiting' };
+  if (pending && pending.questions.length > 1) return setupPacketDecision(visible, seen, pending);
+  // A visible packet without its complete native metadata cannot prove that
+  // its other tabs are setup. Wait for persistence instead of guessing.
+  if (/←[^\r\n]*[☐☒][^\r\n]*✔\s*Submit\s*→|Enter\s*to\s*select\s*·\s*Tab\/Arrow\s*keys\s*to\s*navigate/.test(visible)) return { kind: 'waiting' };
   // Box borders are terminal decoration, not part of an untagged native
   // question's wrapped text. Keep its full content for identity matching.
   const display = visible.replace(/(^|[\r\n])[\t ]*[│┃][\t ]?/g, '$1');
@@ -139,42 +261,11 @@ export function autoplanSetupDecision(visible: string, seen: ReadonlySet<string>
   // asked; an exact "Add them now?" sentence is not a stable interface.
   // Keep the actual question/premise separate from its header and later ELI10
   // prose, which may mention CLAUDE.md even on an unrelated question.
-  const primary = question.promptSnippet.replace(/^(?:Routing\s*rules|CLAUDE\.md)\s*/i, '').split('?', 1)[0]!;
-  const prompt = primary.replace(/\s+/g, '');
-  const options = question.options.map(option => ({
-    index: option.index,
-    title: option.label.split(/[│┌\r\n]/, 1)[0]!.replace(/\s+/g, ''),
-  }));
-  const add = options.filter(option => /^Add(?:routingrules(?:toCLAUDE\.md)?|toCLAUDE\.md)(?:\(Recommended\))?$/i.test(option.title));
-  // Match the declined setup action, not every English label separately:
-  // No thanks/Skip may stand alone or opt into manual invocation. A manual
-  // migration, deletion, or unrelated workflow is not the opposed action.
-  // "Only" limits the same manual action; it does not add a second action.
-  // Use one whole-label grammar with and without a courtesy/Skip prefix.
-  const manualAction = /^(?:manual(?:invocation)?|(?:I['’]ll)?invoke(?:skills)?manually)(?:[-–—]?only)?$/i;
-  const decline = options.filter(option => {
-    const title = option.title.replace(/\(Recommended\)$/i, '');
-    // The action can stand alone or follow a short courtesy ('No thanks').
-    // Cursor redraws can damage that courtesy while leaving 'invoke skills
-    // manually' intact. Match the complete action, not the spelling of No;
-    // arbitrary preceding instructions and extra trailing actions still fail.
-    const manual = title.replace(/^[a-z]{0,3}thanks[,—–-]/i, '');
-    if (manualAction.test(manual)) return true;
-    const prefix = /^(?:Nothanks|Skip)(?:[,—–-])?/i.exec(title);
-    if (!prefix) return false;
-    // 'No thanks' can be followed by the same explicit Skip action. Strip
-    // that decline verb before checking any optional manual-invocation text.
-    const action = title.slice(prefix[0].length).replace(/^skip(?:[,—–-])?/i, '');
-    return action === '' || manualAction.test(action);
-  });
-  const routingId = /<gstack-qid:routing-injection>/i.test(question.promptSnippet);
-  const routingPremise = /gstack/i.test(prompt) && /CLAUDE\.md/i.test(prompt) && /skillroutingrules/i.test(prompt);
-  // A qid can replace the longer premise, but cannot override a question
-  // about a different target. The Add action and question must agree on
-  // project setup rather than a product routing or taste decision.
-  const claudeTarget = /CLAUDE\.md/i.test(prompt);
-  const quotedPremise = /\b(?:plan|spec|document)\s+(?:quotes?|cites?|references?)\b/i.test(primary);
-  if (!claudeTarget || quotedPremise || (!routingId && !routingPremise)) return { kind: 'unrelated' };
+  const temporarySkipPanel = question.options.some(option => /^Skip\s*for\s*now(?:\s*\(Recommended\))?$/i.test(option.label))
+    ? completeSetupOptions(display, pending) : null;
+  const actions = routingSetupActions(question, temporarySkipPanel?.length === 2);
+  if (!actions) return { kind: 'unrelated' };
+  const { add, decline } = actions;
   if (pending && (!question.nativeCall || pending.questions.length !== 1 || pending.questions[0]?.multiSelect)) return { kind: 'waiting' };
   // An intact Add-to-CLAUDE.md action identifies this setup offer even if
   // its opposed decline is unsupported. A qid or premise alone must not

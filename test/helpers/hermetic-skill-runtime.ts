@@ -30,6 +30,7 @@ export function hermeticSkillRuntime(): { home: string; root: string } {
     // tools may resolve ~/paths even though slash commands use the latter.
     const registry = path.join(hermeticSkillsConfigDir(), 'skills');
     for (const name of fs.readdirSync(registry)) {
+      if (name === 'gstack') continue; // canonical checkout already linked above
       fs.symlinkSync(path.join(registry, name), path.join(path.dirname(root), name), 'dir');
     }
   } catch (error) {

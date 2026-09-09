@@ -9,7 +9,8 @@
  *    /.claude suffix, under the hermetic runRoot).
  * 2. Registration mirrors ./setup exactly: one entry per
  *    skillCensus().registryEntries, each a REAL dir with a SKILL.md symlink
- *    resolving to a real file (plus sections/ when the skill has one).
+ *    resolving to a real file (plus sections/ when the skill has one), and the
+ *    same canonical gstack runtime checkout used by lazy-section paths.
  * 3. connect-chrome (dir symlink) collapses into open-gstack-browser — no
  *    duplicate, no connect-chrome entry.
  * 4. Per-process idempotence: the second call returns the cached dir.
@@ -36,13 +37,18 @@ describe('hermeticSkillsConfigDir', () => {
     expect(configDir.startsWith(getHermeticDirs().runRoot + path.sep)).toBe(true);
   });
 
-  test('one registry entry per skillCensus registryEntries, nothing extra', () => {
+  test('exact skill registry plus the canonical runtime checkout', () => {
     const seeded = fs.readdirSync(skillsDir).sort();
-    expect(seeded).toEqual(skillCensus(ROOT).registryEntries);
+    expect(seeded).toEqual([...skillCensus(ROOT).registryEntries, 'gstack'].sort());
+    const runtime = path.join(skillsDir, 'gstack');
+    expect(fs.lstatSync(runtime).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(runtime)).toBe(fs.realpathSync(ROOT));
+    expect(fs.readFileSync(path.join(runtime, 'plan-design-review/sections/review-sections.md'), 'utf8'))
+      .toBe(fs.readFileSync(path.join(ROOT, 'plan-design-review/sections/review-sections.md'), 'utf8'));
   });
 
   test('every SKILL.md is a symlink resolving to a real file', () => {
-    for (const entry of fs.readdirSync(skillsDir)) {
+    for (const entry of skillCensus(ROOT).registryEntries) {
       const link = path.join(skillsDir, entry, 'SKILL.md');
       expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
       expect(fs.statSync(link).isFile()).toBe(true); // follows the link

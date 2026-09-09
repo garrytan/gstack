@@ -81,7 +81,8 @@ const PLAN = [
 ].join('\n');
 
 /**
- * Navigate prior AskUserQuestions by picking option 1 until we hit an AskUserQuestion whose
+ * Navigate prior AskUserQuestions with the existing prerequisite skip, otherwise option 1,
+ * until we hit an AskUserQuestion whose
  * options match one of the 4 mode names. Returns the option index
  * matching `targetMode`, with the buffer marker pointing AT that AskUserQuestion.
  *
@@ -129,7 +130,7 @@ async function navigateToModeAskUserQuestion(
       return { modeIndex: action.index, visibleAtMode: visible, question: action.question };
     }
 
-    // Not the mode AskUserQuestion — answer with option 1 (recommended) and continue.
+    // Follow the captured prerequisite choice; other navigation still uses option 1.
     if (priorAnswered >= maxNav) {
       throw new Error(
         `Navigated ${maxNav} prior AskUserQuestions without reaching the mode AskUserQuestion. ` +
@@ -138,7 +139,7 @@ async function navigateToModeAskUserQuestion(
       );
     }
     priorAnswered++;
-    session.send(planCountQuestionInput(visible, action.question, 1));
+    session.send(planCountQuestionInput(visible, action.question, action.index));
     // Give the agent a beat to advance before re-polling.
     await Bun.sleep(2000);
   }
