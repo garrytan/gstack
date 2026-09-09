@@ -11,7 +11,7 @@ improve the existing SDK's touchpoints within the beta release scope.
 
 ## Getting started
 
-Install with \`python -m pip install evalkit==2.0.0b1\`, set EVALKIT_API_KEY,
+Install with \`python -m pip install evalkit==2.0.0b1\`,
 then follow the quickstart's command: \`python examples/first_eval.py\`.
 The published package inventory is in docs/package-contents.txt.
 
@@ -20,6 +20,17 @@ The chosen first-success experience is an included, copy-paste demo command:
 real per-example scores plus an overall score. It needs no hosted playground
 or new interactive UI. Like every first evaluation, it currently waits for the
 mandatory CI check described in docs/current-contracts.md.
+
+The bundled demo already works without a developer API key. Its sample evaluation
+uses the shipped mock transport; its mandatory remote CI check uses the included
+sample-project binding. No credentials step precedes this first demo result.
+The keyless demo still waits for that CI check and has no skip or offline bypass.
+
+After the demo, developers obtain a key for their first live evaluation at
+https://console.evalkit.example/settings/api-keys: select the project, choose
+Create key, copy the value once, and export EVALKIT_API_KEY in their terminal.
+The page also lists existing keys and provides revoke/rotate controls. The
+bundled demo does not use this key; live evaluations do.
 
 Expected completed demo output for the bundled sample responses is documented
 here; the shipped demo prints this per-example and aggregate score format:
@@ -53,6 +64,15 @@ During the required wait, the existing SDK writes a progress line to stderr
 every 30 seconds, such as "Waiting for CI check: 90s elapsed of 300s", and reports
 when the check finishes. Progress does not bypass the check or return evaluation
 results before its required successful completion.
+
+Before the countdown, the SDK already prints what the check verifies and where
+to inspect it: "Verifying the sample-project binding with EvalKit CI; inspect
+https://ci.evalkit.example/checks/<check-id>; normally completes within 300s."
+The URL identifies the check without exposing credentials. If it has not
+succeeded at 300s, the SDK reports EVALKIT_CI_TIMEOUT, the check URL, and the
+instruction to inspect that check and retry after CI recovers. Its help link
+explains the check states and recovery steps. Success is still required before
+the first local result; these messages do not change the mandatory wait.
 
 Authentication errors behave exactly as documented in docs/api.md. All other
 errors already identify the cause, relevant argument or file, and an actionable
@@ -131,6 +151,55 @@ const ADMINISTRATIVE_HEADERS = new Set([
   'magic delivery', 'review mode', 'fix scope', 'confusion scope',
 ]);
 
+/** The structured accuracy frame approves an observation, never a proposed repair. */
+function structuredEmpathyAccuracy(header: string, question: string, options: QuestionRecord['options']): boolean {
+  if (!/^Empathy$/i.test(header.trim()) || !options || options.length !== 3 || /<gstack-qid/i.test(question)) return false;
+  const compact = (text: string) => text.trim().replace(/\s+/g, ' ');
+  const clean = (text: string) => compact(text).replace(/\s*\(recommended\)$/i, '');
+  // Consume complete descriptions too: an accurate recap cannot conceal an
+  // additional approval in the explanation of an option.
+  const descriptions = new Map([
+    ['accurate, proceed', /^✅ Every beat is grounded in a documented contract, not a guess about the runtime\. ✅ Lets the review move to friction-point decisions immediately\. ❌ If the runtime differs from the docs, the scores inherit that gap\.$/i],
+    ['some of this is wrong', /^✅ You correct specific beats \(for example, the demo may not need an API key\) before scoring\. ✅ Keeps the narrative honest for the implementer who reads it\. ❌ Costs one round-trip before friction-point questions begin\.$/i],
+    ['way off, actual experience is...', /^✅ Replaces the narrative entirely with your account of the real first run\. ✅ Prevents a review built on a wrong premise\. ❌ Discards the traced path and requires you to describe the flow from scratch\.$/i],
+  ]);
+  const labels = options.map(option => clean(option.label).toLowerCase());
+  if (new Set(labels).size !== 3 || options.some((option, i) => !option.description ||
+      !descriptions.get(labels[i]!)?.test(compact(option.description)))) return false;
+  const parts = question.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '').split(/\n\s*\n/);
+  if (parts.length !== 3) return false;
+  const role = String.raw`(?:(?:ML|backend|frontend|full-stack) )?(?:developer|engineer)`;
+  const preamble = new RegExp(String.raw`^Does this first-person narrative match what your ${role} experiences today\? Project/branch/task: [\w-]+ on [\w/-]+, [\w.-]+ SDK beta polish\. ELI10: Before scoring anything, I walk the actual README path as the target developer and describe what they see and feel\. If I have the experience wrong, every score downstream is wrong too, so please correct me here\. Stakes: this narrative becomes the Developer Perspective section the implementer reads\.$`, 'i');
+  if (!preamble.test(compact(parts[0]!)) ||
+      !/^Stakes if we pick wrong: the review polishes the wrong pain\. Recommendation: A because every step above traces to a specific line in README\.md, docs\/api\.md, docs\/current-contracts\.md, or docs\/package-contents\.txt\. Note: options differ in kind, not coverage [—–-] no completeness score\. Net: proceed on the traced path vs\. correct it before scoring\.$/i.test(compact(parts[2]!))) return false;
+  const journey = parts[1]!.split('\n');
+  if (!new RegExp(String.raw`^NARRATIVE \(${role}, terminal, wants a local result before CI\):$`, 'i').test(journey.shift() ?? '')) return false;
+  // Quoted commands/messages are source evidence. Every unquoted sentence
+  // must consume one known observation form; a heading alone cannot turn
+  // arbitrary instructions, deontic clauses or imperatives into evidence.
+  const sentences = compact(journey.join(' ')).replace(/`[^`]*`|"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[source]').split(/(?<=[.!?])\s+/);
+  const observations = [
+    /^I open the README\.$/i,
+    /^Heading one is \[source\], and the first paragraph describes me exactly, so I keep reading\.$/i,
+    /^Under \[source\] I copy \[source\], export [A-Z][A-Z_]+, and run \[source\] as instructed\.$/,
+    /^Python says \[source\]\.$/,
+    /^I check site-packages: \w+ has \w+\.py, \w+\.py, \w+\.json, no examples folder\.$/i,
+    /^(?:\d+|Thirty) seconds lost, some trust lost\.$/i,
+    /^The next paragraph mentions \[source\], so I try that\.$/i,
+    /^It starts, then stderr prints \[source\]\.$/i,
+    /^I wanted a local score on bundled sample data; instead I['’]m waiting (?:\d+|five) minutes on a remote check I never configured, at \d+-second updates, with no flag to skip it\.$/i,
+    /^Peer SDK [A-Z] gave me a number in (?:\d+|two) minutes total\.$/i,
+    /^I alt-tab\.$/i,
+    /^Later the scores appear: \d+(?:\.\d+)?, \d+(?:\.\d+)?, \d+(?:\.\d+)?\.$/i,
+    /^Fine\.$/i,
+    /^I write my own call: \[source\]\.$/i,
+    /^Then I try \[source\] and it fails, because run_batch takes \(evaluator, dataset\)\.$/i,
+    /^I paste a typo['’]d key and get \[source\]: no code, no hint that the key is the problem\.$/i,
+    /^On my existing v\d+ code, \[source\] is now simply gone with no warning or migration note\.$/i,
+  ];
+  return sentences.length > 0 && sentences.every(sentence => observations.some(pattern => pattern.test(sentence)));
+}
+
 /** Confirming a quoted developer journey authorizes understanding, not its repairs. */
 function empathyAccuracyConfirmation(header: string, question: string, options: QuestionRecord['options']): boolean {
   if (!/^(?:Empathy(?: narrative| trace)?|Narrative)$/i.test(header.trim()) ||
@@ -195,6 +264,7 @@ function administrativeQuestion(header: string, question: string, options: Quest
   // defect in their recap does not turn a confirmation into a finding.
   if (ADMINISTRATIVE_HEADERS.has(header.toLowerCase().replace(/\s+/g, ' ').trim())) return true;
   if (empathyAccuracyConfirmation(header, question, options)) return true;
+  if (structuredEmpathyAccuracy(header, question, options)) return true;
   if (/^empathy(?:\s*\(0B\))?$/i.test(header.trim()) &&
       /^Does (?:this|the) empathy narrative match\b/i.test(question.replace(/^D\s*\d+\s*[—–:-]\s*/i, ''))) {
     const labels = options?.map(option => option.label.trim().replace(/\s*\(recommended\)\s*$/i, '')) ?? [];
@@ -360,7 +430,25 @@ function answeredContractRepair(fp: AskUserQuestionFingerprint): boolean {
 
 /** A batched native call remains one decision; the caller owns call-ID deduplication. */
 export function isDevexReviewIssue(fp: AskUserQuestionFingerprint): boolean {
-  return answeredSetupRepair(fp) || answeredContractRepair(fp) || answeredDocumentationFollowup(fp) || questionRecords(fp, true).some(substantiveIssue);
+  return answeredSetupRepair(fp) || answeredContractRepair(fp) || answeredKeylessDemoRepair(fp) || answeredDocumentationFollowup(fp) || questionRecords(fp, true).some(substantiveIssue);
+}
+
+/** Key acquisition docs and eliminating the demo's key requirement are distinct work. */
+function answeredKeylessDemoRepair(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (call?.answered !== true || call.failed !== false || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      fp.options.length !== q.options.length || fp.options.some((o, i) => o.index !== i + 1 || o.label !== q.options[i]!.label) ||
+      !/^Golden path$/i.test(q.header.trim()) || /<gstack-qid/i.test(q.question)) return false;
+  const selected = q.options.filter(o => o.label === call.answers?.[q.question]);
+  if (selected.length !== 1 || !/^Install, demo, then key(?: \(recommended\))?$/i.test(selected[0]!.label) ||
+      !/\bDemo path is guaranteed keyless and offline; if the runtime currently insists on a key for the demo, remove that check\b/.test(selected[0]!.description ?? '')) return false;
+  const lines = q.question.split('\n');
+  return /^D\s*\d+\s*[—–:-]\s*Pass 1 Getting Started \((?:10|[0-9])\/10 today\): should the golden path put the demo BEFORE the API key step\?$/i.test(lines[0]!) &&
+    /^ELI10: Today README "Getting started" \(lines \d+-\d+\) reads install, set [A-Z][A-Z_]+, run a missing file\./m.test(q.question);
 }
 
 /** New documentation and example obligations are separate from the original repairs. */

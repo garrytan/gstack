@@ -1,0 +1,100 @@
+{
+  "provenance": {
+    "nativePath": ".context/ship-source-ac-full-paid-20260909-1635/native-observation/pinned-native/429317-237662/21669d56-936c-4ad6-ba28-f1533cf1ff06/74fad60b1be6c00d362cc6cba2cf2a6cf220c18d825b3bca1a0fe1fa08702e2a.jsonl",
+    "nativeSha256": "74fad60b1be6c00d362cc6cba2cf2a6cf220c18d825b3bca1a0fe1fa08702e2a",
+    "modeRequestAt": "2026-09-09T16:41:03.857Z",
+    "modeReplyAt": "2026-09-09T16:41:05.676Z",
+    "selectionLowerBound": "Native mode request timestamp; actual JavaScript selectionStartedAt was not retained.",
+    "logPath": ".context/ship-source-ac-full-paid-20260909-1635/gstack-paid-shard-skill-e2e-plan-ceo-mode-routing-2026-09-09T16-36-59-163Z-412001-7.log",
+    "logSha256": "166d14ffbaea7c16ef9e5e90f920b19cbc36df160a52beca6d89eee65e9a4f9b",
+    "actualRenderedTail": "Exact retained truncated first HOLD failure tail; it does not contain a complete barless frame or native pending packet.",
+    "projectedControls": "The four questions below and the complete tab/Submit screens constructed by the test are explicitly synthetic, shaped like the observed review. No claim that these were the unpublished native packet."
+  },
+  "modeCall": {
+    "sessionId": "21669d56-936c-4ad6-ba28-f1533cf1ff06",
+    "toolUseId": "toolu_01AJPrVjeKa9dVyfFN3VSxAr",
+    "questions": [
+      {
+        "question": "D5 \u2014 Which review mode should I run for the rest of this review?\nProject/branch/task: plan-count fixture on `main`, PLAN.md \"Add saved project views\" under Approach B.\nELI10: The mode sets my posture for the 11 review sections. EXPANSION pushes scope up and recommends every extra enthusiastically. SELECTIVE EXPANSION holds the current scope as the baseline, reviews it rigorously, then shows you each extra (shared views, default view, keyboard shortcut, and so on) one at a time so you cherry-pick. HOLD SCOPE reviews only what's there and surfaces no extras. REDUCTION strips to the bare minimum. In every mode, every scope change is an individual opt-in; nothing is added or removed silently.\nStakes if we pick wrong: Too expansive and the pilot ships late with features nobody asked for; too narrow and obvious 30-minute wins (like shareable links) get missed.\nRecommendation: SELECTIVE EXPANSION because this is a feature enhancement on an existing task list, and Approach B already produces a few cheap adjacent wins worth showing you individually.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: how much ambition I bring to the table versus how tightly I hold the plan as written. <gstack-qid:plan-ceo-review-mode>",
+        "header": "Mode",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "SELECTIVE EXPANSION (recommended)",
+            "description": "\u2705 Full rigor on the accepted scope, plus each expansion candidate presented individually with neutral effort and risk. \u2705 Rejected candidates land in NOT in scope, so nothing is lost or silently added. \u274c Adds several cherry-pick questions before the deep review starts."
+          },
+          {
+            "label": "SCOPE EXPANSION",
+            "description": "\u2705 Dreams big: 10x version, platonic ideal, and at least five delight items, each recommended enthusiastically. \u2705 Best when you want this to become the flagship way people navigate tasks. \u274c Pushes toward shared views and a view platform the two-week pilot did not ask for."
+          },
+          {
+            "label": "HOLD SCOPE",
+            "description": "\u2705 Maximum rigor on Approach B exactly as approved; no expansion questions at all. \u2705 Fastest path to a bulletproof, shippable plan. \u274c Cheap adjacent wins like shareable filter links never get surfaced for a decision."
+          },
+          {
+            "label": "SCOPE REDUCTION",
+            "description": "\u2705 Finds the absolute minimum that ships value, everything else deferred to follow-ups. \u2705 Lowest pilot risk and smallest rollback surface. \u274c Likely cuts auto-restore or named views, undoing the reason Approach B was chosen."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answeredAt": "2026-09-09T16:41:05.676Z",
+    "answers": {
+      "D5 \u2014 Which review mode should I run for the rest of this review?\nProject/branch/task: plan-count fixture on `main`, PLAN.md \"Add saved project views\" under Approach B.\nELI10: The mode sets my posture for the 11 review sections. EXPANSION pushes scope up and recommends every extra enthusiastically. SELECTIVE EXPANSION holds the current scope as the baseline, reviews it rigorously, then shows you each extra (shared views, default view, keyboard shortcut, and so on) one at a time so you cherry-pick. HOLD SCOPE reviews only what's there and surfaces no extras. REDUCTION strips to the bare minimum. In every mode, every scope change is an individual opt-in; nothing is added or removed silently.\nStakes if we pick wrong: Too expansive and the pilot ships late with features nobody asked for; too narrow and obvious 30-minute wins (like shareable links) get missed.\nRecommendation: SELECTIVE EXPANSION because this is a feature enhancement on an existing task list, and Approach B already produces a few cheap adjacent wins worth showing you individually.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: how much ambition I bring to the table versus how tightly I hold the plan as written. <gstack-qid:plan-ceo-review-mode>": "HOLD SCOPE"
+    },
+    "unansweredQuestionIndices": []
+  },
+  "actualTruncatedTail": "\ned\n\u2502  stats). Without aversion,old stored viewsbreaksilentlywhenthefiltershapechanges.Withone,atiny\n\u2502upgrader function can migrate old shapes on read, and the app can log exactlywhich version i saw.\n\u2502Stakes if w pick wong: Without a version, the firstfilter-shape changeafter launch turnsevery savedview into\n\u2502a silent 400 or anemptylist.\n\u2502  Recommendaton:Abecauseasingleintegercolumncostsnothingnowandistheonlywaytokeepstoredviews\n \u2502   working across filter changes, which is required correctness for a persistence feature.\n\u2502  ompleteness: A=10/10,B=7/10\n\u2502Net:oneextraintegerfieldnowversusaguaranteedbreakagethefirsttimethefiltershapeevolves.\n \u2502   <gstack-qid:pln-ceo-review-hld-flter-encoding>\n\u2192A:Mirrortask-listparams+schema_versionint+validateonread(recommended)\n\u2502\u25cfD8\u2014Whathappenswhenastoredfilterreferencessomethingthatnolongerexists?\n\u2502Project/branch/task:plan-countfixtureon`main`,ApproachBapply-viewpath,HOLDSCOPE.\n\u2502ELI10:Asavedviewmightfilterbyalabelthatwaslaterdeletedoranassigneewholefttheproject.Whenthe\n\n\u2502memberappliesit,theapphastodosomethingwiththatdeadclause.Droppingitsilentlywouldshowawiderlist\n\n\u2502thanthememberexpectsandtheywouldneverknowwhy.Failingthewholeviewissafebutmakestheviewuseless\n\n\u2502overonestaleclause.Themiddlepathappliesthevalidclauses,showsavisiblenoticenamingwhatwasdropped,\n\n\u2502andofferstoupdatetheview.\n\n\u2502Stakesifwepickwrong:Silentwideningisexactlythekindofinvisiblefailurethisreviewexiststocatch;hard\n\n\u2502failuremakesviewsfeelfragile.\n\n\u2502Recommendation:Abecauseitkeepstheviewusable,makesthedegradationvisibletothemember,andlogsitsothe\n\n\u2502teamcanseehowoftenfiltersgostale.\n\n\u2502Completeness:A=10/10,B=8/10,C=3/10\n\n\u2502Net:gracefulandloudversusstrictandsafeversussilentandwrong.\n\n\u2502<gstack-qid:plan-ceo-review-hold-stale-references>\n\n\u2192A:Applyvalidclauses,showanamednotice,offerUpdateview(recommended)\n\n\u2502\u25cfD9\u2014Whenamembereditsfiltersafterapplyingasavedview,whathappenstotheview?\n\n\u2502Project/branch/task:plan-countfixtureon`main`,ApproachBpicker+saveaction,HOLDSCOPE.\n\n\u2502ELI10:Amemberpickstheview\"Myopenbugs\",thenaddsafilter.Shouldtheviewsilentlyupdatetothenew\n\n\u2502filters,orshouldthepickershow\"Myopenbugs(modified)\"andletthememberchooseUpdatevieworSaveasnew?\n\n\u2502Auto-saveiszero-clickbutdestroysthesaveddefinitionbyaccident,andthereisnoundo.Dirtystateisthe\n\n\u2502patterneverymainstreamtrackeruses.Eitherwaythelast-usedstate(auto-restore)stillupdatessoreloading\n\n\u2502returnsthemembertowhattheywerelookingat.\n\n\u2502Stakesifwepickwrong:Auto-savesilentlyrewritesviewsthememberrelieson;missingdirtystatemakesmembers\n\n\u2502unsurewhethertheirchangestuck.\n\n\u2502Recommendation:Abecauseitisexplicitoverclever,matcheseverymainstreamtracker,andkeepsauto-restore\n\n\u2502workingthroughthelast-usedstateregardless.\n\n\u2502Completeness:A=10/10,B=6/10\n\n\u2502Net:anexplicittwo-buttondirtystateversusasilentoverwritewithnoundo.\n\n\u2502<gstack-qid:plan-ceo-review-hold-dirty-state>\n\n\u2192A:DirtystatewithUpdateview/Saveasnew;last-usedalwaysupdates(recommended)\n\n\n\nReadytosubmityouranswers?\n\n\n\n\u276f1.Submitanswers\n\n2.Cancel\n\n",
+  "projectedQuestions": [
+    {
+      "header": "Filter encoding",
+      "question": "D7 \u2014 How should persisted filters remain readable?\nProject: saved views, HOLD SCOPE.\nRequire a schema version and validation when a stored view is reopened.",
+      "options": [
+        {
+          "label": "Version and validate (recommended)"
+        },
+        {
+          "label": "Store opaque filters"
+        }
+      ]
+    },
+    {
+      "header": "Stale references",
+      "question": "D8 \u2014 What happens when a saved filter names a deleted label?\nProject: saved views, HOLD SCOPE.\nShow a clear warning for invalid clauses; never silently widen the result.",
+      "options": [
+        {
+          "label": "Validate and show a warning (recommended)"
+        },
+        {
+          "label": "Apply every clause unchanged"
+        }
+      ]
+    },
+    {
+      "header": "Dirty state",
+      "question": "D9 \u2014 How should edits affect an applied saved view?\nProject: saved views, HOLD SCOPE.\nRequire explicit Update or Save as new; silent overwrites destroy the saved definition.",
+      "options": [
+        {
+          "label": "Explicit update or save (recommended)"
+        },
+        {
+          "label": "Overwrite automatically"
+        }
+      ]
+    },
+    {
+      "header": "Access failure",
+      "question": "D10 \u2014 How should an unauthorized saved view fail?\nProject: saved views, HOLD SCOPE.\nReturn a visible error and preserve the current filters.",
+      "options": [
+        {
+          "label": "Show an access error (recommended)"
+        },
+        {
+          "label": "Clear all filters silently"
+        }
+      ]
+    }
+  ]
+}

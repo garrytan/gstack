@@ -32,7 +32,8 @@ import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript } from './plan-count-transcript';
 import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
-import { createFilePermissionRecorder, currentFilePermissionEpoch, type FilePermissionEpoch } from './plan-count-file-permission';
+import { createPendingQuestionRecorder } from './plan-count-pending-question';
+import { createFilePermissionRecorder, currentFilePermissionBinding, type FilePermissionEpoch } from './plan-count-file-permission';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 
@@ -101,6 +102,8 @@ export interface ClaudePtyOptions {
   observeScreen?: boolean;
   /** Count-only pending identity; the hook never approves or changes native tools. */
   observePlanReady?: boolean;
+  /** Pending AUQ identity for explicit navigation; never supplies answered coverage. */
+  observeSetupQuestions?: boolean;
   /** Count-only native permission epochs for these exact disposable fixture/report paths. */
   observeFilePermissions?: readonly string[];
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
@@ -161,6 +164,7 @@ export interface ClaudePtySession {
   hermeticConfigDir: string | null;
   /** Owned pre-tool identity record, removed by close(). */
   pendingPlanReadyFile?: string;
+  pendingQuestionFile?: string;
   pendingFilePermissionFiles?: Array<{ expected: string; file: string }>;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
@@ -1538,7 +1542,8 @@ export function createPlanCountPermissionGuard(): (visible: string, completionHi
       // Native success alone is not a new prompt: the old pane may redraw.
       // Release only a distinct pending request after this exact grant completed.
       if (!native || (granted?.signature === signature &&
-          (!granted.nativeId || native.pendingId === granted.nativeId || native.completedId !== granted.nativeId))) return 'handled';
+          (!granted.nativeId || native.pendingId === granted.nativeId ||
+            (native.completedId !== granted.nativeId && !native.completedIds?.includes(granted.nativeId))))) return 'handled';
     } else if (granted?.signature === signature && completedAt <= granted.completedAt) return 'handled';
     granted = { signature, completedAt, ...(native ? {nativeId:native.pendingId} : {}) };
     return 'grant';
@@ -2122,8 +2127,31 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
   fp.options.some((o) => /skip\s+interview|plan\s+immediately/i.test(o.label));
 
 /** Native finding evidence when CEO mode selection is omitted or left unanswered. */
+function qidlessCeoFinding(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
+  // title only after the real call completes; rendered prose is not evidence.
+  if (!call?.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      Object.keys(call.answers ?? {}).length !== 1) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || fp.options.length !== q.options.length ||
+      !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      /<gstack-qid/i.test(q.question) ||
+      /^(?:review )?(?:mode|scope|approach|routing|prerequisites?|setup|next (?:steps?|review)|completion)$/i.test(q.header.trim()) ||
+      q.options.some(option => MODE_RE.test(option.label)) ||
+      new Set(q.options.map(option => option.label)).size !== q.options.length ||
+      !q.options.some(option => option.label === call.answers?.[q.question])) return false;
+  const title = q.question.split('\n')[0]!;
+  const finding = /^(?:D[1-9]\d*\s*[—–-]\s*)?Finding\s+([1-9]\d*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*[^\n?]+\?$/i.exec(title);
+  if (finding) return !/\(Section\s/i.test(title) || q.header.trim().toLowerCase() === `finding ${finding[1]}`;
+  const issue = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+  return Boolean(issue && q.header.trim().toLowerCase() === `issue ${issue[1]}`);
+}
+
 export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
-  fp.nativeCall?.questions.some(q => {
+  qidlessCeoFinding(fp) || (fp.nativeCall?.questions.some(q => {
     if (fp.nativeCall?.answered && !fp.nativeCall.answers?.[q.question]) return false;
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
@@ -2145,7 +2173,7 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     const amendment = q.options.some(option => [option.label, option.description ?? ''].some(text =>
       /^(?:(?:Specify|Define|Clarify|Require|Amend|Update)\b|Add to (?:the )?plan\b|Plan specifies:)/i.test(text.trim())));
     return omission && amendment;
-  }) ?? false;
+  }) ?? false);
 
 /** A closed whole-plan complexity choice sets review scope, not an issue remedy. */
 function engWholePlanSetupAUQ(fp: AskUserQuestionFingerprint): boolean {
@@ -2454,10 +2482,14 @@ export async function launchClaudePty(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let proc: any;
   let pendingExit: ReturnType<typeof createPendingExitRecorder> | undefined;
+  let pendingQuestion: ReturnType<typeof createPendingQuestionRecorder> | undefined;
   const pendingFiles: Array<{ expected: string; recorder: NonNullable<ReturnType<typeof createFilePermissionRecorder>> }> = [];
   try {
     if (opts.observePlanReady && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       pendingExit = createPendingExitRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
+    }
+    if (opts.observeSetupQuestions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
+      pendingQuestion = createPendingQuestionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
     }
     if (opts.observeFilePermissions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       for (const expected of new Set(opts.observeFilePermissions)) {
@@ -2465,9 +2497,9 @@ export async function launchClaudePty(
         if (recorder) pendingFiles.push({ expected, recorder });
       }
     }
-    if (pendingFiles.length) {
+    if (pendingFiles.length || pendingQuestion) {
       const hooks = pendingExit ? JSON.parse(pendingExit.settings).hooks : {};
-      for (const { recorder } of pendingFiles) for (const [event, entries] of Object.entries(recorder.hooks))
+      for (const recorder of [...pendingFiles.map(p => p.recorder), ...(pendingQuestion ? [pendingQuestion] : [])]) for (const [event, entries] of Object.entries(recorder.hooks))
         hooks[event] = [...(hooks[event] ?? []), ...entries];
       args.push('--settings', JSON.stringify({hooks}));
     } else if (pendingExit) args.push('--settings', pendingExit.settings);
@@ -2483,7 +2515,7 @@ export async function launchClaudePty(
     },
     cwd,
     env: childEnv,
-  }); } catch (error) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); await disposeScreen(); throw error; }
+  }); } catch (error) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); pendingQuestion?.dispose(); await disposeScreen(); throw error; }
 
   // Track exit so waitForAny can fail fast if claude crashes.
   let exitedPromise: Promise<void> = Promise.resolve();
@@ -2616,7 +2648,7 @@ export async function launchClaudePty(
     clearTimeout(trustWatcherStop);
     clearInterval(trustWatcher);
     for (const timer of trustInputTimers) clearTimeout(timer);
-    if (exited) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); await disposeScreen(); return; }
+    if (exited) { pendingFiles.forEach(({ recorder }) => recorder.dispose()); pendingExit?.dispose(); pendingQuestion?.dispose(); await disposeScreen(); return; }
     try {
       proc.kill?.('SIGINT');
     } catch {
@@ -2634,6 +2666,7 @@ export async function launchClaudePty(
     }
     pendingFiles.forEach(({ recorder }) => recorder.dispose());
     pendingExit?.dispose();
+    pendingQuestion?.dispose();
     await disposeScreen();
   }
 
@@ -2657,6 +2690,7 @@ export async function launchClaudePty(
     exitCode: () => exitCodeCaptured,
     hermeticConfigDir: hermetic ? childEnv.CLAUDE_CONFIG_DIR ?? null : null,
     pendingPlanReadyFile: pendingExit?.file,
+    pendingQuestionFile: pendingQuestion?.file,
     pendingFilePermissionFiles: pendingFiles.map(({ expected, recorder }) => ({ expected, file: recorder.file })),
     close,
   };
@@ -3406,11 +3440,10 @@ export async function runPlanSkillCounting(opts: {
       if (opts.expectedPlanPath && terminalHint === 'plan_ready' && !verifiedTerminal) continue;
       let permissionGuard = filePermission;
       let permissionEpoch: FilePermissionEpoch | null | undefined;
-      for (const binding of ownedFilePermissions) {
-        const epoch = currentFilePermissionEpoch(binding.file, binding.expected, fixture.cwd,
-          session.hermeticConfigDir, startedAt, transcript, visible);
-        if (epoch !== undefined) { permissionGuard = binding.guard; permissionEpoch = epoch; break; }
-      }
+      const currentBinding = currentFilePermissionBinding(ownedFilePermissions, fixture.cwd,
+        session.hermeticConfigDir, startedAt, transcript, visible);
+      if (currentBinding) { permissionGuard = currentBinding.binding.guard; permissionEpoch = currentBinding.epoch; }
+      else permissionEpoch = currentBinding;
       const permission = nativeQuestionVisible || terminalHint === 'plan_ready'
         ? null : permissionGuard(visible, session.visibleText(), permissionEpoch);
       if (frame === 'permission' || (permission === 'grant' && frame === null)) {

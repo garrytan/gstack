@@ -244,6 +244,48 @@ function closedNavigationContext(context: string): boolean {
     !/(?:^|[.!?;]\s+|\b(?:proceed to|continue to|should|must|will|need to|can|could|would)\s+)(?:(?:please|first|then|also)\s+)*(?:add|fix|implement|resolve|decide)\b/im.test(context);
 }
 
+/** A pure next-review menu remains navigation when question tuning is off. */
+function sequencedReviewNavigation(fp: AskUserQuestionFingerprint): number | null {
+  const call = fp.nativeCall!, q = call.questions[0]!;
+  if (call.failed !== false || !call.sessionId || !call.toolUseId || q.header.trim() !== 'Next review' ||
+      q.options.length !== 2 || fp.options.length !== 2 || q.multiSelect ||
+      !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return null;
+  if (call.answered === false) {
+    if (call.answers !== undefined || call.answeredAt !== undefined ||
+        (call.unansweredQuestionIndices !== undefined &&
+          (call.unansweredQuestionIndices.length !== 1 || call.unansweredQuestionIndices[0] !== 0))) return null;
+  } else if (call.answered !== true || !Array.isArray(call.unansweredQuestionIndices) ||
+      call.unansweredQuestionIndices.length || Object.keys(call.answers ?? {}).length !== 1) return null;
+  const lines = q.question.trim().split('\n').map(line => line.trim()).filter(Boolean);
+  if (!/^D[1-9]\d* [—–-] Which review runs next\?$/.test(lines[0] ?? '')) return null;
+  // Consume the entire brief, including the displayed option explanations.
+  // Only the next gate is open; adding a new remedy anywhere rejects this arm.
+  const grammar = [
+    /^Project\/branch\/task: [\w.-]+ on [\w./-]+; CEO review of [\w./-]+ is complete and clean \(HOLD SCOPE, 0 critical gaps, [1-9]\d* P1 tasks\)\.$/,
+    /^ELI10: gstack chains reviews\. The CEO review just settled scope and strategy\. The engineering review is the required gate before shipping: it checks architecture, test design, and code quality in detail\. skip_eng_review is false, so it is still required\. No UI scope was detected, so the design review does not apply here\.$/,
+    /^Stakes if we pick wrong: skipping eng review leaves the ship gate NOT CLEARED; the plan is small, so the eng review should be quick\.$/,
+    /^Recommendation: A because eng review is the required gate and the plan now has exact assertions worth a second structured pass on test design\.$/,
+    /^Note: options differ in kind, not coverage [—–-] no completeness score\.$/,
+    /^A\) Run \/plan-eng-review next \(recommended\)$/,
+    /^✅ Clears the required shipping gate on a plan that is small and already decided$/,
+    /^✅ Gives the three tasks a test-design pass focused on the assertion mechanics \(mock implementation, sleeper record shape\)$/,
+    /^❌ One more review session before implementation starts \(human ~[1-9]\d* min \/ CC ~[1-9]\d* min\)$/,
+    /^B\) Skip, handle reviews manually$/,
+    /^✅ Move straight to implementing T[1-9]\d* to T[1-9]\d* in the real repo$/,
+    /^✅ No further review time on a three-task change$/,
+    /^❌ Dashboard verdict stays NOT CLEARED until an eng review is logged$/,
+    /^Net: gate discipline versus getting to the code faster on a change that is already tightly specified\.$/,
+  ];
+  if (lines.length !== grammar.length + 1 || !grammar.every((re, i) => re.test(lines[i + 1]!))) return null;
+  const labels = q.options.map(o => o.label.trim().replace(/^[A-Z]:\s*/, '').replace(/\s*\(recommended\)$/, ''));
+  const run = labels.indexOf('Run /plan-eng-review next'), manual = labels.indexOf('Skip, manual reviews');
+  if (run < 0 || manual < 0 || run === manual ||
+      q.options[run]!.description !== 'Required gate; runs after this plan is approved.' ||
+      q.options[manual]!.description !== 'Proceed to implementation; eng gate remains open.') return null;
+  return manual + 1;
+}
+
 /** Closed CEO next-review navigation; native terminal/report checks prove completion separately. */
 function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const call = fp.nativeCall;
@@ -255,6 +297,10 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const ids = [...q.question.matchAll(/<gstack-qid:\s*([a-z0-9-]+)\s*>/gi)];
   if (ids.length > 1 || (q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return null;
   const id = ids[0]?.[1]?.toLowerCase();
+  if (!id) {
+    const sequenced = sequencedReviewNavigation(fp);
+    if (sequenced !== null) return sequenced;
+  }
   if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-review-next-(?:steps?|review)|ceo-next-step-eng-review|ceo-plan-next-steps)$/.test(id)) return null;
   const declaration = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
     .replace(/^next\s+(?:review|steps?)\s*:\s*/i, '');

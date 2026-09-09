@@ -45,7 +45,9 @@ import {
 } from './helpers/claude-pty-runner';
 import { hasNativePostAnswerCeoPosture, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
 import { createPlanCountFixture } from './helpers/plan-count-fixture';
-import { readPlanCountTranscript, type PlanCountTranscript } from './helpers/plan-count-transcript';
+import { readPlanCountTranscript, type NativePublicToolEvent, type PlanCountTranscript } from './helpers/plan-count-transcript';
+import { readPendingQuestion, pendingQuestionRecorderStatus } from './helpers/plan-count-pending-question';
+import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -94,7 +96,8 @@ async function navigateToModeAskUserQuestion(
   since: number,
   targetMode: ModeCase['mode'],
   cwd: string,
-  opts: { maxNav?: number; budgetMs?: number } = {},
+  opts: { maxNav?: number; budgetMs?: number;
+    checkpoint?: (viewport: string, transcript: PlanCountTranscript | null) => void } = {},
 ): Promise<{ modeIndex: number; visibleAtMode: string; question: AskUserQuestionFingerprint }> {
   // /plan-ceo-review's mode AskUserQuestion (Step 0F) sits behind several preamble
   // and Step 0A-0C-bis gates: telemetry, proactive, routing, vendoring,
@@ -116,7 +119,9 @@ async function navigateToModeAskUserQuestion(
     await Bun.sleep(2000);
     const visible = await session.currentScreen();
     const transcript = session.hermeticConfigDir ? readPlanCountTranscript(session.hermeticConfigDir, cwd) : null;
-    const pending = transcript?.calls.find(call => !call.answered && !call.failed);
+    opts.checkpoint?.(visible, transcript);
+    const pending = transcript?.calls.find(call => !call.answered && !call.failed) ??
+      (transcript ? readPendingQuestion(session.pendingQuestionFile, cwd, session.hermeticConfigDir, start, transcript) : undefined);
     const action = nextCeoModeNavigation(visible, targetMode, seenQuestions, pending, session.visibleText());
     if (action.kind === 'wait') continue;
     // Native permission and multi-question Submit menus are controls, not
@@ -158,6 +163,23 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
       async () => {
         const fixture = createPlanCountFixture(PLAN);
         let session: ClaudePtySession | undefined;
+        const saveSnapshot = createPlanCountSnapshotWriter();
+        let lastSnapshotAt = 0;
+        let commandStartedAt = Date.now();
+        let selectionStartedAt: number | undefined;
+        let outcome = 'running';
+        let artifacts: {artifactDir?: string; artifactError?: string} = {};
+        const capture = (state: string, viewport: string, native: PlanCountTranscript | null, force = false) => {
+          if (!session || (!force && Date.now() - lastSnapshotAt < 30_000)) return;
+          artifacts = saveSnapshot({skillName:'plan-ceo-review-mode', cwd:fixture.cwd,
+            claudeConfigDir:session.hermeticConfigDir, raw:session.rawOutput(), visible:session.visibleText(), viewport,
+            observation:{state, targetMode:c.mode, commandStartedAt, selectionStartedAt, native,
+              pendingQuestionRecorder:pendingQuestionRecorderStatus(session.pendingQuestionFile, fixture.cwd, session.hermeticConfigDir),
+              pendingQuestion:native ? readPendingQuestion(session.pendingQuestionFile, fixture.cwd,
+                session.hermeticConfigDir, commandStartedAt, native) : undefined,
+              exitCode:session.exitCode(), retention:'Current raw/visible/viewport and parsed public native metadata; full parent JSONL retention is not guaranteed.'}});
+          lastSnapshotAt = Date.now();
+        };
         try {
           session = await launchClaudePty({
             cwd: fixture.cwd,
@@ -165,16 +187,19 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             timeoutMs: CAPTURE_LONG_MS,
             seedSkills: true,
             observeScreen: true,
+            observeSetupQuestions: true,
           });
           await Bun.sleep(8000);
           const since = session.mark();
+          commandStartedAt = Date.now();
           session.send('/plan-ceo-review\r');
 
-          const { modeIndex, visibleAtMode, question } = await navigateToModeAskUserQuestion(session, since, c.mode, fixture.cwd);
+          const { modeIndex, visibleAtMode, question } = await navigateToModeAskUserQuestion(session, since, c.mode, fixture.cwd,
+            {checkpoint:(viewport,native)=>capture('navigating',viewport,native)});
 
           // Native shortcuts accept immediately. Preserve the captured question
           // identity; only the legacy prose-menu protocol needs Enter.
-          const selectionStartedAt = Date.now();
+          selectionStartedAt = Date.now();
           const modeInput = planCountQuestionInput(visibleAtMode, question, modeIndex);
           if (modeInput.includes('\r')) await selectPtyNumberedOption(session, modeIndex);
           else session.send(modeInput);
@@ -198,22 +223,26 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
               );
             }
             downstreamSnapshot = session.visibleSince(sincePick);
+            const publicTools: NativePublicToolEvent[] = [];
             transcript = session.hermeticConfigDir
-              ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd)
+              ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd, event => publicTools.push(event))
               : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated mode transcript directory' };
-            if (hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt)) {
+            if (hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt, publicTools)) {
               postureMatched = true;
               break;
             }
             const currentInput = await session.currentScreen();
+            capture('awaiting_posture', currentInput, transcript);
+            const pendingQuestion = readPendingQuestion(session.pendingQuestionFile, fixture.cwd,
+              session.hermeticConfigDir, selectionStartedAt, transcript);
             const continuation = nextCeoPostureContinuation(currentInput, transcript,
-              c.mode, selectionStartedAt, seenDownstream, continuedQuestion, session.visibleText());
+              c.mode, selectionStartedAt, seenDownstream, continuedQuestion, session.visibleText(), pendingQuestion);
             if (continuation !== null) {
               if (continuation === 'question') continuedQuestion = true;
               if (continuation === 'permission') await selectPtyNumberedOption(session, 1);
               else if (continuation === 'submission') session.send('\r');
               else {
-                const pending = transcript.calls.find(call => !call.answered && !call.failed);
+                const pending = transcript.calls.find(call => !call.answered && !call.failed) ?? pendingQuestion;
                 const question = capturePlanCountQuestion(currentInput, new Set(), 0, false, pending)!;
                 const input = planCountQuestionInput(currentInput, question, 1);
                 if (input.includes('\r')) await selectPtyNumberedOption(session, 1);
@@ -227,7 +256,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             if (
               isPlanReadyVisible(downstreamSnapshot) &&
               isNumberedOptionListVisible(downstreamSnapshot) &&
-              !hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt)
+              !hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt, publicTools)
             ) {
               // Plan-ready AND a follow-up AskUserQuestion are both visible but
               // posture text has not appeared yet. Keep polling for a bit.
@@ -237,14 +266,24 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             throw new Error(
               `Mode "${c.mode}" routing FAILED after sending option ${modeIndex}: no posture match for ${c.postureRe.source}.\n` +
               `Native transcript: ${transcript.status}; ${transcript.calls.length} calls, ${transcript.assistantMessages.length} assistant messages; continuedQuestion=${continuedQuestion}.\n` +
+              `Artifacts: ${JSON.stringify(artifacts)}\n` +
               `--- observed mode menu (last 3KB) ---\n${visibleAtMode.slice(-3000)}\n` +
               `--- downstream visible since mode pick (last 3KB) ---\n` +
               downstreamSnapshot.slice(-3000),
             );
           }
+          outcome = 'posture_confirmed';
+        } catch (error) {
+          outcome = 'failed';
+          throw error;
         } finally {
           try {
-            await session?.close();
+            if (session) {
+              try {
+                capture(outcome, await session.currentScreen(), session.hermeticConfigDir
+                  ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd) : null, true);
+              } finally { await session.close(); }
+            }
           } finally {
             fixture.cleanup();
           }

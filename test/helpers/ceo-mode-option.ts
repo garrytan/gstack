@@ -12,7 +12,7 @@ import {
   planCountPrerequisitePick,
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
-import type { NativePlanQuestionCall, PlanCountTranscript } from './plan-count-transcript';
+import type { NativePlanQuestionCall, NativePublicToolEvent, PlanCountTranscript } from './plan-count-transcript';
 
 type CeoMode = 'HOLD SCOPE' | 'SCOPE EXPANSION' | 'SELECTIVE EXPANSION' | 'SCOPE REDUCTION';
 
@@ -157,12 +157,58 @@ export function nativeCeoModeAnswer(
   return latest?.mode === targetMode.replace(/\s+/g, '') ? latest.call : null;
 }
 
-/** Match only finalized assistant prose after the actual mode answer. */
+/** An answered AUQ must have one matching native request and successful reply. */
+function completedQuestionTimes(call: NativePlanQuestionCall, events: ReadonlyArray<NativePublicToolEvent>) {
+  if (!call.answered || call.failed || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return null;
+  const own = events.filter(event => event.sessionId === call.sessionId && event.toolUseId === call.toolUseId);
+  const requests = own.filter(event => event.kind === 'use');
+  const replies = own.filter(event => event.kind === 'result');
+  if (requests.length !== 1 || replies.length !== 1) return null;
+  const request = requests[0]!;
+  const reply = replies[0]!;
+  const requestedAt = Date.parse(request.timestamp);
+  const answeredAt = Date.parse(reply.timestamp);
+  if (request.name !== 'AskUserQuestion' || reply.isError ||
+      JSON.stringify(request.input?.questions) !== JSON.stringify(call.questions) ||
+      reply.timestamp !== call.answeredAt || !Number.isFinite(requestedAt) ||
+      !Number.isFinite(answeredAt) || requestedAt >= answeredAt) return null;
+  return { requestedAt, answeredAt };
+}
+
+/** A concrete, opted-in expansion brief is itself assistant posture evidence. */
+function hasAnsweredExpansionPosture(
+  transcript: PlanCountTranscript, selected: NativePlanQuestionCall,
+  posture: RegExp, events: ReadonlyArray<NativePublicToolEvent>,
+): boolean {
+  const modeTimes = completedQuestionTimes(selected, events);
+  if (!modeTimes) return false;
+  return transcript.calls.some(call => {
+    if (call === selected || call.sessionId !== selected.sessionId || call.questions.length !== 1) return false;
+    const times = completedQuestionTimes(call, events);
+    if (!times || times.requestedAt <= modeTimes.answeredAt) return false;
+    const question = call.questions[0]!;
+    const title = question.question.split('\n')[0]!
+      .replace(/\s*<gstack-qid:plan-ceo-review-expansion-[a-z0-9-]+>\s*$/i, '');
+    if (question.multiSelect || question.options.length !== 3 ||
+        !/^D\d+\s*[—–-]\s*Expansion\s+\d+\s+of\s+\d+:\s+\S.+\?\s*$/i.test(title)) return false;
+    const labels = question.options.map(option => option.label.trim()
+      .replace(/^[A-C][):.]\s*/i, '').replace(/\s*\(recommended\)\s*$/i, '').toLowerCase());
+    if (new Set(labels).size !== 3 || !['add to scope', 'defer to todos.md', 'skip'].every(label => labels.includes(label)) ||
+        !question.options.some(option => option.label === call.answers?.[question.question])) return false;
+    // Never search quoted instructions, tool output or a menu for posture.
+    const prose = question.question.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^\s*>.*$/gm, '');
+    return hasPostAnswerCeoPosture(`● ${prose}`, posture);
+  });
+}
+
+/** Match finalized assistant prose or an answered expansion after the actual mode answer. */
 export function hasNativePostAnswerCeoPosture(
   transcript: PlanCountTranscript,
   targetMode: CeoMode,
   posture: RegExp,
   selectionStartedAt: number,
+  publicTools: ReadonlyArray<NativePublicToolEvent> = [],
 ): boolean {
   const selected = nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt);
   if (!selected) return false;
@@ -177,7 +223,7 @@ export function hasNativePostAnswerCeoPosture(
       return !/^(?:(?:You\s+)?selected(?:\s+(?:option|mode))?\s*[:：]?\s*)?(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)(?:\s+mode)?(?:\s+confirmed)?(?:\s*\(recommended\))?[.!]?$/i.test(plain);
     }).join('\n');
     return hasPostAnswerCeoPosture(`● ${prose}`, posture);
-  });
+  }) || (targetMode === 'SCOPE EXPANSION' && hasAnsweredExpansionPosture(transcript, selected, posture, publicTools));
 }
 
 type PosturePacket = { headers: string[]; screens: string[]; next: number; nativeId?: string; submitted: boolean };
@@ -195,6 +241,32 @@ function posturePacketBar(visible: string): { headers: string[]; answered: boole
   return { headers, answered: tabs.map(tab => tab[1] === '☒') };
 }
 
+const BARLESS_SUBMIT_END = 'Readytosubmityouranswers?❯1.Submitanswers2.Cancel';
+
+/** The barless review must reproduce every observed question and chosen option. */
+function barlessPostureSubmit(visible: string, packet: PosturePacket): boolean {
+  if (packet.next !== packet.headers.length || packet.screens.length !== packet.next) return false;
+  const compact = (text: string) => text.replace(/^[\t │┃]*[●⏺][\t ]*/gm, '')
+    .replace(/[│┃\s]/g, '');
+  let prefix = '';
+  const answers: string[] = [];
+  for (const screen of packet.screens) {
+    const bar = [...screen.matchAll(/←[^\r\n]+✔\s*Submit\s*→/g)].at(-1);
+    const cursor = [...screen.matchAll(/❯\s*1\./g)].at(-1);
+    const choice = parseNumberedOptions(screen).find(option => option.index === 1)?.label;
+    if (!bar || !cursor || !choice || cursor.index! <= bar.index! + bar[0].length) return false;
+    const question = compact(screen.slice(bar.index! + bar[0].length, cursor.index));
+    if (!question || /[←☐☒❯]/.test(question)) return false;
+    // The caller answers option 1 for each of this one bounded call's tabs.
+    answers.push(`${question}→${compact(choice)}`);
+    prefix = compact(screen.slice(0, bar.index));
+  }
+  const panel = compact(visible);
+  if (!panel.startsWith(prefix)) return false;
+  const body = panel.slice(prefix.length).replace(/^Reviewyouranswers/, '');
+  return body === answers.join('') + BARLESS_SUBMIT_END;
+}
+
 /**
  * Claude can defer persisting assistant prose until the next AUQ resolves.
  * Permit one fresh downstream call, including its remaining tabs and Submit.
@@ -208,26 +280,33 @@ export function nextCeoPostureContinuation(
   seenQuestions: Set<string>,
   alreadyContinued: boolean,
   completionHistory = visible,
+  pendingQuestion?: NativePlanQuestionCall & {source:'pre_tool_use'},
 ): 'permission' | 'question' | 'submission' | null {
-  const pending = transcript.calls.find(call => !call.answered && !call.failed);
+  const supplied = pendingQuestion?.source === 'pre_tool_use' && !pendingQuestion.answered && !pendingQuestion.failed &&
+    !transcript.calls.some(call => call.sessionId === pendingQuestion.sessionId && call.toolUseId === pendingQuestion.toolUseId)
+    ? pendingQuestion : undefined;
+  const pending = transcript.calls.find(call => !call.answered && !call.failed) ?? supplied;
   const permission = pending && matchesNativePlanQuestion(visible, pending) ? null : ceoPermissionAction(visible, seenQuestions, completionHistory);
   if (permission !== null) return permission === 'grant' ? 'permission' : null;
   const selected = nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt);
   if (!selected) return null;
+  if (pending && pending.sessionId !== selected.sessionId) return null;
   const modeId = `${selected.sessionId}:${selected.toolUseId}`;
   const state = postureContinuations.get(seenQuestions);
   if (state && state.modeId !== modeId) return null;
   const bar = posturePacketBar(visible);
   const packet = state?.packet;
   if (state || alreadyContinued) {
-    if (!packet || packet.submitted || !bar ||
-        JSON.stringify(bar.headers) !== JSON.stringify(packet.headers) ||
-        !bar.answered.every((answered, i) => answered === (i < packet.next))) return null;
+    if (!packet || packet.submitted) return null;
+    const barless = !bar && barlessPostureSubmit(visible, packet);
+    if (!barless && (!bar || JSON.stringify(bar.headers) !== JSON.stringify(packet.headers) ||
+        !bar.answered.every((answered, i) => answered === (i < packet.next)))) return null;
     const sameHeaders = (call: NativePlanQuestionCall) => JSON.stringify(call.questions.map(q =>
       q.header.trim().replace(/\s+/g, ' '))) === JSON.stringify(packet.headers);
     const recorded = transcript.calls.slice(transcript.calls.indexOf(selected) + 1).find(sameHeaders);
     const call = packet.nativeId
-      ? transcript.calls.find(call => `${call.sessionId}:${call.toolUseId}` === packet.nativeId)
+      ? transcript.calls.find(call => `${call.sessionId}:${call.toolUseId}` === packet.nativeId) ??
+        (pending && `${pending.sessionId}:${pending.toolUseId}` === packet.nativeId ? pending : undefined)
       : pending ?? recorded;
     if (packet.nativeId && !call) return null;
     if (call) {
@@ -238,11 +317,13 @@ export function nextCeoPostureContinuation(
       packet.nativeId = `${call.sessionId}:${call.toolUseId}`;
     }
     if (packet.next === packet.headers.length) {
-      if (planCountSubmissionInput(visible) !== '\r') return null;
+      if (!barless && planCountSubmissionInput(visible) !== '\r') return null;
       packet.submitted = true;
       return 'submission';
     }
   } else if (bar && bar.answered.some(Boolean)) return null;
+  // An unbound Submit panel is never a fresh question to answer with option 1.
+  if (!bar && visible.replace(/[│┃\s]/g, '').endsWith(BARLESS_SUBMIT_END)) return null;
   // With native metadata present, require the same call and exact displayed
   // tab. Without it, the complete bar, footer and ordered answered transitions
   // are required; another menu cannot spend this call's remaining tab budget.

@@ -33,6 +33,7 @@ import {
 import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
+import { readPendingQuestion, pendingQuestionRecorderStatus } from './helpers/plan-count-pending-question';
 import { auditAutoplanMethodReads, loadAutoplanMethodologyBinding, type AutoplanMethodReadAudit } from './helpers/autoplan-method-read-audit';
 import { getHermeticDirs } from './helpers/hermetic-env';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
@@ -79,10 +80,12 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           timeoutMs: AUTOPLAN_CHAIN_BUDGET.sessionMs,
           seedSkills: true,
           observeScreen: true,
+          observeSetupQuestions: true,
         });
 
         let hits: AutoplanPhaseHit[] = [];
         let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
+        let pendingSetupQuestion: ReturnType<typeof readPendingQuestion>;
         let methodologyAudit: AutoplanMethodReadAudit[] = [];
         let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' = 'timeout';
         let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
@@ -98,6 +101,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           transcript = session.hermeticConfigDir
             ? readPlanCountTranscript(session.hermeticConfigDir, tempDir, event => publicTools.push(event))
             : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated autoplan transcript directory' };
+          pendingSetupQuestion = readPendingQuestion(session.pendingQuestionFile, tempDir,
+            session.hermeticConfigDir, commandStartedAt, transcript);
           methodologyAudit = auditAutoplanMethodReads(publicTools, prompt =>
             loadAutoplanMethodologyBinding(prompt, [getHermeticDirs().runRoot, nativeState!.env.GSTACK_HOME!]));
           hits = autoplanPhaseCompletions(transcript, commandStartedAt);
@@ -106,7 +111,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
-            observation: { state, hits, native: transcript, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
+            observation: { state, hits, native: transcript, pendingSetupQuestion, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
+              pendingQuestionRecorder:pendingQuestionRecorderStatus(session.pendingQuestionFile, tempDir, session.hermeticConfigDir),
               retention: 'Current raw/visible/viewport and parsed native metadata only; full parent JSONL retention is not guaranteed.' },
           });
         };
@@ -155,7 +161,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             // prerequisite. Keep the supplied plan and continue its full
             // review; taste decisions remain autoplan's responsibility. The helper
             // deduplicates the complete question before returning an input.
-            const setup = autoplanSetupDecision(visible, seenSetupQuestions, transcript.calls.find(call => !call.answered && !call.failed));
+            const setup = autoplanSetupDecision(visible, seenSetupQuestions,
+              transcript.calls.find(call => !call.answered && !call.failed) ?? pendingSetupQuestion);
             if (setup.kind === 'input') {
               if (setup.input === '\r') session.send(setup.input); // Verified setup-packet Submit, no numbered choice.
               else if (setup.input.includes('\r')) await selectPtyNumberedOption(session, Number(setup.input.trim()));

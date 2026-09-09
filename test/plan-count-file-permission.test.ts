@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {createFilePermissionRecorder,recordFilePermission,currentFilePermissionEpoch} from './helpers/plan-count-file-permission';
 import {createPlanCountPermissionGuard,classifyPlanCountFrame} from './helpers/claude-pty-runner';
 import captured from './fixtures/plan-count-edit-permission-t.json';
+import capturedAc from './fixtures/plan-count-permission-ac.json';
 
 function fixture() {
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'count-file-epoch-'));const cwd=path.join(dir,'cwd');fs.mkdirSync(cwd);
@@ -66,9 +67,13 @@ describe('native repeated report permission identity',()=>{
  });
 });
 
-test.skipIf(process.platform==='win32')('real fake CLI keeps the old Edit pane inert and grants the second request once',async()=>{
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'count-edit-pty-'));const fake=path.join(dir,'fake-claude');const worker=path.join(dir,'worker.ts');const events=path.join(dir,'events.jsonl');const output=path.join(dir,'output.json');const expected=path.join(dir,'report.md');fs.writeFileSync(expected,'original');
- const screen=captured.screen.replaceAll(captured.expectedPath,expected).replace('../gstack-e2e-plan-ceo-paired-2Rv5Bi/gstack-test-plan-ceo-paired.md',expected).replaceAll('gstack-test-plan-ceo-paired.md','report.md');
+for (const variant of ['basic', 'intervening', 'cropped', 'same-basename']) test.skipIf(process.platform==='win32')(`real fake CLI grants each current request once: ${variant}`,async()=>{
+ const intervening = variant === 'intervening';
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'count-edit-pty-'));const fake=path.join(dir,'fake-claude');const worker=path.join(dir,'worker.ts');const events=path.join(dir,'events.jsonl');const output=path.join(dir,'output.json');const expected=path.join(dir,variant==='same-basename'?'PLAN.md':'report.md');fs.writeFileSync(expected,'original');
+ const cropped=capturedAc.rows.find(row=>row.job===5)!;
+ let screen=variant==='cropped' ? cropped.screen.replaceAll(path.dirname(cropped.hook.expected),path.dirname(expected)).replaceAll(path.basename(cropped.hook.expected),'report.md')
+  : captured.screen.replaceAll(captured.expectedPath,expected).replace('../gstack-e2e-plan-ceo-paired-2Rv5Bi/gstack-test-plan-ceo-paired.md',expected).replaceAll('gstack-test-plan-ceo-paired.md','report.md');
+ if(variant==='same-basename')screen=screen.replaceAll(expected,'__ACTIVE_PLAN_PATH__').replaceAll('report.md','PLAN.md');
  fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
 import * as fs from 'node:fs';import * as path from 'node:path';
 const item=JSON.parse(process.env.FILE_EPOCH_CASE);const log=e=>fs.appendFileSync(item.events,JSON.stringify(e)+'\n');
@@ -78,25 +83,27 @@ native('assistant',[{type:'text',text:'Reviewing fixture.'}]);log({type:'start',
 const settings=JSON.parse(process.argv[process.argv.indexOf('--settings')+1]);
 if(settings.hooks.PreToolUse[0].matcher!=='^ExitPlanMode$')throw Error('Exit recorder changed');
 const hook=async(name,id)=>{
- const entry=(settings.hooks[name]??[]).find(h=>h.matcher==='^(Write|Edit)$');if(!entry)return;
- const event={hook_event_name:name,tool_name:'Edit',session_id:sid,tool_use_id:id,cwd:process.cwd(),transcript_path:nativePath,tool_input:{file_path:item.expected,old_string:'old',new_string:'new'}};
+ const entries=(settings.hooks[name]??[]).filter(h=>h.matcher==='^(Write|Edit)$');
+ for(const entry of entries){
+ const event={hook_event_name:name,tool_name:'Edit',session_id:sid,tool_use_id:id,cwd:process.cwd(),transcript_path:nativePath,tool_input:{file_path:item.activePlan?path.join(process.cwd(),'PLAN.md'):item.expected,old_string:'old',new_string:'new'}};
  const p=Bun.spawn(['bash','-c',entry.hooks[0].command],{stdin:new Blob([JSON.stringify(event)]),stdout:'pipe',stderr:'pipe'});
  const [code,out,err]=await Promise.all([p.exited,new Response(p.stdout).text(),new Response(p.stderr).text()]);if(code||out||err)throw Error('hook was not silent');log({type:'hook',name,id});
+ }
 };
-let stage='startup';const paint=()=>process.stdout.write('\x1b[2J\x1b[H'+item.screen.replaceAll('\n','\r\n'));
+let stage='startup';const paint=()=>process.stdout.write('\x1b[2J\x1b[H'+item.screen.replaceAll('__ACTIVE_PLAN_PATH__',path.join(process.cwd(),'PLAN.md')).replaceAll('\n','\r\n'));
 process.stdin.setRawMode?.(true);process.stdin.on('data',async data=>{
  const input=data.toString();log({type:'input',stage,input});
  if(stage==='startup'){stage='first';await hook('PreToolUse','first');paint();return;}
  if(stage==='old-pane'||stage==='done'){log({type:'unexpected'});return;}
  if(input!=='1\r')throw Error('default permission input changed');
- if(stage==='first'){stage='old-pane';await hook('PostToolUse','first');paint();setTimeout(async()=>{await hook('PreToolUse','second');stage='second';paint();},3200);return;}
+ if(stage==='first'){stage='old-pane';await hook('PostToolUse','first');if(item.intervening){await hook('PreToolUse','automatic');await hook('PostToolUse','automatic');}paint();setTimeout(async()=>{await hook('PreToolUse','second');stage='second';paint();},3200);return;}
  stage='done';await hook('PostToolUse','second');
  const q={header:'Finding',question:'Apply this repair?',options:[{label:'Fix'},{label:'Keep'}]};
  native('assistant',[{type:'tool_use',name:'AskUserQuestion',id:'finding',input:{questions:[q]}}]);native('user',[{type:'tool_result',tool_use_id:'finding',content:'Answered'}],{toolUseResult:{answers:{[q.question]:'Fix'}}});
  process.stdout.write('\x1b[2J\x1b[HDone.\r\n');
 });process.on('SIGINT',()=>process.exit(0));process.stdin.resume();
 `);fs.chmodSync(fake,0o755);
- fs.writeFileSync(worker,`import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href)};const o=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review the disposable fixture.',expectedPlanPath:${JSON.stringify(expected)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:1,timeoutMs:28000,env:{FILE_EPOCH_CASE:${JSON.stringify(JSON.stringify({events,expected,screen}))}}});await Bun.write(${JSON.stringify(output)},JSON.stringify(o));`);
+ fs.writeFileSync(worker,`import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href)};const o=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review the disposable fixture.',expectedPlanPath:${JSON.stringify(expected)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:1,timeoutMs:28000,env:{FILE_EPOCH_CASE:${JSON.stringify(JSON.stringify({events,expected,screen,intervening,activePlan:variant==='same-basename'}))}}});await Bun.write(${JSON.stringify(output)},JSON.stringify(o));`);
  const child=Bun.spawn([process.execPath,worker],{env:{...process.env,BROWSE_TERMINAL_BINARY:fake,EVALS_HERMETIC:'1'},stdout:'pipe',stderr:'pipe'});const killer=setTimeout(()=>child.kill('SIGKILL'),33000);
  try{const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);expect(code,out+err).toBe(0);
   const o=JSON.parse(fs.readFileSync(output,'utf8'));expect(o.outcome,JSON.stringify(o)).toBe('ceiling_reached');expect(o.reviewCount).toBe(1);

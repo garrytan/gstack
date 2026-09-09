@@ -101,7 +101,7 @@ function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporar
   // migration, deletion, or unrelated workflow is not the opposed action.
   // "Only" limits the same manual action; it does not add a second action.
   // Use one whole-label grammar with and without a courtesy/Skip prefix.
-  const manualAction = /^(?:manual(?:invocation)?|(?:I['’]ll)?invoke(?:skills)?manually)(?:[-–—]?only)?$/i;
+  const manualAction = /^(?:manual(?:invocation|skills)?|(?:I['’]ll)?invoke(?:skills)?manually)(?:[-–—]?only)?$/i;
   // A temporary Skip is the same opposed setup action only on an intact
   // two-choice panel. Its description may corroborate manual invocation;
   // the routing premise and unique Add action below establish its scope.
@@ -302,6 +302,9 @@ export function autoplanSetupDecision(visible: string, seen: ReadonlySet<string>
   // turn substantive/ambiguous choices into an early setup failure.
   if (add.length !== 1) return { kind: 'waiting' };
   if (decline.length !== 1 || add[0]!.index === decline[0]!.index) return unsupportedSetup(display, question, 'routing', pending);
+  // Newly admitted shorthand still needs the complete two-choice setup
+  // panel; a qid alone cannot lend it stale or mismatched native metadata.
+  if (/manualskills/i.test(decline[0]!.title) && completeSetupOptions(display, pending)?.length !== 2) return { kind: 'waiting' };
   // The verified clipped panel has the same native numeric shortcut. Do
   // not queue Enter behind it when the single-select header is offscreen.
   return answered(clippedTitle ? String(add[0]!.index) : planCountQuestionInput(display, question, add[0]!.index));
