@@ -1,4 +1,5 @@
-import type { TemplateContext } from './types';
+import { toShellPath, type TemplateContext } from './types';
+import { outsideVoiceRuntime } from './outside-voice';
 import * as path from 'path';
 import { getHostConfig } from '../../hosts';
 
@@ -65,4 +66,12 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
   // independently configurable runtime asset tree, not a skill registry.
   // This also preserves custom CODEX_HOME installations without guessing HOME.
   return `the sibling registry file \`../${file}\`, relative to the installed \`/autoplan\` SKILL.md directory (local: \`${local}\`; global: \`${global}\`${ctx.host === 'codex' ? ', or the corresponding skills directory under CODEX_HOME when configured' : ''})`;
+}
+
+/** Resolve once to a literal path; later phase commands run in fresh shells. */
+export function generateAutoplanSnapshotTool(ctx: TemplateContext): string {
+  return `\`\`\`bash
+${outsideVoiceRuntime(ctx)}
+bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "${toShellPath(ctx.paths.binDir)}/gstack-autoplan-snapshot.ts"
+\`\`\``;
 }

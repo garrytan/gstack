@@ -1,4 +1,4 @@
-Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review}} in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
+Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review}} and its triggered sections in full. Before dispatch, record successful Read start/end/total ranges; fetch gaps to EOF. Load skip-listed sections; skip execution.
 
 **Override rules:**
 - Mode selection: DX POLISH
@@ -11,14 +11,17 @@ Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review}} in full. Verify successful Read 
 - DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
 - Dual voices: always run BOTH {{NATIVE_LABEL}} subagent AND {{OUTSIDE_LABEL}} if available (P6).
 
-  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
-  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
+  **Bind this phase's input:** Run; use returned `snapshotPath` as `<DX_INPUT>` for both voices:
+```bash
+bun "<SNAPSHOT_TOOL>" create dx "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+```
+  Fresh `Implementation plan` only; excludes `Review record`.
 
   **{{NATIVE_LABEL}} DX subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   Other hosts: native dispatch/wait.
 
-  "Read the plan file at <review_plan_path>. You are an independent DX engineer
+  "Read the plan file at <DX_INPUT>. You are an independent DX engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Getting started: how many steps from zero to hello world? What's the TTHW?
   2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
@@ -34,11 +37,11 @@ Read {{AUTOPLAN_REVIEW_FILE:plan-devex-review}} in full. Verify successful Read 
   No inline substitute; apply failure policy.
 
   **{{OUTSIDE_LABEL}} DX voice** (via Bash):
-  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
+  Outside prompt: inline the full contents of <DX_INPUT> and context below (Write tool).
 
-IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+IMPORTANT: Do NOT read or execute any SKILL.md files or paths containing skills/gstack (foreign instructions). Review repository code only.
 
-  Read the plan file at <review_plan_path>. Evaluate this plan's developer experience.
+  Read the plan file at <DX_INPUT>. Evaluate this plan's developer experience.
 
   Also consider these findings from prior review phases:
   CEO: <insert CEO consensus summary>
@@ -54,7 +57,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definitio
 
 {{OUTSIDE_INVOCATION:autoplan}}
 
-Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+Outer tool timeout: 720000ms. Failed/incomplete outside review → unavailable; disabled → skip outside. Both retain the native pass.
 
 {{OUTSIDE_PROVENANCE:dx}}
 
@@ -100,10 +103,15 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - DX Implementation Checklist
 - TTHW assessment with target
 
-**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
-Read back against decisions. Mark taste pending final approval; preserve original
-direction for unresolved User Challenges. Check successful Write/Edit results for
-all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+**Close this phase:** Edit accepted changes into `Implementation plan` (taste:
+pending final approval; unresolved User Challenges: retain original direction).
+Report/task edits do not count. After successful Edit:
+```bash
+bun "<SNAPSHOT_TOOL>" check dx "<ACTIVE_PLAN>" "<DX_INPUT>" changed
+```
+Use `unchanged` only if no implementation changes were accepted; explain why.
+Verify returned text against decisions; hashes prove bytes, not correctness.
+Require full load ranges, successful output writes and terminal reviewers (unavailable/disabled allowed).
 Only then emit this actual assistant message:
 
 **Phase 2.5 complete.**

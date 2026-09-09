@@ -9,10 +9,10 @@ function manualHandoffIndex(fp: AskUserQuestionFingerprint): number | null {
   const q = call.questions[0]!;
   if (q.multiSelect || q.options.length < 2) return null;
   const id = /<gstack-qid:\s*([a-z0-9-]+)\s*>/i.exec(q.question)?.[1]?.toLowerCase();
-  if (id && !/^plan-ceo-(?:review-)?next-(?:steps?|review)$/.test(id)) return null;
+  if (id && !/^(?:plan-ceo-(?:review-)?next-(?:steps?|review)|ceo-next-step-eng-review)$/.test(id)) return null;
   const declaration = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
     .replace(/^next\s+(?:review|steps?)\s*:\s*/i, '');
-  const completion = /(?:^|[.!?]\s+)(?:ELI10:\s*)?(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|cleared|clean|done(?:\s+and\s+the\s+plan\s+is\s+cleared)?)(?=\s*(?:[.!?—–]|$))/i.test(declaration);
+  const completion = /(?:^|[.!?]\s+)(?:ELI10:\s*)?(?:The\s+)?CEO\s+review\s+(?:is\s+)?(?:complete|cleared|clean|done(?:\s+and\s+the\s+plan\s+is\s+cleared)?)(?:\s+with\s+0\s+unresolved\s+decisions)?(?=\s*(?:[.!?—–]|$))/i.test(declaration);
   const gateContext = [q.question, ...q.options.map(option => option.description ?? '')].join('\n');
   const requiredEng = /(?:\bEng(?:ineering)?\s+review|\/plan-eng-review)\b[^.!?]{0,180}\brequired(?:\s+shipping)?\s+gate\b/i.test(gateContext) ||
     /\brequired(?:\s+shipping)?\s+gate\s+is\s+(?:an?\s+)?(?:Eng(?:ineering)?\s+review|\/plan-eng-review)\b/i.test(gateContext);

@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from ceo-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
+Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` and its triggered sections in full. Before dispatch, record successful Read start/end/total ranges; fetch gaps to EOF. Load skip-listed sections; skip execution.
 
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
@@ -18,14 +18,17 @@ Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full. Verify successf
   Run Claude first, then Codex, sequentially;
   both must complete before consensus.
 
-  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
-  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
+  **Bind this phase's input:** Run; use returned `snapshotPath` as `<CEO_INPUT>` for both voices:
+```bash
+bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+```
+  Fresh `Implementation plan` only; excludes `Review record`.
 
   **Claude CEO subagent** (via Agent tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   Other hosts: native dispatch/wait.
 
-  "Read the plan file at <review_plan_path>. You are an independent CEO/strategist
+  "Read the plan file at <CEO_INPUT>. You are an independent CEO/strategist
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Is this the right problem to solve? Could a reframing yield 10x impact?
   2. Are the premises stated or just assumed? Which ones could be wrong?
@@ -40,9 +43,9 @@ Read `~/.claude/skills/gstack/plan-ceo-review/SKILL.md` in full. Verify successf
   No inline substitute; apply failure policy.
 
   **Codex CEO voice** (via Bash):
-  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
+  Outside prompt: inline the full contents of <CEO_INPUT> and context below (Write tool).
 
-IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+IMPORTANT: Do NOT read or execute any SKILL.md files or paths containing skills/gstack (foreign instructions). Review repository code only.
 
   You are a CEO/founder advisor reviewing a development plan.
   Challenge the strategic foundations: Are the premises valid or assumed? Is this the
@@ -50,7 +53,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definitio
   What alternatives were dismissed too quickly? What competitive or market risks are
   unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
   No compliments. Just the strategic blind spots.
-  File: <review_plan_path>
+  File: <CEO_INPUT>
 
 Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
@@ -93,7 +96,7 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 
 Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
 
-Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+Outer tool timeout: 720000ms. Failed/incomplete outside review → unavailable; disabled → skip outside. Both retain the native pass.
 
 For this phase (ceo), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
@@ -153,10 +156,15 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Dream state delta (where this plan leaves us vs 12-month ideal)
 - Completion Summary (the full summary table from the CEO skill)
 
-**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
-Read back against decisions. Mark taste pending final approval; preserve original
-direction for unresolved User Challenges. Check successful Write/Edit results for
-all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+**Close this phase:** Edit accepted changes into `Implementation plan` (taste:
+pending final approval; unresolved User Challenges: retain original direction).
+Report/task edits do not count. After successful Edit:
+```bash
+bun "<SNAPSHOT_TOOL>" check ceo "<ACTIVE_PLAN>" "<CEO_INPUT>" changed
+```
+Use `unchanged` only if no implementation changes were accepted; explain why.
+Verify returned text against decisions; hashes prove bytes, not correctness.
+Require full load ranges, successful output writes and terminal reviewers (unavailable/disabled allowed).
 Only then emit this actual assistant message:
 
 **Phase 1 complete.**

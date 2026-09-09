@@ -14,7 +14,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { getHermeticDirs } from './hermetic-env';
+import { getHermeticDirs, hermeticSkillsConfigDir } from './hermetic-env';
 
 let cachedRuntime: { home: string; root: string } | undefined;
 
@@ -25,6 +25,13 @@ export function hermeticSkillRuntime(): { home: string; root: string } {
   try {
     fs.mkdirSync(path.dirname(root), { recursive: true });
     fs.symlinkSync(path.resolve(import.meta.dir, '..', '..'), root, 'dir');
+    // Setup exposes both the gstack runtime checkout and flattened skill
+    // entries. Keep HOME discovery consistent with CLAUDE_CONFIG_DIR: native
+    // tools may resolve ~/paths even though slash commands use the latter.
+    const registry = path.join(hermeticSkillsConfigDir(), 'skills');
+    for (const name of fs.readdirSync(registry)) {
+      fs.symlinkSync(path.join(registry, name), path.join(path.dirname(root), name), 'dir');
+    }
   } catch (error) {
     fs.rmSync(home, { recursive: true, force: true });
     throw error;

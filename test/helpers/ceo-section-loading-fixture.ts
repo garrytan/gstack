@@ -77,8 +77,51 @@ semantics, or adding new product surfaces. The repository interface preserves a
 future replacement path without introducing a general cache framework now.
 `;
 
+/** A named finding may put its ordering evidence in a trace, not one paragraph. */
+function hasStructuredStaleFillFinding(report: string): boolean {
+  const lines = report.split('\n');
+  const prose = lines.map(() => '');
+  const traces: Array<{ start: number; end: number; text: string }> = [];
+  let fence: { char: string; length: number; start: number; info: string } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (!fence) fence = { char: run[0]!, length: run.length, start: i, info: delimiter[2]!.trim() };
+      else if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) {
+        if (!fence.info || fence.info === 'text') traces.push({ start: fence.start, end: i, text: lines.slice(fence.start + 1, i).join('\n') });
+        fence = null;
+      }
+      continue;
+    }
+    // Unclosed, tilde and longer fences remain source until their own real
+    // closing delimiter. They cannot supply an asserted prose violation.
+    if (!fence && !/^\s*>/.test(line) && !/^(?: {4}|\t)/.test(line)) prose[i] = line;
+  }
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\*\*CRITICAL FINDING\s*[—–:-].*\*\*\s*$/.test(prose[i]!)) continue;
+    const previous = prose.slice(0, i).filter(value => value.trim()).at(-1) ?? '';
+    if (/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(previous)) continue;
+    let end = i + 1;
+    while (end < lines.length && !/^(?:#{1,6}\s|\*\*(?:(?:CRITICAL|HIGH|MEDIUM|LOW)\s+)?(?:FINDING|GAP)\b)/i.test(prose[end]!)) end++;
+    const claim = prose.slice(i + 1, end).join('\n');
+    if (!/^This\s+violates\s+the\s+stated\s+(?:invariant|contract):/m.test(claim) ||
+        !/Every read begun after that write\s+completes must observe the committed version/.test(claim)) continue;
+    if (/\b(?:not\s+(?:a\s+)?(?:gap|bug|defect|issue)|no\s+(?:fix|change|guard)\s+(?:is\s+)?(?:needed|required))\b/i.test(claim)) continue;
+    for (const trace of traces.filter(trace => trace.start > i && trace.end < end)) {
+      // All four ordered events and the post-write new reader must be shown.
+      // A copied wrapper has neither this execution trace nor an independent
+      // asserted violation in the same finding.
+      if (/await\s+repository\.read[\s\S]*repository\.write[\s\S]*cache\.delete[\s\S]*cache\.set\([^\n]*(?:old|stale)[^\n]*\)[\s\S]*readProfile\([^\n]*started after[^\n]*[\s\S]*cache\.get[^\n]*(?:old|stale)/i.test(trace.text)) return true;
+    }
+  }
+  return false;
+}
+
 /** Require an unresolved late-fill defect, not a keyword-bearing dismissal. */
 export function hasStaleFillRaceFinding(report: string): boolean {
+  if (hasStructuredStaleFillFinding(report)) return true;
   // Copied source, diagrams and quoted examples cannot supply a finding.
   const prose = report.replace(/```[\s\S]*?```/g, '').replace(/^\s*>.*$/gm, '');
   // Independent list items and table rows cannot borrow each other's words.

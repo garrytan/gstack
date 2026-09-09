@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from design-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
+Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` and its triggered sections in full. Before dispatch, record successful Read start/end/total ranges; fetch gaps to EOF. Load skip-listed sections; skip execution.
 
 **Override rules:**
 - Focus areas: all relevant dimensions (P1)
@@ -9,14 +9,17 @@ Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` in full. Verify succe
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
-  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
-  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
+  **Bind this phase's input:** Run; use returned `snapshotPath` as `<DESIGN_INPUT>` for both voices:
+```bash
+bun "<SNAPSHOT_TOOL>" create design "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+```
+  Fresh `Implementation plan` only; excludes `Review record`.
 
   **Claude design subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   Other hosts: native dispatch/wait.
 
-  "Read the plan file at <review_plan_path>. You are an independent senior product designer
+  "Read the plan file at <DESIGN_INPUT>. You are an independent senior product designer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Information hierarchy: what does the user see first, second, third? Is it right?
   2. Missing states: loading, empty, error, success, partial — which are unspecified?
@@ -32,11 +35,11 @@ Read `~/.claude/skills/gstack/plan-design-review/SKILL.md` in full. Verify succe
   No inline substitute; apply failure policy.
 
   **Codex design voice** (via Bash):
-  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
+  Outside prompt: inline the full contents of <DESIGN_INPUT> and context below (Write tool).
 
-IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+IMPORTANT: Do NOT read or execute any SKILL.md files or paths containing skills/gstack (foreign instructions). Review repository code only.
 
-  Read the plan file at <review_plan_path>. Evaluate this plan's
+  Read the plan file at <DESIGN_INPUT>. Evaluate this plan's
   UI/UX design decisions.
 
   Also consider these findings from the CEO review phase:
@@ -91,7 +94,7 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 
 Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
 
-Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+Outer tool timeout: 720000ms. Failed/incomplete outside review → unavailable; disabled → skip outside. Both retain the native pass.
 
 For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
@@ -112,10 +115,15 @@ For this phase (design), retain the historical review-log skill identifier. Add 
 3. Passes 1-7: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
    DISAGREE items from scorecard → raised in the relevant pass with both perspectives.
 
-**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
-Read back against decisions. Mark taste pending final approval; preserve original
-direction for unresolved User Challenges. Check successful Write/Edit results for
-all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+**Close this phase:** Edit accepted changes into `Implementation plan` (taste:
+pending final approval; unresolved User Challenges: retain original direction).
+Report/task edits do not count. After successful Edit:
+```bash
+bun "<SNAPSHOT_TOOL>" check design "<ACTIVE_PLAN>" "<DESIGN_INPUT>" changed
+```
+Use `unchanged` only if no implementation changes were accepted; explain why.
+Verify returned text against decisions; hashes prove bytes, not correctness.
+Require full load ranges, successful output writes and terminal reviewers (unavailable/disabled allowed).
 Only then emit this actual assistant message:
 
 **Phase 2 complete.**

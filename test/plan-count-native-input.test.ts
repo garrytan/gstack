@@ -139,7 +139,7 @@ describe('native AUQ accepts one action per displayed question', () => {
     const plain = capturePlanCountQuestion(prose, new Set(), 0, true)!;
     expect(planCountQuestionInput(prose, plain, 2)).toBe('2\r');
   });
-  test('known multi-select keeps its existing protocol', () => {
+  test('known multi-select toggles once before its separate Submit control', () => {
     const fp = capturePlanCountQuestion(
       menu(0),
       new Set(),
@@ -154,9 +154,9 @@ describe('native AUQ accepts one action per displayed question', () => {
         multiSelect: true,
       })),
     };
-    expect(planCountQuestionInput(menu(0), fp, 1)).toBe('1\r');
+    expect(planCountQuestionInput(menu(0), fp, 1)).toBe('1');
   });
-  test('a native checkbox packet with delayed metadata keeps its existing input protocol', () => {
+  test('an incomplete checkbox panel without its submit control retains the legacy fallback', () => {
     for (const mark of [' ', '✓']) {
       const screen = menu(0)
         .replace('1.Enable', `1.[${mark}] Enable`)

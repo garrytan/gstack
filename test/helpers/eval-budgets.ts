@@ -30,7 +30,8 @@ export const PTY_MS = 900_000;
 /**
  * Chained/judged PTY observation — the ceiling tier. 1200s leaves the
  * 1800s shard wall real overhead; anything that genuinely needs more
- * should be SPLIT, not budgeted past the wall.
+ * should be split or use an explicitly registered workflow exception with
+ * corresponding runner and CI walls; never inflate an ordinary tier.
  */
 export const PTY_LONG_MS = 1_200_000;
 
@@ -41,3 +42,31 @@ export const ALL_TIERS = {
   PTY_MS,
   PTY_LONG_MS,
 } as const;
+
+/**
+ * Explicit exception for one uninterrupted four-phase workflow. These are
+ * specified allowances, not measured latency or a conservative confidence bound.
+ * The historical 900-second failure remains a failure. Ordinary tiers do not grow.
+ */
+export const AUTOPLAN_CHAIN_BUDGET = {
+  id: 'autoplan-four-native-phases-v1',
+  file: 'test/skill-e2e-autoplan-chain.test.ts',
+  workMs: 4 * PTY_LONG_MS,
+  sessionMs: 84 * 60_000,
+  testMs: 85 * 60_000,
+  shardMs: 172 * 60_000,
+  retries: 1,
+  shardReserveMs: 2 * 60_000,
+  ciJobMs: 200 * 60_000,
+  ciReserveMs: 28 * 60_000,
+  reason: 'One command must complete CEO, Design, DX and Eng, including native reviews and amendment handoffs.',
+} as const;
+
+/** The only registered over-tier test budget; arbitrary per-file escapes fail. */
+export function assertPaidTestBudget(file: string, ms: number): void {
+  if (!Number.isSafeInteger(ms) || ms <= 0 ||
+      (ms > PTY_LONG_MS * 1.25 &&
+       (file !== AUTOPLAN_CHAIN_BUDGET.file || ms !== AUTOPLAN_CHAIN_BUDGET.testMs))) {
+    throw new Error(`Unregistered paid test budget: ${file}: ${ms}`);
+  }
+}

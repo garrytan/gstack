@@ -4,7 +4,7 @@ name: Periodic Evals
 # tests can't rot invisibly — the class where the autoplan-dual-voice E2E was
 # silently broken for months until a lucky local diff selected it. Engine:
 # scripts/test-paid-shards.ts (the same runner local eval:bg:periodic uses):
-# one planner manifest, 6 executor slices, and a FAIL-CLOSED report — a slice
+# one planner manifest, 6 ordinary slices plus dedicated Autoplan slice 7, and a FAIL-CLOSED report — a slice
 # whose artifact never landed is a failure, not an absence. The gate-census
 # job is the weekly EVALS_ALL backstop for the gate tier (PR lanes are
 # diff-billed, so without it the full gate census might never execute
@@ -100,7 +100,7 @@ jobs:
       - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slices 6
+        run: EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slices 7 --autoplan-slice
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -111,8 +111,9 @@ jobs:
   eval-slices:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    # ~70 shards / 6 slices / EVALS_JOBS=2, 1800s shard wall — worst case is
-    # bounded by ceil(12/2) x 30min; typical is far under.
+    # Six ordinary slices retain their existing walls and concurrency. Slice 7
+    # runs only Autoplan: its specified 172min two-attempt wall leaves 28min
+    # for setup/upload. This is not a measured latency bound for ordinary work.
     timeout-minutes: 200
     permissions:
       contents: read
@@ -126,7 +127,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slice: [1, 2, 3, 4, 5, 6]
+        slice: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -164,7 +165,7 @@ jobs:
           name: paid-plan
           path: /tmp/paid-plan
 
-      - name: Run slice ${{ matrix.slice }}/6
+      - name: Run slice ${{ matrix.slice }}/7
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

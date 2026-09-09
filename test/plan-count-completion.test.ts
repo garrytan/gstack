@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hasNativePlanCompletion, hasNativePlanTerminal, isPlanReadyVisible, classifyPlanCountFrame } from './helpers/claude-pty-runner';
 import type { PlanCountTranscript } from './helpers/plan-count-transcript';
+import capturedL from './fixtures/devex-review-l-calls.json';
 
 const CAPTURED_CALL = {
   "sessionId": "b5c582af-870e-48ac-ac1e-c85458932136",
@@ -444,7 +445,10 @@ process.stdin.on('data', data => {
   if (stage === 1 && data.toString().includes('1')) {
     stage = 2; answer('second'); event('answered-second');
     fs.writeFileSync(process.env.PROBE_PLAN, '# Draft\n');
-    native('assistant', [{ type: 'text', text: summary }], { timestamp: new Date(Date.now() + 1).toISOString() });
+    // A finalized summary plus the finished report is itself a valid terminal.
+    // Keep approval-only cases streamed until their native approval arrives.
+    if (process.env.PROBE_TERMINAL === 'completion_summary')
+      native('assistant', [{ type: 'text', text: summary }], { timestamp: new Date(Date.now() + 1).toISOString() });
     process.stdout.write('\n● ' + summary);
     if (compact) ready();
     setTimeout(() => {
@@ -645,4 +649,58 @@ test('compact approval recognition rejects quoted, incomplete and superseded men
     CAPTURED_COMPACT_PLAN_GATE.replace('  2. No', ''),
     CAPTURED_COMPACT_PLAN_GATE + '\nTests\nAdd retry coverage?\n❯ 1. Add test\n  2. Skip\nEnter to select · Esc to cancel',
   ]) expect(isPlanReadyVisible(visible), visible).toBe(false);
+});
+
+describe('untagged completed DX handoff', () => {
+  function nativeHandoff(f: ReturnType<typeof fixture>) {
+    const transcript = structuredClone(f.transcript);
+    const handoff = { ...structuredClone(capturedL.calls[1]!), sessionId: transcript.calls[0]!.sessionId };
+    transcript.calls.push(handoff);
+    transcript.planReadyRequests = [{sessionId: handoff.sessionId, toolUseId: 'L-native-exit',
+      timestamp: new Date(Date.parse(handoff.answeredAt) + 1000).toISOString(), failed: false}];
+    return transcript;
+  }
+  test('actual completed navigation does not make the existing report stale', () => {
+    const f = fixture();
+    try {
+      expect(hasNativePlanTerminal(nativeHandoff(f), f.file, f.startedAt, 'plan_ready')).toBe(true);
+    } finally { f.cleanup(); }
+  });
+  test('missing identity needs positive completion and resolved findings, with native approval and a fresh report', () => {
+    const f = fixture();
+    try {
+      for (const mutate of [
+        (t: PlanCountTranscript) => { const q=t.calls[1]!.questions[0]!; q.question += ' <gstack-qid:devex-auth-finding>'; },
+        (t: PlanCountTranscript) => { t.calls[1]!.questions[0]!.question += ' <gstack-qid:devex-next-steps> <gstack-qid:broken'; },
+        (t: PlanCountTranscript) => { const q=t.calls[1]!.questions[0]!; q.question=q.question.replace('is complete.', 'is not complete.'); },
+        (t: PlanCountTranscript) => { const q=t.calls[1]!.questions[0]!; q.question=q.question.replace('Five issues found and resolved', 'Five issues need decisions'); },
+        (t: PlanCountTranscript) => { const q=t.calls[1]!.questions[0]!; q.question=q.question.replace('Five issues found and resolved', 'No issues resolved'); },
+        (t: PlanCountTranscript) => { const q=t.calls[1]!.questions[0]!; q.question=q.question.replace('Five issues found and resolved', 'Not five issues found and resolved'); },
+        (t: PlanCountTranscript) => { const q=t.calls[1]!.questions[0]!; q.question=q.question.replace('What next?', 'One gap remains. What next?'); },
+        (t: PlanCountTranscript) => { t.calls[1]!.questions[0]!.options.push({label:'Add a new authentication policy'}); },
+        (t: PlanCountTranscript) => { t.calls[1]!.answered=false; },
+        (t: PlanCountTranscript) => { t.calls[1]!.failed=true; },
+        (t: PlanCountTranscript) => { t.calls[1]!.answers={}; },
+        (t: PlanCountTranscript) => { t.planReadyRequests=[]; },
+        (t: PlanCountTranscript) => { t.planReadyRequests![0]!.failed=true; },
+      ]) {
+        const t=nativeHandoff(f);
+        const originalQuestion=t.calls[1]!.questions[0]!.question;
+        const originalAnswer=t.calls[1]!.answers?.[originalQuestion];
+        mutate(t);
+        const nextQuestion=t.calls[1]!.questions[0]!.question;
+        if (nextQuestion !== originalQuestion && originalAnswer && t.calls[1]!.answers?.[originalQuestion]) {
+          delete t.calls[1]!.answers![originalQuestion];
+          t.calls[1]!.answers![nextQuestion]=originalAnswer;
+        }
+        expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      }
+      const t=nativeHandoff(f);
+      t.calls.splice(1,0,{...structuredClone(t.calls[0]!),toolUseId:'new-late-finding',
+        answeredAt:new Date(Date.parse(t.calls[1]!.answeredAt!) - 1000).toISOString()});
+      expect(hasNativePlanTerminal(t,f.file,f.startedAt,'plan_ready')).toBe(false);
+      fs.writeFileSync(f.file,'## GSTACK REVIEW REPORT\n');
+      expect(hasNativePlanTerminal(nativeHandoff(f),f.file,f.startedAt,'plan_ready')).toBe(false);
+    } finally {f.cleanup();}
+  });
 });

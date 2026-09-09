@@ -80,7 +80,7 @@ Empty states are features — specify warmth, primary action, context.
 
 ### Pass 3: User Journey & Emotional Arc
 Rate 0-10: Does the plan consider the user's emotional experience?
-FIX TO 10: Add user journey storyboard:
+FIX TO 10: Render the accepted journey as the required storyboard; do not ask whether to create it:
 ```
   STEP | USER DOES        | USER FEELS      | PLAN SPECIFIES?
   -----|------------------|-----------------|----------------
@@ -186,7 +186,9 @@ FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but int
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 7: Unresolved Design Decisions
-Surface ambiguities that will haunt implementation:
+Preserve accepted user-facing outcomes. Choosing implementation mechanics does not
+reopen them; ask only if a concrete constraint exposes a new design requirement
+or tradeoff. Surface the remaining ambiguities that will haunt implementation:
 ```
   DECISION NEEDED              | IF DEFERRED, WHAT HAPPENS
   -----------------------------|---------------------------
@@ -224,7 +226,11 @@ Design decisions considered and explicitly deferred, with one-line rationale eac
 Existing DESIGN.md, UI patterns, and components that the plan should reuse.
 
 ### TODOS.md updates
-After all review passes are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step.
+Put implementation and verification of approved fixes in the plan tasks. Do not
+make in-scope verification an optional follow-up. Reserve deferred TODO proposals
+for unresolved/out-of-scope debt or a new scope decision or tradeoff. After the
+passes, ask about each such TODO individually; never batch. Honor explicit user
+deferrals. If none remain, say so.
 
 For design debt: missing a11y, unresolved responsive behavior, deferred empty states. Each TODO gets:
 * **What:** One-line description of the work.
@@ -622,7 +628,9 @@ plan mode alongside reviews. If this design review found visual issues that woul
 from exploring new directions, recommend /design-shotgun. If approved mockups exist and
 need to be turned into working HTML, recommend /design-html.
 
-Use AskUserQuestion to present the next step. Include only applicable options:
+Use AskUserQuestion to present the next step. Always include the manual/stop
+option E; offer only applicable follow-on skills. If the user chooses manual,
+finish without starting another skill:
 - **A)** Run /plan-eng-review next (required gate)
 - **B)** Run /plan-ceo-review (only if fundamental product gaps found)
 - **C)** Run /design-shotgun — explore visual design variants for issues found
@@ -633,5 +641,5 @@ Use AskUserQuestion to present the next step. Include only applicable options:
 * NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
 * Label with NUMBER + LETTER (e.g., "3A", "3B").
 * One sentence max per option.
-* After each pass, pause and wait for feedback.
+* Pause for each unresolved issue. If a pass has none, say so and continue; do not manufacture a question.
 * Rate before and after each pass for scannability.

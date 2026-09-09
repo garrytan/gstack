@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { AskUserQuestionFingerprint } from './helpers/claude-pty-runner';
+import capturedL from './fixtures/devex-review-l-calls.json';
 import {
   DEVEX_COUNT_FILES,
   planDevexCountFixture,
@@ -31,6 +32,36 @@ const issues = [
 ] as const;
 
 describe('DevEx substantive finding coverage', () => {
+  test('the actual untagged empathy confirmation does not borrow a finding from its recap', () => {
+    const actual = structuredClone(capturedL.calls[0]!);
+    const fp = call(actual.questions[0]!.question);
+    fp.nativeCall = actual;
+    expect(isDevexReviewIssue(fp)).toBe(false);
+    // An empathy-derived remedy decision is still substantive. The exclusion
+    // requires the confirmation question, not merely a familiar header.
+    const question = issues[0][1];
+    actual.questions[0]!.question = question;
+    actual.answers = { [question]: actual.questions[0]!.options[0]!.label };
+    expect(isDevexReviewIssue(fp)).toBe(true);
+  });
+  test('an empathy-shaped question with remedy choices stays substantive', () => {
+    for (const mixed of [false, true]) {
+      const actual = structuredClone(capturedL.calls[0]!);
+      const fp = call(actual.questions[0]!.question);
+      fp.nativeCall = actual;
+      if (mixed) actual.questions[0]!.options.push({label:'Package the missing example',description:'Fix the quickstart now'});
+      else actual.questions[0]!.options = [{label:'Package the missing example',description:'Fix the quickstart now'}, {label:'Leave the example absent',description:'Defer the fix'}];
+      actual.answers = { [actual.questions[0]!.question]: actual.questions[0]!.options[0]!.label };
+      expect(isDevexReviewIssue(fp)).toBe(true);
+    }
+  });
+  test('a correction label cannot hide an instruction to fix the package', () => {
+    const actual = structuredClone(capturedL.calls[0]!);
+    actual.questions[0]!.options[1]!.label = 'Partially — the example is absent; package it now';
+    const fp = call(actual.questions[0]!.question);
+    fp.nativeCall = actual;
+    expect(isDevexReviewIssue(fp)).toBe(true);
+  });
   test('the observed mandatory confirmations alone contribute zero findings', () => {
     const confirmations = [
       'No design doc found. Run /office-hours first? <gstack-qid:plan-devex-review-office-hours-preflight>',

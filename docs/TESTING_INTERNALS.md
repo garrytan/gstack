@@ -167,6 +167,35 @@ archaeology.
 `test/helpers/eval-budgets.ts` (JUDGE/CAPTURE/CAPTURE_LONG/PTY/PTY_LONG);
 `test/eval-budgets-policy.test.ts` pins that every tier fits the shard wall
 minus overhead and ratchets raw literals. Budget above the wall is fiction.
+The sole registered exception is `AUTOPLAN_CHAIN_BUDGET` for
+`test/skill-e2e-autoplan-chain.test.ts`: 80 minutes of work (four `PTY_LONG`
+allocations), an 84-minute session watchdog, an 85-minute Bun test deadline,
+and a 172-minute supervised shard wall. The unchanged retry count of one
+permits two 85-minute attempts plus two minutes for cleanup. This is a
+**specified allocation for the stronger four-phase contract**, not a measured
+calibration or statistical upper bound. The historical 900-second failures
+remain failures. Models, fixtures, phase assertions and production review
+caller timeouts are unchanged; this explicitly changes eval latency/cost policy.
+
+`resolvePaidShardBudget(files, overrideMs?)` is the canonical per-job resolver.
+Only the exact Autoplan file gets the exception, in its own shard. An explicit
+CLI `--timeout`, `EVALS_SHARD_TIMEOUT_MS`, or API `timeoutMs` still wins, including
+a lower cap. Planner entries and execution results record the effective wall,
+its source and policy identifier. Custom drivers must resolve each job instead
+of passing their ordinary 1800-second default as an explicit Autoplan cap;
+their outer controller/detach wall must also cover the allocated work and cleanup.
+`eval:bg:periodic` already has a 37800-second outer cap. Legacy monolithic
+`eval:bg`/`eval:bg:all` retain their shorter 5400/7200-second caps and do not
+promise two complete Autoplan attempts; use the sharded periodic path for this policy.
+
+Periodic CI plans `--slices 7 --autoplan-slice`: six ordinary slices retain their
+existing limits, while the seventh runs only Autoplan. Its unchanged 200-minute
+job cap leaves 28 minutes around the 172-minute shard for setup and artifacts.
+Reconciliation rejects missing, duplicated or misplaced Autoplan work and absent
+budget records. This does not claim that the growing ordinary census has a
+200-minute worst-case bound. Ordinary paid tiers and their 1800-second shard
+wall remain unchanged; unregistered over-ceiling tests still fail policy checks.
+
 Session timeouts are two-phase: a silent API dies at the startup grace (90s
 local / 300s CI floor, distinct exit reason `timeout_startup`) and the work
 budget arms on the first byte — the total wall never grows

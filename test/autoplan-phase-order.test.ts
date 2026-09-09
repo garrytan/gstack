@@ -79,11 +79,11 @@ describe('autoplan phase execution checkpoints', () => {
     expect(intake).toContain('Do not prefetch future phase sections or review skills');
     for (const phase of phases) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
-      expect(section).toMatch(/^Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+\}\} in full/);
+      expect(section).toMatch(/^Read \{\{AUTOPLAN_REVIEW_FILE:plan-[a-z-]+\}\} and its triggered sections in full/);
       const load = section.split('**Override rules:**')[0]!;
-      expect(load).toContain('successful Read ranges span 1–EOF');
-      expect(load).toContain('fetch truncated remainders');
-      expect(load).toContain('load skip-listed sections; skip execution');
+      expect(load).toContain('Before dispatch, record successful Read start/end/total ranges');
+      expect(load).toContain('fetch gaps to EOF');
+      expect(load).toContain('Load skip-listed sections; skip execution');
     }
   });
 
@@ -104,7 +104,7 @@ describe('autoplan phase execution checkpoints', () => {
       expect(dispatch).toContain('No inline substitute; apply failure policy');
       // Provider preflight, timeout and native fallback remain at every call.
       expect(section).toContain('Outer tool timeout: 720000ms');
-      expect(section).toContain('Disabled skips the outside invocation; it retains the native pass.');
+      expect(section).toContain('disabled → skip outside. Both retain the native pass.');
       expect(section).toContain(`{{OUTSIDE_PROVENANCE:${phase}}}`);
     });
   }
@@ -113,6 +113,7 @@ describe('autoplan phase execution checkpoints', () => {
     const contract = tmpl.split('## Sequential Execution')[1]?.split('---')[0] ?? '';
     expect(contract).toContain('Keep ONE phase active');
     expect(contract).toContain('Never draft future-phase reviews or outputs');
+    expect(contract).toContain('After compaction, reload current phase instructions/skill/sections; reconcile disk progress before resuming');
     expect(contract).toContain('load its phase instructions and full skill/sections');
     expect(contract).toContain('consume\nnative and enabled outside results; do its full primary review; persist outputs');
     expect(contract).toContain('emit an actual assistant completion; only then load the next phase');
@@ -124,18 +125,19 @@ describe('autoplan phase execution checkpoints', () => {
   test('each completed phase announces only after persisted full outputs and settled reviewers', () => {
     for (const [phase, number] of [['ceo', '1'], ['design', '2'], ['dx', '2.5'], ['eng', '3']]) {
       const section = read(`autoplan/sections/${phase}-phase.md.tmpl`);
-      const barrier = section.indexOf('**Close this phase before continuing:**');
+      const barrier = section.indexOf('**Close this phase:**');
       const announcement = section.indexOf(`\n**Phase ${number} complete.**\n`);
       expect(barrier).toBeGreaterThan(-1);
       expect(barrier).toBeLessThan(announcement);
       const checkpoint = section.slice(barrier, announcement);
-      expect(checkpoint).toContain('successful Write/Edit results');
-      expect(checkpoint).toContain('terminal status');
+      expect(checkpoint).toContain('Require full load ranges');
+      expect(checkpoint).toContain('successful output writes');
+      expect(checkpoint).toContain('terminal reviewers');
       expect(checkpoint).toContain('actual assistant message');
-      expect(checkpoint).toContain('Apply accepted decisions');
-      expect(checkpoint).toContain('Read back against decisions');
-      expect(checkpoint).toContain('Mark taste pending final approval');
-      expect(checkpoint).toContain('preserve original\ndirection for unresolved User Challenges');
+      expect(checkpoint).toContain('Edit accepted changes into `Implementation plan`');
+      expect(checkpoint).toContain('Verify returned text against decisions');
+      expect(checkpoint).toContain('taste:\npending final approval');
+      expect(checkpoint).toContain('unresolved User Challenges: retain original direction');
       expect(checkpoint).toContain('Only then emit');
     }
   });
@@ -174,12 +176,15 @@ describe('autoplan current implementation-plan identity', () => {
       expect(bind).toBeLessThan(native);
       expect(native).toBeLessThan(outside);
       const preparation = section.slice(bind, native);
-      expect(preparation).toContain("Read ACTIVE_PLAN's `Implementation plan`");
-      expect(preparation).toContain('full text beside RESTORE_PATH');
-      expect(preparation).toContain("as a new `<review_plan_path>` for both voices");
-      expect(preparation).toContain('Exclude `Review record`');
-      expect(section).toContain('Read the plan file at <review_plan_path>');
-      expect(section).toContain('Outside prompt: inline the full contents of <review_plan_path>');
+      expect(preparation).toContain(`create ${phase} "<ACTIVE_PLAN>" "<RESTORE_PATH>"`);
+      expect(preparation).toContain('`snapshotPath` as `<' + phase.toUpperCase() + '_INPUT>` for both voices');
+      expect(preparation).toContain('excludes `Review record`');
+      expect(section).toContain(`Read the plan file at <${phase.toUpperCase()}_INPUT>`);
+      expect(section).toContain(`Outside prompt: inline the full contents of <${phase.toUpperCase()}_INPUT>`);
+      expect(section).toContain(`check ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>" changed`);
+      expect(section).toContain('Use `unchanged` only if no implementation changes were accepted');
+      expect(section).toContain('Report/task edits do not count');
+      expect(section).not.toContain('<review_plan_path>');
       expect(section).not.toContain('<plan_path>');
       expect(section).toContain('You have NOT seen any prior review');
     }

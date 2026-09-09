@@ -6,10 +6,12 @@ import { capturePlanCountQuestion, designFirstReviewAUQ, designStep0Boundary, ha
 import { isDesignCountFirstReview, isDesignCompletionHandoff, pickDesignCountQuestion } from './helpers/design-count-review';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import captured from './fixtures/design-review-j-calls.json';
+import numberedPasses from './fixtures/design-review-l-calls.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
 const handoff = () => calls().at(-1)!;
+const numberedCalls = () => structuredClone(numberedPasses.calls) as NativePlanQuestionCall[];
 function pending(call = handoff()) {
   call.answered = false;
   delete call.answers;
@@ -33,6 +35,68 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
 }
 
 describe('Design count native review phases and completion handoff', () => {
+  test('numbered native pass decisions retain the first hierarchy approval after learnings setup', () => {
+    const input = numberedCalls();
+    const original = structuredClone(input);
+    const hierarchy = input[1]!;
+    expect(hierarchy.questions[0]!.options[0]!.description).toContain('cannot ship all-same-weight buttons');
+    expect(hierarchy.questions[0]!.options[1]!.description).toContain('visual hierarchy problem ships as-is');
+    expect(isDesignCountFirstReview(fingerprint(input[0]!))).toBe(false);
+    expect(isDesignCountFirstReview(fingerprint(hierarchy))).toBe(true);
+    expect(replay(input)).toMatchObject({ step0: 1, review: 3, administrative: 0 });
+    expect(input).toEqual(original);
+  });
+  test('numbered pass identity cannot turn actual setup or unrelated questions into findings', () => {
+    for (const [header, question] of [
+      ['Learnings', 'D1 — Pass 1 (Information Architecture): enable cross-project learnings? <gstack-qid:cross-project-learnings>'],
+      ['Focus', 'D2 — Pass 1 (Information Architecture): which review focus should come first? <gstack-qid:plan-design-pass1-focus>'],
+      ['Scope', 'D2 — Pass 1 (Information Architecture): reduce scope or review every dimension? <gstack-qid:plan-design-pass1-scope>'],
+      ['Outside voices', 'D2 — Pass 1 (Information Architecture): run outside reviewers? <gstack-qid:outside-voices-design>'],
+      ['Info Arch', 'D2 — Review Pass 1 (Information Architecture) next? <gstack-qid:plan-design-pass1-save-prominence>'],
+      ['Info Arch', 'D2 — Pass 2 (Interaction States): fix the missing pending state? <gstack-qid:plan-design-pass1-save-prominence>'],
+      ['Info Arch', 'D2 — Pass 1 (Information Architecture): which planning workflow should run? <gstack-qid:unrelated-workflow>'],
+    ]) {
+      const call = numberedCalls()[1]!;
+      const q = call.questions[0]!;
+      q.header = header!;
+      q.question = question!;
+      call.answers = { [q.question]: q.options[0]!.label };
+      expect(isDesignCountFirstReview(fingerprint(call))).toBe(false);
+    }
+  });
+  test('numbered pass decisions still require an answered native question and count a packet once', () => {
+    for (const mutate of [
+      (call: NativePlanQuestionCall) => { call.answered = false; },
+      (call: NativePlanQuestionCall) => { call.failed = true; },
+      (call: NativePlanQuestionCall) => { call.answers = {}; },
+    ]) {
+      const call = numberedCalls()[1]!;
+      mutate(call);
+      expect(isDesignCountFirstReview(fingerprint(call))).toBe(false);
+    }
+    const [setup, finding] = numberedCalls();
+    setup!.questions.push(finding!.questions[0]!);
+    setup!.unansweredQuestionIndices = [1];
+    expect(isDesignCountFirstReview(fingerprint(setup!))).toBe(false);
+    setup!.answers = { ...setup!.answers, ...finding!.answers };
+    setup!.unansweredQuestionIndices = [];
+    expect(replay([setup!])).toMatchObject({ step0: 0, review: 1, administrative: 0 });
+    expect(isDesignCountFirstReview({ ...fingerprint(finding!), nativeCall: undefined })).toBe(false);
+  });
+  test('native pass readiness and continuation confirmations do not supply a finding', () => {
+    for (const question of [
+      'D2 — Pass 1 (Information Architecture): ready to start this pass? <gstack-qid:plan-design-pass1-start>',
+      'D2 — Pass 1 (Information Architecture): continue with the review? <gstack-qid:plan-design-pass1-continue>',
+    ]) {
+      const call = numberedCalls()[1]!;
+      const q = call.questions[0]!;
+      q.question = question;
+      q.options = [{ label: 'Begin' }, { label: 'Not yet' }];
+      call.answers = { [question]: 'Begin' };
+      expect(isDesignCountFirstReview(fingerprint(call))).toBe(false);
+      expect(replay([call])).toMatchObject({ step0: 1, review: 0 });
+    }
+  });
   test('captured J calls retain three actual findings, including the TODO; this still fails the four-finding floor', () => {
     const input = calls(); const original = structuredClone(input);
     expect(replay(input, designFirstReviewAUQ).review).toBe(0);

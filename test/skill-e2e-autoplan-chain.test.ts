@@ -11,11 +11,12 @@
  * and cross-harness evals exercise provider dispatch; this test does not replace
  * those or establish per-phase Autoplan outside completion coverage.
  *
- * Existing budget: 15 min work, 20 min absolute test ceiling.
+ * Specified four-phase allowance: 80 min work, 84 min session, 85 min test.
+ * This changes eval timing policy; it is not measured calibration.
  */
 
 import { test, expect } from 'bun:test';
-import { PTY_LONG_MS } from './helpers/eval-budgets';
+import { AUTOPLAN_CHAIN_BUDGET } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -73,7 +74,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           env: nativeState.env,
           permissionMode: 'plan',
           cwd: tempDir,
-          timeoutMs: 1_080_000, // 18 min, slightly above test budget
+          timeoutMs: AUTOPLAN_CHAIN_BUDGET.sessionMs,
           seedSkills: true,
           observeScreen: true,
         });
@@ -108,7 +109,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           commandStartedAt = Date.now();
           session.send('/autoplan\r');
 
-          const budgetMs = 900_000; // 15 min
+          const budgetMs = AUTOPLAN_CHAIN_BUDGET.workMs;
           const start = Date.now();
           let lastPermSig = '';
           let lastCheckpointAt = start;
@@ -215,6 +216,6 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         finally { nativeState?.cleanup(); }
       }
     },
-    PTY_LONG_MS, // 20 min absolute test ceiling
+    AUTOPLAN_CHAIN_BUDGET.testMs, // explicit registered four-phase exception
   );
 });

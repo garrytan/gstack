@@ -1318,13 +1318,13 @@ function nativePacketQuestionIndex(visible: string, call: NativePlanQuestionCall
   return matched.length === 1 ? matched[0]! : null;
 }
 
-/** A native numeric shortcut accepts immediately; never queue Enter on the next tab. */
+/** Native numeric shortcuts accept or toggle; never queue Enter behind them. */
 export function planCountQuestionInput(visible: string, fp: AskUserQuestionFingerprint, index: number): string {
   if (!Number.isInteger(index) || index < 1 || index > 9) throw new RangeError(`Invalid numbered option: ${index}`);
   const native = fp.nativeCall?.questions[fp.nativeQuestionIndex ?? 0];
-  if (native) return native.multiSelect === true ? `${index}\r` : String(index);
-  // The native multi-select renderer uses the same footer, but marks rows
-  // with [ ]/[✓]. Without metadata, preserve that existing protocol.
+  if (native) return String(index);
+  // A numeric shortcut toggles one native checkbox; Enter toggles it again.
+  if (nativeCheckboxPanel(visible)) return String(index);
   if (/❯?\s*[1-9]\.\s*\[[ ✓✔xX]\]/m.test(visible)) return `${index}\r`;
   // Native JSONL may flush only after submission. Its complete tab bar and
   // navigation footer establish the input protocol without counting coverage.
@@ -1501,8 +1501,36 @@ export function classifyPlanCountFrame(
   return null;
 }
 
+/** A complete native checkbox panel, including its separate Submit/Next button. */
+function nativeCheckboxPanel(visible: string): { selected: boolean; submitFocused: boolean } | null {
+  const text = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+  const bar = [...text.matchAll(/^ {0,3}←[^\n]*[☐☒][^\n]*✔\s*Submit\s*→[ \t]*$/gm)].at(-1);
+  if (!bar) return null;
+  const precedingLine = text.slice(0, bar.index).trimEnd().split('\n').at(-1) ?? '';
+  if (/\b(?:example|quoted|source)\b[^:\n]*:\s*$/i.test(precedingLine)) return null;
+  let fence: string | undefined;
+  for (const line of text.slice(0, bar.index).split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!marker) continue;
+    if (!fence) fence = marker[1];
+    else if (marker[1]![0] === fence[0] && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined;
+  }
+  if (fence) return null;
+  const panel = text.slice(bar.index + bar[0].length);
+  if (!/Enter\s+to\s+select\s*·\s*(?:↑\/↓|Tab\/Arrow\s+keys)\s+to\s+navigate\s*·\s*Esc\s+to\s+cancel\s*$/i.test(panel)) return null;
+  const rows = [...panel.matchAll(/^ {0,3}(❯)?[ \t]*([1-9])\.[ \t]*\[([ ✓✔xX])\][ \t]+[^\n]+$/gm)];
+  if (rows.length < 2 || rows.some((row, i) => Number(row[2]) !== i + 1)) return null;
+  const button = [...panel.matchAll(/^ {0,3}(❯)?[ \t]*(Submit|Next)[ \t]*$/gm)].at(-1);
+  if (!button || button.index! <= rows.at(-1)!.index!) return null;
+  const cursors = [...panel.matchAll(/❯/g)];
+  if (cursors.length !== 1 || (!button[1] && !rows.some(row => row[1]))) return null;
+  return { selected: rows.some(row => row[3] !== ' '), submitFocused: Boolean(button[1]) };
+}
+
 /** Navigate native multi-question review without counting Submit as a finding. */
 export function planCountSubmissionInput(visible: string): string | null {
+  const checkbox = nativeCheckboxPanel(visible);
+  if (checkbox?.selected) return checkbox.submitFocused ? '\r' : '\t';
   const bars = [...visible.matchAll(/←[^\r\n]*[☐☒][^\r\n]*✔\s*Submit\s*→/g)];
   const bar = bars.at(-1);
   if (!bar) return null;
@@ -1721,8 +1749,21 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
   if (q.multiSelect || !/^next\s+steps?$/i.test(q.header.trim()) ||
-      !/^DX review (?:done|complete)[.!]/i.test(q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '')) ||
-      !/<gstack-qid:devex-next-steps>/.test(q.question)) return false;
+      !/^DX review (?:is )?(?:done|complete)[.!]/i.test(q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, ''))) return false;
+  const ids = [...q.question.matchAll(/<gstack-qid:([^>]+)>/gi)];
+  if ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== ids.length) return false;
+  if (ids.length) {
+    if (ids.length !== 1 || ids[0]![1] !== 'devex-next-steps') return false;
+  } else {
+    // Some native final menus omit a qid. Require an explicit finished-review
+    // declaration plus resolved findings and the navigation-only question;
+    // malformed/unknown identities and outstanding decisions remain blockers.
+    if (/<gstack-qid/i.test(q.question) ||
+        !/(?:^|[.!]\s+)(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten) (?:issues?|findings?|friction points?) (?:found and )?resolved\b/i.test(q.question) ||
+        !/\bWhat(?:['’]s)? next\?\s*$/i.test(q.question) ||
+        (q.question.match(/\?/g)?.length ?? 0) !== 1 ||
+        /\b(?:unresolved|pending|remaining|outstanding)\b|\b(?:gap|issue|finding|decision)s?\s+(?:still\s+)?remains?\b/i.test(q.question)) return false;
+  }
   const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)\s*$/i, ''));
   const runEng = (label: string) => /^Run \/plan-eng-review(?: next)?$/i.test(label);
   const ready = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/devex-review after shipping)?$/i.test(label);

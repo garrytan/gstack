@@ -1,19 +1,22 @@
 <!-- AUTO-GENERATED from eng-phase.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` in full. Verify successful Read ranges span 1–EOF; fetch truncated remainders. Follow lazy triggers; load skip-listed sections; skip execution.
+Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` and its triggered sections in full. Before dispatch, record successful Read start/end/total ranges; fetch gaps to EOF. Load skip-listed sections; skip execution.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
 - Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
 
-  **Bind this phase's input:** Read ACTIVE_PLAN's `Implementation plan`; save its
-  full text beside RESTORE_PATH as a new `<review_plan_path>` for both voices. Exclude `Review record`.
+  **Bind this phase's input:** Run; use returned `snapshotPath` as `<ENG_INPUT>` for both voices:
+```bash
+bun "<SNAPSHOT_TOOL>" create eng "<ACTIVE_PLAN>" "<RESTORE_PATH>"
+```
+  Fresh `Implementation plan` only; excludes `Review record`.
 
   **Claude eng subagent** (native tool):
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   Other hosts: native dispatch/wait.
 
-  "Read the plan file at <review_plan_path>. You are an independent senior engineer
+  "Read the plan file at <ENG_INPUT>. You are an independent senior engineer
   reviewing this plan. You have NOT seen any prior review. Evaluate:
   1. Architecture: Is the component structure sound? Coupling concerns?
   2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
@@ -29,9 +32,9 @@ Read `~/.claude/skills/gstack/plan-eng-review/SKILL.md` in full. Verify successf
   No inline substitute; apply failure policy.
 
   **Codex eng voice** (via Bash):
-  Outside prompt: inline the full contents of <review_plan_path> and context below (Write tool).
+  Outside prompt: inline the full contents of <ENG_INPUT> and context below (Write tool).
 
-IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+IMPORTANT: Do NOT read or execute any SKILL.md files or paths containing skills/gstack (foreign instructions). Review repository code only.
 
   Review this plan for architectural issues, missing edge cases,
   and hidden complexity. Be adversarial.
@@ -41,7 +44,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definitio
   Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
   DX: <insert DX consensus table summary, or 'skipped, no developer-facing scope'>
 
-  File: <review_plan_path>
+  File: <ENG_INPUT>
 
 Write the **complete prompt and required context** to a private temporary file using the Write tool. Do not interpolate user text into shell source. Replace the literal `<prepared-prompt-file>` below with its shell-quoted pathname. Include the plan/spec/source content itself when needed: Claude Code review/challenge has no tools and cannot follow paths or execute git. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
@@ -84,7 +87,7 @@ echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 
 Present the full response inside a `tool-output` fence. Only successful execution **and** valid review markers establish completed outside coverage. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's existing fallback/decision flow; never turn missing coverage into a clean/PASS result. After presentation or failure, delete the private prompt file you created (only that owned temporary file); the invocation already removes its own scratch directory.
 
-Outer tool timeout: 720000ms. On any failed invocation or incomplete review, mark this phase unavailable and retain its native pass. Disabled skips the outside invocation; it retains the native pass.
+Outer tool timeout: 720000ms. Failed/incomplete outside review → unavailable; disabled → skip outside. Both retain the native pass.
 
 For this phase (eng), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"eng"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
@@ -149,10 +152,15 @@ Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = fl
 - Completion Summary (the full summary from the Eng skill)
 - TODOS.md updates (collected from all phases)
 
-**Close this phase before continuing:** Apply accepted decisions to `Implementation plan`;
-Read back against decisions. Mark taste pending final approval; preserve original
-direction for unresolved User Challenges. Check successful Write/Edit results for
-all outputs and both reviewers' terminal status (unavailable/disabled allowed).
+**Close this phase:** Edit accepted changes into `Implementation plan` (taste:
+pending final approval; unresolved User Challenges: retain original direction).
+Report/task edits do not count. After successful Edit:
+```bash
+bun "<SNAPSHOT_TOOL>" check eng "<ACTIVE_PLAN>" "<ENG_INPUT>" changed
+```
+Use `unchanged` only if no implementation changes were accepted; explain why.
+Verify returned text against decisions; hashes prove bytes, not correctness.
+Require full load ranges, successful output writes and terminal reviewers (unavailable/disabled allowed).
 Only then emit this actual assistant message:
 
 **Phase 3 complete.**

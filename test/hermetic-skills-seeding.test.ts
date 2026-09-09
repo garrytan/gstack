@@ -58,6 +58,26 @@ describe('hermeticSkillsConfigDir', () => {
     expect(fs.statSync(link).isDirectory()).toBe(true);
   });
 
+  test('all installed runtime assets are discoverable beside the skill', () => {
+    // Match setup's runtime exclusion contract, rather than whitelisting
+    // sections: DevEx also reads dx-hall-of-fame.md, review reads checklists,
+    // and other skills ship templates and executable helpers.
+    for (const rel of skillCensus(ROOT).physicalSkillFiles) {
+      if (rel === 'SKILL.md') continue;
+      const source = path.dirname(path.join(ROOT, rel));
+      const registry = fs.readdirSync(skillsDir).find(name =>
+        fs.realpathSync(path.join(skillsDir, name, 'SKILL.md')) === fs.realpathSync(path.join(ROOT, rel)));
+      expect(registry, rel).toBeDefined();
+      const assets = fs.readdirSync(source).filter(name =>
+        !name.startsWith('.') && !['SKILL.md', 'node_modules', 'dist', 'test'].includes(name) &&
+        !name.endsWith('.tmpl') && fs.existsSync(path.join(source, name)));
+      expect(fs.readdirSync(path.join(skillsDir, registry!)).sort()).toEqual(['SKILL.md', ...assets].sort());
+      for (const asset of assets) {
+        expect(fs.realpathSync(path.join(skillsDir, registry!, asset))).toBe(fs.realpathSync(path.join(source, asset)));
+      }
+    }
+  });
+
   test('connect-chrome collapses into a single open-gstack-browser entry', () => {
     const seeded = fs.readdirSync(skillsDir);
     expect(seeded.filter((n) => n === 'open-gstack-browser')).toHaveLength(1);

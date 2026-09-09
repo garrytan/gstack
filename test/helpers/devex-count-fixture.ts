@@ -104,7 +104,9 @@ export function planDevexCountFixture(planPath: string): string {
   ].join('\n');
 }
 
-function questionRecords(fp: AskUserQuestionFingerprint, answeredOnly = false): Array<{ header: string; question: string }> {
+type QuestionRecord = { header: string; question: string; options?: Array<{ label: string }> };
+
+function questionRecords(fp: AskUserQuestionFingerprint, answeredOnly = false): QuestionRecord[] {
   if (!fp.nativeCall) return [{ header: '', question: fp.promptSnippet }];
   return fp.nativeCall.questions.filter(q => !answeredOnly
     || (fp.nativeCall!.answered && Boolean(fp.nativeCall!.answers?.[q.question])));
@@ -117,18 +119,27 @@ const ADMINISTRATIVE_HEADERS = new Set([
   'magic delivery', 'review mode', 'fix scope', 'confusion scope',
 ]);
 
-function administrativeQuestion(header: string, question: string): boolean {
+function administrativeQuestion(header: string, question: string, options: QuestionRecord['options']): boolean {
   // These decisions establish the review's evidence and scope. Mentioning a
   // defect in their recap does not turn a confirmation into a finding.
   if (ADMINISTRATIVE_HEADERS.has(header.toLowerCase().replace(/\s+/g, ' ').trim())) return true;
+  if (/^empathy(?:\s*\(0B\))?$/i.test(header.trim()) &&
+      /^Does (?:this|the) empathy narrative match\b/i.test(question.replace(/^D\s*\d+\s*[—–:-]\s*/i, ''))) {
+    const labels = options?.map(option => option.label.trim().replace(/\s*\(recommended\)\s*$/i, '')) ?? [];
+    const confirm = (label: string) => /^Yes\s*[—–-]\s*accurate, proceed with this understanding$/i.test(label);
+    const correct = (label: string) => /^The experience is different\s*[—–-]\s*let me describe it$/i.test(label) ||
+      (/^Partially\s*[—–-]\s*(?:the [^;.!?]+? (?:does|is|has)|it (?:does|is|has)|there (?:is|are))\s+[^;.!?]+$/i.test(label) &&
+        !/\b(?:should|must|needs?|shall|will|would|could)\b|(?:[,：:]|\b(?:and|then)\b)\s*(?:add|fix|package|remove|change|implement|enable|disable)\b/i.test(label));
+    if (labels.filter(confirm).length === 1 && labels.some(correct) && labels.every(label => confirm(label) || correct(label))) return true;
+  }
   const id = [...question.matchAll(/<gstack-qid:([^>]+)>/gi)].at(-1)?.[1];
   if (id && /^(?:routing-injection|cross-project-learnings|plan-devex-review-(?:office-hours-preflight|prereq|persona|empathy(?:-check|-narrative)?|tthw-tier|competitive-tier|benchmark-tier|magical-moment|mode|confusion-report))$/i.test(id)) return true;
   return /how deep should this dx review|which (?:dx )?review mode|\b(?:can|shall|should) we (?:continue|proceed|begin)(?: (?:the )?(?:setup|review)| now)?\?\s*$/i.test(question);
 }
 
 /** The answered native call proves a decision; its content must identify a concrete problem. */
-function substantiveIssue({ header, question }: { header: string; question: string }): boolean {
-  if (administrativeQuestion(header, question)) return false;
+function substantiveIssue({ header, question, options }: QuestionRecord): boolean {
+  if (administrativeQuestion(header, question, options)) return false;
   const normalized = `${header} ${question}`.replace(/\s+/g, ' ');
   const ciGate = /\b(?:CI|continuous integration)\b/i.test(normalized)
     && /\b(?:first[- ](?:local[- ])?runs?|first eval(?:uation)?|local eval(?:uation)?|hello world)\b/i.test(normalized)

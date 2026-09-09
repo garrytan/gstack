@@ -133,3 +133,32 @@ describe('proposed cache-fill prevention remains an unresolved finding', () => {
     expect(hasStaleFillRaceFinding('An in-flight read repopulates stale data after write invalidation. Guard cache fills so pending reads cannot repopulate stale values after invalidation. This is not a bug; no fix is needed.')).toBe(false);
   });
 });
+
+
+// The native report separates an asserted finding, its ordered trace and its
+// explicit contract violation. Detection does not certify the offered fix.
+describe('structured native stale-fill finding', () => {
+  const report = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'fixtures/ceo-section-loading-l-report.md'), 'utf8');
+  const finding = report.slice(report.indexOf('**CRITICAL FINDING — Write-then-read stale-set race**'), report.indexOf('**Required fix:**'));
+  test('retains the exact positive later-reader finding even though the proposed mitigation is wrong', () => {
+    expect(hasStaleFillRaceFinding(report)).toBe(true);
+    expect(hasStaleFillRaceFinding(finding)).toBe(true);
+  });
+  test.each([
+    ['standalone trace', finding.slice(finding.indexOf('```'), finding.lastIndexOf('```') + 3)],
+    ['quoted finding', finding.split('\n').map((line: string) => '> ' + line).join('\n')],
+    ['source example', 'Example of report format:\n' + finding],
+    ['outer fenced source', '````text\n' + finding + '\n````'],
+    ['explicit accepted trace', finding.replace('This violates the stated invariant:', 'This is not a gap. The following behavior is accepted:')],
+    ['negated violation', finding.replace('This violates the stated invariant:', 'This does not violate the stated invariant:')],
+    ['separate dismissal', finding + '\nThis is not a defect; no fix is required.\n'],
+    ['no new reader', finding.replace(/T3: readProfile[\s\S]*?\n```/, '```')],
+    ['reverse ordering', finding.replace('cache.delete(key)', 'cache.get(key)')],
+    ['unrelated heading', finding.replace('CRITICAL FINDING', 'EXAMPLE')],
+    ...['~~~', '````'].map(fence => ['nontriple fenced violation', finding.replace(/This violates[\s\S]*$/, text => fence + 'text\n' + text + '\n' + fence)]),
+    ['unclosed fenced violation', finding.replace('This violates', '```text\nThis violates')],
+    ['later named finding', finding.replace('This violates', '**CRITICAL FINDING — unrelated documentation defect**\nThis violates')],
+    ['later heading', finding.replace('This violates', '## Unrelated finding\nThis violates')],
+
+  ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
+});

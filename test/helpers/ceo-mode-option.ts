@@ -16,7 +16,7 @@ import type { NativePlanQuestionCall, PlanCountTranscript } from './plan-count-t
 type CeoMode = 'HOLD SCOPE' | 'SCOPE EXPANSION' | 'SELECTIVE EXPANSION' | 'SCOPE REDUCTION';
 
 function modeTitle(label: string): string | undefined {
-  const title = label.split(/[│┌\r\n]/, 1)[0]!.replace(/\s+/g, '').toUpperCase();
+  const title = label.split(/[│┌\r\n]/, 1)[0]!.trim().replace(/^[A-Z][).]\s*/i, '').replace(/\s+/g, '').toUpperCase();
   return /^(HOLDSCOPE|SCOPEEXPANSION|SELECTIVEEXPANSION|SCOPEREDUCTION)(?:$|[^A-Z])/.exec(title)?.[1];
 }
 
@@ -30,6 +30,10 @@ export function findCeoModeOption(
     return { index: option.index, mode: modeTitle(option.label) };
   });
   if (!modes.some(option => option.mode)) return null;
+  const recognized = modes.map(option => option.mode).filter(Boolean);
+  if (new Set(recognized).size !== recognized.length) {
+    throw new Error('Mode AskUserQuestion has duplicate mode choices');
+  }
 
   const target = modes.find(option => option.mode === targetMode.replace(/\s+/g, ''));
   if (!target) {
@@ -96,8 +100,10 @@ export function hasPostAnswerCeoPosture(visible: string, posture: RegExp): boole
     if (!assistant?.length) return false;
     const compact = assistant.join('').replace(/\s+/g, '');
     // Tool headings use the same bullet as assistant messages. Their output
-    // can quote the selected mode or the skill's posture instructions.
-    if (/^(?:UseransweredClaude['’]squestions|[A-Za-z][\w.:_-]*\(|(?:high|medium|low)·\/effort)/i.test(compact)) return false;
+    // can quote the selected mode or the skill's posture instructions. Keep
+    // word boundaries when detecting a call: ordinary prose can contain parentheses.
+    if (/^(?:UseransweredClaude['’]squestions|(?:high|medium|low)·\/effort)/i.test(compact) ||
+        /^[A-Za-z][\w.:_-]*[ \t]*\(/.test(assistant[0]!.trim())) return false;
     // A bare selected title gains no evidentiary value when the next terminal
     // update appends a spinner or other chrome to the same captured block.
     const prose = assistant.filter(line =>
@@ -134,7 +140,9 @@ export function nativeCeoModeAnswer(
     const at = Date.parse(call.answeredAt ?? '');
     if (!call.answered || call.failed || !Number.isFinite(at) || at < selectionStartedAt) return [];
     return call.questions.flatMap(question => {
-      const modes = new Set(question.options.map(option => modeTitle(option.label)).filter(Boolean));
+      const recognized = question.options.map(option => modeTitle(option.label)).filter(Boolean);
+      const modes = new Set(recognized);
+      if (modes.size !== recognized.length) return [{ call, at, mode: undefined }];
       const answer = call.answers?.[question.question];
       return modes.size >= 2 && typeof answer === 'string'
         ? [{ call, at, mode: modeTitle(answer) }] : [];

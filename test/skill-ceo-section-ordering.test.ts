@@ -82,6 +82,9 @@ describe('plan-ceo-review carve — static ordering', () => {
       const testReview = document.split('### Section 6: Test Review')[1]?.split('### Section 7:')[0];
       expect(testReview).toBeDefined();
       const instructions = testReview!.replace(/\s+/g, ' ');
+      expect(instructions).toContain('For an already-required test, reuse exact expected observations the user specified or individually approved; spell out assertion mechanics without asking again.');
+      expect(instructions).toContain('Preserve every condition and quantifier; never weaken an exact count to a lower bound.');
+      expect(instructions).toContain('Vague success labels do not settle outcomes or values; missing observations and real choices still need individual decisions.');
       expect(instructions).toContain('Keep user-required behaviors and assertions mandatory unless the user explicitly approves changing them.');
       expect(instructions).toContain('Never fill a missing behavioral assertion silently in the final report: obtain its own AskUserQuestion decision first.');
       expect(instructions).toContain('Scope/approach approval is not approval of individual assertion gaps.');

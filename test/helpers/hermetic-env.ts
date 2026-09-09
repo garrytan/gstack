@@ -253,8 +253,8 @@ let cachedSkillsConfigDir: string | null = null;
  * A hermetic CLAUDE_CONFIG_DIR with the repo's shipped skills REGISTERED in
  * user scope, mirroring ./setup's registration exactly: each discovered skill
  * gets a REAL directory `<configDir>/skills/<registryName>/` containing a
- * SYMLINK to that skill's SKILL.md (absolute path), plus a `sections/`
- * symlink when the skill has one. registryName is the frontmatter `name:`
+ * SYMLINK to that skill's SKILL.md (absolute path), plus symlinks to its
+ * runtime assets using setup's exclusions. registryName is the frontmatter `name:`
  * (dir-name fallback), NO gstack- prefix; the root SKILL.md router registers
  * as `_gstack-command`. skillCensus().registryEntries is the authoritative
  * set of what must appear here.
@@ -302,10 +302,17 @@ export function hermeticSkillsConfigDir(): string {
     safeUnlink(path.join(target, 'SKILL.md'));
     fs.symlinkSync(skillMd, path.join(target, 'SKILL.md'));
     if (rel !== 'SKILL.md') {
-      const sections = path.join(root, skillDir, 'sections');
-      if (fs.existsSync(sections)) {
-        safeUnlink(path.join(target, 'sections'));
-        fs.symlinkSync(sections, path.join(target, 'sections'));
+      // Mirror setup's _link_skill_runtime_assets, including references and
+      // helpers beside sections. Missing assets can send a live agent looking
+      // outside its installed fixture and into the operator's stale checkout.
+      const source = path.join(root, skillDir);
+      for (const name of fs.readdirSync(source)) {
+        if (name.startsWith('.') || ['SKILL.md', 'node_modules', 'dist', 'test'].includes(name) || name.endsWith('.tmpl')) continue;
+        const asset = path.join(source, name);
+        if (!fs.existsSync(asset)) continue;
+        const destination = path.join(target, name);
+        safeUnlink(destination);
+        fs.symlinkSync(asset, destination, fs.statSync(asset).isDirectory() ? 'dir' : 'file');
       }
     }
   }
