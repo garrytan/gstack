@@ -325,6 +325,8 @@ After you agree on the system, it generates an interactive HTML preview page —
 
 Then it writes `DESIGN.md` to your repo root — your project's design source of truth — and updates `CLAUDE.md` so every future Claude Code session respects the system. From that point on, `/design-review` can audit against it, and any agent working on your frontend knows the rules.
 
+The file is written in the open DESIGN.md format ([google-labs-code/design.md](https://github.com/google-labs-code/design.md)): every token in YAML front matter (`colors`, `typography`, `rounded`, `spacing`, `components`), the rationale in the spec's canonical sections, so impeccable, Google Stitch, and anything else that reads the format share one file. If you already have a legacy gstack `DESIGN.md`, the skill offers a conversion once (a backup is kept) and records your answer in the file so it never asks again. A `PRODUCT.md` in the repo root prefills the product questions instead of re-asking them.
+
 ### Example
 
 ```
@@ -401,6 +403,8 @@ This is my **designer who codes mode**.
 It runs an 80-item visual audit on your live site — in your Aside browser, so it sees exactly what a logged-in you sees — then enters a fix loop: for each design finding, it locates the source file, makes the minimal CSS/styling change, commits with `style(design): FINDING-NNN`, re-navigates to verify, and takes before/after screenshots. One commit per fix, fully bisectable.
 
 The self-regulation heuristic is tuned for design work — CSS-only changes get a free pass (they are inherently safe and reversible), but changes to component JSX/TSX files count against the risk budget. Hard cap at 30 fixes. If the risk score exceeds 20%, it stops and asks.
+
+**Design detector.** When you have [impeccable](https://impeccable.style) installed, its engine runs first: on a URL the page's rendered DOM is dumped (linked styles inlined) and scanned; on a feature branch with no URL the changed frontend files are scanned. Every mechanical finding arrives as a `FINDING-NNN` tagged with its rule id (`[nested-cards]`, `[low-contrast]`), and the report closes with `Detector: N → M`. gstack never runs impeccable's installer; when no engine is present it offers, once, to download the engine binary (checksum-pinned, logged in the egress ledger) and remembers the answer; without it the audit is unchanged. `gstack-config set design_detector off` disables the pre-pass.
 
 ### Example
 
@@ -508,6 +512,8 @@ Not every page needs the full Pretext engine. The skill reads the design and pic
 7. Surgical edits via the Edit tool (not full regeneration)
 8. Repeat until you say "done"
 
+**Slop gate.** If you have [impeccable](https://impeccable.style) installed, the finalized page gets one scan through its engine before the verification screenshots: findings trigger a single surgical fix pass over the non-advisory rules, then one more scan. Whatever remains is presented as accepted-with-reason (the approved mockup contains it, `DESIGN.md` blesses it, or you agreed to an inline `impeccable-disable` comment). One pass, never a loop; without impeccable the step is skipped silently. The skill's never-include list carries the same rule ids the detector reports, from `lib/design-catalog.ts`.
+
 ### Framework detection
 
 If your project uses React, Svelte, or Vue (detected from `package.json`), the skill offers to generate a framework component instead of vanilla HTML. Framework output uses `npm install @chenglou/pretext` instead of inline vendoring.
@@ -570,6 +576,8 @@ Findings get action, not just listed. Obvious mechanical fixes (dead code, stale
 `/review` now flags shortcut implementations where the complete version costs less than 30 minutes of CC time. If you chose the 80% solution and the 100% solution is a lake, not an ocean, the review will call it out.
 
 One exception: a shortcut you took deliberately and logged. A `gstack-shortcut(dec-<id>)` marker whose decision id resolves in the decision ledger downgrades the finding to acknowledged debt. An orphan marker — one with no ledger entry behind it — doesn't suppress anything; the gap is reported normally and the marker itself gets flagged.
+
+**Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first: its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
 
 ### Example
 

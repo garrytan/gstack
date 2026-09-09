@@ -111,7 +111,10 @@ When run standalone, gather context to build a proper design brief.
 
 ```bash
 cat DESIGN.md 2>/dev/null | head -80 || echo "NO_DESIGN_MD"
+cat PRODUCT.md 2>/dev/null | head -120 || echo "NO_PRODUCT_MD"
 ```
+
+A `PRODUCT.md` (impeccable's product-context file) answers the job-to-be-done and audience questions: confirm, do not re-ask. Never open `.claude/skills/impeccable/**`.
 
 ```bash
 ls src/ app/ pages/ components/ 2>/dev/null | head -30

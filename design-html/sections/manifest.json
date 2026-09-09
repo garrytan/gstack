@@ -15,6 +15,12 @@
       "file": "pretext-patterns.md",
       "title": "Pretext wiring patterns + API reference",
       "trigger": "writing the finalized HTML in Step 3 — the Pretext wiring patterns and API cheatsheet are the required reference for all text-layout code"
+    },
+    {
+      "id": "detector-install-offer",
+      "file": "detector-install-offer.md",
+      "title": "Design detector install offer (one question, asked once)",
+      "trigger": "the Setup probe printed DESIGN_DETECTOR_INSTALL_OFFER — ask the user once whether gstack may download impeccable's engine (checksum-pinned, receipted) before any other step"
     }
   ]
 }

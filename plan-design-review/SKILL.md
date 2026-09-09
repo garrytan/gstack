@@ -1033,7 +1033,7 @@ LITMUS CHECKS — answer YES or NO for each:
 7. Would design feel premium with all decorative shadows removed?
 
 HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, then flag violations of the matching rule set:
-- MARKETING: First viewport as one composition, brand-first hierarchy, full-bleed hero, 2-3 intentional motions, composition-first layout
+- MARKETING: First viewport as one composition, brand-first hierarchy, full-bleed hero, one authored motion moment on the first viewport, composition-first layout
 - APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
 - UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
 

@@ -47,6 +47,8 @@ around obstacles.
 
 {{DESIGN_SETUP}}
 
+{{DESIGN_DETECTOR}}
+
 {{SECTION:doctrine}}
 
 ---
@@ -264,7 +266,7 @@ For framework output, save to:
 **Always include in vanilla HTML:**
 - Pretext source (inlined or CDN, see above)
 - CSS custom properties for design tokens from DESIGN.md / Step 1 extraction
-- Google Fonts via `<link>` tags + `document.fonts.ready` gate before first `prepare()`
+- Fonts from the source DESIGN.md names (Google Fonts, Fontshare, or self-hosted) via `<link>` tags + `document.fonts.ready` gate before first `prepare()`
 - Semantic HTML5 (`<header>`, `<nav>`, `<main>`, `<section>`, `<footer>`)
 - Responsive behavior via Pretext relayout (not just media queries)
 - Breakpoint-specific adjustments at 375px, 768px, 1024px, 1440px
@@ -275,17 +277,25 @@ For framework output, save to:
 - `prefers-reduced-motion` for animation respect
 - Real content extracted from the mockup (never lorem ipsum)
 
-**Never include (AI slop blacklist):**
-- Purple/blue gradients as default
-- Generic 3-column feature grids
-- Center-everything layouts with no visual hierarchy
-- Decorative blobs, waves, or geometric patterns not in the mockup
-- Stock photo placeholder divs
-- "Get Started" / "Learn More" generic CTAs not from the mockup
-- Rounded-corner cards with drop shadows as the default component
-- Emoji as visual elements
-- Generic testimonial sections
-- Cookie-cutter hero sections with left-text right-image
+**Never include by default (AI slop blacklist):** an approved mockup that carries one, a DESIGN.md blessing, or an explicit user ask overrides it; say the tradeoff once.
+- Purple/blue gradients as default <!-- ai-color-palette -->
+- Cream-and-serif default palette <!-- cream-palette -->
+- Gradient text <!-- gradient-text -->
+- Generic 3-column feature grids <!-- feature-grid-3col -->
+- Identical card grids, nested cards <!-- identical-cards --> <!-- nested-cards -->
+- Center-everything layouts with no visual hierarchy <!-- centered-everything -->
+- Kickers or icon tiles above headings <!-- kicker-above-heading --> <!-- icon-tile-stack -->
+- Hero metric rows ("10k+ users") <!-- hero-metrics -->
+- Decorative blobs, waves, or geometric patterns not in the mockup <!-- decorative-blobs -->
+- Glowing edges or pulsing status dots <!-- dark-glow --> <!-- pulsing-dot -->
+- Stock photo placeholder divs <!-- stock-photo-hero -->
+- "Get Started" / "Learn More" generic CTAs not from the mockup <!-- generic-cta-copy -->
+- Rounded-corner cards with drop shadows as the default component <!-- card-default-component -->
+- Emoji as visual elements <!-- emoji-decoration -->
+- Generic testimonial sections <!-- generic-testimonials -->
+- Cookie-cutter hero sections with left-text right-image <!-- split-hero-template -->
+
+Each `<!-- id -->` is the pattern's id in `lib/design-catalog.ts`; the design detector reports the same ids.
 
 ---
 
@@ -320,6 +330,8 @@ kill $_SERVER_PID 2>/dev/null || true
 ---
 
 ## Step 4: Preview + Refinement Loop
+
+{{DESIGN_DETECTOR:gate}}
 
 ### Verification Screenshots
 
@@ -406,7 +418,7 @@ Use AskUserQuestion:
 > A) Create DESIGN.md from these tokens
 > B) Skip — I'll handle the design system later
 
-If A: write `DESIGN.md` to the repo root with the extracted tokens.
+If A: write `DESIGN.md` in the open DESIGN.md format (/design-consultation Phase 6 template): extracted values in the front matter's five token groups, line 2 `# gstack: design-md-format=spec`, rationale in the canonical sections. An existing file keeps its persisted format choice; never offer a conversion here.
 
 ### Save Metadata
 

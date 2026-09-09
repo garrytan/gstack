@@ -1,26 +1,18 @@
 // ─── Shared Design Constants ────────────────────────────────
 
+import { DESIGN_SLOP_CATALOG } from '../../lib/design-catalog';
+
 /**
  * gstack's AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES.
  *
- * Overused fonts worth calling out in templates (not a pattern to blacklist, but a
- * convergence risk): Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat,
- * Poppins, and increasingly Space Grotesk. Every AI design tool picks one of these.
- * Design prompts should bias toward less-common display faces.
+ * Derived from the typed catalog in lib/design-catalog.ts: the 11 entries flagged
+ * `legacyBlacklist`, prose verbatim, in catalog order. Overused fonts live there
+ * too (OVERUSED_FONTS_DISPLAY), role-scoped: banned as the display voice, several
+ * still fine as body/UI on an Operate or Read surface.
  */
-export const AI_SLOP_BLACKLIST = [
-  'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
-  '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',
-  'Icons in colored circles as section decoration (SaaS starter template look)',
-  'Centered everything (`text-align: center` on all headings, descriptions, cards)',
-  'Uniform bubbly border-radius on every element (same large radius on everything)',
-  'Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)',
-  'Emoji as design elements (rockets in headings, emoji as bullet points)',
-  'Colored left-border on cards (`border-left: 3px solid <accent>`)',
-  'Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")',
-  'Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)',
-  'system-ui or `-apple-system` as the PRIMARY display/body font — the "I gave up on typography" signal. Pick a real typeface.',
-];
+export const AI_SLOP_BLACKLIST: string[] = DESIGN_SLOP_CATALOG
+  .filter(e => e.legacyBlacklist)
+  .map(e => e.prose);
 
 /** OpenAI hard rejection criteria (from "Designing Delightful Frontends with GPT-5.4", Mar 2026) */
 export const OPENAI_HARD_REJECTIONS = [

@@ -1,0 +1,72 @@
+{
+  "capturedAt": "2026-09-08",
+  "engine": {
+    "version": "0.1.3",
+    "release": "engine-v0.1.3",
+    "platform": "linux-x64",
+    "installedBy": "npx impeccable install (human-initiated, scratch directory outside the repo)",
+    "binaryPath": "<skill>/scripts/bin/linux-x64/impeccable",
+    "binaryNote": "the engine is installed as a sibling of the launcher (<skill>/scripts/impeccable), not under ~/.impeccable/bin/, in a project-scoped install"
+  },
+  "registry": {
+    "file": "impeccable-antipatterns.json",
+    "upstream": "crates/live/assets/antipatterns.json",
+    "commit": "87d8f6d686782561fb572758d9a9bb8596a1a0e7",
+    "entries": 61,
+    "fields": [
+      "id",
+      "name",
+      "category",
+      "description"
+    ],
+    "note": "no severity or advisory field in the registry; advisory status (em-dash-overuse) is engine-side"
+  },
+  "captures": {
+    "impeccable-detect-sample.json": {
+      "mode": "source",
+      "command": "impeccable detect --json index.html styles.css",
+      "cwd": "a copy of test/fixtures/review-eval-design-slop.{html,css} named index.html + styles.css so the <link> resolves",
+      "exit": 2,
+      "stderrBytes": 0,
+      "pathsNormalized": {
+        "index.html": "test/fixtures/review-eval-design-slop.html",
+        "styles.css": "test/fixtures/review-eval-design-slop.css"
+      }
+    },
+    "impeccable-detect-dom-sample.json": {
+      "mode": "dom",
+      "dump": "review-eval-design-slop.dom.html",
+      "dumpedWith": "browse goto http://127.0.0.1:<port>/index.html; browse js '('\"$(cat lib/dom-dump.js)\"')()' --out <tmp>/review-eval-design-slop.dom.html --raw (the arrow function in lib/dom-dump.js, called in the page; same form the skill renders for the fallback engine)",
+      "command": "impeccable detect --json review-eval-design-slop.dom.html",
+      "exit": 2,
+      "stderrBytes": 0,
+      "pathsNormalized": {
+        "review-eval-design-slop.dom.html": "test/fixtures/review-eval-design-slop.dom.html",
+        "http://127.0.0.1:<port>/": "http://127.0.0.1/"
+      },
+      "cwd": "a temp dir holding only the dump: the engine searches upward from cwd for DESIGN.md, so scanning inside this repo (whose DESIGN.md is in the open format) adds design-system-* findings that the source sample, captured before the conversion, does not have"
+    },
+    "impeccable-detect-help.txt": {
+      "command": "impeccable detect --help"
+    }
+  },
+  "findingFields": [
+    "antipattern",
+    "name",
+    "description",
+    "severity",
+    "category",
+    "file",
+    "line",
+    "snippet"
+  ],
+  "notes": [
+    "HTML-mode findings carry line 0; snippet is the locator",
+    "the static engine reads inline <style> in a .html file: the DOM dump yields the same id set as the source scan",
+    "without the rgb()->hex fold in the dump script the DOM scan loses ai-color-palette (CSSOM serializes hex as rgb)",
+    "a <link rel=stylesheet> left in the dump makes the engine warn on stderr about an unreadable stylesheet; the dump script removes inlined links",
+    "the planted fixture has no border-left, so side-tab never fires on it; ai-color-palette is the deterministic slop id",
+    "engine 0.1.3 loads a gstack-emitted (spec-format) DESIGN.md from cwd: with the repo's converted DESIGN.md beside a violating page it emits design-system-color, design-system-font, and design-system-radius; without the file only low-contrast (verified 2026-09-08)",
+    "the engine discovers DESIGN.md by walking up from the scan's cwd (verified: a dump scanned from test/fixtures picked up the repo root DESIGN.md and emitted design-system-color/font/radius); the committed samples are scanned outside the repo so they pin page rules only"
+  ]
+}

@@ -1795,6 +1795,71 @@ describe('DESIGN_HARD_RULES resolver', () => {
     expect(content).toContain('Universal rules');
   });
 
+  test('classifier names the four visitor modes and keeps the legacy aliases', () => {
+    const content = readSkillUnion('plan-design-review');
+    for (const mode of ['PERSUADE', 'OPERATE', 'READ', 'EXPERIENCE', 'HYBRID']) expect(content).toContain(`**${mode}**`);
+    expect(content).toContain('Read rules');
+    expect(content).toContain('Experience rules');
+    expect(content).toContain('classify per section, not per page');
+  });
+
+  test('carries the craft-floor reflexes and the three-looks calibration', () => {
+    const content = readSkillUnion('plan-design-review');
+    expect(content).toContain('Reflexes no detector catches');
+    expect(content).toContain('Browser surfaces carry the design');
+    expect(content).toContain('One authored motion moment');
+    expect(content).toContain('Depth has an offset');
+    expect(content).toContain('Light or dark comes from the use scene');
+    expect(content).toContain('Calibration: the three looks');
+  });
+
+  test('slop section lists detector rule ids and judgment tells outside design-review', () => {
+    const content = readSkillUnion('plan-design-review');
+    expect(content).toContain('Detector rule ids for the rest of the catalog');
+    expect(content).toContain('nested-cards: Nested cards');
+    expect(content).toContain('Judgment tells with no detector rule');
+    // Never a bracketed gstack-only id.
+    expect(content).not.toContain('[hero-metrics]');
+  });
+
+  test('design-consultation carries the font procedure, role-scoped lists, color strategies, and catalog bullets', () => {
+    const content = readSkillUnion('design-consultation');
+    expect(content).toContain('Choosing faces: a procedure, not a menu');
+    expect(content).toContain('**Overused as display**');
+    expect(content).toContain('Fine as body/UI on an Operate or Read surface');
+    expect(content).toContain('**Banned in any role:** Papyrus');
+    expect(content).toContain('Restrained (1 accent + neutrals');
+    expect(content).toContain('Drenched (color as the primary design tool');
+    expect(content).toContain('Light vs dark is not one of the dials');
+    expect(content).toContain('Calibration: the three looks');
+    // Bullets are prose only: never a bracketed rule id in the proposal skill.
+    expect(content).toContain('- A card inside a card is always wrong.');
+    expect(content).not.toMatch(/^- \[[a-z-]+\] /m);
+    // The old menu is gone.
+    expect(content).not.toContain('Font recommendations by purpose');
+  });
+
+  test('design-html blacklist lines carry catalog ids', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'design-html', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('**Never include by default (AI slop blacklist):**');
+    expect(content).toContain('Purple/blue gradients as default <!-- ai-color-palette -->');
+    expect(content).toContain('lib/design-catalog.ts');
+  });
+
+  test('design-review renders the catalog once: Methodology category 9 carries it, Hard Rules points at it', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
+    expect(content.split('### Design Hard Rules').length - 1).toBe(1);
+    // Category 9 lists the rule once (ids only); Typography points at the same id from its overused-face item.
+    expect(content.split('[overused-font]').length - 1).toBe(2);
+    expect(content).toContain('are Methodology category 9');
+    expect(content).toContain('**9. AI Slop Detection**');
+    expect(content).toContain('Detector rules (ids only;');
+    expect(content).toContain('[nested-cards] nested cards');
+    expect(content).toContain('Judgment tells (no detector rule');
+    // The legacy blacklist is not repeated as a numbered list in design-review.
+    expect(content).not.toMatch(/^1\. Purple\/violet\/indigo/m);
+  });
+
   test('references shared AI slop blacklist items', () => {
     const content = readSkillUnion('plan-design-review');
     expect(content).toContain('3-column feature grid');
@@ -1881,6 +1946,182 @@ describe('Design approval reconciliation', () => {
     expect(section).toContain('Export only agreed implementation work; retain unapproved remedies as pending findings.');
     expect(section).toContain('Count only individually approved new decisions');
     expect(section).toContain('including a finding not yet asked');
+  });
+});
+
+// --- {{DESIGN_DETECTOR}} resolver tests ---
+
+describe('DESIGN_DETECTOR resolver', () => {
+  const designReview = () => fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
+  const designHtml = () => fs.readFileSync(path.join(ROOT, 'design-html', 'SKILL.md'), 'utf-8');
+  const bashBlocksOf = (content: string) => [...content.matchAll(/```bash\n([\s\S]*?)```/g)].map(m => m[1]);
+
+  test('design-review carries the probe, Phase 0, the DOM dump, and the run id', () => {
+    const c = designReview();
+    expect(c).toContain('gstack-design-detect.ts probe --host claude');
+    expect(c).toContain('IMPECCABLE_READY');
+    // the consent-gated install: offered once, only on the probe's say-so, never in spawned sessions, never via npx
+    expect(c).toContain('DESIGN_DETECTOR_INSTALL_OFFER');
+    expect(c).toContain('gstack-design-detect.ts install --host claude');
+    expect(c).toContain("Install impeccable's design detector engine?");
+    expect(c).toContain('gstack-config set design_detector_install_prompted true');
+    expect(c).toContain('`SESSION_KIND: spawned` or a headless run, never install and never ask');
+    expect(c).toContain('**Phase 0: mechanical scan**');
+    expect(c).toContain('scan --changed <base> --format gstack --host claude');
+    expect(c).toContain('### DOM dump (DOM mode only');
+    expect(c).toContain('data-gstack-dom-css');
+    expect(c).toContain(`$B js '('"$_DUMP"')()' --out "$_TMP/{page}.dom.html" --raw`);
+    expect(c).toContain('DOM_DUMP_OK');
+    expect(c).toContain('DOM_DUMP_REDACTION_BLOCKED');
+    expect(c).toContain('DOM_DUMP_TOO_LARGE');
+    expect(c).toContain('REPORT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"');
+    expect(c).toContain('RUN_ID="$(date +%H%M%S)-$$"');
+    expect(c).toContain('"schemaVersion": 2');
+    expect(c).toContain('engine changed X → Y; rule set may differ');
+    expect(c).toContain('Detector: N → M');
+    expect(c).toContain('/impeccable typeset');
+  });
+
+  test('the DOM-dump script is loaded from lib/dom-dump.js, never inlined in the prose', () => {
+    const c = designReview();
+    expect(c).not.toMatch(/```js\n/);
+    expect(c).not.toContain('document.documentElement.cloneNode');
+    expect(c).toContain('_DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
+    expect(c).toContain(`const html = await pg.evaluate('"$_DUMP"');`);
+    expect(c).toContain('_TMP=$(mktemp -d); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
+  });
+
+  test('every rendered Aside script is single-quoted: a page-controlled <url> is never inside a double-quoted bash string', () => {
+    const files = [...fs.readdirSync(ROOT).filter(d => fs.existsSync(path.join(ROOT, d, 'SKILL.md'))).map(d => path.join(ROOT, d, 'SKILL.md')),
+      ...fs.readdirSync(ROOT).flatMap(d => fs.existsSync(path.join(ROOT, d, 'sections')) ? fs.readdirSync(path.join(ROOT, d, 'sections')).filter(f => f.endsWith('.md')).map(f => path.join(ROOT, d, 'sections', f)) : [])];
+    expect(files.length).toBeGreaterThan(10);
+    for (const f of files) {
+      const c = fs.readFileSync(f, 'utf-8');
+      expect(c, path.relative(ROOT, f)).not.toMatch(/^aside repl "/m);
+    }
+  });
+
+  test('the E2E fixture slice markers exist in the rendered design skills (a template rename fails here, not in paid CI)', () => {
+    const dr = designReview();
+    const dh = fs.readFileSync(path.join(ROOT, 'design-html', 'SKILL.md'), 'utf-8');
+    for (const [a, b] of [['**Design detector (optional, deterministic):**', '**Create output directories:**'], ['**Phase 0: mechanical scan**', '## Phases 1-6'], ['### DOM dump (DOM mode only', '### Auth Detection']]) {
+      expect(sliceBetween(dr, a, b).length, `${a} .. ${b}`).toBeGreaterThan(100);
+    }
+    for (const [a, b] of [['**Design detector (optional, deterministic):**', '## Step 0: Input Detection'], ['### Slop Gate (bounded, never a loop)', '### Verification Screenshots']]) {
+      expect(sliceBetween(dh, a, b).length, `${a} .. ${b}`).toBeGreaterThan(100);
+    }
+  });
+
+  test('design-html carries the probe and the bounded slop gate', () => {
+    const c = designHtml();
+    expect(c).toContain('gstack-design-detect.ts probe --host claude');
+    expect(c).toContain('### Slop Gate (bounded, never a loop)');
+    expect(c).toContain('One pass, not a loop.');
+    expect(c).toContain('impeccable-disable <rule>: <reason>');
+  });
+
+  test('ship and review unions reach the detector through review-lite and the checklist', () => {
+    const ship = readSkillUnion('ship');
+    expect(ship).toContain('**Mechanical pass first.**');
+    expect(ship).toContain('scan --changed <base> --format gstack --host claude');
+    expect(ship).toContain('"detector":D');
+    expect(ship).toContain('Detector: "clean" | "N findings');
+    const review = readSkillUnion('review');
+    expect(review).toContain('run the mechanical pass at the top of that checklist');
+    const checklist = fs.readFileSync(path.join(ROOT, 'review', 'design-checklist.md'), 'utf-8');
+    expect(checklist).toContain('**0. Mechanical pass first.**');
+    expect(checklist).toContain('IMPECCABLE_READY');
+  });
+
+  test('every rendered invocation uses bun --no-env-file and ends a scan with the exit echo; no bash block runs npx impeccable', () => {
+    for (const content of [designReview(), designHtml(), readSkillUnion('ship'), readSkillUnion('review'), fs.readFileSync(path.join(ROOT, 'review', 'design-checklist.md'), 'utf-8')]) {
+      for (const block of bashBlocksOf(content)) {
+        expect(block).not.toContain('npx impeccable');
+        for (const line of block.split('\n')) {
+          if (!line.includes('gstack-design-detect.ts')) continue;
+          expect(line).toContain('bun --no-env-file run ');
+          if (/gstack-design-detect\.ts scan /.test(line)) expect(line).toContain('echo "DETECT_EXIT_CODE=$?"');
+        }
+      }
+    }
+  });
+
+  test('--host is rendered per host', () => {
+    // Fresh codex render into a temp out-dir: the tracked tree is Claude-only and
+    // the gitignored .agents/ copy may be stale.
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-detector-host-'));
+    try {
+      const r = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--out-dir', out], { cwd: ROOT, timeout: 120_000 });
+      expect(r.exitCode).toBe(0);
+      const codex = fs.readFileSync(path.join(out, '.agents', 'skills', 'gstack-design-review', 'SKILL.md'), 'utf-8');
+      expect(codex).toContain('gstack-design-detect.ts probe --host codex');
+      expect(codex).not.toContain('probe --host claude');
+      expect(codex).toContain('$GSTACK_ROOT/lib/dom-dump.js');
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- {{DESIGN_MD_CHECK}} resolver + open DESIGN.md adoption ---
+
+describe('DESIGN_MD_CHECK resolver and open DESIGN.md adoption', () => {
+  test('design-consultation asks the conversion question once and writes the spec form', () => {
+    const c = readSkillUnion('design-consultation');
+    expect(c).toContain('gstack-design-md.ts check DESIGN.md');
+    expect(c).toContain('DESIGN_MD_FORMAT: spec');
+    expect(c).toContain('mark legacy-keep');
+    expect(c).toContain('convert --write');
+    expect(c).toContain('# gstack: design-md-format=spec');
+    expect(c).toContain("## Do's and Don'ts");
+    expect(c).toContain('## Elevation & Depth');
+    expect(c).toContain('fontFeature: tnum');
+    expect(c).toContain('"{colors.primary}"');
+    // the legacy template is gone
+    expect(c).not.toContain('## Product Context\n- **What this is:**');
+  });
+
+  test('design-review calibrates against tokens and never re-offers conversion; design-html writes the spec form', () => {
+    const dr = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
+    expect(dr).toContain('gstack-design-md.ts check DESIGN.md');
+    expect(dr).toContain('gstack-design-md.ts tokens DESIGN.md');
+    expect(dr).toContain('never offer a conversion here');
+    expect(dr).not.toContain('mark legacy-keep');
+    const dh = fs.readFileSync(path.join(ROOT, 'design-html', 'SKILL.md'), 'utf-8');
+    expect(dh).toContain('# gstack: design-md-format=spec');
+    const pdr = readSkillUnion('plan-design-review');
+    expect(pdr).toContain('{colors.primary}');
+    const checklist = fs.readFileSync(path.join(ROOT, 'review', 'design-checklist.md'), 'utf-8');
+    expect(checklist).toContain('gstack-design-md.ts tokens DESIGN.md');
+    expect(readSkillUnion('ship')).toContain('gstack-design-md.ts tokens DESIGN.md');
+  });
+
+  test('every rendered gstack-design-md invocation uses bun --no-env-file', () => {
+    for (const content of [readSkillUnion('design-consultation'), fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8'), readSkillUnion('ship')]) {
+      for (const line of content.split('\n')) {
+        if (line.includes('gstack-design-md.ts')) expect(line).toContain('bun --no-env-file run ');
+      }
+    }
+  });
+});
+
+// --- PRODUCT.md prefill + /impeccable handoffs ---
+
+describe('PRODUCT.md prefill and /impeccable handoffs', () => {
+  test('design-consultation and design-shotgun read PRODUCT.md and never open the impeccable skill', () => {
+    for (const skill of ['design-consultation', 'design-shotgun']) {
+      const c = readSkillUnion(skill);
+      expect(c).toContain('cat PRODUCT.md 2>/dev/null | head -120 || echo "NO_PRODUCT_MD"');
+      expect(c).toContain('do not re-ask');
+      expect(c).toContain('Never open `.claude/skills/impeccable/**`');
+    }
+  });
+
+  test('handoffs are gated on IMPECCABLE_SKILL: present in review-lite and design-review', () => {
+    expect(readSkillUnion('ship')).toContain('IMPECCABLE_SKILL: present`, end each NEEDS INPUT detector row with the `handoff=` command');
+    const dr = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
+    expect(dr).toContain('a deferred one ends with its `handoff=` command when `IMPECCABLE_SKILL: present`');
+    expect(dr).toContain('skip every detector step, including `/impeccable` handoff lines');
   });
 });
 
@@ -2454,6 +2695,7 @@ describe('Factory generation (--host factory)', () => {
 // ─── Parameterized host smoke tests (config-driven) ─────────
 
 import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
+import { sliceBetween } from './helpers/skill-fixture';
 
 describe('Parameterized host smoke tests', () => {
   // Every external host was rendered up front by the module-level

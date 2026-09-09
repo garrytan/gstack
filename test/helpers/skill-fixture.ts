@@ -250,3 +250,16 @@ export function extractSkillHead(skillDir: string, bodyLineCount = 30): string {
   const head = bodyLines.slice(0, bodyLineCount).join('\n').trimEnd();
   return `${frontmatter}\n${head}\n\n<!-- body truncated by test/helpers/skill-fixture.ts — routing fixture needs frontmatter only -->\n`;
 }
+
+/**
+ * Slice a rendered skill between two literal markers. Both must exist: a
+ * missing END marker would silently hand the agent the rest of the file, which
+ * is exactly the "copied the whole SKILL.md" failure the E2E fixtures avoid.
+ */
+export function sliceBetween(text: string, start: string, end: string): string {
+  const i = text.indexOf(start);
+  if (i < 0) throw new Error(`skill fixture: start marker not found: ${start}`);
+  const j = text.indexOf(end, i + start.length);
+  if (j < 0) throw new Error(`skill fixture: end marker not found after start: ${end}`);
+  return text.slice(i, j);
+}

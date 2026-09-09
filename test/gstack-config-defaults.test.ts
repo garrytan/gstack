@@ -70,15 +70,15 @@ function isCovered(key: string, arms: string[]): boolean {
   );
 }
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next']);
+const SKIP_DIRS = new Set(['node_modules', '.git', '.context', 'dist', 'build', '.next']);
 
 /** Every `gstack-config get <key>` call site in the tree. */
-function keysReadInTree(): string[] {
+function keysReadInTree(root = ROOT): string[] {
   const keys = new Set<string>();
   // [ \t]+ rather than \s+: \s crosses newlines and would pair a trailing
   // "gstack-config get" with the first word of the next line.
   const re = /gstack-config["']?[ \t]+get[ \t]+([a-zA-Z0-9_]+)/g;
-  const stack = [ROOT];
+  const stack = [root];
   while (stack.length) {
     const cur = stack.pop()!;
     let entries: fs.Dirent[];
@@ -110,6 +110,18 @@ function keysReadInTree(): string[] {
 }
 
 describe('gstack-config defaults (gate, free)', () => {
+  test('workspace history does not add call sites to the source census', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-config-census-'));
+    try {
+      fs.mkdirSync(path.join(root, '.context', 'old-checkout'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'active.md'), 'gstack-config get question_tuning\n');
+      fs.writeFileSync(path.join(root, '.context', 'old-checkout', 'old.md'), 'gstack-config get retired_workspace_key\n');
+      expect(keysReadInTree(root)).toEqual(['question_tuning']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('every key read in the tree is covered by the DEFAULTS table', () => {
     const arms = defaultArms();
     expect(arms.length).toBeGreaterThan(10); // the parse actually found the table
@@ -137,5 +149,60 @@ describe('gstack-config defaults (gate, free)', () => {
     expect(get('question_tuning').out).toBe('false');
     expect(get('team_mode').out).toBe('false');
     expect(get('transcript_ingest_mode').out).toBe('off');
+  });
+});
+
+describe('design_detector (auto|off, rejecting validator)', () => {
+  test('defaults to auto', () => {
+    expect(get('design_detector')).toEqual({ out: 'auto', code: 0 });
+  });
+
+  test('set to an invalid value exits 1 and leaves the file unchanged', () => {
+    const file = path.join(STATE, 'config.yaml');
+    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+    const r = spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'maybe'], {
+      encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("design_detector 'maybe' not recognized");
+    const after = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+    expect(after).toBe(before);
+    expect(get('design_detector').out).toBe('auto');
+  });
+
+  test('list and defaults enumerate design_detector', () => {
+    for (const verb of ['list', 'defaults']) {
+      const r = spawnSync('bash', [CONFIG_BIN, verb], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toMatch(/design_detector:\s+auto/);
+    }
+  });
+
+  test('set off / set auto round-trip', () => {
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'off'], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+    expect(get('design_detector').out).toBe('off');
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'auto'], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+    expect(get('design_detector').out).toBe('auto');
+  });
+});
+
+describe('design_detector_install_prompted (true|false, rejecting validator)', () => {
+  const env = { ...process.env, GSTACK_STATE_ROOT: STATE };
+  test('defaults to false, rejects a typo with the file unchanged, round-trips true/false, and is enumerated', () => {
+    expect(get('design_detector_install_prompted')).toEqual({ out: 'false', code: 0 });
+    const file = path.join(STATE, 'config.yaml');
+    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+    const bad = spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector_install_prompted', 'yes'], { encoding: 'utf-8', timeout: 30_000, env });
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain("design_detector_install_prompted 'yes' not recognized");
+    expect(fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null).toBe(before);
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector_install_prompted', 'true'], { encoding: 'utf-8', timeout: 30_000, env });
+    expect(get('design_detector_install_prompted').out).toBe('true');
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector_install_prompted', 'false'], { encoding: 'utf-8', timeout: 30_000, env });
+    expect(get('design_detector_install_prompted').out).toBe('false');
+    for (const verb of ['list', 'defaults']) {
+      const r = spawnSync('bash', [CONFIG_BIN, verb], { encoding: 'utf-8', timeout: 30_000, env });
+      expect(r.stdout).toMatch(/design_detector_install_prompted:\s+false/);
+    }
   });
 });

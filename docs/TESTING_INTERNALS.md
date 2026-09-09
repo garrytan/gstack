@@ -100,6 +100,12 @@ Chromium can launch, so on an install where the best-effort Chromium step
 was skipped (`GSTACK_SKIP_PLAYWRIGHT=1`) or failed, these gates run and fail
 at browser launch instead of skipping. Fix the bootstrap (or move the binary
 aside) before running them locally; CI always installs Chromium first.
+`test/dom-dump-hygiene.test.ts` is the one free-suite case on the same leg: it
+runs `lib/dom-dump.js` (the rendered-DOM dump `/design-review` hands the design
+detector) inside a real Chromium page through the built browse binary, so it
+self-skips when the binary is absent and, because a cold Chromium launch is
+load-sensitive on a busy dev box, runs only in CI or on explicit opt-in
+(`GSTACK_DOM_DUMP_HYGIENE=1`).
 
 **Free suite (`bun run test:free`).** `scripts/test-free-shards.ts` runs N
 concurrent shard processes (serial within each) with strict-output
