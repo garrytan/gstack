@@ -41,6 +41,7 @@ import { createAutoplanArtifactRecorder } from './autoplan-artifact-recorder';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 import { isRecordedDxManualNavigation } from './dx-selected-navigation';
+import { engCacheWriterDecision } from './eng-cache-writer-decision';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -3080,6 +3081,56 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
       fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
       /<gstack-qid/i.test(q.question)) return false;
   const title = q.question.split('\n')[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '');
+  // A declarative severity-labelled issue can own the same cache repair as
+  // an interrogative title. Require its native decision, current assessment,
+  // and opposed implementation options; metadata alone never opens review.
+  const declaredCache = /^(?:Issue|Finding) ([1-9]\d*) \[P[0-3]\] \(confidence (?:10|[1-9])\/10\) [A-Za-z][\w./-]*:[1-9]\d*(?:-[1-9]\d*)?: ([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*) share a global mutable ([A-Za-z_$][\w$]*) via module-level export, and both mutate it\.$/.exec(title);
+  if (declaredCache) {
+    if (!/^Shared cache$/i.test(q.header.trim()) || declaredCache[2] === declaredCache[3]) return false;
+    const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedCache = escaped(declaredCache[4]!);
+    const decision = /^D([1-9]\d*)\s*[—–:-]/.exec(q.question)?.[1];
+    const owner = `(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|risk)|(?:Issue|Finding) ${declaredCache[1]}${decision ? `|D${decision}` : ''})`;
+    const boundary = '(?:^|[.!?;]\\s+|\\n|[✅❌]\\s*)(?:Correction:\\s*)?';
+    const scalarOwner = new RegExp(`${boundary}${owner} (?:is|was|has been) (?:(?:now|already) )?$`, 'i');
+    const current = (value: string) => value
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/"[^"\n]*"|“[^”\n]*”|(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’|`(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current|no longer current)`/gi,
+        (quoted: string, index: number, source: string) =>
+          /^(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current|no longer current)$/i.test(quoted.slice(1, -1)) &&
+          scalarOwner.test(source.slice(0, index)) ? quoted.slice(1, -1) : '')
+      .replace(/`([^`\n]*)`/g, (_, code: string) => /^[A-Za-z_$][\w$]*$/.test(code) ? code : '')
+      .replace(/\*\*/g, '');
+    const framed = /\b(?:source|quoted|historical|hypothetical|earlier|previous)\s+(?:review\s+)?(?:example|excerpt|assessment|finding|material|text)\b|(?:^|[.!?;:]\s+|\n|[✅❌]\s*)(?:if|when|unless|provided|assuming|suppose|imagine|source|example)\b/i;
+    const closed = new RegExp(`${boundary}${owner} (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b|${boundary}no current (?:gap|risk|finding) (?:remains|exists)\\b`, 'i');
+    const removed = new RegExp(`${boundary}(?:(?:${escapedCache}|(?:the|this|that) (?:cache|export|global|writers?|writes?|services?)) (?:is|are|has been|have been) (?:no longer (?:global|mutable|shared|unordered)|(?:now |already )?(?:ordered|serialized|removed))|(?:${escaped(declaredCache[2]!)}|${escaped(declaredCache[3]!)}|(?:the|this|both) services?) no longer (?:share|mutate|write)[a-z]*)\\b`, 'i');
+    const cancelled = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|skip|cancel|withdraw) (?:inject|receive|remove|delete|serialize|order|keep|proceed|accept)\b/i;
+    const inactive = (value: string) => framed.test(value) || closed.test(value) || cancelled.test(value);
+    const text = current(q.question), assessment = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    const preface = text.slice(text.indexOf('\n') + 1, assessment[0]?.index ?? 0).trim().split('\n').filter(Boolean);
+    if (assessment.length !== 1 || preface.length !== 1 ||
+        !/^Project\/branch\/task: \S[^\n]*\bSection [1-9]\d* Architecture\b/.test(preface[0]!) ||
+        !/^Two services write to the same cache through a global variable\./.test(assessment[0]![1]!) ||
+        !/\b(?:writes can interleave|no ordering|unordered writes)\b/.test(assessment[0]![1]!) || inactive(text) ||
+        removed.test(text)) return false;
+    const optionIds = q.options.map(o => /^([1-9]\d*)([A-D])[:.)]\s+(\S[\s\S]*)$/.exec(o.label));
+    if (optionIds.some(id => id?.[1] !== declaredCache[1]) || new Set(optionIds.map(id => id![2])).size !== q.options.length) return false;
+    const actions = optionIds.map(id => id![3]!.replace(/\s*\(recommended\)$/i, ''));
+    return q.options.some((remedy, index) => {
+      if (!new RegExp(`^Inject ${escapedCache};`).test(actions[index]!)) return false;
+      const body = current(remedy.description ?? '').trim();
+      if (inactive(body) ||
+          !new RegExp(`^✅\\s*Both services receive the one ${escapedCache} instance via constructor; the module export goes away\\b`).test(body) ||
+          !new RegExp(`✅\\s*${escapedCache} exposes only [^✅❌.!?]{1,180} and serializes writes per key\\b`).test(body) ||
+          /\b(?:module export (?:stays|remains|is retained)|writes (?:remain|stay) unordered|(?:do not|never) serialize)\b/i.test(body)) return false;
+      return q.options.some((opposed, other) => other !== index && /^Proceed as written$/i.test(actions[other]!) &&
+        !inactive(current(opposed.description ?? '')) && !removed.test(current(opposed.description ?? '')) &&
+        new RegExp(`❌\\s*Ships an? (?:auth cache|${escapedCache}) with two unordered writers and shared test state\\b`).test(current(opposed.description ?? '')) &&
+        !/\b(?:risk|race) (?:is |has been )?(?:resolved|closed|fixed)|\bno (?:race|risk) remains\b/i.test(current(opposed.description ?? '')));
+    });
+  }
+  if (engCacheWriterDecision(q)) return true;
   // The category may precede the issue number. Bind this library choice to
   // the current scheduling defect and both concrete outcomes, not its label.
   const libraryHooks = /^Architecture issue ([1-9]\d*): custom inline scheduler vs the job library's built-in retry hooks\?$/i.exec(title);

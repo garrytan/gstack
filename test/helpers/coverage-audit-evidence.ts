@@ -182,7 +182,7 @@ function diagramBlocks(output: string): string[][] {
 }
 
 function treeRow(line: string): { depth: number; text: string } | undefined {
-  const match = /^([ |│]*)(?:[├└]─+|[+|]-+)\s+(.+)$/.exec(line);
+  const match = /^([ |│]*)(?:[├└]─+►?|[+|]-+)\s+(.+)$/.exec(line);
   if (!match) {
     // Unindented function roots own following branch rows. Other function
     // roots also end a subtree, so a sibling cannot lend a coverage marker.
@@ -197,7 +197,11 @@ function diagramLegend(lines: string[], firstRow: number): Map<string, boolean> 
   const meanings = new Map<string, boolean>();
   const pair = String.raw`\[([✓✔✗✘])\][\t ]+(TESTED|COVERED|GAP|UNTESTED)`;
   const legend = new RegExp(String.raw`^${pair}[\t |,;]+${pair}$`, 'i');
-  for (const line of lines.slice(0, firstRow)) {
+  for (const original of lines.slice(0, firstRow)) {
+    // Decorative branch keys and an explicit GAP explanation do not change
+    // the two coverage meanings. All other qualifiers keep the closed grammar.
+    const line = original.replace(/[\t ]+[─-]+►[\t ]+branch$/i, '')
+      .replace(/(\[[✓✔✗✘]\][\t ]+(?:GAP|UNTESTED))[\t ]+\(no test\)$/i, '$1');
     const start = line.search(/\[[✓✔✗✘]\]/);
     if (start < 0) continue;
     if (/^\s*>|["“”]|\b(?:not|no|never|example|sample|false|incorrect|hypothetical)\b/i.test(line)) return new Map();
@@ -222,9 +226,14 @@ function seededDiagram(output: string): boolean {
   for (const lines of diagramBlocks(output)) {
     const rows = lines.map(treeRow);
     const legend = diagramLegend(lines, rows.findIndex(row => row !== undefined));
-    const symbolMeans = (line: string, covered: boolean) =>
-      !/\b(?:not|never)\s+\[[✓✔✗✘]\]|(?:\[[✓✔✗✘]\]|\b(?:marker|symbol))\s+(?:is|are)\s+(?:false|incorrect|wrong)\b/i.test(line) &&
-      [...line.matchAll(/\[([✓✔✗✘])\]/g)].some(match => legend.get(match[1]!) === covered);
+    const symbolMeans = (line: string, covered: boolean) => {
+      if (/\b(?:not|never)\s+\[[✓✔✗✘]\]|(?:\[[✓✔✗✘]\]|\b(?:marker|symbol))\s+(?:is|are)\s+(?:false|incorrect|wrong)\b/i.test(line)) return false;
+      // A status correction [covered]→[gap] carries only its final marker.
+      // Unrelated contradictory markers cannot supply both coverage states.
+      const corrected = line.replace(/\[[✓✔✗✘]\][\t ]*(?:→|->)[\t ]*(?=\[[✓✔✗✘]\])/g, '');
+      const states = [...corrected.matchAll(/\[([✓✔✗✘])\]/g)].map(match => legend.get(match[1]!));
+      return states.includes(covered) && !states.includes(!covered);
+    };
     const payment = rows.findIndex(row => row && /^processPayment\b/.test(row.text));
     const refund = rows.findIndex(row => row && /^refundPayment\b/.test(row.text));
     if (payment < 0 || refund < 0) continue;
@@ -238,11 +247,11 @@ function seededDiagram(output: string): boolean {
       return texts;
     };
     const covered = subtree(payment).some(line =>
-      (/(?:\bTESTED\b|\bCOVERED\b)/i.test(line) || symbolMeans(line, true) ||
-       (/✓/.test(line) && !/\[✓\]/.test(line) && (legend.get('✓') ?? true))) && /happy|success|valid|USD/i.test(line) &&
+      (/\[[✓✔✗✘]\]/.test(line) ? symbolMeans(line, true) :
+       /(?:\bTESTED\b|\bCOVERED\b)/i.test(line) || (/✓/.test(line) && (legend.get('✓') ?? true))) && /happy|success|valid|USD/i.test(line) &&
       !/untested|(?:not|never)\s+(?:yet\s+)?(?:tested|covered)|no\s+test/i.test(line));
     const missing = subtree(refund).some(line =>
-      (/(?:\[GAP\]|✗\s*GAP|\bUNTESTED\b)/i.test(line) || symbolMeans(line, false)) &&
+      (/\[[✓✔✗✘]\]/.test(line) ? symbolMeans(line, false) : /(?:\[GAP\]|✗\s*GAP|\bUNTESTED\b)/i.test(line)) &&
       !/\b(?:not|never)\s+(?:\[)?(?:untested|gap)\b|\b(?:untested|gap)\]?\s+(?:is|are)\s+(?:false|incorrect|wrong)\b|\bno\s+(?:coverage\s+)?gaps?\b|\b(?:fully|completely)\s+(?:tested|covered)\b/i.test(line));
     if (covered && missing) return true;
   }

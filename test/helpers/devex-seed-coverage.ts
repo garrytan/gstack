@@ -26,7 +26,7 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
   };
   const current = currentProse(lines.slice(explanation).join('\n'));
   if ((current.match(/^ELI10:/gm)?.length ?? 0) !== 1) return false;
-  if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|explanation)|(?:(?:this|that|the) )?argument[- ]order (?:issue|defect)|these signatures)\b[^.\n]*\b(?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current)\b/i.test(current) ||
+  if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|explanation)|(?:(?:this|that|the) )?argument[- ]order (?:issue|defect)|these signatures)\b[^.\n]*\b(?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|(?:not|no longer) current)\b/i.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:there is|there's) no argument[- ]order (?:issue|defect)\b/i.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?run_eval and run_batch now (?:use|take) the same positional order\b/i.test(current)) return false;
   // The same offered action must align both functions and retain the call-site
@@ -43,55 +43,84 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   const questionMarks = title.match(/\?/g)?.length ?? 0;
   // Journey labels, possessives and a positive inclusive aside format the
   // asserted subject. Keep the original title for all meaning/currentness checks.
-  const stage = title.match(/^Journey stage (?:HELLO WORLD|REAL USAGE|DEBUG|UPGRADE): (.+)$/i);
+  // These six stages come from the skill's journey trace. A decision may span
+  // adjacent touchpoints without changing the subject or who asserts it.
+  const journeyStage = '(?:DISCOVER|INSTALL|HELLO WORLD|REAL USAGE|DEBUG|UPGRADE)';
+  const stage = title.match(new RegExp(`^Journey stage ${journeyStage}(?:\\s*\\/\\s*${journeyStage})?: (.+)$`, 'i'));
   if (stage && /^(?:Assuming|Provided)\b/i.test(stage[1]!.trim())) return [];
   const assertionTitle = stage ? stage[1]!
     .replace(/\b([A-Za-z0-9_.]+)['’]s\b/g, '$1')
     .replace(/, including ([A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+){0,6}),/gi, (aside, subject: string) =>
       /\b(?:if|unless|assuming|provided|except|excluding|only|no|not|never|without|was|were|is|are|has|had|may|might|could|would|historical|earlier|quoted|source|example|hypothetical|fixed|resolved|cancelled|canceled|withdrawn|rejected|superseded)\b/i.test(subject) ? aside : '')
     : title;
-  // A native choice can present an asserted defect as its title. Punctuation
-  // does not turn its concrete offered repairs into a missing review decision.
-  const declaration = questionMarks === 0 &&
-    /^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(assertionTitle) &&
+  // A defect heading can assert a prerequisite or compare named signatures
+  // without a finite verb. Keep these semantic families narrow: a topic label,
+  // healthy signature pair or optional check is not an asserted defect.
+  const nominalDefect = /^(?:Mandatory|Required) (?:\d+(?:\.\d+)?[- ](?:minute|second) )?(?:remote )?CI (?:check|gate) before (?:the )?first local (?:result|evaluation|run)[.?]?$/i.test(assertionTitle) ||
+    /^run_eval\(\s*dataset\s*,\s*evaluator\s*\) (?:vs\.?|versus|and) run_batch\(\s*evaluator\s*,\s*dataset\s*\): (?:reversed|opposite|swapped) (?:positional|argument) order[.?]?$/i.test(assertionTitle);
+  const nominalSubject = /^(?:Mandatory|Required|Optional)\b[^?!\n]*\bCI (?:check|gate)\b/i.test(assertionTitle) ||
+    /^run_eval\([^)]+\) (?:vs\.?|versus|and) run_batch\([^)]+\):/i.test(assertionTitle);
+  if (nominalSubject && !nominalDefect) return [];
+  const signatureDeclaration = /^run_eval\(\s*dataset\s*,\s*evaluator\s*\) and run_batch\(\s*evaluator\s*,\s*dataset\s*\) (?:take|takes)\b/i.test(assertionTitle);
+  if (/^run_eval\([^)]+\) and run_batch\([^)]+\) (?:take|takes)\b/i.test(assertionTitle) && !signatureDeclaration) return [];
+  const finiteTitle = signatureDeclaration ? assertionTitle.replace(/\([^)]*\)/g, '') : assertionTitle;
+  // Negative availability asserts a missing referenced file. Bind it to that
+  // object; do not erase a negation of the quickstart's own reference or gate.
+  const absentReference = /\b(?:points?|references?) (?:at|to) (?:examples\/first_eval\.py|(?:a|the) (?:file|example)),? (?:which|that) (?:is not in (?:the )?(?:package|wheel)(?: or (?:the )?(?:release )?examples archive)?|does not (?:ship|exist))[.?]?$/i.test(assertionTitle);
+  const newAssertion = nominalDefect || signatureDeclaration || absentReference;
+  const guardedDeclaration = Boolean(stage || newAssertion);
+  const polarityTitle = absentReference ? title.replace(/\bdoes not (ship|exist)([.?]?)$/i, 'is absent$2') : title;
+  // Punctuation cannot route a newly admitted asserted family around its
+  // ownership checks; an offered alternate still resolves the same decision.
+  const declaration = (questionMarks === 0 || (questionMarks === 1 && title.endsWith('?'))) &&
+    (/^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(finiteTitle) || nominalDefect) &&
     !/^`[^`]*`$/.test(rawTitle) &&
-    !/\b(?:if|unless|suppose|might|may|could|would|previously|earlier|historical|hypothetical|example|quoted|source|never|no longer|does not|do not|did not)\b/i.test(title);
+    !/\b(?:if|unless|suppose|might|may|could|would|previously|earlier|historical|hypothetical|example|quoted|source|never|no longer|does not|do not|did not)\b/i.test(polarityTitle);
+  if (newAssertion && !declaration) return [];
   if ((!declaration && (!title.endsWith('?') || questionMarks !== 1)) ||
-      /^(?:>|"|“|Example\b|Quoted\b|Suppose\b)|\bhypothetical\b/i.test(title) ||
+      /^`[^`]*`[.?]?$/.test(rawTitle) ||
+      /^(?:>|"|“|Example\b|Quoted\b|Source(?: excerpt| example)?[,:.]|Historical\b|Earlier review\b|If (?:approved|accepted)\b|Assuming\b|Provided\b|Suppose\b)|\bhypothetical\b/i.test(title) ||
+      /\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(title) ||
       /\b(?:continue|proceed|next section|move on|format|already (?:fixed|resolved))\b/i.test(title) ||
       /\b(?:have|did)\b[^?]*\bread\b|\b(?:narrative|trace|recap|summary)\b[^?]*\b(?:accurate|match|confirm)\b/i.test(title) ||
       /\b(?:report|summary|recap)\b[^?]*\b(?:mention|include|reference|list)\b|\b(?:mention|include|reference|list)\b[^?]*\b(?:report|summary|recap)\b/i.test(title)) return [];
   let offered = q.options;
   if (declaration) {
-    const currentProse = (text: string) => {
+    const currentProse = (text: string, offeredAction = false) => {
+      // An option's trailing effort estimate separates its prose from an owned
+      // status even without punctuation. Keep it on the same line so a quoted
+      // historical sentence is still removed as one quotation below.
+      const bounded = guardedDeclaration && offeredAction ? text.replace(/(\(human:[^()\n]{1,80}\/ CC:[^()\n]{1,80}\))[ \t]+(?=(?:Correction:\s*)?(?:(?:this|that|the) (?:option|action|correction)|D\s*[1-9]\d*) (?:is|was|has been) ["“'‘`]?(?:cancelled|canceled|superseded|withdrawn|rejected|(?:not|no longer) current)\b)/gi, '$1. ') : text;
       // Preserve a scalar status asserted by a current, unquoted owner before
-      // removing source quotations. This applies only to the new stage form.
-      const owned = stage ? text.replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation|option|action|correction)|D\s*[1-9]\d*) (?:is|was|has been) )["“](cancelled|canceled|superseded|withdrawn|rejected|not current)["”]/gim, '$1$2$3') : text;
+      // removing source quotations. The owner must still match this decision.
+      const owned = guardedDeclaration ? bounded.replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation|option|action|correction)|D\s*[1-9]\d*) (?:is|was|has been) )["“'‘`](cancelled|canceled|superseded|withdrawn|rejected|(?:not|no longer) current)["”'’`]/gim, '$1$2$3') : bounded;
       let fence = false;
       return owned.split('\n').filter(line => {
         if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; return false; }
         return !fence && !/^\s*>/.test(line);
       }).join('\n')
-        .replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation|option|action|correction) (?:is|was|has been) )["“](withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current|cancelled)["”]/gim, '$1$2$3')
+        .replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation|option|action|correction) (?:is|was|has been) )["“](withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|(?:not|no longer) current|cancelled)["”]/gim, '$1$2$3')
         .replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, '');
     };
-    const sourceFrame = /(?:^|[.!?\n;]\s*)(?:(?:ELI10|Project\/branch\/task):\s*)?(?:(?:Source(?: excerpt| example)?|Quoted(?: source| example)?|Historical(?: example| assessment)?(?: only)?|Earlier(?: review)? assessment|Example|Hypothetical(?: example| assessment)?|If approved|If accepted)[,:]|(?:The following|This assessment|This explanation)\b[^.\n]*\b(?:quoted|source|historical|hypothetical|example)\b|Historically,)/i;
+    const sourceFrame = /(?:^|[.!?\n;]\s*)(?:(?:ELI10|Project\/branch\/task):\s*)?(?:(?:Source(?: excerpt| example)?|Quoted(?: source| example)?|Historical(?: example| assessment)?(?: only)?|Earlier(?: review)? assessment|Example|Hypothetical(?: example| assessment| scenario)?|If approved|If accepted)[,:.]|(?:The following|This assessment|This explanation)\b[^.\n]*\b(?:quoted|source|historical|hypothetical|example)\b|Historically,)/i;
     const lines = q.question.split('\n'), explanation = lines.findIndex(line => /^ELI10:/.test(line));
     const preface = lines.slice(0, explanation < 0 ? undefined : explanation + 1).join('\n');
-    if (stage && /^(?:Project\/branch\/task|ELI10):\s*(?:Assuming|Provided)\b/im.test(currentProse(preface))) return [];
+    if (guardedDeclaration && /^(?:Project\/branch\/task|ELI10):\s*(?:Assuming|Provided)\b/im.test(currentProse(preface))) return [];
     if (/^\s*(?:```|~~~)/m.test(preface) || sourceFrame.test(currentProse(preface)) ||
         /\bnot (?:a )?current (?:finding|issue|defect)\b/i.test(currentProse(preface))) return [];
     const current = currentProse(q.question);
-    const decision = stage && /^D\s*([1-9]\d*)\s*[—–:-]/i.exec(q.question);
-    if (decision && new RegExp(`(?:^|[.!?\\n]\\s*)(?:Correction:\\s*)?D\\s*${decision[1]} (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|not current)\\b`, 'i').test(current)) return [];
-    if (stage && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:cancelled|canceled|superseded)\b/i.test(current)) return [];
-    if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current|(?:a |only a )?source example)|there is no (?:current )?(?:finding|issue|gap|defect))\b/i.test(current)) return [];
+    const decision = guardedDeclaration && /^D\s*([1-9]\d*)\s*[—–:-]/i.exec(q.question);
+    if (decision && new RegExp(`(?:^|[.!?\\n]\\s*)(?:Correction:\\s*)?D\\s*${decision[1]} (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\\b`, 'i').test(current)) return [];
+    if (guardedDeclaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:cancelled|canceled|superseded)\b/i.test(current)) return [];
+    if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|(?:not|no longer) current|(?:a |only a )?source example)|there is no (?:current )?(?:finding|issue|gap|defect))\b/i.test(current)) return [];
     // A declaration's action evidence must belong to a current offered option,
     // rather than an example or an explicitly withdrawn correction.
-    const action = (text: string) => currentProse(text.replace(/`([A-Za-z_$][\w.$/-]*(?:\([^`\n]*\))?)`/g, '$1'));
+    const action = (text: string) => currentProse(text.replace(/`([A-Za-z_$][\w.$/-]*(?:\([^`\n]*\))?)`/g, '$1'), true);
     offered = offered.filter(option => {
-      const text = `${option.label}\n${option.description ?? ''}`, prose = currentProse(text);
-      if (stage && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:canceled|superseded)\b/i.test(prose)) return false;
+      const text = `${option.label}\n${option.description ?? ''}`, prose = currentProse(text, true);
+      if (guardedDeclaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:cancelled|canceled|superseded|withdrawn|rejected|(?:not|no longer) current)\b/i.test(prose)) return false;
+      if (guardedDeclaration && /^(?:Assuming|Provided)\b/im.test(prose)) return false;
+      if (decision && new RegExp(`(?:^|[.!?\\n]\\s*)(?:Correction:\\s*)?D\\s*${decision[1]} (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\\b`, 'i').test(prose)) return false;
       return !/^(?:>|"|“)|^`[^`]*`$/.test(option.label.trim()) && !sourceFrame.test(prose) &&
         !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|the) (?:option|action|correction) (?:is|was|has been) (?:withdrawn|rejected|cancelled)\b/i.test(prose);
     }).map(option => ({ ...option, label: action(option.label), description: action(option.description ?? '') }));
@@ -110,7 +139,7 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
       (options.some(o => /\b(?:no CI gate|remove|move|skip|bypass|gate)\b/i.test(o) && /\b(?:CI|check|gate|local|demo)\b/i.test(o)) || directAction('remove|move|skip|bypass|gate'))) found.push('local-ci-gate');
   if (/\bquickstart\b|examples\/first_eval\.py/i.test(title) &&
       /\b(?:README|file|example|demo|missing|absent|package|wheel|ship|point)\b|first_eval\.py/i.test(title) &&
-      (!declaration || /\b(?:not (?:shipped|included|available|present)|missing|absent|nonexistent|does not exist)\b/i.test(title)) &&
+      (!declaration || absentReference || /\b(?:not (?:shipped|included|available|present)|missing|absent|nonexistent|does not exist)\b/i.test(title)) &&
       (options.some(o => /\b(?:point|ship|add|demo is)\b/i.test(o) && /\bquickstart\b|first_eval\.py/i.test(o)) || directAction('point|ship|add|replace|fix'))) found.push('missing-quickstart');
   if (explainedReversedSignatures(q, title) || (/\brun_eval\b/i.test(title) && /\brun_batch\b/i.test(title) &&
       /\b(?:arguments?|order|positional|reversed|opposite|consistent|align|unify|dataset|evaluator)\b/i.test(title) &&
@@ -119,7 +148,7 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   if (/\bAuthError\b|\binvalid API key\b/i.test(title) &&
       /\b(?:error|message|code|cause|fix|guidance|opaque|explain)\b|request failed/i.test(title) &&
       (!declaration || /\b(?:no (?:cause|fix|explanation|code)|opaque)\b|request failed/i.test(title)) &&
-      (options.some(o => /\bcodes?\b/i.test(o) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
+      (options.some(o => (/\bcodes?\b/i.test(o) || /^(?:[A-D]\)\s*)?Coded\b/i.test(o)) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
   if (/Client\.evaluate\b/i.test(title) &&
       /Client\.run\b|\b(?:v\d+|version \d+|alias|deprecation|migration)\b/i.test(title) &&
       /\b(?:alias|warning|compatibility|deprecat\w*|migration|remov\w*|rename|keep)\b/i.test(title) &&

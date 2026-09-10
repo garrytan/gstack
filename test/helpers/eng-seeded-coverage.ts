@@ -25,6 +25,48 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   const subject = q.question.split('\n').find(line => line.trim())?.trim() ?? '';
   if (/^(?:>|`{3}|~{3}|example\b|quote\b|["“])|\b(?:no (?:issue|defect)|already (?:fixed|resolved)|hypothetical)\b/i.test(subject)) return [];
   const title = subject.replace(/[`*]/g, '');
+  // A concise decision title can name the design choice while its own
+  // current explanation states the defect. Keep these three forms bound to
+  // that explanation and the same native option's concrete repair.
+  const decisionTitle = title.replace(/^D[1-9]\d*\s*[—–:-]\s*/, '');
+  const explainedSeed: Seed | undefined = /^Reduce the new-class count before we review the rest\?$/.test(decisionTitle) ? 'complexity'
+    : /^Who is allowed to write to the auth cache\?$/.test(decisionTitle) ? 'shared-cache'
+    : /^How should validateAndDispatch\(\) handle errors\?$/.test(decisionTitle) ? 'swallowed-errors' : undefined;
+  if (explainedSeed) {
+    const ordinal = /^D([1-9]\d*)\s*[—–:-]/.exec(title)?.[1];
+    const status = '(?:withdrawn|rejected|cancelled|canceled|superseded|resolved|fixed|optional|hypothetical|unproven|not current|no longer current)';
+    const owner = `(?:(?:this|the|that) (?:finding|issue|gap|defect|assessment|explanation)${ordinal ? `|D${ordinal}` : ''})`;
+    const current = (value: string, option = false) => {
+      const subject = option ? `(?:${owner}|(?:this|the|that) (?:option|action|remedy|correction))` : owner;
+      const scalar = new RegExp(`((?:^|[.!?]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?${subject} (?:is|was|has been) )["“'‘\x60](${status})["”'’\x60]`, 'gim');
+      return prose(value.replace(scalar, '$1$2'), true).replace(/"[^"\n]*"|“[^”\n]*”|(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’/g, '');
+    };
+    const framed = /(?:^|[.!?;:]\s+|\n)(?:(?:Project\/branch\/task|ELI10):\s*)?(?:Source(?: excerpt| material)?|Quoted(?: source)?|Historical(?: assessment| example)?|If approved|Once approved|When approved|Pending approval|Assuming approval|Provided approval)[,:.]?\s/i;
+    const active = (value: string, option = false) => {
+      const text = current(value, option), subject = option ? `(?:${owner}|(?:this|the|that) (?:option|action|remedy|correction))` : owner;
+      return !framed.test(text) && !new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?${subject} (?:is|was|has been) ${status}\\b`, 'i').test(text) &&
+        !(option && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:drop|reduce|inject|flatten|rethrow|make|apply)\b/i.test(text));
+    };
+    const text = current(q.question), explanations = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    const prefix = text.slice(text.indexOf('\n') + 1, explanations[0]?.index ?? 0).trim().split('\n').filter(Boolean);
+    if (explanations.length !== 1 || prefix.length !== 1 || !/^Project\/branch\/task: \S/.test(prefix[0]!) || !active(q.question)) return [];
+    const explanation = explanations[0]![1]!;
+    const options = q.options.filter(o => active(`${o.label}\n${o.description ?? ''}`, true))
+      .map(o => ({ label: current(o.label).replace(/^[1-9]\d*[A-D]\s+/, ''), description: current(o.description ?? '') }));
+    if (explainedSeed === 'complexity') {
+      const wrapper = /^The plan invents a new cache wrapper \(([A-Za-z][\w]*)\) and a new token store on top of a cache adapter that already does tenant keying, expiry, and invalidation\./.exec(explanation);
+      return wrapper && options.some(o => /^Reduce\b/.test(o.label) &&
+        new RegExp(`\\bdrop ${wrapper[1]}\\/TokenStore classes\\.`).test(o.description)) ? [explainedSeed] : [];
+    }
+    if (explainedSeed === 'shared-cache') return /\bAuthBroker and SessionMint both mutating one backing cache\b/.test(prefix[0]!) &&
+      /^Two services write to the same cache and nothing orders their writes\./.test(explanation) &&
+      !/(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:the|this) (?:cache|writes|writers) (?:is|are|have been) (?:now ordered|now serialized|no longer shared)\b/i.test(text) &&
+      options.some(o => /^Single writer\b/.test(o.label) && /^SessionMint writes\b/.test(o.description) && /\bAuthBroker reads\b/.test(o.description)) ? [explainedSeed] : [];
+    return /\bvalidateAndDispatch\(\) is [1-9]\d* lines, (?:three|[1-9]\d*) nested try\/catch blocks, each catch swallows a different error class\b/.test(prefix[0]!) &&
+      /^Right now when something goes wrong inside validation, the code catches the problem and keeps going as if nothing happened\./.test(explanation) &&
+      options.some(o => /^Flatten \+ typed errors\b/.test(o.label) && /\bLinear pipeline, typed error classes, one fail-closed boundary\b/.test(o.description) ||
+        /^Rethrow, one outer catch$/.test(o.label) && /\brethrow typed errors; outer catch denies\b/.test(o.description)) ? [explainedSeed] : [];
+  }
   const offered = q.options.map(o => `${o.label} ${o.description ?? ''}`).join('\n');
   const directAction = title.match(/\b(?:should|shall|can|do|would)\s+(?:we|I)\s+([^?]+)\?\s*$/i)?.[1];
   const action = (re: RegExp) => re.test(offered) || Boolean(directAction && new RegExp(`^(?:${re.source})`, re.flags).test(directAction));
@@ -519,6 +561,116 @@ function declaredLegacyCharacterization(text: string): boolean {
             value.split(/\n|[.!?]\s+/).some(line => changedFirst.test(line.trim()));
         })) continue;
         return true;
+      }
+    }
+  }
+
+  // A mandatory current-output baseline can land before all other tasks.
+  // This obligation does not imply an identical suite on the flag-on path:
+  // a plan may specify its rollout parity check separately.
+  for (const section of current.filter(s => /^CRITICAL [—–-] regression \(mandatory, REGRESSION RULE\)$/i.test(s.title))) {
+    const body = unquoted(section.body.join(' ')).replace(/\s+/g, ' ').trim();
+    const rule = /^legacyAuthFlow\(\) is (?:live|existing|current) behavior being (?:changed|modified|refactored) with no covering test(?: \([^()!?]{1,120}\))?\. Before any (?:rewrite|refactor|change): ([A-Za-z][\w/.-]*\.test\.[jt]s) (?:records|captures|pins) (?:current|existing) outputs \(including quirks\) for [^.!?]{1,300} inputs\. This suite runs against the legacy path now\b/.exec(body);
+    if (!rule || suiteWithdrawn || !snapshotSource.includes(rule[0]) || withdrawn(body) ||
+        extractionSourceOwner(body) || approvalPending(body) || /\b(?:if|unless|maybe|might|could|optional|hypothetical|unproven)\b/i.test(body)) continue;
+    for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = tasks.body.join('\n').trim(), blocks = taskBody.split(/\n(?=-\s)/);
+      const prefix = blocks[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(prefix) ||
+          extractionSourceOwner(prefix) || approvalPending(prefix) || /\b(?:if|unless|assuming|provided|optional|hypothetical|unproven)\b/i.test(unquoted(prefix)))) continue;
+      const ids = blocks.map(block => /^- (?:\[[ xX]\] )?(T[1-9]\d*)\b/.exec(block)?.[1]).filter(Boolean);
+      if (ids.length !== new Set(ids).size) continue;
+      for (const task of blocks) {
+        const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w/-]* [—–-] CRITICAL regression: characterization suite for legacyAuthFlow\(\) (?:current|existing|prior) behavior[\t ]*(?:\n|$)/.exec(task);
+        const files = [...task.matchAll(/^\s+- Files: ([^\n]+)$/gm)];
+        const verifies = [...task.matchAll(/^\s+- Verify: ([^\n]+)$/gm)];
+        const verify = verifies[0];
+        const preceding = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        if (!match || files.length !== 1 || files[0]![1] !== rule[1] || verifies.length !== 1 ||
+            !/^suite green against unmodified legacy before any other task merges[\t ]*$/.test(verify![1]!) ||
+            !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+            extractionSourceOwner(preceding) || conditionalOwner(preceding) || approvalPending(preceding) ||
+            extractionSourceOwner(task.slice(0, verify!.index)) || conditionalOwner(task.slice(0, verify!.index)) || approvalPending(task.slice(0, verify!.index)) ||
+            /(?:^|\n)\s*(?:assuming|provided)\b/i.test(unquoted(task.slice(0, verify!.index)))) continue;
+        const id = match[1]!;
+        const status = '(?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer current|not required|no longer required)';
+        // Current scalar statuses retain their owner; whole-sentence quoted
+        // history and conditional future statuses cannot cancel this baseline.
+        const assessment = (value: string) => unquoted(value.replace(new RegExp(
+          `((?:^|[.!?]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?(?:${id}(?: (?:verification|baseline verification))?|(?:this|the) (?:(?:legacy|baseline|unchanged-code) )?(?:(?:regression|characterization) )?(?:suite|requirement|verification)) (?:is|was|has been) )["“'‘](${status})["”'’]`, 'gim'), '$1$2'))
+          .split(/\n|[.!?]\s+/).filter(line => !conditionalOwner(line) && !approvalPending(line) && !/^\s*(?:assuming|provided)\b/i.test(line)).join('\n');
+        const inactive = (value: string) => {
+          const body = assessment(value).replace(/\b(?:this|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement');
+          return withdrawn(body, id) || new RegExp(`\\b(?:this|the) (?:suite|requirement) (?:is|was|has been) ${status}\\b`, 'i').test(body);
+        };
+        const cancelled = new RegExp(`\\b${id}(?: (?:verification|baseline verification))? (?:is|was|has been) ${status}\\b`, 'i');
+        const statusRow = new RegExp(`^\\s*\\|\\s*${id}\\s*\\|\\s*["“'‘]?${status}["”'’]?\\s*\\|`, 'im');
+        const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${id}\\b`, 'im');
+        if (inactive(body) || inactive(task) || current.some(s => {
+          const value = assessment(s.body.join('\n'));
+          return statusRow.test(s.body.join('\n')) || cancelled.test(value) || changedFirst.test(value) ||
+            new RegExp(`\\b(?:the|this) legacy (?:regression|characterization) (?:suite|tests?|requirement) (?:is|was|has been) ${status}\\b`, 'i').test(value);
+        })) continue;
+        return true;
+      }
+    }
+  }
+
+  // A directory-owned characterization task can name changed worktree steps
+  // in its baseline check, with the baseline's own lane merging first.
+  for (const section of current.filter(s => /^Tests(?: \([^\n)]+\))?$/.test(s.title))) {
+    const body = unquoted(section.body.join(' ')).replace(/\s+/g, ' ').trim();
+    const rule = /^CRITICAL regression suite \(mandatory, IRON RULE\)\. legacyAuthFlow\(\) is existing behavior being rewritten and the original plan had no regression coverage\. Before any rewrite, write a characterization suite that pins current behavior: [^.!?]{1,300}\. The suite runs against both the legacy path and the new flow \(via the flag\) for the whole rollout window\./.exec(body);
+    if (!rule || suiteWithdrawn || !snapshotSource.includes(rule[0]) || withdrawn(body) ||
+        /\b(?:if|unless|maybe|might|could|optional|hypothetical|unproven)\b/i.test(rule[0])) continue;
+    for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = tasks.body.join('\n').trim(), blocks = taskBody.split(/\n(?=-\s)/), prefix = blocks[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(prefix) || extractionSourceOwner(prefix) ||
+          approvalPending(prefix) || /\b(?:if|unless|assuming|provided|optional|hypothetical|unproven)\b/i.test(unquoted(prefix)))) continue;
+      const ids = blocks.map(block => /^- (?:\[[ xX]\] )?(T[1-9]\d*)\b/.exec(block)?.[1]).filter(Boolean);
+      if (ids.length !== new Set(ids).size) continue;
+      for (const task of blocks) {
+        const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] ([A-Za-z][\w/-]*) [—–-] Write the CRITICAL characterization suite for legacyAuthFlow\(\) before any rewrite; run it against legacy and new flow[\t ]*(?:\n|$)/.exec(task);
+        const files = [...task.matchAll(/^\s+- Files: ([^\n]+)$/gm)];
+        const verifies = [...task.matchAll(/^\s+- Verify: suite green on legacy path before (S[1-9]\d*)\/(S[1-9]\d*) land; green on both paths after[\t ]*$/gm)];
+        const verify = verifies[0], preceding = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        if (!match || files.length !== 1 || files[0]![1] !== `${match[2]}/, router flag stub` || verifies.length !== 1 ||
+            (task.match(/^\s+- Verify:/gm)?.length ?? 0) !== 1 || !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+            extractionSourceOwner(preceding) || conditionalOwner(preceding) || approvalPending(preceding) ||
+            extractionSourceOwner(task.slice(0, verify!.index)) || conditionalOwner(task.slice(0, verify!.index)) || approvalPending(task.slice(0, verify!.index)) ||
+            /(?:^|\n)\s*(?:assuming|provided)\b/i.test(unquoted(task.slice(0, verify!.index)))) continue;
+        for (const strategy of current.filter(s => s.title === 'Worktree parallelization strategy')) {
+          const schedule = unquoted(strategy.body.join('\n'));
+          const steps = [...schedule.matchAll(/^\| (S[1-9]\d*)\b/gm)].map(row => row[1]);
+          if (steps.length !== new Set(steps).size) continue;
+          const baseline = /^\| (S[1-9]\d*) Regression suite for legacyAuthFlow\(\) \| ([A-Za-z][\w/-]*) \| [—–-] \|$/m.exec(schedule);
+          const lanes = baseline ? [...schedule.matchAll(new RegExp(`^\\s*Lane ([A-Z]): ${baseline[1]} \\(independent\\)$`, 'gm'))] : [];
+          const lane = lanes.length === 1 ? lanes[0] : undefined;
+          const order = lane && new RegExp(`^Execution order: launch [A-Z](?:, [A-Z])+ in parallel worktrees\\. Merge ${lane[1]} first \\(it is\\s+pure tests and gates the rewrite\\)\\.`, 'm').exec(schedule);
+          if (!baseline || baseline[2] !== match[2] || !lane || !order || verify![1] === verify![2] ||
+              !new RegExp(`^\\| ${verify![1]} AuthBroker \\+ SessionMint \\| [^|]+ \\| [^|]+ \\|$`, 'm').test(schedule) ||
+              !new RegExp(`^\\| ${verify![2]} Flattened dispatcher \\+ flag router \\+ fallback \\| [^|]+ \\| [^|]+ \\|$`, 'm').test(schedule) ||
+              extractionSourceOwner(schedule.slice(0, order.index)) || conditionalOwner(schedule.slice(0, order.index)) || approvalPending(schedule.slice(0, order.index)) ||
+              !snapshotSource.includes(order[0].replace(/\s+/g, ' '))) continue;
+          const id = `(?:${match[1]}|${baseline[1]})`, status = '(?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer current|not required|no longer required)';
+          const assessment = (value: string) => unquoted(value.replace(new RegExp(
+            `((?:^|[.!?]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?(?:${id}(?: (?:verification|baseline verification))?|(?:this|the) (?:(?:legacy|baseline|unchanged-code) )?(?:(?:regression|characterization) )?(?:suite|requirement|verification)) (?:is|was|has been) )["“'‘](${status})["”'’]`, 'gim'), '$1$2'))
+            .replace(/(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’/g, '')
+            .split(/\n|[.!?]\s+/).filter(line => !conditionalOwner(line) && !approvalPending(line) && !/^\s*(?:assuming|provided)\b/i.test(line)).join('\n');
+          const inactive = (value: string) => {
+            const text = assessment(value).replace(/\b(?:this|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement');
+            return withdrawn(text, id) || new RegExp(`\\b(?:this|the) (?:suite|requirement) (?:is|was|has been) ${status}\\b`, 'i').test(text);
+          };
+          const cancelled = new RegExp(`\\b${id}(?: (?:verification|baseline verification))? (?:is|was|has been) ${status}\\b`, 'i');
+          const statusRow = new RegExp(`^\\s*\\|\\s*${id}\\s*\\|\\s*["“'‘]?${status}["”'’]?\\s*\\|`, 'im');
+          const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${id}\\b`, 'im');
+          if (inactive(body) || inactive(task) || current.some(s => {
+            const value = assessment(s.body.join('\n'));
+            return statusRow.test(s.body.join('\n')) || cancelled.test(value) || changedFirst.test(value) ||
+              new RegExp(`\\b(?:the|this) (?:legacy (?:regression|characterization) (?:suite|tests?|requirement)|(?:baseline|unchanged-code) verification) (?:is|was|has been) ${status}\\b`, 'i').test(value);
+          })) continue;
+          return true;
+        }
       }
     }
   }

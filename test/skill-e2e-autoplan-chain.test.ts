@@ -166,6 +166,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               commandStartedAt, transcriptStatus: transcript.status, publicTools,
             }, seenArtifactPermissions) ?? publishedAutoplanArtifactPermissionInput(visible, {
               cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,
+              ownedNativePlansRoot: session.hermeticConfigDir ? path.join(session.hermeticConfigDir, 'plans') : undefined,
               transcriptStatus: transcript.status, publicTools, pending: pendingArtifact, viewportCapturedAt,
             }, seenArtifactPermissions) ?? pendingAutoplanArtifactPermissionInput(visible, {
               cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,

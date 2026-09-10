@@ -10,6 +10,8 @@ interface ArtifactPermissionContext {
   cwd: string;
   /** Set only by the launcher that created HOME/.gstack, never from ambient env. */
   ownedStateRoot?: string;
+  /** Optional native plans root supplied by the same isolated launcher. */
+  ownedNativePlansRoot?: string;
   commandStartedAt: number;
   now?: number;
   transcriptStatus: string;
@@ -213,6 +215,50 @@ export function autoplanArtifactPermissionInput(
 export const autoplanArtifactMenuKey = (viewport: string) =>
   `menu:${createHash('sha256').update(viewport.replace(/\r\n?/g, '\n')).digest('hex')}`;
 
+/** Queued native-plan edits remain unstarted; this never grants their input. */
+function ownedQueuedNativePlan(file: unknown, root: string | undefined, pendingTime: number): file is string {
+  if (!root || typeof file !== 'string' || !path.isAbsolute(root) || path.resolve(root) !== root ||
+      !path.isAbsolute(file) || path.resolve(file) !== file || path.dirname(file) !== root ||
+      !/^[a-z][a-z0-9-]*\.md$/.test(path.basename(file))) return false;
+  try {
+    return fs.lstatSync(root).isDirectory() && fs.lstatSync(file).isFile() &&
+      fs.realpathSync(file) === path.join(fs.realpathSync(root), path.basename(file)) && fs.statSync(file).size <= MAX_BYTES &&
+      Math.floor(fs.statSync(file).mtimeMs) <= pendingTime;
+  } catch { return false; }
+}
+
+/** Bind completed snapshot output and queued native-plan redraw labels before
+ * the full current panel. Arbitrary prose, examples and competing panels stay. */
+function queuedPlanViewport(viewport: string, queuedPlans: number, current: NativePublicToolEvent,
+  events: NativePublicToolEvent[]): string {
+  if (!queuedPlans) return viewport;
+  const lines = viewport.replace(/\r\n?/g, '\n').split('\n');
+  const title = lines.findIndex(line => /^[●⏺] Update\(/.test(line));
+  if (title < 0 || lines.filter(line => /^[●⏺] Update\(/.test(line)).length !== 1) return viewport;
+  const panel = lines.findIndex((line, i) => i > title && /^[─╌]{8,}$/.test(line));
+  const redraws = lines.slice(title + 1, panel).filter(line => line.trim());
+  if (panel < 0 || redraws.length !== queuedPlans || redraws.some(line => !/^[●⏺] Updated plan$/.test(line))) return viewport;
+  const prefix = lines.slice(0, title);
+  while (prefix.at(-1)?.trim() === '') prefix.pop();
+  if (prefix.some(line => line.trim())) {
+    const prior = events.slice(0, events.indexOf(current));
+    const result = prior.filter(event => event.kind === 'result').at(-1);
+    const use = result && prior.find(event => event.kind === 'use' && event.toolUseId === result.toolUseId);
+    const command = /^ {8}"([^"\n]+)…\)$/.exec(prefix[0] ?? '');
+    const outputEnd = prefix.length - 2;
+    if (!command || !use || use.name !== 'Bash' || use.messageId !== current.messageId ||
+        use.requestId !== current.requestId || typeof use.input?.command !== 'string' ||
+        !use.input.command.includes(command[1]!) || result?.isError !== false || typeof result.content !== 'string' ||
+        !/^ {2}⎿[ \u00a0]+\{$/.test(prefix[1] ?? '') ||
+        !/^ {5}… \+[1-9]\d* lines \(ctrl\+o to expand\)$/.test(prefix[outputEnd] ?? '') ||
+        !/^ {2}⎿[ \u00a0]+Allowed by auto mode classifier$/.test(prefix.at(-1) ?? '') || outputEnd < 3) return viewport;
+    const displayed = ['{', ...prefix.slice(2, outputEnd).map(line => /^ {5}( {2}\S.*)$/.exec(line)?.[1])];
+    if (displayed.some(line => line === undefined) ||
+        result.content.split('\n').slice(0, displayed.length).join('\n') !== displayed.join('\n')) return viewport;
+  }
+  return [lines[title], '', ...lines.slice(panel)].join('\n');
+}
+
 /** Metadata-only fallback. Added rows are display evidence, never request content. */
 export function pendingAutoplanArtifactPermissionInput(viewport: string,
   context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact; viewportCapturedAt: number },
@@ -327,18 +373,29 @@ export function publishedAutoplanArtifactPermissionInput(viewport: string,
       typeof input.new_string!=='string' || input.new_string===input.old_string ||
       (input.replace_all!==undefined&&input.replace_all!==false)) return null;
   const queued=new Set<string>();
+  let queuedPlans = 0;
   for (const mutation of [...uses.values()].filter(e=>e.name==='Edit'||e.name==='Write')) {
     const result=results.get(mutation.toolUseId);
-    if (Date.parse(mutation.timestamp)>pendingTime || (result&&Date.parse(result.timestamp)>pendingTime)) return null;
+    if (result && (Date.parse(mutation.timestamp)>pendingTime || Date.parse(result.timestamp)>pendingTime)) return null;
     if (mutation.toolUseId===p.toolUseId || result) continue;
     // Later publications are queued only when this exact batch owns them and
     // the recorder has not started them. They never supply current authority.
-    if (mutation.name!=='Edit' || mutation.input?.file_path!==p.file ||
+    const nativePlan = mutation.input?.file_path !== p.file &&
+      ownedQueuedNativePlan(mutation.input?.file_path, context.ownedNativePlansRoot, pendingTime);
+    if (mutation.name!=='Edit' || (mutation.input?.file_path!==p.file && !nativePlan) ||
         typeof mutation.input.old_string!=='string' || !mutation.input.old_string ||
         typeof mutation.input.new_string!=='string' || mutation.input.old_string===mutation.input.new_string ||
         (mutation.input.replace_all!==undefined && mutation.input.replace_all!==false) ||
         mutation.messageId!==current.messageId || mutation.requestId!==current.requestId ||
+        Date.parse(mutation.timestamp)>context.viewportCapturedAt ||
         events.indexOf(mutation)<=events.indexOf(current) || p.hookSeenIds.includes(mutation.toolUseId)) return null;
+    if (nativePlan) {
+      if (![...uses.values()].some(previous => (previous.name === 'Write' || previous.name === 'Edit') &&
+          previous.input?.file_path === mutation.input!.file_path &&
+          results.get(previous.toolUseId)?.isError === false &&
+          Date.parse(results.get(previous.toolUseId)!.timestamp) <= pendingTime)) return null;
+      queuedPlans++;
+    }
     queued.add(mutation.toolUseId);
   }
   try {
@@ -347,7 +404,7 @@ export function publishedAutoplanArtifactPermissionInput(viewport: string,
     if (!actual || actual.beforeSHA256!==expected.beforeSHA256 || actual.requestSHA256!==expected.requestSHA256 ||
         JSON.stringify(actual.oldLineHashes)!==JSON.stringify(expected.oldLineHashes) ||
         JSON.stringify(actual.newLineHashes)!==JSON.stringify(expected.newLineHashes)) return null;
-    return autoplanArtifactPermissionInput(viewport,{...context,
+    return autoplanArtifactPermissionInput(queuedPlanViewport(viewport,queuedPlans,current,events),{...context,
       publicTools:events.filter(e=>!queued.has(e.toolUseId))},seen);
   } catch { return null; }
 }

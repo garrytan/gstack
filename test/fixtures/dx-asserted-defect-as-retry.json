@@ -1,0 +1,476 @@
+{
+  "provenance": {
+    "sourceHead": "f26d569e0345cb1131d9ca52d4a43965085c3468",
+    "sourceObservationSha256": "34f0a963e8e5460dea8b2b486155b8bf425582cdad8b0af585e7d4999bf0622b",
+    "publicNativeProofSha256": "a25fa50747cd85aba50fe41be5853d8173701904e948f89070037f5a8bb78972",
+    "historicalOutcome": "plan_ready; missing-quickstart, reversed-arguments and opaque-auth-error seed predicates failed",
+    "paidOutcomesReclassified": false,
+    "scope": "Exact completed retry native questions, options, answers and acknowledgment times. Original failed first and retry outcomes remain unchanged."
+  },
+  "calls": [
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01CbE1po7xEgX3iU2xdNXbDT",
+      "questions": [
+        {
+          "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-ig4gtr on main, starting /plan-devex-review of PLAN.md (EvalKit SDK beta polish).\nELI10: gstack skills work best when the project's CLAUDE.md tells Claude which skill to reach for (bugs → /investigate, ship → /ship, and so on). This is a one-time setup prompt from the skill preamble, unrelated to the review itself. Note: we are in plan mode, so if you pick A the CLAUDE.md edit and commit happen after the review finishes and plan mode exits, not now.\nStakes if we pick wrong: Low. Without routing rules you invoke skills by name manually; with them, Claude auto-routes. Either is reversible with one config command.\nRecommendation: A because auto-routing removes a step every time you ask for a review, fix, or ship.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add routing rules to CLAUDE.md (recommended)\n  ✅ Future requests like \"review this\" or \"ship it\" route to the right gstack skill automatically\n  ✅ One short section appended to CLAUDE.md, committed as its own chore commit\n  ❌ Cannot be applied during plan mode; it lands after this review completes, and this repo is a review fixture so the benefit here is small\nB) No thanks, I'll invoke skills manually\n  ✅ Keeps the fixture CLAUDE.md untouched, no extra commit in this repo\n  ✅ Recorded once so this prompt never appears again for this project\n  ❌ You type /skill-name yourself every time instead of Claude routing for you\nNet: convenience later versus keeping a fixture repo clean.",
+          "header": "Setup",
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "Append the gstack routing section to CLAUDE.md and commit it once plan mode exits."
+            },
+            {
+              "label": "No thanks, manual",
+              "description": "Set routing_declined so this prompt never fires again for this project."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-ig4gtr on main, starting /plan-devex-review of PLAN.md (EvalKit SDK beta polish).\nELI10: gstack skills work best when the project's CLAUDE.md tells Claude which skill to reach for (bugs → /investigate, ship → /ship, and so on). This is a one-time setup prompt from the skill preamble, unrelated to the review itself. Note: we are in plan mode, so if you pick A the CLAUDE.md edit and commit happen after the review finishes and plan mode exits, not now.\nStakes if we pick wrong: Low. Without routing rules you invoke skills by name manually; with them, Claude auto-routes. Either is reversible with one config command.\nRecommendation: A because auto-routing removes a step every time you ask for a review, fix, or ship.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add routing rules to CLAUDE.md (recommended)\n  ✅ Future requests like \"review this\" or \"ship it\" route to the right gstack skill automatically\n  ✅ One short section appended to CLAUDE.md, committed as its own chore commit\n  ❌ Cannot be applied during plan mode; it lands after this review completes, and this repo is a review fixture so the benefit here is small\nB) No thanks, I'll invoke skills manually\n  ✅ Keeps the fixture CLAUDE.md untouched, no extra commit in this repo\n  ✅ Recorded once so this prompt never appears again for this project\n  ❌ You type /skill-name yourself every time instead of Claude routing for you\nNet: convenience later versus keeping a fixture repo clean.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:13:14.530Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_018RBgqQLz5ttK7QwHaGASMG",
+      "questions": [
+        {
+          "question": "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit SDK beta plan.\nELI10: gstack saves small lessons per project (command quirks, pitfalls). It can also look at lessons saved from your other repos on this machine to spot patterns that apply here. Nothing leaves your machine either way. This is a one-time preference; the review continues right after.\nStakes if we pick wrong: Low and reversible. Too broad means a lesson from an unrelated client codebase might get suggested here. Too narrow means a useful pattern from another repo stays hidden.\nRecommendation: A because this looks like a single-owner machine and cross-project lessons compound fastest for solo developers.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  ✅ Pitfalls found in one repo surface automatically when the same tool or pattern appears here\n  ✅ Stays local; one config flag you can flip back at any time\n  ❌ If you work across separate client codebases, a lesson from one could bleed into another's review\nB) Keep learnings project-scoped only\n  ✅ Strict isolation between codebases, no cross-contamination of context\n  ✅ Still records and reuses lessons within this project\n  ❌ A pattern already learned elsewhere has to be rediscovered here from scratch\nNet: faster compounding versus strict per-project isolation.",
+          "header": "Learnings",
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "Set cross_project_learnings true; searches stay local to this machine."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Set cross_project_learnings false; only this repo's learnings are used."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit SDK beta plan.\nELI10: gstack saves small lessons per project (command quirks, pitfalls). It can also look at lessons saved from your other repos on this machine to spot patterns that apply here. Nothing leaves your machine either way. This is a one-time preference; the review continues right after.\nStakes if we pick wrong: Low and reversible. Too broad means a lesson from an unrelated client codebase might get suggested here. Too narrow means a useful pattern from another repo stays hidden.\nRecommendation: A because this looks like a single-owner machine and cross-project lessons compound fastest for solo developers.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  ✅ Pitfalls found in one repo surface automatically when the same tool or pattern appears here\n  ✅ Stays local; one config flag you can flip back at any time\n  ❌ If you work across separate client codebases, a lesson from one could bleed into another's review\nB) Keep learnings project-scoped only\n  ✅ Strict isolation between codebases, no cross-contamination of context\n  ✅ Still records and reuses lessons within this project\n  ❌ A pattern already learned elsewhere has to be rediscovered here from scratch\nNet: faster compounding versus strict per-project isolation.": "Enable cross-project (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:13:32.616Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01XNQJDT5JwbCJokeE7VRasH",
+      "questions": [
+        {
+          "question": "D3 — Does this match what your ML engineer experiences today?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: Before scoring anything I walk the real getting-started path as your developer, using only README.md and the documented contracts. If this walk is wrong, every later recommendation is aimed at the wrong pain. Here is the walk, first person:\n\n\"I'm an ML engineer. I need to score our model's answers before we wire evals into CI. I open the EvalKit README. The first paragraph describes who I am and a 'review posture'; I skip it. Under Getting started I run `python -m pip install evalkit==2.0.0b1`. Twenty seconds, fine. Next line: `python examples/first_eval.py`. I run it: `can't open file 'examples/first_eval.py': No such file or directory`. I look in site-packages. No examples folder. I re-read and spot `python -m evalkit.demo`, run that instead. It prints 'Verifying the sample-project binding with EvalKit CI; inspect https://ci.evalkit.example/checks/...; normally completes within 300s.' Then 'Waiting for CI check: 30s elapsed of 300s.' CI? I have no key, no project, I'm scoring three bundled samples through a mock transport. Five minutes later: example 1: score=0.80, example 2: score=1.00, overall: score=0.90. Six minutes gone; the peer SDK I tried last week took two. Now I try my own data. I create a key, export EVALKIT_API_KEY, and mistype it. `AuthError: request failed`. Is the service down? Is my key wrong? I can't tell.\"\n\nStakes if we pick wrong: If this walk is off, I fix the wrong friction and the beta ships with the real blockers intact.\nRecommendation: A because every step above is taken verbatim from README.md, docs/package-contents.txt, docs/current-contracts.md, and docs/api.md.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Accurate, proceed with this understanding (recommended)\n  ✅ Every step traces to a documented contract, so the friction points that follow are evidence-based\n  ✅ Lets the review move straight to the five concrete repairs the plan asked for\n  ❌ If an undocumented behavior softens any step, the review over-weights it\nB) Some of this is wrong, let me correct it\n  ✅ Corrections get folded into the narrative before any scoring happens\n  ✅ Cheap to do now; expensive to discover after the plan is written\n  ❌ Adds a round trip before the friction-point decisions start\nC) Way off, the actual experience is different\n  ✅ Stops a misaimed review before it produces misaimed fixes\n  ✅ You describe the real path and I re-trace from your description\n  ❌ Discards the documented-contract trace, so I need the real contracts in your reply\nNet: confirm the trace now so the fixes that follow hit real pain, not assumed pain.",
+          "header": "Empathy",
+          "options": [
+            {
+              "label": "Accurate, proceed (recommended)",
+              "description": "The trace matches the documented contracts; use it as the baseline."
+            },
+            {
+              "label": "Partly wrong, correct it",
+              "description": "Tell me which steps differ and I fold the corrections in."
+            },
+            {
+              "label": "Way off",
+              "description": "Describe the actual experience and I re-trace from that."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Does this match what your ML engineer experiences today?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: Before scoring anything I walk the real getting-started path as your developer, using only README.md and the documented contracts. If this walk is wrong, every later recommendation is aimed at the wrong pain. Here is the walk, first person:\n\n\"I'm an ML engineer. I need to score our model's answers before we wire evals into CI. I open the EvalKit README. The first paragraph describes who I am and a 'review posture'; I skip it. Under Getting started I run `python -m pip install evalkit==2.0.0b1`. Twenty seconds, fine. Next line: `python examples/first_eval.py`. I run it: `can't open file 'examples/first_eval.py': No such file or directory`. I look in site-packages. No examples folder. I re-read and spot `python -m evalkit.demo`, run that instead. It prints 'Verifying the sample-project binding with EvalKit CI; inspect https://ci.evalkit.example/checks/...; normally completes within 300s.' Then 'Waiting for CI check: 30s elapsed of 300s.' CI? I have no key, no project, I'm scoring three bundled samples through a mock transport. Five minutes later: example 1: score=0.80, example 2: score=1.00, overall: score=0.90. Six minutes gone; the peer SDK I tried last week took two. Now I try my own data. I create a key, export EVALKIT_API_KEY, and mistype it. `AuthError: request failed`. Is the service down? Is my key wrong? I can't tell.\"\n\nStakes if we pick wrong: If this walk is off, I fix the wrong friction and the beta ships with the real blockers intact.\nRecommendation: A because every step above is taken verbatim from README.md, docs/package-contents.txt, docs/current-contracts.md, and docs/api.md.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Accurate, proceed with this understanding (recommended)\n  ✅ Every step traces to a documented contract, so the friction points that follow are evidence-based\n  ✅ Lets the review move straight to the five concrete repairs the plan asked for\n  ❌ If an undocumented behavior softens any step, the review over-weights it\nB) Some of this is wrong, let me correct it\n  ✅ Corrections get folded into the narrative before any scoring happens\n  ✅ Cheap to do now; expensive to discover after the plan is written\n  ❌ Adds a round trip before the friction-point decisions start\nC) Way off, the actual experience is different\n  ✅ Stops a misaimed review before it produces misaimed fixes\n  ✅ You describe the real path and I re-trace from your description\n  ❌ Discards the documented-contract trace, so I need the real contracts in your reply\nNet: confirm the trace now so the fixes that follow hit real pain, not assumed pain.": "Accurate, proceed (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:14:28.433Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_013S28Bj1dxh5fVrdaKBBC95",
+      "questions": [
+        {
+          "question": "D4 — Journey stage INSTALL / HELLO WORLD: the quickstart's first command points at a file that does not ship.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: README.md line 11 tells the developer to run `python examples/first_eval.py` right after pip install. docs/package-contents.txt says that file is absent from both the published wheel and the release examples archive. So the very first command in the quickstart fails with 'No such file or directory'. The working demo, `python -m evalkit.demo`, is mentioned three lines later but is not the command the developer is told to run first. Your ML engineer hits this at about minute 1, before seeing any value.\nStakes if we pick wrong: A dead first command is the strongest 'this tool is unmaintained' signal a beta can send. It violates 'zero friction at T0' and 'show code in context' (the example the docs promise does not exist).\nRecommendation: A because the demo already works and should be the one golden path; the example file still has a job as the first live run with a key.\nCompleteness: A=10/10, B=7/10, C=6/10, D=1/10\nPros / cons:\nA) Make `python -m evalkit.demo` the quickstart's first command AND ship examples/first_eval.py in the examples archive as the documented first live evaluation (recommended) (human: ~2h / CC: ~10 min)\n  ✅ One golden path: install, demo, then key, then first_eval.py with real data, each step producing visible output\n  ✅ Closes the package-inventory gap so every file the docs name actually exists where the docs say\n  ❌ Requires writing and testing first_eval.py against the live transport before the beta tags\nB) Repoint the quickstart to `python -m evalkit.demo` and delete the examples/first_eval.py reference (human: ~15 min / CC: ~2 min)\n  ✅ Zero broken commands in the README with a one-line edit\n  ✅ No new artifact to build or test before release\n  ❌ Developer is left with no worked example of a live evaluation with their own data; they write it from the API reference\nC) Ship examples/first_eval.py in the package and archive, keep the quickstart order as-is (human: ~2h / CC: ~10 min)\n  ✅ The documented command works as written\n  ✅ Example file becomes a real, copy-paste artifact\n  ❌ Two competing first commands (first_eval.py and evalkit.demo) is the 'choose your own adventure' anti-pattern; and a file run from a package path is awkward after pip install\nD) Acceptable friction, skip\n  ✅ No release work\n  ✅ Developers who read the whole README find the demo anyway\n  ❌ The first thing the beta asks the developer to run fails; that is the minute-1 abandon point\nNet: one working golden path and a real live example, versus a quick edit that leaves the live-run example missing.",
+          "header": "Hello World",
+          "options": [
+            {
+              "label": "A) Demo first + ship example (recommended)",
+              "description": "Quickstart runs python -m evalkit.demo first; examples/first_eval.py ships as the first live run."
+            },
+            {
+              "label": "B) Repoint to demo only",
+              "description": "Fix the README command; drop the examples file reference."
+            },
+            {
+              "label": "C) Ship the example, keep order",
+              "description": "Add examples/first_eval.py to package and archive; quickstart unchanged."
+            },
+            {
+              "label": "D) Skip",
+              "description": "Leave the quickstart as-is."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Journey stage INSTALL / HELLO WORLD: the quickstart's first command points at a file that does not ship.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: README.md line 11 tells the developer to run `python examples/first_eval.py` right after pip install. docs/package-contents.txt says that file is absent from both the published wheel and the release examples archive. So the very first command in the quickstart fails with 'No such file or directory'. The working demo, `python -m evalkit.demo`, is mentioned three lines later but is not the command the developer is told to run first. Your ML engineer hits this at about minute 1, before seeing any value.\nStakes if we pick wrong: A dead first command is the strongest 'this tool is unmaintained' signal a beta can send. It violates 'zero friction at T0' and 'show code in context' (the example the docs promise does not exist).\nRecommendation: A because the demo already works and should be the one golden path; the example file still has a job as the first live run with a key.\nCompleteness: A=10/10, B=7/10, C=6/10, D=1/10\nPros / cons:\nA) Make `python -m evalkit.demo` the quickstart's first command AND ship examples/first_eval.py in the examples archive as the documented first live evaluation (recommended) (human: ~2h / CC: ~10 min)\n  ✅ One golden path: install, demo, then key, then first_eval.py with real data, each step producing visible output\n  ✅ Closes the package-inventory gap so every file the docs name actually exists where the docs say\n  ❌ Requires writing and testing first_eval.py against the live transport before the beta tags\nB) Repoint the quickstart to `python -m evalkit.demo` and delete the examples/first_eval.py reference (human: ~15 min / CC: ~2 min)\n  ✅ Zero broken commands in the README with a one-line edit\n  ✅ No new artifact to build or test before release\n  ❌ Developer is left with no worked example of a live evaluation with their own data; they write it from the API reference\nC) Ship examples/first_eval.py in the package and archive, keep the quickstart order as-is (human: ~2h / CC: ~10 min)\n  ✅ The documented command works as written\n  ✅ Example file becomes a real, copy-paste artifact\n  ❌ Two competing first commands (first_eval.py and evalkit.demo) is the 'choose your own adventure' anti-pattern; and a file run from a package path is awkward after pip install\nD) Acceptable friction, skip\n  ✅ No release work\n  ✅ Developers who read the whole README find the demo anyway\n  ❌ The first thing the beta asks the developer to run fails; that is the minute-1 abandon point\nNet: one working golden path and a real live example, versus a quick edit that leaves the live-run example missing.": "A) Demo first + ship example (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:15:00.631Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01WHk4S8opK1mfQjfAjMfAJm",
+      "questions": [
+        {
+          "question": "D5 — Journey stage HELLO WORLD: the keyless demo blocks on a 5-minute remote CI check, which alone exceeds the settled 2-minute target.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/current-contracts.md says every first local evaluation, including `python -m evalkit.demo`, must wait for a successful remote CI check that normally takes 300 seconds, with no skip and no offline path. The demo scores bundled JSON through a mock transport; the CI check verifies a sample-project binding the developer never chose. docs/benchmarks.md measured EvalKit at 6 minutes, 5 of them this wait, against peers at 2 to 4 minutes and an agreed target under 2 minutes. If CI is degraded the demo fails outright with EVALKIT_CI_TIMEOUT, and the developer has no way to see any score. The progress lines and check URL are good, but they make the wait legible rather than short.\nStakes if we pick wrong: The under-2-minute target is arithmetically unreachable while the gate stays on the demo path. Your ML engineer waits five minutes to score three canned samples, or hits a CI outage and sees nothing. This is the single largest 'zero friction at T0' violation in the plan.\nRecommendation: A because the demo path has nothing to verify remotely, and the first live run should return its result while the binding check reports alongside, not in front of it.\nCompleteness: A=10/10, B=7/10, C=5/10, D=1/10\nPros / cons:\nA) Remove the CI check from the demo/mock-transport path; on the first live evaluation run the binding check non-blocking (result returns immediately, check status prints when it completes, failure surfaces as a warning with the check URL) (recommended) (human: ~3 days / CC: ~45 min)\n  ✅ Demo TTHW drops from ~6 min to under 1 min; the settled Champion target becomes reachable\n  ✅ Keeps the binding verification and its good messaging for live runs, without ever putting it in front of a result\n  ❌ Changes a documented contract; the first live result can land before the binding is confirmed, so the warning path must be unmissable\nB) Exempt only the demo/mock-transport path; keep the blocking 5-minute check on the first live evaluation (human: ~1 day / CC: ~15 min)\n  ✅ Smallest change that makes the demo fast and keyless in fact, not just in name\n  ✅ Live-run contract stays exactly as documented today\n  ❌ First live run with real data still waits up to 5 min, so the measured 'first real evaluation result' stays near 6 min\nC) Keep the gate by default; add an explicit escape hatch (`EVALKIT_SKIP_CI_CHECK=1` env var and `python -m evalkit.demo --offline`) (human: ~1 day / CC: ~15 min)\n  ✅ Power users and CI runners can bypass the wait when they know what they are doing\n  ✅ No change to the default documented behavior\n  ❌ Default TTHW stays at 6 min; a flag the developer must discover is not a fix for a first-run wait (violates 'decide for me')\nD) Keep the mandatory check as documented\n  ✅ No runtime change before beta\n  ✅ Progress lines and timeout messaging already make the wait understandable\n  ❌ Under-2-minute target cannot be met; a CI outage means the keyless demo cannot produce any score\nNet: remove the wait from the paths that do not need it and make the remaining check informative rather than blocking, versus preserving a contract that guarantees the benchmark is missed.",
+          "header": "CI gate",
+          "options": [
+            {
+              "label": "A) No gate on demo; non-blocking on live (recommended)",
+              "description": "Demo returns immediately; first live run returns result while the binding check reports alongside."
+            },
+            {
+              "label": "B) Exempt demo only",
+              "description": "Demo skips the check; first live evaluation still blocks up to 5 min."
+            },
+            {
+              "label": "C) Keep gate, add skip flag",
+              "description": "Default unchanged; add env var and --offline escape hatch."
+            },
+            {
+              "label": "D) Keep as documented",
+              "description": "Retain the mandatory blocking check on all first runs."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Journey stage HELLO WORLD: the keyless demo blocks on a 5-minute remote CI check, which alone exceeds the settled 2-minute target.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/current-contracts.md says every first local evaluation, including `python -m evalkit.demo`, must wait for a successful remote CI check that normally takes 300 seconds, with no skip and no offline path. The demo scores bundled JSON through a mock transport; the CI check verifies a sample-project binding the developer never chose. docs/benchmarks.md measured EvalKit at 6 minutes, 5 of them this wait, against peers at 2 to 4 minutes and an agreed target under 2 minutes. If CI is degraded the demo fails outright with EVALKIT_CI_TIMEOUT, and the developer has no way to see any score. The progress lines and check URL are good, but they make the wait legible rather than short.\nStakes if we pick wrong: The under-2-minute target is arithmetically unreachable while the gate stays on the demo path. Your ML engineer waits five minutes to score three canned samples, or hits a CI outage and sees nothing. This is the single largest 'zero friction at T0' violation in the plan.\nRecommendation: A because the demo path has nothing to verify remotely, and the first live run should return its result while the binding check reports alongside, not in front of it.\nCompleteness: A=10/10, B=7/10, C=5/10, D=1/10\nPros / cons:\nA) Remove the CI check from the demo/mock-transport path; on the first live evaluation run the binding check non-blocking (result returns immediately, check status prints when it completes, failure surfaces as a warning with the check URL) (recommended) (human: ~3 days / CC: ~45 min)\n  ✅ Demo TTHW drops from ~6 min to under 1 min; the settled Champion target becomes reachable\n  ✅ Keeps the binding verification and its good messaging for live runs, without ever putting it in front of a result\n  ❌ Changes a documented contract; the first live result can land before the binding is confirmed, so the warning path must be unmissable\nB) Exempt only the demo/mock-transport path; keep the blocking 5-minute check on the first live evaluation (human: ~1 day / CC: ~15 min)\n  ✅ Smallest change that makes the demo fast and keyless in fact, not just in name\n  ✅ Live-run contract stays exactly as documented today\n  ❌ First live run with real data still waits up to 5 min, so the measured 'first real evaluation result' stays near 6 min\nC) Keep the gate by default; add an explicit escape hatch (`EVALKIT_SKIP_CI_CHECK=1` env var and `python -m evalkit.demo --offline`) (human: ~1 day / CC: ~15 min)\n  ✅ Power users and CI runners can bypass the wait when they know what they are doing\n  ✅ No change to the default documented behavior\n  ❌ Default TTHW stays at 6 min; a flag the developer must discover is not a fix for a first-run wait (violates 'decide for me')\nD) Keep the mandatory check as documented\n  ✅ No runtime change before beta\n  ✅ Progress lines and timeout messaging already make the wait understandable\n  ❌ Under-2-minute target cannot be met; a CI outage means the keyless demo cannot produce any score\nNet: remove the wait from the paths that do not need it and make the remaining check informative rather than blocking, versus preserving a contract that guarantees the benchmark is missed.": "A) No gate on demo; non-blocking on live (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:15:34.831Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_0192184CCwGGfQWFKERXwCDH",
+      "questions": [
+        {
+          "question": "D6 — Journey stage REAL USAGE: `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)` take the same two concepts in opposite positional order.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/api.md says both evaluation functions accept positional arguments for the same two things, but in reversed order, and calls this intentional. Neither requires keywords. Your ML engineer learns `run_eval(dataset, evaluator)` from the demo, then writes `run_batch(dataset, evaluator)` for their real job by pattern-matching, and passes the evaluator where the dataset goes. Depending on the types involved this is either a confusing TypeError deep in the call, or a silent wrong result. The API fails the 'use it correctly after seeing one example' test.\nStakes if we pick wrong: This is a beta; the positional order becomes a contract the moment it ships. Fixing it later is the v1-to-v2 breaking-change problem all over again. It violates 'pit of success' and the Usable characteristic (consistency).\nRecommendation: A because 2.0 is already the breaking release, and a swap detector turns the one remaining footgun into a helpful message instead of a wrong answer.\nCompleteness: A=10/10, B=7/10, C=4/10, D=1/10\nPros / cons:\nA) Align both to `(dataset, evaluator)`, accept keywords, and in `run_batch` detect a swapped call by argument type and raise `EVALKIT_ARGS_SWAPPED` with the corrected call in the message (recommended) (human: ~1 day / CC: ~20 min)\n  ✅ One order to remember across the whole surface; the demo example teaches the real API\n  ✅ Anyone carrying the old `run_batch` order gets told exactly what to type, not a TypeError from inside the library\n  ❌ Adds a small type-inspection branch that must be tested against both argument types and custom evaluator subclasses\nB) Align both to `(dataset, evaluator)` and document the `run_batch` change in the 2.0 changelog with no runtime detection (human: ~2h / CC: ~5 min)\n  ✅ Consistent API with minimal code change\n  ✅ 2.0 is a major version, so a documented positional change is legitimate\n  ❌ A 1.x caller's swapped `run_batch` fails with whatever error the wrong types produce, with no pointer to the fix\nC) Keep both orders; add a bold note in docs/api.md and the docstrings (human: ~30 min / CC: ~3 min)\n  ✅ No runtime or signature change before beta\n  ✅ Docstring warning shows up in editor hover\n  ❌ Developers copy the pattern from one call to the other without reading the note; the footgun ships as a permanent contract\nD) Keep as documented, skip\n  ✅ Zero work\n  ✅ Existing 1.x `run_batch` callers keep their exact order\n  ❌ Locks an inconsistent public surface into the 2.x line\nNet: consistent order plus a helpful swap error now, versus documenting around an inconsistency the beta would freeze.",
+          "header": "Signatures",
+          "options": [
+            {
+              "label": "A) Align + swap detector (recommended)",
+              "description": "Both take (dataset, evaluator); run_batch raises EVALKIT_ARGS_SWAPPED with the corrected call."
+            },
+            {
+              "label": "B) Align, changelog only",
+              "description": "Both take (dataset, evaluator); no runtime detection."
+            },
+            {
+              "label": "C) Keep orders, document",
+              "description": "Add a warning to docs/api.md and docstrings."
+            },
+            {
+              "label": "D) Skip",
+              "description": "Ship the reversed positional order as documented."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Journey stage REAL USAGE: `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)` take the same two concepts in opposite positional order.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/api.md says both evaluation functions accept positional arguments for the same two things, but in reversed order, and calls this intentional. Neither requires keywords. Your ML engineer learns `run_eval(dataset, evaluator)` from the demo, then writes `run_batch(dataset, evaluator)` for their real job by pattern-matching, and passes the evaluator where the dataset goes. Depending on the types involved this is either a confusing TypeError deep in the call, or a silent wrong result. The API fails the 'use it correctly after seeing one example' test.\nStakes if we pick wrong: This is a beta; the positional order becomes a contract the moment it ships. Fixing it later is the v1-to-v2 breaking-change problem all over again. It violates 'pit of success' and the Usable characteristic (consistency).\nRecommendation: A because 2.0 is already the breaking release, and a swap detector turns the one remaining footgun into a helpful message instead of a wrong answer.\nCompleteness: A=10/10, B=7/10, C=4/10, D=1/10\nPros / cons:\nA) Align both to `(dataset, evaluator)`, accept keywords, and in `run_batch` detect a swapped call by argument type and raise `EVALKIT_ARGS_SWAPPED` with the corrected call in the message (recommended) (human: ~1 day / CC: ~20 min)\n  ✅ One order to remember across the whole surface; the demo example teaches the real API\n  ✅ Anyone carrying the old `run_batch` order gets told exactly what to type, not a TypeError from inside the library\n  ❌ Adds a small type-inspection branch that must be tested against both argument types and custom evaluator subclasses\nB) Align both to `(dataset, evaluator)` and document the `run_batch` change in the 2.0 changelog with no runtime detection (human: ~2h / CC: ~5 min)\n  ✅ Consistent API with minimal code change\n  ✅ 2.0 is a major version, so a documented positional change is legitimate\n  ❌ A 1.x caller's swapped `run_batch` fails with whatever error the wrong types produce, with no pointer to the fix\nC) Keep both orders; add a bold note in docs/api.md and the docstrings (human: ~30 min / CC: ~3 min)\n  ✅ No runtime or signature change before beta\n  ✅ Docstring warning shows up in editor hover\n  ❌ Developers copy the pattern from one call to the other without reading the note; the footgun ships as a permanent contract\nD) Keep as documented, skip\n  ✅ Zero work\n  ✅ Existing 1.x `run_batch` callers keep their exact order\n  ❌ Locks an inconsistent public surface into the 2.x line\nNet: consistent order plus a helpful swap error now, versus documenting around an inconsistency the beta would freeze.": "A) Align + swap detector (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:16:03.003Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01UmtXf9KxaaYLR51odEMjqK",
+      "questions": [
+        {
+          "question": "D7 — Journey stage DEBUG: an invalid API key raises `AuthError(\"request failed\")` with no code, no cause, and no fix.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/api.md says a bad key produces exactly `AuthError(\"request failed\")`. docs/current-contracts.md says every other error in the SDK already names the cause, the argument or file involved, and an actionable fix. Auth is the one exception, and it is the first error your ML engineer is likely to hit: they just copied a key once from the console, exported it, and typed it wrong or exported it in a different shell. 'request failed' does not tell them whether the key is wrong, expired, revoked, scoped to another project, or whether the service is down. They leave the terminal to go check the console and the status page.\nStakes if we pick wrong: This is the moment the developer moves from the free demo to a live run with their own data. An opaque failure here reads as 'the service is flaky', not 'I mistyped'. It violates 'fight uncertainty' (problem + cause + fix) and is the only error in the SDK below the bar the rest already meets.\nRecommendation: A because the rest of the SDK's errors already follow this formula; auth should match it, and the console URL already exists in the README.\nCompleteness: A=10/10, B=7/10, C=1/10\nPros / cons:\nA) Raise `AuthError` with code `EVALKIT_AUTH_INVALID_KEY`, a message stating the key from `EVALKIT_API_KEY` was rejected (redacted to prefix + last 4), the likely causes (typo, revoked, wrong project), the fix (create or rotate at https://console.evalkit.example/settings/api-keys and re-export), and a docs link; distinguish a missing key (`EVALKIT_AUTH_MISSING_KEY`) from a rejected one (recommended) (human: ~1 day / CC: ~15 min)\n  ✅ Developer fixes the key without leaving the terminal; matches the problem + cause + fix formula every other SDK error already uses\n  ✅ Separate missing-vs-rejected codes remove the most common false alarm (forgot to export in this shell)\n  ❌ Needs the server to return a distinguishable auth status so the client can tell rejected from unreachable; verify that before promising the message\nB) Improve the message text only: `AuthError(\"API key rejected. Check EVALKIT_API_KEY and create or rotate a key at <console URL>.\")` with no error code and no missing-vs-rejected split (human: ~1h / CC: ~5 min)\n  ✅ Immediately actionable with a one-string change\n  ✅ No new error classes or server dependency\n  ❌ No code to grep or link to, and 'forgot to export' still looks identical to 'key revoked'\nC) Keep `AuthError(\"request failed\")` as documented\n  ✅ No change before beta\n  ✅ Existing tests asserting the message keep passing\n  ❌ The first live-run failure your persona hits gives them nothing to act on\nNet: bring the one substandard error up to the SDK's own bar, versus shipping the beta with its most likely first failure unexplained.",
+          "header": "Auth error",
+          "options": [
+            {
+              "label": "A) Coded, causal, fix + link (recommended)",
+              "description": "EVALKIT_AUTH_INVALID_KEY / EVALKIT_AUTH_MISSING_KEY with cause, redacted key, console URL, docs link."
+            },
+            {
+              "label": "B) Better message only",
+              "description": "Actionable text, no code, no missing-vs-rejected split."
+            },
+            {
+              "label": "C) Keep as documented",
+              "description": "Ship AuthError(\"request failed\")."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Journey stage DEBUG: an invalid API key raises `AuthError(\"request failed\")` with no code, no cause, and no fix.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/api.md says a bad key produces exactly `AuthError(\"request failed\")`. docs/current-contracts.md says every other error in the SDK already names the cause, the argument or file involved, and an actionable fix. Auth is the one exception, and it is the first error your ML engineer is likely to hit: they just copied a key once from the console, exported it, and typed it wrong or exported it in a different shell. 'request failed' does not tell them whether the key is wrong, expired, revoked, scoped to another project, or whether the service is down. They leave the terminal to go check the console and the status page.\nStakes if we pick wrong: This is the moment the developer moves from the free demo to a live run with their own data. An opaque failure here reads as 'the service is flaky', not 'I mistyped'. It violates 'fight uncertainty' (problem + cause + fix) and is the only error in the SDK below the bar the rest already meets.\nRecommendation: A because the rest of the SDK's errors already follow this formula; auth should match it, and the console URL already exists in the README.\nCompleteness: A=10/10, B=7/10, C=1/10\nPros / cons:\nA) Raise `AuthError` with code `EVALKIT_AUTH_INVALID_KEY`, a message stating the key from `EVALKIT_API_KEY` was rejected (redacted to prefix + last 4), the likely causes (typo, revoked, wrong project), the fix (create or rotate at https://console.evalkit.example/settings/api-keys and re-export), and a docs link; distinguish a missing key (`EVALKIT_AUTH_MISSING_KEY`) from a rejected one (recommended) (human: ~1 day / CC: ~15 min)\n  ✅ Developer fixes the key without leaving the terminal; matches the problem + cause + fix formula every other SDK error already uses\n  ✅ Separate missing-vs-rejected codes remove the most common false alarm (forgot to export in this shell)\n  ❌ Needs the server to return a distinguishable auth status so the client can tell rejected from unreachable; verify that before promising the message\nB) Improve the message text only: `AuthError(\"API key rejected. Check EVALKIT_API_KEY and create or rotate a key at <console URL>.\")` with no error code and no missing-vs-rejected split (human: ~1h / CC: ~5 min)\n  ✅ Immediately actionable with a one-string change\n  ✅ No new error classes or server dependency\n  ❌ No code to grep or link to, and 'forgot to export' still looks identical to 'key revoked'\nC) Keep `AuthError(\"request failed\")` as documented\n  ✅ No change before beta\n  ✅ Existing tests asserting the message keep passing\n  ❌ The first live-run failure your persona hits gives them nothing to act on\nNet: bring the one substandard error up to the SDK's own bar, versus shipping the beta with its most likely first failure unexplained.": "A) Coded, causal, fix + link (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:16:31.185Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01SWnVeRYZ978kcGVuf1GcqR",
+      "questions": [
+        {
+          "question": "D8 — Journey stage UPGRADE: v2 removes `Client.evaluate()` immediately in favor of `Client.run()`, with no alias, warning, guide, or codemod.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/api.md says version 2 renames the client's main method and deletes the old name on the spot. A team on 1.x that bumps to 2.0.0b1 gets `AttributeError: 'Client' object has no attribute 'evaluate'` at the first call site, with nothing pointing at `run()`. The changelog is otherwise complete, so this is the one breaking change without a landing pad. Your ML engineer is exactly the person who wired 1.x into CI and will see this as a red pipeline, not a rename.\nStakes if we pick wrong: Upgrades should be boring. One unannounced removal teaches every 1.x user that minor-looking bumps break production, and they pin forever. This is the Credible characteristic and the 'upgrade fear' pattern directly.\nRecommendation: A because a one-release alias with a warning costs almost nothing and turns a red pipeline into a one-line diff the developer sees coming.\nCompleteness: A=10/10, B=7/10, C=5/10, D=1/10\nPros / cons:\nA) Keep `Client.evaluate()` as a thin alias for `run()` through the 2.x line, emit `DeprecationWarning: Client.evaluate() is deprecated, use Client.run(); removal in 3.0`, add a 'Migrating from 1.x' section to the changelog and docs, and ship a one-line codemod (`python -m evalkit.migrate --from 1`) that rewrites the call sites (recommended) (human: ~2 days / CC: ~30 min)\n  ✅ 1.x code keeps working on upgrade day; the warning names the exact replacement and the removal version\n  ✅ Codemod plus migration guide means the rename is a single command, not a grep-and-hope\n  ❌ Two public names for one method for the 2.x lifetime, and the codemod needs tests against real 1.x call patterns\nB) Alias + `DeprecationWarning` + migration guide, no codemod (human: ~half day / CC: ~10 min)\n  ✅ Nothing breaks on upgrade; developers get a clear pointer and a written guide\n  ✅ No migration tool to build or maintain\n  ❌ The rename is still manual across every call site; teams with many call sites defer the upgrade\nC) No alias; raise a targeted error instead of `AttributeError`: `Client.evaluate() was renamed to Client.run() in 2.0, see <migration URL>` (human: ~2h / CC: ~5 min)\n  ✅ Clean 2.0 surface with one method name\n  ✅ The failure at least tells the developer what happened and what to type\n  ❌ Still a hard break on upgrade day; CI goes red before anyone reads the message\nD) Remove immediately as documented\n  ✅ Simplest 2.0 codebase\n  ✅ Changelog already lists the change\n  ❌ Bare `AttributeError` in production with no pointer to the fix; teaches users to pin and never upgrade\nNet: a boring upgrade with alias, warning, guide, and codemod, versus a clean surface bought with a red pipeline for every 1.x user.",
+          "header": "Upgrade",
+          "options": [
+            {
+              "label": "A) Alias + warning + guide + codemod (recommended)",
+              "description": "evaluate() stays as deprecated alias through 2.x; migration guide; python -m evalkit.migrate."
+            },
+            {
+              "label": "B) Alias + warning + guide",
+              "description": "Same landing pad without the codemod."
+            },
+            {
+              "label": "C) Targeted rename error",
+              "description": "No alias; a clear error names run() and links the guide."
+            },
+            {
+              "label": "D) Remove as documented",
+              "description": "Ship the immediate removal."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Journey stage UPGRADE: v2 removes `Client.evaluate()` immediately in favor of `Client.run()`, with no alias, warning, guide, or codemod.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: docs/api.md says version 2 renames the client's main method and deletes the old name on the spot. A team on 1.x that bumps to 2.0.0b1 gets `AttributeError: 'Client' object has no attribute 'evaluate'` at the first call site, with nothing pointing at `run()`. The changelog is otherwise complete, so this is the one breaking change without a landing pad. Your ML engineer is exactly the person who wired 1.x into CI and will see this as a red pipeline, not a rename.\nStakes if we pick wrong: Upgrades should be boring. One unannounced removal teaches every 1.x user that minor-looking bumps break production, and they pin forever. This is the Credible characteristic and the 'upgrade fear' pattern directly.\nRecommendation: A because a one-release alias with a warning costs almost nothing and turns a red pipeline into a one-line diff the developer sees coming.\nCompleteness: A=10/10, B=7/10, C=5/10, D=1/10\nPros / cons:\nA) Keep `Client.evaluate()` as a thin alias for `run()` through the 2.x line, emit `DeprecationWarning: Client.evaluate() is deprecated, use Client.run(); removal in 3.0`, add a 'Migrating from 1.x' section to the changelog and docs, and ship a one-line codemod (`python -m evalkit.migrate --from 1`) that rewrites the call sites (recommended) (human: ~2 days / CC: ~30 min)\n  ✅ 1.x code keeps working on upgrade day; the warning names the exact replacement and the removal version\n  ✅ Codemod plus migration guide means the rename is a single command, not a grep-and-hope\n  ❌ Two public names for one method for the 2.x lifetime, and the codemod needs tests against real 1.x call patterns\nB) Alias + `DeprecationWarning` + migration guide, no codemod (human: ~half day / CC: ~10 min)\n  ✅ Nothing breaks on upgrade; developers get a clear pointer and a written guide\n  ✅ No migration tool to build or maintain\n  ❌ The rename is still manual across every call site; teams with many call sites defer the upgrade\nC) No alias; raise a targeted error instead of `AttributeError`: `Client.evaluate() was renamed to Client.run() in 2.0, see <migration URL>` (human: ~2h / CC: ~5 min)\n  ✅ Clean 2.0 surface with one method name\n  ✅ The failure at least tells the developer what happened and what to type\n  ❌ Still a hard break on upgrade day; CI goes red before anyone reads the message\nD) Remove immediately as documented\n  ✅ Simplest 2.0 codebase\n  ✅ Changelog already lists the change\n  ❌ Bare `AttributeError` in production with no pointer to the fix; teaches users to pin and never upgrade\nNet: a boring upgrade with alias, warning, guide, and codemod, versus a clean surface bought with a red pipeline for every 1.x user.": "A) Alias + warning + guide + codemod (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:16:57.330Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_015zCsLgV4jQUmM74dL6wbU3",
+      "questions": [
+        {
+          "question": "D9 — Journey stage DISCOVER: the README opens with internal planning language instead of what EvalKit does and how to run it.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: README.md ships inside the wheel (docs/package-contents.txt) and is the PyPI landing page. Its first paragraph currently tells the reader who 'the primary developer' is and that 'the agreed review posture is DX POLISH'. Lines 39-40 say the runtime 'is maintained separately from this release-planning repo'. That is text for the release team, not for an ML engineer deciding in 10 seconds whether to pip install. The install and demo commands, which are the actual hook, sit below it. This is minor next to D4 through D8, but DX POLISH means every touchpoint, and the README is the first one.\nStakes if we pick wrong: Low but real. A landing page that reads like an internal memo costs a few seconds of trust at the moment the developer is most likely to bounce. It touches 'zero friction at T0' and the Findable characteristic.\nRecommendation: A because the README is public surface area and the planning notes already have a home in PLAN.md and docs/.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) Rewrite the README opening: one sentence on what EvalKit does, then install, then `python -m evalkit.demo` with its expected output, all above the fold; move persona, review-posture, and 'maintained separately' text into PLAN.md or docs/ (recommended) (human: ~1h / CC: ~5 min)\n  ✅ A developer sees value prop, install, and a working command in the first screen, matching the settled demo vehicle\n  ✅ Internal planning context is preserved where the release team looks for it, not on PyPI\n  ❌ Touches README structure, so the D4 quickstart edit and this edit should land together to avoid two rewrites\nB) Delete only the review-posture and 'maintained separately' sentences; leave the rest of the intro as-is (human: ~10 min / CC: ~1 min)\n  ✅ Removes the two sentences most obviously not meant for developers\n  ✅ Minimal diff, no restructuring\n  ❌ Persona description still leads; install and demo command still sit below a paragraph of framing\nC) Acceptable friction, skip\n  ✅ No README change beyond D4\n  ✅ Developers who scroll find the commands\n  ❌ PyPI landing page keeps reading as an internal planning note\nNet: a landing page built around the demo command, versus leaving planning prose on the public front door.",
+          "header": "Discover",
+          "options": [
+            {
+              "label": "A) Rewrite opening around the demo (recommended)",
+              "description": "Value prop, install, demo command and output first; move planning text to PLAN.md/docs."
+            },
+            {
+              "label": "B) Trim two sentences",
+              "description": "Remove review-posture and maintained-separately lines only."
+            },
+            {
+              "label": "C) Skip",
+              "description": "Leave the README opening as-is."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 — Journey stage DISCOVER: the README opens with internal planning language instead of what EvalKit does and how to run it.\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: README.md ships inside the wheel (docs/package-contents.txt) and is the PyPI landing page. Its first paragraph currently tells the reader who 'the primary developer' is and that 'the agreed review posture is DX POLISH'. Lines 39-40 say the runtime 'is maintained separately from this release-planning repo'. That is text for the release team, not for an ML engineer deciding in 10 seconds whether to pip install. The install and demo commands, which are the actual hook, sit below it. This is minor next to D4 through D8, but DX POLISH means every touchpoint, and the README is the first one.\nStakes if we pick wrong: Low but real. A landing page that reads like an internal memo costs a few seconds of trust at the moment the developer is most likely to bounce. It touches 'zero friction at T0' and the Findable characteristic.\nRecommendation: A because the README is public surface area and the planning notes already have a home in PLAN.md and docs/.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) Rewrite the README opening: one sentence on what EvalKit does, then install, then `python -m evalkit.demo` with its expected output, all above the fold; move persona, review-posture, and 'maintained separately' text into PLAN.md or docs/ (recommended) (human: ~1h / CC: ~5 min)\n  ✅ A developer sees value prop, install, and a working command in the first screen, matching the settled demo vehicle\n  ✅ Internal planning context is preserved where the release team looks for it, not on PyPI\n  ❌ Touches README structure, so the D4 quickstart edit and this edit should land together to avoid two rewrites\nB) Delete only the review-posture and 'maintained separately' sentences; leave the rest of the intro as-is (human: ~10 min / CC: ~1 min)\n  ✅ Removes the two sentences most obviously not meant for developers\n  ✅ Minimal diff, no restructuring\n  ❌ Persona description still leads; install and demo command still sit below a paragraph of framing\nC) Acceptable friction, skip\n  ✅ No README change beyond D4\n  ✅ Developers who scroll find the commands\n  ❌ PyPI landing page keeps reading as an internal planning note\nNet: a landing page built around the demo command, versus leaving planning prose on the public front door.": "A) Rewrite opening around the demo (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:17:47.149Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01T9AueotiH5G3iNM8wNKBPz",
+      "questions": [
+        {
+          "question": "D10 — First-time developer roleplay: which confusion points should the plan address?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: I replayed the getting-started flow as your ML engineer with a clock running, using only what ships today. Each numbered line is a moment of confusion grounded in a specific file. D4 through D9 already decided fixes for most of them; this question confirms the set and catches the two not yet covered (#5 and #6).\n\nFIRST-TIME DEVELOPER REPORT\nPersona: ML engineer, Python daily, terminal-first\nAttempting: EvalKit 2.0.0b1 getting started\n\nT+0:00  Open README. Intro is about 'the primary developer' and a 'review posture'. Skim past. (#1, README.md:3-6, fixed by D9)\nT+0:20  pip install evalkit==2.0.0b1. Works.\nT+0:45  Run `python examples/first_eval.py`. 'No such file or directory'. Check site-packages, no examples/. (#2, README.md:11 vs docs/package-contents.txt, fixed by D4)\nT+1:30  Re-read, find `python -m evalkit.demo`. Run it. Output: 'Verifying the sample-project binding with EvalKit CI... normally completes within 300s.' Why is a keyless mock demo calling CI? (#3, docs/current-contracts.md:3-5, fixed by D5)\nT+2:00  'Waiting for CI check: 30s elapsed of 300s.' Already past the peer SDK's total time. Consider Ctrl-C. (#3)\nT+6:30  Three score lines print. Format is fine. No 'next step' hint after the output; I go back to the README to find out how to run my own data. (#5, README.md:31-36: demo output ends without pointing at the key step or first_eval.py; NOT yet covered)\nT+8:00  Create key in console, export EVALKIT_API_KEY, mistype it. `AuthError: request failed`. Check status page. (#4, docs/api.md:11-13, fixed by D7)\nT+9:00  Write run_batch(dataset, evaluator) by copying run_eval's shape. Wrong order. (#6, docs/api.md:3-9, fixed by D6)\nT+9:30  Also: the README says 'copy the value once', but nothing says which shell or how to persist it; I export in one terminal and run in another. (#7, README.md:25-29; partially covered by D7's EVALKIT_AUTH_MISSING_KEY message; a one-line note in the README would close it)\n\nStakes if we pick wrong: Skipping #5 leaves the demo as a dead end after its best moment; skipping #7 leaves the most common self-inflicted auth failure to the error message alone.\nRecommendation: A because #1-#4 and #6 are already decided and #5 and #7 are each a few lines of README or demo output.\nCompleteness: A=10/10, B=n/a (depends on picks), C=8/10, D=3/10\nPros / cons:\nA) All of them: also add a 'Next: get a key and run examples/first_eval.py' line to the demo output (#5) and a shell-persistence note next to the export instruction (#7) (recommended) (human: ~1h / CC: ~5 min)\n  ✅ The demo hands the developer directly to the live step instead of back to the README\n  ✅ Closes the 'exported in the wrong shell' trap before it becomes an auth error\n  ❌ Two more small edits to README and demo.py to coordinate with D4 and D9\nB) Let me pick which ones matter\n  ✅ You choose exactly which of #5 and #7 join the plan\n  ✅ Nothing lands you did not explicitly approve\n  ❌ One more round trip for two small items\nC) Only the ones already decided (#1-#4, #6); skip #5 and #7\n  ✅ No further edits beyond D4-D9\n  ✅ The big blockers are all covered\n  ❌ Demo output still ends without a next step; wrong-shell export still relies on the error message\nD) Unrealistic, our developers already know the flow\n  ✅ No extra work\n  ✅ Valid if the beta only goes to people who used 1.x\n  ❌ The internal study measured a real developer at 6 minutes on this exact path\nNet: close the two small gaps now while README and demo.py are already open, or leave them for the post-beta survey to find.",
+          "header": "Roleplay",
+          "options": [
+            {
+              "label": "A) All, incl. #5 and #7 (recommended)",
+              "description": "Add a next-step line to demo output and a shell-persistence note by the export instruction."
+            },
+            {
+              "label": "B) Let me pick",
+              "description": "You choose which of #5 and #7 to include."
+            },
+            {
+              "label": "C) Only the decided ones",
+              "description": "Skip #5 and #7."
+            },
+            {
+              "label": "D) Unrealistic",
+              "description": "Our developers already know this flow."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 — First-time developer roleplay: which confusion points should the plan address?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: I replayed the getting-started flow as your ML engineer with a clock running, using only what ships today. Each numbered line is a moment of confusion grounded in a specific file. D4 through D9 already decided fixes for most of them; this question confirms the set and catches the two not yet covered (#5 and #6).\n\nFIRST-TIME DEVELOPER REPORT\nPersona: ML engineer, Python daily, terminal-first\nAttempting: EvalKit 2.0.0b1 getting started\n\nT+0:00  Open README. Intro is about 'the primary developer' and a 'review posture'. Skim past. (#1, README.md:3-6, fixed by D9)\nT+0:20  pip install evalkit==2.0.0b1. Works.\nT+0:45  Run `python examples/first_eval.py`. 'No such file or directory'. Check site-packages, no examples/. (#2, README.md:11 vs docs/package-contents.txt, fixed by D4)\nT+1:30  Re-read, find `python -m evalkit.demo`. Run it. Output: 'Verifying the sample-project binding with EvalKit CI... normally completes within 300s.' Why is a keyless mock demo calling CI? (#3, docs/current-contracts.md:3-5, fixed by D5)\nT+2:00  'Waiting for CI check: 30s elapsed of 300s.' Already past the peer SDK's total time. Consider Ctrl-C. (#3)\nT+6:30  Three score lines print. Format is fine. No 'next step' hint after the output; I go back to the README to find out how to run my own data. (#5, README.md:31-36: demo output ends without pointing at the key step or first_eval.py; NOT yet covered)\nT+8:00  Create key in console, export EVALKIT_API_KEY, mistype it. `AuthError: request failed`. Check status page. (#4, docs/api.md:11-13, fixed by D7)\nT+9:00  Write run_batch(dataset, evaluator) by copying run_eval's shape. Wrong order. (#6, docs/api.md:3-9, fixed by D6)\nT+9:30  Also: the README says 'copy the value once', but nothing says which shell or how to persist it; I export in one terminal and run in another. (#7, README.md:25-29; partially covered by D7's EVALKIT_AUTH_MISSING_KEY message; a one-line note in the README would close it)\n\nStakes if we pick wrong: Skipping #5 leaves the demo as a dead end after its best moment; skipping #7 leaves the most common self-inflicted auth failure to the error message alone.\nRecommendation: A because #1-#4 and #6 are already decided and #5 and #7 are each a few lines of README or demo output.\nCompleteness: A=10/10, B=n/a (depends on picks), C=8/10, D=3/10\nPros / cons:\nA) All of them: also add a 'Next: get a key and run examples/first_eval.py' line to the demo output (#5) and a shell-persistence note next to the export instruction (#7) (recommended) (human: ~1h / CC: ~5 min)\n  ✅ The demo hands the developer directly to the live step instead of back to the README\n  ✅ Closes the 'exported in the wrong shell' trap before it becomes an auth error\n  ❌ Two more small edits to README and demo.py to coordinate with D4 and D9\nB) Let me pick which ones matter\n  ✅ You choose exactly which of #5 and #7 join the plan\n  ✅ Nothing lands you did not explicitly approve\n  ❌ One more round trip for two small items\nC) Only the ones already decided (#1-#4, #6); skip #5 and #7\n  ✅ No further edits beyond D4-D9\n  ✅ The big blockers are all covered\n  ❌ Demo output still ends without a next step; wrong-shell export still relies on the error message\nD) Unrealistic, our developers already know the flow\n  ✅ No extra work\n  ✅ Valid if the beta only goes to people who used 1.x\n  ❌ The internal study measured a real developer at 6 minutes on this exact path\nNet: close the two small gaps now while README and demo.py are already open, or leave them for the post-beta survey to find.": "A) All, incl. #5 and #7 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:18:24.904Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_01QbMbsr3Mhx1EuW7tFiDTUc",
+      "questions": [
+        {
+          "question": "D11 — Pass 3/6: D5 made the binding check non-blocking but left its lifecycle unspecified. What happens when it fails, when the process exits first, and on fresh CI runners?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: With D5, the first live evaluation returns its result right away while the sample-project binding check runs in the background. Three things are now undefined: (1) what the developer sees if that check later fails or times out; (2) what happens when a short script finishes before the check does, which is the normal case for a 5-second `first_eval.py`; (3) noninteractive CI mode, where every fresh runner counts as a 'first run', so the check fires on every pipeline. docs/current-contracts.md already has good text for the timeout (EVALKIT_CI_TIMEOUT, check URL, help link); the question is when and how often it appears, and whether anything is ever blocked again.\nStakes if we pick wrong: Too strict and the 5-minute wait sneaks back in through the CI door. Too loose and a real binding problem is printed once and never seen again. This is 'fight uncertainty' (developer must know whether it worked) balanced against 'zero friction'.\nRecommendation: B because a remembered warning keeps the problem visible on every later run without ever blocking a result, and it treats CI runners the same as laptops.\nCompleteness: A=7/10, B=10/10, C=5/10, D=6/10\nPros / cons:\nA) Advisory, fire-and-forget: print the warning if the check fails while the process is alive; if the process exits first, print one line with the check URL and exit normally; nothing is remembered (human: ~1 day / CC: ~15 min)\n  ✅ Simplest possible semantics; never blocks, never re-nags\n  ✅ Identical behavior on laptops and CI runners\n  ❌ A failed binding is easy to miss: one line in a long log, and the next run says nothing\nB) Advisory and sticky: same as A, plus the SDK records a failed or unfinished check locally (config dir, or env var in CI) and each later live run prints one warning line with the check URL until a check passes; never blocks (recommended) (human: ~2 days / CC: ~25 min)\n  ✅ The developer cannot lose track of a real binding problem, and still never waits for a result\n  ✅ On CI, the warning shows up in every pipeline log until fixed, which is exactly where the team looks\n  ❌ Needs a small local state file and its own tests (stale state, concurrent runs, read-only filesystems)\nC) Gate the second run: after a failed check, later live runs raise EVALKIT_CI_FAILED until it passes (human: ~1 day / CC: ~15 min)\n  ✅ A broken binding cannot be ignored\n  ✅ Reuses the existing timeout message content as an error\n  ❌ Re-introduces a blocking gate one run later; a CI outage now breaks every developer's second run and every pipeline\nD) Wait at exit in noninteractive CI mode only: interactive runs behave as B, but in CI mode the process blocks at exit (bounded 300 s) so pipelines get a definitive pass/fail (human: ~2 days / CC: ~25 min)\n  ✅ Pipelines get a hard answer instead of a warning\n  ✅ Interactive TTHW unaffected\n  ❌ Every fresh CI runner is a first run, so every pipeline pays up to 5 minutes; that is the original problem moved to CI\nNet: keep the check visible until it passes without ever putting it in front of a result, versus either forgetting failures or letting the wait back in through CI.",
+          "header": "Check lifecycle",
+          "options": [
+            {
+              "label": "B) Advisory and sticky (recommended)",
+              "description": "Never blocks; failed/unfinished check is remembered and re-warned once per later live run until it passes."
+            },
+            {
+              "label": "A) Advisory, fire-and-forget",
+              "description": "Warn once if alive; print check URL at exit; nothing remembered."
+            },
+            {
+              "label": "C) Gate the second run",
+              "description": "Later live runs raise EVALKIT_CI_FAILED until the check passes."
+            },
+            {
+              "label": "D) Wait at exit in CI mode",
+              "description": "Interactive as B; noninteractive CI mode blocks at exit up to 300 s."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D11 — Pass 3/6: D5 made the binding check non-blocking but left its lifecycle unspecified. What happens when it fails, when the process exits first, and on fresh CI runners?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan.\nELI10: With D5, the first live evaluation returns its result right away while the sample-project binding check runs in the background. Three things are now undefined: (1) what the developer sees if that check later fails or times out; (2) what happens when a short script finishes before the check does, which is the normal case for a 5-second `first_eval.py`; (3) noninteractive CI mode, where every fresh runner counts as a 'first run', so the check fires on every pipeline. docs/current-contracts.md already has good text for the timeout (EVALKIT_CI_TIMEOUT, check URL, help link); the question is when and how often it appears, and whether anything is ever blocked again.\nStakes if we pick wrong: Too strict and the 5-minute wait sneaks back in through the CI door. Too loose and a real binding problem is printed once and never seen again. This is 'fight uncertainty' (developer must know whether it worked) balanced against 'zero friction'.\nRecommendation: B because a remembered warning keeps the problem visible on every later run without ever blocking a result, and it treats CI runners the same as laptops.\nCompleteness: A=7/10, B=10/10, C=5/10, D=6/10\nPros / cons:\nA) Advisory, fire-and-forget: print the warning if the check fails while the process is alive; if the process exits first, print one line with the check URL and exit normally; nothing is remembered (human: ~1 day / CC: ~15 min)\n  ✅ Simplest possible semantics; never blocks, never re-nags\n  ✅ Identical behavior on laptops and CI runners\n  ❌ A failed binding is easy to miss: one line in a long log, and the next run says nothing\nB) Advisory and sticky: same as A, plus the SDK records a failed or unfinished check locally (config dir, or env var in CI) and each later live run prints one warning line with the check URL until a check passes; never blocks (recommended) (human: ~2 days / CC: ~25 min)\n  ✅ The developer cannot lose track of a real binding problem, and still never waits for a result\n  ✅ On CI, the warning shows up in every pipeline log until fixed, which is exactly where the team looks\n  ❌ Needs a small local state file and its own tests (stale state, concurrent runs, read-only filesystems)\nC) Gate the second run: after a failed check, later live runs raise EVALKIT_CI_FAILED until it passes (human: ~1 day / CC: ~15 min)\n  ✅ A broken binding cannot be ignored\n  ✅ Reuses the existing timeout message content as an error\n  ❌ Re-introduces a blocking gate one run later; a CI outage now breaks every developer's second run and every pipeline\nD) Wait at exit in noninteractive CI mode only: interactive runs behave as B, but in CI mode the process blocks at exit (bounded 300 s) so pipelines get a definitive pass/fail (human: ~2 days / CC: ~25 min)\n  ✅ Pipelines get a hard answer instead of a warning\n  ✅ Interactive TTHW unaffected\n  ❌ Every fresh CI runner is a first run, so every pipeline pays up to 5 minutes; that is the original problem moved to CI\nNet: keep the check visible until it passes without ever putting it in front of a result, versus either forgetting failures or letting the wait back in through CI.": "B) Advisory and sticky (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:20:13.670Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_016HXc1Ct8mapiqhZ9T1REcj",
+      "questions": [
+        {
+          "question": "D12 — TODO candidate: publish a written deprecation policy alongside the 2.0 migration guide?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan; TODO pass after the 8 DX passes.\nELI10: D8 gives `Client.evaluate()` an alias with a warning that says 'removal in 3.0'. That implies a rule (deprecated names live for one major version) but nothing writes the rule down. A developer deciding whether to trust EvalKit in production wants to read the policy once, not infer it from one warning.\nWhat: a short 'Deprecation policy' section in the changelog and docs: semantic versioning, deprecated APIs kept with a DeprecationWarning for at least one major version, removals announced in the changelog one release ahead, codemod shipped for every rename.\nWhy: Pass 5 scored 9/10; the missing point is that upgrade safety is demonstrated but not promised.\nPros: turns one good migration into a credible pattern; cheap; removes a recurring question from support.\nCons: a policy is a commitment the team must keep for every future rename.\nContext: lives next to the 'Migrating from 1.x' section from D8; can reuse the D8 warning text as its example.\nDepends on: D8 landing.\nStakes if we pick wrong: Small. Without it, each future deprecation is judged case by case by users.\nRecommendation: A because it is a paragraph of docs that makes D8's behavior a promise.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Captured with context so it can be written when the migration guide is drafted\n  ✅ Does not add to the beta's critical path\n  ❌ Could slip past the beta if nobody picks it up\nB) Skip\n  ✅ No commitment made before the team agrees on a policy\n  ✅ D8's warning already communicates the removal version\n  ❌ Upgrade trust stays implicit\nC) Build it now (put it in this plan's implementation tasks) (human: ~1h / CC: ~5 min)\n  ✅ Ships with the 2.0 changelog in the same edit as the migration guide\n  ✅ One less loose end after beta\n  ❌ Small scope addition to a POLISH-mode plan\nNet: write down the promise D8 already makes, now or later, or leave it implicit.",
+          "header": "TODO",
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Capture as a follow-up with context."
+            },
+            {
+              "label": "B) Skip",
+              "description": "Do not track it."
+            },
+            {
+              "label": "C) Build it now",
+              "description": "Add as a P2 task in this plan alongside the D8 migration guide."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D12 — TODO candidate: publish a written deprecation policy alongside the 2.0 migration guide?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan; TODO pass after the 8 DX passes.\nELI10: D8 gives `Client.evaluate()` an alias with a warning that says 'removal in 3.0'. That implies a rule (deprecated names live for one major version) but nothing writes the rule down. A developer deciding whether to trust EvalKit in production wants to read the policy once, not infer it from one warning.\nWhat: a short 'Deprecation policy' section in the changelog and docs: semantic versioning, deprecated APIs kept with a DeprecationWarning for at least one major version, removals announced in the changelog one release ahead, codemod shipped for every rename.\nWhy: Pass 5 scored 9/10; the missing point is that upgrade safety is demonstrated but not promised.\nPros: turns one good migration into a credible pattern; cheap; removes a recurring question from support.\nCons: a policy is a commitment the team must keep for every future rename.\nContext: lives next to the 'Migrating from 1.x' section from D8; can reuse the D8 warning text as its example.\nDepends on: D8 landing.\nStakes if we pick wrong: Small. Without it, each future deprecation is judged case by case by users.\nRecommendation: A because it is a paragraph of docs that makes D8's behavior a promise.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Captured with context so it can be written when the migration guide is drafted\n  ✅ Does not add to the beta's critical path\n  ❌ Could slip past the beta if nobody picks it up\nB) Skip\n  ✅ No commitment made before the team agrees on a policy\n  ✅ D8's warning already communicates the removal version\n  ❌ Upgrade trust stays implicit\nC) Build it now (put it in this plan's implementation tasks) (human: ~1h / CC: ~5 min)\n  ✅ Ships with the 2.0 changelog in the same edit as the migration guide\n  ✅ One less loose end after beta\n  ❌ Small scope addition to a POLISH-mode plan\nNet: write down the promise D8 already makes, now or later, or leave it implicit.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:20:47.421Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_019XuebXaZYasJRDAqypAnqa",
+      "questions": [
+        {
+          "question": "D13 — TODO candidate: instrument the demo-to-first-live-run step so the drop-off between them is measurable?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan; TODO pass after the 8 DX passes.\nELI10: docs/benchmarks.md says timing instrumentation already measures from install to first real evaluation result. After D4 and D10 the flow has two distinct successes: the keyless demo, then the keyed `first_eval.py`. Today's instrumentation cannot tell whether developers who finish the demo go on to create a key. That gap between the two is exactly where a 'free demo, then account' funnel loses people.\nWhat: emit two opt-in telemetry events, `demo_completed` and `first_live_eval_completed`, with the elapsed time between them, using the existing opt-in telemetry channel.\nWhy: Pass 8 scored 8/10; the missing points are journey analytics between the two milestones.\nPros: shows whether the key step is the new bottleneck once the CI wait is gone; gives the post-beta survey a number to correlate with.\nCons: telemetry is opt-in, so coverage will be partial; two more events to document in the privacy notes.\nContext: existing timing instrumentation and post-beta survey continue unchanged (docs/benchmarks.md:9-10); this adds two events to the same pipe.\nDepends on: D4 (first_eval.py exists) and D10 (demo prints the next step).\nStakes if we pick wrong: Small. Without it, the next benchmark run says '1.5 minutes' but cannot say how many people got to the second half.\nRecommendation: A because the target is under 2 minutes to a real result and this is how you learn if the key step now owns the remaining time.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Captured with the exact events and the reason, ready for whoever owns telemetry\n  ✅ Keeps the beta plan focused on the contract repairs\n  ❌ First beta cohort's demo-to-key conversion goes unmeasured\nB) Skip\n  ✅ No telemetry surface change before beta\n  ✅ The post-beta survey can ask the question qualitatively\n  ❌ Survey answers are self-reported and lag by weeks\nC) Build it now (add as a P3 task in this plan) (human: ~half day / CC: ~10 min)\n  ✅ The beta cohort is the best time to measure a brand-new funnel\n  ✅ Two events on an existing opt-in pipe is a small change\n  ❌ Adds a telemetry task to a POLISH-mode release plan\nNet: measure the new second half of onboarding, now or later, or rely on the survey.",
+          "header": "TODO",
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Capture as a follow-up with the two event names."
+            },
+            {
+              "label": "B) Skip",
+              "description": "Do not track it."
+            },
+            {
+              "label": "C) Build it now",
+              "description": "Add as a P3 task in this plan."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D13 — TODO candidate: instrument the demo-to-first-live-run step so the drop-off between them is measurable?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan; TODO pass after the 8 DX passes.\nELI10: docs/benchmarks.md says timing instrumentation already measures from install to first real evaluation result. After D4 and D10 the flow has two distinct successes: the keyless demo, then the keyed `first_eval.py`. Today's instrumentation cannot tell whether developers who finish the demo go on to create a key. That gap between the two is exactly where a 'free demo, then account' funnel loses people.\nWhat: emit two opt-in telemetry events, `demo_completed` and `first_live_eval_completed`, with the elapsed time between them, using the existing opt-in telemetry channel.\nWhy: Pass 8 scored 8/10; the missing points are journey analytics between the two milestones.\nPros: shows whether the key step is the new bottleneck once the CI wait is gone; gives the post-beta survey a number to correlate with.\nCons: telemetry is opt-in, so coverage will be partial; two more events to document in the privacy notes.\nContext: existing timing instrumentation and post-beta survey continue unchanged (docs/benchmarks.md:9-10); this adds two events to the same pipe.\nDepends on: D4 (first_eval.py exists) and D10 (demo prints the next step).\nStakes if we pick wrong: Small. Without it, the next benchmark run says '1.5 minutes' but cannot say how many people got to the second half.\nRecommendation: A because the target is under 2 minutes to a real result and this is how you learn if the key step now owns the remaining time.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Captured with the exact events and the reason, ready for whoever owns telemetry\n  ✅ Keeps the beta plan focused on the contract repairs\n  ❌ First beta cohort's demo-to-key conversion goes unmeasured\nB) Skip\n  ✅ No telemetry surface change before beta\n  ✅ The post-beta survey can ask the question qualitatively\n  ❌ Survey answers are self-reported and lag by weeks\nC) Build it now (add as a P3 task in this plan) (human: ~half day / CC: ~10 min)\n  ✅ The beta cohort is the best time to measure a brand-new funnel\n  ✅ Two events on an existing opt-in pipe is a small change\n  ❌ Adds a telemetry task to a POLISH-mode release plan\nNet: measure the new second half of onboarding, now or later, or rely on the survey.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:21:08.069Z"
+    },
+    {
+      "sessionId": "df61df94-90b4-4edc-8a4d-4a354b9d774e",
+      "toolUseId": "toolu_011ovc1ZRdT3t3d9zfED2oaF",
+      "questions": [
+        {
+          "question": "D14 — TODO candidate: audit every SDK error for a stable error code and a docs link, matching the new auth and swapped-args errors?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan; TODO pass after the 8 DX passes.\nELI10: docs/current-contracts.md says all non-auth errors already state the cause, the argument or file, and a fix. It does not say they carry a stable code (like EVALKIT_CI_TIMEOUT does) or a link to a docs page. After D6 and D7 there will be three errors with codes and links and an unknown number without. A developer who greps logs for EVALKIT_ codes, or clicks the link in one error and finds none in the next, notices the inconsistency.\nWhat: audit the error classes in evalkit/client.py, give each a stable `code` attribute and `doc_url`, and add one docs page listing every code with its cause and fix (the Rust error-index pattern).\nWhy: Pass 3 scored 9/10 after D7; the last point is uniformity across the whole surface, which cannot be verified from the planning repo alone.\nPros: every error becomes searchable and linkable; support and CI log triage get a shared vocabulary.\nCons: touches every error site; the docs page must be kept in sync with new codes.\nContext: the runtime lives in a separate repo (README.md:39-40), so the audit needs that checkout. D6 and D7 set the pattern to follow.\nDepends on: D6, D7 landing first so the pattern exists.\nStakes if we pick wrong: Small. Errors already say what went wrong; this adds consistency and findability.\nRecommendation: A because it is real DX debt that this repo cannot verify or fix, so it belongs in TODOS.md with the runtime repo named.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Recorded with the pattern to follow and the repo it lives in\n  ✅ Does not block the beta on an audit of code this plan cannot see\n  ❌ Codes stay inconsistent across errors for the beta period\nB) Skip\n  ✅ Errors already meet the cause-plus-fix bar per the contracts doc\n  ✅ No cross-repo work implied by this plan\n  ❌ The new coded errors make the uncoded ones look like the odd ones out\nC) Build it now (add as a P3 task in this plan) (human: ~2 days / CC: ~30 min)\n  ✅ Beta ships with one consistent error contract\n  ✅ Docs error index becomes a support asset from day one\n  ❌ Requires the runtime repo and widens a POLISH-mode plan\nNet: track the uniformity work where it can actually be done, or leave the three new errors as the only coded ones.",
+          "header": "TODO",
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Capture as a follow-up naming the runtime repo and the D6/D7 pattern."
+            },
+            {
+              "label": "B) Skip",
+              "description": "Do not track it."
+            },
+            {
+              "label": "C) Build it now",
+              "description": "Add as a P3 task in this plan."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D14 — TODO candidate: audit every SDK error for a stable error code and a docs link, matching the new auth and swapped-args errors?\nProject/branch/task: gstack-plan-count-ig4gtr on main, /plan-devex-review of the EvalKit 2.0.0b1 beta plan; TODO pass after the 8 DX passes.\nELI10: docs/current-contracts.md says all non-auth errors already state the cause, the argument or file, and a fix. It does not say they carry a stable code (like EVALKIT_CI_TIMEOUT does) or a link to a docs page. After D6 and D7 there will be three errors with codes and links and an unknown number without. A developer who greps logs for EVALKIT_ codes, or clicks the link in one error and finds none in the next, notices the inconsistency.\nWhat: audit the error classes in evalkit/client.py, give each a stable `code` attribute and `doc_url`, and add one docs page listing every code with its cause and fix (the Rust error-index pattern).\nWhy: Pass 3 scored 9/10 after D7; the last point is uniformity across the whole surface, which cannot be verified from the planning repo alone.\nPros: every error becomes searchable and linkable; support and CI log triage get a shared vocabulary.\nCons: touches every error site; the docs page must be kept in sync with new codes.\nContext: the runtime lives in a separate repo (README.md:39-40), so the audit needs that checkout. D6 and D7 set the pattern to follow.\nDepends on: D6, D7 landing first so the pattern exists.\nStakes if we pick wrong: Small. Errors already say what went wrong; this adds consistency and findability.\nRecommendation: A because it is real DX debt that this repo cannot verify or fix, so it belongs in TODOS.md with the runtime repo named.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Recorded with the pattern to follow and the repo it lives in\n  ✅ Does not block the beta on an audit of code this plan cannot see\n  ❌ Codes stay inconsistent across errors for the beta period\nB) Skip\n  ✅ Errors already meet the cause-plus-fix bar per the contracts doc\n  ✅ No cross-repo work implied by this plan\n  ❌ The new coded errors make the uncoded ones look like the odd ones out\nC) Build it now (add as a P3 task in this plan) (human: ~2 days / CC: ~30 min)\n  ✅ Beta ships with one consistent error contract\n  ✅ Docs error index becomes a support asset from day one\n  ❌ Requires the runtime repo and widens a POLISH-mode plan\nNet: track the uniformity work where it can actually be done, or leave the three new errors as the only coded ones.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:21:30.769Z"
+    }
+  ]
+}

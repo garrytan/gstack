@@ -1,0 +1,42 @@
+{
+  "provenance": {
+    "run": "ship-source-as-delta-paid-20260910-v1",
+    "attempt": "retry",
+    "outcome": "no_review_questions",
+    "retrospectivePass": false,
+    "publicSource": "completed native AskUserQuestion with exact acknowledgment",
+    "sourceProof": ".context/source-as-eng-retry-terminal-public-native-v1/proof.json"
+  },
+  "call": {
+    "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+    "toolUseId": "toolu_014xtoxbQBBjjSJV7QxaiS1N",
+    "questions": [
+      {
+        "question": "D2 \u2014 Who is allowed to write to the auth cache?\nProject/branch/task: main \u2014 Multi-tenant Auth Refactor, AuthBroker and SessionMint both mutating one backing cache (PLAN.md:10, 19-20).\nELI10: Two services write to the same cache and nothing orders their writes. If one service removes a revoked token while the other is mid-way through storing that same token, the store lands last and the revoked token comes back to life. Users would see a logged-out or revoked session keep working.\nStakes if we pick wrong: A revoked or suspended tenant's tokens stay valid until natural expiry, silently, with no log line to find it.\nRecommendation: 2A because one writer plus a version check makes the race structurally impossible instead of merely unlikely; explicit over clever.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\nPros / cons:\n2A) Single writer + versioned writes: only SessionMint writes; AuthBroker reads and calls the adapter's existing invalidation hooks; every write carries the policy version read at validation start and the adapter rejects writes whose version is stale (human: ~1.5 days / CC: ~25 min) (recommended)\n  \u2705 Revocation racing a mint can never resurrect a token; the stale write is rejected and logged\n  \u2705 Ownership is obvious from the code: one class writes, one class reads, testable with a fake adapter\n  \u274c Needs a compare-and-set or version-tag on the adapter write path, a small adapter change\n2B) Single writer only: SessionMint writes, AuthBroker reads and invalidates, no version check (human: ~1 day / CC: ~15 min)\n  \u2705 Removes the two-writer coupling with no adapter change at all\n  \u2705 Simpler to explain and diagram than a version scheme\n  \u274c Invalidate-then-write-back is still possible inside a single mint that started before the revocation\n2C) Keep both writers, document the race as accepted (human: ~0 / CC: ~0)\n  \u2705 Zero implementation cost right now\n  \u2705 Matches the plan as written\n  \u274c Ships a known fail-open path in auth; the first incident is a security incident\nNet: You are trading a small adapter change for a guarantee that revocation always wins the race.",
+        "header": "Cache writes",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "2A Single writer + version (recommended)",
+            "description": "SessionMint writes with policy-version tag; adapter rejects stale writes; AuthBroker reads/invalidates."
+          },
+          {
+            "label": "2B Single writer only",
+            "description": "SessionMint writes, AuthBroker reads and invalidates. No version check."
+          },
+          {
+            "label": "2C Accept the race",
+            "description": "Keep both writers as planned and document the known race."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Who is allowed to write to the auth cache?\nProject/branch/task: main \u2014 Multi-tenant Auth Refactor, AuthBroker and SessionMint both mutating one backing cache (PLAN.md:10, 19-20).\nELI10: Two services write to the same cache and nothing orders their writes. If one service removes a revoked token while the other is mid-way through storing that same token, the store lands last and the revoked token comes back to life. Users would see a logged-out or revoked session keep working.\nStakes if we pick wrong: A revoked or suspended tenant's tokens stay valid until natural expiry, silently, with no log line to find it.\nRecommendation: 2A because one writer plus a version check makes the race structurally impossible instead of merely unlikely; explicit over clever.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\nPros / cons:\n2A) Single writer + versioned writes: only SessionMint writes; AuthBroker reads and calls the adapter's existing invalidation hooks; every write carries the policy version read at validation start and the adapter rejects writes whose version is stale (human: ~1.5 days / CC: ~25 min) (recommended)\n  \u2705 Revocation racing a mint can never resurrect a token; the stale write is rejected and logged\n  \u2705 Ownership is obvious from the code: one class writes, one class reads, testable with a fake adapter\n  \u274c Needs a compare-and-set or version-tag on the adapter write path, a small adapter change\n2B) Single writer only: SessionMint writes, AuthBroker reads and invalidates, no version check (human: ~1 day / CC: ~15 min)\n  \u2705 Removes the two-writer coupling with no adapter change at all\n  \u2705 Simpler to explain and diagram than a version scheme\n  \u274c Invalidate-then-write-back is still possible inside a single mint that started before the revocation\n2C) Keep both writers, document the race as accepted (human: ~0 / CC: ~0)\n  \u2705 Zero implementation cost right now\n  \u2705 Matches the plan as written\n  \u274c Ships a known fail-open path in auth; the first incident is a security incident\nNet: You are trading a small adapter change for a guarantee that revocation always wins the race.": "2A Single writer + version (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T18:25:21.601Z"
+  }
+}
