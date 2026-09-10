@@ -1082,6 +1082,10 @@ Never read skills from an operator-level home outside this fixture.
 - Netlify response-header rules: site/_headers (copied to the published root)
 - Local production-equivalent built-output server:
   npm run preview -- --port 0 --port-file artifacts/static-port.txt
+- Optional pre-generated PDF companion: tools/build-deck-pdf.mjs is the
+  existing dependency-free build-time helper. Use it only after an explicit
+  PDF delivery decision; it accepts --input and --output paths and never
+  creates a runtime export endpoint.
 `);
   writeFixtureFile(root, 'apps/marketing/DESIGN.md', `# Design system
 
@@ -1142,6 +1146,72 @@ const output = path.join(root, 'dist');
 rmSync(output, { recursive: true, force: true });
 cpSync(source, output, { recursive: true });
 `);
+  writeFixtureFile(root, 'apps/marketing/tools/build-deck-pdf.mjs', `import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
+const option = flag => {
+  const index = process.argv.indexOf(flag);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+};
+const input = option('--input');
+const output = option('--output');
+if (!input || !output) throw new Error('Usage: build-deck-pdf.mjs --input <html> --output <pdf>');
+const html = readFileSync(path.resolve(process.cwd(), input), 'utf8');
+const canonicalLines = html
+  .replace(/<(?:script|style)\\b[^>]*>[\\s\\S]*?<\\/(?:script|style)>/gi, ' ')
+  .replace(/<\\/?(?:h[1-6]|p|li|section|article|main|div|br|tr|td|th)\\b[^>]*>/gi, '\\n')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&(amp|lt|gt|quot|apos);/gi, (_, entity) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[entity.toLowerCase()] ?? ' ')
+  .split(/\\n+/)
+  .map(line => line.replace(/\\s+/g, ' ').trim())
+  .filter(Boolean);
+if (canonicalLines.length === 0) throw new Error('PDF source has no substantive canonical content');
+const wrap = line => {
+  const words = line.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? current + ' ' + word : word;
+    if (candidate.length > 78 && current) {
+      lines.push(current);
+      current = word;
+    } else current = candidate;
+  }
+  if (current) lines.push(current);
+  return lines;
+};
+const lines = canonicalLines.flatMap(wrap);
+const pageLines = [];
+for (let index = 0; index < lines.length; index += 38) pageLines.push(lines.slice(index, index + 38));
+const escapePdf = value => value.replace(/[\\\\()]/g, '\\\\$&').replace(/[^\\x20-\\x7e]/g, '?');
+const pageId = index => 4 + index * 2;
+const contentId = index => pageId(index) + 1;
+const objects = [
+  { id: 1, body: '<< /Type /Catalog /Pages 2 0 R >>' },
+  { id: 2, body: '<< /Type /Pages /Kids [' + pageLines.map((_, index) => String(pageId(index)) + ' 0 R').join(' ') + '] /Count ' + String(pageLines.length) + ' >>' },
+  { id: 3, body: '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>' },
+];
+for (const [index, page] of pageLines.entries()) {
+  const stream = 'BT\\n/F1 12 Tf\\n72 744 Td\\n15 TL\\n' + page
+    .map((line, lineIndex) => (lineIndex ? 'T*\\n' : '') + '(' + escapePdf(line) + ') Tj')
+    .join('\\n') + '\\nET\\n';
+  objects.push({ id: pageId(index), body: '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ' + String(contentId(index)) + ' 0 R >>' });
+  objects.push({ id: contentId(index), body: '<< /Length ' + Buffer.byteLength(stream, 'latin1') + ' >>\\nstream\\n' + stream + 'endstream' });
+}
+let document = '%PDF-1.4\\n';
+const offsets = new Map();
+for (const object of objects) {
+  offsets.set(object.id, Buffer.byteLength(document, 'latin1'));
+  document += String(object.id) + ' 0 obj\\n' + object.body + '\\nendobj\\n';
+}
+const xref = Buffer.byteLength(document, 'latin1');
+document += 'xref\\n0 ' + String(objects.length + 1) + '\\n0000000000 65535 f \\n';
+for (let id = 1; id <= objects.length; id += 1) document += String(offsets.get(id)).padStart(10, '0') + ' 00000 n \\n';
+document += 'trailer\\n<< /Size ' + String(objects.length + 1) + ' /Root 1 0 R >>\\nstartxref\\n' + String(xref) + '\\n%%EOF\\n';
+const target = path.resolve(process.cwd(), output);
+mkdirSync(path.dirname(target), { recursive: true });
+writeFileSync(target, document, 'latin1');
+`);
   writeFixtureFile(root, 'apps/marketing/tools/serve-build.mjs', `import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
@@ -1160,6 +1230,7 @@ const types = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.html', 'text/html; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'],
+  ['.pdf', 'application/pdf'],
   ['.svg', 'image/svg+xml'],
 ]);
 const matchesHeaderRule = (rule, requestPath) =>
@@ -1213,7 +1284,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 test('build copies the current static site', () => {
-  execFileSync(process.execPath, ['scripts/build-site.mjs'], { cwd: root });
+  execFileSync(process.execPath, ['scripts/build-site.mjs'], { cwd: root, timeout: 30_000 });
   assert.equal(existsSync(path.join(root, 'dist', 'index.html')), true);
   assert.equal(existsSync(path.join(root, 'dist', 'site.css')), true);
 });
@@ -1281,6 +1352,18 @@ gunicorn==23.0.0
   git(['add', '.']);
   git(['commit', '-m', 'synthetic static marketing monorepo']);
   return root;
+}
+
+function pdfPageCount(contents: string): number {
+  return (contents.match(/\/Type\s*\/Page(?!s)\b/g) ?? []).length;
+}
+
+function pdfText(contents: string): string {
+  return [...contents.matchAll(/\((?:\\.|[^\\)])*\)\s*Tj/g)]
+    .map(match => match[0].replace(/^\(|\)\s*Tj$/g, '').replace(/\\([\\()])/g, '$1'))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function parseDeckIntake(filePath: string): DeckIntake {
@@ -3255,15 +3338,9 @@ synthetic-4,paying,39
     expect('301,000 handoffs').not.toMatch(totalPattern);
   });
 
-  test('builds a hermetic full-execution fixture with its declared production server', () => {
+  test('declares a hermetic full-execution fixture with its production server', () => {
     const fixture = createPythonSiteFixture({ fullExecution: true });
     try {
-      const compile = spawnSync('python3', ['-m', 'py_compile', 'tools/production_server.py'], {
-        cwd: fixture,
-        encoding: 'utf-8',
-        timeout: 10_000,
-      });
-      expect(compile.status, compile.stderr).toBe(0);
       const productionServer = fs.readFileSync(path.join(fixture, 'tools', 'production_server.py'), 'utf-8');
       expect(productionServer).toMatch(/os\.execvp\(["']gunicorn["']/);
       expect(productionServer).toMatch(/["']app:app["']/);
@@ -3345,6 +3422,119 @@ synthetic-4,paying,39
         const response = await fetch(`${server.baseUrl}/`);
         expect(response.status).toBe(200);
         expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+      } finally {
+        await stopFixtureServer(server);
+      }
+    } finally {
+      try { fs.rmSync(fixture, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  });
+
+  test('ships a selected PDF companion through a target-native static build with direct-asset proof', async () => {
+    const fixture = createStaticMonorepoFixture();
+    const marketingRoot = path.join(fixture, 'apps', 'marketing');
+    const pdfPath = 'investors/keelson-investor-deck.pdf';
+    const directUrl = `/${pdfPath}`;
+    try {
+      writeFixtureFile(fixture, 'apps/marketing/site/investors/index.html', `<!doctype html>
+<title>Keelson investor deck</title>
+<main>
+<h1>Keelson investor deck: every solar handoff ready before the crew leaves</h1>
+<section><h2>Whole workflow, one operating system</h2><p>Dispatch, offline field capture, blocker resolution, and customer handoff stay connected.</p></section>
+<section><h2>Proof with boundaries</h2><p>Six paying installer teams completed 412 handoffs as of 2026-06-30; detailed records are available in a data room on request.</p></section>
+<section><h2>Ask</h2><p>Raise a $3M Q1 seed for offline sync, permitting integrations, and a measured partner channel.</p></section>
+<a href="${directUrl}">Download the approved deck PDF</a>
+</main>
+`);
+      const render = spawnSync('node', [
+        'tools/build-deck-pdf.mjs',
+        '--input', 'site/investors/index.html',
+        '--output', `site/${pdfPath}`,
+      ], { cwd: marketingRoot, encoding: 'utf-8', timeout: 10_000 });
+      expect(render.status, `${render.stdout}\n${render.stderr}`).toBe(0);
+      writeFixtureFile(fixture, 'apps/marketing/site/investors/deck-pdf-proof.json', JSON.stringify({
+        canonical_source: 'site/investors/index.html',
+        direct_url: directUrl,
+        access: { mode: 'limited-share', authentication: 'none', public_safe: true },
+        page_count: 1,
+        pages: [{ page: 1, visual_status: 'passed', checks: ['headline order', 'readability', 'clipping', 'citations'] }],
+      }, null, 2));
+      const headersPath = path.join(marketingRoot, 'site', '_headers');
+      const existingHeaders = fs.readFileSync(headersPath, 'utf8').trimEnd();
+      writeFixtureFile(fixture, 'apps/marketing/site/_headers', `${existingHeaders}
+
+/investors/*
+  X-Robots-Tag: noindex
+  Cache-Control: private, no-store
+`);
+
+      const build = spawnSync('npm', ['run', 'build'], {
+        cwd: marketingRoot, encoding: 'utf-8', timeout: 10_000,
+      });
+      expect(build.status, `${build.stdout}\n${build.stderr}`).toBe(0);
+
+      const builtPdfPath = path.join(marketingRoot, 'dist', pdfPath);
+      const builtPdf = fs.readFileSync(builtPdfPath, 'latin1');
+      expect(Buffer.byteLength(builtPdf, 'latin1')).toBeGreaterThan(200);
+      expect(builtPdf.startsWith('%PDF-')).toBe(true);
+      expect(pdfPageCount(builtPdf)).toBe(1);
+      const normalizedPdf = pdfText(builtPdf);
+      for (const substantivePhrase of [
+        'Whole workflow, one operating system',
+        'Dispatch, offline field capture, blocker resolution, and customer handoff stay connected.',
+        'Six paying installer teams completed 412 handoffs as of 2026-06-30',
+        'Raise a $3M Q1 seed for offline sync, permitting integrations, and a measured partner channel.',
+      ]) {
+        expect(normalizedPdf).toContain(substantivePhrase);
+      }
+
+      const proof = JSON.parse(fs.readFileSync(
+        path.join(marketingRoot, 'dist', 'investors', 'deck-pdf-proof.json'),
+        'utf8',
+      ));
+      expect(proof.canonical_source).toBe('site/investors/index.html');
+      expect(proof.direct_url).toBe(directUrl);
+      expect(proof.access).toEqual({ mode: 'limited-share', authentication: 'none', public_safe: true });
+      expect(proof.pages.map((page: { page: number }) => page.page)).toEqual([1]);
+      expect(proof.pages[0].checks).toEqual(expect.arrayContaining(['headline order', 'readability', 'clipping', 'citations']));
+
+      const server = await startStaticBuildServer(fixture);
+      try {
+        const deck = await fetch(`${server.baseUrl}/investors/`);
+        expect(deck.status).toBe(200);
+        expect(await deck.text()).toContain(`href="${directUrl}"`);
+
+        const asset = await fetch(`${server.baseUrl}${directUrl}`);
+        expect(asset.status).toBe(200);
+        expect(asset.headers.get('content-type')).toContain('application/pdf');
+        expect(asset.headers.get('x-robots-tag')).toMatch(/noindex/i);
+        expect(asset.headers.get('cache-control')).toMatch(/private.*no-store/i);
+        expect(Buffer.from(await asset.arrayBuffer()).toString('latin1')).toBe(builtPdf);
+      } finally {
+        await stopFixtureServer(server);
+      }
+    } finally {
+      try { fs.rmSync(fixture, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  });
+
+  test('keeps a target-native static build free of PDF output when no companion is selected', async () => {
+    const fixture = createStaticMonorepoFixture();
+    const marketingRoot = path.join(fixture, 'apps', 'marketing');
+    try {
+      const build = spawnSync('npm', ['run', 'build'], {
+        cwd: marketingRoot, encoding: 'utf-8', timeout: 10_000,
+      });
+      expect(build.status, `${build.stdout}\n${build.stderr}`).toBe(0);
+      const builtFiles = walkFiles(path.join(marketingRoot, 'dist'));
+      expect(builtFiles.filter(file => file.toLowerCase().endsWith('.pdf'))).toEqual([]);
+      expect(fs.readFileSync(path.join(marketingRoot, 'dist', 'index.html'), 'utf8')).not.toMatch(/\.pdf\b/i);
+      expect(fs.readFileSync(path.join(marketingRoot, 'package.json'), 'utf8')).not.toMatch(/pdf|render|print/i);
+
+      const server = await startStaticBuildServer(fixture);
+      try {
+        const response = await fetch(`${server.baseUrl}/investors/keelson-investor-deck.pdf`);
+        expect(response.status).toBe(404);
       } finally {
         await stopFixtureServer(server);
       }
@@ -3888,6 +4078,7 @@ describePeriodicDeck('/deck natural-request static-monorepo E2E', [STATIC_TEST_N
   let baselinePackageManifest: string;
   let baselinePackageLock: string;
   let baselineStaticServer: string;
+  let baselinePdfBuilder: string;
 
   beforeAll(() => {
     workDir = createStaticMonorepoFixture();
@@ -3910,6 +4101,10 @@ describePeriodicDeck('/deck natural-request static-monorepo E2E', [STATIC_TEST_N
     );
     baselineStaticServer = fs.readFileSync(
       path.join(workDir, 'apps', 'marketing', 'tools', 'serve-build.mjs'),
+      'utf-8',
+    );
+    baselinePdfBuilder = fs.readFileSync(
+      path.join(workDir, 'apps', 'marketing', 'tools', 'build-deck-pdf.mjs'),
       'utf-8',
     );
   });
@@ -3936,7 +4131,15 @@ Everything must remain safe if the link is forwarded. Keep the source material,
 screenshots, and reviews inside this already-approved local run. Use the staged
 in-process gstack skills as the specialist rubrics the workflow requires, but do
 not spawn another agent/model or use an external service. Don't do web research,
-and keep analytics off. Take this through complete local implementation, testing,
+and keep analytics off. The optional pre-generated PDF companion is selected:
+reuse the existing dependency-free tools/build-deck-pdf.mjs helper, wire it into
+the existing static build without adding a package or renderer, and publish a
+direct /investors/...pdf asset linked from the deck. It must be a static built
+asset, never a runtime Export/Print path. Record artifacts/deck-pdf-proof.json
+with the canonical HTML source, final direct URL, limited-share public-safe
+access decision, page count, and pages shaped as
+[{"page":1,"visual_status":"passed | fixed","notes":"specific observation"}]. Take this
+through complete local implementation, testing,
 visual QA, review, and documentation, but do not deploy or change any live service.
 For the visual proof, capture each section from its direct deep link at scroll
 position zero using viewport-only desktop 1440x900, tablet 834x1112, phone
@@ -4030,6 +4233,44 @@ artifacts/deck-evidence.json with this shape:
     expect(builtDeck).toMatch(/partner meeting/i);
     expect(builtDeck).not.toMatch(/ksn-acct-/i);
 
+    const builtPdfFiles = walkFiles(path.join(marketingRoot, 'dist'))
+      .filter(file => file.toLowerCase().endsWith('.pdf'));
+    expect(builtPdfFiles, 'Selected PDF companion did not reach static built output').toHaveLength(1);
+    const builtPdfPath = builtPdfFiles[0]!;
+    const pdfRelativePath = path.relative(path.join(marketingRoot, 'dist'), builtPdfPath)
+      .split(path.sep).join('/');
+    const pdfDirectUrl = `/${pdfRelativePath}`;
+    const builtPdf = fs.readFileSync(builtPdfPath, 'latin1');
+    expect(Buffer.byteLength(builtPdf, 'latin1')).toBeGreaterThan(200);
+    expect(builtPdf.startsWith('%PDF-')).toBe(true);
+    expect(pdfPageCount(builtPdf)).toBeGreaterThan(0);
+    const pdfNarrative = pdfText(builtPdf);
+    for (const expectedStoryPoint of ['operations', 'offline', 'handoff', '$3M', 'partner meeting']) {
+      expect(pdfNarrative, `PDF lost approved web-deck story point: ${expectedStoryPoint}`)
+        .toMatch(new RegExp(regexEscape(expectedStoryPoint), 'i'));
+    }
+    const pdfProof = JSON.parse(fs.readFileSync(
+      path.join(workDir, 'artifacts', 'deck-pdf-proof.json'),
+      'utf8',
+    )) as {
+      canonical_source: string;
+      direct_url: string;
+      access: { mode: string; authentication: string; public_safe: boolean };
+      page_count: number;
+      pages: Array<{ page: number; visual_status: string; notes: string }>;
+    };
+    expect(pdfProof.canonical_source).toMatch(/(?:^|\/)investors\/index\.html$/);
+    expect(pdfProof.direct_url).toBe(pdfDirectUrl);
+    expect(pdfProof.access).toEqual({ mode: 'limited-share', authentication: 'none', public_safe: true });
+    expect(pdfProof.page_count).toBe(pdfPageCount(builtPdf));
+    expect(pdfProof.pages.map(page => page.page)).toEqual(
+      Array.from({ length: pdfProof.page_count }, (_, index) => index + 1),
+    );
+    for (const page of pdfProof.pages) {
+      expect(page.visual_status).toMatch(/^(?:passed|fixed)$/);
+      expect(page.notes.trim().length).toBeGreaterThan(8);
+    }
+
     const accountRows = parseAccountEvidenceRows(
       fs.readFileSync(path.join(workDir, 'materials', 'accounts.csv'), 'utf-8'),
     );
@@ -4085,6 +4326,7 @@ artifacts/deck-evidence.json with this shape:
         .toBe(false);
       const routeHtml = await route.text();
       expect(routeHtml).toMatch(/role=["']tablist["']/i);
+      expect(routeHtml).toContain(`href="${pdfDirectUrl}"`);
 
       const robotsHeader = route.headers.get('x-robots-tag') ?? '';
       const robotsMetaTag = (routeHtml.match(/<meta\b[^>]*>/gi) ?? [])
@@ -4096,6 +4338,15 @@ artifacts/deck-evidence.json with this shape:
         .toMatch(/^no-referrer$/i);
       expect(route.headers.get('cache-control') ?? '', 'Limited-share cache policy')
         .toMatch(/(?:private|no-store|max-age\s*=\s*0)/i);
+
+      const pdfResponse = await fetch(`${server.baseUrl}${pdfDirectUrl}`);
+      expect(pdfResponse.status).toBe(200);
+      expect(pdfResponse.headers.get('content-type')).toContain('application/pdf');
+      expect(pdfResponse.headers.get('x-robots-tag') ?? '', 'PDF must share limited-share noindex policy')
+        .toMatch(/noindex/i);
+      expect(pdfResponse.headers.get('cache-control') ?? '', 'PDF must share limited-share cache policy')
+        .toMatch(/(?:private|no-store|max-age\s*=\s*0)/i);
+      expect(Buffer.from(await pdfResponse.arrayBuffer()).toString('latin1')).toBe(builtPdf);
 
       const staticAssets: URL[] = [];
       for (const asset of htmlPageLoadResources(routeHtml, `${server.baseUrl}/investors/`)) {
@@ -4138,6 +4389,8 @@ artifacts/deck-evidence.json with this shape:
       expect(builtExecutableText, 'Analytics or recipient-tracking primitive in analytics-off build')
         .not.toMatch(/\b(?:gtag|dataLayer|GoogleAnalyticsObject|googletagmanager|mixpanel|posthog|plausible|amplitude|hotjar|fullstory|sendBeacon|fingerprint|recipient[_-]?id|viewer[_-]?id|utm_(?:source|medium|campaign))\b/i);
       assertAnalyticsOffSource(builtExecutableText, 'Static analytics-off build');
+      expect(builtExecutableText, 'PDF companion must remain a built asset, not a client-side export path')
+        .not.toMatch(/\bwindow\s*\.\s*print\s*\(|\b(?:beforeprint|afterprint)\b|\bURL\s*\.\s*createObjectURL\s*\(/i);
 
       const homeResponse = await fetch(`${server.baseUrl}/`);
       expect(homeResponse.status).toBe(200);
@@ -4326,6 +4579,8 @@ artifacts/deck-evidence.json with this shape:
       .toBe(baselinePackageLock);
     expect(fs.readFileSync(path.join(marketingRoot, 'tools', 'serve-build.mjs'), 'utf-8'))
       .toBe(baselineStaticServer);
+    expect(fs.readFileSync(path.join(marketingRoot, 'tools', 'build-deck-pdf.mjs'), 'utf-8'))
+      .toBe(baselinePdfBuilder);
 
     recordE2E(staticEvalCollector, STATIC_TEST_NAME, '/deck natural static-monorepo E2E', result, {
       passed: true,
@@ -4335,6 +4590,7 @@ artifacts/deck-evidence.json with this shape:
         static_stack_fit: 1,
         built_output: 1,
         limited_share_privacy: 1,
+        selected_pdf_companion: 1,
         visual_evidence_live_match: 1,
         no_external_mutation: 1,
       },

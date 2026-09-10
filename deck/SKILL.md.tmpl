@@ -2,11 +2,11 @@
 name: deck
 version: 1.0.0
 description: |
-  Add or seriously redesign an interactive web deck on an existing site. It starts
-  with the actual site, story, design system, routing, hosting, and evidence;
+  Add or redesign an interactive web deck on an existing site. It starts
+  with the site, story, design system, routing, hosting, and evidence;
   then delivers an audience-specific, deep-linkable, accessible, mobile-first
   deck with visual QA, review, an optional pre-generated PDF companion, and a
-  controlled release gate. (gstack)
+  release gate. (gstack)
 voice-triggers:
   - "build a web deck"
   - "make an interactive pitch deck"
@@ -204,7 +204,7 @@ requested companion. When selected, settle its intended delivery location and
 access policy with Route / host; record the final artifact name/direct URL only
 after the actual build. Do not spend a separate intake question on
 implementation. When unselected, add no deck-PDF link, generator, route, build
-dependency, or QA work.
+dependency, or PDF generation, rendering, or visual QA.
 
 For an investor audience, sharpen three existing categories rather than adding
 new ones:
@@ -256,8 +256,9 @@ change.
 ## Step 2: Make the story and evidence earn attention
 
 Write a short execution brief before implementation: audience, goal/CTA, product
-truth map, route or host and PDF decision (off/on, intended delivery location,
-access policy, canonical source, and generator), access boundary, section order,
+truth map, route or host and PDF decision (off = no artifact, canonical source,
+or generator; on = intended delivery location, access policy, canonical source,
+and generator), access boundary, section order,
 and a claim ledger. For
 every claim, record its source, owner, public/sensitive boundary, as-of date, and
 whether the copy is verified, qualified, or omitted. For every metric, chart,
@@ -463,7 +464,8 @@ both the normal-site and deck-host routing in the production-equivalent form.
 A PDF companion is off by default; act on it only when selected in Route / host.
 It is a pre-generated, static release asset, never a runtime “Export PDF”
 button, client-side print path, or on-demand server render. If unselected, add
-no deck-PDF link, generator, route, build dependency, or PDF QA work.
+no deck-PDF link, generator, route, build dependency, or PDF generation,
+rendering, or visual QA.
 
 Generate it from the same approved story, claim ledger, heading order, and
 access policy as the web deck. It may use a narrower compatible boundary only
@@ -582,8 +584,9 @@ regress:
    target-native or local PDF proof; do not install a PDF QA dependency solely
    for this. Test the direct asset on every declared host that is meant to serve
    it.
-8. If no PDF companion was selected: no deck-PDF artifact, link, generator, or
-   build dependency was added.
+8. If no PDF companion was selected: perform the normal release-diff
+   confirmation that no deck-PDF artifact, link, generator, or build dependency
+   was added. This is not PDF generation, rendering, or visual QA.
 
 Run the deck in a real browser. Capture and inspect desktop, phone, tablet, and
 short-laptop-height screenshots for **every section**, plus the navigation states

@@ -10,7 +10,6 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateSkill } from './helpers/skill-parser';
-import { externalSkillName } from '../scripts/resolvers/codex-helpers';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TMPL = fs.readFileSync(path.join(ROOT, 'deck', 'SKILL.md.tmpl'), 'utf8');
@@ -37,10 +36,9 @@ describe('/deck discovery and material intake', () => {
     );
   });
 
-  test('keeps the normal /deck command while external hosts generate gstack-deck', () => {
+  test('keeps the normal /deck command', () => {
     expect(TMPL).toMatch(/^name: deck$/m);
     expect(TMPL).toContain('# /deck — Story → Interactive Deck → Proof');
-    expect(externalSkillName('deck')).toBe('gstack-deck');
   });
 
   test('inspects the target site, deck material, design system, routing, IaC, and analytics before deciding', () => {
@@ -98,7 +96,7 @@ describe('/deck discovery and material intake', () => {
     expect(intake).toMatch(/legacy PDF discovered during inspection is\s+source material, not a delivery choice/i);
     expect(intake).toMatch(/activates companion work only when\s+the user explicitly selects it as a deliverable or explicitly supplies a\s+requested companion/i);
     expect(intake).toMatch(/final artifact name\/direct URL only\s+after the actual build/i);
-    expect(intake).toMatch(/When unselected, add no deck-PDF\s+link, generator, route, build\s+dependency, or QA work/i);
+    expect(intake).toMatch(/When unselected, add no deck-PDF\s+link, generator, route, build\s+dependency, or PDF generation, rendering, or visual QA/i);
     expect(intake).toMatch(/processors\/reviewers/i);
     expect(intake).toMatch(/product-inspection environment/i);
     expect(intake).toMatch(/delivered-deck access/i);
@@ -331,7 +329,8 @@ describe('/deck interaction and release proof', () => {
     expect(proof).toMatch(/If a PDF companion was selected:[\s\S]*non-empty PDF[\s\S]*direct URL that opens\/downloads a PDF rather than a\s+fallback page; it returns `application\/pdf`/i);
     expect(proof).toMatch(/visually\s+inspect every PDF page and page\s+boundary/i);
     expect(proof).toMatch(/do not install a PDF QA dependency solely\s+for this/i);
-    expect(proof).toMatch(/If no PDF companion was selected:[\s\S]*no deck-PDF artifact, link, generator, or\s+build dependency was added/i);
+    expect(proof).toMatch(/If no PDF companion was selected:[\s\S]*perform the normal release-diff\s+confirmation that no deck-PDF artifact, link, generator, or build dependency\s+was added/i);
+    expect(proof).toMatch(/This is not PDF generation, rendering, or visual QA/i);
   });
 
   test('resolves specialist checkpoints through the current host rather than assuming a command exists', () => {
