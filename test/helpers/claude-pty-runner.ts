@@ -2545,6 +2545,33 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   if (allowQuestionId && ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
       !/<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?[a-z0-9-]+\s*>/i.test(q.question))) return false;
   const title = q.question.split('\n')[0]!.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '');
+  const sectionFindingIdentity = /^D([1-9]\d*)\s+\(Section ([1-9]\d*), finding ([1-9]\d*)\)\s*[—–-]\s*((?:What|How|Which|Should)\b[^\n?]+\?)$/i.exec(title);
+  if (allowQuestionId && sectionFindingIdentity) {
+    const section = sectionFindingIdentity[2]!, finding = sectionFindingIdentity[3]!;
+    const qid = /<gstack-qid:\s*plan-ceo-review-s([1-9]\d*)-[a-z0-9-]+\s*>/i.exec(q.question);
+    const headerSection = /^Section ([1-9]\d*)(?: finding ([1-9]\d*))?$/i.exec(q.header.trim());
+    if (qid?.[1] !== section || (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+        !Number.isFinite(Date.parse(call.answeredAt ?? '')) ||
+        (/^Section\b/i.test(q.header.trim()) && (!headerSection || headerSection[1] !== section ||
+          (headerSection[2] && headerSection[2] !== finding)))) return false;
+    const current = (text: string, inspectOpening = true) => ceoCurrentBriefProse(text.replace(
+      /(^|\n|[.)!?]\s+|\s+(?=This\b|Correction:))((?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option)\s+(?:is|has been)\s+)(["“']?)(?:superseded|no longer current)(["”']?)/gim,
+      '$1$2$3withdrawn$4'), inspectOpening);
+    const contexts = [...q.question.matchAll(/^Project\/branch\/task:\s*(.+)$/gm)];
+    const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
+    const prefix = q.question.slice(q.question.split('\n')[0]!.length, q.question.indexOf('\nELI10:'))
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    if (contexts.length !== 1 || !current(contexts[0]![1]!) || !current(explanation) || !current(q.question, false) ||
+        !prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+          /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line)) ||
+        !q.options.every(option => current(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && current(option.description ?? ''))) return false;
+    // The section and qid have already been bound. Reuse the complete
+    // numbered finding validator with a title that excludes inline metadata;
+    // preserve the actual native question, choices and acknowledged answer.
+    const semantic = { ...q, question: q.question.replace(q.question.split('\n')[0]!,
+      `D${sectionFindingIdentity[1]} (Finding ${finding}) — ${sectionFindingIdentity[4]}`) };
+    return ceoParenthesizedIssueBrief(semantic, finding);
+  }
   if (!allowQuestionId && ceoSectionChoiceBrief(q, title)) return true;
   if (!allowQuestionId && (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0) &&
       typeof call.answeredAt === 'string' && Number.isFinite(Date.parse(call.answeredAt)) &&
@@ -2730,6 +2757,7 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
       ceoAssertionMismatchBrief(q) && ceoNumberedBriefDecision(q, normalized)) return true;
   const identity = /^(Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Sections?\s+[1-9]\d*(?:\s+(?:and|&)\s+[1-9]\d*|,\s*[1-9]\d*)*(?:,\s*[a-z][a-z -]*)?\))?\s*:\s*([^\n]+)$/i.exec(normalized);
   const annotation = /\((Sections?\s+[^)]+)\)/i.exec(normalized)?.[1];
+  let descriptiveAnnotatedFinding = false;
   if (identity && annotation && !/^Section\s+[1-9]\d*$/i.test(annotation)) {
     if (/\b(?:hypothetical|example|template|historical|quoted)\b/i.test(annotation) ||
         !ceoNumberedBriefDecision(q, identity[3]!)) return false;
@@ -2738,6 +2766,28 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
     if (!recommended || labels.some(token => !token || (token[1] ?? '') !== (recommended[1] ?? '')) ||
         (recommended[1] && recommended[1] !== identity[2]) ||
         new Set(labels.map(token => token![2]!.toUpperCase())).size !== labels.length) return false;
+    // A section annotation does not require the short native header to
+    // repeat the finding number. Admit descriptive headers only through
+    // this complete, current, numbered brief; explicit counters stay bound.
+    const current = (text: string, inspectOpening = true) => ceoCurrentBriefProse(text.replace(
+      /(^|\n|[.)!?]\s+|\s+(?=This\b|Correction:))((?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option)\s+(?:is|has been)\s+)(["“']?)(?:superseded|no longer current)(["”']?)/gim,
+      '$1$2$3withdrawn$4'), inspectOpening);
+    const contexts = [...q.question.matchAll(/^Project\/branch\/task:\s*(.+)$/gm)];
+    const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
+    const currentAssessment = explanation.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '').split(/[.!?]\s+/);
+    const resolved = currentAssessment.some(clause =>
+      /^(?:this|the|current) (?:handler|plan|implementation) (?:has no (?:current )?(?:defect|gap|issue|problem)\b|needs no (?:amendment|fix|change)\b)/i.test(clause.trim()));
+    const prefix = q.question.slice(title.length, q.question.indexOf('\nELI10:'))
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    descriptiveAnnotatedFinding = !/^(?:Finding|Issue|Section)\b|^F\d/i.test(q.header.trim()) &&
+      (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0) &&
+      Number.isFinite(Date.parse(call.answeredAt ?? '')) && contexts.length === 1 &&
+      prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+        /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line)) &&
+      current(contexts[0]![1]!) && current(identity[3]!) &&
+      current(explanation) && !resolved && current(q.question, false) &&
+      q.options.every(option => current(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) &&
+        current(option.description ?? ''));
   }
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
   const parenthesized = /^D[1-9]\d*\s+\((?:issue|finding)\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*([^\n?]+\?)$/i.exec(title);
@@ -2849,8 +2899,8 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   const numberedHeader = /^(?:(?:finding|issue)\s+f?|f)([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+[a-z][a-z -]*)?$/.exec(header);
   if (/^(?:finding|issue)\b|^f\d/i.test(header) && !numberedHeader) return false;
   // Finding and Issue name the same numeric identity. A descriptive header
-  // is fine; preserve the original section/parenthesis binding guards.
-  return !(numberedHeader || parenthesized || /\(Section\s/i.test(title)) || numberedHeader?.[1] === expected;
+  // is fine after the section brief is validated; preserve explicit counters.
+  return !(numberedHeader || parenthesized || (/\(Section\s/i.test(title) && !descriptiveAnnotatedFinding)) || numberedHeader?.[1] === expected;
 }
 
 export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
@@ -2859,6 +2909,7 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
     const title = q.question.split('\n')[0];
+    if (/^D[1-9]\d*\s+\(Section [1-9]\d*, finding [1-9]\d*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (/^D[1-9]\d*\s+\((?:Issue|Finding)\s+[1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (!/^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title)) return false;
     if (/^(?:D\s*\d+\s*[—–-]\s*)?(?:Finding|Issue)\s+F?\d/i.test(title)) return nativeExplicitCeoFinding(fp, true);
@@ -3133,15 +3184,28 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
   if (engCacheWriterDecision(q)) return true;
   // The category may precede the issue number. Bind this library choice to
   // the current scheduling defect and both concrete outcomes, not its label.
-  const libraryHooks = /^Architecture issue ([1-9]\d*): custom inline scheduler vs the job library's built-in retry hooks\?$/i.exec(title);
+  const declaredLibraryHooks = /^Issue ([1-9]\d*): Custom inline scheduler vs\. the job library's built-in retry hooks \([A-Za-z][\w./-]*:[1-9]\d*(?:-[1-9]\d*)?\)$/i.exec(title);
+  const libraryHooks = /^Architecture issue ([1-9]\d*): custom inline scheduler vs the job library's built-in retry hooks\?$/i.exec(title) ?? declaredLibraryHooks;
   if (libraryHooks) {
-    if (!new RegExp(`^Arch(?:itecture)? ${libraryHooks[1]}$`, 'i').test(q.header.trim())) return false;
-    const current = (text: string) => text
-      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
-      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
-      .replace(/["“](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current|no longer current)["”]/gi, '$1')
-      .replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, '')
-      .replace(/\*\*/g, '');
+    if (!new RegExp(`^${declaredLibraryHooks ? 'Issue' : 'Arch(?:itecture)?'} ${libraryHooks[1]}$`, 'i').test(q.header.trim())) return false;
+    const ordinal = declaredLibraryHooks && /^D([1-9]\d*)\s*[—–:-]/.exec(q.question)?.[1];
+    const declaredOwner = `(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|deferral|(?:unchanged )?risk)|Issue ${libraryHooks[1]}${ordinal ? `|D${ordinal}` : ''})`;
+    const declaredBoundary = '(?:^|[.!?;]\\s+|\\n|[✅❌]\\s*)(?:Correction:\\s*)?';
+    const scalarOwner = new RegExp(`${declaredBoundary}${declaredOwner} (?:is|was|has been) (?:(?:now|already) )?$`, 'i');
+    const current = (text: string) => {
+      const prose = text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+        .replace(/^(?:\s*>| {4}|\t).*$/gm, '');
+      if (declaredLibraryHooks) return prose.replace(/\*\*/g, '')
+        .replace(/"[^"\n]*"|“[^”\n]*”|(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’|`[^`\n]*`/g,
+          (quoted: string, at: number, source: string) => {
+            const status = /^["“'‘`](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)["”'’`]$/i.exec(quoted);
+            return status && scalarOwner.test(source.slice(0, at)) ? status[1]! : '';
+          }).replace(/\*\*/g, '');
+      return prose
+        .replace(/["“](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current|no longer current)["”]/gi, '$1')
+        .replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, '')
+        .replace(/\*\*/g, '');
+    };
     const framed = /\b(?:source|quoted|historical|hypothetical|earlier|previous)\s+(?:review\s+)?(?:example|excerpt|assessment|finding|material|text)\b|(?:^|[.!?;:]\s+|\n|[✅❌]\s*)(?:if|when|unless|provided|assuming|suppose|imagine|source|example)\b/i;
     const closed = new RegExp(`\\b(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|deferral|(?:unchanged )?risk)|Issue ${libraryHooks[1]}) (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b|\\bno current (?:gap|risk|finding) (?:remains|exists)\\b`, 'i');
     const text = current(q.question), lines = text.split('\n');
@@ -3151,6 +3215,32 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
     if (contexts.length !== 1 || assessments.length !== 1 || preface.length !== 1 || preface[0] !== contexts[0] ||
         framed.test(text) || closed.test(text) || /\b(?:the|this) plan no longer rebuilds retry scheduling\b|\bretry scheduling no longer runs inside each worker\b/i.test(text)) return false;
     const assessment = assessments[0]![1]!;
+    // A declarative issue with a source location can own the same concrete
+    // scheduling decision. Bind the assessment and each offered outcome;
+    // the issue number and source location alone do not begin review.
+    if (declaredLibraryHooks) {
+      const ownClosed = new RegExp(`${declaredBoundary}${declaredOwner} (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b`, 'i');
+      const conditional = new RegExp(`${declaredBoundary}(?:${declaredOwner} (?:(?:applies|holds) (?:only )?(?:if|when|once|unless) (?:approved|accepted)|is (?:conditional|contingent|dependent) on (?:approval|acceptance)|requires (?:approval|acceptance))|(?:if|when|once) (?:approved|accepted),? (?:use|adopt|accept|keep|proceed|choose|preserve)\\b)`, 'i');
+      if (ownClosed.test(text) || conditional.test(text)) return false;
+      if (!/^The job library already knows how to retry a failed job later; you just tell it how long to wait\. The plan instead rebuilds that waiting-and-rescheduling machinery by hand inside each worker\./.test(assessment) ||
+          !/\bjobs get lost \(worker dies mid-sleep\)/.test(assessment) ||
+          !/\bno attempt cap or dead-letter path\b/.test(assessment)) return false;
+      const ids = q.options.map(o => /^([1-9]\d*)([A-D])[).:]\s+(\S[\s\S]*)$/.exec(o.label));
+      if (ids.some(id => id?.[1] !== libraryHooks[1]) || new Set(ids.map(id => id![2])).size !== q.options.length) return false;
+      const actions = ids.map(id => id![3]!.replace(/\s*\(recommended\)$/i, ''));
+      const remedyIndex = actions.indexOf('Use library retry hook + custom curve fn');
+      const unchangedIndex = actions.indexOf('Custom scheduler inline per worker, as planned');
+      if (remedyIndex < 0 || unchangedIndex < 0 || remedyIndex === unchangedIndex) return false;
+      const remedy = current(q.options[remedyIndex]!.description ?? '').trim();
+      const unchanged = current(q.options[unchangedIndex]!.description ?? '').trim();
+      const cancelled = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|skip|cancel|withdraw) (?:use|accept|keep|proceed|adopt|choose|preserve)\b/i;
+      if ([remedy, unchanged].some(value => framed.test(value.split("❌")[0]!) || closed.test(value) || ownClosed.test(value) || conditional.test(value) || cancelled.test(value)) ||
+          /\bthe library will not own (?:persistence|attempt counting|crash safety)\b/i.test(remedy) ||
+          /\b(?:the|this) (?:unchanged |per-worker )?scheduler is (?:now |already )?crash-safe\b|\bretry state no longer lives in-process\b/i.test(unchanged)) return false;
+      return /^✅\s*Persistence, attempt counting, max-attempts, and dead-letter come from the library; you own only delay\(attempt\) with full jitter\b/.test(remedy) &&
+        /✅\s*Curve is still 100% yours: a pure function, trivially unit-tested\./.test(remedy) &&
+        /❌\s*Retry state lives in-process, so a crash or deploy mid-backoff drops the retry; (?:[a-z]+|[1-9]\d*) copies of scheduler logic drift\b/.test(unchanged);
+    }
     const workers = /^The plan rebuilds retry scheduling by hand inside each of ([1-9]\d*) workers\b/.exec(assessment)?.[1];
     if (!workers || Number(workers) < 2 ||
         !/\bpersisting attempt counts across process restarts, not double-scheduling when a worker crashes mid-dispatch\b/.test(assessment) ||
@@ -4257,6 +4347,9 @@ export async function runPlanSkillCounting(opts: {
   slashCommand: string;
   /** Fixture request seeded in initial project context before the slash command. */
   followUpPrompt: string;
+  /** Observe this caller-owned disposable plan for permission identity only.
+   * Does not impose the expectedPlanPath terminal-report contract. */
+  permissionPlanPath?: string;
   /** Per-skill predicate: which answered AUQ is the last Step-0 question. */
   isLastStep0AUQ: Step0BoundaryPredicate;
   /** Optional positive identity for a first finding when no final setup AUQ was emitted. */
@@ -4328,6 +4421,10 @@ export async function runPlanSkillCounting(opts: {
   }
 
   const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true, files: opts.fixtureFiles });
+  const permissionPaths = [
+    ...(opts.expectedPlanPath ? [opts.expectedPlanPath, path.join(fixture.cwd, 'PLAN.md')] : []),
+    ...(opts.permissionPlanPath ? [opts.permissionPlanPath] : []),
+  ];
   let session: ClaudePtySession;
   try {
     session = await launchClaudePty({
@@ -4341,7 +4438,7 @@ export async function runPlanSkillCounting(opts: {
       seedSkills: true,
       observeScreen: true,
       observePlanReady: true,
-      observeFilePermissions: opts.expectedPlanPath ? [opts.expectedPlanPath, path.join(fixture.cwd, 'PLAN.md')] : undefined,
+      observeFilePermissions: permissionPaths.length ? [...new Set(permissionPaths)] : undefined,
     });
   } catch (error) {
     fixture.cleanup();

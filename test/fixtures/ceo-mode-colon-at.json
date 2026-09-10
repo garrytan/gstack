@@ -1,0 +1,36 @@
+{
+  "sessionId": "c626cea5-23d8-4535-b903-5e329fc89a6a",
+  "toolUseId": "toolu_01XY3qPeSuJZa3H2uCfatJ8b",
+  "questions": [
+    {
+      "header": "Review mode",
+      "question": "D4 \u2014 Which review mode for the saved-views plan? <gstack-qid:plan-ceo-review-mode>\nProject/branch/task: gstack-plan-count fixture on main, PLAN.md with approach B (versioned filter-spec views) approved.\nELI10: The mode sets my posture for the rest of the review. Expansion means I pitch the ambitious version and you opt in item by item. Selective expansion means I make the current scope bulletproof and separately show you expansion candidates to cherry-pick with no sales pitch. Hold scope means rigor only, no new ideas. Reduction means I cut to the smallest thing that removes the pain. Whatever you pick, no scope changes without your explicit yes.\nStakes if we pick wrong: too expansive and a two-week pilot feature grows sharing and defaults before anyone has used it; too narrow and obvious adjacent wins (a default view, a dirty-state prompt) never get considered.\nRecommendation: B (Selective Expansion) because this iterates on an existing task list, and the landscape shows adjacent features (shared views, default view) that deserve a look but should not be assumed.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Scope Expansion\n  \u2705 Surfaces the full cathedral: shared views, project defaults, view-driven digests, in one pass\n  \u2705 Best when the feature is greenfield and the team wants the 10x version now\n  \u274c Pushes hard toward more scope before the pilot has proven anyone reuses a view\nB) Selective Expansion (recommended)\n  \u2705 Holds approach B as the baseline and reviews it with full rigor first\n  \u2705 Presents each expansion candidate individually with neutral effort and risk so you cherry-pick\n  \u274c More decision prompts than Hold Scope; roughly 5-6 extra questions\nC) Hold Scope\n  \u2705 Fastest path: architecture, security, edge cases, observability, deployment only\n  \u2705 Zero risk of scope creep before the pilot\n  \u274c Adjacent 30-minute wins are never raised, even ones the landscape says drive adoption\nD) Scope Reduction\n  \u2705 Finds the smallest shippable slice, useful if the pilot is purely a signal test\n  \u2705 Separates must-ship-together from nice-to-have follow-up PRs\n  \u274c Conflicts with the approach B you just approved, which deliberately closes silent failure modes\nNet: how many adjacent ideas you want to see before the rigorous pass, versus decision fatigue.",
+      "options": [
+        {
+          "label": "B: Selective Expansion (Recommended)",
+          "description": "Rigorous review of approach B, then individual cherry-pick questions for expansions."
+        },
+        {
+          "label": "A: Scope Expansion",
+          "description": "Dream big; each ambitious proposal presented for opt-in."
+        },
+        {
+          "label": "C: Hold Scope",
+          "description": "Maximum rigor on current scope, no expansions surfaced."
+        },
+        {
+          "label": "D: Scope Reduction",
+          "description": "Strip to the minimum that removes the pain, then review that."
+        }
+      ],
+      "multiSelect": false
+    }
+  ],
+  "answered": true,
+  "failed": false,
+  "answers": {
+    "D4 \u2014 Which review mode for the saved-views plan? <gstack-qid:plan-ceo-review-mode>\nProject/branch/task: gstack-plan-count fixture on main, PLAN.md with approach B (versioned filter-spec views) approved.\nELI10: The mode sets my posture for the rest of the review. Expansion means I pitch the ambitious version and you opt in item by item. Selective expansion means I make the current scope bulletproof and separately show you expansion candidates to cherry-pick with no sales pitch. Hold scope means rigor only, no new ideas. Reduction means I cut to the smallest thing that removes the pain. Whatever you pick, no scope changes without your explicit yes.\nStakes if we pick wrong: too expansive and a two-week pilot feature grows sharing and defaults before anyone has used it; too narrow and obvious adjacent wins (a default view, a dirty-state prompt) never get considered.\nRecommendation: B (Selective Expansion) because this iterates on an existing task list, and the landscape shows adjacent features (shared views, default view) that deserve a look but should not be assumed.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Scope Expansion\n  \u2705 Surfaces the full cathedral: shared views, project defaults, view-driven digests, in one pass\n  \u2705 Best when the feature is greenfield and the team wants the 10x version now\n  \u274c Pushes hard toward more scope before the pilot has proven anyone reuses a view\nB) Selective Expansion (recommended)\n  \u2705 Holds approach B as the baseline and reviews it with full rigor first\n  \u2705 Presents each expansion candidate individually with neutral effort and risk so you cherry-pick\n  \u274c More decision prompts than Hold Scope; roughly 5-6 extra questions\nC) Hold Scope\n  \u2705 Fastest path: architecture, security, edge cases, observability, deployment only\n  \u2705 Zero risk of scope creep before the pilot\n  \u274c Adjacent 30-minute wins are never raised, even ones the landscape says drive adoption\nD) Scope Reduction\n  \u2705 Finds the smallest shippable slice, useful if the pilot is purely a signal test\n  \u2705 Separates must-ship-together from nice-to-have follow-up PRs\n  \u274c Conflicts with the approach B you just approved, which deliberately closes silent failure modes\nNet: how many adjacent ideas you want to see before the rigorous pass, versus decision fatigue.": "B: Selective Expansion (Recommended)"
+  },
+  "unansweredQuestionIndices": [],
+  "answeredAt": "2026-09-10T19:29:35.379Z"
+}

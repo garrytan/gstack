@@ -1,0 +1,252 @@
+{
+  "calls": [
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_017g4WN4YN1v3zkpytbwCPKP",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack works best when your project's CLAUDE.md includes skill routing rules (so requests like 'review this diff' auto-route to the right skill). Add them to this project's CLAUDE.md? Note: we're in plan mode, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode, not now.": "Add routing rules to CLAUDE.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:28:48.743Z",
+      "questions": [
+        {
+          "header": "Routing",
+          "question": "gstack works best when your project's CLAUDE.md includes skill routing rules (so requests like 'review this diff' auto-route to the right skill). Add them to this project's CLAUDE.md? Note: we're in plan mode, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode, not now.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules to CLAUDE.md (recommended)",
+              "description": "Appends a '## Skill routing' section mapping request types to /office-hours, /plan-ceo-review, /plan-eng-review, /investigate, /qa, /review, /ship, etc., then commits it. Deferred until plan mode exits."
+            },
+            {
+              "label": "No thanks, I'll invoke skills manually",
+              "description": "Records routing_declined=true in gstack config. Re-enable later with gstack-config set routing_declined false. Asked once per project."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_01AHsbfwWEc3SHd2RdAKVZWM",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Should the new handler go through the existing WebhookDispatcher or bypass it?\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE review.\nELI10: Today one dispatcher receives every verified Stripe event and hands it to the right handler, and the switch that picks 'old handler vs new handler' lives on that path. The sketch skips the dispatcher to get a 'clean namespace', but the namespace is already settled by the class name Webhooks::StripePaymentWebhookHandler. Skipping means a second entry road and moving the old/new switch to a new spot.\nStakes if we pick wrong: a rollback that used to be one flag flip now needs new wiring, and any dispatcher-level behavior is silently skipped for payments.\nRecommendation: A because it reuses the existing routing and flag point, keeping rollback one flip while still delivering the approved app-owned class.\nCompleteness: A=9/10, B=6/10, C=5/10\nNet: same class either way; the question is whether payments get their own private road or ride the road that already has the rollback switch on it.": "A) Register new handler with WebhookDispatcher (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:29:46.529Z",
+      "questions": [
+        {
+          "header": "Approach",
+          "question": "D1 — Should the new handler go through the existing WebhookDispatcher or bypass it?\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE review.\nELI10: Today one dispatcher receives every verified Stripe event and hands it to the right handler, and the switch that picks 'old handler vs new handler' lives on that path. The sketch skips the dispatcher to get a 'clean namespace', but the namespace is already settled by the class name Webhooks::StripePaymentWebhookHandler. Skipping means a second entry road and moving the old/new switch to a new spot.\nStakes if we pick wrong: a rollback that used to be one flag flip now needs new wiring, and any dispatcher-level behavior is silently skipped for payments.\nRecommendation: A because it reuses the existing routing and flag point, keeping rollback one flip while still delivering the approved app-owned class.\nCompleteness: A=9/10, B=6/10, C=5/10\nNet: same class either way; the question is whether payments get their own private road or ride the road that already has the rollback switch on it.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Register new handler with WebhookDispatcher (recommended)",
+              "description": "✅ One dispatch path; the existing handler feature flag and tested rollback stay at their current switch point. ✅ Namespace separation delivered by the Webhooks:: class itself, matching the settled name. ❌ Implementer must learn and conform to the dispatcher's registration interface. Effort: human ~1 day / CC ~30 min. Completeness 9/10."
+            },
+            {
+              "label": "B) Standalone handler bypassing the dispatcher (as sketched)",
+              "description": "✅ No dependency on dispatcher internals; matches the plan text exactly. ✅ Handler can evolve independently of other event types. ❌ Second dispatch path to maintain and the old/new flag must be re-wired at a new switch point, weakening the tested rollback. Effort: human ~1.5 days / CC ~45 min. Completeness 6/10."
+            },
+            {
+              "label": "C) Inline orchestration into WebhookDispatcher, no new class",
+              "description": "✅ Smallest diff and fewest files touched. ✅ Zero new routing or flag wiring. ❌ Puts payment domain logic inside the dispatcher, harder to unit test, and abandons the already-approved handler class name. Effort: human ~half day / CC ~20 min. Completeness 5/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_01FjGJkfrazzzxnGuNTZSFqp",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Finding 2 (Section 2, CRITICAL GAP): the inline email leg has no error handling, so a mail failure turns into a payment replay.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The shared mail client gives up after one second and throws MailTimeout (or a provider error) back to the handler. The sketch does not catch it, so the exception rolls up to the ingress wrapper, which answers HTTP 500 and Stripe re-sends the payment event for up to three days. The plan's own runbook says: never replay the payment to fix a notification, retry only the notification. The sketch does the opposite. Worse, if the email runs inside the DB transaction, the paid status rolls back too.\nStakes if we pick wrong: during a mail outage every payment webhook fails at Stripe, Stripe may flag or disable the endpoint, and users can sit on 'unpaid' for a charge Stripe already took.\nRecommendation: 2A because rescuing only the named mail exceptions after commit is the only option consistent with the retained runbook, the idempotency key, and the durable retry record that already exist.\nCompleteness: 2A=10/10, 2B=4/10, 2C=2/10\nNet: the mail client already records the failed attempt for the on-call retry; the handler just has to stop turning that into a payment retry.": "2A) Commit first, then send; rescue named mail errors only (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:30:44.341Z",
+      "questions": [
+        {
+          "header": "Email rescue",
+          "question": "D2 — Finding 2 (Section 2, CRITICAL GAP): the inline email leg has no error handling, so a mail failure turns into a payment replay.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The shared mail client gives up after one second and throws MailTimeout (or a provider error) back to the handler. The sketch does not catch it, so the exception rolls up to the ingress wrapper, which answers HTTP 500 and Stripe re-sends the payment event for up to three days. The plan's own runbook says: never replay the payment to fix a notification, retry only the notification. The sketch does the opposite. Worse, if the email runs inside the DB transaction, the paid status rolls back too.\nStakes if we pick wrong: during a mail outage every payment webhook fails at Stripe, Stripe may flag or disable the endpoint, and users can sit on 'unpaid' for a charge Stripe already took.\nRecommendation: 2A because rescuing only the named mail exceptions after commit is the only option consistent with the retained runbook, the idempotency key, and the durable retry record that already exist.\nCompleteness: 2A=10/10, 2B=4/10, 2C=2/10\nNet: the mail client already records the failed attempt for the on-call retry; the handler just has to stop turning that into a payment retry.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A) Commit first, then send; rescue named mail errors only (recommended)",
+              "description": "✅ Order: user update commits, then load orders, then mail. Rescue exactly MailTimeout plus the mail client's named provider error classes around the send only (no rescue StandardError, DB errors still propagate to the 500 path). ✅ On rescue: structured warning with event ID, user ID, PaymentIntent ID, handler identity and exception class; existing failure counter increments via the client; handler returns success so ingress acks 200 and dedup marks complete; the client's durable retry record plus existing runbook deliver the receipt. ✅ Verified by unit tests: mail raises -> 200, one update, warning logged, no re-raise; DB raises -> propagates. ❌ Handler now owns a small rescue block that must list exception classes explicitly. Effort: human ~3h / CC ~15 min."
+            },
+            {
+              "label": "2B) Keep rethrow to ingress but move email after commit",
+              "description": "✅ Paid status can no longer roll back with the email. ✅ Smaller code change than 2A. ❌ Still returns 500 and replays the payment event on every mail failure, contradicting the runbook, and still risks Stripe flagging the endpoint during a mail outage. Effort: human ~1h / CC ~5 min. Completeness 4/10."
+            },
+            {
+              "label": "2C) Do nothing; keep the sketch as written",
+              "description": "✅ Zero handler code for error handling. ✅ Matches the plan text. ❌ Mail failure replays the payment and can roll back the paid update if the send is inside the transaction; violates the retained never-replay contract. Effort: none. Completeness 2/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_01SWowWpb59n1h8hpftu6ALj",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Finding 3 (Section 3, CRITICAL GAP): request.params.userId is interpolated into a raw SQL fragment.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The user ID arrives as free text from Stripe metadata. The plan's own contracts say nothing upstream escapes it, user IDs are opaque text that may contain punctuation and Unicode, and a valid Stripe signature does not make the string safe for SQL. Pasting it into a SQL string is a textbook injection hole, and it is also a plain correctness bug: a legitimate ID containing an apostrophe throws a SQL syntax error, the ingress answers 500, Stripe retries for three days, and that user's payment is never marked paid.\nStakes if we pick wrong: threat likelihood Med (needs metadata write access or a crafted stored ID), impact High (payment database). The correctness failure is High likelihood for any punctuated ID.\nRecommendation: 3A because bound parameters remove both the injection vector and the syntax-error failure in one line, using the ORM/DB client that already exists.\nCompleteness: 3A=10/10, 3B=5/10, 3C=1/10\nNet: the ownership guard compares identity, it does not sanitize; the only place that can make the string safe is the query itself.": "3A) Bound-parameter lookup via existing finder, with tests (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:31:28.113Z",
+      "questions": [
+        {
+          "header": "SQL binding",
+          "question": "D3 — Finding 3 (Section 3, CRITICAL GAP): request.params.userId is interpolated into a raw SQL fragment.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The user ID arrives as free text from Stripe metadata. The plan's own contracts say nothing upstream escapes it, user IDs are opaque text that may contain punctuation and Unicode, and a valid Stripe signature does not make the string safe for SQL. Pasting it into a SQL string is a textbook injection hole, and it is also a plain correctness bug: a legitimate ID containing an apostrophe throws a SQL syntax error, the ingress answers 500, Stripe retries for three days, and that user's payment is never marked paid.\nStakes if we pick wrong: threat likelihood Med (needs metadata write access or a crafted stored ID), impact High (payment database). The correctness failure is High likelihood for any punctuated ID.\nRecommendation: 3A because bound parameters remove both the injection vector and the syntax-error failure in one line, using the ORM/DB client that already exists.\nCompleteness: 3A=10/10, 3B=5/10, 3C=1/10\nNet: the ownership guard compares identity, it does not sanitize; the only place that can make the string safe is the query itself.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A) Bound-parameter lookup via existing finder, with tests (recommended)",
+              "description": "✅ Replace the raw fragment with the ORM finder or a bound parameter (`find_by(id:)` or `where(id: ?)`), no string interpolation anywhere in the handler. ✅ No format validation added (contract: every nonempty string is a valid ID), so Unicode and punctuation IDs still resolve. ✅ Tests: user ID containing quote, semicolon, and multibyte characters resolves the right user and no other; unknown ID hits the existing acknowledge path. ❌ None beyond rewriting one query. Effort: human ~1h / CC ~5 min."
+            },
+            {
+              "label": "3B) Keep raw SQL but escape the string with the DB adapter's quote",
+              "description": "✅ Minimal change to the sketched line. ✅ Closes the common injection payloads. ❌ Escaping is adapter-specific and easy to forget on the next edit; leaves raw SQL in a payment path and adds no test evidence. Effort: human ~30 min / CC ~3 min. Completeness 5/10."
+            },
+            {
+              "label": "3C) Do nothing; keep the raw fragment",
+              "description": "✅ Matches the sketch. ✅ Zero work. ❌ SQL injection into the payment database plus permanent payment failure for any punctuated user ID. Effort: none. Completeness 1/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_018TrHwj5rJ5bqSgGDXXMXMs",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Finding 4 (Section 6, CRITICAL GAP): 'No tests planned; rely on the existing integration suite' cannot cover a new, flag-gated handler.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The new handler only runs when the feature flag points at it. The existing suite was written against the prior handler and does not flip that flag, so it exercises zero lines of the new class. The plan's own contracts say the staging replay is manual verification, not automated regression coverage. Today the only proof that a payment marks the user paid and sends exactly one receipt would be a human watching staging once.\nStakes if we pick wrong: a regression in the money path (wrong user updated, two receipts, a rescued error that swallows a DB failure) ships with nothing to catch it, and every later refactor of the handler is blind.\nRecommendation: 4A because well-tested code is non-negotiable in your stated preferences and the complete suite is roughly fifteen minutes of CC time.\nCompleteness: 4A=10/10, 4B=6/10, 4C=1/10\nNet: the assertions are already fixed by the retained contracts (one update, one receipt, exact rescue behavior); the only question is whether a machine checks them on every commit.": "4A) Full unit + ingress integration + concurrency tests (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:32:30.008Z",
+      "questions": [
+        {
+          "header": "Tests",
+          "question": "D4 — Finding 4 (Section 6, CRITICAL GAP): 'No tests planned; rely on the existing integration suite' cannot cover a new, flag-gated handler.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The new handler only runs when the feature flag points at it. The existing suite was written against the prior handler and does not flip that flag, so it exercises zero lines of the new class. The plan's own contracts say the staging replay is manual verification, not automated regression coverage. Today the only proof that a payment marks the user paid and sends exactly one receipt would be a human watching staging once.\nStakes if we pick wrong: a regression in the money path (wrong user updated, two receipts, a rescued error that swallows a DB failure) ships with nothing to catch it, and every later refactor of the handler is blind.\nRecommendation: 4A because well-tested code is non-negotiable in your stated preferences and the complete suite is roughly fifteen minutes of CC time.\nCompleteness: 4A=10/10, 4B=6/10, 4C=1/10\nNet: the assertions are already fixed by the retained contracts (one update, one receipt, exact rescue behavior); the only question is whether a machine checks them on every commit.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A) Full unit + ingress integration + concurrency tests (recommended)",
+              "description": "✅ Unit specs for the handler: happy path (exactly one update with paid + PI, exactly one send keyed by PI); unknown user acks and no update/send; nil and empty email -> skipped_missing_address, no send; zero orders -> one receipt with empty summary; N orders -> summary and exactly one orders query; mail raises MailTimeout and provider error -> 200, one warning with 4 correlation fields, no re-raise; DB raises -> propagates, no completion. ✅ Ingress integration spec with a fixture payment_intent.succeeded under the new flag, asserting trace carries handler identity. ✅ Concurrency spec: two deliveries of the same event with controlled pause at the send -> handler invoked once. ❌ Adds fixtures and a fake mail client to the test tree. Effort: human ~1 day / CC ~15 min."
+            },
+            {
+              "label": "4B) Unit tests for the handler only",
+              "description": "✅ Covers the handler's own branches including the rescue and bound-param lookup. ✅ Faster to write than 4A. ❌ Does not prove the dispatcher registration, flag selection, or lock interaction through the real ingress path; helper coverage alone does not prove the caller. Effort: human ~half day / CC ~8 min. Completeness 6/10."
+            },
+            {
+              "label": "4C) Keep 'none planned'; rely on manual staging replay",
+              "description": "✅ Zero test code. ✅ Matches the sketch. ❌ The existing suite never executes the new handler; every regression in the payment path is caught by humans or customers. Effort: none. Completeness 1/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_01A5A8kqFCcf4vVU4CoRHXrL",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Finding 5 (Section 7): the receipt summary fetches each order in a loop (N+1), inside a 2-second DB deadline.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: After the user lookup, the sketch loops over the user's orders and runs one query per order. A customer with 300 orders means 300 round trips before the receipt can be built. The retained contracts cap DB plus ingress work at two seconds; blow that and the ingress answers 500, Stripe retries, and the same 300 queries run again on every retry. That customer's payment can stay unpaid until someone notices.\nStakes if we pick wrong: your best customers (most orders) are exactly the ones whose payments time out, and each retry adds load to the database during a payment burst.\nRecommendation: 5A because one batched query is the standard fix, the summary semantics do not change, and the query-count assertion is already in the D4 test list.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10\nNet: same receipt, same orders; one query instead of N, with a test that keeps it that way.": "5A) Single batched orders query with preload and a query-count test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:33:15.820Z",
+      "questions": [
+        {
+          "header": "N+1 orders",
+          "question": "D5 — Finding 5 (Section 7): the receipt summary fetches each order in a loop (N+1), inside a 2-second DB deadline.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: After the user lookup, the sketch loops over the user's orders and runs one query per order. A customer with 300 orders means 300 round trips before the receipt can be built. The retained contracts cap DB plus ingress work at two seconds; blow that and the ingress answers 500, Stripe retries, and the same 300 queries run again on every retry. That customer's payment can stay unpaid until someone notices.\nStakes if we pick wrong: your best customers (most orders) are exactly the ones whose payments time out, and each retry adds load to the database during a payment burst.\nRecommendation: 5A because one batched query is the standard fix, the summary semantics do not change, and the query-count assertion is already in the D4 test list.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10\nNet: same receipt, same orders; one query instead of N, with a test that keeps it that way.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A) Single batched orders query with preload and a query-count test (recommended)",
+              "description": "✅ Load the user's orders in one query (`where(user_id:)` plus `includes` for any association the summary renders), matching the prior handler's order selection exactly. ✅ Confirm an index exists on orders.user_id (and any summary join key) during implementation; add one if missing via a backward-compatible migration. ✅ Test asserts exactly one orders query regardless of N, and a 300-order fixture completes well inside the 2s deadline. ❌ None beyond replacing the loop. Effort: human ~2h / CC ~10 min."
+            },
+            {
+              "label": "5B) Keep the loop but cap it at a fixed number of orders",
+              "description": "✅ Bounds worst-case latency. ✅ Small code change. ❌ Changes the receipt contents for high-order customers, which violates 'product semantics retained', and still runs up to the cap in round trips. Effort: human ~1h / CC ~5 min. Completeness 6/10."
+            },
+            {
+              "label": "5C) Keep the loop as sketched",
+              "description": "✅ Zero work. ✅ Matches the sketch. ❌ Payments for high-order customers time out and replay indefinitely; DB load scales with retries. Effort: none. Completeness 2/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_01Hep6rNFTpaAQRvMGnHshH7",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Finding 6 (Section 10): the plan has no in-code request-flow diagram for the handler, so the next engineer reconstructs the ordering rules from tests.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: This handler has non-obvious rules that are easy to break by accident: the update must commit before the send, only mail errors are rescued, DB errors must keep propagating, and the whole thing runs under a lock the handler does not own. None of that is visible from reading the method bodies. Your engineering preferences call for an ASCII diagram in code comments for controllers and services with request flow like this.\nStakes if we pick wrong: a future edit moves the send inside the transaction or widens the rescue, and nothing but a failing test explains why that was wrong.\nRecommendation: 6A because a ten-line diagram at the top of the class is the cheapest form of documentation that survives refactors when it is kept next to the code.\nCompleteness: 6A=10/10, 6B=3/10\nNet: same code either way; the question is whether the ordering and rescue rules are written where the next reader will see them.": "6A) Add a request-flow ASCII diagram in the handler class comment (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:34:03.647Z",
+      "questions": [
+        {
+          "header": "Code diagram",
+          "question": "D6 — Finding 6 (Section 10): the plan has no in-code request-flow diagram for the handler, so the next engineer reconstructs the ordering rules from tests.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: This handler has non-obvious rules that are easy to break by accident: the update must commit before the send, only mail errors are rescued, DB errors must keep propagating, and the whole thing runs under a lock the handler does not own. None of that is visible from reading the method bodies. Your engineering preferences call for an ASCII diagram in code comments for controllers and services with request flow like this.\nStakes if we pick wrong: a future edit moves the send inside the transaction or widens the rescue, and nothing but a failing test explains why that was wrong.\nRecommendation: 6A because a ten-line diagram at the top of the class is the cheapest form of documentation that survives refactors when it is kept next to the code.\nCompleteness: 6A=10/10, 6B=3/10\nNet: same code either way; the question is whether the ordering and rescue rules are written where the next reader will see them.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "6A) Add a request-flow ASCII diagram in the handler class comment (recommended)",
+              "description": "✅ Class-level comment shows: guards upstream, lock scope, lookup -> update (commit) -> orders -> policy -> send, which exceptions propagate vs are rescued, and where the completion marker is written. ✅ Diagram maintenance is named as part of any future change to the handler (stale diagrams are worse than none). ❌ One more artifact to keep current. Effort: human ~20 min / CC ~2 min."
+            },
+            {
+              "label": "6B) Skip the diagram; rely on tests and this plan file",
+              "description": "✅ No comment to maintain. ✅ Zero implementation time. ❌ The plan file is not in the repo, and tests explain what, not why; ordering and rescue rules stay implicit. Effort: none. Completeness 3/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "beee9c81-5294-4ba4-811b-cf9e9774fba8",
+      "toolUseId": "toolu_01UttHC8MV9EqFmmdc7ca9aU",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — TODO candidate: remove the prior library-adapter handler and its flag branch after the new handler bakes.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The approved motivation is to move orchestration out of the prior handler, not to keep two. The flag overlap is needed for rollback, but once the new handler has run cleanly in production for a bake period, the old handler is dead code that still compiles, still has tests, and still confuses the next reader. Nothing in the plan says when or how it goes away.\nStakes if we pick wrong: the codebase carries two payment handlers indefinitely, and a future bug fix lands in the wrong one.\nRecommendation: 7A because writing the removal down with a concrete trigger is the only way it happens; this is an evidenced gap in the accepted scope (a move that never finishes is a copy), not an expansion.\nWhat: delete the prior handler, its adapter glue, and the flag branch; make the new handler the only registration. Why: finish the move. Pros: one payment path, less code. Cons: loses instant rollback, so only after bake. Context: flag lives at the dispatcher (D1); handler identity in traces shows which one ran. Effort: S human -> S CC. Priority: P2. Depends on: new handler at 100% for the agreed bake period with zero handler-attributed incidents.\nNote: options differ in kind, not coverage — no completeness score.\nNet: rollback insurance is worth keeping for weeks, not forever.": "7A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:34:39.384Z",
+      "questions": [
+        {
+          "header": "TODO",
+          "question": "D7 — TODO candidate: remove the prior library-adapter handler and its flag branch after the new handler bakes.\nProject/branch/task: main, Payment Processing Integration, HOLD SCOPE.\nELI10: The approved motivation is to move orchestration out of the prior handler, not to keep two. The flag overlap is needed for rollback, but once the new handler has run cleanly in production for a bake period, the old handler is dead code that still compiles, still has tests, and still confuses the next reader. Nothing in the plan says when or how it goes away.\nStakes if we pick wrong: the codebase carries two payment handlers indefinitely, and a future bug fix lands in the wrong one.\nRecommendation: 7A because writing the removal down with a concrete trigger is the only way it happens; this is an evidenced gap in the accepted scope (a move that never finishes is a copy), not an expansion.\nWhat: delete the prior handler, its adapter glue, and the flag branch; make the new handler the only registration. Why: finish the move. Pros: one payment path, less code. Cons: loses instant rollback, so only after bake. Context: flag lives at the dispatcher (D1); handler identity in traces shows which one ran. Effort: S human -> S CC. Priority: P2. Depends on: new handler at 100% for the agreed bake period with zero handler-attributed incidents.\nNote: options differ in kind, not coverage — no completeness score.\nNet: rollback insurance is worth keeping for weeks, not forever.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "7A) Add to TODOS.md (recommended)",
+              "description": "✅ Removal is written down with its trigger (bake period at 100% with zero handler-attributed incidents) and its dependency on D1's flag location. ✅ Keeps rollback available for the whole bake. ❌ One more item to track; TODOS.md does not yet exist in this repo and would be created outside plan mode. Effort: S human / S CC."
+            },
+            {
+              "label": "7B) Skip; leave the prior handler in place indefinitely",
+              "description": "✅ Permanent rollback path. ✅ No follow-up work. ❌ Two payment handlers forever; the approved move never completes. Effort: none."
+            },
+            {
+              "label": "7C) Build it now: delete the prior handler in this change",
+              "description": "✅ One handler, cleanest tree, smallest long-term surface. ✅ No follow-up item. ❌ Removes the tested rollback path the plan explicitly relies on before the new handler has run in production. Effort: S human / S CC."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

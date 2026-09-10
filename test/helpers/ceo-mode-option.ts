@@ -17,7 +17,7 @@ import type { NativePlanQuestionCall, NativePublicToolEvent, PlanCountTranscript
 type CeoMode = 'HOLD SCOPE' | 'SCOPE EXPANSION' | 'SELECTIVE EXPANSION' | 'SCOPE REDUCTION';
 
 function modeTitle(label: string): string | undefined {
-  const title = label.split(/[│┌\r\n]/, 1)[0]!.trim().replace(/^[A-Z][).]\s*/i, '').replace(/\s+/g, '').toUpperCase();
+  const title = label.split(/[│┌\r\n]/, 1)[0]!.trim().replace(/^[A-Z][).:]\s*/i, '').replace(/\s+/g, '').toUpperCase();
   return /^(HOLDSCOPE|SCOPEEXPANSION|SELECTIVEEXPANSION|SCOPEREDUCTION)(?:$|[^A-Z])/.exec(title)?.[1];
 }
 

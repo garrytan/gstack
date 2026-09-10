@@ -65,6 +65,7 @@ describeE2E('/plan-eng-review multi-finding batching regression (periodic)', () 
           skillName: 'plan-eng-review',
           slashCommand: '/plan-eng-review',
           followUpPrompt,
+          permissionPlanPath: planPath,
           isLastStep0AUQ: engStep0Boundary,
           isSetupAUQ: engSetupAUQ,
           isFirstReviewAUQ: engFirstReviewAUQ,

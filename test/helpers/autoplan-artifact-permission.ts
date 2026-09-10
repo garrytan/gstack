@@ -259,6 +259,60 @@ function queuedPlanViewport(viewport: string, queuedPlans: number, current: Nati
   return [lines[title], '', ...lines.slice(panel)].join('\n');
 }
 
+/** Native batch redraws are display-only: bind their titles, waiting command,
+ * and one clipped context row to public events before removing the prefix. */
+function queuedArtifactViewport(viewport: string, current: NativePublicToolEvent,
+  events: NativePublicToolEvent[], queued: ReadonlySet<string>, file: string,
+  pendingTime: number, ownedStateRoot?: string): string {
+  if (!queued.size || !ownedStateRoot) return viewport;
+  const successors = events.filter(e => e.kind === 'use' && queued.has(e.toolUseId));
+  if (successors.some(e => e.input?.file_path !== file)) return viewport;
+  const lines = viewport.replace(/\r\n?/g, '\n').split('\n');
+  const firstTitle = lines.findIndex(line => /^[●⏺] Update\(/.test(line));
+  const panel = lines.findIndex((line, i) => i > firstTitle && /^[─╌]{8,}$/.test(line));
+  if (firstTitle < 1 || panel < 0) return viewport;
+  const prefix = lines.slice(0, firstTitle).filter(line => line.trim());
+  const clipped = prefix.length === 1 && /^ {10}(\S.{15,})$/.exec(prefix[0]!);
+  if (!clipped) return viewport;
+  const relative = path.relative(ownedStateRoot, file).split(path.sep).join('/');
+  const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
+  const rows = lines.slice(firstTitle, panel).filter(line => line.trim());
+  const titles = rows.slice(0, successors.length + 1);
+  if (titles.length !== successors.length + 1 || titles.some(row => {
+    const title = /^[●⏺] Update\(([^\n]+)\)$/.exec(row);
+    return !title || (title[1] !== file && title[1] !== alias);
+  })) return viewport;
+  const bash = rows.slice(titles.length);
+  if (bash.length < 2 || !/^ {2}⎿[ \u00a0]+Waiting…$/.test(bash.at(-1)!)) return viewport;
+  const parts = bash.slice(0, -1).map((row, i) =>
+    (i === 0 ? /^[●⏺] Bash\((.+)$/ : /^ {6}(.+)$/).exec(row)?.[1]);
+  if (parts.some(part => part === undefined)) return viewport;
+  const rendered = parts.join('');
+  if (!rendered.endsWith('…)')) return viewport;
+  const commandPrefix = compact(rendered.slice(0, -2));
+  const waiting = events.filter(e => e.kind === 'use' && e.name === 'Bash' &&
+    e.messageId === current.messageId && e.requestId === current.requestId &&
+    events.indexOf(e) > Math.max(...successors.map(s => events.indexOf(s))) &&
+    !events.some(result => result.kind === 'result' && result.toolUseId === e.toolUseId) &&
+    typeof e.input?.command === 'string' && compact(e.input.command).startsWith(commandPrefix));
+  if (commandPrefix.length < 32 || waiting.length !== 1) return viewport;
+  const completed = events.filter(e => e.kind === 'result' && e.isError === false &&
+    Date.parse(e.timestamp) <= pendingTime).map(result => ({result, use:events.find(e =>
+      e.kind === 'use' && e.toolUseId === result.toolUseId)})).filter(({use}) =>
+        use?.name === 'Edit' && use.input?.file_path === file &&
+        use.messageId === current.messageId && use.requestId === current.requestId).at(-1);
+  const replacement = completed?.use?.input?.new_string;
+  if (typeof replacement !== 'string' || !replacement) return viewport;
+  const before = fs.readFileSync(file, 'utf8'), at = before.indexOf(replacement);
+  if (at < 0 || before.indexOf(replacement, at + 1) !== -1) return viewport;
+  // Native diffs display at most three unchanged context lines after an edit.
+  // The cropped row must be a suffix of one of those current, unchanged lines.
+  const lineEnd = before.indexOf('\n', at + replacement.length);
+  const context = lineEnd < 0 ? [] : before.slice(lineEnd + 1).split('\n').slice(0, 3);
+  if (!context.some(line => compact(line).endsWith(compact(clipped[1]!)))) return viewport;
+  return lines.slice(panel).join('\n');
+}
+
 /** Metadata-only fallback. Added rows are display evidence, never request content. */
 export function pendingAutoplanArtifactPermissionInput(viewport: string,
   context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact; viewportCapturedAt: number },
@@ -404,7 +458,8 @@ export function publishedAutoplanArtifactPermissionInput(viewport: string,
     if (!actual || actual.beforeSHA256!==expected.beforeSHA256 || actual.requestSHA256!==expected.requestSHA256 ||
         JSON.stringify(actual.oldLineHashes)!==JSON.stringify(expected.oldLineHashes) ||
         JSON.stringify(actual.newLineHashes)!==JSON.stringify(expected.newLineHashes)) return null;
-    return autoplanArtifactPermissionInput(queuedPlanViewport(viewport,queuedPlans,current,events),{...context,
+    const rendered = queuedArtifactViewport(viewport,current,events,queued,p.file,pendingTime,context.ownedStateRoot);
+    return autoplanArtifactPermissionInput(queuedPlanViewport(rendered,queuedPlans,current,events),{...context,
       publicTools:events.filter(e=>!queued.has(e.toolUseId))},seen);
   } catch { return null; }
 }

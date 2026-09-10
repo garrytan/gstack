@@ -84,13 +84,18 @@ function hasUnattributedOutsideCompletion(output: string): boolean {
     // Agreement is a current prose claim unless explicitly denied; an old
     // log entry only establishes the provenance of its recorded status value.
     if (/^both reviewers agree$/i.test(match[0])) return true;
-    const record = [...before.matchAll(/\b(?:earlier|prior|historical|old)\s+(?:entry|record|line)\b/gi)].at(-1);
+    const record = [...before.matchAll(/\b(?:earlier|prior|historical|old(?:er)?)\s+(?:entry|record|line)\b/gi)].at(-1);
     if (!record) return true;
     // Bind this occurrence to an old record's reported value. A mere mention
     // of a record, a second status, or a new reporting subject cannot inherit
     // its historical attribution, even without a sentence boundary.
     const prefix = before.slice(record.index + record[0].length);
-    const report = /^(?:\s*,?\s*timestamped\b[^,;.!?]{1,160},?)?\s*(?:(?:claiming|shows?|showed|says?|said|records?|recorded|reported)\b|:)\s*/i.exec(prefix);
+    // Date metadata still describes this record's own value. Admit explicit
+    // clock or pre-run timestamps, not arbitrary prose that can change subjects.
+    const clock = String.raw`\s+from\s+(?:[01]\d|2[0-3]):[0-5]\d,?`;
+    const beforeRun = String.raw`\s*,?\s*(?:written|recorded)\s+(?:about\s+)?(?:a|an|one|\d+)\s+(?:minute|hour|day|week)s?\s+before\s+this\s+(?:run|session|workflow)(?:\s+(?:started|began))?,?`;
+    const timestamp = String.raw`(?:\s*,?\s*timestamped\b[^,;.!?]{1,160},?|${clock}|${beforeRun})`;
+    const report = new RegExp(String.raw`^(?:${timestamp})?\s*(?:(?:that\s+)?(?:claims?|claiming|shows?|showed|says?|said|records?|recorded|reported)\b|:)\s*`, 'i').exec(prefix);
     // Only intervening review-log metadata belongs to this reported value.
     // Arbitrary prose could switch to a new subject without an earlier status.
     const field = String.raw`["']?(?:status|source|host|outside_provider|phase|timestamp)["']?\s*[:=]\s*["']?[a-z0-9_.:+-]+["']?`;

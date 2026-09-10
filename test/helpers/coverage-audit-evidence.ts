@@ -77,9 +77,11 @@ function readsFile(command: unknown, file: string, cwd: string): boolean {
     return stages.every(value => {
       const stage = value.trim().replace(/(?:^|\s)2>\/dev\/null(?=\s|$)/g, ' ').trim();
       if (/[<>]/.test(stage.replace(/'[^']*'|"[^"]*"/g, ''))) return false;
-      // Backslashes are data only in this closed, single-quoted grep pattern.
+      // Backslashes are data only in these closed grep display patterns.
       // In particular, echo -e cannot print replacement fixture bodies.
-      const displayGrep = /^grep\s+-n\s+"(?:[^"\\$`]|\\[|.])*"\s+[^\\]+$/.test(stage);
+      const grepRange = /^grep\s+-n(?:\s+-i)?(?:\s+-B\d{1,4})?(?:\s+-A\d{1,4})?\s+"(?:[^"\\$`]|\\[|.])*"\s+(.+)$/.exec(stage);
+      const grepInput = grepRange && literal(grepRange[1]!);
+      const displayGrep = Boolean(grepInput && !grepInput.startsWith('-'));
       // An awk range without actions only prints matching input lines.
       // Programs, BEGIN/END, output redirection and interpreter calls cannot
       // match this grammar, and its input path must be one literal operand.
@@ -99,7 +101,15 @@ function readsFile(command: unknown, file: string, cwd: string): boolean {
     });
   };
   if (parts.some(p => p && !readOnly(p))) return false;
-  if (andList && parts.some(p => readTarget(p) === undefined && !/^echo\s+[-=]+$/.test(p))) return false;
+  // A successful, unmixed && list may include literal display separators
+  // and a closed diff-stat command. These segments never receive file credit.
+  const andDisplay = (p: string) => {
+    if (p === 'echo' || /^echo\s+[-=]+$/.test(p)) return true;
+    const caption = /^echo\s+(.+)$/.exec(p), value = caption && literal(caption[1]!);
+    if (value && /^[-=]{2,}\s+[A-Za-z0-9_][A-Za-z0-9_./-]*(?:\s+(?:vs|and)\s+[A-Za-z0-9_][A-Za-z0-9_./-]*)?\s+[-=]{2,}$/.test(value)) return true;
+    return /^git\s+diff(?:\s+[A-Za-z0-9_][A-Za-z0-9_./~^-]*)?\s+--stat$/.test(p);
+  };
+  if (andList && parts.some(p => readTarget(p) === undefined && !andDisplay(p))) return false;
   return parts.some(p => {
     const target = readTarget(p);
     return target !== undefined && path.resolve(cwd, target) === file;
@@ -222,16 +232,41 @@ function diagramLegend(lines: string[], firstRow: number): Map<string, boolean> 
   return meanings;
 }
 
+/** Text markers need an explicit, current legend in this same diagram block. */
+function diagramWordLegend(lines: string[]): Map<string, boolean> | undefined {
+  const declarations = lines.filter(line => /^\s*Legend\b/i.test(line) && /\[\s*(?:OK|GAP)\s*\]/i.test(line));
+  if (!declarations.length) return undefined;
+  const meanings = new Map<string, boolean>();
+  const pair = String.raw`\[\s*(OK|GAP)\s*\]\s+(covered|tested|no test|untested)`;
+  const form = new RegExp(String.raw`^\s*Legend:?\s+${pair}(?:\s+[|,;]?\s*|[|,;]\s*)${pair}\s*$`, 'i');
+  for (const line of declarations) {
+    const match = form.exec(line);
+    if (!match || match[1]!.toUpperCase() === match[3]!.toUpperCase()) return new Map();
+    for (const [name, description] of [[match[1]!, match[2]!], [match[3]!, match[4]!]]) {
+      const key = name.toUpperCase(), covered = /^(?:covered|tested)$/i.test(description);
+      if ((key === 'OK') !== covered || (meanings.has(key) && meanings.get(key) !== covered)) return new Map();
+      meanings.set(key, covered);
+    }
+  }
+  if (lines.some(line => /^\s*(?:Correction:\s*)?(?:This|The|That)\s+legend\s+(?:is|has been)\s+['"‘’“”`]*(?:withdrawn|superseded|cancelled|canceled|rejected|retracted|not current|no longer current)\b/i.test(line))) return new Map();
+  return meanings;
+}
+
 function seededDiagram(output: string): boolean {
   for (const lines of diagramBlocks(output)) {
     const rows = lines.map(treeRow);
     const legend = diagramLegend(lines, rows.findIndex(row => row !== undefined));
+    const wordLegend = diagramWordLegend(lines);
+    const marker = String.raw`(?:\[[✓✔✗✘]\]|\[\s*(?:OK|GAP)\s*\])`;
+    const marked = (line: string) => /\[[✓✔✗✘]\]|\[\s*OK\s*\]/i.test(line) ||
+      (wordLegend !== undefined && /\[\s*GAP\s*\]/i.test(line));
     const symbolMeans = (line: string, covered: boolean) => {
-      if (/\b(?:not|never)\s+\[[✓✔✗✘]\]|(?:\[[✓✔✗✘]\]|\b(?:marker|symbol))\s+(?:is|are)\s+(?:false|incorrect|wrong)\b/i.test(line)) return false;
+      if (new RegExp(String.raw`\b(?:not|never)\s+${marker}|(?:${marker}|\b(?:marker|symbol))\s+(?:is|are)\s+(?:false|incorrect|wrong)\b`, 'i').test(line)) return false;
       // A status correction [covered]→[gap] carries only its final marker.
       // Unrelated contradictory markers cannot supply both coverage states.
-      const corrected = line.replace(/\[[✓✔✗✘]\][\t ]*(?:→|->)[\t ]*(?=\[[✓✔✗✘]\])/g, '');
-      const states = [...corrected.matchAll(/\[([✓✔✗✘])\]/g)].map(match => legend.get(match[1]!));
+      const corrected = line.replace(new RegExp(marker + String.raw`[\t ]*(?:→|->)[\t ]*(?=` + marker + ')', 'gi'), '');
+      const states = [...corrected.matchAll(/\[([✓✔✗✘])\]|\[\s*(OK|GAP)\s*\]/gi)]
+        .map(match => match[1] ? legend.get(match[1]) : wordLegend?.get(match[2]!.toUpperCase()));
       return states.includes(covered) && !states.includes(!covered);
     };
     const payment = rows.findIndex(row => row && /^processPayment\b/.test(row.text));
@@ -247,11 +282,11 @@ function seededDiagram(output: string): boolean {
       return texts;
     };
     const covered = subtree(payment).some(line =>
-      (/\[[✓✔✗✘]\]/.test(line) ? symbolMeans(line, true) :
+      (marked(line) ? symbolMeans(line, true) :
        /(?:\bTESTED\b|\bCOVERED\b)/i.test(line) || (/✓/.test(line) && (legend.get('✓') ?? true))) && /happy|success|valid|USD/i.test(line) &&
       !/untested|(?:not|never)\s+(?:yet\s+)?(?:tested|covered)|no\s+test/i.test(line));
     const missing = subtree(refund).some(line =>
-      (/\[[✓✔✗✘]\]/.test(line) ? symbolMeans(line, false) : /(?:\[GAP\]|✗\s*GAP|\bUNTESTED\b)/i.test(line)) &&
+      (marked(line) ? symbolMeans(line, false) : /(?:\[GAP\]|✗\s*GAP|\bUNTESTED\b)/i.test(line)) &&
       !/\b(?:not|never)\s+(?:\[)?(?:untested|gap)\b|\b(?:untested|gap)\]?\s+(?:is|are)\s+(?:false|incorrect|wrong)\b|\bno\s+(?:coverage\s+)?gaps?\b|\b(?:fully|completely)\s+(?:tested|covered)\b/i.test(line));
     if (covered && missing) return true;
   }
