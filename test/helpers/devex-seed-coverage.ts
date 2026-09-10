@@ -38,14 +38,48 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
 
 /** Identify a dedicated seed decision by its subject and meaningful alternatives. */
 function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
-  const title = q.question.split('\n')[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
-    .replace(/`([^`\n]+)`/g, '$1');
-  if (!title.endsWith('?') || (title.match(/\?/g)?.length ?? 0) !== 1 ||
+  const rawTitle = q.question.split('\n')[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
+  const title = rawTitle.replace(/`([^`\n]+)`/g, '$1');
+  const questionMarks = title.match(/\?/g)?.length ?? 0;
+  // A native choice can present an asserted defect as its title. Punctuation
+  // does not turn its concrete offered repairs into a missing review decision.
+  const declaration = questionMarks === 0 &&
+    /^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(title) &&
+    !/^`[^`]*`$/.test(rawTitle) &&
+    !/\b(?:if|unless|suppose|might|may|could|would|previously|earlier|historical|hypothetical|example|quoted|source|never|no longer|does not|do not|did not)\b/i.test(title);
+  if ((!declaration && (!title.endsWith('?') || questionMarks !== 1)) ||
       /^(?:>|"|“|Example\b|Quoted\b|Suppose\b)|\bhypothetical\b/i.test(title) ||
       /\b(?:continue|proceed|next section|move on|format|already (?:fixed|resolved))\b/i.test(title) ||
       /\b(?:have|did)\b[^?]*\bread\b|\b(?:narrative|trace|recap|summary)\b[^?]*\b(?:accurate|match|confirm)\b/i.test(title) ||
       /\b(?:report|summary|recap)\b[^?]*\b(?:mention|include|reference|list)\b|\b(?:mention|include|reference|list)\b[^?]*\b(?:report|summary|recap)\b/i.test(title)) return [];
-  const options = q.options.map(o => `${o.label} ${o.description ?? ''}`);
+  let offered = q.options;
+  if (declaration) {
+    const currentProse = (text: string) => {
+      let fence = false;
+      return text.split('\n').filter(line => {
+        if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; return false; }
+        return !fence && !/^\s*>/.test(line);
+      }).join('\n')
+        .replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation|option|action|correction) (?:is|was|has been) )["“](withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current|cancelled)["”]/gim, '$1$2$3')
+        .replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, '');
+    };
+    const sourceFrame = /(?:^|[.!?\n;]\s*)(?:(?:ELI10|Project\/branch\/task):\s*)?(?:(?:Source(?: excerpt| example)?|Quoted(?: source| example)?|Historical(?: example| assessment)?(?: only)?|Earlier(?: review)? assessment|Example|Hypothetical(?: example| assessment)?|If approved|If accepted)[,:]|(?:The following|This assessment|This explanation)\b[^.\n]*\b(?:quoted|source|historical|hypothetical|example)\b|Historically,)/i;
+    const lines = q.question.split('\n'), explanation = lines.findIndex(line => /^ELI10:/.test(line));
+    const preface = lines.slice(0, explanation < 0 ? undefined : explanation + 1).join('\n');
+    if (/^\s*(?:```|~~~)/m.test(preface) || sourceFrame.test(currentProse(preface)) ||
+        /\bnot (?:a )?current (?:finding|issue|defect)\b/i.test(currentProse(preface))) return [];
+    const current = currentProse(q.question);
+    if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current|(?:a |only a )?source example)|there is no (?:current )?(?:finding|issue|gap|defect))\b/i.test(current)) return [];
+    // A declaration's action evidence must belong to a current offered option,
+    // rather than an example or an explicitly withdrawn correction.
+    const action = (text: string) => currentProse(text.replace(/`([A-Za-z_$][\w.$/-]*(?:\([^`\n]*\))?)`/g, '$1'));
+    offered = offered.filter(option => {
+      const text = `${option.label}\n${option.description ?? ''}`, prose = currentProse(text);
+      return !/^(?:>|"|“)|^`[^`]*`$/.test(option.label.trim()) && !sourceFrame.test(prose) &&
+        !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|the) (?:option|action|correction) (?:is|was|has been) (?:withdrawn|rejected|cancelled)\b/i.test(prose);
+    }).map(option => ({ ...option, label: action(option.label), description: action(option.description ?? '') }));
+  }
+  const options = offered.map(o => `${o.label} ${o.description ?? ''}`);
   const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)$/i, '').toLowerCase());
   const yesNo = labels.length === 2 && labels.includes('yes') && labels.includes('no');
   // A terse Yes/No panel still resolves an action explicitly asked in the
@@ -59,16 +93,20 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
       (options.some(o => /\b(?:no CI gate|remove|move|skip|bypass|gate)\b/i.test(o) && /\b(?:CI|check|gate|local|demo)\b/i.test(o)) || directAction('remove|move|skip|bypass|gate'))) found.push('local-ci-gate');
   if (/\bquickstart\b|examples\/first_eval\.py/i.test(title) &&
       /\b(?:README|file|example|demo|missing|absent|package|wheel|ship|point)\b|first_eval\.py/i.test(title) &&
+      (!declaration || /\b(?:not (?:shipped|included|available|present)|missing|absent|nonexistent|does not exist)\b/i.test(title)) &&
       (options.some(o => /\b(?:point|ship|add|demo is)\b/i.test(o) && /\bquickstart\b|first_eval\.py/i.test(o)) || directAction('point|ship|add|replace|fix'))) found.push('missing-quickstart');
   if (explainedReversedSignatures(q, title) || (/\brun_eval\b/i.test(title) && /\brun_batch\b/i.test(title) &&
       /\b(?:arguments?|order|positional|reversed|opposite|consistent|align|unify|dataset|evaluator)\b/i.test(title) &&
+      (!declaration || /\b(?:reversed|opposite|swapped|inconsistent)\b/i.test(title)) &&
       (options.some(o => /\b(?:align|unify|standardize|keyword|swap)\b/i.test(o) && /\b(?:order|dataset|arguments?|positional)\b/i.test(o)) || directAction('align|unify|standardize|enforce|make')))) found.push('reversed-arguments');
   if (/\bAuthError\b|\binvalid API key\b/i.test(title) &&
       /\b(?:error|message|code|cause|fix|guidance|opaque|explain)\b|request failed/i.test(title) &&
-      (options.some(o => /\bcode\b/i.test(o) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
+      (!declaration || /\b(?:no (?:cause|fix|explanation|code)|opaque)\b|request failed/i.test(title)) &&
+      (options.some(o => /\bcodes?\b/i.test(o) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
   if (/Client\.evaluate\b/i.test(title) &&
       /Client\.run\b|\b(?:v\d+|version \d+|alias|deprecation|migration)\b/i.test(title) &&
       /\b(?:alias|warning|compatibility|deprecat\w*|migration|remov\w*|rename|keep)\b/i.test(title) &&
+      (!declaration || /\b(?:no |without (?:a )?)(?:compatibility )?(?:alias|warning|migration (?:guide|path))\b/i.test(title)) &&
       (options.some(o => /\balias\b/i.test(o) && /\b(?:warning|DeprecationWarning|migration)\b/i.test(o)) || directAction('keep|add|preserve|provide|retain'))) found.push('breaking-upgrade');
   return found;
 }

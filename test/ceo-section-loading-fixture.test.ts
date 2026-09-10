@@ -433,3 +433,46 @@ describe('coordination findings require directly asserted premises and conclusio
     ['mismatched fence', '~~~text\n' + premise + claim + '\n```\n' + premise + claim],
   ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
 });
+
+// AM first SDK report, exact public Write53 acknowledged by native result54.
+// The original report remains in run evidence; this is its complete asserted paragraph.
+describe('reported original coordination violation with an owned finding citation', () => {
+  const finding = "`[Amended: F1, F2, F3, F6]` The original sketch stated that no coordination\nbetween a cache fill and a write was proposed. Review showed that sketch\nviolates the retained read-after-write invariant (see F1). The ordering rules\nbelow replace it. They are the complete new read/write ordering rules.";
+  test('accepts the exact owned paragraph without requiring its separate amended diagram', () => {
+    expect(hasStaleFillRaceFinding(finding)).toBe(true);
+    expect(hasStaleFillRaceFinding('## Proposed wrapper integration\n\n' + finding)).toBe(true);
+  });
+  test('binds the named violation to its original subject and finding identity', () => {
+    expect(hasStaleFillRaceFinding(finding.replaceAll('F1', 'F7'))).toBe(true);
+    expect(hasStaleFillRaceFinding(finding.replaceAll('sketch', 'wrapper'))).toBe(true);
+    expect(hasStaleFillRaceFinding('## Historical example\n\nA copied example.\n\n## Current review\n\n' + finding)).toBe(true);
+    expect(hasStaleFillRaceFinding(finding + '\n\n## Assessment of F2\nF2 is rejected.')).toBe(true);
+    expect(hasStaleFillRaceFinding(finding + '\n\n## Assessment of F1\n> F1 is rejected.')).toBe(true);
+  });
+  test.each([
+    ['negated missing coordination', finding.replace('no coordination', 'coordination')],
+    ['unrelated operations', finding.replace('cache fill and a write', 'cache hit and a read')],
+    ['uncertain absence', finding.replace('stated that no', 'might have stated that no')],
+    ['unproven violation', finding.replace('Review showed', 'Review may show')],
+    ['negated violation', finding.replace('sketch\nviolates', 'sketch\ndoes not violate')],
+    ['hypothetical violation', finding.replace('sketch\nviolates', 'sketch\nmight violate')],
+    ['wrong contract', finding.replace('read-after-write', 'read-before-write')],
+    ['different subject', finding.replace('Review showed that sketch', 'Review showed that wrapper')],
+    ['missing finding identity', finding.replace(' (see F1)', '')],
+    ['question rather than conclusion', finding.replace('(see F1).', '(see F1)?')],
+    ['conditional finding', 'If approved: ' + finding],
+    ['historical owner', '## Historical example\n\n' + finding],
+    ['source owner', '## Quoted source\n\n' + finding],
+    ['hypothetical owner', '## Hypothetical example\n\n' + finding],
+    ['explicit source preface', 'The following is a quoted source excerpt.\n\n' + finding],
+    ['quoted paragraph', '"' + finding + '"'],
+    ['block quote', finding.split('\n').map(line => '> ' + line).join('\n')],
+    ['fenced source', '````text\n' + finding + '\n````'],
+    ['literal assertion', finding.replace('The original sketch', '`The original sketch').replace('(see F1).', '(see F1).`')],
+    ['split unrelated section', finding.replace('Review showed', '\n\n## Another finding\nReview showed')],
+    ['direct same-finding withdrawal', finding + '\n\nF1 is rejected.'],
+    ['later named same-finding withdrawal', finding + '\n\n## Assessment of F1\nF1 is withdrawn.'],
+    ['dismissed defect', finding + '\n\nThis is not a defect; no fix is required.'],
+    ['accepted stale consequence', finding + '\n\nA subsequent stale read is permitted by the amended contract.'],
+  ])('rejects %s', (_name, text) => expect(hasStaleFillRaceFinding(text)).toBe(false));
+});

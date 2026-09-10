@@ -16,6 +16,8 @@ const keys = (v: Record<string, any>, allowed: string[]) => Object.keys(v).every
 const quote = (v: string) => `'${(process.platform === 'win32' ? v.replaceAll('\\','/') : v).replaceAll("'", "'\\''")}'`;
 export interface PendingAutoplanArtifact {
   source:'pre_tool_use'; sessionId:string; toolUseId:string; tool:'Edit'; file:string; timestamp:string; editDigest?:AutoplanEditDigest;
+  /** Validated recorder tombstones; exposed only by the published-current opt-in. */
+  hookSeenIds?:string[];
 }
 interface Pending extends PendingAutoplanArtifact { transcriptPath:string }
 interface State { version:1; cwd:string; config:string; stateRoot:string; sessionId?:string; seenIds:string[]; pending:Pending|null }
@@ -141,15 +143,16 @@ export function autoplanArtifactRecorderStatus(file:string|undefined,cwd:string,
   } catch { return {status:'invalid',reason:'record_error'}; }
 }
 export function readPendingAutoplanArtifact(file:string|undefined,cwd:string,config:string|null,stateRoot:string|undefined,
-  startedAt:number, publicTools:readonly NativePublicToolEvent[], now=Date.now()): PendingAutoplanArtifact|undefined {
+  startedAt:number, publicTools:readonly NativePublicToolEvent[], now=Date.now(), allowPublished=false): PendingAutoplanArtifact|undefined {
   if (!file || !config || !stateRoot || !Number.isFinite(startedAt) || !Number.isFinite(now) ||
       autoplanArtifactRecorderStatus(file,cwd,config,stateRoot).status!=='pending') return undefined;
   try {
-    const p=readState(file,cwd,config,stateRoot).pending!;
+    const state=readState(file,cwd,config,stateRoot), p=state.pending!;
     const time=Date.parse(p.timestamp), sessions=new Set(publicTools.map(e=>e.sessionId));
     if (sessions.size!==1 || !sessions.has(p.sessionId) || time<startedAt || time>now ||
-        publicTools.some(e=>e.toolUseId===p.toolUseId)) return undefined;
-    const {transcriptPath:_,...pending}=p; return pending;
+        (!allowPublished && publicTools.some(e=>e.toolUseId===p.toolUseId))) return undefined;
+    const {transcriptPath:_,...pending}=p;
+    return allowPublished ? {...pending,hookSeenIds:[...state.seenIds]} : pending;
   } catch { return undefined; }
 }
 if (import.meta.main && process.argv[2]==='--record') {

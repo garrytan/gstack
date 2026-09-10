@@ -30,7 +30,7 @@ import {
   isNumberedOptionListVisible,
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
-import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, autoplanArtifactMenuKey } from './helpers/autoplan-artifact-permission';
+import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, publishedAutoplanArtifactPermissionInput, autoplanArtifactMenuKey } from './helpers/autoplan-artifact-permission';
 import { readPendingAutoplanArtifact, autoplanArtifactRecorderStatus } from './helpers/autoplan-artifact-recorder';
 import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
@@ -110,7 +110,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           pendingSetupQuestion = readPendingQuestion(session.pendingQuestionFile, tempDir,
             session.hermeticConfigDir, commandStartedAt, transcript);
           pendingArtifact = readPendingAutoplanArtifact(session.pendingAutoplanArtifactFile, tempDir,
-            session.hermeticConfigDir, session.hermeticSkillStateRoot, commandStartedAt, publicTools);
+            session.hermeticConfigDir, session.hermeticSkillStateRoot, commandStartedAt, publicTools, Date.now(), true);
           methodologyAudit = auditAutoplanMethodReads(publicTools, prompt =>
             loadAutoplanMethodologyBinding(prompt, [getHermeticDirs().runRoot, nativeState!.env.GSTACK_HOME!]));
           hits = autoplanPhaseCompletions(transcript, commandStartedAt);
@@ -160,6 +160,9 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             const artifactPermission = autoplanArtifactPermissionInput(visible, {
               cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot,
               commandStartedAt, transcriptStatus: transcript.status, publicTools,
+            }, seenArtifactPermissions) ?? publishedAutoplanArtifactPermissionInput(visible, {
+              cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,
+              transcriptStatus: transcript.status, publicTools, pending: pendingArtifact, viewportCapturedAt,
             }, seenArtifactPermissions) ?? pendingAutoplanArtifactPermissionInput(visible, {
               cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,
               transcriptStatus: transcript.status, publicTools, pending: pendingArtifact, viewportCapturedAt,

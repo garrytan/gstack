@@ -2426,9 +2426,23 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
         new Set(labels.map(token => token![2]!.toUpperCase())).size !== labels.length) return false;
   }
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
-  const parenthesized = /^D[1-9]\d*\s+\((?:issue|finding)\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+  const parenthesized = /^D[1-9]\d*\s+\((?:issue|finding)\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*([^\n?]+\?)$/i.exec(title);
   if (parenthesized && (allowQuestionId || /^D[1-9]\d*\s+\(Finding\s/i.test(title) || (parenthesized[1]!.includes('.') &&
       !/^(?:(?:Finding|Issue)\s+F?|F)[1-9]\d*/i.test(q.header.trim())))) return ceoParenthesizedIssueBrief(q, parenthesized[1]!);
+  // A descriptive header can name the affected test. The full owned brief,
+  // rather than that header, must supply its current gap and offered remedy.
+  if (parenthesized && !/^(?:finding|issue)\b|^f\d/i.test(q.header.trim())) {
+    const prefix = q.question.slice(title.length, q.question.indexOf('\nELI10:'))
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    // A standalone preface owns the assessment below it. Only current
+    // question metadata or a wholly quoted note may precede this new path.
+    const ownedPrefix = prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+      /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line));
+    const framed = /(?:^|\n)\s*(?:if|unless|whether|suppose|imagine)\b|\b(?:earlier|previous|historical|hypothetical|quoted|source)\s+(?:review\s+)?(?:assessment|example|excerpt|material|text|finding)\b|\b(?:assessment|finding|issue)\s+(?:is|was|represents?)\s+(?:(?:only|just|a|an)\s+)*(?:hypothetical|historical|quoted|example|source)\b/i.test(prefix);
+    if (ownedPrefix && !framed && ceoNumberedBriefDecision(q, parenthesized[2]!)) return true;
+  }
   if (identity && !/^[^\n?]+\?$/.test(identity[3]!) && !ceoNumberedBriefDecision(q, identity[3]!)) return false;
   if (numberedSubject && (numberedSubject[2]!.trim().toLowerCase() !== q.header.trim().toLowerCase() ||
       !ceoNumberedBriefDecision(q, numberedSubject[3]!))) return false;
@@ -2678,6 +2692,47 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
       fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
       /<gstack-qid/i.test(q.question)) return false;
   const title = q.question.split('\n')[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '');
+  // A descriptive native header can carry the decision ordinal while the
+  // current brief owns the architecture finding and its cache remedy.
+  const injected = /^Module-level ([A-Za-z_$][\w$]*) singleton (?:→|->) constructor injection with a single writer\?$/i.exec(title);
+  if (injected) {
+    const ordinal = /^D([1-9]\d*)\s*[—–:-]/i.exec(q.question);
+    if (!ordinal || !new RegExp(`^D${ordinal[1]} DI$`, 'i').test(q.header.trim())) return false;
+    const current = (text: string) => text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/["“](withdrawn|rejected|cancelled|canceled|resolved|closed|not current)["”]/gi, '$1')
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '');
+    const text = current(q.question), assessment = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    const preface = text.slice(text.indexOf('\n') + 1, assessment[0]?.index ?? 0).trim().split('\n').filter(Boolean);
+    const framing = /\b(?:source|quoted|historical|hypothetical|proposed|unrelated|earlier|previous)\s+(?:review\s+)?(?:example|excerpt|assessment|finding|text)\b|(?:^|\n)\s*(?:if|unless|suppose|imagine)\b/i;
+    const finding = /\bArchitecture finding (A[1-9]\d*)\b/.exec(preface.join(' '));
+    const closed = /\b(?:this|the|that) (?:finding|issue|gap|remedy|amendment|explanation|assessment) (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\b|\bno current (?:gap|defect|finding) (?:remains|exists)\b|\bno longer (?:share|write|mutate)\b/i;
+    if (assessment.length !== 1 || !finding || !preface.length ||
+        !preface.every(line => /^Project\/branch\/task:/.test(line)) || framing.test(preface.join(' ')) ||
+        /\b(?:if|unless|when|suppose|imagine)\b/i.test(preface.join(' ').slice(0, finding.index)) ||
+        !q.question.split('\n').some(line => /^Project\/branch\/task:/.test(line) && new RegExp(`\\b${injected[1]}\\b`).test(line)) ||
+        !/^(?:Right now|Today) both services (?:grab|import) the same global cache (?:object|instance) from a module import and both (?:write to|mutate) it\./i.test(assessment[0]![1]!) ||
+        framing.test(assessment[0]![1]!) || closed.test(text)) return false;
+    const letters = q.options.map(o => /^([A-D])\)\s+/.exec(o.label)?.[1]);
+    const recommendation = /^Recommendation: ([A-D]) because\b/m.exec(text)?.[1];
+    if (letters.some(letter => !letter) || new Set(letters).size !== letters.length ||
+        !recommendation || !letters.includes(recommendation) ||
+        q.options.filter(o => /\(recommended\)/i.test(o.label)).length !== 1 ||
+        !q.options[letters.indexOf(recommendation)]!.label.toLowerCase().includes('(recommended)')) return false;
+    const affirmative = (option: typeof q.options[number]) => {
+      const body = current(option.description ?? '').trim();
+      if (!/^✅/.test(body) || framing.test(body) || closed.test(body)) return [];
+      return [...body.matchAll(/✅\s*([^✅❌]+)/g)].map(m => m[1]!.trim()).filter(pro =>
+        !/^(?:if|unless|when|source|historical|hypothetical|example|previously)\b/i.test(pro));
+    };
+    const remedy = q.options.find(o => /^[A-D]\) Composition-root injection, single writer(?: \(recommended\))?$/i.test(o.label));
+    const unchanged = q.options.find(o => /^[A-D]\) Do nothing(?: \(recommended\))?$/i.test(o.label));
+    const owner = remedy && affirmative(remedy).map(pro => /^([A-Za-z_$][\w$]*) is the only session writer and ([A-Za-z_$][\w$]*) gets a read-only port, enforced by types not convention\./.exec(pro)).find(Boolean);
+    const remaining = unchanged && current(unchanged.description ?? '').trim();
+    return Boolean(owner && owner[1] !== owner[2] && remaining && /^✅/.test(remaining) &&
+      !framing.test(remaining) && !closed.test(remaining) &&
+      new RegExp(`❌\\s*Both ${finding[1]} failure scenarios stay live and the plan's own test coverage cannot isolate state\\.$`).test(remaining));
+  }
   // The category can live in the title while the header carries the issue
   // number. Require the direct shared-state defect and technical choices;
   // an Issue heading on setup or report navigation is insufficient.

@@ -702,9 +702,15 @@ function hasProseStaleFillFinding(report: string): boolean {
     // A review may identify the ordering defect directly as missing coordination
     // between cache fills and writes that violates read-after-write freshness.
     // That is independent evidence even when the old-value trace is a diagram.
-    const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(?:sketch|wrapper|implementation)\s+(?:had|has)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b/i.exec(text);
-    const conclusion = /(?:^|[.;]\s+)(?:finding\s+[\w.-]+\s+(?:showed|shows)\s+)?(?:this|that|it)\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:[.!](?=\s|$)|$)/i.exec(text);
+    // Inline source cannot supply the assertion; the amendment label is metadata.
+    const coordinationText = normalize(block.replace(/`([^`]*)`/g, (_span, body: string) =>
+      /^\[Amended:[^\]]+\]$/.test(body) ? body : '[literal]'));
+    const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(sketch|wrapper|implementation)\s+(?:(?:had|has)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b|stated\s+that\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\s+was\s+proposed\b)/i.exec(coordinationText);
+    const citedConclusion = /(?:^|[.;]\s+)Review\s+(?:showed|shows)\s+that\s+(sketch|wrapper|implementation)\s+(?:violates|breaks)\s+the\s+(?:retained\s+)?read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)\s+\(see\s+(F[1-9]\d*)\)(?:[.!](?=\s|$)|$)/i.exec(coordinationText);
+    const conclusion = /(?:^|[.;]\s+)(?:finding\s+[\w.-]+\s+(?:showed|shows)\s+)?(?:this|that|it)\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:[.!](?=\s|$)|$)/i.exec(coordinationText) ?? citedConclusion;
     const coordinationGap = premise !== null && conclusion !== null && premise.index < conclusion.index
+      && (conclusion !== citedConclusion || premise[1]!.toLowerCase() === citedConclusion![1]!.toLowerCase())
+      && !coordinationText.slice(premise.index, conclusion.index).includes('|')
       && !/["“”]|\b(?:if|example|template|quoted)\b/i.test(text)
       && !/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(blocks[index - 1] ?? '');
     if ((!stale || !inFlight || !read || !fill || !invalidation || !ordering) && !coordinationGap) return false;
@@ -714,7 +720,8 @@ function hasProseStaleFillFinding(report: string): boolean {
     // following dismissal cannot turn a traced race into positive coverage.
     const next = blocks[index + 1] ?? '';
     const independent = /^(?:#{1,6}(?:\s|\d)|\d+\.\s|[-*]\s|\||(?:[*_]+)?(?:Finding\b|Section\s|P[0-3]\b))/i.test(next);
-    const explicitId = /^\|\s*(F[1-9]\d*)\s*\|/.exec(text)?.[1];
+    const explicitId = /^\|\s*(F[1-9]\d*)\s*\|/.exec(text)?.[1]
+      ?? (coordinationGap && conclusion === citedConclusion ? citedConclusion?.[2] : undefined);
     const assessment = explicitId
       ? structuredFindingAssessment(lines, owners.length - 1, owners.length - 1, [explicitId], assertedProseOwner).join(' ')
       : '';

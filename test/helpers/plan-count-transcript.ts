@@ -28,6 +28,9 @@ export interface NativePublicToolEvent {
   toolUseId: string;
   kind: 'use' | 'result';
   name?: string;
+  /** Exact native message/request identity, used only for owned queued tools. */
+  messageId?: string;
+  requestId?: string;
   input?: Record<string, unknown>;
   content?: unknown;
   file?: unknown;
@@ -169,8 +172,11 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
             if (onPublicToolEvent && validTimestamp(record.timestamp)) {
               if (record.message.role === 'assistant' && block.type === 'tool_use' &&
                   typeof block.id === 'string' && typeof block.name === 'string' && object(block.input)) {
+                const batch = typeof record.message.id === 'string' && /^msg_[A-Za-z0-9_-]{1,160}$/.test(record.message.id) &&
+                  typeof record.requestId === 'string' && /^req_[A-Za-z0-9_-]{1,160}$/.test(record.requestId)
+                  ? { messageId: record.message.id, requestId: record.requestId } : {};
                 onPublicToolEvent({ sessionId: record.sessionId, timestamp: record.timestamp,
-                  toolUseId: block.id, kind: 'use', name: block.name, input: block.input });
+                  toolUseId: block.id, kind: 'use', name: block.name, input: block.input, ...batch });
               } else if (record.message.role === 'user' && block.type === 'tool_result' &&
                          typeof block.tool_use_id === 'string') {
                 onPublicToolEvent({ sessionId: record.sessionId, timestamp: record.timestamp,

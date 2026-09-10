@@ -2,7 +2,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { validAutoplanEditDigest, readAutoplanDigestFile, matchesAutoplanDigestRows } from './autoplan-artifact-digest';
+import { validAutoplanEditDigest, readAutoplanDigestFile, matchesAutoplanDigestRows, createAutoplanEditDigest } from './autoplan-artifact-digest';
 import type { PendingAutoplanArtifact } from './autoplan-artifact-recorder';
 import type { NativePublicToolEvent } from './plan-count-transcript';
 
@@ -21,28 +21,8 @@ const compact = (text: string) => text.replace(/\s/g, '');
 
 /** The native header may remain above the diff; both displayed paths must bind. */
 function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string): string[] | null {
-  // A redraw can repeat the same native tool title above one current panel.
-  // Those homogeneous titles supply no authority: the full panel below must
-  // still bind its path, current request, content, and exact one-time menu.
-  const repeated: string[] = [];
-  let panelAt = 0;
-  for (; panelAt < rows.length; panelAt++) {
-    if (!rows[panelAt]!.trim()) continue;
-    const title = /^[●⏺] Update\(([^\n]+)\)$/.exec(rows[panelAt]!);
-    if (!title) break;
-    repeated.push(title[1]!);
-  }
-  if (repeated.length > 1 && ownedStateRoot && /^[─╌]{8,}$/.test(rows[panelAt] ?? '') &&
-      rows[panelAt + 1]?.trim() === 'Edit file') {
-    const relative = path.relative(ownedStateRoot, file).split(path.sep).join('/');
-    const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
-    if (repeated.some(title => title !== repeated[0]) || (repeated[0] !== file && repeated[0] !== alias)) return null;
-    rows = rows.slice(panelAt);
-  }
-  const headers = rows.flatMap((row, index) => /^[●⏺] Update\(/.test(row) ? [index] : []);
-  if (headers.length > 1) return null;
-  const header = headers[0] ?? 0;
-  if (header > 0) {
+  const header = rows.findIndex(row => /^[●⏺] Update\(/.test(row));
+  if (header > 0 && rows.slice(0,header).some(row => row.trim())) {
     // A completed native tool's diff may remain above the active edit panel.
     // Only its indented diff output is ignored; competing panels or prose are
     // not evidence for the current request and cannot be used as a prefix.
@@ -63,6 +43,25 @@ function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string
     if (!numbered) return null;
     rows = rows.slice(header);
   }
+  // A redraw can repeat the same native tool title above one current panel.
+  // Those homogeneous titles supply no authority: the full panel below must
+  // still bind its path, current request, content, and exact one-time menu.
+  const repeated: string[] = [];
+  let panelAt = 0;
+  for (; panelAt < rows.length; panelAt++) {
+    if (!rows[panelAt]!.trim()) continue;
+    const title = /^[●⏺] Update\(([^\n]+)\)$/.exec(rows[panelAt]!);
+    if (!title) break;
+    repeated.push(title[1]!);
+  }
+  if (repeated.length > 1 && ownedStateRoot && /^[─╌]{8,}$/.test(rows[panelAt] ?? '') &&
+      rows[panelAt + 1]?.trim() === 'Edit file') {
+    const relative = path.relative(ownedStateRoot, file).split(path.sep).join('/');
+    const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
+    if (repeated.some(title => title !== repeated[0]) || (repeated[0] !== file && repeated[0] !== alias)) return null;
+    rows = rows.slice(panelAt);
+  }
+  if (rows.filter(row => /^[●⏺] Update\(/.test(row)).length > 1) return null;
   // A viewport can start at the native Edit panel after its tool title has
   // scrolled away. The remaining displayed path must still bind the complete
   // owned project/artifact path; the menu and current request are checked below.
@@ -275,5 +274,65 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
         chunks.some(c => c.kind !== '+' && !originals.some(line => c.partial
           ? line.endsWith(compact(c.text)) : line === compact(c.text)))) return null;
     return {input:'1\r', signature, file:p.file};
+  } catch { return null; }
+}
+
+/** A native hook identifies the executing request within a published tool batch. */
+export function publishedAutoplanArtifactPermissionInput(viewport: string,
+  context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact; viewportCapturedAt: number },
+  seen: ReadonlySet<string>,
+): { input: '1\r'; signature: string; file: string } | null {
+  const p=context.pending, now=context.now??Date.now();
+  if (!p || p.source!=='pre_tool_use' || p.tool!=='Edit' || !validAutoplanEditDigest(p.editDigest) ||
+      context.transcriptStatus!=='ready' || !Number.isFinite(now) || !Number.isFinite(context.commandStartedAt) ||
+      !Number.isFinite(context.viewportCapturedAt) || context.commandStartedAt>context.viewportCapturedAt ||
+      context.viewportCapturedAt>now || context.publicTools.length>10_000 || viewport.length>MAX_BYTES ||
+      !/^[A-Za-z0-9_-]{1,160}$/.test(p.sessionId) || !/^[A-Za-z0-9_-]{1,160}$/.test(p.toolUseId) ||
+      !Array.isArray(p.hookSeenIds) || !p.hookSeenIds.length || p.hookSeenIds.length>128 ||
+      p.hookSeenIds.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{1,160}$/.test(id)) ||
+      new Set(p.hookSeenIds).size!==p.hookSeenIds.length || !p.hookSeenIds.includes(p.toolUseId) ||
+      seen.has(`${p.sessionId}:${p.toolUseId}`) || seen.has(autoplanArtifactMenuKey(viewport)) ||
+      !ownedAutoplanArtifact(p.file,context)) return null;
+  const pendingTime=Date.parse(p.timestamp);
+  if (!Number.isFinite(pendingTime) || pendingTime<context.commandStartedAt || pendingTime>context.viewportCapturedAt ||
+      context.publicTools.some(e=>!Number.isFinite(Date.parse(e.timestamp)))) return null;
+  const events=context.publicTools.filter(e=>Date.parse(e.timestamp)>=context.commandStartedAt);
+  const uses=new Map<string,NativePublicToolEvent>(), results=new Map<string,NativePublicToolEvent>();
+  let last=context.commandStartedAt;
+  for (const event of events) {
+    const time=Date.parse(event.timestamp), map=event.kind==='use'?uses:results;
+    if (event.sessionId!==p.sessionId || !event.toolUseId || time<last || time>now || map.has(event.toolUseId) ||
+        (event.kind==='result'&&!uses.has(event.toolUseId))) return null;
+    last=time;map.set(event.toolUseId,event);
+  }
+  const current=uses.get(p.toolUseId), input=current?.input;
+  if (!current || current.name!=='Edit' || results.has(p.toolUseId) || Date.parse(current.timestamp)>pendingTime ||
+      !/^msg_[A-Za-z0-9_-]{1,160}$/.test(current.messageId??'') || !/^req_[A-Za-z0-9_-]{1,160}$/.test(current.requestId??'') ||
+      input?.file_path!==p.file || typeof input.old_string!=='string' || !input.old_string ||
+      typeof input.new_string!=='string' || input.new_string===input.old_string ||
+      (input.replace_all!==undefined&&input.replace_all!==false)) return null;
+  const queued=new Set<string>();
+  for (const mutation of [...uses.values()].filter(e=>e.name==='Edit'||e.name==='Write')) {
+    const result=results.get(mutation.toolUseId);
+    if (Date.parse(mutation.timestamp)>pendingTime || (result&&Date.parse(result.timestamp)>pendingTime)) return null;
+    if (mutation.toolUseId===p.toolUseId || result) continue;
+    // Later publications are queued only when this exact batch owns them and
+    // the recorder has not started them. They never supply current authority.
+    if (mutation.name!=='Edit' || mutation.input?.file_path!==p.file ||
+        typeof mutation.input.old_string!=='string' || !mutation.input.old_string ||
+        typeof mutation.input.new_string!=='string' || mutation.input.old_string===mutation.input.new_string ||
+        (mutation.input.replace_all!==undefined && mutation.input.replace_all!==false) ||
+        mutation.messageId!==current.messageId || mutation.requestId!==current.requestId ||
+        events.indexOf(mutation)<=events.indexOf(current) || p.hookSeenIds.includes(mutation.toolUseId)) return null;
+    queued.add(mutation.toolUseId);
+  }
+  try {
+    if (Math.floor(fs.statSync(p.file).mtimeMs)>pendingTime) return null;
+    const actual=createAutoplanEditDigest(p.file,input.old_string,input.new_string), expected=p.editDigest!;
+    if (!actual || actual.beforeSHA256!==expected.beforeSHA256 || actual.requestSHA256!==expected.requestSHA256 ||
+        JSON.stringify(actual.oldLineHashes)!==JSON.stringify(expected.oldLineHashes) ||
+        JSON.stringify(actual.newLineHashes)!==JSON.stringify(expected.newLineHashes)) return null;
+    return autoplanArtifactPermissionInput(viewport,{...context,
+      publicTools:events.filter(e=>!queued.has(e.toolUseId))},seen);
   } catch { return null; }
 }

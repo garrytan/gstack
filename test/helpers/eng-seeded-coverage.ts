@@ -43,7 +43,19 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
     && /^(?:Even after injection,\s*)?(?:both|the two) services (?:write into|mutate) the same cache\./i.test(adapterExplanation)
     && !/\b(?:(?:this|that|the) (?:issue|finding|race)|Issue\s+[1-9]\d*)\s+(?:is|was|has been)\s+(?:withdrawn|retracted|rejected|resolved|fixed)\b|\bno (?:current )?shared-cache race\b/i.test(adapterAssessment);
   const ids: Seed[] = [];
-  if (/\b(?:scope|complexity|classes|types|abstractions)\b/i.test(title) &&
+  // The inventory alias needs its own current action; an inline quoted title
+  // or actions reproduced only as source material cannot establish this seed.
+  const inventoryProse = prose(q.question, true)
+    .replace(/(\b(?:this|the) class[ -]inventory decision is )['"“](withdrawn|rejected|cancelled|canceled|resolved)['"”]/gi, '$1$2')
+    .replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+  const inventoryAction = q.options.some(o => {
+    const label = prose(o.label, true), description = prose(o.description ?? '', true).replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+    return /^(?:[A-D][).:—–-]\s*)?(?:reduce|cut|simplify|remove|collapse|merge)\b[^.!?\n]{0,160}\b(?:classes|types|abstractions)\b/i.test(label)
+      && !/^(?:source|quoted|historical|example|if approved|hypothetical)\b|\b(?:this|the) (?:option|action|remedy) is (?:withdrawn|rejected|cancelled|canceled)\b/i.test(description);
+  });
+  const classInventory = /^(?:D[1-9]\d*\s*[—–:-]\s*)?(?:Reduce|Simplify|Trim) the class inventory(?: before building)?\?$/i.test(prose(subject, true))
+    && inventoryAction && !/\b(?:this|the) class[ -]inventory decision (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|resolved|not current)\b/i.test(inventoryProse);
+  if (classInventory || /\b(?:scope|complexity|classes|types|abstractions)\b/i.test(title) &&
       /\b(?:files|classes|types|abstractions)\b/i.test(title) &&
       action(/\b(?:reduce|cut|simplify|remove|collapse|merge|pure function)\b/i)) ids.push('complexity');
   if ((sharedAdapter || /\b(?:AuthCache|cache)\b/i.test(title) &&
@@ -272,6 +284,84 @@ function declaredLegacyCharacterization(text: string): boolean {
       }
     }
   }
+  // A current-output characterization declaration can bind the same file
+  // and pre-rewrite task directly, without a separate Verification heading.
+  for (const section of current.filter(s => /^REGRESSION \(mandatory, authorized by the coverage-audit regression rule [—–-] no question asked\)$/i.test(s.title))) {
+    const body = unquoted(section.body.join('\n')).trim();
+    const split = body.indexOf('\n- ');
+    if (split < 0 || suiteWithdrawn) continue;
+    const intro = body.slice(0, split).replace(/\s+/g, ' ').trim();
+    if (!/^legacyAuthFlow\(\) is existing behavior being rewritten\b[^!?]{1,400}\. CRITICAL requirement added to the plan:$/.test(intro) ||
+        goldenSourceOwner(intro) || /\b(?:if|unless|maybe|might|could|proposed|optional|hypothetical|unproven)\b/i.test(intro)) continue;
+    const claim = body.slice(split).replace(/\s+/g, ' ').trim();
+    const declaration = /^- ([A-Za-z][\w/.-]*\.test\.[jt]s) [—–-] record current outputs for: [^.!?]{1,600}\. Assert the new path \(behind the flag\) produces identical decisions and equivalent error surfaces\. These tests are written BEFORE any rewrite \((T[1-9]\d*)\) and stay green through cut-over\.$/.exec(claim);
+    if (!declaration || withdrawn(body) || !snapshotSource.includes(claim) ||
+        /\b(?:if|unless|maybe|might|could|proposed|optional|hypothetical|unproven)\b/i.test(claim)) continue;
+    for (const section of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = section.body.join('\n').trim(), blocks = taskBody.split(/\n(?=-\s)/);
+      const prefix = blocks[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(prefix) ||
+          /\b(?:if|unless|optional|hypothetical|example|source|quoted|unproven)\b/i.test(unquoted(prefix)))) continue;
+      for (const task of blocks) {
+        const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w/-]* [—–-] Write characterization tests for legacyAuthFlow\(\) before any rewrite[\t ]*(?:\n|$)/.exec(task);
+        const file = /^\s+- Files: ([^\n]+)$/m.exec(task);
+        const verify = /^\s+- Verify: suite green on current main; re-run after each later task[\t ]*$/m.exec(task);
+        const beforeTask = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        if (!match || match[1] !== declaration[2] || file?.[1] !== declaration[1] || !verify ||
+            !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+            conditionalOwner(beforeTask) || goldenSourceOwner(beforeTask) ||
+            conditionalOwner(task.slice(0, verify.index)) || goldenSourceOwner(unquoted(task.slice(0, verify.index))) ||
+            withdrawn(unquoted(task).replace(/\b(?:this|that|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), match[1])) continue;
+        const cancelledTask = new RegExp(`\\b${match[1]}(?:\\s+(?:rerun|verification|baseline verification))?\\s+(?:is|was|has been)\\s+(?:cancelled|canceled|withdrawn|rejected|deferred|optional|not required|no longer required)\\b`, 'i');
+        const changedBeforeBaseline = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${match[1]}\\b`, 'i');
+        const assessment = (body: string) => unquoted(body.replace(new RegExp(`(\\b${match[1]}(?:\\s+(?:rerun|verification|baseline verification))?\\s+(?:is|was|has been)\\s+)["“](withdrawn|rejected|cancelled|canceled)["”]`, 'gi'), '$1$2'));
+        if (!current.some(s => cancelledTask.test(assessment(s.body.join('\n'))) ||
+            assessment(s.body.join('\n')).split(/\n|[.!?]\s+/).some(statement => changedBeforeBaseline.test(statement.trim())))) return true;
+      }
+    }
+  }
+  // The same mandatory characterization can precede a behavior-preserving
+  // extraction: its untouched baseline and the extraction's rerun share a task ID.
+  const extractionSourceOwner = (body: string) => goldenSourceOwner(body) ||
+    /(?:^|\n)\s*(?:(?:quoted )?source(?: (?:excerpt|text|material))?|(?:historical|earlier|previous)(?: review)?(?: assessment)?|(?:hypothetical )?example):\s*(?:\n|$)/i.test(unquoted(body));
+  for (const section of current.filter(s => s.title === 'Tests')) {
+    const body = unquoted(section.body.join('\n'));
+    const claim = /^CRITICAL [—–-] regression rule \(mandatory, not a decision\): (T[1-9]\d*) adds a characterization test for legacyAuthFlow\(\)'s current behavior \([^\n)]{1,300}\) and lands before the ([1-9]\d*[A-D]) extraction\./m.exec(body);
+    if (!claim || suiteWithdrawn || withdrawn(body, claim[1]) || !snapshotSource.includes(claim[0]) ||
+        extractionSourceOwner(body.slice(0, claim.index)) || conditionalOwner(body.slice(0, claim.index))) continue;
+    for (const section of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = section.body.join('\n').trim(), blocks = taskBody.split(/\n(?=-\s)/);
+      const prefix = blocks[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(prefix) ||
+          extractionSourceOwner(unquoted(prefix)) || conditionalOwner(prefix))) continue;
+      const active = (task: string, id: string, verifyAt: number) => {
+        const beforeTask = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        return snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) &&
+          !conditionalOwner(beforeTask) && !extractionSourceOwner(beforeTask) &&
+          !conditionalOwner(task.slice(0, verifyAt)) && !extractionSourceOwner(unquoted(task.slice(0, verifyAt))) &&
+          !withdrawn(unquoted(task).replace(/\b(?:this|that|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), id);
+      };
+      for (const baseline of blocks) {
+        const task = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w/-]* [—–-] Add characterization\/regression test for legacyAuthFlow\(\) current behavior[\t ]*(?:\n|$)/.exec(baseline);
+        const file = /^\s+- Files: ([A-Za-z][\w/.-]*\.test\.[jt]s)$/m.exec(baseline);
+        const verify = /^\s+- Verify: test passes against unmodified legacy before any other commit[\t ]*$/m.exec(baseline);
+        if (!task || task[1] !== claim[1] || !file || !verify || !active(baseline, task[1], verify.index)) continue;
+        for (const extraction of blocks) {
+          const task2 = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w/-]* [—–-] Extract IDP checks \+ token validation into shared ([A-Za-z][\w]*)\(\); legacy calls it, behavior unchanged[\t ]*(?:\n|$)/.exec(extraction);
+          const origin = /^\s+- Surfaced by: Code quality Issue [1-9]\d* \(D[1-9]\d*, ([1-9]\d*[A-D])\)[\t ]*$/m.exec(extraction);
+          const rerun = /^\s+- Verify: (T[1-9]\d*) still green; diff to legacy is call-site only[\t ]*$/m.exec(extraction);
+          if (!task2 || task2[1] === task[1] || origin?.[1] !== claim[2] || rerun?.[1] !== task[1] || !active(extraction, task2[1], rerun.index)) continue;
+          const canceled = new RegExp(`\\b(?:${task[1]}|${task2[1]})(?:\\s+(?:rerun|verification|baseline verification|regression test|characterization test))?\\s+(?:is|was|has been)\\s+(?:cancelled|canceled|withdrawn|rejected|deferred|optional|not required|no longer required)\\b`, 'i');
+          const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${task[1]}\\b`, 'i');
+          const assessment = (value: string) => unquoted(value.replace(new RegExp(`(\\b(?:${task[1]}|${task2[1]})(?:\\s+(?:rerun|verification|baseline verification|regression test|characterization test))?\\s+(?:is|was|has been)\\s+)["“](withdrawn|rejected|cancelled|canceled)["”]`, 'gi'), '$1$2'));
+          const rerunWithdrawn = new RegExp(`\\b${task2[1]} (?:no longer|does not|will not) reruns? ${task[1]}\\b`, 'i');
+          if (!current.some(s => canceled.test(assessment(s.body.join('\n'))) || rerunWithdrawn.test(assessment(s.body.join('\n'))) ||
+              assessment(s.body.join('\n')).split(/\n|[.!?]\s+/).some(line => changedFirst.test(line.trim())))) return true;
+        }
+      }
+    }
+  }
+
   return false;
 }
 

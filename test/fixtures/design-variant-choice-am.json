@@ -1,0 +1,60 @@
+{
+  "provenance": {
+    "description": "Exact public completed native design decision; original collector classified it before review. No paid outcome is reclassified by this fixture.",
+    "sourceHead": "fd7698b23d0d88dfcfe8a2b0fd4c3140cdad01fa",
+    "sourceSnapshotSha256": "d4d45ac4ae5dcb422d5975947d21a1dab3dc309a7a6b7a4adeb380a1e2ef3226",
+    "toolUseId": "toolu_01W2iQJNBSNGQZzqZ7dc7esd"
+  },
+  "fingerprint": {
+    "signature": "e0671d37-5d77-408a-ad01-1977acac386c:toolu_01W2iQJNBSNGQZzqZ7dc7esd",
+    "promptSnippet": "Issue 1 D3 \u2014 Issue 1: Make Save the single primary action in the header? Project/branch/task: main, /plan-design-review of the Settings Page plan, Pass 1 (Information Architecture). ELI10: Right now Save, Reset, Cancel and Export all look i",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A Filled Save, ghost others (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B Filled Save, outlined Export, ghost Reset/Cancel"
+      },
+      {
+        "index": 3,
+        "label": "1C Keep four equal buttons"
+      }
+    ],
+    "observedAtMs": 272308,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "e0671d37-5d77-408a-ad01-1977acac386c",
+      "toolUseId": "toolu_01W2iQJNBSNGQZzqZ7dc7esd",
+      "questions": [
+        {
+          "question": "D3 \u2014 Issue 1: Make Save the single primary action in the header?\nProject/branch/task: main, /plan-design-review of the Settings Page plan, Pass 1 (Information Architecture).\nELI10: Right now Save, Reset, Cancel and Export all look identical. A user scanning the header cannot tell which button is the one they came for, so they hesitate or misclick Reset next to it. DESIGN.md already says Save is the only filled button (#1d4ed8 with white text, about 6.7:1 contrast) and the other three are neutral ghost buttons. This is Design Principle 2: every screen has a hierarchy.\nStakes if we pick wrong: ship as-is and every visit starts with a small puzzle; a misclick on Reset opens a discard dialog the user did not want.\nRecommendation: 1A because it applies the existing DESIGN.md token with no new component work.\nCompleteness: 1A=10/10, 1B=6/10, 1C=0/10\nNet: trading a few lines of button variant props for an unambiguous primary action.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A Filled Save, ghost others (recommended)",
+              "description": "\u2705 Save reads as the one primary action in the first 3-second scan of the header.\n\u2705 Uses the existing Button primary and ghost variants from DESIGN.md; no new styles. (human: ~30min / CC: ~3min)\n\u274c Reset/Cancel/Export become visually quieter, so Export discoverability relies on its label alone."
+            },
+            {
+              "label": "1B Filled Save, outlined Export, ghost Reset/Cancel",
+              "description": "\u2705 Save is primary while Export gets a secondary emphasis for users who come mainly to download.\n\u2705 Still reuses existing Button variants if an outlined variant exists. (human: ~1h / CC: ~5min)\n\u274c Introduces a third emphasis level DESIGN.md does not define, weakening the single-primary rule."
+            },
+            {
+              "label": "1C Keep four equal buttons",
+              "description": "\u2705 Zero implementation change to the header.\n\u2705 Avoids any visual shift for existing users.\n\u274c Violates DESIGN.md and leaves users guessing which action is primary; Pass 1 stays at 6/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Issue 1: Make Save the single primary action in the header?\nProject/branch/task: main, /plan-design-review of the Settings Page plan, Pass 1 (Information Architecture).\nELI10: Right now Save, Reset, Cancel and Export all look identical. A user scanning the header cannot tell which button is the one they came for, so they hesitate or misclick Reset next to it. DESIGN.md already says Save is the only filled button (#1d4ed8 with white text, about 6.7:1 contrast) and the other three are neutral ghost buttons. This is Design Principle 2: every screen has a hierarchy.\nStakes if we pick wrong: ship as-is and every visit starts with a small puzzle; a misclick on Reset opens a discard dialog the user did not want.\nRecommendation: 1A because it applies the existing DESIGN.md token with no new component work.\nCompleteness: 1A=10/10, 1B=6/10, 1C=0/10\nNet: trading a few lines of button variant props for an unambiguous primary action.": "1A Filled Save, ghost others (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T09:30:46.168Z"
+    }
+  }
+}
