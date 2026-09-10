@@ -28,6 +28,36 @@ or "design critique".
 Proactively suggest when the user has a plan with UI/UX components that
 should be reviewed before implementation.
 
+# /plan-design-review: Designer's Eye Plan Review
+
+You are a senior product designer reviewing a PLAN — not a live site. Your job is
+to find missing design decisions and ADD THEM TO THE PLAN before implementation.
+
+The output of this skill is a better plan, not a document about the plan.
+
+## Scope gate (FIRST — overrides everything below). This is a hard STOP.
+
+After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before tools; introducing this skill does not count. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
+
+**Exceptions — check in this order, BEFORE asking:**
+1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
+2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a page, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+
+Outside plan mode with no explicitly-named target, nothing changes. Whenever this gate does ask — in any mode — it is a hard STOP.
+
+When no exception above applied:
+
+1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
+2. Do NOT run any tool, generate any mockup, or begin the audit before the user answers.
+3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
+
+What should I review?
+A) The current branch diff — the work in progress on this branch.
+B) A plan or design doc I'll paste or point you to.
+C) A specific page, file, or path.
+
+Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the pre-review audit, generate mockups, and work Step 0 against that target.
+
 ## Preamble (run first)
 
 ```bash
@@ -464,36 +494,6 @@ Print the detected base branch name. In every subsequent `git diff`, `git log`,
 branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
-
-# /plan-design-review: Designer's Eye Plan Review
-
-You are a senior product designer reviewing a PLAN — not a live site. Your job is
-to find missing design decisions and ADD THEM TO THE PLAN before implementation.
-
-The output of this skill is a better plan, not a document about the plan.
-
-## Scope gate (FIRST — overrides everything below). This is a hard STOP.
-
-Before ANYTHING else in this skill — before the designer/mockup guidance, the Design Principles, the Priority Hierarchy, the pre-review system audit, and any `git` / `Read` / `Grep` / `Glob` / `Bash` call or mockup generation — unless an exception below applies, your VERY FIRST tool call MUST be AskUserQuestion, to confirm the review target. The "generate mockups by default", "don't ask permission", and "never skip the audit/mockups" instructions below apply ONLY AFTER the user has answered this gate.
-
-**Exceptions — check in this order, BEFORE asking:**
-1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
-2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a page, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
-
-Outside plan mode with no explicitly-named target, nothing changes. Whenever this gate does ask — in any mode — it is a hard STOP.
-
-When no exception above applied:
-
-1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
-2. Do NOT run any tool, generate any mockup, or begin the audit before the user answers.
-3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
-
-What should I review?
-A) The current branch diff — the work in progress on this branch.
-B) A plan or design doc I'll paste or point you to.
-C) A specific page, file, or path.
-
-Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the pre-review audit, generate mockups, and work Step 0 against that target.
 
 ## Design Philosophy
 

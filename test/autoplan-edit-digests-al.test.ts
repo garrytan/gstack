@@ -34,7 +34,9 @@ test('hook persists bounded digests from its input, never request or result text
  const raw=fs.readFileSync(r.recorder.file,'utf8'),state=JSON.parse(raw);expect(validAutoplanEditDigest(state.pending.editDigest)).toBe(true);
  for(const secret of ['old_string','new_string','PRIVATE_RESULT_SENTINEL','Owner: the user.','Toast stacking ahead'])expect(raw).not.toContain(secret);
  expect(state.pending.editDigest).toEqual(createAutoplanEditDigest(r.file,r.event.tool_input.old_string,r.event.tool_input.new_string));
- expect(fs.statSync(r.recorder.file).size).toBeLessThan(64*1024);expect(fs.statSync(r.recorder.file).mode&0o777).toBe(0o600);
+ expect(fs.statSync(r.recorder.file).size).toBeLessThan(1024*1024);expect(fs.statSync(r.recorder.file).mode&0o777).toBe(0o600);
+ const legacy=structuredClone(state);delete legacy.pending.editDigest.clippedAdditions;
+ expect(Buffer.byteLength(JSON.stringify(legacy))).toBeLessThan(64*1024);
 });
 test('digests of a different request cannot authorize the displayed additions',()=>{
  const r=replay();r.context.pending!.editDigest=createAutoplanEditDigest(r.file,'Owner: the user.\n','Owner: the user.\nDifferent requested insertion.\n')!;expect(pick(r)).toBeNull();

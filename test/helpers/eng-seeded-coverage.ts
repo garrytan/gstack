@@ -239,6 +239,56 @@ function declaredLegacyCharacterization(text: string): boolean {
   // A golden-master requirement names the existing output oracle, then ties
   // its capture task to an untouched baseline and reruns after later tasks.
   const goldenSourceOwner = (body: string) => sourceOwner(body) || /(?:^|\n)\s*(?:Source|Quoted source) excerpt:\s*(?:\n|$)/i.test(body);
+  // A staged refactor can bind its baseline and parity checks to two tasks,
+  // with the release labels separate from their task identities.
+  const staged = current.filter(s => /^REGRESSION \(CRITICAL, mandatory\)$/i.test(s.title));
+  const taskSections = current.filter(s => s.title === 'Implementation Tasks');
+  if (!suiteWithdrawn && staged.length === 1 && taskSections.length === 1) {
+    const stagedSource = (value: string) => goldenSourceOwner(unquoted(value)) ||
+      /(?:^|\n)\s*(?:Source|Quoted source|Earlier review assessment):/i.test(unquoted(value));
+    const stagedConditional = (value: string) => conditionalOwner(value) ||
+      /(?:^|\n)\s*(?:assuming|provided)\b/i.test(unquoted(value));
+    const body = unquoted(staged[0]!.body.join(' ')).replace(/\s+/g, ' ').trim();
+    const declaration = /^(?:[A-Za-z][\w./-]*:[1-9]\d*(?:-[1-9]\d*)? [—–-]\s*)?This is existing behavior being modified with no covering test\. (PR[1-9]\d*) adds characterization tests that pin every observable outcome of legacyAuthFlow\(\) \(([^()!?]{1,600})\) before any rewrite\. They run against the legacy path in \1, against both paths in (PR[1-9]\d*), and are folded into pipeline tests in (PR[1-9]\d*)\. Pre-authorized by the regression rule\.$/.exec(body);
+    const tasksText = taskSections[0]!.body.join('\n').trim();
+    const taskBlocks = tasksText.split(/\n(?=-\s)/);
+    const ids = taskBlocks.map(t => /^- (?:\[[ xX]\] )?(T[1-9]\d*)\b/.exec(t)?.[1]).filter(Boolean);
+    const taskPrefix = taskBlocks[0]!.startsWith('- ') ? '' : taskBlocks[0]!;
+    if (declaration && Number(declaration[1]!.slice(2)) < Number(declaration[3]!.slice(2)) &&
+        Number(declaration[3]!.slice(2)) < Number(declaration[4]!.slice(2)) &&
+        !withdrawn(body) && !stagedSource(taskPrefix) && !stagedConditional(taskPrefix) &&
+        ids.length === new Set(ids).size) {
+      const baselinePattern = new RegExp(`^- (?:\\[[ xX]\\] )?(T[1-9]\\d*)(?: \\([^\\n)]*\\))? [—–-] ${declaration[1]} legacy auth [—–-] Write characterization \\(regression\\) tests pinning legacyAuthFlow\\(\\) prior behavior before any rewrite[\\t ]*(?:\\n|$)`);
+      for (const baseline of taskBlocks) {
+        const task = baselinePattern.exec(baseline);
+        const verify = /^\s+- Verify: suite green against unmodified legacy path; ([1-9]\d*) cases recorded as oracle[\t ]*$/m.exec(baseline);
+        if (!task || !verify || Number(verify[1]) !== declaration[2]!.split(',').length ||
+            stagedSource(baseline) || stagedConditional(baseline.slice(0, verify.index))) continue;
+        const parityPattern = new RegExp(`^- (?:\\[[ xX]\\] )?(T[1-9]\\d*)(?: \\([^\\n)]*\\))? [—–-] ${declaration[3]} strangler fig [—–-] Make legacyAuthFlow delegate to the new pipeline behind a feature flag; ${task[1]} characterization tests pass against both paths[\\t ]*(?:\\n|$)`);
+        for (const parity of taskBlocks) {
+          const rerun = parityPattern.exec(parity);
+          const parityVerify = new RegExp(`^[\\t ]+- Verify: ${task[1]} suite green with flag on and off[\\t ]*$`, 'm').exec(parity);
+          if (!rerun || task[1] === rerun[1] || !parityVerify || taskBlocks.indexOf(baseline) >= taskBlocks.indexOf(parity) ||
+              stagedSource(parity) || stagedConditional(parity.slice(0, parityVerify.index))) continue;
+          // Quoted old prose is evidence about history. A quoted status word
+          // with a current task/suite subject still cancels its obligation.
+          const status = (value: string) => unquoted(value.replace(new RegExp(`((?:${task[1]}|${rerun[1]})(?: (?:verification|baseline verification|rerun))? (?:is|was|has been) |(?:this|the) (?:legacy )?(?:(?:characterization|regression|baseline|unchanged-code) )?(?:suite|requirement|verification) (?:is|was|has been) )["“'](withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)["”']`, 'gi'), '$1$2'));
+          const canceled = new RegExp(`\\b(?:${task[1]}|${rerun[1]})(?: (?:verification|baseline verification|rerun))? (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)\\b`, 'i');
+          const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${task[1]}\\b`, 'i');
+          const noRerun = new RegExp(`\\b${rerun[1]} (?:no longer|does not|will not) (?:re)?runs? ${task[1]}\\b`, 'i');
+          const inactive = (value: string) => withdrawn(status(value).replace(/\b(?:this|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), task[1]) || canceled.test(status(value)) ||
+            /\b(?:this|the) (?:legacy )?(?:(?:characterization|regression|baseline|unchanged-code) )?(?:suite|requirement|verification) (?:is|was|has been) (?:superseded|not current)\b/i.test(status(value));
+          if (inactive(body) || inactive(baseline) || inactive(parity) || current.some(s => {
+            const assessment = status(s.body.join('\n'));
+            return /\b(?:the|this) legacy (?:regression|characterization) (?:suite|tests?|requirement) (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)\b/i.test(assessment) ||
+              canceled.test(assessment) || noRerun.test(assessment) ||
+              assessment.split(/\n|[.!?]\s+/).some(line => changedFirst.test(line.trim()));
+          })) continue;
+          return true;
+        }
+      }
+    }
+  }
   const goldenWithdrawn = current.some(s => {
     const namedSuite = /^(.*?)\b(?:regression|characterization|golden[ -]master)\s+(?:suite|fixtures?|tests?)\b/i.exec(s.title);
     const foreignSuite = Boolean(namedSuite?.[1]?.trim() && !/^(?:legacy(?:AuthFlow(?:\(\))?)?|final|current|updated)[\s:—–-]*$/i.test(namedSuite[1]));

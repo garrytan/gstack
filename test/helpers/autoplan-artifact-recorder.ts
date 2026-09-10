@@ -6,7 +6,8 @@ import { ownedAutoplanArtifact } from './autoplan-artifact-permission';
 import { createAutoplanEditDigest, validAutoplanEditDigest, type AutoplanEditDigest } from './autoplan-artifact-digest';
 import type { NativePublicToolEvent } from './plan-count-transcript';
 
-const MAX_BYTES = 64 * 1024, MAX_INPUT = 4 * 1024 * 1024, MAX_IDS = 128;
+// Suffix commitments are capped at 8192 hashes; old metadata/input limits stay unchanged.
+const MAX_BYTES = 1024 * 1024, MAX_INPUT = 4 * 1024 * 1024, MAX_IDS = 128;
 const reasons = ['invalid_event','record_error','lock_conflict','concurrent_pending','conflicting_replay',
   'record_overflow','input_overflow','stdin_timeout','hook_error'] as const;
 type Reason = typeof reasons[number];
@@ -99,7 +100,7 @@ export function recordAutoplanArtifact(input:string, file:string, cwd:string, co
           reason='conflicting_replay';
           const digest=typeof e.tool_input.old_string==='string' && typeof e.tool_input.new_string==='string' &&
             (e.tool_input.replace_all===undefined || e.tool_input.replace_all===false)
-            ? createAutoplanEditDigest(e.tool_input.file_path,e.tool_input.old_string,e.tool_input.new_string) : undefined;
+            ? createAutoplanEditDigest(e.tool_input.file_path,e.tool_input.old_string,e.tool_input.new_string, previous.editDigest.clippedAdditions !== undefined) : undefined;
           if (!digest || JSON.stringify(digest)!==JSON.stringify(previous.editDigest)) throw Error('request changed');
         }
         return;

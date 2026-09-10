@@ -27,6 +27,30 @@ const N = 5;
 const FLOOR = N - 1;
 const CEILING = N + 2;
 
+// Existing interaction behavior belongs to the surrounding fixture, not the
+// five intentionally inconsistent visual requirements under review.
+const existingInteractionStates = [
+  'The existing router protects dirty edits on every in-app exit, including',
+  'persistent app navigation, using the same Cancel confirmation dialog.',
+  'Register the browser-native beforeunload warning only while the form is dirty;',
+  'remove it when clean. Confirmed in-app navigation uses the existing destination',
+  'heading focus behavior; Keep editing returns focus to the attempted exit.',
+  'During Save or Export, both request buttons use aria-disabled=true plus an',
+  'explicit click/keyboard activation guard, rather than the HTML disabled attribute.',
+  'They remain focusable and keep the existing disabled appearance. Reset and',
+  'Cancel use HTML disabled during the request. Do not move focus while pending',
+  'or after success. On a network error, focus the operation-specific Retry only',
+  'if focus is still on the request trigger; never steal focus the user moved.',
+  'The existing InlineStatus text stays unchanged while Save is pending:',
+  'Unsaved changes for a dirty form, otherwise its saved timestamp or initial',
+  'blank text. Pending feedback belongs to the request button; do not repeat',
+  'Saving… in the status live region. Success and failure use the outcomes above.',
+  'When clean and idle, Reset is disabled because it has nothing to discard,',
+  'and Cancel navigates back immediately without a confirmation. When dirty',
+  'and idle, Reset and Cancel use their existing discard confirmations. Their',
+  '44px geometry is unchanged; the disabled style is separate from pending feedback.',
+];
+
 // A known surrounding design prevents missing layout/journey/state contracts
 // from becoming legitimate extra findings unrelated to the five seeded gaps.
 const designSystem = [
@@ -68,7 +92,7 @@ const designSystem = [
   'inside the disabled Save button, aria-busy=true, with reduced-motion support.',
   'Save and Export are mutually exclusive: disable both while either is pending.',
   'Reset and Cancel are also disabled while either request is pending; all four',
-  'header actions re-enable when it settles. Export uses the existing inline spinner',
+  'header actions return to their idle/dirty-state behavior when it settles. Export uses the existing inline spinner',
   'beside “Exporting…” inside its disabled button, aria-busy=true, with reduced-motion support.',
   'After Save finishes, Export downloads the latest successfully saved preferences.',
   'Success uses the persistent inline status “Saved” plus the save time (aria-live=polite).',
@@ -90,6 +114,7 @@ const designSystem = [
   'Retry is a sibling button beside the status text, outside its live region.',
   'Visible text stays “Retry”; its aria-label is “Retry save” or “Retry export” for that operation.',
   'The read-failure control follows the same pattern with aria-label “Retry loading”.',
+  ...existingInteractionStates,
   'Export failures use that same error/retry area without changing unsaved fields;',
   'Retry repeats Export. A successful download clears the Export error only.',
   'At 640px and below, the three secondary actions share one equal-column row',
@@ -147,13 +172,14 @@ const planDesign5Findings = (planPath: string) => [
   'after confirmation; Cancel confirms discarding dirty edits before returning to',
   'the previous page; Export downloads the current saved preferences as JSON.',
   'Reset and Cancel are disabled while Save or Export is pending; all four header',
-  'actions re-enable when it settles. While preparing Export, use the existing inline',
+  'actions return to their idle/dirty-state behavior when it settles. While preparing Export, use the existing inline',
   'spinner beside “Exporting…” inside its disabled button, aria-busy=true, with reduced-motion support.',
   'An Export failure uses the existing inline error/retry area and preserves',
   'unsaved fields. Retry repeats Export; success clears only that Export error.',
   'Retry controls are siblings beside the status text, outside its live region.',
   'Visible text stays “Retry”; its aria-label is “Retry save” or “Retry export” for that operation.',
   'The read-failure control follows the same pattern with aria-label “Retry loading”.',
+  ...existingInteractionStates,
   '',
   'Responsive behavior: above 640px keep the header action group in one row; at',
   '640px and below, place full-width Save first and the three secondary actions',

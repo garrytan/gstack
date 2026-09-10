@@ -1,0 +1,269 @@
+{
+  "provenance": {
+    "source": "Owned AQ first Eng terminal public observation; exact completed native calls.",
+    "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+    "observationSha256": "72a457870ffefd2c4147ea5f5ba1704645412bfcf36117864bdcb0e942c81ea5",
+    "actualOutcome": "no_review_questions",
+    "actualStep0Count": 8,
+    "actualReviewCount": 0,
+    "scope": "First attempt only; no retry or hypothetical validation credit."
+  },
+  "calls": [
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_0131JXGj2Y8fF1Zg5hMiDwET",
+      "questions": [
+        {
+          "header": "Scope",
+          "question": "D1 — Reduce the class count before reviewing, or proceed with all 5 new units?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), 12 files, AuthBroker + TokenStore + SessionMint + AuthCache + RequestPolicy.\nELI10: The plan adds five new building blocks, but three of them (TokenStore, AuthCache, and the existing cache adapter) all sit on top of the same one cache. RequestPolicy also looks like it re-does the policy-version rule the adapter already keys on. More blocks means more places for a tenant-isolation bug to hide and more code to test. The question is whether to collapse the duplicates now, before we review the details.\nStakes if we pick wrong: over-build and every auth bug has three storage layers to trace through; under-build and TokenStore may have a real distinct job we cut blind.\nRecommendation: A because one facade over one adapter is the smallest design that still gives AuthBroker and SessionMint a clean seam, and it cuts ~4 files without changing the goal.\nCompleteness: A=9/10, B=10/10, C=8/10\nNet: fewer moving parts vs keeping a separation whose purpose the plan never states.",
+          "options": [
+            {
+              "label": "Reduce: 3 units (recommended)",
+              "description": "Fold TokenStore into AuthCache, replace RequestPolicy with a pure function next to the adapter's policy-version keying. Keep AuthBroker, SessionMint, AuthCache. ~8 files. (human: saves ~2 days / CC: saves ~20 min) ✅ One storage seam, one place to test tenant isolation ✅ Smaller diff, smaller blast radius ❌ If TokenStore has a distinct lifecycle the plan omitted, we re-split later"
+            },
+            {
+              "label": "Proceed as-is: 5 units",
+              "description": "Review the plan with all 12 files and 5 new units. (human: ~1 wk / CC: ~1 hr) ✅ No risk of cutting a component that has a hidden purpose ✅ Review proceeds immediately with no redesign ❌ Three storage-shaped layers over one cache; duplication the review will flag anyway"
+            },
+            {
+              "label": "Reduce further: 2 units",
+              "description": "Also merge SessionMint into AuthBroker as a method; only AuthBroker + AuthCache remain. ✅ Minimum moving parts, one service owns all cache mutation ✅ Shared-mutable-cache issue disappears by construction ❌ AuthBroker grows into a god object; minting and brokering have different failure modes"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Reduce the class count before reviewing, or proceed with all 5 new units?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), 12 files, AuthBroker + TokenStore + SessionMint + AuthCache + RequestPolicy.\nELI10: The plan adds five new building blocks, but three of them (TokenStore, AuthCache, and the existing cache adapter) all sit on top of the same one cache. RequestPolicy also looks like it re-does the policy-version rule the adapter already keys on. More blocks means more places for a tenant-isolation bug to hide and more code to test. The question is whether to collapse the duplicates now, before we review the details.\nStakes if we pick wrong: over-build and every auth bug has three storage layers to trace through; under-build and TokenStore may have a real distinct job we cut blind.\nRecommendation: A because one facade over one adapter is the smallest design that still gives AuthBroker and SessionMint a clean seam, and it cuts ~4 files without changing the goal.\nCompleteness: A=9/10, B=10/10, C=8/10\nNet: fewer moving parts vs keeping a separation whose purpose the plan never states.": "Reduce: 3 units (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:16:57.628Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_01PSGoXUnUN2vr1io7bJmkjZ",
+      "questions": [
+        {
+          "header": "Arch 1",
+          "question": "D2 — Issue 1: Replace the module-level mutable AuthCache export with injected ownership?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:19-20 \"share a global mutable AuthCache instance via module-level export. Both services mutate it.\"\nELI10: Right now the cache is a global variable that two different services reach into and change. Any test that touches one service leaks state into the next test, and a bug in SessionMint can silently corrupt what AuthBroker reads. In a multi-tenant auth system that is how tenant A ends up seeing tenant B's token. Passing the cache in explicitly gives each service one known owner and lets tests hand in a fresh fake.\nStakes if we pick wrong: flaky tests now, cross-tenant token leakage later, with no stack trace pointing at the writer.\nRecommendation: A because constructor injection is the boring, explicit fix (explicit > clever) and it costs a few lines at the composition root.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: a small wiring change now vs a shared-global debugging session at 3am. [Layer 1]",
+          "options": [
+            {
+              "label": "1A: Inject AuthCache (recommended)",
+              "description": "Construct one AuthCache at the composition root, pass it into AuthBroker and SessionMint constructors, delete the module-level export, add a test that two service instances with separate caches never observe each other. (human: ~3h / CC: ~15min) ✅ Tests get a fresh cache per case, no cross-test leakage ✅ Exactly one owner per instance; writers are traceable ❌ Touches every call site that imported the global"
+            },
+            {
+              "label": "1B: Keep global, add a mutation facade",
+              "description": "Keep the export but route all writes through AuthCache methods that log the writer. (human: ~2h / CC: ~10min) ✅ Smaller call-site diff ✅ Writers become traceable via logs ❌ State still leaks across tests and requests; the root cause stays"
+            },
+            {
+              "label": "1C: Do nothing",
+              "description": "Accept the shared global as-is. ✅ Zero effort now ✅ No call-site churn ❌ Documented Node footgun for testability and request isolation; tenant leakage risk stays"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Issue 1: Replace the module-level mutable AuthCache export with injected ownership?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:19-20 \"share a global mutable AuthCache instance via module-level export. Both services mutate it.\"\nELI10: Right now the cache is a global variable that two different services reach into and change. Any test that touches one service leaks state into the next test, and a bug in SessionMint can silently corrupt what AuthBroker reads. In a multi-tenant auth system that is how tenant A ends up seeing tenant B's token. Passing the cache in explicitly gives each service one known owner and lets tests hand in a fresh fake.\nStakes if we pick wrong: flaky tests now, cross-tenant token leakage later, with no stack trace pointing at the writer.\nRecommendation: A because constructor injection is the boring, explicit fix (explicit > clever) and it costs a few lines at the composition root.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: a small wiring change now vs a shared-global debugging session at 3am. [Layer 1]": "1A: Inject AuthCache (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:17:43.771Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_01RhquTYMaJUjJQ4yf5tDk5w",
+      "questions": [
+        {
+          "header": "Arch 2",
+          "question": "D3 — Issue 2: Guard against a write racing an invalidation and resurrecting a revoked token?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:8-10 \"invalidates entries on logout, token revocation, or tenant suspension ... they do not serialize mutations\" and PLAN.md:20 \"Both services mutate it.\"\nELI10: Picture this: a tenant gets suspended and the adapter wipes its cache entries. At the same moment SessionMint finishes an in-flight validation from a second ago and writes the now-revoked token back into the cache. The suspended tenant keeps working until the entry expires. The plan says mutations are not serialized, so nothing today prevents this. The fix is a generation counter: invalidation bumps a per-tenant generation, and a write is dropped if its generation is stale.\nStakes if we pick wrong: revoked or suspended tenants stay authenticated for up to the token TTL, which is a security incident, and it is silent.\nRecommendation: A because it is a compare-and-set on write, a small addition to the AuthCache facade we already own, and the adapter's tenant/policy-version keying gives us the hook.\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: a small generation check now vs a silent stale-auth window on every revocation.",
+          "options": [
+            {
+              "label": "2A: Per-tenant generation + CAS write (recommended)",
+              "description": "AuthCache holds a per-tenant generation; invalidation hooks bump it; writes carry the generation read at validation start and are dropped if stale. Add a race test that interleaves invalidate and write. (human: ~1 day / CC: ~30min) ✅ Closes the resurrect-after-revoke window deterministically ✅ Lives in one place, the facade, so both services get it for free ❌ One more field to reason about on every write path"
+            },
+            {
+              "label": "2B: Serialize all writes with a per-tenant mutex",
+              "description": "Wrap AuthCache mutations in a per-tenant async lock so invalidate and write never interleave. (human: ~1 day / CC: ~30min) ✅ Simple mental model: one writer at a time ✅ No generation bookkeeping ❌ Does not stop a write that started before the invalidation and lands after the lock frees; still needs a staleness check"
+            },
+            {
+              "label": "2C: Do nothing",
+              "description": "Rely on token TTL to bound the stale window. ✅ Zero effort ✅ Matches current adapter behavior ❌ Suspended tenants stay live until expiry; the plan's own words admit mutations are not serialized"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Issue 2: Guard against a write racing an invalidation and resurrecting a revoked token?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:8-10 \"invalidates entries on logout, token revocation, or tenant suspension ... they do not serialize mutations\" and PLAN.md:20 \"Both services mutate it.\"\nELI10: Picture this: a tenant gets suspended and the adapter wipes its cache entries. At the same moment SessionMint finishes an in-flight validation from a second ago and writes the now-revoked token back into the cache. The suspended tenant keeps working until the entry expires. The plan says mutations are not serialized, so nothing today prevents this. The fix is a generation counter: invalidation bumps a per-tenant generation, and a write is dropped if its generation is stale.\nStakes if we pick wrong: revoked or suspended tenants stay authenticated for up to the token TTL, which is a security incident, and it is silent.\nRecommendation: A because it is a compare-and-set on write, a small addition to the AuthCache facade we already own, and the adapter's tenant/policy-version keying gives us the hook.\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: a small generation check now vs a silent stale-auth window on every revocation.": "2A: Per-tenant generation + CAS write (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:18:01.828Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_01WcFyD5bpa76wtC3VTZFszp",
+      "questions": [
+        {
+          "header": "Code quality",
+          "question": "D4 — Issue 3: Flatten validateAndDispatch() and stop swallowing errors?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:23-24 \"validateAndDispatch() is 60 lines with three nested try/catch blocks; each catch swallows a different error class.\"\nELI10: This function catches three kinds of failure and quietly moves on from each. In an auth path, a swallowed error means a request that should have been rejected gets treated as fine, or gets rejected with no log line telling you why. Splitting it into validate() and dispatch(), each returning a typed result, makes every failure explicit and testable. Three swallowing catches also means three copies of nearly the same handling, which is a DRY smell.\nStakes if we pick wrong: silent auth failures in production with no trace, and 60 lines nobody wants to touch.\nRecommendation: A because explicit typed errors match your explicit-over-clever preference and each error class gets its own test instead of hiding inside a nested block.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: a focused refactor with tests per error class vs a function that hides its own failures. [Layer 1]",
+          "options": [
+            {
+              "label": "3A: Split + typed result, log every error (recommended)",
+              "description": "Split into validate() and dispatch(). One catch per function using instanceof dispatch to a typed AuthError union. Every branch logs with tenant ID and rethrows or returns a typed failure; nothing is swallowed. One test per error class. (human: ~4h / CC: ~20min) ✅ Every failure is visible and has a test ✅ Removes the three duplicated catch bodies ❌ Callers must handle a typed result instead of a thrown-and-hidden error"
+            },
+            {
+              "label": "3B: Keep shape, add logging in each catch",
+              "description": "Leave the three nested blocks, add a log line and metric in each catch. (human: ~1h / CC: ~5min) ✅ Smallest diff ✅ Failures become visible in logs ❌ Still 60 lines, still three copies, still swallows the error for callers"
+            },
+            {
+              "label": "3C: Do nothing",
+              "description": "Leave as-is. ✅ Zero effort ✅ No behavior change risk ❌ Documented error-hiding anti-pattern in the auth hot path"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 3: Flatten validateAndDispatch() and stop swallowing errors?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:23-24 \"validateAndDispatch() is 60 lines with three nested try/catch blocks; each catch swallows a different error class.\"\nELI10: This function catches three kinds of failure and quietly moves on from each. In an auth path, a swallowed error means a request that should have been rejected gets treated as fine, or gets rejected with no log line telling you why. Splitting it into validate() and dispatch(), each returning a typed result, makes every failure explicit and testable. Three swallowing catches also means three copies of nearly the same handling, which is a DRY smell.\nStakes if we pick wrong: silent auth failures in production with no trace, and 60 lines nobody wants to touch.\nRecommendation: A because explicit typed errors match your explicit-over-clever preference and each error class gets its own test instead of hiding inside a nested block.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: a focused refactor with tests per error class vs a function that hides its own failures. [Layer 1]": "3A: Split + typed result, log every error (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:18:19.897Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_01EVUTPHyHpekxhrEejXxxcb",
+      "questions": [
+        {
+          "header": "Tests",
+          "question": "D5 — Issue 4: Add a multi-tenant isolation E2E suite, not just unit tests?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:14-16 \"Unit and integration coverage is planned for the new components and their success/error paths.\"\nELI10: The plan tests each new piece on its own. But the bug that hurts in a multi-tenant auth system is between the pieces: tenant A logs in, tenant B logs in with the same issuer and audience, and B gets served A's cached token. Or a tenant is suspended and the very next request still succeeds from cache. Only a test that runs the real broker, minter, and cache together against a fake IDP catches that. Auth flows are on the skill's always-E2E list.\nStakes if we pick wrong: cross-tenant token leakage reaches production with every unit test green.\nRecommendation: A because auth is too important to trust unit tests alone, and with a fake IDP the suite is cheap to write and fast to run.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: three E2E scenarios now vs finding tenant bleed from a customer report.",
+          "options": [
+            {
+              "label": "4A: Three-scenario E2E suite (recommended)",
+              "description": "auth.e2e.test: (1) single tenant happy path, (2) two tenants with identical issuer/audience never observe each other's cache entries, (3) tenant suspended mid-flight is rejected and the stale write is dropped. Real AuthBroker + SessionMint + AuthCache, fake IDP. (human: ~1 day / CC: ~30min) ✅ Catches cross-tenant bleed, the highest-blast-radius bug here ✅ Exercises remedy 2A's race guard end to end ❌ Needs a fake IDP fixture in the test harness"
+            },
+            {
+              "label": "4B: Integration test for isolation only",
+              "description": "One test: two tenants, shared cache, assert no cross-reads. Skip suspension race and happy path E2E. (human: ~3h / CC: ~10min) ✅ Covers the worst case cheaply ✅ No fake IDP needed if cache is seeded directly ❌ Suspension race and full flow stay untested end to end"
+            },
+            {
+              "label": "4C: Unit tests only, as planned",
+              "description": "Keep PLAN.md:14-15 as written. ✅ Zero extra effort ✅ Fast suite ❌ Between-component tenant bugs are invisible to unit tests"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Issue 4: Add a multi-tenant isolation E2E suite, not just unit tests?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:14-16 \"Unit and integration coverage is planned for the new components and their success/error paths.\"\nELI10: The plan tests each new piece on its own. But the bug that hurts in a multi-tenant auth system is between the pieces: tenant A logs in, tenant B logs in with the same issuer and audience, and B gets served A's cached token. Or a tenant is suspended and the very next request still succeeds from cache. Only a test that runs the real broker, minter, and cache together against a fake IDP catches that. Auth flows are on the skill's always-E2E list.\nStakes if we pick wrong: cross-tenant token leakage reaches production with every unit test green.\nRecommendation: A because auth is too important to trust unit tests alone, and with a fake IDP the suite is cheap to write and fast to run.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: three E2E scenarios now vs finding tenant bleed from a customer report.": "4A: Three-scenario E2E suite (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:18:56.032Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_01SiSRuYVyiJzYF3MQoqjJPo",
+      "questions": [
+        {
+          "header": "Performance",
+          "question": "D6 — Issue 5: Parallelize the 5 IDP calls with fail-fast and a bounded timeout?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:31-32 \"Token validation issues 5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially (calls are independent).\"\nELI10: Every login waits for five round trips to the identity provider one after another. Firing them together cuts login latency to roughly one round trip. Promise.all is the right shape because validation is all-or-nothing: if any check fails the token is invalid, so failing fast is correct. The two things the plan skips are a timeout so one hung call cannot hang the login, and a note that five concurrent calls per login multiplies IDP request rate, which matters if the IDP rate-limits.\nStakes if we pick wrong: either logins stay ~5x slower than needed, or a hung IDP call pins requests open with no ceiling.\nRecommendation: A because Promise.all is the built-in, fail-fast matches the semantics, and the AbortController timeout is a few lines. [Layer 1]\nCompleteness: A=10/10, B=7/10, C=5/10\nNet: one round trip with a hard ceiling vs five round trips or an unbounded one.",
+          "options": [
+            {
+              "label": "5A: Promise.all + shared AbortController timeout (recommended)",
+              "description": "Fan out the 5 calls under one AbortSignal.timeout; any rejection aborts the rest and surfaces as a typed AuthError. Tests: all succeed, one rejects, one hangs. Confirm IDP rate limit tolerates 5x burst; note it in the plan. (human: ~3h / CC: ~15min) ✅ Login latency drops to ~1 round trip ✅ Hung call has a hard ceiling; failures are typed ❌ 5x instantaneous IDP request rate per login"
+            },
+            {
+              "label": "5B: Promise.all, no timeout",
+              "description": "Exactly what PLAN.md:32 proposes. (human: ~1h / CC: ~5min) ✅ Latency win with minimal code ✅ Fail-fast semantics correct for validation ❌ A single hung IDP call hangs the login indefinitely"
+            },
+            {
+              "label": "5C: Keep sequential",
+              "description": "Leave the 5 calls in series. ✅ No change in IDP request pattern ✅ Zero effort ❌ Logins pay 5 round trips for no reason; plan itself calls the fix trivial"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Issue 5: Parallelize the 5 IDP calls with fail-fast and a bounded timeout?\nProject/branch/task: main — Multi-tenant Auth Refactor, PLAN.md:31-32 \"Token validation issues 5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially (calls are independent).\"\nELI10: Every login waits for five round trips to the identity provider one after another. Firing them together cuts login latency to roughly one round trip. Promise.all is the right shape because validation is all-or-nothing: if any check fails the token is invalid, so failing fast is correct. The two things the plan skips are a timeout so one hung call cannot hang the login, and a note that five concurrent calls per login multiplies IDP request rate, which matters if the IDP rate-limits.\nStakes if we pick wrong: either logins stay ~5x slower than needed, or a hung IDP call pins requests open with no ceiling.\nRecommendation: A because Promise.all is the built-in, fail-fast matches the semantics, and the AbortController timeout is a few lines. [Layer 1]\nCompleteness: A=10/10, B=7/10, C=5/10\nNet: one round trip with a hard ceiling vs five round trips or an unbounded one.": "5A: Promise.all + shared AbortController timeout (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:19:26.136Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_019oiqZDBaTgr4a1VNthgjMw",
+      "questions": [
+        {
+          "header": "TODO 1",
+          "question": "D7 — TODO candidate: cache IDP discovery and JWKS so validation needs fewer than 5 calls?\nProject/branch/task: main — Multi-tenant Auth Refactor, follows from PLAN.md:31 (5 IDP calls per validation).\nELI10: Even run in parallel, five calls per login is a lot of traffic to the identity provider. Some of those calls almost certainly fetch things that rarely change, like the provider's key set or its discovery document. Caching those per issuer in AuthCache would cut most logins to one or two live calls. It is separate work because it changes what gets cached, not just how calls are scheduled.\nStakes if we pick wrong: skipping it leaves IDP load 5x higher than needed; building it now widens this already-large PR.\nRecommendation: A because it is real value but orthogonal to this refactor, and remedy 5A already makes latency acceptable.\nNote: options differ in kind, not coverage — no completeness score.\nWhat: cache issuer-level IDP metadata (JWKS, discovery) in AuthCache with TTL. Why: cut IDP request volume and login latency. Pros: fewer IDP calls, lower rate-limit risk. Cons: key-rotation staleness must be handled. Context: after 5A lands, measure which of the 5 calls are per-issuer vs per-token. Depends on: remedies 1A and 5A.\nNet: capture it with context now vs lose the reasoning.",
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Create TODOS.md with this item under ## Auth, P2, effort M, depends on 1A + 5A. ✅ Reasoning preserved for whoever picks it up ✅ Keeps this PR focused on the refactor ❌ IDP load stays 5x until it lands"
+            },
+            {
+              "label": "B) Skip",
+              "description": "Not valuable enough to track. ✅ Nothing to maintain ✅ No TODOS.md churn ❌ Insight is lost; someone rediscovers it from an IDP rate-limit incident"
+            },
+            {
+              "label": "C) Build it now in this PR",
+              "description": "Add issuer-level metadata caching to AuthCache in this refactor. (human: ~1 day / CC: ~30min) ✅ Fewer IDP calls from day one ✅ Uses the AuthCache seam we are already building ❌ Widens a PR we just cut from 5 units to 3; key-rotation handling adds risk"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — TODO candidate: cache IDP discovery and JWKS so validation needs fewer than 5 calls?\nProject/branch/task: main — Multi-tenant Auth Refactor, follows from PLAN.md:31 (5 IDP calls per validation).\nELI10: Even run in parallel, five calls per login is a lot of traffic to the identity provider. Some of those calls almost certainly fetch things that rarely change, like the provider's key set or its discovery document. Caching those per issuer in AuthCache would cut most logins to one or two live calls. It is separate work because it changes what gets cached, not just how calls are scheduled.\nStakes if we pick wrong: skipping it leaves IDP load 5x higher than needed; building it now widens this already-large PR.\nRecommendation: A because it is real value but orthogonal to this refactor, and remedy 5A already makes latency acceptable.\nNote: options differ in kind, not coverage — no completeness score.\nWhat: cache issuer-level IDP metadata (JWKS, discovery) in AuthCache with TTL. Why: cut IDP request volume and login latency. Pros: fewer IDP calls, lower rate-limit risk. Cons: key-rotation staleness must be handled. Context: after 5A lands, measure which of the 5 calls are per-issuer vs per-token. Depends on: remedies 1A and 5A.\nNet: capture it with context now vs lose the reasoning.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:19:54.257Z"
+    },
+    {
+      "sessionId": "b567c3da-44fa-4522-8362-b5250ed84805",
+      "toolUseId": "toolu_01HvKPTaAJK6b1yFVVzz3voV",
+      "questions": [
+        {
+          "header": "TODO 2",
+          "question": "D8 — TODO candidate: metrics for AuthCache hit rate, dropped stale writes, and IDP latency?\nProject/branch/task: main — Multi-tenant Auth Refactor, follows from remedies 2A (generation guard) and 5A (parallel IDP calls).\nELI10: Once the generation guard exists, a dropped stale write is exactly the event that used to be a silent security bug. If nobody counts those drops, we never learn how often the race actually fires. Likewise, without cache hit rate and IDP latency numbers we cannot tell whether the parallelization or the caching TODO paid off. This is a small instrumentation task that belongs after the refactor lands so the metric names match the final code.\nStakes if we pick wrong: we ship a security guard and a latency fix with no way to see either working in production.\nRecommendation: A because it is cheap, it is the observability that makes 2A and 5A verifiable, and it should not block the refactor itself.\nNote: options differ in kind, not coverage — no completeness score.\nWhat: emit counters for cache hit/miss, stale-write-dropped (by tenant), and a histogram for IDP call latency. Why: verify 2A and 5A in production, alert on race frequency. Pros: turns a silent class of bug into a dashboard line. Cons: metric naming must survive the refactor. Context: hook into AuthCache facade and the fan-out helper from 5A. Depends on: 1A, 2A, 5A merged.\nNet: a few counters now vs flying blind on a security guard.",
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Add under ## Auth, P2, effort S, depends on 1A + 2A + 5A. ✅ Makes the race guard observable ✅ Keeps the refactor PR focused ❌ A short window after merge with no visibility"
+            },
+            {
+              "label": "B) Skip",
+              "description": "Do not track. ✅ No extra work ✅ No TODOS.md churn ❌ Stale-write drops and IDP latency stay invisible"
+            },
+            {
+              "label": "C) Build it now in this PR",
+              "description": "Add the counters alongside the facade and fan-out helper. (human: ~2h / CC: ~10min) ✅ Visibility from the first deploy ✅ Metric hooks live where the code is being written anyway ❌ Adds a metrics dependency to a PR already carrying the regression suite and E2E work"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — TODO candidate: metrics for AuthCache hit rate, dropped stale writes, and IDP latency?\nProject/branch/task: main — Multi-tenant Auth Refactor, follows from remedies 2A (generation guard) and 5A (parallel IDP calls).\nELI10: Once the generation guard exists, a dropped stale write is exactly the event that used to be a silent security bug. If nobody counts those drops, we never learn how often the race actually fires. Likewise, without cache hit rate and IDP latency numbers we cannot tell whether the parallelization or the caching TODO paid off. This is a small instrumentation task that belongs after the refactor lands so the metric names match the final code.\nStakes if we pick wrong: we ship a security guard and a latency fix with no way to see either working in production.\nRecommendation: A because it is cheap, it is the observability that makes 2A and 5A verifiable, and it should not block the refactor itself.\nNote: options differ in kind, not coverage — no completeness score.\nWhat: emit counters for cache hit/miss, stale-write-dropped (by tenant), and a histogram for IDP call latency. Why: verify 2A and 5A in production, alert on race frequency. Pros: turns a silent class of bug into a dashboard line. Cons: metric naming must survive the refactor. Context: hook into AuthCache facade and the fan-out helper from 5A. Depends on: 1A, 2A, 5A merged.\nNet: a few counters now vs flying blind on a security guard.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:20:14.332Z"
+    }
+  ]
+}

@@ -2425,6 +2425,55 @@ function ceoCurrentBriefProse(text: string, inspectOpening = true): boolean {
       /^(?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|(?:no[- ]error[- ]handling\s+)?contract)\s+(?:is|has been)\s+(?:(?:only|just|an?)\s+)*(?:withdrawn|retracted|rejected|cancelled|canceled|resolved|closed|not current|historical|hypothetical|quoted|source|example)\b/i.test(clause.trim()));
 }
 
+/** An explicit sequencing decision needs the current missing contract and opposed remedies. */
+function ceoSequenceChoiceBrief(q: NativePlanQuestionCall['questions'][number], title: string): boolean {
+  const decision = /^D([1-9]\d*)\s*[—–-]\s*(?:In what order|How|What|Which)\b[^\n]+\?$/i.exec(title);
+  const header = /^D([1-9]\d*)\s+(?:Sequence|Order|Transaction boundary)$/i.exec(q.header.trim());
+  if (!decision || header?.[1] !== decision[1] || !/\b(?:order|sequence)\b/i.test(title) ||
+      !/\btransaction\b/i.test(title)) return false;
+  const plain = (text: string) => text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, '').replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  const prose = plain(q.question.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, ''));
+  const field = (name: string) => [...prose.matchAll(new RegExp('^' + name + ':\\s*(.+)$', 'gm'))];
+  const contexts = field('Project/branch/task'), explanations = field('ELI10');
+  const stakes = field('Stakes if we pick wrong'), recommendations = field('Recommendation');
+  if ([contexts, explanations, stakes, recommendations].some(rows => rows.length !== 1) ||
+      !ceoCurrentBriefProse(q.question)) return false;
+  const changedContract = (text: string) => text.split(/[.!?]\s+|\n/).some(clause =>
+    /^(?:Correction:\s*)?(?:this|that|the)\s+(?:decision|gap|order|sequence|commit point|transaction boundary)\s+(?:is|has been)\s+(?:(?:already|now)\s+)?["“']?(?:resolved|fixed|closed|withdrawn|retracted|cancelled|canceled|superseded|not current|defined|specified)\b/i.test(clause.trim()));
+  if (changedContract(q.question)) return false;
+  const context = contexts[0]![1]!, explanation = explanations[0]![1]!;
+  const prefix = prose.slice(title.length, prose.indexOf('\nELI10:'));
+  if (!prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+      /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line)) ||
+      ![context, explanation, stakes[0]![1]!].every(text => ceoCurrentBriefProse(text)) ||
+      /\b(?:source|historical|previous|earlier|example|hypothetical|if|unless|whether|assuming|provided)\b/i.test(context) ||
+      /\bno\s+(?:current\s+)?(?:sequencing\s+)?(?:gap|issue|problem|defect)\b/i.test(prose)) return false;
+  const gap = /^(?:the|this|current)\s+plan(?:\s+(?:lists?|outlines?|describes?)\b[^.!?]*\bbut)?\s+(?:never|does not|doesn't)\s+(?:fix(?:es)?|defin(?:e|es)|specif(?:y|ies)|stat(?:e|es))\s+(?:the\s+)?(?:order|sequence)\b[^.!?]*\b(?:commit point|transaction boundary)\b[.!]?$/i;
+  if (!context.split(/[;.!?]\s+/).some(clause => gap.test(clause.trim())) ||
+      !/^(?:the|this|current)\s+handler\s+(?:does|performs|runs)\b/i.test(explanation) ||
+      !/\b(?:payment|update)\b[^.!?]*\bcommitted\s+before\b/i.test(explanation) ||
+      !/\b(?:mail|email|receipt)\b[^.!?]*\b(?:timeout|fail\w*|slow|undo|delay|rolls? back)\b/i.test(explanation)) return false;
+  const recommendation = /^([A-Z])\b/i.exec(recommendations[0]![1]!);
+  const labels = q.options.map(option => /^([A-Z])[):.]\s*\S/i.exec(option.label));
+  if (!recommendation || q.options.length < 2 || labels.some(label => !label) ||
+      new Set(labels.map(label => label![1]!.toUpperCase())).size !== labels.length ||
+      !labels.some(label => label![1]!.toUpperCase() === recommendation[1]!.toUpperCase())) return false;
+  const current = (option: NativePlanQuestionCall['questions'][number]['options'][number]) =>
+    Boolean(option.description?.trim()) && ceoCurrentBriefProse(option.label.replace(/^[A-Z][):.]\s*/i, '')) &&
+    ceoCurrentBriefProse(option.description!) && !changedContract(option.description!) && !/\b(?:previously|formerly|used to|do not|does not|don't|doesn't|never|no longer)\b/i.test(plain(option.description!));
+  const remedy = q.options.some(option => current(option) &&
+    /^commit\s+(?:the\s+)?(?:payment|update)\s+first\b/i.test(option.label.replace(/^[A-Z][):.]\s*/i, '')) &&
+    /^(?:Transaction:\s*)?lookup\b[^.!?]*\bupdate\b[^.!?]*\bcommit[.;,]?\s+then\b[^.!?]*\b(?:mail|email|receipt)\b/i.test(plain(option.description!)) &&
+    !/\bcommit\b[^.;!?]*\bafter\b[^.;!?]*\b(?:mail|email|receipt|send)\b/i.test(plain(option.description!)) &&
+    !/\b(?:mail|email|receipt)\b[^.;!?]*\bbefore\b[^.;!?]*\bcommit\b/i.test(plain(option.description!)));
+  const opposed = q.options.some(option => current(option) &&
+    /^(?:leave|keep|preserve)\b[^.!?]*\b(?:sketched|written|unchanged|order)\b/i.test(option.label.replace(/^[A-Z][):.]\s*/i, '')) &&
+    /\bno\s+(?:explicit|defined)\s+(?:commit point|transaction boundary)(?=[.;]|$)/i.test(plain(option.description!)));
+  return remedy && opposed;
+}
+
 function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionId = false): boolean {
   const call = fp.nativeCall;
   // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
@@ -2445,6 +2494,9 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
       !/<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?[a-z0-9-]+\s*>/i.test(q.question))) return false;
   const title = q.question.split('\n')[0]!.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '');
   if (!allowQuestionId && ceoSectionChoiceBrief(q, title)) return true;
+  if (!allowQuestionId && (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0) &&
+      typeof call.answeredAt === 'string' && Number.isFinite(Date.parse(call.answeredAt)) &&
+      ceoSequenceChoiceBrief(q, title)) return true;
   // The issue identity is separate from the decision counter and section
   // numbering. A completed "Issue 2" choice and "Finding 2.1" choice carry
   // the same review evidence as the already-supported numbered findings.
@@ -2512,6 +2564,50 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   }
   // Section and finding counters identify a brief; they cannot supply its
   // current assessment or the authority of an offered amendment.
+  const architectureIssue = /^Section ([1-9]\d*) \(Architecture\), issue ([1-9]\d*): ([^\n]+\?)$/i.exec(normalized);
+  if (architectureIssue) {
+    if ((/^D\d/i.test(title) && !/^D[1-9]\d*\s*[—–-]/i.test(title)) ||
+        (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+        !Number.isFinite(Date.parse(call.answeredAt ?? '')) || q.options.length < 2 || q.options.length > 4) return false;
+    const numberedHeader = /^(Section|Finding|Issue) ([1-9]\d*)$/i.exec(q.header.trim());
+    if (/^(?:Section|Finding|Issue)\b/i.test(q.header.trim()) && (!numberedHeader ||
+        numberedHeader[2] !== architectureIssue[numberedHeader[1]!.toLowerCase() === 'section' ? 1 : 2])) return false;
+    const publicText = (text: string) => text
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/["“](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current)["”]/gi, '$1')
+      .replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, '');
+    const current = (text: string) => ceoCurrentBriefProse(text) &&
+      !/^(?:provided|assuming|previously|formerly)\b/i.test(publicText(text).trim()) &&
+      !/\b(?:this|the|that) (?:finding|issue|decision|assessment|explanation|amendment|remedy|option|(?:ordering )?gap) (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current)\b/i.test(publicText(text));
+    const prose = publicText(q.question), contexts = [...prose.matchAll(/^Project\/branch\/task: (.+)$/gm)];
+    const assessments = [...prose.matchAll(/^ELI10: (.+)$/gm)];
+    const prefix = prose.slice(0, assessments[0]?.index ?? 0).split('\n').filter(line => line.trim()).slice(1);
+    if (contexts.length !== 1 || assessments.length !== 1 || prefix.length !== 1 ||
+        prefix[0] !== contexts[0]![0] || !current(contexts[0]![1]!) ||
+        !current(assessments[0]![1]!) || !current(q.question)) return false;
+    const labels = q.options.map(option => /^([1-9]\d*)([A-Z])[):.]\s*(\S[\s\S]*)$/i.exec(option.label));
+    if (labels.some(token => token?.[1] !== architectureIssue[2]) ||
+        new Set(labels.map(token => token![2]!.toUpperCase())).size !== labels.length) return false;
+    // Commit is a write amendment here only when this same offered option
+    // explicitly commits the update before calling mail. Normalize that
+    // action for the existing rich validator after native identity checks;
+    // the real question, menu and answer remain untouched.
+    const commit = q.options.findIndex((option, i) => {
+      const label = labels[i]![3]!.replace(/\s*\(recommended\)$/i, '');
+      const description = publicText(option.description ?? '');
+      return /^Commit the [a-z][a-z -]* update, then send email$/i.test(label) &&
+        current(label) && current(option.description ?? '') &&
+        /✅\s*Load [^✅❌.]+, assign [^✅❌.]+, COMMIT, then call the mail client\b/.test(description) &&
+        /✅\s*Mail failure can never roll back a committed payment\b/.test(description) &&
+        !/(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|cancel|withdraw) commit\b/i.test(description);
+    });
+    if (commit < 0) return false;
+    const semantic = { ...q, options: q.options.map((option, i) => i === commit ?
+      { ...option, label: option.label.replace(/\bCommit\b/i, 'Write and commit') } : option) };
+    return ceoNumberedBriefDecision(semantic, architectureIssue[3]!, false,
+      option => current(option.label.replace(/^[1-9]\d*[A-Z][):.]\s*/i, '')) && current(option.description ?? ''));
+  }
   const sectionFinding = /^Section\s+([1-9]\d*)\s+finding(?:\s+([1-9]\d*))?\s*[—–:-]\s*([^\n]+\?)$/i.exec(normalized);
   if (sectionFinding) {
     if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
@@ -2916,6 +3012,50 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
       fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
       /<gstack-qid/i.test(q.question)) return false;
   const title = q.question.split('\n')[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '');
+  // The category may precede the issue number. Bind this library choice to
+  // the current scheduling defect and both concrete outcomes, not its label.
+  const libraryHooks = /^Architecture issue ([1-9]\d*): custom inline scheduler vs the job library's built-in retry hooks\?$/i.exec(title);
+  if (libraryHooks) {
+    if (!new RegExp(`^Arch(?:itecture)? ${libraryHooks[1]}$`, 'i').test(q.header.trim())) return false;
+    const current = (text: string) => text
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/["“](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current|no longer current)["”]/gi, '$1')
+      .replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, '')
+      .replace(/\*\*/g, '');
+    const framed = /\b(?:source|quoted|historical|hypothetical|earlier|previous)\s+(?:review\s+)?(?:example|excerpt|assessment|finding|material|text)\b|(?:^|[.!?;:]\s+|\n|[✅❌]\s*)(?:if|when|unless|provided|assuming|suppose|imagine|source|example)\b/i;
+    const closed = new RegExp(`\\b(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|deferral|(?:unchanged )?risk)|Issue ${libraryHooks[1]}) (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b|\\bno current (?:gap|risk|finding) (?:remains|exists)\\b`, 'i');
+    const text = current(q.question), lines = text.split('\n');
+    const contexts = lines.filter(line => /^Project\/branch\/task: \S/.test(line));
+    const assessments = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    const preface = text.slice(0, assessments[0]?.index ?? 0).split('\n').filter(line => line.trim()).slice(1);
+    if (contexts.length !== 1 || assessments.length !== 1 || preface.length !== 1 || preface[0] !== contexts[0] ||
+        framed.test(text) || closed.test(text) || /\b(?:the|this) plan no longer rebuilds retry scheduling\b|\bretry scheduling no longer runs inside each worker\b/i.test(text)) return false;
+    const assessment = assessments[0]![1]!;
+    const workers = /^The plan rebuilds retry scheduling by hand inside each of ([1-9]\d*) workers\b/.exec(assessment)?.[1];
+    if (!workers || Number(workers) < 2 ||
+        !/\bpersisting attempt counts across process restarts, not double-scheduling when a worker crashes mid-dispatch\b/.test(assessment) ||
+        !/\bthe plan does not mention any of it\./.test(assessment)) return false;
+    const optionIds = q.options.map(o => /^([1-9]\d*)([A-D])[:.)]\s+(\S[\s\S]*)$/.exec(o.label));
+    if (optionIds.some(id => id?.[1] !== libraryHooks[1]) || new Set(optionIds.map(id => id![2])).size !== q.options.length) return false;
+    const actions = optionIds.map(id => id![3]!.replace(/\s*\(recommended\)$/i, ''));
+    const remedyIndex = actions.indexOf('Library hooks + custom backoff fn');
+    const unchangedIndex = actions.indexOf('Proceed as written (inline in each worker)');
+    if (remedyIndex < 0 || unchangedIndex < 0 || remedyIndex === unchangedIndex) return false;
+    const remedy = current(q.options[remedyIndex]!.description ?? '').trim();
+    const unchanged = current(q.options[unchangedIndex]!.description ?? '').trim();
+    const cancelled = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|skip|cancel|withdraw) (?:use|accept|keep|proceed|adopt|choose)\b/i;
+    if (framed.test(remedy) || framed.test(unchanged) || closed.test(remedy) || closed.test(unchanged) ||
+        cancelled.test(remedy) || cancelled.test(unchanged) ||
+        /\bthe library will not own (?:attempt counting|crash safety)\b|\b(?:do not|don't|never|cancel|withdraw) preserve the exported backoff function\b/i.test(remedy) ||
+        /\bthe unchanged per-worker scheduler is (?:now )?crash-safe\b/i.test(unchanged)) return false;
+    const risk = /❌\s*([A-Za-z]+|[1-9]\d*) copies of crash-unsafe scheduling logic, each drifting independently; every bug gets fixed ([A-Za-z]+|[1-9]\d*) times\./.exec(unchanged);
+    const number = (value: string) => /^[1-9]\d*$/.test(value) ? Number(value) :
+      ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].indexOf(value.toLowerCase());
+    return Boolean(risk && number(risk[1]!) === Number(workers) && number(risk[2]!) === Number(workers) &&
+      /✅\s*Attempt counting, crash safety, and dashboard visibility come from the library for free\./.test(remedy) &&
+      /✅\s*The backoff curve lives in one exported function, so\s+is preserved and testable in isolation\./.test(remedy));
+  }
   // A cache-ownership brief can name its actors in the current assessment
   // instead of the headline. Bind those actors to the offered single writer.
   const cacheOwner = /^(?:Issue|Finding) ([1-9]\d*): two services mutate (?:one|the same) shared cache with no (?:serialized writes|serialization)\. How should cache ownership work\?$/i.exec(title);
@@ -3019,6 +3159,49 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
   const alternatives = (a: RegExp, b: RegExp) => [a, b].every(pattern =>
     q.options.some(option => pattern.test(label(option.label)) && Boolean(option.description?.trim())));
   const body = issue[2]!;
+  // An imperative can ask for the same owned cache amendment that the older
+  // numbered form states as a defect. Bind the current actors and both offered
+  // outcomes; an Issue label or the word "inject" cannot open review alone.
+  const injectedExport = /^Replace the module-level mutable ([A-Za-z_$][\w$]*) export with injected ownership\?$/i.exec(body);
+  if (injectedExport) {
+    if (!/^[1-9]\d*$/.test(issue[1]!) || !/^Arch(?:itecture)? [1-9]\d*$/i.test(q.header.trim())) return false;
+    const current = (text: string) => text
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/["“](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|not current|no longer current)["”]/gi, '$1')
+      .replace(/"[^"\n]*"|“[^”\n]*”/g, '')
+      .replace(/`([^`\n]*)`/g, (_, code: string) => /^[A-Za-z_$][\w$]*$/.test(code) ? code : '')
+      .replace(/\*\*/g, '');
+    const framed = /\b(?:source|quoted|historical|hypothetical|earlier|previous)\s+(?:review\s+)?(?:example|excerpt|assessment|finding|material|text)\b|(?:^|[.!?;:]\s+|\n|[✅❌]\s*)(?:if|when|unless|provided|assuming|suppose|imagine|source|example)\b/i;
+    const closed = new RegExp(`\\b(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|deferral|(?:unchanged )?risk)|Issue ${issue[1]}) (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b|\\bno current (?:gap|risk|finding) (?:remains|exists)\\b`, 'i');
+    const removedGlobal = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:this|the|that) cache no longer has a module-level mutable export\b/i;
+    const text = current(q.question), lines = text.split('\n');
+    const contexts = lines.filter(line => /^Project\/branch\/task: \S/.test(line));
+    const assessments = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    const preface = text.slice(0, assessments[0]?.index ?? 0).split('\n').filter(line => line.trim()).slice(1);
+    if (contexts.length !== 1 || assessments.length !== 1 || preface.length !== 1 || preface[0] !== contexts[0] ||
+        framed.test(text) || closed.test(text) || removedGlobal.test(text)) return false;
+    const assessment = assessments[0]![1]!;
+    if (!/^(?:Right now|Today) the cache is a global variable that two different services reach into and change\./i.test(assessment)) return false;
+    const actors = /\ba bug in ([A-Za-z_$][\w$]*) can silently corrupt what ([A-Za-z_$][\w$]*) reads\./.exec(assessment);
+    if (!actors || actors[1] === actors[2]) return false;
+    const optionIds = q.options.map(o => /^([1-9]\d*)([A-D])[:.)]\s+(\S[\s\S]*)$/.exec(o.label));
+    if (optionIds.some(id => id?.[1] !== issue[1]) || new Set(optionIds.map(id => id![2])).size !== q.options.length) return false;
+    const actions = optionIds.map(id => id![3]!.replace(/\s*\(recommended\)$/i, ''));
+    const remedyIndex = actions.indexOf(`Inject ${injectedExport[1]}`), unchangedIndex = actions.indexOf('Do nothing');
+    if (remedyIndex < 0 || unchangedIndex < 0 || remedyIndex === unchangedIndex) return false;
+    const remedy = current(q.options[remedyIndex]!.description ?? '').trim();
+    const unchanged = current(q.options[unchangedIndex]!.description ?? '').trim();
+    const removalCancelled = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|skip|cancel|withdraw) (?:delete|remove) the module-level export\b/i;
+    const acceptanceCancelled = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|skip|cancel|withdraw) accept the shared global as-is\b/i;
+    if (framed.test(remedy) || framed.test(unchanged) || closed.test(remedy) || closed.test(unchanged) ||
+        removalCancelled.test(remedy) || acceptanceCancelled.test(unchanged)) return false;
+    const injection = /^Construct one ([A-Za-z_$][\w$]*) at the composition root, pass it into ([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*) constructors, (?:delete|remove) the module-level export, add a test that two service instances with separate caches never observe each other\./.exec(remedy);
+    return Boolean(injection && injection[1] === injectedExport[1] && injection[2] !== injection[3] &&
+      [injection[2], injection[3]].every(actor => actor === actors[1] || actor === actors[2]) &&
+      /^Accept the shared global as-is\./.test(unchanged) &&
+      /❌\s*Documented [A-Za-z][\w-]* footgun for testability and request isolation; tenant leakage risk (?:stays|remains)\b/.test(unchanged));
+  }
   return (
     /^[A-Za-z_$][\w$]* is a (?:global|shared) mutable module-level export that (?:two|multiple|\d+) services mutate\. Inject it(?: instead)?\?$/i.test(body) &&
       alternatives(/^Constructor[- ]inject$/i, /^Getter \+ reset hook$/i)

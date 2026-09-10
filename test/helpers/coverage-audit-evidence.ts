@@ -21,7 +21,13 @@ function readsFile(command: unknown, file: string, cwd: string): boolean {
   let part = '', quote = '', andList = false, semicolons = false;
   for (let index = 0; index < command.length; index++) {
     const char = command[index]!;
-    if (quote) { if (char === '\\' && quote !== "'") return false; part += char; if (char === quote) quote = ''; }
+    if (quote) {
+      // These escapes remain literal regex characters in double quotes. A
+      // neighboring grep may use them; only its closed display form below
+      // accepts the backslashes. Shell expansion and escaped quotes stay out.
+      if (char === '\\' && quote !== "'" && !/[.|]/.test(command[index + 1] ?? '')) return false;
+      part += char; if (char === quote) quote = '';
+    }
     else if (char === '\'' || char === '"') { quote = char; part += char; }
     else if (/[\\#<{}()]/.test(char)) return false; // Comments, heredocs, functions and grouped execution are unsupported.
     else if (char === ';') { semicolons = true; parts.push(part.trim()); part = ''; }
@@ -73,15 +79,23 @@ function readsFile(command: unknown, file: string, cwd: string): boolean {
       if (/[<>]/.test(stage.replace(/'[^']*'|"[^"]*"/g, ''))) return false;
       // Backslashes are data only in this closed, single-quoted grep pattern.
       // In particular, echo -e cannot print replacement fixture bodies.
-      if (stage.includes('\\') && !/^grep\s+-E\s+'[^']*'(?:\s+[^\\]*)?$/.test(stage)) return false;
+      const displayGrep = /^grep\s+-n\s+"(?:[^"\\$`]|\\[|.])*"\s+[^\\]+$/.test(stage);
+      // An awk range without actions only prints matching input lines.
+      // Programs, BEGIN/END, output redirection and interpreter calls cannot
+      // match this grammar, and its input path must be one literal operand.
+      const awkRange = /^awk\s+'\/(?:[^/\\]|\\[./|])*\/,\/(?:[^/\\]|\\[./|])*\/'\s+(.+)$/.exec(stage);
+      const awkInput = awkRange && literal(awkRange[1]!);
+      const displayAwk = Boolean(awkInput && !awkInput.startsWith('-'));
+      if (stage.includes('\\') && !/^grep\s+-E\s+'[^']*'(?:\s+[^\\]*)?$/.test(stage) && !displayGrep && !displayAwk) return false;
       const git = /^git\s+(log|diff)(?:\s+(.*))?$/.exec(stage);
       // These neighboring Git calls are display-only: literal revisions and the
       // observed display flag. Quoted/concatenated or unknown options may write
       // files or invoke helpers, so they cannot borrow a read-only classification.
       const gitDisplay = git !== null && (!git[2] || git[2].split(/\s+/).every(token =>
-        token === (git[1] === 'log' ? '--oneline' : '--stat') || /^[A-Za-z0-9_][A-Za-z0-9_./~^-]*$/.test(token)));
+        token === (git[1] === 'log' ? '--oneline' : '--stat') ||
+        (git[1] === 'log' && /^-[1-9]\d{0,4}$/.test(token)) || /^[A-Za-z0-9_][A-Za-z0-9_./~^-]*$/.test(token)));
       return /^(?:cat|grep|head|ls|echo)(?:\s|$)/.test(stage) || stage === 'pwd' || stage === 'wc -l' || stage === 'git ls-files' ||
-        readTarget(stage) !== undefined || gitDisplay;
+        readTarget(stage) !== undefined || gitDisplay || displayAwk;
     });
   };
   if (parts.some(p => p && !readOnly(p))) return false;

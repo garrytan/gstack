@@ -71,7 +71,7 @@ export function installDisabledPlanReviewFixture(rendered: string, repo: string,
 
 /** Check each completion mention; a historical record cannot excuse a later current claim. */
 function hasUnattributedOutsideCompletion(output: string): boolean {
-  const marker = /\b(?:both reviewers agree|outside_status["']*\s*[:=]\s*["']*completed)\b/gi;
+  const marker = /\bboth reviewers agree\b|["']?\boutside_status["']*\s*[:=]\s*["']*completed\b/gi;
   const clauses = output.replace(/[*`]/g, '').split(/\r?\n|(?<=[.!?;])\s+|\b(?:but|however|nevertheless|yet)\b[:,]?\s*/i);
   return clauses.some(clause => [...clause.matchAll(marker)].some(match => {
     const before = clause.slice(0, match.index).trimEnd();
@@ -84,7 +84,7 @@ function hasUnattributedOutsideCompletion(output: string): boolean {
     // Agreement is a current prose claim unless explicitly denied; an old
     // log entry only establishes the provenance of its recorded status value.
     if (/^both reviewers agree$/i.test(match[0])) return true;
-    const record = [...before.matchAll(/\b(?:earlier|prior|historical|old)\s+(?:entry|record)\b/gi)].at(-1);
+    const record = [...before.matchAll(/\b(?:earlier|prior|historical|old)\s+(?:entry|record|line)\b/gi)].at(-1);
     if (!record) return true;
     // Bind this occurrence to an old record's reported value. A mere mention
     // of a record, a second status, or a new reporting subject cannot inherit

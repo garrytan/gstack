@@ -24,10 +24,6 @@ triggers:
   - check design decisions
 ---
 
-{{PREAMBLE}}
-
-{{BASE_BRANCH_DETECT}}
-
 # /plan-design-review: Designer's Eye Plan Review
 
 You are a senior product designer reviewing a PLAN — not a live site. Your job is
@@ -37,7 +33,7 @@ The output of this skill is a better plan, not a document about the plan.
 
 ## Scope gate (FIRST — overrides everything below). This is a hard STOP.
 
-Before ANYTHING else in this skill — before the designer/mockup guidance, the Design Principles, the Priority Hierarchy, the pre-review system audit, and any `git` / `Read` / `Grep` / `Glob` / `Bash` call or mockup generation — unless an exception below applies, your VERY FIRST tool call MUST be AskUserQuestion, to confirm the review target. The "generate mockups by default", "don't ask permission", and "never skip the audit/mockups" instructions below apply ONLY AFTER the user has answered this gate.
+After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before tools; introducing this skill does not count. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
 
 **Exceptions — check in this order, BEFORE asking:**
 1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
@@ -57,6 +53,10 @@ B) A plan or design doc I'll paste or point you to.
 C) A specific page, file, or path.
 
 Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the pre-review audit, generate mockups, and work Step 0 against that target.
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
 
 ## Design Philosophy
 
