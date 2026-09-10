@@ -38,7 +38,7 @@ afterAll(() => {
 });
 
 /** Scaffold a fixture project with the bins + scripts the cathedral needs. */
-function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string; slug: string } {
+function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string; slug: string; env: NodeJS.ProcessEnv } {
   const stateRoot = path.join(workDir, '.gstack-state');
   fs.mkdirSync(stateRoot, { recursive: true });
 
@@ -96,7 +96,14 @@ function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string;
   copyDirSync(path.join(ROOT, 'hosts', 'claude', 'hooks'), path.join(workDir, 'hosts', 'claude', 'hooks'));
 
   const slug = path.basename(workDir).replace(/[^a-zA-Z0-9._-]/g, '');
-  return { workDir, stateRoot, slug };
+  // These contracts exercise ordinary Claude Code hook delivery. Conductor's
+  // question redirection has its own tests and must not replace this branch.
+  const env = { ...process.env };
+  delete env.CONDUCTOR_WORKSPACE_PATH;
+  delete env.CONDUCTOR_PORT;
+  delete env.OPENCLAW_SESSION;
+  delete env.GSTACK_SESSION_KIND;
+  return { workDir, stateRoot, slug, env };
 }
 
 function cleanupFixture(workDir: string): void {
@@ -160,7 +167,7 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
     };
     const res = spawnSync(hookPath, [], {
       env: {
-        ...process.env,
+        ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
         GSTACK_QUESTION_LOG_NO_DERIVE: '1',
       },
@@ -214,7 +221,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
     };
     const res = spawnSync(hookPath, [], {
       env: {
-        ...process.env,
+        ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
         GSTACK_QUESTION_LOG_NO_DERIVE: '1',
       },
@@ -289,7 +296,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
     };
     const res = spawnSync(hookPath, [], {
       env: {
-        ...process.env,
+        ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
         GSTACK_QUESTION_LOG_NO_DERIVE: '1',
       },
@@ -338,7 +345,7 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
     const bin = path.join(fixture.workDir, 'bin', 'gstack-codex-session-import');
     const res = spawnSync(bin, [sessionFile], {
       env: {
-        ...process.env,
+        ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
         GSTACK_QUESTION_LOG_NO_DERIVE: '1',
       },
@@ -392,7 +399,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
     // 1. Apply the proposal via gstack-distill-apply.
     const applyBin = path.join(fixture.workDir, 'bin', 'gstack-distill-apply');
     const applyRes = spawnSync(applyBin, ['--proposal', '0'], {
-      env: { ...process.env, GSTACK_STATE_ROOT: fixture.stateRoot },
+      env: { ...fixture.env, GSTACK_STATE_ROOT: fixture.stateRoot },
       encoding: 'utf-8',
       cwd: fixture.workDir,
       timeout: 30_000,
@@ -431,7 +438,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
     };
     const hookRes = spawnSync(hookPath, [], {
       env: {
-        ...process.env,
+        ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
         GSTACK_QUESTION_LOG_NO_DERIVE: '1',
       },

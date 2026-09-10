@@ -139,6 +139,91 @@ function columnarStaleFillTrace(text: string): { tail: string; reader: string; o
   return { tail, reader: reader[1]!, old };
 }
 
+/** An explicitly named alternate order can supply the later cache-hit reader. */
+function alternateOrderStaleFillTrace(text: string): string | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const cells = (line: string) => line.replace(/^\|\s*|\s*\|$/g, '').split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 6 || header[0] !== 't') return;
+  const identifier = String.raw`([A-Za-z_$][\w$]*)`;
+  const read = new RegExp(String.raw`^(R[1-9]\d*) readProfile\(${identifier}\)$`);
+  const first = read.exec(header[1]!);
+  const writer = new RegExp(String.raw`^(W[1-9]\d*|W) writeProfile\(${identifier},\s*${identifier}\)$`).exec(header[2]!);
+  const later = read.exec(header[3]!);
+  if (!first || !writer || !later || first[1] === later[1] || first[2] !== writer[2] || first[2] !== later[2]
+    || header[4] !== `cache[${first[2]}]` || header[5] !== `inflight[${first[2]}]`) return;
+  const rows = lines.slice(1, 6).map(cells);
+  if (rows.length !== 5 || rows.some((row, i) => row.length !== 6 || row[0] !== String(i + 1))) return;
+  const flight = new RegExp(String.raw`^miss; flight ${identifier}; await read$`).exec(rows[0]![1]!);
+  const fill = new RegExp(String.raw`^read resolves ${identifier}; set\(${identifier},\s*${identifier}\)$`).exec(rows[4]![1]!);
+  if (!flight || !fill || fill[2] !== first[2] || fill[1] !== fill[3] || fill[1] === writer[3]) return;
+  const old = fill[1]!, fresh = writer[3]!, key = first[2]!;
+  const expected = [
+    [rows[0]![1]!, '', '', '-', flight[1]!],
+    ['', `await write ... commit ${fresh}`, '', '-', flight[1]!],
+    ['', `delete(${key}) no-op; return`, '', '-', flight[1]!],
+    ['', '', `begins; miss; joins ${flight[1]}`, '-', flight[1]!],
+    [rows[4]![1]!, '', `receives ${old} VIOLATION`, `${old} BAD`, '-'],
+  ];
+  if (rows.some((row, i) => row.slice(1).some((cell, j) => cell !== expected[i]![j]))) return;
+  // The ordinary row 4 joins an old flight. It is not a later cache hit.
+  // Order B explicitly moves that same reader after the stale fill at row 5.
+  const order = `Order B: ${later[1]} begins after t5 -> cache hit ${old} VIOLATION (until TTL or next write)`;
+  const contract = `Contract: ${later[1]} began after ${writer[1]} completed, so ${later[1]} must observe ${fresh}. Sketch has no preventing mechanism.`;
+  if (lines[6]?.replace(/→/g, '->') !== order || lines[7] !== contract) return;
+  // The separately labelled amended execution cannot supply original evidence.
+  // Keep original assessment text, including any later dismissal, authoritative.
+  const amended = lines.findIndex((line, i) => i > 7 && /^AMENDED \(D[1-9]\d*\):$/.test(line));
+  const assessment = lines.slice(6, amended < 0 ? undefined : amended).join(' ');
+  if (lines.slice(amended < 0 ? lines.length : amended + 1).some(line =>
+    /\b(?:original|this|the)\s+(?:trace|schedule|scenario|race)\s+(?:is|was)\s+(?:impossible|not\s+(?:a\s+)?(?:bug|defect|violation))\b/i.test(line))) return;
+  return assessment;
+}
+
+/** Read an explicit original-sketch override without crediting the amended fill. */
+function originalSketchStaleFillTrace(text: string): { assessment: string; summary: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ').replace(/→/g, '->')).filter(Boolean);
+  const cells = (line: string) => line.split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 5 || header[0] !== 'step' || header[4] !== 'cache / pending') return;
+  const first = /^(R[1-9]\d*) read \(began before commit\)$/.exec(header[1]!);
+  const writer = /^(W[1-9]\d*|W) write$/.exec(header[2]!);
+  const later = /^(R[1-9]\d*) read \(began after (W[1-9]\d*|W) resolves\)$/.exec(header[3]!);
+  if (!first || !writer || !later || first[1] === later[1] || writer[1] !== later[2]) return;
+  const rows = lines.slice(1, 9).map(cells);
+  const steps = ['1', '2', '3', '4', "4'", '5', '6', '7'];
+  if (rows.length !== 8 || rows.some((row, i) => row.length !== 5 || row[0] !== steps[i])) return;
+  const token = /^get->miss; token ([A-Za-z_$][\w$]*)$/.exec(rows[0]![1]!);
+  const next = /^get->miss; token ([A-Za-z_$][\w$]*); fresh DB read$/.exec(rows[5]![3]!);
+  const write = /^await repo\.write -> ([A-Za-z_$][\w$]*) committed$/.exec(rows[2]![2]!);
+  const read = /^read resolves ([A-Za-z_$][\w$]*); ([A-Za-z_$][\w$]*)✗ -> no fill$/.exec(rows[6]![1]!);
+  if (!token || !next || !write || !read || token[1] === next[1] || read[2] !== token[1] || read[1] === write[1]) return;
+  const old = read[1]!, fresh = write[1]!, pending = token[1]!, newPending = next[1]!;
+  // One cache/pending column owns this execution. The writer cancels the
+  // original reader's exact token; no other key, token or actor may borrow it.
+  const expected = [
+    [`get->miss; token ${pending}`, '', '', `∅ / {${pending}}`],
+    ['await singleFlight(repo.read)', '', '', ''],
+    ['', `await repo.write -> ${fresh} committed`, '', ''],
+    ['', `invalidate: cancel ${pending}, detach, delete`, '', `∅ / {${pending}✗}`],
+    ['', 'writeProfile resolves (write "complete")', '', ''],
+    ['', '', `get->miss; token ${newPending}; fresh DB read`, `∅ / {${pending}✗,${newPending}}`],
+    [`read resolves ${old}; ${pending}✗ -> no fill`, '', '', `∅ / {${newPending}}`],
+    ['', '', `resolves ${fresh}; fill; return ${fresh}`, `${fresh} / ∅`],
+  ];
+  if (rows.some((row, i) => row.slice(1).some((cell, j) => cell !== expected[i]![j]))) return;
+  const alternate = `Alternate order (6 before 4): ${first[1]} fills ${old}, then step 4 deletes it; ${later[1]} misses and reads ${fresh}. Safe.`;
+  if (lines[9] !== alternate) return;
+  const original = /^Original sketch: step 6 fills ([A-Za-z_$][\w$]*) after step 4 -> (R[1-9]\d*) hits ([A-Za-z_$][\w$]*) -> VIOLATION \((S[1-9]\d*)\)\.$/.exec(lines[10] ?? '');
+  if (!original || original[1] !== old || original[3] !== old || original[2] !== later[1]) return;
+  const assessment = lines.slice(10).join(' ');
+  if (/\b(?:(?:this|that|the|original)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(assessment)) return;
+  return {
+    assessment,
+    summary: `Schedule ${original[4]}: ${first[1]} misses, ${writer[1]} commits and deletes, ${first[1]} fills stale ${old}, ${later[1]} hits ${old}.`,
+  };
+}
+
 /** A named finding may put its ordering evidence in a trace, not one paragraph. */
 function hasStructuredStaleFillFinding(report: string): boolean {
   const lines = report.split('\n');
@@ -160,6 +245,44 @@ function hasStructuredStaleFillFinding(report: string): boolean {
     // Unclosed, tilde and longer fences remain source until their own real
     // closing delimiter. They cannot supply an asserted prose violation.
     if (!fence && !/^\s*>/.test(line) && !/^(?: {4}|\t)/.test(line)) prose[i] = line;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const identity = /^(?:#{1,6}\s+)?(?:\*\*)?[1-9]\d*\. Async schedule \((F[1-9]\d*)\)(?: with one column per operation and shared state)?(?:\*\*)?$/.exec(prose[heading] ?? '');
+    if (!identity) continue;
+    // Unheaded prose immediately introducing this finding or schedule owns
+    // its assertion status, regardless of whether it ends in ':' or '.'.
+    // Require a fresh structural boundary instead of dropping that context.
+    const framed = (prefix: string) => !prefix || /^(?:\||#{1,6}\s|\*\*\d+\.\s)/.test(prefix);
+    const prefix = prose.slice(0, heading).filter(line => line.trim()).at(-1) ?? '';
+    if (!framed(prefix)) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells[0] === '' && cells[1] === identity[1] && /^CRITICAL(?: GAP(?: \(fixed by D[1-9]\d*\))?)?$/.test(cells[3] ?? ''));
+    if (findings.length !== 1) continue;
+    const findingPrefix = prose.slice(0, findings[0]!.index).filter(line => line.trim()).at(-1) ?? '';
+    if (!framed(findingPrefix)) continue;
+    const alternate = alternateOrderStaleFillTrace(trace.text);
+    const original = originalSketchStaleFillTrace(trace.text);
+    const evidence = findings[0]!.cells[4] ?? '';
+    const ordered = alternate && /(?:^|[.;]\s+)Schedule below shows\b/.test(evidence) ? alternate
+      : original && evidence.split(/(?<=\.)\s+/).includes(original.summary) ? original.assessment : undefined;
+    if (!ordered) continue;
+    const assessment: string[] = [];
+    for (let i = trace.end + 1; i < prose.length; i++) {
+      if (/^(?:#{1,6}\s|\*\*\d+\.|[DSF][1-9]\d*\b|\|)/.test(prose[i]!)) break;
+      assessment.push(prose[i]!);
+    }
+    if (/\b(?:(?:this|that|the|original)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test([ordered, ...assessment].join(' '))) continue;
+    // A selected repair's invalidated-fill rule describes the amendment. It
+    // does not assert that the original late fill was already impossible.
+    const registry = [...findings[0]!.cells];
+    const repair = /\(fixed by (D[1-9]\d*)\)$/.exec(registry[3] ?? '')?.[1];
+    if (repair && registry[5]?.startsWith(`${repair}: `)) {
+      registry[5] = registry[5].replace(/\binvalidated fills never `?set`?\b/g, 'discard invalidated fills');
+    }
+    const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${registry.join(' | ')} ${ordered} ${assessment.join(' ')}`;
+    if (hasProseStaleFillFinding(claim)) return true;
   }
   for (const trace of traces) {
     let heading = trace.start - 1;

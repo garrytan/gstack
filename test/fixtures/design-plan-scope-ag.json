@@ -1,0 +1,126 @@
+{
+  "scope": "Exact owned public assistant and Skill-use/result projection. Full source snapshots retain Write/results separately. No private text.",
+  "observations": [
+    {
+      "source": {
+        "path": ".context/ship-source-ag-delta-paid-20260910-v1/design-plan-mode-evidence-v1/plan-design-review-1789007179653-n3jdJd.json",
+        "sha256": "9c5b3d45dd34f975ab6b28e8573d93525cd5476da6fdf2592b65666cb34fcece"
+      },
+      "opts": {
+        "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+        "skillName": "plan-design-review",
+        "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+        "commandStartedAt": 1789007077511
+      },
+      "transcript": {
+        "status": "ready",
+        "calls": [],
+        "assistantMessages": [
+          {
+            "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+            "text": "I'll run the design review skill on your draft landing page plan.",
+            "timestamp": "2026-09-10T02:24:42.925Z"
+          },
+          {
+            "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+            "text": "Running the skill preamble first.",
+            "timestamp": "2026-09-10T02:24:48.496Z"
+          },
+          {
+            "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+            "text": "A DESIGN.md exists, so every design call will calibrate against it. Reading it plus the design-related TODOs.",
+            "timestamp": "2026-09-10T02:25:15.585Z"
+          },
+          {
+            "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+            "text": "Audit done. Writing the initial plan artifact (your draft copied verbatim, gaps recorded as pending), then Step 0.",
+            "timestamp": "2026-09-10T02:25:28.973Z"
+          },
+          {
+            "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+            "text": "**Pre-review audit findings**\n\n- **UI scope:** two marketing pages, `/` and `/pricing`. Design review applies.\n- **DESIGN.md exists** and is specific: Industrial/Utilitarian, dark default, amber accent used sparingly, Satoshi display + DM Sans body + JetBrains Mono as the personality font, 4px spacing base, 12-col grid at 1200px, and an explicit \"editorial hero for landing page\" layout direction. The draft plan contradicts it on several points.\n- **Prior design reviews:** none logged for this branch. Recent commits are all eval infrastructure, so nothing to be extra aggressive about.\n- **Designer binary:** `DESIGN_READY`. Mockups will be generated after Step 0.\n- **Base branch:** `main` (GitHub).\n\n**Step 0A. Initial design rating: 2/10 on design completeness.**\n\nIt's a 2 because the plan names page sections, but every actual design decision it does make is wrong or missing. \"Clean modern look\" is a vibe, not a decision. Center-aligning everything contradicts the editorial hero your DESIGN.md already chose. An 8px gap between a 72px hero and its subhead is spacing for a caption, not a headline. A CTA with the same weight as \"Learn more\" means there is no primary action, so the page has no job. The three-column features grid plus testimonials carousel is the exact template every AI-generated site ships. \"Stacks on mobile\" and \"only the happy path\" together mean roughly half the users' actual experience is undesigned.\n\nA 10 for this plan: hero composition specified in DESIGN.md tokens (Satoshi at clamp(40px, 6vw, 72px), subhead at `lg`/`xl` spacing, left-aligned editorial layout, one amber CTA, \"Learn more\" as a quiet text link). One scannable proof section that earns its layout instead of a card grid. Testimonials with a narrative purpose or cut entirely. Pricing with a recommended tier, per-tier CTA, and a FAQ. Every state named: font loading, fetch failure, 404, form success/error. Mobile designed per viewport with 44px touch targets and a real nav. Contrast, focus rings, and reduced-motion specified. One authored motion moment on the first viewport.\n\n**Step 0B.** DESIGN.md found. All design decisions will be calibrated against your stated design system.\n\n**Step 0C. Existing leverage.** The whole token set is already decided: fonts, color roles, the spacing scale, radii, the grain texture, easing curves. The plan should bind to those tokens by name rather than invent anything. The Decisions Log also settled that the live-feed pulse is the one authored motion moment, so a landing hero would need its own explicit decision if it wants motion.\n\n**Step 0D.** Focus areas.",
+            "timestamp": "2026-09-10T02:26:01.369Z"
+          }
+        ]
+      },
+      "tools": [
+        {
+          "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+          "timestamp": "2026-09-10T02:24:42.968Z",
+          "toolUseId": "toolu_01KviY5jExf7Nmwsy5d5wxVf",
+          "kind": "use",
+          "name": "Skill",
+          "input": {
+            "skill": "plan-design-review"
+          }
+        },
+        {
+          "sessionId": "9d275b27-7c60-4f06-b2af-82617b1c5e2c",
+          "timestamp": "2026-09-10T02:24:44.365Z",
+          "toolUseId": "toolu_01KviY5jExf7Nmwsy5d5wxVf",
+          "kind": "result",
+          "content": "Launching skill: plan-design-review",
+          "isError": false
+        }
+      ]
+    },
+    {
+      "source": {
+        "path": ".context/ship-source-ag-delta-paid-20260910-v1/design-plan-mode-evidence-v1/plan-design-review-1789007300958-g4QVMs.json",
+        "sha256": "91caf7e1e5edce281f5ceb3e44e5988839ac43e3d6ba17f20ed7e452b356061c"
+      },
+      "opts": {
+        "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+        "skillName": "plan-design-review",
+        "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+        "commandStartedAt": 1789007191011
+      },
+      "transcript": {
+        "status": "ready",
+        "calls": [],
+        "assistantMessages": [
+          {
+            "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+            "text": "I'll invoke the /plan-design-review skill to review the draft landing page plan.",
+            "timestamp": "2026-09-10T02:26:35.166Z"
+          },
+          {
+            "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+            "text": "I've selected reviewing the pasted \"Marketing landing page\" draft plan since we're in plan mode. Now I'll run the pre-review audit, design setup probe, context recovery, and brain context checks in parallel.\n\n",
+            "timestamp": "2026-09-10T02:26:53.055Z"
+          },
+          {
+            "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+            "text": "Base branch is main. DESIGN.md exists, so design decisions will calibrate against it. Reading DESIGN.md, design TODOs, and the review sections now.",
+            "timestamp": "2026-09-10T02:27:09.985Z"
+          },
+          {
+            "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+            "text": "## Pre-review system audit\n\n**UI scope:** two pages. `/` has a hero, a 3-column features grid, a testimonials carousel, and a footer. `/pricing` has three tier cards. This is a PERSUADE surface (marketing landing page), so Landing Page Rules apply.\n\n**DESIGN.md:** exists, open format with tokens in front matter. Direction is Industrial/Utilitarian, dark default, restrained amber accent, Satoshi display + DM Sans body + JetBrains Mono for data, 12-col grid at 1200px, 4px spacing base. It explicitly calls for an \"editorial hero for landing page.\" All design decisions calibrate against it.\n\n**TODOS.md:** no landing-page design TODOs. The design entries there are about the detector and skill internals.\n\n**Prior reviews:** none logged for this branch. Git log is skill infrastructure work, no landing page history, so no retrospective hot spots.\n\n**Existing leverage:** the DESIGN.md token set and its Decisions Log (light-mode amber-600 rationale, grain texture, \"one authored motion moment\" already spent on the live-feed pulse). No landing page code exists in the repo yet.\n\n## Step 0: Design Scope Assessment\n\n**0A. Initial rating: 2/10** on design completeness. The draft names pages and components but nearly every stated decision violates a principle, and the omissions are total. Specifically: it has no primary action (CTA and \"Learn more\" carry equal weight), it centers everything for a \"clean modern look\" (a vibe, not a decision), it puts 8px between hero h1 and subhead, it uses the 3-column features grid and a testimonials carousel (both on the slop list, the carousel a hard rejection), it defaults pricing to cards, it designs zero non-happy states, it hand-waves mobile as \"stacks,\" and it never mentions type, color, motion, or accessibility despite a full DESIGN.md sitting in the repo.\n\n**A 10 for this plan** would: name the one thing a visitor sees first in the hero and what they click, cite DESIGN.md tokens by path for every type size, color, and spacing value, give each section one job with one headline, replace the grid and carousel with sections that earn their pixels, specify loading/empty/error states for every dynamic element (pricing fetch, testimonials, any form), lay out 375px, 768px, and 1200px intentionally, and spec keyboard nav, landmarks, 44px targets, focus rings, and 4.5:1 contrast.\n\n**0B. DESIGN.md status:** present. All design decisions will be calibrated against your stated design system.\n\n**0C. Existing design leverage:** reuse the DESIGN.md tokens (`{typography.display}` Satoshi for hero, `{colors.primary-dark-mode}` for the one CTA, `{spacing.*}` scale, `{rounded.md}` for buttons), the grain texture treatment, and the 12-col/1200px grid. Note the Decisions Log already spends the \"one authored motion moment\" on the live-feed pulse, so the landing page's first-viewport motion needs its own decision.\n\nI've recorded ten pending gaps (G1 to G10) in the plan file. None is approved yet.",
+            "timestamp": "2026-09-10T02:28:08.900Z"
+          }
+        ]
+      },
+      "tools": [
+        {
+          "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+          "timestamp": "2026-09-10T02:26:35.988Z",
+          "toolUseId": "toolu_01MW4bfwniQhj4Cscv8CuPyo",
+          "kind": "use",
+          "name": "Skill",
+          "input": {
+            "skill": "plan-design-review"
+          }
+        },
+        {
+          "sessionId": "76d68e6c-2f79-40b9-a432-1010c1ee7668",
+          "timestamp": "2026-09-10T02:26:37.340Z",
+          "toolUseId": "toolu_01MW4bfwniQhj4Cscv8CuPyo",
+          "kind": "result",
+          "content": "Launching skill: plan-design-review",
+          "isError": false
+        }
+      ]
+    }
+  ]
+}

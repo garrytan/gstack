@@ -146,6 +146,35 @@ function hasNativePostureProse(text: string, posture: RegExp): boolean {
   return hasPostAnswerCeoPosture(`● ${prose}`, posture);
 }
 
+/** Current scope lock + exclusion + hardening can apply HOLD without naming it. */
+function hasCurrentHoldScopePosture(text: string, selected: NativePlanQuestionCall): boolean {
+  const plain = text.replace(/\*\*/g, '').replace(/’/g, "'").trim();
+  // Require the declaration itself, not a quote, promise, example or comparison.
+  const sentence = /^[\s\S]*?[.!?](?=\s|$)/.exec(plain)?.[0] ?? '';
+  if (/\b(?:not|never|won't|can't|don't|isn't|aren't|if|unless|until|may|might|could|would|will|later|example|hypothetical)\b/i.test(sentence)) return false;
+  const declaration = /^(?:I'm|I am|We're|We are) (?:locking|keeping|holding) (?:the )?scope (?:to|at) ([^,\n]+),\s*(?:flagging|treating|marking) (?:anything|everything) (?:beyond|outside) that(?: \([^()\n]+\))? as out of scope,? and (?:hunting|checking|looking) for (?:silent )?(?:failure modes|errors|edge cases)\b([^.!?\n]*)\.$/i.exec(sentence);
+  if (!declaration) return false;
+  // A later current correction can withdraw the declaration. Quoted examples
+  // cannot; the opening declaration was matched before removing quoted blocks.
+  const currentProse = plain.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^\s*>.*$/gm, '').replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+  if (/\b(?:expand\w*|widen\w*|reduc(?:e|ing)|shrink\w*)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
+      /\b(?:add|adding)\b[^.!?\n]*\b(?:to|into)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
+      /\b(?:no longer|not)\s+(?:locking|keeping|holding)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
+      /\b(?:previously|formerly) excluded\b[^.!?\n]*\b(?:now )?in scope\b/i.test(currentProse)) return false;
+  const context = selected.questions.map(q => /^Project\/branch\/task:([^\n]*)/im.exec(q.question)?.[1] ?? '').join(' ');
+  const plans = new Set(context.match(/\b[\w./-]+\.md\b/gi) ?? []);
+  const baseline = declaration[1]!.trim();
+  const namedPlan = /^(?:the )?(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) )?([\w./-]+\.md) (?:bullets|requirements|scope)(?: from approach [A-Z])?$/i.exec(baseline);
+  if (namedPlan ? plans.size !== 1 || !plans.has(namedPlan[1]!)
+    : !/^the (?:current|agreed|approved|existing) (?:plan|scope)$/i.test(baseline)) return false;
+  // Concrete failure surfaces distinguish review rigor from merely retaining scope.
+  const hardening = declaration[2]!;
+  return [/\bconstraints\b/i, /\berror handling\b/i, /\bedge cases\b/i,
+    /\baccess(?:-rule)? leaks\b/i, /\bsecurity\b/i, /\btest(?:ing|s)\b/i]
+    .filter(surface => surface.test(hardening)).length >= 2;
+}
+
 /** A native successful answer, not the key we intended to send to the menu. */
 export function nativeCeoModeAnswer(
   transcript: PlanCountTranscript,
@@ -295,7 +324,10 @@ export function hasNativePostAnswerCeoPosture(
   const answeredAt = Date.parse(selected.answeredAt!);
   return transcript.assistantMessages.some(message => {
     if (message.sessionId !== selected.sessionId || Date.parse(message.timestamp) <= answeredAt) return false;
-    return hasNativePostureProse(message.text, posture);
+    return hasNativePostureProse(message.text, posture) ||
+      (targetMode === 'HOLD SCOPE' && Number.isFinite(Date.parse(message.timestamp)) &&
+        Date.parse(message.timestamp) <= Date.now() &&
+        hasCurrentHoldScopePosture(message.text, selected));
   }) || (targetMode === 'SCOPE EXPANSION' && hasAnsweredExpansionPosture(transcript, selected, posture, publicTools)) ||
     (targetMode === 'HOLD SCOPE' && hasAnsweredHoldPosture(transcript, selected, posture, publicTools));
 }

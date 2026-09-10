@@ -9,7 +9,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-plan-tune-cathedral.test.ts'), 'utf8');
 const names = ['plan-tune-hook-capture', 'plan-tune-enforcement', 'plan-tune-annotation', 'plan-tune-codex-import', 'plan-tune-dream-cycle'];
 
-async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-hook-lib' | 'first-hook' | 'setup') {
+async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-hook-lib' | 'first-hook' | 'setup', hostEnv: Record<string, string> = {}) {
   // Execute the actual selected callbacks with real local bins. Never import
   // E2E initialization, call a provider, or pass ambient auth/host state.
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cathedral-contract-'));
@@ -17,7 +17,7 @@ async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-h
   const invoked: string[] = [];
   let current: any, failedHook = false;
   const owned = (p: string) => { if (!p.startsWith(scratch + path.sep)) throw new Error('Foreign fixture path'); };
-  const env = { PATH: process.env.PATH, HOME: path.join(scratch, 'home'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' };
+  const env = { PATH: process.env.PATH, HOME: path.join(scratch, 'home'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', ...hostEnv };
   fs.mkdirSync(env.HOME);
   const args: Record<string, any> = {
     ROOT, path, os: {tmpdir:()=>scratch}, process: {env}, expect,
@@ -112,4 +112,18 @@ test('Cathedral fixture controls and copied libraries select all five existing o
     expect(owners).toEqual(names);
   }
   expect(Object.entries(E2E_TOUCHFILES).filter(([,paths])=>paths.includes('test/plan-tune-cathedral-fixture.test.ts')).map(([name])=>name)).toEqual(names);
+});
+
+
+test('Plain Claude cathedral contracts stay isolated from either inherited Conductor marker', async () => {
+  for (const hostEnv of [
+    { CONDUCTOR_WORKSPACE_PATH: '/synthetic/conductor/workspace' },
+    { CONDUCTOR_PORT: '55070', GSTACK_SESSION_KIND: 'spawned', OPENCLAW_SESSION: 'synthetic-session' },
+  ]) {
+    const x = await exercise(['plan-tune-annotation', 'plan-tune-dream-cycle'], undefined, hostEnv);
+    expect(x.attempts).toHaveLength(4);
+    expect(x.rows.map(row => row.passed)).toEqual([true, true, true, true]);
+    for (const attempt of x.attempts) expect(attempt.error).toBeUndefined();
+    expect(x.allRemoved).toBe(true);
+  }
 });

@@ -78,8 +78,10 @@ function regressionEvidence(text: string): boolean {
     const legacySubject = /^legacyAuthFlow(?:\(\))?\s*[—–:-]\s*/i;
     const action = task.replace(legacySubject, '');
     const instruction = action.match(/^(?:(?:I|we)\s+)?(?:add(?:ed)?|record(?:ed)?|write|wrote|require(?:d)?|include(?:d)?)\s+((?:(?:a|the|new|required|legacyAuthFlow(?:\(\))?|regression|characterization|baseline|prior-behavior)\s+)*(?:tests?|fixtures?|suites?))\b([^.;\n]*)/i);
-    const explicitTarget = instruction && /^\s+(?:for|of|covering|characterizing)\b/i.test(instruction[2]!);
-    const legacyTarget = instruction && /^\s+(?:for|of|covering|characterizing)\s+(?:the\s+)?(?:prior behavior of\s+)?legacyAuthFlow\b/i.test(instruction[2]!);
+    const explicitTarget = instruction && /^\s+(?:for|of|covering|characterizing|pinning)\b/i.test(instruction[2]!);
+    const legacyTarget = instruction && (
+      /^\s+(?:for|of|covering|characterizing)\s+(?:the\s+)?(?:prior behavior of\s+)?legacyAuthFlow\b/i.test(instruction[2]!) ||
+      /^\s+pinning\s+(?:the\s+)?legacyAuthFlow(?:\(\))?(?:'s)?\s+(?:current|existing|prior)\s+behavior\b/i.test(instruction[2]!));
     const target = instruction && (!explicitTarget || legacyTarget) &&
       (legacySubject.test(task) || /\blegacyAuthFlow\b/.test(instruction[1]!) || legacyTarget);
     // An affirmative task or completed addition, not an example, quotation,

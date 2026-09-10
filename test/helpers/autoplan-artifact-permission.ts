@@ -18,6 +18,25 @@ interface ArtifactPermissionContext {
 const MAX_BYTES = 1024 * 1024;
 const compact = (text: string) => text.replace(/\s/g, '');
 
+/** The native header may remain above the diff; both displayed paths must bind. */
+function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string): string[] | null {
+  const update = /^[●⏺] Update\(([^\n]+)\)$/.exec(rows[0] ?? '');
+  if (!update) return rows; // Existing cropped-only row guards still apply.
+  if (!ownedStateRoot || rows[1]?.trim() !== '' || !/^[─╌]{8,}$/.test(rows[2] ?? '') ||
+      rows[3]?.trim() !== 'Edit file' || !/^[─╌]{8,}$/.test(rows[5] ?? '')) return null;
+  const relative = path.relative(ownedStateRoot,file).split(path.sep).join('/');
+  const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
+  if (update[1] !== file && update[1] !== alias) return null;
+  const displayed = rows[4]?.trim() ?? '';
+  if (displayed !== file && displayed !== alias) {
+    const suffix = displayed.startsWith('…') ? displayed.slice(1) : '';
+    // A truncated prefix must still retain the complete owned project/artifact
+    // path. A basename or sibling-project suffix cannot bind this request.
+    if ((suffix !== relative && !suffix.endsWith('/'+relative)) || !file.endsWith(suffix)) return null;
+  }
+  return rows.slice(6);
+}
+
 export function ownedAutoplanArtifact(file: string, context: Pick<ArtifactPermissionContext, 'cwd' | 'ownedStateRoot'>): boolean {
   if (!context.ownedStateRoot || !path.isAbsolute(file) || path.resolve(file) !== file) return false;
   const project = path.join(context.ownedStateRoot, 'projects', path.basename(context.cwd));
@@ -37,15 +56,18 @@ export function ownedAutoplanArtifact(file: string, context: Pick<ArtifactPermis
 }
 
 /** Require the whole current cropped diff, exact menu, and requested edit text. */
-function matchesCroppedEdit(viewport: string, file: string, before: string, removed: string, after: string): boolean {
+function matchesCroppedEdit(viewport: string, file: string, before: string, removed: string, after: string,
+  ownedStateRoot?: string): boolean {
   if (viewport.length > MAX_BYTES) return false;
   const text = viewport.replace(/\r\n?/g, '\n');
   const menu = /^ {0,3}Do you want to make this edit to ([^\n?]+)\? *\n {0,3}❯ *1\. Yes *\n {0,3}2\. Yes, and switch to accept edits \(auto-approve file edits and common file commands\) for this session(?: \(shift\+tab\))? *\n {0,3}3\. No *\n\s*Esc to cancel [·•] Tab to amend\s*$/m.exec(text);
   if (!menu || menu.index + menu[0].length !== text.length || menu[1] !== path.basename(file)) return false;
   const rows = text.slice(0, menu.index).trimEnd().split('\n');
   if (!/^[╌─]{8,}$/.test(rows.pop() ?? '')) return false;
+  const diffRows = ownedEditDiffRows(rows,file,ownedStateRoot);
+  if (!diffRows) return false;
   const chunks: Array<{ kind: string; text: string }> = [];
-  for (const row of rows) {
+  for (const row of diffRows) {
     const numbered = /^ {0,3}(\d+) ([+ -])(.*)$/.exec(row);
     if (numbered) {
       const line = Number(numbered[1]);
@@ -110,7 +132,8 @@ export function autoplanArtifactPermissionInput(
   try {
     const before = fs.readFileSync(edit.input.file_path, 'utf8');
     if (!before.includes(edit.input.old_string) ||
-        !matchesCroppedEdit(viewport, edit.input.file_path, before, edit.input.old_string, edit.input.new_string)) return null;
+        !matchesCroppedEdit(viewport, edit.input.file_path, before, edit.input.old_string, edit.input.new_string,
+          context.ownedStateRoot)) return null;
     return { input: '1\r', signature, file: edit.input.file_path };
   } catch { return null; }
 }
@@ -159,11 +182,13 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
     if (!menu || menu.index + menu[0].length !== text.length || menu[1] !== path.basename(p.file)) return null;
     const rows = text.slice(0, menu.index).trimEnd().split('\n');
     if (!/^[╌─]{8,}$/.test(rows.pop() ?? '')) return null;
+    const diffRows = ownedEditDiffRows(rows,p.file,context.ownedStateRoot);
+    if (!diffRows) return null;
     if (Math.floor(fs.statSync(p.file).mtimeMs) > pendingTime) return null;
     const originals = fs.readFileSync(p.file, 'utf8').split('\n').map(compact);
     const chunks: Array<{kind:string; text:string; partial?:boolean}> = [];
     let numbered = 0;
-    for (const row of rows) {
+    for (const row of diffRows) {
       const full = /^ {0,3}(\d+) ([+ -])(.*)$/.exec(row);
       if (full) {
         if (!Number.isSafeInteger(Number(full[1])) || Number(full[1]) < 1) return null;

@@ -31,6 +31,7 @@ import { withHermeticSkillRuntime } from './hermetic-skill-runtime';
 import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { nativeSeededPlanSelection } from './plan-scope-selection';
+import { findNativeAutoDecision, type NativeAutoDecision } from './native-auto-decide';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript, type NativePublicToolEvent } from './plan-count-transcript';
 import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
 import { createPendingQuestionRecorder } from './plan-count-pending-question';
@@ -2152,6 +2153,32 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
   // directly to review-phase. Boundary fires on the scope AUQ itself.
   fp.options.some((o) => /skip\s+interview|plan\s+immediately/i.test(o.label));
 
+/** Complete native assertion briefs distinguish a current gap from test layout. */
+function ceoAssertionMismatchBrief(q: NativePlanQuestionCall['questions'][number]): boolean {
+  const explanation = (/^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '')
+    .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  return /\bcontract\b/i.test(q.question.split('\n')[0] + ' ' + explanation) &&
+    /\b(?:planned|proposed|current)\s+(?:test|assertion)\s+only\s+checks?\b/i.test(explanation) &&
+    !/\b(?:gap|defect|issue|problem)\b[^.!?]{0,80}\b(?:was|were|already|now|has been|have been)\s+(?:resolved|fixed|closed)\b/i.test(explanation) &&
+    q.options.some(option => {
+      const label = option.label.replace(/^([1-9]\d*)?[A-Z][):.]\s*/i, '');
+      if (/^(?:keep|leave|preserve)\b/i.test(label)) return false;
+      const artifactTarget = (target: string) => /^(?:(?:the|a|an|this|prior|previous|completed|reviewed|current|saved|stored|exact|expected|full|complete|whole)\s+)*(?:(?:contents?|text|format|structure)\s+of\s+(?:(?:the|saved|current)\s+)*)?(?:review\s+)?(?:plan|report|summary|note|record|document|log|layout)s?\b/i.test(target);
+      // Each assertion clause owns its qualifier and object. An independent
+      // report instruction cannot make an unchanged assertion stronger.
+      return [label, option.description ?? ''].some(text => text.trim()
+        .split(/[.;]\s+|\s+(?:and|then)\s+(?=(?:assert|pin|verify|deep-equal|check|include|add|record|save|write|document|update|render|produce)\b)/i)
+        .some(clause => {
+          const action = /^(assert|pin|verify|deep-equal)\s+(.+)/i.exec(clause);
+          if (!action || artifactTarget(action[2]!)) return false;
+          if (action[1]!.toLowerCase() === 'deep-equal') return true;
+          return [...action[2]!.matchAll(/\b(?:exact|exactly|full|complete|whole|expected)\s+/gi)].some(qualifier =>
+            !/\bonly\b/i.test(action[2]!.slice(0, qualifier.index)) &&
+            !artifactTarget(action[2]!.slice(qualifier.index! + qualifier[0].length)));
+        }));
+    });
+}
+
 /** Native finding evidence when CEO mode selection is omitted or left unanswered. */
 function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number], subject: string): boolean {
   // A numbered title may be declarative. Its current problem and proposed
@@ -2169,10 +2196,13 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
     /^(?:there\s+(?:is|are)\s+no\s+(?:current\s+)?|no\s+current\s+)(?:defect|gap|issue|problem)s?\b/i.test(clause.trim())))) return false;
   const currentProblem = [subject, explanation].some(text => {
     const statement = publicText(text).split(/[.!?]\s+/)[0]!;
+    // A numbered test may state its assertion gap through the regression it
+    // cannot reject, without using the word "missing" or a question mark.
+    const assertionGap = /^test\s+[1-9]\d*(?:\s+\([^()\n]*\))?\s+(?:cannot\s+(?:detect|catch|reject)\b[^.!?\n]*\bregressions|accepts\s+any\s+truthy\s+value)\b/i.test(statement.trim()) && ceoAssertionMismatchBrief(q);
     return !/^(?:if|unless|whether|example|template|hypothetical|quoted)\b|\b(?:already resolved|no (?:current )?(?:defect|gap|issue|problem)s?\b|not true)\b/i.test(statement.trim()) &&
       !/\b(?:not|never|no longer|isn't)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
       !/\b(?:was|were)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
-      /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:error handling|tests?|checks?|validation|coordination)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b/i.test(statement);
+      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:error handling|tests?|checks?|validation|coordination)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b/i.test(statement));
   });
   const amendment = q.options.some(option => [option.label.replace(/^([1-9]\d*)?[A-Z][):.]\s*/i, ''), option.description ?? ''].some(text =>
     publicText(text).split(/[.;]\s+/).some(clause =>
@@ -2211,6 +2241,16 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
       !/\b(?:if|unless|hypothetical|no|not|already)\b/i.test(normalized) &&
       q.options.some(o => /^(?:[A-Z][).]\s*)?(?:Assert|Pin|Verify)\b/i.test(o.label) && Boolean(o.description?.trim())) &&
       q.options.some(o => /^(?:[A-Z][).]\s*)?Keep\b.*\bassertion\b/i.test(o.label) && Boolean(o.description?.trim()))) return true;
+  // The title may name the affected test while the native header carries
+  // its finding number. Require the complete current mismatch and repair
+  // brief, and bind that header to the numbered recommendation.
+  const directAssertion = /^Test [1-9]\d* asserts only [^,\n?]+, but (?:the plan states|the contract is) ([^.!?\n]+)\. (?:Pin|Assert|Verify|Fix) [^\n?]+\?$/i.exec(normalized);
+  const assertionNumber = /^Finding ([1-9]\d*)$/i.exec(q.header.trim());
+  const recommendedNumber = /^Recommendation:\s*([1-9]\d*)[A-Z]\b/im.exec(q.question);
+  if (directAssertion && assertionNumber && recommendedNumber && assertionNumber[1] === recommendedNumber[1] &&
+      /\b(?:exact|exactly|full|complete)\b/i.test(directAssertion[1]!) &&
+      !/\b(?:if|unless|hypothetical|no|not|already)\b/i.test(normalized) &&
+      ceoAssertionMismatchBrief(q) && ceoNumberedBriefDecision(q, normalized)) return true;
   const identity = /^(Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*([^\n]+)$/i.exec(normalized);
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
   const parenthesized = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
@@ -2934,6 +2974,8 @@ export async function invokeAndObserve(
 // ---------------------------------------------------------------------------
 
 export interface PlanSkillObservation {
+  /** Exact owned public-native annotation when terminal redraws lose it. */
+  nativeAutoDecide?: NativeAutoDecision;
   /** Persisted public diagnostics for this attempt, when eval recording is enabled. */
   artifactDir?: string;
   artifactError?: string;
@@ -3142,6 +3184,8 @@ export async function runPlanSkillObservation(opts: {
     let scopeGateAutoSelectObserved = false;
     let scopeTranscript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
     let scopeTools: NativePublicToolEvent[] = [];
+    let nativeAutoDecide: NativeAutoDecision | null = null;
+    let nativePolledAt: number | null = null;
     const saveSnapshot = createPlanCountSnapshotWriter();
     const tokensObserved: Record<string, boolean> = {};
     for (const t of opts.trackTokens ?? []) tokensObserved[t] = false;
@@ -3152,6 +3196,7 @@ export async function runPlanSkillObservation(opts: {
     const highWaterFlags = () => {
       const flags = { proseAUQEverObserved, waitingEverObserved,
         scopeGateQuestionObserved, scopeGateAutoSelectObserved,
+        ...(nativeAutoDecide ? { nativeAutoDecide } : {}),
         ...(opts.trackTokens?.length ? { tokensObserved } : {}) };
       // Preserve the measured terminal flags and public evidence before the
       // hermetic session is removed, including when a later assertion fails.
@@ -3160,7 +3205,7 @@ export async function runPlanSkillObservation(opts: {
         raw: session.rawOutput(), visible: session.visibleSince(since),
         observation: { state: 'plan_skill_observation_terminal', ...flags,
           commandStartedAt, scopeSessionId, native: scopeTranscript, publicTools: scopeTools,
-          nativeScope: 'Last scope-selection poll; polling stops when selection is observed. This is not a terminal native snapshot.' } });
+          nativePolledAt, nativeScope: 'Latest owned native poll, refreshed while observing; not an exhaustive terminal journal.' } });
       return { ...flags, ...artifacts };
     };
     const JUDGE_AFTER_MS = 60_000;
@@ -3207,11 +3252,14 @@ export async function runPlanSkillObservation(opts: {
       if (!scopeGateAutoSelectObserved && isScopeGateAutoSelectVisible(visible)) {
         scopeGateAutoSelectObserved = true;
       }
-      if (!scopeGateAutoSelectObserved && scopeSessionId && opts.initialPlanContent && session.hermeticConfigDir) {
+      // Keep reading after scope selection: an AUTO_DECIDE annotation may
+      // arrive later, and a prior poll cannot establish its current ownership.
+      if (scopeSessionId && opts.initialPlanContent && session.hermeticConfigDir) {
         scopeTools = [];
         scopeTranscript = readPlanCountTranscript(session.hermeticConfigDir,
           path.resolve(opts.cwd ?? process.cwd()), event => scopeTools.push(event));
-        scopeGateAutoSelectObserved = nativeSeededPlanSelection(scopeTranscript, scopeTools, {
+        nativePolledAt = Date.now();
+        if (!scopeGateAutoSelectObserved) scopeGateAutoSelectObserved = nativeSeededPlanSelection(scopeTranscript, scopeTools, {
           seed: opts.initialPlanContent, skillName: opts.skillName, sessionId: scopeSessionId, commandStartedAt,
         });
       }
@@ -3239,6 +3287,20 @@ export async function runPlanSkillObservation(opts: {
         const planFile = extractPlanFilePath(visible);
         if (planFile) obs.planFile = planFile;
         return obs;
+      }
+
+      // Terminal classification retains precedence (including actual questions
+      // and writes). Only an unclassified frame may use exact owned native prose.
+      if (scopeSessionId) {
+        nativeAutoDecide = findNativeAutoDecision(scopeTranscript, scopeTools, {
+          skillName: opts.skillName, sessionId: scopeSessionId, commandStartedAt, now: Date.now(),
+        });
+        if (nativeAutoDecide) return {
+          outcome: 'auto_decided',
+          summary: 'owned native session emitted the exact AUTO_DECIDE preference annotation after loading the invoked skill',
+          evidence: visible.slice(-2000), elapsedMs: Date.now() - startedAt,
+          ...highWaterFlags(),
+        };
       }
 
       // LLM judge fallback: if regex detectors didn't classify and we've

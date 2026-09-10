@@ -223,9 +223,9 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
           `Read the skill file at ${skillPath} and follow Path 4 (Remote MCP). ` +
           `Use this MCP URL: ${stubServer.url}. ` +
           `The bearer token is already in GBRAIN_MCP_TOKEN. ` +
-          `At Step 4.5 (the new "Want symbol-aware code search?" question), PICK YES — set up local PGLite for code. ` +
+          `At Step 4d (the "Want symbol-aware code search?" question), ask me with AskUserQuestion and wait for my answer. ` +
           `Then continue through Step 5a (MCP registration) → Step 10 (verdict). ` +
-          `Do not skip Step 4.5; the test depends on the Yes path being taken.`,
+          `I have not yet chosen whether to set up local PGLite; do not skip that decision.`,
         workingDirectory: sandboxHome,
         env: { GBRAIN_MCP_TOKEN: FIXTURE_TOKEN },
         maxTurns: 25,

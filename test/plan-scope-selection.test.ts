@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import agFixture from './fixtures/design-plan-scope-ag.json';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,6 +16,7 @@ const announcements = [
   `I'll review the "Marketing landing page" draft plan pasted here, starting with a parallel check of the pre-review audit, base branch, design setup, and brain context.`,
   `I'm proceeding with reviewing the "Marketing landing page" draft you pasted. Next, I'll run the pre-review audit: checking git context, DESIGN.md/TODOS.md, design binary setup, and brain context.`,
 ];
+const agAnnouncement = agFixture.observations[1]!.transcript.assistantMessages.find(message => message.text.startsWith("I've selected"))!.text;
 const fixture = (text = announcements[0]!) => ({
   transcript: { status: 'ready', calls: [], assistantMessages: [{ sessionId: 'owned', timestamp: timestamp(3), text }] } as PlanCountTranscript,
   tools: [
@@ -53,7 +55,14 @@ test('a late seed reply, wrong parent, failed load or missing native data suppli
 test('quotes, examples, questions, wrong targets and conditional intentions remain negative', () => {
   const text = announcements[0]!;
   for (const invalid of [
-    `> ${text}`, `    ${text}`, `\t${text}`, `"${text}"`, `Example:\n${text}`, `Expected output:\n\n${text}`, `Original message:\n${text}`, `An unproven hypothesis:\n${text}`, `A proposed response:\n\n${text}`,
+    `> ${text}`, `    ${text}`, `	${text}`, `"${text}"`, `Example:
+${text}`, `Expected output:
+
+${text}`, `Original message:
+${text}`, `An unproven hypothesis:
+${text}`, `A proposed response:
+
+${text}`,
     `\`\`\`text\n${text}\n\`\`\``, `\`\`\`\`markdown\n\`\`\`\n${text}\n\`\`\`\``,
     text.replace("I'll review", 'Should I review'), text.replace("I'll review", 'I might review'),
     text.replace("I'll review", "I won't review"), text.replace('Marketing landing page', 'Other plan'),
@@ -110,7 +119,7 @@ process.stdin.on('data', chunk => {
   const rows = [
     ['assistant', 1, [{type:'tool_use',id:'load',name:'Skill',input:{skill:'plan-design-review'}}]],
     ['user', 2, [{type:'tool_result',tool_use_id:'load',content:'loaded',is_error:false}]],
-    ['assistant', 3, [{type:'text',text:${JSON.stringify(announcements[1])}}]],
+    ['assistant', 3, [{type:'text',text:${JSON.stringify(agAnnouncement)}}]],
   ].map(([type,n,content]) => JSON.stringify({type,isSidechain:false,cwd:process.cwd(),sessionId:id,timestamp:new Date(base+n).toISOString(),message:{role:type,content}}));
   fs.writeFileSync(path.join(root,id+'.jsonl'), rows.join('\\n')+'\\n');
   process.stdout.write('Reviewing the named draft.\\nA) Fix hierarchy\\nB) Keep hierarchy\\nRecommendation: A because the primary action needs emphasis.\\nReply with A or B.\\n');
@@ -143,3 +152,78 @@ console.log(JSON.stringify(obs));
     expect(saved.scopeGateAutoSelectObserved).toBe(true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }, 40_000);
+
+
+test('AG actual first declaration absence stays negative while the explicit retry selection binds', () => {
+  const [first, retry] = agFixture.observations;
+  expect(nativeSeededPlanSelection(first!.transcript as PlanCountTranscript, first!.tools as NativePublicToolEvent[], first!.opts)).toBe(false);
+  expect(nativeSeededPlanSelection(retry!.transcript as PlanCountTranscript, retry!.tools as NativePublicToolEvent[], retry!.opts)).toBe(true);
+});
+
+
+test('AG completed selection accepts ordinary grammar and the exact named pasted target', () => {
+  for (const text of [
+    `I've selected reviewing the pasted "Marketing landing page" draft plan since we're in plan mode. Now I'll run the pre-review audit.`,
+    'I have selected to review the pasted “Marketing landing page” plan because we are in plan mode. Next, I will run the audit.',
+    'I have selected reviewing the pasted `Marketing landing page` draft.',
+  ]) expect(verdict(fixture(text)), text).toBe(true);
+  expect(verdict(fixture('I have selected to review the pasted "Other page" plan.')), 'wrong seed title').toBe(false);
+});
+
+test('AG completed selection rejects source text, conditional intent, wrong scope and questions', () => {
+  const text = `I've selected reviewing the pasted "Marketing landing page" draft plan since we're in plan mode.`;
+  for (const invalid of [
+    `> ${text}`, `    ${text}`, `\t${text}`, `"${text}"`, `Example:\n${text}`, `Expected output:\n\n${text}`,
+    `Original message:\n${text}`, `An unproven hypothesis:\n${text}`, `A proposed response:\n\n${text}`,
+    `\`\`\`text\n${text}\n\`\`\``,
+    text.replace("I've selected", 'I will select'), text.replace("I've selected", 'I might select'),
+    text.replace("I've selected", 'Have I selected'), text.replace("I've selected", "I haven't selected"),
+    text.replace('reviewing', 'not reviewing'), text.replace('since', 'if'),
+    text.replace("since we're in plan mode.", 'pending approval.'),
+    text.replace("since we're in plan mode.", 'tomorrow.'),
+    text.replace("since we're in plan mode.", 'unless you object.'),
+    text.replace("since we're in plan mode.", 'only after approval.'),
+    text.replace('draft plan since', 'branch diff since'), text.replace(/\.$/, '?'),
+    text + " Now I'll review the branch diff instead.",
+    'I have selected reviewing the supplied plan.',
+  ]) expect(verdict(fixture(invalid)), invalid).toBe(false);
+});
+
+test('AG completed selection still requires this parent and a successful prior skill load', () => {
+  const text = `I've selected reviewing the pasted "Marketing landing page" draft plan since we're in plan mode.`;
+  for (const mutate of [
+    (f: ReturnType<typeof fixture>) => { f.transcript.status = 'missing'; },
+    (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.sessionId = 'foreign'; },
+    (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.timestamp = timestamp(0); },
+    (f: ReturnType<typeof fixture>) => { f.tools[0]!.input!.skill = 'plan-eng-review'; },
+    (f: ReturnType<typeof fixture>) => { f.tools[1]!.isError = true; },
+    (f: ReturnType<typeof fixture>) => { f.tools[1]!.sessionId = 'foreign'; },
+    (f: ReturnType<typeof fixture>) => { f.tools[1]!.toolUseId = 'other'; },
+    (f: ReturnType<typeof fixture>) => { f.tools.pop(); },
+    (f: ReturnType<typeof fixture>) => { f.tools.push({ ...f.tools[1]! }); },
+  ]) { const f = fixture(text); mutate(f); expect(verdict(f)).toBe(false); }
+  expect(verdict(fixture(text), { ...opts, commandStartedAt: START + 10 })).toBe(false);
+  expect(verdict(fixture(text), { ...opts, sessionId: '' })).toBe(false);
+  expect(verdict(fixture(text), { ...opts, seed: opts.seed + '\n# Another plan' })).toBe(false);
+});
+
+test('AG actual scope fixture has exactly the existing two plan-mode owners', () => {
+  const selected = selectTests(['test/fixtures/design-plan-scope-ag.json'], E2E_TOUCHFILES).selected;
+  expect([...selected].sort()).toEqual(['plan-design-review-plan-mode', 'plan-eng-review-plan-mode']);
+});
+
+
+test('AG audit continuation cannot withdraw or relabel the current selection', () => {
+  const text = `I've selected reviewing the pasted "Marketing landing page" draft plan since we're in plan mode.`;
+  for (const tail of [
+    ' Now I retract that selection.',
+    ' Then cancel that selection; review the branch diff.',
+    ' Next, treat that declaration as a hypothetical example.',
+    " Now I'll run the audit and retract that selection.",
+    " Next, I will start the audit and treat that declaration as a hypothetical example.",
+    " Now I'll run the audit. That selection was hypothetical.",
+    " Now I'll run the audit. That selection is cancelled.",
+  ]) expect(verdict(fixture(text + tail)), tail).toBe(false);
+  expect(verdict(fixture(text + " Now I'll run the audit, including the examples in DESIGN.md."))).toBe(true);
+  expect(verdict(fixture(text + '\n\n> Example: cancel that selection.'))).toBe(true);
+});
