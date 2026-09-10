@@ -1,0 +1,51 @@
+{
+  "signature": "3a77230a-afb1-491e-a387-22238340005c:toolu_01566fjgee5qn44WyEc63K7F",
+  "promptSnippet": "Issue 1: Save D4 \u2014 Issue 1: Make Save the visible primary action? Project/branch/task: main, Pass 1 Information Architecture, gap G1. ELI10: Today Save, Reset, Cancel, and Export look identical in the header. A user scanning the page has to",
+  "options": [
+    {
+      "index": 1,
+      "label": "1A Filled Save, ghost others (recommended)"
+    },
+    {
+      "index": 2,
+      "label": "1B Filled Save, outlined Export"
+    },
+    {
+      "index": 3,
+      "label": "1C Defer, keep four equal buttons"
+    }
+  ],
+  "observedAtMs": 202968,
+  "preReview": true,
+  "nativeCall": {
+    "sessionId": "3a77230a-afb1-491e-a387-22238340005c",
+    "toolUseId": "toolu_01566fjgee5qn44WyEc63K7F",
+    "questions": [
+      {
+        "header": "Issue 1: Save",
+        "question": "D4 \u2014 Issue 1: Make Save the visible primary action?\nProject/branch/task: main, Pass 1 Information Architecture, gap G1.\nELI10: Today Save, Reset, Cancel, and Export look identical in the header. A user scanning the page has to read all four labels to find the one that stores their work. DESIGN.md already says Save is the only filled button (#1d4ed8 with white text) and the other three are neutral ghost buttons. This asks whether to apply that.\nStakes if we pick wrong: users hesitate at the moment they most want confidence, and the destructive Reset sits at the same visual weight as Save.\nRecommendation: 1A because it is the exact DESIGN.md token and closes the hierarchy gap with zero new vocabulary. Principle: every screen has a hierarchy; make the right choice the most visible choice.\nCompleteness: 1A=10/10, 1B=7/10, 1C=0/10\nNet: apply the approved token now versus inventing a second weight or shipping a header with no primary action.",
+        "options": [
+          {
+            "label": "1A Filled Save, ghost others (recommended)",
+            "description": "\u2705 Save becomes the single filled primary (#1d4ed8, white text); Reset/Cancel/Export become neutral ghost buttons exactly as DESIGN.md specifies \u2705 Reuses the existing Button component variants, no new component (human: ~1h / CC: ~5 min) \u274c Export loses visual weight, but it stays a clearly labeled button and its position is unchanged"
+          },
+          {
+            "label": "1B Filled Save, outlined Export",
+            "description": "\u2705 Save still reads as primary \u2705 Export gets a secondary emphasis for users who come mainly to download \u274c Adds a third button weight not in DESIGN.md and competes with Save (human: ~2h / CC: ~10 min)"
+          },
+          {
+            "label": "1C Defer, keep four equal buttons",
+            "description": "\u2705 No styling change this cycle \u2705 Zero risk of regressing button behavior \u274c Ships the documented violation; Pass 1 stays at 6/10 and the gap remains open"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Issue 1: Make Save the visible primary action?\nProject/branch/task: main, Pass 1 Information Architecture, gap G1.\nELI10: Today Save, Reset, Cancel, and Export look identical in the header. A user scanning the page has to read all four labels to find the one that stores their work. DESIGN.md already says Save is the only filled button (#1d4ed8 with white text) and the other three are neutral ghost buttons. This asks whether to apply that.\nStakes if we pick wrong: users hesitate at the moment they most want confidence, and the destructive Reset sits at the same visual weight as Save.\nRecommendation: 1A because it is the exact DESIGN.md token and closes the hierarchy gap with zero new vocabulary. Principle: every screen has a hierarchy; make the right choice the most visible choice.\nCompleteness: 1A=10/10, 1B=7/10, 1C=0/10\nNet: apply the approved token now versus inventing a second weight or shipping a header with no primary action.": "1A Filled Save, ghost others (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T23:45:57.477Z"
+  }
+}

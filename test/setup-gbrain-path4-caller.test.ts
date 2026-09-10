@@ -10,7 +10,7 @@ const TOKEN = 'gbrain_fake_token_for_test';
 const CREDENTIAL = 'ghp_aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5';
 const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-setup-gbrain-path4-local-pglite.test.ts'), 'utf8');
 
-async function runCaller(scenario: 'success' | 'no-auq' | 'no-path' | 'leaked-claude-md' | 'diagnostic-secret') {
+async function runCaller(scenario: 'success' | 'no-auq' | 'no-path' | 'leaked-claude-md' | 'diagnostic-secret', diagnostic?: { sink: 'output' | 'tool' | 'error'; text: string }) {
   // Execute the paid callback unchanged; all filesystem/network/SDK effects are mocks.
   const preamble = source.slice(0, source.indexOf('const describeE2E'));
   let executable = source;
@@ -43,16 +43,16 @@ async function runCaller(scenario: 'success' | 'no-auq' | 'no-path' | 'leaked-cl
       files.set(path.join(path.dirname(install), 'install-calls.log'), 'install called');
     }
     if (scenario === 'leaked-claude-md') files.set(path.join(opts.workingDirectory, 'CLAUDE.md'), TOKEN);
-    return { output: `Public report ${TOKEN} ${CREDENTIAL}`, events: [
+    return { output: diagnostic?.sink === 'output' ? `Public report ${diagnostic.text}` : `Public report ${TOKEN} ${CREDENTIAL}`, events: [
       { type: 'system', subtype: 'init', session_id: 'session', cwd: '/owned', model: 'synthetic', tools: ['Read'], get apiKeySource(): never { throw new Error('init credential field accessed'); } },
       { type: 'assistant', session_id: 'session', message: { id: 'msg', role: 'assistant', content: [privateBlock,
         { type: 'text', text: `Public text ${TOKEN} ${CREDENTIAL}` },
-        { type: 'tool_use', id: 'tool', name: 'Bash', input: { command: `echo ${TOKEN}` } }] } },
+        { type: 'tool_use', id: 'tool', name: 'Bash', input: { command: diagnostic?.sink === 'tool' ? `echo ${diagnostic.text}` : `echo ${TOKEN}` } }] } },
       { type: 'user', session_id: 'session', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool', is_error: false,
         content: [privateBlock, { type: 'text', text: `Public result ${TOKEN}` }] }] } },
       { type: 'result', get result(): never { throw new Error('raw result field accessed'); } },
     ], exitReason: 'success', durationMs: 1, costUsd: 0, turnsUsed: 1, model: 'synthetic',
-      browseErrors: scenario === 'diagnostic-secret' ? [`public tool failed ${TOKEN} ${CREDENTIAL}`] : [] };
+      browseErrors: diagnostic?.sink === 'error' ? [`public tool failed ${diagnostic.text}`] : scenario === 'diagnostic-secret' ? [`public tool failed ${TOKEN} ${CREDENTIAL}`] : [] };
   };
   const args: Record<string, any> = {
     test: (_name: string, callback: () => Promise<void>, timeout: number) => { expect(timeout).toBe(CAPTURE_MS); callbacks.push(callback); },
@@ -101,4 +101,41 @@ test('Path4 public diagnostics exclude private fields and redact output, tools a
 test('Path4 caller controls select only their registered paid owner', () => {
   const owners = Object.entries(E2E_TOUCHFILES).filter(([, paths]) => paths.includes('test/setup-gbrain-path4-caller.test.ts')).map(([name]) => name);
   expect(owners).toEqual(['setup-gbrain-path4-local-pglite']);
+});
+
+
+test('Path4 redacted credential URLs cannot erase success or mask a failed assertion', async () => {
+  // Text redaction can consume JSON punctuation after an unspaced URL host.
+  // These synthetic credentials exercise the real redactor and actual callback.
+  for (const text of ['postgres://fixture:syntheticCredential923@db.invalid', 'https://fixture:syntheticCredential923@service.invalid']) {
+    for (const sink of ['output', 'tool', 'error'] as const) {
+      for (const scenario of ['success', 'no-auq'] as const) {
+        const { row, thrown } = await runCaller(scenario, { sink, text });
+        expect(row.passed).toBe(scenario === 'success');
+        if (scenario === 'success') expect(thrown).toBeUndefined();
+        else { expect(thrown).toBeDefined(); expect(thrown).not.toBeInstanceOf(SyntaxError); }
+        const serialized = JSON.stringify(row);
+        expect(serialized).not.toContain('syntheticCredential923');
+        expect(serialized).not.toContain(TOKEN);
+        expect(serialized).not.toContain(CREDENTIAL);
+        expect(typeof row.output).toBe('string');
+        expect(row.output).toContain('Public report');
+        expect(Array.isArray(row.transcript)).toBe(true);
+        expect(Array.isArray(row.browse_errors)).toBe(true);
+      }
+    }
+  }
+});
+
+test('Path4 unbounded secret diagnostics are omitted without changing the recorded verdict', async () => {
+  for (const scenario of ['success', 'no-auq'] as const) {
+    const { row, thrown } = await runCaller(scenario, { sink: 'output', text: '-----BEGIN PRIVATE KEY----- synthetic incomplete private material' });
+    expect(row.passed).toBe(scenario === 'success');
+    if (scenario === 'success') expect(thrown).toBeUndefined();
+    else expect(thrown).toBeDefined();
+    expect(row.output).toContain('omitted');
+    expect(row.transcript).toEqual([]);
+    expect(row.browse_errors).toEqual([]);
+    expect(JSON.stringify(row)).not.toContain('synthetic incomplete private material');
+  }
 });

@@ -64,16 +64,32 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const q = call.questions[0]!;
   const title = q.question.split('\n')[0]!.trim();
   const issue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \((?:G[1-9]\d*, )?(?:Visual Hierarchy|Spacing|Color|Typography|Motion)\))?: ([^?]+)\?$/i.exec(title);
-  if (!issue || !new RegExp(`^Issue ${issue[1]}$`, 'i').test(q.header.trim()) ||
-      !/\b(?:fix|resolve|address)\b/i.test(title) || /<gstack-qid:/i.test(q.question) || q.multiSelect ||
+  if (!issue || !new RegExp(`^Issue ${issue[1]}(?:: [A-Za-z][A-Za-z0-9 _-]{0,39})?$`, 'i').test(q.header.trim()) ||
+      !/\b(?:fix|resolve|address|make)\b/i.test(title) || /<gstack-qid:/i.test(q.question) || q.multiSelect ||
       q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
       fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
       !q.options.some(o => o.label === call.answers?.[q.question])) return false;
   // The numbered headline must ask about a concrete design requirement.
   // Reviewer participation or workflow navigation can also use Issue labels.
-  if (!/\b(?:buttons?|hierarchy|spacing|contrast|colou?rs?|labels?|typography|fonts?|loading|spinner|skeleton|motion)\b/i.test(issue[2]!)) return false;
-  return q.options.some(o => /^(?:[1-9]\d*[A-Z][).]\s*)?(?:Defer|Leave|Keep|Accept the gap)\b/i.test(o.label)) &&
+  if (!/\b(?:buttons?|primary actions?|hierarchy|spacing|contrast|colou?rs?|labels?|typography|fonts?|loading|spinner|skeleton|motion)\b/i.test(issue[2]!)) return false;
+  const opposed = q.options.filter(o => /^(?:[1-9]\d*[A-Z](?:[).]\s*|\s+))?(?:Defer|Leave|Keep|Accept the gap)\b/i.test(o.label));
+  const repair = /\b(?:fix|resolve|address)\b/i.test(title) &&
     q.options.some(o => /\b(?:closing|closes|fixes|resolves?|applies?)\b/i.test(o.description ?? ''));
+  // A source citation alone can describe a report or the next reviewer.
+  // Bind the alternate wording to a named control's concrete style amendment
+  // and the opposed choice that leaves the documented violation unresolved.
+  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the visible primary action$/i.exec(issue[2]!);
+  const amendments = primary && [
+    new RegExp(`^(?:✅\\s*)?Matches DESIGN\\.md exactly: ${primary[1]} filled #[0-9a-f]{6} with (?:white|black) text; ` +
+      '[A-Za-z][A-Za-z0-9 ,_-]{0,99} as neutral ghost buttons\\.', 'i'),
+    new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the single filled primary \\(#[0-9a-f]{6}, (?:white|black) text\\); ` +
+      '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghost buttons exactly as DESIGN\\.md specifies\\b', 'i'),
+  ];
+  const primaryHeader = !q.header.includes(':') || q.header.split(':')[1]!.trim().toLowerCase() === primary?.[1]?.toLowerCase();
+  const primaryRepair = primaryHeader && amendments &&
+    q.options.some(o => amendments.some(pattern => pattern.test(o.description ?? ''))) &&
+    opposed.some(o => /\b(?:Leaves a documented DESIGN\.md violation in place|Ships the documented violation;[^.\n]*\bthe gap remains open)\b/i.test(o.description ?? ''));
+  return opposed.length > 0 && !!(repair || primaryRepair);
 }
 
 /** A completed finding can start the passes when the caller already supplied the focus. */

@@ -885,10 +885,7 @@ fi
 
 The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
 
-Declining opt-in skips both voices. Otherwise, non-ready (`not_installed`,
-`under_current_harness`, etc.) means: skip the outside CLI, keep its repair
-notice, use the native voice only, and record `outside_status: unavailable`
-even if the native voice succeeds.
+Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record `outside_status: unavailable` even if it succeeds. The invocation rechecks the harness before spawning.
 
 **When ready**, run both voices and await both before synthesis. Overlap calls
 if supported; keep the native call blocking.
@@ -904,9 +901,11 @@ Prompt (include the actual plan/product/frontend source context, not only file p
 - Differentiation: 2 deliberate departures from category norms
 - Anti-slop: none of purple gradient palette, the 3-column feature grid, centered everything, decorative blobs and dividers, nested cards, kicker above heading, icon tile above every heading, dark-mode glow
 
-Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it."
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it.
 
-Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. No defect severity or no-findings conclusion is required. A refusal is never completion.
+End with Recommendation: <direction> because <product-specific reason>."
+
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
@@ -942,7 +941,7 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation marker, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation marker, timeout, or CLI failure means `outside_status: unavailable`. Continue with the proposals that completed; a native proposal does not complete outside coverage. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
 
 2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
@@ -961,13 +960,13 @@ Be bold. Be specific. No hedging."
 
 Output headers: `CODEX SAYS (design direction):` and `CLAUDE SUBAGENT (design direction):`.
 
-**Synthesis:** In Phase 3, compare your primary direction with both completed proposals. Show agreements and creative alternatives; explain your recommendation and let the user choose.
+**Synthesis (Phase 3):** Compare your direction with every completed proposal (two, one, or none); recommend and let the user choose. One: `[single-model]`. Neither: report no independent proposal; use your direction.
 
 **Log the result:**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-For proposals, STATUS="clean" requires a complete proposal with no blockers; "issues_found" means concrete concerns; "unavailable" means neither completed. Taste differences are alternatives, not defects. SOURCE is the completed provider or in-host.
+Record each voice: STATUS="clean" for a usable proposal, "issues_found" for product constraints, "unavailable" for no completion. Taste differences are alternatives. If a voice did not complete, omit the source field; otherwise SOURCE is "codex" or "in-host". OUTSIDE_STATUS: valid CLI output=completed, failed/non-ready=unavailable, declined=skipped. Native-only success keeps outside_status="unavailable".
 
 For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 

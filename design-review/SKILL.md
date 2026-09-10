@@ -1633,10 +1633,7 @@ fi
 
 The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
 
-Declining opt-in skips both voices. Otherwise, non-ready (`not_installed`,
-`under_current_harness`, etc.) means: skip the outside CLI, keep its repair
-notice, use the native voice only, and record `outside_status: unavailable`
-even if the native voice succeeds.
+Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record `outside_status: unavailable` even if it succeeds. The invocation rechecks the harness before spawning.
 
 **When ready**, run both voices and await both before synthesis. Overlap calls
 if supported; keep the native call blocking.

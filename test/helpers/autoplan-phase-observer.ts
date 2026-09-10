@@ -6,9 +6,19 @@ export interface AutoplanPhaseHit {
 }
 
 function phaseDeclaration(text: string): RegExpExecArray | null {
-  const plain = text.replace(/^\*\*(Phase[ \t]+[\d.]+[ \t]+(?:complete|is[ \t]+done)[.:]?)\*\*/i, '$1');
+  const declaration = String.raw`Phase[ \t]+(1|2(?:\.5)?|3)(?:[ \t]+\(([^()]*)\))?[ \t]+(?:is[ \t]+)?(?:complete(?:d)?|done|finished|wrapped[ \t]+up)`;
+  const plain = text.replace(new RegExp(String.raw`^\*\*(${declaration}[.:]?)\*\*`, 'i'), '$1');
   if (/\bEmit\s+phase-transition\s+summary\s*:/i.test(plain)) return null;
-  return /^Phase[ \t]+(1|2(?:\.5)?|3)[ \t]+(?:complete(?:\.(?:[ \t]+.*)?|)|is[ \t]+done(?:[.:](?:[ \t]+.*)?|))$/i.exec(plain);
+  const match = new RegExp(String.raw`^${declaration}(?:[.:](?:[ \t]+.*)?|)$`, 'i').exec(plain);
+  // Optional phase names are metadata, and must agree with the phase number.
+  const names: Record<string, RegExp> = {
+    '1': /^CEO(?:[ \t]+review)?$/i,
+    '2': /^design(?:[ \t]+review)?$/i,
+    '2.5': /^DX(?:[ \t]+review)?$/i,
+    '3': /^eng(?:ineering)?(?:[ \t]+review)?$/i,
+  };
+  if (match?.[2] !== undefined && !names[match[1]!]!.test(match[2])) return null;
+  return match;
 }
 
 /**

@@ -755,7 +755,9 @@ For each finding: what's wrong, severity (critical/high/medium), and the file:li
 - Differentiation: 2 deliberate departures from category norms
 - Anti-slop: none of ${catalogEntries(['ai-color-palette', 'feature-grid-3col', 'centered-everything', 'decorative-blobs', 'nested-cards', 'kicker-above-heading', 'icon-tile-stack', 'dark-glow']).map(e => e.name.toLowerCase()).join(', ')}
 
-Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it.`;
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it.
+
+End with Recommendation: <direction> because <product-specific reason>.`;
 
     subagentPrompt = `Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
 - Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
@@ -808,7 +810,7 @@ Fill in each cell from the ${outsideVoiceFor(ctx).label} and subagent outputs. C
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
-**Synthesis:** In Phase 3, compare your primary direction with both completed proposals. Show agreements and creative alternatives; explain your recommendation and let the user choose.` : `
+**Synthesis (Phase 3):** Compare your direction with every completed proposal (two, one, or none); recommend and let the user choose. One: \`[single-model]\`. Neither: report no independent proposal; use your direction.` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
@@ -821,10 +823,7 @@ ${optInSection}
 **Check ${outsideVoiceFor(ctx).label} availability:**
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
-Declining opt-in skips both voices. Otherwise, non-ready (\`not_installed\`,
-\`under_current_harness\`, etc.) means: skip the outside CLI, keep its repair
-notice, use the native voice only, and record \`outside_status: unavailable\`
-even if the native voice succeeds.
+Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record \`outside_status: unavailable\` even if it succeeds. The invocation rechecks the harness before spawning.
 
 **When ready**, run both voices and await both before synthesis. Overlap calls
 if supported; keep the native call blocking.
@@ -853,7 +852,7 @@ ${synthesisSection}
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-${isDesignConsultation ? 'For proposals, STATUS="clean" requires a complete proposal with no blockers; "issues_found" means concrete concerns; "unavailable" means neither completed. Taste differences are alternatives, not defects.' : 'STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed.'} SOURCE is the completed provider or in-host.
+${isDesignConsultation ? `Record each voice: STATUS=\"clean\" for a usable proposal, \"issues_found\" for product constraints, \"unavailable\" for no completion. Taste differences are alternatives. If a voice did not complete, omit the source field; otherwise SOURCE is \"${outsideVoiceFor(ctx).id}\" or \"in-host\". OUTSIDE_STATUS: valid CLI output=completed, failed/non-ready=unavailable, declined=skipped. Native-only success keeps outside_status=\"unavailable\".` : 'STATUS=\"clean\" requires a completed review with no findings; use \"issues_found\" for findings, \"unavailable\" if neither completed. SOURCE is the completed provider or in-host.'}
 
 ${outsideVoiceProvenance(ctx, 'design')}`;
 }
@@ -967,7 +966,7 @@ ${check}
 // ─── Overused fonts (role-scoped) + slop bullets for the proposal skills ───
 // The font procedure and the role-scoped lists are derived from
 // pbakaus/impeccable reference/new-work.md (Apache-2.0), rewritten. See NOTICE.md.
-export function generateOverusedFonts(_ctx: TemplateContext): string {
+export function generateOverusedFonts(ctx: TemplateContext): string {
   const free = FONTS_VERIFIED_FREE;
   return `**Overused as display** (never the display voice, on any surface; the body/UI exception below is the only one; the detector flags several as \`overused-font\`): ${OVERUSED_FONTS_DISPLAY.join(', ')}.
 
@@ -975,7 +974,7 @@ export function generateOverusedFonts(_ctx: TemplateContext): string {
 
 **Banned in any role:** ${BANNED_FONTS.join(', ')}.
 
-**Freely available faces on no default list** (verified ${free.verified}; re-verify in-session before naming one): ${free.fontshare.join(', ')} (Fontshare); ${free.googleFonts.join(', ')} (Google Fonts). Short on purpose. A long list of "good" fonts is how the last convergence happened.
+**Freely available faces on no default list** (verified ${free.verified}; ${ctx.skillName === 'design-consultation' ? 're-verify in-session; see font-verification fallback if offline' : 're-verify in-session before naming one'}): ${free.fontshare.join(', ')} (Fontshare); ${free.googleFonts.join(', ')} (Google Fonts). Short on purpose. A long list of "good" fonts is how the last convergence happened.
 
 User asks for a listed face by name: comply, state the tradeoff once.`;
 }
@@ -1210,21 +1209,13 @@ Create the comparison board and serve it over HTTP:
 $D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
 \`\`\`
 
-This command generates the board HTML, starts an HTTP server on a random port,
-and opens it in the user's default browser. **Run it in the background** with \`&\`
-because the server needs to stay running while the user interacts with the board.
+Creates HTML and opens the board. **Run it in the background** (host task, or \`&\` redirecting stdout/stderr to private files in \`$_DESIGN_DIR\`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
 
-Parse the board URL from stderr output. Default daemon path:
-\`BOARD_URL: http://127.0.0.1:N/boards/<id>/\` (already includes the per-board
-path; use this for the AskUserQuestion URL AND as the base for the reload
-endpoint). Legacy \`--no-daemon\` path emits \`SERVE_STARTED: port=XXXXX\` and
-serves a single board at \`/\`, with reload at \`/api/reload\` — only relevant
-when an external caller explicitly passes \`--no-daemon\`.
+Default stderr: \`BOARD_URL: http://127.0.0.1:N/boards/<id>/\`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy \`--no-daemon\` emits \`SERVE_STARTED: port=XXXXX\`, serving one board at \`/\` with reload at \`/api/reload\`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 
-After the board is serving, use AskUserQuestion to wait for the user. Include the
-board URL so they can click it if they lost the browser tab:
+Once serving, wait with AskUserQuestion including the board URL:
 
 "I've opened a comparison board with the design variants:
 <BOARD_URL> — Rate them, leave comments, remix
@@ -1232,11 +1223,9 @@ elements you like, and click Submit when you're done. Let me know when you've
 submitted your feedback (or paste your preferences here). If you clicked
 Regenerate or Remix on the board, tell me and I'll generate new variants."
 
-Substitute \`<BOARD_URL>\` with the URL parsed from stderr (the daemon path
-emits \`BOARD_URL: http://127.0.0.1:N/boards/<id>/\`).
+Substitute \`<BOARD_URL>\` from the stderr marker above.
 
-**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
-board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
+**The user chooses variants in the board; AskUserQuestion only waits.**
 
 **After the user responds to AskUserQuestion:**
 

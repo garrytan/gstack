@@ -2,10 +2,9 @@
  * /plan-tune cathedral E2E (T16) — 5 scenarios, all gate tier per D12.
  *
  * Each scenario verifies that the cathedral's substrate works end-to-end
- * against a real `claude -p` invocation. Unit tests in test/{question-log-hook,
- * question-preference-hook, declared-annotation, distill-*}.test.ts cover
- * deterministic plumbing; this file proves the agent obeys the hook
- * contracts in a live session.
+ * through local hook and bin invocations. No model is called: these scenarios
+ * exercise the installed-file contracts, using synthetic hook envelopes and
+ * a synthetic Codex session. Unit tests cover the individual components.
  *
  * Touchfile registration in test/helpers/touchfiles.ts:
  *   - plan-tune-hook-capture
@@ -15,10 +14,10 @@
  *   - plan-tune-dream-cycle
  *
  * Each scenario uses GSTACK_STATE_ROOT to isolate from the user's real
- * ~/.gstack (per cathedral T1 + Codex D16 fix). Cost budget ~$3-4/scenario.
+ * ~/.gstack (per cathedral T1 + Codex D16 fix). Every attempt gets a fresh fixture.
  */
 
-import { beforeAll, afterAll, expect } from 'bun:test';
+import { afterAll, expect } from 'bun:test';
 import {
   ROOT,
   describeIfSelected,
@@ -39,8 +38,7 @@ afterAll(() => {
 });
 
 /** Scaffold a fixture project with the bins + scripts the cathedral needs. */
-function scaffoldFixture(prefix: string): { workDir: string; stateRoot: string; slug: string } {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string; slug: string } {
   const stateRoot = path.join(workDir, '.gstack-state');
   fs.mkdirSync(stateRoot, { recursive: true });
 
@@ -87,6 +85,13 @@ function scaffoldFixture(prefix: string): { workDir: string; stateRoot: string; 
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(scriptsDir, f));
   }
 
+  // Both imports are resolved relative to the copied install, not the source checkout.
+  const libDir = path.join(workDir, 'lib');
+  fs.mkdirSync(libDir, { recursive: true });
+  for (const file of ['jsonl-store.ts', 'is-conductor.ts']) {
+    fs.copyFileSync(path.join(ROOT, 'lib', file), path.join(libDir, file));
+  }
+
   // Copy hooks dir.
   copyDirSync(path.join(ROOT, 'hosts', 'claude', 'hooks'), path.join(workDir, 'hosts', 'claude', 'hooks'));
 
@@ -102,22 +107,37 @@ function cleanupFixture(workDir: string): void {
   }
 }
 
+/** Own setup, assertions and cleanup inside each callback, including Bun retries. */
+function testCathedral(
+  name: string,
+  prefix: string,
+  run: (fixture: ReturnType<typeof scaffoldFixture>) => Promise<void>,
+): void {
+  testConcurrentIfSelected(name, async () => {
+    const started = Date.now();
+    let workDir: string | undefined;
+    let passed = false;
+    try {
+      workDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+      await run(scaffoldFixture(workDir));
+      passed = true;
+    } finally {
+      if (workDir) cleanupFixture(workDir);
+      collector?.addTest({
+        name, suite: 'plan-tune-cathedral', tier: 'e2e', passed,
+        duration_ms: Date.now() - started, cost_usd: 0,
+        output: 'Local hook/bin contract; no model invocation.',
+      });
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Scenario 1: Hook capture — PostToolUse hook writes to question-log.jsonl
 // ---------------------------------------------------------------------------
 
 describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capture'], () => {
-  let fixture: ReturnType<typeof scaffoldFixture>;
-
-  beforeAll(() => {
-    fixture = scaffoldFixture('cathedral-cap-');
-  });
-
-  afterAll(() => {
-    cleanupFixture(fixture.workDir);
-  });
-
-  testConcurrentIfSelected('plan-tune-hook-capture', async () => {
+  testCathedral('plan-tune-hook-capture', 'cathedral-cap-', async (fixture) => {
     // Direct hook invocation simulates Claude Code's PostToolUse delivery.
     // E2E verifies the hook + bin chain works against real bins on disk
     // (the unit test exercises this with mocks).
@@ -164,22 +184,12 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
 // ---------------------------------------------------------------------------
 
 describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcement'], () => {
-  let fixture: ReturnType<typeof scaffoldFixture>;
-
-  beforeAll(() => {
-    fixture = scaffoldFixture('cathedral-enf-');
+  testCathedral('plan-tune-enforcement', 'cathedral-enf-', async (fixture) => {
     fs.mkdirSync(path.join(fixture.stateRoot, 'projects', fixture.slug), { recursive: true });
     fs.writeFileSync(
       path.join(fixture.stateRoot, 'projects', fixture.slug, 'question-preferences.json'),
       JSON.stringify({ 'ship-changelog-voice-polish': 'never-ask' }),
     );
-  });
-
-  afterAll(() => {
-    cleanupFixture(fixture.workDir);
-  });
-
-  testConcurrentIfSelected('plan-tune-enforcement', async () => {
     const hookPath = path.join(
       fixture.workDir,
       'hosts',
@@ -237,10 +247,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
 // ---------------------------------------------------------------------------
 
 describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'], () => {
-  let fixture: ReturnType<typeof scaffoldFixture>;
-
-  beforeAll(() => {
-    fixture = scaffoldFixture('cathedral-ann-');
+  testCathedral('plan-tune-annotation', 'cathedral-ann-', async (fixture) => {
     // Strong declared profile that should annotate any signal_key=detail-preference question.
     fs.writeFileSync(
       path.join(fixture.stateRoot, 'developer-profile.json'),
@@ -259,13 +266,6 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
         ],
       }),
     );
-  });
-
-  afterAll(() => {
-    cleanupFixture(fixture.workDir);
-  });
-
-  testConcurrentIfSelected('plan-tune-annotation', async () => {
     const hookPath = path.join(
       fixture.workDir,
       'hosts',
@@ -312,12 +312,8 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
 // ---------------------------------------------------------------------------
 
 describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-import'], () => {
-  let fixture: ReturnType<typeof scaffoldFixture>;
-  let sessionFile: string;
-
-  beforeAll(() => {
-    fixture = scaffoldFixture('cathedral-cdx-');
-    sessionFile = path.join(fixture.workDir, 'rollout-cathedral.jsonl');
+  testCathedral('plan-tune-codex-import', 'cathedral-cdx-', async (fixture) => {
+    const sessionFile = path.join(fixture.workDir, 'rollout-cathedral.jsonl');
     const lines = [
       JSON.stringify({
         type: 'session_meta',
@@ -339,13 +335,6 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
       }),
     ];
     fs.writeFileSync(sessionFile, lines.join('\n') + '\n');
-  });
-
-  afterAll(() => {
-    cleanupFixture(fixture.workDir);
-  });
-
-  testConcurrentIfSelected('plan-tune-codex-import', async () => {
     const bin = path.join(fixture.workDir, 'bin', 'gstack-codex-session-import');
     const res = spawnSync(bin, [sessionFile], {
       env: {
@@ -379,10 +368,7 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
 // ---------------------------------------------------------------------------
 
 describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycle'], () => {
-  let fixture: ReturnType<typeof scaffoldFixture>;
-
-  beforeAll(() => {
-    fixture = scaffoldFixture('cathedral-dream-');
+  testCathedral('plan-tune-dream-cycle', 'cathedral-dream-', async (fixture) => {
     // Seed proposals file directly (the SDK call is exercised by the unit
     // test; here we verify apply → re-fire round-trip on top of a known
     // proposal shape).
@@ -403,13 +389,6 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
         ],
       }),
     );
-  });
-
-  afterAll(() => {
-    cleanupFixture(fixture.workDir);
-  });
-
-  testConcurrentIfSelected('plan-tune-dream-cycle', async () => {
     // 1. Apply the proposal via gstack-distill-apply.
     const applyBin = path.join(fixture.workDir, 'bin', 'gstack-distill-apply');
     const applyRes = spawnSync(applyBin, ['--proposal', '0'], {

@@ -60,7 +60,9 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Choosing faces: a procedure, not a menu.** (1) Name the audience's world—publication, notation, identity or familiar object—in the mode's register. (2) Shortlist three faces for each display/body/label/mono role. (3) Apply that role's exclusions. (4) Verify availability this session via WebSearch/Aside on Google Fonts/Fontshare, or the self-hosted license; omit unverified faces. (5) Name each face's loading strategy.
+**Choosing faces: a procedure, not a menu.** (1) Name the audience's world in the mode's register. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files and licenses; omit unverified faces. (5) Specify loading strategy.
+
+**Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
 
 **Overused as display** (never the display voice, on any surface; the body/UI exception below is the only one; the detector flags several as `overused-font`): Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins, Space Grotesk, Space Mono, Fraunces, Playfair Display, Cormorant, Lora, Crimson, Newsreader, Syne, IBM Plex Sans, IBM Plex Serif, DM Sans, DM Serif, Outfit, Plus Jakarta Sans, Instrument Sans, Geist.
 
@@ -68,7 +70,7 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 **Banned in any role:** Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New.
 
-**Freely available faces on no default list** (verified 2026-09-08; re-verify in-session before naming one): Satoshi, General Sans, Clash Grotesk, Cabinet Grotesk (Fontshare); Instrument Serif, Source Sans 3, JetBrains Mono, Fira Code (Google Fonts). Short on purpose. A long list of "good" fonts is how the last convergence happened.
+**Freely available faces on no default list** (verified 2026-09-08; re-verify in-session; see font-verification fallback if offline): Satoshi, General Sans, Clash Grotesk, Cabinet Grotesk (Fontshare); Instrument Serif, Source Sans 3, JetBrains Mono, Fira Code (Google Fonts). Short on purpose. A long list of "good" fonts is how the last convergence happened.
 
 User asks for a listed face by name: comply, state the tradeoff once.
 
@@ -159,11 +161,11 @@ Run quality check on each variant:
 $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 ```
 
-Show each variant inline (Read tool on each PNG) for instant preview.
+Read each PNG to show the variants inline.
 
 **Before presenting, self-gate:** Would a human designer be embarrassed to sign each variant? If yes, discard and regenerate. Hard rejects: purple gradient hero, 3-column SaaS grid, centered-everything, overused display face, generic stock photo, system-ui, gradient CTA, bubble-radius everything. Any trigger requires regeneration.
 
-Open the comparison board in the next step; only then invite the user to choose or remix the 3 directions.
+Open the board before inviting the user to choose or remix.
 
 ### Comparison Board + Feedback Loop
 
@@ -173,21 +175,13 @@ Create the comparison board and serve it over HTTP:
 $D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
-This command generates the board HTML, starts an HTTP server on a random port,
-and opens it in the user's default browser. **Run it in the background** with `&`
-because the server needs to stay running while the user interacts with the board.
+Creates HTML and opens the board. **Run it in the background** (host task, or `&` redirecting stdout/stderr to private files in `$_DESIGN_DIR`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
 
-Parse the board URL from stderr output. Default daemon path:
-`BOARD_URL: http://127.0.0.1:N/boards/<id>/` (already includes the per-board
-path; use this for the AskUserQuestion URL AND as the base for the reload
-endpoint). Legacy `--no-daemon` path emits `SERVE_STARTED: port=XXXXX` and
-serves a single board at `/`, with reload at `/api/reload` — only relevant
-when an external caller explicitly passes `--no-daemon`.
+Default stderr: `BOARD_URL: http://127.0.0.1:N/boards/<id>/`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy `--no-daemon` emits `SERVE_STARTED: port=XXXXX`, serving one board at `/` with reload at `/api/reload`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 
-After the board is serving, use AskUserQuestion to wait for the user. Include the
-board URL so they can click it if they lost the browser tab:
+Once serving, wait with AskUserQuestion including the board URL:
 
 "I've opened a comparison board with the design variants:
 <BOARD_URL> — Rate them, leave comments, remix
@@ -195,11 +189,9 @@ elements you like, and click Submit when you're done. Let me know when you've
 submitted your feedback (or paste your preferences here). If you clicked
 Regenerate or Remix on the board, tell me and I'll generate new variants."
 
-Substitute `<BOARD_URL>` with the URL parsed from stderr (the daemon path
-emits `BOARD_URL: http://127.0.0.1:N/boards/<id>/`).
+Substitute `<BOARD_URL>` from the stderr marker above.
 
-**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
-board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
+**The user chooses variants in the board; AskUserQuestion only waits.**
 
 **After the user responds to AskUserQuestion:**
 
@@ -284,13 +276,11 @@ After the user picks a direction:
 - `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"`: Phase 6 color/type/spacing tokens come from the approved visual, not text alone.
 - Further iteration: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
 
-**Plan mode vs. implementation mode:**
-- **Plan mode:** Put the full approved mockup path and extracted tokens under "## Approved Design Direction" in the plan; write DESIGN.md at implementation.
-- **Otherwise:** Phase 6 writes DESIGN.md with those tokens.
+**Plan mode:** Save the full approved mockup path/tokens under "## Approved Design Direction" in the plan; defer DESIGN.md to implementation. Otherwise Phase 6 writes it.
 
 ### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
 
-Generate a beautiful HTML preview and open it in the user's browser.
+Create and open the HTML preview:
 
 ```bash
 PREVIEW_FILE="/tmp/design-consultation-preview-$(date +%s).html"
@@ -332,7 +322,7 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-Use the approved mockup's Phase 5 `$D extract` tokens for color/type/spacing, with the Phase 3 rationale.
+Only Path A invokes `$D extract` for approved mockup tokens. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values with pending fonts. Retain Phase 3 rationale.
 
 **Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
 - A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only

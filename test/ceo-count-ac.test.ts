@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import captured from './fixtures/ceo-count-ac-calls.json';
 import later from './fixtures/ceo-count-ac-later-calls.json';
+import alias from './fixtures/ceo-finding-alias-af.json';
+import numberedBrief from './fixtures/ceo-numbered-brief-af.json';
 import { ceoFirstReviewAUQ, ceoStep0Boundary, nativePlanCallFingerprint, planCountQuestionPhase } from './helpers/claude-pty-runner';
 import { isCeoCompletionHandoff, pickCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
@@ -243,5 +245,179 @@ test('numbered Issue titles cannot bypass setup, provider or native-answer check
   ]) {
     const c = remedyCall('Email leg', title, 'plan-ceo-review-email'); mutate(c);
     expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+});
+
+
+const aliasCalls = () => alias.rows.map(row => structuredClone(row.call) as NativePlanQuestionCall);
+
+test('AF exact native Finding headers and same-number Issue titles start review', () => {
+  for (const c of aliasCalls()) {
+    expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+    expect(planCountQuestionPhase(fp(c), false, ceoStep0Boundary, ceoFirstReviewAUQ))
+      .toEqual({ preReview: false, reviewStarted: true });
+  }
+  expect(alias.provenance.partial).toBe(true);
+  expect(alias.provenance.paidCoverageCredit).toBe(false);
+});
+
+test('AF Issue and Finding aliases compare the complete native number, not the decision counter', () => {
+  for (const titleKind of ['Issue', 'Finding']) for (const headerKind of ['Issue', 'Finding']) {
+    for (const number of ['1', '2.1', '27.3']) {
+      const c = aliasCalls()[0]!, q = c.questions[0]!;
+      q.question = q.question.replace(/ <gstack-qid:[^>]+>/, '').replace(/^D4 — Issue 1:/, `D87 — ${titleKind} ${number}:`);
+      q.header = `${headerKind} ${number}`;
+      expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(true);
+      for (const wrong of ['9', `${number}.2`]) {
+        q.header = `${headerKind} ${wrong}`;
+        expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+      }
+    }
+  }
+});
+
+test('AF aliases preserve section and parenthesized issue header requirements', () => {
+  for (const title of ['D87 — Issue 2.1 (Section 4): Which assertion should be used?',
+    'D87 (issue 2.1) — Which assertion should be used?']) {
+    const c = aliasCalls()[0]!; c.questions[0]!.question = title;
+    for (const header of ['Issue 2.1', 'Finding 2.1']) {
+      c.questions[0]!.header = header;
+      expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(true);
+    }
+    for (const header of ['Receipt assertion', 'Issue 2', 'Finding 2.2']) {
+      c.questions[0]!.header = header;
+      expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+    }
+  }
+});
+
+test('AF aliases retain native completion, answer, qid and setup boundaries', () => {
+  const mutations: Array<(c: NativePlanQuestionCall) => void> = [
+    c => { c.answered = false; }, c => { c.failed = true; },
+    c => { c.answers = {}; }, c => { c.unansweredQuestionIndices = [0]; },
+    c => { c.answers = { [c.questions[0]!.question]: 'unoffered' }; },
+    c => { c.questions[0]!.multiSelect = true; },
+    c => { c.questions.push(structuredClone(c.questions[0]!)); },
+    c => { c.questions[0]!.options[1]!.label = c.questions[0]!.options[0]!.label; },
+  ];
+  for (const mutate of mutations) for (const c of aliasCalls()) {
+    mutate(c); expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+  for (const c of aliasCalls()) {
+    expect(ceoFirstReviewAUQ({ ...fp(c), signature: 'foreign:call' })).toBe(false);
+    expect(ceoFirstReviewAUQ({ ...fp(c), nativeCall: undefined })).toBe(false);
+    expect(ceoFirstReviewAUQ({ ...fp(c), options: [] })).toBe(false);
+    for (const header of ['Issue 9', 'Finding 9', 'Setup', 'Approach', 'Mode', 'Next steps']) {
+      const changed = structuredClone(c); changed.questions[0]!.header = header;
+      expect(ceoFirstReviewAUQ(fp(changed))).toBe(false);
+    }
+    for (const qid of ['plan-ceo-review-setup', 'plan-eng-review-finding']) {
+      const changed = structuredClone(c); changed.questions[0]!.question = changed.questions[0]!.question.replace(/<gstack-qid:[^>]+>/, `<gstack-qid:${qid}>`);
+      expect(ceoFirstReviewAUQ(fp(reanswer(changed)))).toBe(false);
+    }
+    for (const prefix of ['Example: ', '> ', '"', '```\n']) {
+      const changed = structuredClone(c); changed.questions[0]!.question = prefix + changed.questions[0]!.question;
+      expect(ceoFirstReviewAUQ(fp(reanswer(changed)))).toBe(false);
+    }
+  }
+});
+
+test('AF alias evidence remains registered only to the CEO count workflow', () => {
+  const file = 'test/fixtures/ceo-finding-alias-af.json';
+  const owners = Object.entries(E2E_TOUCHFILES).filter(([, paths]) => paths.includes(file)).map(([name]) => name);
+  expect(owners).toEqual(['plan-ceo-finding-count']);
+  expect(selectTests([file], E2E_TOUCHFILES).selected).toContain('plan-ceo-finding-count');
+});
+
+
+test('AF complete numbered native briefs identify the three remaining first decisions', () => {
+  for (const row of numberedBrief.rows) {
+    expect(ceoFirstReviewAUQ(fp(structuredClone(row.call) as NativePlanQuestionCall))).toBe(true);
+  }
+});
+
+test('AF complete finding identities permit F notation but never contradict the native header', () => {
+  for (const title of ['D7 — Finding F2.1: Which implementation should be used?', 'D7 — Issue 2.1: Which implementation should be used?']) {
+    const c = structuredClone(numberedBrief.rows[1]!.call) as NativePlanQuestionCall;
+    c.questions[0]!.question = title;
+    for (const header of ['F2.1 remedy', 'Issue F2.1', 'Finding 2.1']) {
+      c.questions[0]!.header = header; expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(true);
+    }
+    for (const header of ['F2 remedy', 'Finding 2.1.1', 'Issue F2.1.0', 'F2.1 and F3']) {
+      c.questions[0]!.header = header; expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+    }
+  }
+  const c = aliasCalls()[0]!; c.questions[0]!.question = c.questions[0]!.question.replace('Issue 1:', 'Finding F1:');
+  c.questions[0]!.header = 'Finding 2'; expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(false);
+});
+
+test('AF a declarative numbered brief needs current problem evidence and an actual amendment choice', () => {
+  for (const body of [
+    'ELI10: The handler has error handling.\nRecommendation: A because it is ready.',
+    'ELI10: The handler has no current defect.\nRecommendation: A because it is ready.',
+    'ELI10: If the handler has no error handling, we would repair it.\nRecommendation: A because this is a hypothetical.',
+    'ELI10: Example: the handler has no error handling.\nRecommendation: A because this is an example.',
+    'ELI10: "The handler has no error handling."\nRecommendation: A because this quotes the old plan.',
+    'ELI10: The error contract is not missing.\nRecommendation: A because it is ready.',
+    'ELI10: The email failure is no longer unhandled.\nRecommendation: A because it is ready.',
+  ]) {
+    const c = structuredClone(numberedBrief.rows[0]!.call) as NativePlanQuestionCall;
+    c.questions[0]!.question = 'D9 — 1.1 Email leg: transaction boundary and failure handling\n' + body;
+    expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(false);
+  }
+  for (const labels of [['Start review', 'Pause'], ['Write the completed report', 'Save the reviewed plan']]) {
+    const c = structuredClone(numberedBrief.rows[0]!.call) as NativePlanQuestionCall;
+    c.questions[0]!.options = labels.map((label,i) => ({label:`${i ? 'B' : 'A'}: ${label}`, description:label}));
+    expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(false);
+  }
+});
+
+test('AF new brief form preserves setup, native answer, quotation and subject binding', () => {
+  for (const row of numberedBrief.rows) for (const mutation of [
+    (c: NativePlanQuestionCall) => { c.answered = false; },
+    (c: NativePlanQuestionCall) => { c.failed = true; },
+    (c: NativePlanQuestionCall) => { c.answers = {}; },
+    (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'Next steps'; },
+    (c: NativePlanQuestionCall) => { c.questions[0]!.header = 'Approach'; },
+    (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+  ]) {
+    const c = structuredClone(row.call) as NativePlanQuestionCall; mutation(c); expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+  for (const prefix of ['Example: ', '> ', '"', '```\n']) {
+    const c = structuredClone(numberedBrief.rows[0]!.call) as NativePlanQuestionCall;
+    c.questions[0]!.question = prefix + c.questions[0]!.question; expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(false);
+  }
+  const c = structuredClone(numberedBrief.rows[0]!.call) as NativePlanQuestionCall;
+  c.questions[0]!.header = 'SQL lookup'; expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  expect(Object.entries(E2E_TOUCHFILES).filter(([,paths])=>paths.includes('test/fixtures/ceo-numbered-brief-af.json')).map(([name])=>name))
+    .toEqual(['plan-ceo-finding-count']);
+});
+
+test('AF a resolved historical gap and completed-review log check cannot start current review', () => {
+  const c = structuredClone(numberedBrief.rows[0]!.call) as NativePlanQuestionCall;
+  c.questions[0]!.header = 'Finding 1';
+  c.questions[0]!.question = 'D4 — Issue 1: Validation was missing in the prior review.\nELI10: The old gap is already resolved. Current validation is complete; this choice only checks the completed review log.\nRecommendation: A because it checks the record.';
+  c.questions[0]!.options = [
+    {label:'A) Check the prior review log',description:'Check the prior review log.'},
+    {label:'B) Keep current report',description:'Keep the current completed report.'},
+  ];
+  expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(false);
+});
+
+test('AF currentness uses the whole explanation and saved-log actions remain administrative', () => {
+  for (const [subject, explanation, action, expected] of [
+    ['Historical missing validation', 'Validation is complete. This task only verifies the stored review log; there is no current defect.', 'Validate the saved review log', false],
+    ['Required validation is missing', 'The required validation is missing.', 'Validate the saved review log', false],
+    ['Historical missing validation', 'The prior review omitted a note; there is no current defect.', 'Validate the incoming request', false],
+    ['Required validation is missing', 'A previous log says "there is no current defect." The current plan still lacks validation.', 'Validate the incoming request', true],
+  ] as const) {
+    const c = structuredClone(numberedBrief.rows[0]!.call) as NativePlanQuestionCall;
+    c.questions[0]!.header = 'Issue 1';
+    c.questions[0]!.question = `D1 — Issue 1: ${subject}\nELI10: ${explanation}\nRecommendation: A because it addresses this decision.`;
+    c.questions[0]!.options = [
+      {label:`A) ${action}`, description:`${action}.`},
+      {label:'B) Keep the current report', description:'Leave the stored report unchanged.'},
+    ];
+    expect(ceoFirstReviewAUQ(fp(reanswer(c)))).toBe(expected);
   }
 });

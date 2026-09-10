@@ -58,7 +58,9 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Choosing faces: a procedure, not a menu.** (1) Name the audience's world—publication, notation, identity or familiar object—in the mode's register. (2) Shortlist three faces for each display/body/label/mono role. (3) Apply that role's exclusions. (4) Verify availability this session via WebSearch/Aside on Google Fonts/Fontshare, or the self-hosted license; omit unverified faces. (5) Name each face's loading strategy.
+**Choosing faces: a procedure, not a menu.** (1) Name the audience's world in the mode's register. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files and licenses; omit unverified faces. (5) Specify loading strategy.
+
+**Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
 
 {{OVERUSED_FONTS}}
 
@@ -106,11 +108,11 @@ Run quality check on each variant:
 $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 ```
 
-Show each variant inline (Read tool on each PNG) for instant preview.
+Read each PNG to show the variants inline.
 
 **Before presenting, self-gate:** Would a human designer be embarrassed to sign each variant? If yes, discard and regenerate. Hard rejects: purple gradient hero, 3-column SaaS grid, centered-everything, overused display face, generic stock photo, system-ui, gradient CTA, bubble-radius everything. Any trigger requires regeneration.
 
-Open the comparison board in the next step; only then invite the user to choose or remix the 3 directions.
+Open the board before inviting the user to choose or remix.
 
 {{DESIGN_SHOTGUN_LOOP}}
 
@@ -119,13 +121,11 @@ After the user picks a direction:
 - `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"`: Phase 6 color/type/spacing tokens come from the approved visual, not text alone.
 - Further iteration: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
 
-**Plan mode vs. implementation mode:**
-- **Plan mode:** Put the full approved mockup path and extracted tokens under "## Approved Design Direction" in the plan; write DESIGN.md at implementation.
-- **Otherwise:** Phase 6 writes DESIGN.md with those tokens.
+**Plan mode:** Save the full approved mockup path/tokens under "## Approved Design Direction" in the plan; defer DESIGN.md to implementation. Otherwise Phase 6 writes it.
 
 ### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
 
-Generate a beautiful HTML preview and open it in the user's browser.
+Create and open the HTML preview:
 
 ```bash
 PREVIEW_FILE="/tmp/design-consultation-preview-$(date +%s).html"
@@ -167,7 +167,7 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-Use the approved mockup's Phase 5 `$D extract` tokens for color/type/spacing, with the Phase 3 rationale.
+Only Path A invokes `$D extract` for approved mockup tokens. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values with pending fonts. Retain Phase 3 rationale.
 
 **Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
 - A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only

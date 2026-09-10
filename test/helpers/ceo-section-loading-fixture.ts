@@ -97,6 +97,48 @@ function hasNumberedStaleFillTrace(text: string): boolean {
     && sameKey(events[5]!, String.raw`^t6:\s*(?:next|new|subsequent) ${read}${arrow}cache HIT${arrow}returns (?:old|stale) (?:value|snapshot)${backArrow}(?:INVARIANT|CONTRACT) (?:VIOLATED|VIOLATION)!?$`);
 }
 
+/** Bind each column of an explicit execution to its reader, writer, key and version. */
+function columnarStaleFillTrace(text: string): { tail: string; reader: string; old: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const cells = (line: string) => line.replace(/^\|\s*|\s*\|$/g, '').split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 6 || header[0]!.toLowerCase() !== 't') return;
+  const reader = /^(R[1-9]\d*) read \(begins before (W[1-9]\d*|W)\)$/i.exec(header[1]!);
+  const later = /^(R[1-9]\d*) read \(begins after (W[1-9]\d*|W)\)$/i.exec(header[3]!);
+  const cache = /^cache\[([A-Za-z_$][\w$]*)\]$/.exec(header[4]!);
+  const db = /^DB\[([A-Za-z_$][\w$]*)\]$/.exec(header[5]!);
+  if (!reader || !later || !cache || !db || reader[1] === later[1] ||
+      reader[2] !== later[2] || header[2] !== `${reader[2]} write` || cache[1] !== db[1]) return;
+  const events = lines.slice(1, 8).map(cells);
+  if (events.length !== 7 || events.some((row, i) => row.length !== 6 || row[0] !== String(i + 1))) return;
+  const old = events[0]![5]!, fresh = events[2]![5]!;
+  if (!/^[A-Za-z][\w.-]*$/.test(old) || !/^[A-Za-z][\w.-]*$/.test(fresh) || old === fresh) return;
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const key = escape(cache[1]!), before = escape(old), after = escape(fresh);
+  const arrow = String.raw`\s*(?:->|→)\s*`;
+  const matches = (value: string, pattern: string) => new RegExp(`^(?:${pattern})$`).test(value);
+  const empty = (value: string) => value === '-' || value === 'empty';
+  if (!matches(events[0]![1]!, String.raw`get\(${key}\)${arrow}undefined`) ||
+      !matches(events[1]![1]!, String.raw`await repository\.read(?:\(${key}\))?${arrow}${before}`) ||
+      !matches(events[2]![2]!, String.raw`await write commits ${after}`) ||
+      !matches(events[3]![2]!, String.raw`delete\(${key}\) \(no entry\)`) || events[4]![2] !== 'returns' ||
+      !matches(events[5]![1]!, String.raw`resume: set\(${key},\s*${before}\); return ${before}`) ||
+      !matches(events[6]![3]!, String.raw`get\(${key}\)${arrow}${before}; return ${before}`)) return;
+  for (let i = 0; i < 7; i++) {
+    const row = events[i]!;
+    if (row[5] !== (i < 2 ? old : fresh) ||
+        (i < 5 ? !empty(row[4]!) : row[4] !== (i === 5 ? `${old} STALE` : old)) ||
+        (i < 6 && row[3] !== '') ||
+        ([0, 1, 5, 6].includes(i) && row[2] !== '') ||
+        ([2, 3, 4].includes(i) && row[1] !== 'paused') || (i === 6 && row[1] !== '')) return;
+  }
+  const violation = String.raw`VIOLATION t7: ${escape(later[1]!)} began after ${escape(reader[2]!)} completed \(t5\), observes ${before}(?: for up to [1-9]\d* (?:s|seconds))?\.`;
+  if (!matches(lines[8] ?? '', violation)) return;
+  const tail = lines.slice(8).join(' ');
+  if (/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(tail)) return;
+  return { tail, reader: reader[1]!, old };
+}
+
 /** A named finding may put its ordering evidence in a trace, not one paragraph. */
 function hasStructuredStaleFillFinding(report: string): boolean {
   const lines = report.split('\n');
@@ -118,6 +160,39 @@ function hasStructuredStaleFillFinding(report: string): boolean {
     // Unclosed, tilde and longer fences remain source until their own real
     // closing delimiter. They cannot supply an asserted prose violation.
     if (!fence && !/^\s*>/.test(line) && !/^(?: {4}|\t)/.test(line)) prose[i] = line;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const identity = /^(S[1-9]\d*) Async ordering schedule \((F[1-9]\d*) evidence\):$/.exec(prose[heading] ?? '');
+    if (!identity) continue;
+    const previous = prose.slice(0, heading).filter(line => line.trim()).at(-1) ?? '';
+    if (/^(?!\||#{1,6}\s).*:\s*$/.test(previous)) continue;
+    const finding = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells[0] === '' && cells[1] === identity[2] && cells[2] === 'CRITICAL GAP');
+    if (finding.length !== 1 || !finding[0]!.cells[4]?.includes(`Schedule ${identity[1]} below`)) continue;
+    const findingPrefix = prose.slice(0, finding[0]!.index).filter(line => line.trim()).at(-1) ?? '';
+    if (/^(?!\||#{1,6}\s).*:\s*$/.test(findingPrefix)) continue;
+    const ordered = columnarStaleFillTrace(trace.text);
+    if (!ordered) continue;
+    // The verified columns establish this claim. Keep the real finding and
+    // trace assessment in the existing dismissal checks; an allowance for
+    // R1's own pre-write return cannot authorize a stale cache or later reader.
+    const allowance = `Allowed by contract: ${ordered.reader} itself returns ${ordered.old} (read in progress when write committed).`;
+    const tail = ordered.tail.replace(allowance, 'Allowed by contract: the original reader returns its earlier value.');
+    const assessment: string[] = [];
+    for (let i = trace.end + 1; i < prose.length; i++) {
+      if (/^(?:#{1,6}\s|[DSF][1-9]\d*\b|\|)/.test(prose[i]!)) break;
+      assessment.push(prose[i]!);
+    }
+    // A scored, unselected alternative in an accepted decision is not the
+    // verdict. Other quotes remain in the assessment, including a directly
+    // quoted rejection of the finding itself.
+    const registry = finding[0]!.cells.map(cell => /^Accepted\b/.test(cell)
+      ? cell.replace(/\bvs\s+\d+(?:\.\d+)?\/10\s+for\s+(?:"(?:[^"\\]|\\.)*"|“[^”]*”)/g, 'unselected alternative')
+      : cell).join(' | ');
+    const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${registry} ${tail} ${assessment.join(' ')}`;
+    if (hasProseStaleFillFinding(claim)) return true;
   }
   for (let i = 0; i < lines.length; i++) {
     const legacy = /^\*\*CRITICAL FINDING\s*[—–:-].*\*\*\s*$/.test(prose[i]!);

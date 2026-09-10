@@ -67,6 +67,11 @@ const CASES: ModeCase[] = [
 const PLAN = [
   '# Plan: Add saved project views',
   '',
+  '## Review request',
+  'Review this plan directly; skip optional /office-hours.',
+  'After I select a review mode, briefly explain in your own words how you will',
+  'apply that mode to this plan before asking the next review question.',
+  '',
   '## Goal',
   'Team members repeatedly recreate filters on a project task list. Let each',
   'member save a named combination of filters and sort order and reopen it later.',

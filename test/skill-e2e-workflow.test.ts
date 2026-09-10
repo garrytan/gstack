@@ -1,3 +1,4 @@
+import { coverageAuditReadEvidence, type CoverageAuditFiles } from './helpers/coverage-audit-evidence';
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
@@ -325,6 +326,7 @@ IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exac
 
 describeIfSelected('Test Coverage Audit E2E', ['ship-coverage-audit'], () => {
   let coverageDir: string;
+  let coverageFiles: CoverageAuditFiles;
 
   beforeAll(() => {
     coverageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-coverage-'));
@@ -382,6 +384,12 @@ describe('processPayment', () => {
 });
 `);
 
+    coverageFiles = {
+      cwd: coverageDir,
+      source: { path: path.join(coverageDir, 'src/billing.ts'), content: fs.readFileSync(path.join(coverageDir, 'src/billing.ts'), 'utf8') },
+      tests: { path: path.join(coverageDir, 'test/billing.test.ts'), content: fs.readFileSync(path.join(coverageDir, 'test/billing.test.ts'), 'utf8') },
+    };
+
     // Init git repo with main branch
     const run = (cmd: string, args: string[]) =>
       spawnSync(cmd, args, { cwd: coverageDir, stdio: 'pipe', timeout: 5000 });
@@ -425,25 +433,28 @@ Output the diagram directly.`,
     });
 
     logCost('/ship coverage audit', result);
-    recordE2E(evalCollector, '/ship Step 3.4 coverage audit', 'Test Coverage Audit E2E', result, {
-      passed: result.exitReason === 'success',
-    });
+    let passed = false;
+    try {
+      expect(result.exitReason).toBe('success');
 
-    expect(result.exitReason).toBe('success');
+      // Check output contains coverage diagram elements
+      const output = result.output || '';
+      const hasGap = output.includes('GAP') || output.includes('gap') || output.includes('NO TEST');
+      const hasTested = output.includes('TESTED') || output.includes('tested') || output.includes('✓');
+      const hasCoverage = output.includes('COVERAGE') || output.includes('coverage') || output.includes('paths tested');
 
-    // Check output contains coverage diagram elements
-    const output = result.output || '';
-    const hasGap = output.includes('GAP') || output.includes('gap') || output.includes('NO TEST');
-    const hasTested = output.includes('TESTED') || output.includes('tested') || output.includes('✓');
-    const hasCoverage = output.includes('COVERAGE') || output.includes('coverage') || output.includes('paths tested');
+      console.log(`Output has GAP markers: ${hasGap}`);
+      console.log(`Output has TESTED markers: ${hasTested}`);
+      console.log(`Output has coverage summary: ${hasCoverage}`);
 
-    console.log(`Output has GAP markers: ${hasGap}`);
-    console.log(`Output has TESTED markers: ${hasTested}`);
-    console.log(`Output has coverage summary: ${hasCoverage}`);
-
-    // At minimum, the agent should have read the source and test files
-    const readCalls = result.toolCalls.filter(tc => tc.tool === 'Read');
-    expect(readCalls.length).toBeGreaterThan(0);
+      // At minimum, the agent should have read the source and test files
+      const reads = coverageAuditReadEvidence(result.transcript, coverageFiles);
+      expect(reads.sourceRead).toBe(true);
+      expect(reads.testsRead).toBe(true);
+      passed = true;
+    } finally {
+      recordE2E(evalCollector, '/ship Step 3.4 coverage audit', 'Test Coverage Audit E2E', result, { passed });
+    }
   }, CAPTURE_MS);
 });
 

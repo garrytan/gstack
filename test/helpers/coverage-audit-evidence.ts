@@ -16,26 +16,78 @@ const literal = (token: string): string | undefined => {
 
 /** Closed literal cat/sed forms only; no shell execution or general shell parser. */
 function readsFile(command: unknown, file: string, cwd: string): boolean {
-  if (typeof command !== 'string' || command.length > 16384 || /[`$\\\r\n]/.test(command)) return false;
+  if (typeof command !== 'string' || command.length > 16384 || /[`$\r\n]/.test(command)) return false;
   const parts: string[] = [];
-  let part = '', quote = '';
-  for (const char of command) {
-    if (quote) { part += char; if (char === quote) quote = ''; }
+  let part = '', quote = '', andList = false, semicolons = false;
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]!;
+    if (quote) { if (char === '\\' && quote !== "'") return false; part += char; if (char === quote) quote = ''; }
     else if (char === '\'' || char === '"') { quote = char; part += char; }
-    else if (/[#<{}()]/.test(char)) return false; // Comments, heredocs, functions and grouped execution are unsupported.
-    else if (char === ';') { parts.push(part.trim()); part = ''; }
+    else if (/[\\#<{}()]/.test(char)) return false; // Comments, heredocs, functions and grouped execution are unsupported.
+    else if (char === ';') { semicolons = true; parts.push(part.trim()); part = ''; }
+    else if (char === '&') {
+      if (command[index + 1] !== '&') return false;
+      index++; andList = true; parts.push(part.trim()); part = '';
+    }
     else part += char;
   }
   if (quote) return false;
   parts.push(part.trim());
+  // A later semicolon can hide a failed && chain and a skipped read. Keep the
+  // new conditional form closed: the successful result must cover one list.
+  if (andList && semicolons) return false;
+  const cd = /^cd\s+(.+)$/.exec(parts[0] ?? '');
+  if (cd) {
+    const target = literal(cd[1]!);
+    if (target !== cwd) return false;
+    parts.shift();
+  }
   // A cwd change or shell control cannot turn a relative target into another
   // file, or leave a printed old command mistaken for an executed read.
   if (parts.some(p => /^(?:cd|pushd|popd|source|\.|eval|exec|exit|return|function|alias|if|then|else|for|while|until|case)\s/.test(p) ||
       /^(?:exit|return|fi|done)$/.test(p) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(p))) return false;
-  return parts.some(p => {
+  const readTarget = (p: string): string | undefined => {
     const cat = /^cat(?:\s+-n)?(?:\s+--)?\s+(.+)$/.exec(p);
     const sed = /^sed\s+-n\s+(?:'\d+(?:,\d+)?p'|"\d+(?:,\d+)?p"|\d+(?:,\d+)?p)\s+(.+)$/.exec(p);
-    const target = literal((cat ?? sed)?.[1] ?? '');
+    return literal((cat ?? sed)?.[1] ?? '');
+  };
+  // Unrelated reads may precede/follow a delivered file. They cannot mutate it
+  // or print replacement content through another interpreter. Only discarded
+  // stderr is allowed; a credited cat/sed itself still has no redirection.
+  const readOnly = (part: string) => {
+    // A neighboring optional file read may report absence. It never receives
+    // source/test delivery credit; only earlier independent cat/sed segments do.
+    const fallback = /^(cat(?:\s+-n)?(?:\s+--)?\s+.+)\s+2>\/dev\/null\s+\|\|\s+echo\s+(.+)$/.exec(part);
+    if (fallback) return readTarget(fallback[1]!) !== undefined && literal(fallback[2]!) !== undefined && !part.includes('\\');
+    const stages: string[] = [];
+    let value = '', quoted = '';
+    for (const char of part) {
+      if (quoted) { value += char; if (char === quoted) quoted = ''; }
+      else if (char === "'" || char === '"') { quoted = char; value += char; }
+      else if (char === '|') { stages.push(value); value = ''; }
+      else value += char;
+    }
+    stages.push(value);
+    return stages.every(value => {
+      const stage = value.trim().replace(/(?:^|\s)2>\/dev\/null(?=\s|$)/g, ' ').trim();
+      if (/[<>]/.test(stage.replace(/'[^']*'|"[^"]*"/g, ''))) return false;
+      // Backslashes are data only in this closed, single-quoted grep pattern.
+      // In particular, echo -e cannot print replacement fixture bodies.
+      if (stage.includes('\\') && !/^grep\s+-E\s+'[^']*'(?:\s+[^\\]*)?$/.test(stage)) return false;
+      const git = /^git\s+(log|diff)(?:\s+(.*))?$/.exec(stage);
+      // These neighboring Git calls are display-only: literal revisions and the
+      // observed display flag. Quoted/concatenated or unknown options may write
+      // files or invoke helpers, so they cannot borrow a read-only classification.
+      const gitDisplay = git !== null && (!git[2] || git[2].split(/\s+/).every(token =>
+        token === (git[1] === 'log' ? '--oneline' : '--stat') || /^[A-Za-z0-9_][A-Za-z0-9_./~^-]*$/.test(token)));
+      return /^(?:cat|grep|head|ls|echo)(?:\s|$)/.test(stage) || stage === 'pwd' || stage === 'wc -l' || stage === 'git ls-files' ||
+        readTarget(stage) !== undefined || gitDisplay;
+    });
+  };
+  if (parts.some(p => p && !readOnly(p))) return false;
+  if (andList && parts.some(p => readTarget(p) === undefined && !/^echo\s+[-=]+$/.test(p))) return false;
+  return parts.some(p => {
+    const target = readTarget(p);
     return target !== undefined && path.resolve(cwd, target) === file;
   });
 }
@@ -50,7 +102,7 @@ function delivered(output: unknown, expected: string): boolean {
   return normalized(text.replace(/^ *\d+(?:\t|→)/gm, '')).includes(body);
 }
 
-function successfulReads(transcript: unknown[], files: CoverageAuditFiles): { sourceRead: boolean; testsRead: boolean } {
+export function coverageAuditReadEvidence(transcript: unknown[], files: CoverageAuditFiles): { sourceRead: boolean; testsRead: boolean } {
   const found = { sourceRead: false, testsRead: false };
   if (!path.isAbsolute(files.cwd) || path.resolve(files.cwd) !== files.cwd || files.source.path === files.tests.path ||
       [files.source, files.tests].some(f => {
@@ -117,14 +169,48 @@ function diagramBlocks(output: string): string[][] {
 
 function treeRow(line: string): { depth: number; text: string } | undefined {
   const match = /^([ |│]*)(?:[├└]─+|[+|]-+)\s+(.+)$/.exec(line);
-  if (!match) return undefined;
+  if (!match) {
+    // Unindented function roots own following branch rows. Other function
+    // roots also end a subtree, so a sibling cannot lend a coverage marker.
+    return /^[A-Za-z_$][A-Za-z0-9_$]*\([^()\n]*\)(?:[\t ]+.*)?$/.test(line)
+      ? { depth: -1, text: line } : undefined;
+  }
   // A parallel USER FLOWS column cannot supply CODE PATHS coverage markers.
   return { depth: match[1]!.length, text: match[2]!.split(/ {3,}(?=[├└+|])/, 1)[0]! };
+}
+
+function diagramLegend(lines: string[], firstRow: number): Map<string, boolean> {
+  const meanings = new Map<string, boolean>();
+  const pair = String.raw`\[([✓✔✗✘])\][\t ]+(TESTED|COVERED|GAP|UNTESTED)`;
+  const legend = new RegExp(String.raw`^${pair}[\t |,;]+${pair}$`, 'i');
+  for (const line of lines.slice(0, firstRow)) {
+    const start = line.search(/\[[✓✔✗✘]\]/);
+    if (start < 0) continue;
+    if (/^\s*>|["“”]|\b(?:not|no|never|example|sample|false|incorrect|hypothetical)\b/i.test(line)) return new Map();
+    // Only a legend label or a literal file's coverage-map caption may precede
+    // the pair. Arbitrary prose must not be discarded into an affirmative key.
+    const prefix = line.slice(0, start).trim();
+    if (prefix && !/^(?:Legend:|[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.[A-Za-z0-9]+[\t ]+[—–-][\t ]+(?:test[\t ]+)?coverage[\t ]+map)$/i.test(prefix)) return new Map();
+    const match = legend.exec(line.slice(start).trim());
+    if (!match || match[1] === match[3]) return new Map();
+    const entries = [[match[1]!, /^(?:TESTED|COVERED)$/i.test(match[2]!)],
+      [match[3]!, /^(?:TESTED|COVERED)$/i.test(match[4]!)]] as const;
+    if (entries[0][1] === entries[1][1]) return new Map();
+    for (const [symbol, covered] of entries) {
+      if (meanings.has(symbol) && meanings.get(symbol) !== covered) return new Map();
+      meanings.set(symbol, covered);
+    }
+  }
+  return meanings;
 }
 
 function seededDiagram(output: string): boolean {
   for (const lines of diagramBlocks(output)) {
     const rows = lines.map(treeRow);
+    const legend = diagramLegend(lines, rows.findIndex(row => row !== undefined));
+    const symbolMeans = (line: string, covered: boolean) =>
+      !/\b(?:not|never)\s+\[[✓✔✗✘]\]|(?:\[[✓✔✗✘]\]|\b(?:marker|symbol))\s+(?:is|are)\s+(?:false|incorrect|wrong)\b/i.test(line) &&
+      [...line.matchAll(/\[([✓✔✗✘])\]/g)].some(match => legend.get(match[1]!) === covered);
     const payment = rows.findIndex(row => row && /^processPayment\b/.test(row.text));
     const refund = rows.findIndex(row => row && /^refundPayment\b/.test(row.text));
     if (payment < 0 || refund < 0) continue;
@@ -138,11 +224,12 @@ function seededDiagram(output: string): boolean {
       return texts;
     };
     const covered = subtree(payment).some(line =>
-      /(?:\bTESTED\b|\bCOVERED\b|✓)/i.test(line) && /happy|success|valid|USD/i.test(line) &&
+      (/(?:\bTESTED\b|\bCOVERED\b)/i.test(line) || symbolMeans(line, true) ||
+       (/✓/.test(line) && !/\[✓\]/.test(line) && (legend.get('✓') ?? true))) && /happy|success|valid|USD/i.test(line) &&
       !/untested|(?:not|never)\s+(?:yet\s+)?(?:tested|covered)|no\s+test/i.test(line));
     const missing = subtree(refund).some(line =>
-      /(?:\[GAP\]|✗\s*GAP|\bUNTESTED\b)/i.test(line) &&
-      !/\b(?:not|never)\s+(?:\[)?(?:untested|gap)\b|\b(?:untested|gap)\]?\s+(?:is|are)\s+(?:false|incorrect|wrong)\b/i.test(line));
+      (/(?:\[GAP\]|✗\s*GAP|\bUNTESTED\b)/i.test(line) || symbolMeans(line, false)) &&
+      !/\b(?:not|never)\s+(?:\[)?(?:untested|gap)\b|\b(?:untested|gap)\]?\s+(?:is|are)\s+(?:false|incorrect|wrong)\b|\bno\s+(?:coverage\s+)?gaps?\b|\b(?:fully|completely)\s+(?:tested|covered)\b/i.test(line));
     if (covered && missing) return true;
   }
   return false;
@@ -151,7 +238,7 @@ export function coverageAuditVerdict(
   result: Pick<SkillTestResult, 'exitReason' | 'browseErrors' | 'output' | 'transcript'>,
   files: CoverageAuditFiles,
 ) {
-  const reads = successfulReads(Array.isArray(result.transcript) ? result.transcript : [], files);
+  const reads = coverageAuditReadEvidence(Array.isArray(result.transcript) ? result.transcript : [], files);
   const diagram = typeof result.output === 'string' && seededDiagram(result.output),
     failures: string[] = [];
   if (result.exitReason !== 'success') failures.push('capture did not complete successfully');

@@ -66,8 +66,14 @@ function requiredLegacyCharacterization(task: string): boolean {
 
 function regressionEvidence(text: string): boolean {
   return prose(text).split(/\n\s*\n|\n(?=\s*[-#])/).some(block => {
-    const task = block.trim().replace(/^[-+]\s+(?:\[[ xX]\]\s*)?/, '')
-      .replace(/^T\d+(?:\s*\([^\n)]*\))?\s*[—–:-]\s*/, '');
+    let task = block.trim().replace(/^[-+]\s+(?:\[[ xX]\]\s*)?/, '');
+    const numbered = /^T\d+(?:\s*\([^\n)]*\))?\s*[—–:-]\s*/.exec(task);
+    if (numbered) {
+      // A numbered task may place a simple component path before its action.
+      // Do not remove arbitrary prose or let this metadata assign the test target.
+      task = task.slice(numbered[0].length)
+        .replace(/^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z][A-Za-z0-9_-]*)+[\t ]+[—–][\t ]+/, '');
+    }
     if (requiredLegacyCharacterization(task)) return true;
     const legacySubject = /^legacyAuthFlow(?:\(\))?\s*[—–:-]\s*/i;
     const action = task.replace(legacySubject, '');

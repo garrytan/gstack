@@ -16,6 +16,116 @@ const transcript = (...messages: Array<[number, string]>): PlanCountTranscript =
 });
 
 describe('native autoplan phase observation', () => {
+  test('AF public wrapped-up announcement retains its actual Phase 1 timestamp', () => {
+    // Exact reader-projected public parent narration from the AF run; no raw
+    // signature or private block is stored. The next-phase mention adds no hit.
+    const announcement = {
+      sessionId: '6ce27a04-7422-4687-9de9-138e68f308d8',
+      text: 'Phase 1 wrapped up: 11 findings from the Claude subagent, 30 of 34 spec issues fixed after 3 review rounds, and 21 obligations carried forward with 3 disagreements flagged as taste items. Moving on to Phase 2 (design review) now that UI scope was detected.\n\n',
+      timestamp: '2026-09-10T00:00:03.893Z',
+    };
+    const at = Date.parse(announcement.timestamp);
+    expect(autoplanPhaseCompletions({ status: 'ready', calls: [],
+      assistantMessages: [announcement] }, at - 1)).toEqual([{ phase: 1, ts: at }]);
+  });
+
+  test('AF bare done announcement retains Phase 2 without crediting its DX transition', () => {
+    const announcement2 = {
+      sessionId: "6ce27a04-7422-4687-9de9-138e68f308d8",
+      text: "Phase 2 done: Claude subagent found 15 issues (1 critical, 8 high, 6 medium), with 14 fully accepted and 1 partially accepted; design score rose from 6/10 to 8.7/10, and 10 accepted items are now carried into the Implementation plan. Moving on to Phase 2.5 (DX Review) since developer-facing scope was detected.",
+      timestamp: "2026-09-10T00:08:31.892Z",
+    };
+    const at = Date.parse(announcement2.timestamp);
+    expect(autoplanPhaseCompletions({ status: 'ready', calls: [],
+      assistantMessages: [announcement2] }, at - 1)).toEqual([{ phase: 2, ts: at }]);
+  });
+
+  test('AF named DX completion retains Phase 2.5 without crediting its Eng transition', () => {
+    const announcement3 = {
+      sessionId: "6ce27a04-7422-4687-9de9-138e68f308d8",
+      text: "Phase 2.5 (DX review) is done: DX score rose from 5.1 to 8.0/10, all 19 findings reviewed with 12 items accepted into the plan and one taste item flagged for gating. All pre-checks pass, so I'm moving on to Phase 3, the final Engineering Review of the amended plan.\n\n",
+      timestamp: "2026-09-10T00:16:29.888Z",
+    };
+    const at = Date.parse(announcement3.timestamp);
+    expect(autoplanPhaseCompletions({ status: 'ready', calls: [],
+      assistantMessages: [announcement3] }, at - 1)).toEqual([{ phase: 2.5, ts: at }]);
+  });
+
+  test('completed-state declarations retain supported phases, punctuation and first native time', () => {
+    for (const state of ['wrapped up', 'done']) for (const phase of [1, 2, 2.5, 3]) for (const tail of ['', '.', ': Work retained.', '. Work retained.']) {
+      expect(autoplanPhaseCompletions(transcript([1, `Phase ${phase} ${state}${tail}`]), START))
+        .toEqual([{ phase, ts: START + 1 }]);
+    }
+    expect(autoplanPhaseCompletions(transcript([1, '**Phase 1 wrapped up.**']), START))
+      .toEqual([{ phase: 1, ts: START + 1 }]);
+    expect(autoplanPhaseCompletions(transcript([4, 'Phase 1 wrapped up.'],
+      [2, 'Phase 3 wrapped up.'], [3, 'Phase 1 wrapped up: Moving to Phase 2.']), START))
+      .toEqual([{ phase: 3, ts: START + 2 }, { phase: 1, ts: START + 3 }]);
+  });
+
+  test('affirmative completion words share punctuation and optional is without future tense', () => {
+    for (const state of ['complete', 'completed', 'done', 'finished', 'wrapped up']) {
+      for (const copula of ['', 'is ']) for (const tail of ['', '.', ': Work retained.']) {
+        expect(autoplanPhaseCompletions(transcript([1, `Phase 3 ${copula}${state}${tail}`]), START))
+          .toEqual([{ phase: 3, ts: START + 1 }]);
+      }
+      for (const text of [`Phase 3 ${state}?`, `Phase 3 will be ${state}.`,
+        `Phase 3 is not ${state}.`, `Phase 3 ${state} if the reviewer finishes.`,
+        `Phase 3 ${state} when the work ends.`, `**Phase 3 ${state}** if approved.`,
+        `Example:\nPhase 3 ${state}.`, `> Phase 3 ${state}.`,
+        `Phase 3 (Eng review) is not ${state}.`, `Phase 3 (Eng review) ${state} if approved.`]) {
+        expect(autoplanPhaseCompletions(transcript([1, text]), START), text).toEqual([]);
+      }
+    }
+  });
+
+  test('known phase names must agree with their number and never supply completion alone', () => {
+    const names = [[1, 'CEO'], [2, 'Design'], [2.5, 'DX'], [3, 'Eng'], [3, 'Engineering']] as const;
+    for (const [phase, name] of names) for (const suffix of ['', ' review']) {
+      const declaration = `Phase ${phase} (${name}${suffix}) is finished.`;
+      expect(autoplanPhaseCompletions(transcript([1, declaration]), START)).toEqual([{ phase, ts: START + 1 }]);
+      expect(autoplanPhaseCompletions(transcript([1, `**${declaration}**`]), START)).toEqual([{ phase, ts: START + 1 }]);
+      for (const other of [1, 2, 2.5, 3].filter(n => n !== phase)) {
+        expect(autoplanPhaseCompletions(transcript([1, declaration.replace(`Phase ${phase}`, `Phase ${other}`)]), START))
+          .toEqual([]);
+      }
+    }
+    for (const text of ['Phase 3 (Eng review).', 'Phase 2.5 (future DX review) is done.',
+      'Phase 2.5 (DX review if approved) is done.', 'Phase 1 (source) complete.',
+      'Phase 2.5 ((DX review)) is done.', 'Phase 2.5 (DX review) finished soon.',
+      '# Phase 2.5 (DX review) is done.', 'Example:\nPhase 2.5 (DX review) is done.']) {
+      expect(autoplanPhaseCompletions(transcript([1, text]), START), text).toEqual([]);
+    }
+  });
+
+  test('future, conditional, negative and quoted wrap-up claims do not complete a phase', () => {
+    for (const text of [
+      'Phase 1 will wrap up.', 'Phase 1 has not wrapped up.', 'Phase 1 is not wrapped up.',
+      'Phase 1 wrapped up if the reviewer finishes.', 'Phase 1 wrapped up when the review ends.',
+      'Phase 1 wrapped up but is not complete.', 'Phase 1 wrapped up?',
+      'Once Phase 1 wrapped up, we would start Phase 2.', 'I will announce Phase 1 wrapped up.',
+      '**Phase 1 wrapped up** if the tests pass.', 'Phase 4 wrapped up.', 'Phase 2.1 wrapped up.',
+      '# Phase 1 wrapped up.', '> Phase 1 wrapped up.', '"Phase 1 wrapped up."',
+      '- Phase 1 wrapped up.', '| Phase 1 wrapped up. |', '    Phase 1 wrapped up.',
+      '```text\nPhase 1 wrapped up.\n```', '~~~text\nPhase 1 wrapped up.\n~~~',
+      'Example:\nPhase 1 wrapped up.\nPhase 2 wrapped up.',
+      'The template says:\n\nPhase 1 wrapped up.',
+      '**Phase 1 wrapped up.** Emit phase-transition summary:',
+    ]) for (const declaration of [text, text.replace(/wrapped up/g, 'done')]) {
+      expect(autoplanPhaseCompletions(transcript([1, declaration]), START), declaration).toEqual([]);
+    }
+  });
+
+  test('wrapped-up declarations retain ready transcript and native timestamp requirements', () => {
+    const current = transcript([1, 'Phase 1 wrapped up.']);
+    for (const status of ['missing', 'error'] as const) {
+      expect(autoplanPhaseCompletions({ ...current, status }, START)).toEqual([]);
+    }
+    expect(autoplanPhaseCompletions(current, START + 2)).toEqual([]);
+    expect(autoplanPhaseCompletions({ ...current, assistantMessages: current.assistantMessages.map(
+      message => ({ ...message, timestamp: 'invalid' })) }, START)).toEqual([]);
+  });
+
   test('retains actual completion timestamps when several phases arrive between polls', () => {
     expect(autoplanPhaseCompletions(transcript(
       [1, '**Phase 1 complete.** Codex: 2 concerns. Native: 3 issues.'],
@@ -118,8 +228,8 @@ const write = (role, content, offset, extra = {}) => fs.appendFileSync(path.join
 }) + '\n');
 write('user', [{type:'tool_result', tool_use_id:'read', content:'**Phase 3 complete.**'}], 0);
 write('assistant', [{type:'text', text:'> **Phase 3 complete.** is the quoted source marker.'}], 0);
-write('assistant', [{type:'text', text:'**Phase 3 complete.**'}], 0, {isSidechain:true});
-write('assistant', [{type:'text', text:'**Phase 3 complete.**'}], 0, {cwd:path.join(process.cwd(), 'foreign')});
+write('assistant', [{type:'text', text:'**Phase 3 wrapped up.**'}], 0, {isSidechain:true});
+write('assistant', [{type:'text', text:'**Phase 3 wrapped up.**'}], 0, {cwd:path.join(process.cwd(), 'foreign')});
 process.stdin.setRawMode?.(true);
 let sent = false;
 process.stdin.on('data', data => {
@@ -127,7 +237,7 @@ process.stdin.on('data', data => {
   sent = true;
   process.stdout.write('\x1b[2J\x1b[H');
   [1, 2, 2.5, 3].forEach((phase, index) => {
-    const message = '**Phase ' + phase + ' complete.**';
+    const message = '**Phase ' + phase + (phase === 1 ? ' wrapped up.**' : phase === 2 ? ' done.**' : phase === 2.5 ? ' (DX review) is finished.**' : ' complete.**');
     write('assistant', [{type:'text', text:message}], index + 1);
     process.stdout.write('● \x1b[1mPhase ' + phase + ' complete.\x1b[22m\n');
   });

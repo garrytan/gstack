@@ -161,7 +161,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, opts: OutsideComman
     : opts.gate === 'structured'
       ? 'Request severity-tagged findings or an explicit NO_FINDINGS conclusion.'
       : opts.purpose === 'design-direction'
-        ? 'Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. No defect severity or no-findings conclusion is required.'
+        ? 'Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>.'
         : 'Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.';
   const preparation = nativeStructured
     ? 'Run Codex’s built-in structured review with the selected base. It supplies its own prompt and accepts no custom prompt file with --base. Require severity-tagged findings (including native P1:/P2: labels) or an explicit no-findings conclusion; arbitrary prose or a refusal is missing coverage.'
@@ -172,7 +172,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, opts: OutsideComman
 ${outsideVoiceCommand(ctx, opts)}
 \`\`\`
 
-Show the full response in a \`tool-output\` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, ${opts.purpose === 'design-direction' ? 'missing Recommendation marker' : 'missing score/severity/completion markers'}, timeout, or CLI failure means \`outside_status: unavailable\`. Follow this caller's fallback; missing coverage is never clean/PASS. ${nativeStructured ? 'The invocation removes its own scratch directory.' : 'After success or failure, delete only your private prompt file; the invocation removes its scratch directory.'}`;
+Show the full response in a \`tool-output\` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, ${opts.purpose === 'design-direction' ? 'missing Recommendation marker' : 'missing score/severity/completion markers'}, timeout, or CLI failure means \`outside_status: unavailable\`. ${opts.purpose === 'design-direction' ? 'Continue with the proposals that completed; a native proposal does not complete outside coverage.' : "Follow this caller's fallback; missing coverage is never clean/PASS."} ${nativeStructured ? 'The invocation removes its own scratch directory.' : 'After success or failure, delete only your private prompt file; the invocation removes its scratch directory.'}`;
 }
 
 export function outsideVoiceProvenance(ctx: TemplateContext, phase: string): string {

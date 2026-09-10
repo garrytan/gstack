@@ -62,7 +62,14 @@ function publicDiagnostics(result: AgentSdkResult) {
   });
   const serialized = JSON.stringify({ output: result.output, transcript, browseErrors: result.browseErrors }).replaceAll(FIXTURE_TOKEN, '<REDACTED-FIXTURE-TOKEN>');
   const redacted = redactFindingSpans(serialized, { repoVisibility: 'private' });
-  return redacted ? JSON.parse(redacted) : { output: '[Public diagnostics omitted: redaction limit]', transcript: [], browseErrors: [] };
+  if (redacted === null) return { output: '[Public diagnostics omitted: redaction limit]', transcript: [], browseErrors: [] };
+  try {
+    return JSON.parse(redacted);
+  } catch {
+    // Text redaction can consume JSON delimiters along with a credential URL.
+    // Keep only its redacted text; diagnostics must not mask the test verdict.
+    return { output: `[Redacted public diagnostics; JSON structure changed]\n${redacted}`, transcript: [], browseErrors: [] };
+  }
 }
 
 afterAll(async () => { if (evalCollector) await evalCollector.finalize(); });

@@ -24,6 +24,8 @@ function fixture() {
   const startedAt = Date.now() - 10_000;
   const report = path.join(dir, 'report.md');
   fs.writeFileSync(report, REPORT);
+  // Keep fixture time after its answer and before the hook's integer clock.
+  fs.utimesSync(report, new Date(startedAt + 2000), new Date(startedAt + 2000));
   const transcript: PlanCountTranscript = { status: 'ready', assistantMessages: [], calls: [{
     sessionId: 'main-session', toolUseId: 'finding', answered: true, failed: false,
     questions: [{ header: 'Finding', question: 'Fix this gap?', options: [{ label: 'Fix' }, { label: 'Keep' }] }],
@@ -163,6 +165,9 @@ describe('pending native ExitPlanMode identity', () => {
         expect(hasNativePlanTerminal(f.observe(GATE, value), f.report, f.startedAt, 'plan_ready')).toBe(false);
       }
       const observed = f.observe();
+      const future = new Date(Date.now() + 60_000);
+      fs.utimesSync(f.report, future, future);
+      expect(hasNativePlanTerminal(observed, f.report, f.startedAt, 'plan_ready')).toBe(false);
       fs.utimesSync(f.report, new Date(f.startedAt - 1), new Date(f.startedAt - 1));
       expect(hasNativePlanTerminal(observed, f.report, f.startedAt, 'plan_ready')).toBe(false);
       fs.writeFileSync(f.report, '## GSTACK REVIEW REPORT\n');

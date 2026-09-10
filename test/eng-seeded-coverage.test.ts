@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import captured from './fixtures/eng-count-ad-v2.json';
+import af from './fixtures/eng-first-category-af.json';
 import type { NativePlanQuestionCall, PlanCountTranscript } from './helpers/plan-count-transcript';
 import { ENG_DECISION_SEEDS, evaluateEngSeedCoverage } from './helpers/eng-seeded-coverage';
 import { E2E_TOUCHFILES, matchGlob } from './helpers/touchfiles';
@@ -172,5 +173,36 @@ describe('Eng seeded coverage from completed native decisions', () => {
       expect(Object.entries(E2E_TOUCHFILES).filter(([, patterns]) => patterns.some(p => matchGlob(file, p))).map(([key]) => key))
         .toEqual(['plan-eng-finding-count']);
     }
+  });
+
+  test('AF numbered regression task accepts its component-path metadata', () => {
+    const context = af.regressionTask.lines.join('\n');
+    const result = evaluate(transcript(), context + '\n\n## GSTACK REVIEW REPORT\nEng complete.\n');
+    expect(result.regression).toBe('plan');
+    expect(result.ok).toBe(true);
+    expect(af.regressionTask.provenance.retrospectivePass).toBe(false);
+  });
+
+  test('component metadata cannot remove prose, uncertainty or a different test target', () => {
+    const task = af.regressionTask.lines[0]!;
+    const evaluateTask = (text: string) => evaluate(transcript(), text + '\n\n## GSTACK REVIEW REPORT\nEng complete.\n');
+    for (const path of ['src/auth/legacy', 'auth_core/legacy-v2']) {
+      expect(evaluateTask(task.replace('auth/legacy', path)).regression).toBe('plan');
+    }
+    for (const text of [
+      task.replace('auth/legacy', 'skip the tests'),
+      task.replace('auth/legacy', 'maybe'),
+      task.replace('auth/legacy', '../auth/legacy'),
+      task.replace('auth/legacy', 'auth/legacy — unrelated prose'),
+      task.replace(/^.*? — auth\/legacy/, 'auth/legacy'),
+      task.replace('Write characterization', 'Do not write characterization'),
+      task.replace('Write characterization', 'Maybe write characterization'),
+      task.replace('Write characterization', 'If approved, write characterization'),
+      task.replace('Write characterization', 'Write a report describing characterization'),
+      task.replace('`legacyAuthFlow()`', '`newAuthFlow()`') + '; legacyAuthFlow is documented elsewhere.',
+      task.replace('before any rewrite', 'only if the rewrite requires it'),
+      'Example: ' + task, '> ' + task, '"' + task + '"',
+      '```text\n' + task + '\n```',
+    ]) expect(evaluateTask(text).regression, text).toBeUndefined();
   });
 });
