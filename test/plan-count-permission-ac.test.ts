@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import captured from './fixtures/plan-count-permission-ac.json';
 import capturedAd from './fixtures/plan-count-permission-ad.json';
 import capturedAe from './fixtures/plan-count-permission-ae.json';
+import capturedAh from './fixtures/plan-count-permission-ah.json';
 import { classifyPlanCountFrame, createPlanCountPermissionGuard } from './helpers/claude-pty-runner';
 import { recordFilePermission, currentFilePermissionEpoch, currentFilePermissionBinding } from './helpers/plan-count-file-permission';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
@@ -152,7 +153,7 @@ test('a later exact owned binding wins over an earlier same-basename block', () 
 
 // Exact current screens plus content-free native identity from full AD/AE runs.
 // The replay projections do not assert these pending writes ever completed.
-const cases = [...capturedAd.rows, capturedAe].map(row => ({
+const cases = [...capturedAd.rows, capturedAe, capturedAh].map(row => ({
   p: row, screen: row.screen, binding: {expected: row.state.expected, state: row.state},
   observation: {transcript: {status: row.transcriptStatus, calls: [],
     assistantMessages: row.transcriptSessions.map(sessionId => ({sessionId}))}},
@@ -179,7 +180,7 @@ for (const c of cases) {
   test(`AD isolating the rejected rendering guard ${c.p.pid} preserves native identity`, () => {
     // These are explicitly normalized controls; the actual captured screen is unchanged above.
     const normalized = c.p.pid === capturedAe.pid ? c.screen.replace(/^[╌─━]{3,}[ \t]*\n/, '')
-      : c.p.pid === 1332470 ? c.screen.replace('3. Nohift+tab)', '3. No') : c.screen.replace(/^     \+/, ' 99 +');
+      : c.p.pid === 1332470 ? c.screen.replace('3. Nohift+tab)', '3. No') : c.screen.replace(/^ {4,5}\+/, ' 99 +');
     expect(normalized).not.toBe(c.screen);
     expect(adEpoch(c, normalized)?.pendingId).toBe(c.binding.state.pendingId);
   });
@@ -248,4 +249,38 @@ test('AE crop admits one native divider only and preserves its exact existing ca
   }
   expect(selectTests(['test/fixtures/plan-count-permission-ae.json'], E2E_TOUCHFILES).selected.sort()).toEqual(
     selectTests(['test/fixtures/plan-count-permission-ad.json'], E2E_TOUCHFILES).selected.sort());
+});
+
+test('AH wrapped crop admits four or five spaces with the same owned native epoch', () => {
+  const c = cases.find(item => item.p.pid === capturedAh.pid)!;
+  expect(c.screen.startsWith('    + ')).toBe(true);
+  for (const screen of [c.screen, ` ${c.screen}`, c.screen.replace(/^    \+/, '    -')]) {
+    expect(adEpoch(c, screen)?.pendingId).toBe(c.binding.state.pendingId);
+    const guard = createPlanCountPermissionGuard();
+    expect(guard(screen, '', adEpoch(c, screen))).toBe('grant');
+    expect(guard(screen, '', adEpoch(c, screen))).toBe('handled');
+  }
+  // Cleaning the unselected No paint residue does not establish missing identity.
+  const noOnly = c.screen.replace('3. Nohift+tab)', '3. No');
+  expect(noOnly).not.toBe(c.screen);
+  expect(adEpoch(c, noOnly)?.pendingId).toBe(c.binding.state.pendingId);
+});
+
+test('AH continuation crop rejects prose, unsupported gutters and malformed numbered context', () => {
+  const c = cases.find(item => item.p.pid === capturedAh.pid)!;
+  for (const [name, screen] of [
+    ['four-space prose', c.screen.replace(/^.*\n/, '    Apply this edit now\n')],
+    ['four-space quoted prose', c.screen.replace(/^.*\n/, '    > Example\n')],
+    ['three-space gutter', c.screen.slice(1)],
+    ['six-space gutter', `  ${c.screen}`],
+    ['no numbered rows', c.screen.replace(/^\s*\d+\s+(?=[+\- ])/gm, '    +')],
+    ['one numbered row', c.screen.replace(/^(\s*\d+\s+)(?=[+\- ])/gm,
+      (prefix, _group, offset) => offset === c.screen.indexOf(' 79 ') ? prefix : '    +')],
+  ]) {
+    expect(screen, name).not.toBe(c.screen);
+    expect(adEpoch(c, screen), name).toBeNull();
+    expect(createPlanCountPermissionGuard()(screen, '', adEpoch(c, screen)), name).not.toBe('grant');
+  }
+  expect(selectTests(['test/fixtures/plan-count-permission-ah.json'], E2E_TOUCHFILES).selected.sort()).toEqual(
+    selectTests(['test/fixtures/plan-count-permission-ae.json'], E2E_TOUCHFILES).selected.sort());
 });

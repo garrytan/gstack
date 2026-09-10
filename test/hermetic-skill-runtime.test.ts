@@ -48,6 +48,8 @@ const root = path.join(process.env.HOME,'.claude','skills','gstack');
 const args = process.argv.slice(2);
 const addDirs = args.flatMap((arg,index) => arg === '--add-dir' ? [args[index+1]] : []);
 const addDir = addDirs[0] || null;
+const registryDirectory = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME,'.claude'),'skills');
+const registeredSection = path.join(registryDirectory,'autoplan','sections','design-phase.md');
 const stateDirectory = path.join(process.env.HOME,'.gstack');
 const methodologyPath = path.join(stateDirectory,'projects','probe','autoplan-design-methodology-owned','methodology.md');
 const inside = (file,directory) => { const relative=path.relative(directory,file); return relative==='' || (!relative.startsWith('..'+path.sep) && relative!=='..' && !path.isAbsolute(relative)); };
@@ -60,6 +62,10 @@ const record = {
   pid:process.pid, home:process.env.HOME, root:fs.realpathSync(root), args, addDirs,
   stateDirectory, stateDirectoryExists:fs.existsSync(stateDirectory), methodologyPath,
   methodologyAllowed:addDirs.some(directory => inside(methodologyPath,directory)),
+  registryDirectory, registeredSection,
+  registeredSectionHash:fs.existsSync(registeredSection) ? createHash('sha256').update(fs.readFileSync(registeredSection)).digest('hex') : null,
+  registeredSectionAllowed:addDirs.some(directory => inside(registeredSection,directory)),
+  registryNeighborsAllowed:['../settings.json','../plans/unrelated.md','../skills-other/unrelated.md'].map(relative => addDirs.some(directory => inside(path.resolve(registryDirectory,relative),directory))),
   phaseExit:phase.status, phaseHash:createHash('sha256').update(phase.stdout).digest('hex'),
   configExit:config.status, configValue:config.stdout.toString().trim(),
   canonicalConfigExit:canonicalConfig?.status, canonicalConfigValue:canonicalConfig?.stdout.toString().trim(),
@@ -145,9 +151,12 @@ try {
           // the runtime checkout. Approve only that owned state tree, not HOME,
           // an inherited/explicit GSTACK_HOME, or a broad policy-setting answer.
           expect(result.methodologyAllowed, item.name + ': owned methodology Read is covered').toBe(true);
+          expect(result.registeredSectionAllowed, item.name + ': installed registry section Read is covered').toBe(true);
+          expect(result.registeredSectionHash).toBe(digest(path.join(ROOT,'autoplan/sections/design-phase.md')));
+          expect(result.registryNeighborsAllowed).toEqual([false,false,false]);
           expect(result.stateDirectoryExists).toBe(true);
           expect(result.ownedStateRoot).toBe(result.stateDirectory);
-          expect(result.addDirs).toEqual([path.join(result.home,'.claude','skills','gstack'),path.join(result.home,'.gstack')]);
+          expect(result.addDirs).toEqual([path.join(result.home,'.claude','skills','gstack'),path.join(result.home,'.gstack'),path.join(result.configDir,'skills')]);
           for (const external of [operatorHome,state,path.dirname(result.home),result.codexHome,result.browserCache])
             expect(result.addDirs).not.toContain(external);
           expect(result.args).not.toContain('--dangerously-skip-permissions');
@@ -168,6 +177,8 @@ try {
           expect(result.home).toBe(operatorHome); expect(result.phaseHash).toBe(originalSection);
           expect(result.configValue).toBe('stale-runtime'); expect(result.runtimeAllowed).toBe(false);
           expect(result.addDirs).toEqual([]); expect(result.methodologyAllowed).toBe(false);
+          expect(result.registeredSectionAllowed).toBe(false);
+          expect(result.registryNeighborsAllowed).toEqual([false,false,false]);
           expect(result.ownedStateRoot).toBeNull();
         }
         if (item.name === 'explicit-config') expect(result.configDir).toBe(customConfig);

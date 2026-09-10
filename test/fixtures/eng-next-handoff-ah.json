@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "observationSha256": "49e9b1d794889b356cd7c67974acd89c9a84e20bde35fdab13881f35abafb8d1",
+    "planSha256": "d333e40fa1925ac6e07a78ff64757393cd5aa66fddc394b31eb3a26434bb6e06",
+    "screenSha256": "fe599c919bd7d0469dba8985f43b34941dacba94be3d50a88d9364e2d61c4309",
+    "capture": {
+      "skill": "plan-eng-review",
+      "runId": "ship-source-ah-delta-paid-20260910-v1-8",
+      "cwd": "/tmp/gstack-paid-shard-oLsoWY/tmp/gstack-plan-count-b3qdhZ",
+      "claudeConfigDir": "/tmp/gstack-paid-shard-oLsoWY/tmp/gstack-hermetic-340461-9Ex6MJ/with-skills/.claude",
+      "at": "2026-09-10T03:36:31.588Z"
+    },
+    "stat": {
+      "path": "/tmp/gstack-paid-shard-oLsoWY/tmp/gstack-e2e-plan-eng-K1VV4m/gstack-test-plan-eng.md",
+      "sha256": "d333e40fa1925ac6e07a78ff64757393cd5aa66fddc394b31eb3a26434bb6e06",
+      "mtimeMs": 1789010935798.159,
+      "mtimeUTC": "2026-09-10T03:28:55.798159+00:00",
+      "size": 23521
+    },
+    "limitations": "Exact retained public observation and saved plan, not private native blocks. Administrative projection is prospective only."
+  },
+  "fingerprint": {
+    "signature": "e5829792-573f-4de0-8cbc-97379840c953:toolu_01Je2eR9CH4vWsDYmEdCnsAP",
+    "promptSnippet": "Next D14 — Next step after this eng review? Project/branch/task: gstack-plan-count-b3qdhZ on main, reviewed plan written to gstack-test-plan-eng.md. ELI10: The eng review is the only gate that blocks shipping and it is clear. No UI is touch",
+    "options": [
+      {
+        "index": 1,
+        "label": "A) Ready to implement (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "B) Run /plan-ceo-review"
+      }
+    ],
+    "observedAtMs": 685701,
+    "preReview": false,
+    "nativeCall": {
+      "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+      "toolUseId": "toolu_01Je2eR9CH4vWsDYmEdCnsAP",
+      "questions": [
+        {
+          "question": "D14 — Next step after this eng review?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, reviewed plan written to gstack-test-plan-eng.md.\nELI10: The eng review is the only gate that blocks shipping and it is clear. No UI is touched, so a design review does not apply. A CEO review is optional and normally for product-direction changes; this is a backend auth refactor, so it is a soft mention only.\nStakes if we pick wrong: Low either way; the CEO review would cost time on a change with no product-facing scope decision left open.\nRecommendation: A because all required reviews are complete and the plan's remaining blocker is the author confirming the Context section, not another review.\nNote: options differ in kind, not coverage — no completeness score.\nNet: start implementing versus an optional strategy pass on a backend refactor.",
+          "header": "Next",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Ready to implement (recommended)",
+              "description": "✅ All relevant reviews complete; run /ship when the work is done. ✅ The first task is the author confirming Context, then T1 characterization tests. ❌ No second strategic opinion on whether the refactor is the right thing to build now."
+            },
+            {
+              "label": "B) Run /plan-ceo-review",
+              "description": "✅ Adds a scope-and-strategy pass before any code is written. ✅ Useful if the refactor's business motivation is contested. ❌ Backend-only refactor with no product-direction choice; likely low yield for the time."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D14 — Next step after this eng review?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, reviewed plan written to gstack-test-plan-eng.md.\nELI10: The eng review is the only gate that blocks shipping and it is clear. No UI is touched, so a design review does not apply. A CEO review is optional and normally for product-direction changes; this is a backend auth refactor, so it is a soft mention only.\nStakes if we pick wrong: Low either way; the CEO review would cost time on a change with no product-facing scope decision left open.\nRecommendation: A because all required reviews are complete and the plan's remaining blocker is the author confirming the Context section, not another review.\nNote: options differ in kind, not coverage — no completeness score.\nNet: start implementing versus an optional strategy pass on a backend refactor.": "A) Ready to implement (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T03:29:41.500Z"
+    }
+  },
+  "plan": "# Plan: Multi-tenant Auth Refactor (reviewed)\n\nReviewed by /plan-eng-review on 2026-09-10 against PLAN.md at commit 7007835.\nScope was reduced (D4). Six findings, all folded into this plan with the complete remedy.\n\n## Context\n\n**Problem (inferred, author must confirm — see Prerequisite P0 below).** The current auth path\nvalidates tokens with 5 sequential IDP calls, swallows three classes of error inside\n`validateAndDispatch()`, and mixes tenant-scoped session logic into a single `legacyAuthFlow()`.\nThe refactor introduces two focused services, `AuthBroker` (mints and stores tokens) and\n`SessionMint` (establishes sessions from cached or freshly minted tokens), on top of the\nexisting tenant-keyed cache adapter.\n\n**Goal (draft).** Every tenant's login and token validation runs through one explicit,\nobservable path with bounded latency and no silent failures, while the two invariants below\nhold at all times.\n\n**Invariants (draft, must be asserted by tests).**\n1. No cross-tenant reads: a token stored under tenant A's key is never returned for tenant B.\n2. No resurrection: once a token is invalidated (logout, revocation, tenant suspension, policy\n   version bump), no in-flight write can put it back.\n\n**Latency target (draft).** Token validation p95 bounded by the slowest single IDP call plus\ncache lookup, not by the sum of five calls. Author to fill in the number.\n\n### Prerequisite P0 (decision D7 → 3A)\nImplementation does not start until the author confirms or edits the Problem, Goal,\nInvariants and Latency target above. Estimated: human ~30 min / CC ~5 min.\n\n## Existing contracts retained (unchanged from PLAN.md)\n\nThe existing cache adapter keys entries by tenant ID, issuer, audience, and policy version.\nIt evicts expired tokens and invalidates entries on logout, token revocation, or tenant\nsuspension. It does not serialize mutations. The adapter, its invalidation hooks, and their\nexisting tests remain in use unchanged. The new services receive the adapter by constructor\ninjection; nothing new wraps it.\n\n## Architecture (as reviewed)\n\n### Scope (decision D4 → A)\nPLAN.md proposed 12 files and five new types (`AuthBroker`, `SessionMint`, `TokenStore`,\n`AuthCache`, `RequestPolicy`). Reduced to **two new types**:\n\n| Proposed type | Outcome | Reason |\n|---|---|---|\n| `AuthBroker` | **Keep** | The only writer to the cache; mints tokens via the IDP. |\n| `SessionMint` | **Keep** | Reads the cache; asks `AuthBroker` to mint on miss. |\n| `AuthCache` | **Drop** | PLAN.md:11-13 describes a pass-through facade over the existing adapter with one backing cache. The adapter is injected directly instead. |\n| `TokenStore` | **Drop** | Overlaps the adapter's token storage role. |\n| `RequestPolicy` | **Defer** | No consumer named anywhere in the plan. Captured as TODO 1. |\n\nEstimated diff: ~7 files.\n\n### Component and data flow\n\n```\n                    per-tenant flag (D6)\n   request ──────────┬─────────────────────────────┐\n                     │ flag OFF                    │ flag ON\n                     ▼                             ▼\n             legacyAuthFlow()              validateAndDispatch()  (typed pipeline, D8)\n             (unchanged, kept              ├─ parse token        → Result\n              until TODO 2)                ├─ verify signature   → Result   (JWKS cache, D10)\n                     │                     ├─ check tenant policy→ Result\n                     │                     └─ dispatch           → Result\n                     │                                │\n                     │                                ▼\n                     │                     ┌──── error boundary ────┐\n                     │                     │ maps each error class  │\n                     │                     │ → outcome + log + metric│\n                     │                     └────────────────────────┘\n                     │                                │\n                     ▼                                ▼\n               existing adapter  ◄──read──  SessionMint ──mint?──► AuthBroker ──write(gen)──► existing adapter\n               (tenant-keyed,                                          │                      (same instance,\n                invalidation hooks)                                    ▼                       injected)\n                                                          IDP calls (parallel, shared AbortSignal,\n                                                          per-call timeout; discovery + JWKS cached)\n```\n\n### Issue 1 — Shared cache mutated by two services with no ordering (decision D5 → 1A)\n`[P1] (confidence: 8/10) PLAN.md:19-20, PLAN.md:10` — \"Both services mutate it\" and \"they do\nnot serialize mutations.\" Failure scenario: `SessionMint` begins minting for tenant A; tenant A\nis suspended and the existing hook invalidates A's entries; the in-flight write lands and\nrestores a valid token. Suspended tenant keeps access silently until expiry.\n\n**Remedy (approved):**\n- `AuthBroker` is the **single writer**. `SessionMint` only reads and calls\n  `AuthBroker.mint()` on a miss.\n- Every write carries the **invalidation generation** it observed at read time. The adapter\n  wrapper call in `AuthBroker` compares the generation; a stale write is dropped and logged\n  with tenant ID and reason.\n- The generation counter is bumped by the existing invalidation hooks (logout, revocation,\n  suspension, policy bump). This is one small guard where all writes route through, not a\n  guard in every caller.\n- Test: deterministic interleaving test (read → invalidate → write) proves the write is dropped.\n\n### Issue 2 — In-place rewrite of legacyAuthFlow() with no rollback (decision D6 → 2A)\n`[P1] (confidence: 9/10) PLAN.md:27-28` — \"legacyAuthFlow() will get rewritten.\"\n\n**Remedy (approved):** strangler-fig rollout.\n- Keep `legacyAuthFlow()` callable. A **per-tenant flag** routes each tenant to the legacy or\n  the `AuthBroker` path.\n- Add a counter of requests served by the legacy path (feeds TODO 2's deletion trigger).\n- Migrate tenants in waves. Rollback for one tenant is a flag flip, not a revert.\n- Deletion of the legacy path and the flag is TODO 2, a separate follow-up.\n\n### Issue 3 — No stated goal or invariants (decision D7 → 3A)\n`[P1] (confidence: 9/10) PLAN.md:4-36` — every section describes a smell; none states what\ndone means. Remedy: the Context section above, confirmed by the author before implementation\n(Prerequisite P0).\n\n### Inline ASCII diagrams to add in code\n- `AuthBroker`: the read-generation → mint → write-if-current sequence, with the invalidation\n  hook bumping the generation drawn alongside.\n- `validateAndDispatch()`: the four-step pipeline and the error-boundary mapping table.\n- The flag router: legacy vs new path decision.\n- Interleaving test file: a timeline comment showing which step of which actor runs when.\nDiagram maintenance is part of every later change to these files.\n\n## Code quality (as reviewed)\n\n### Issue 4 — validateAndDispatch() swallows three error classes (decision D8 → 4A)\n`[P1] (confidence: 9/10) PLAN.md:23-24` — \"three nested try/catch blocks; each catch swallows\na different error class.\"\n\n**Remedy (approved):**\n- Flatten into a straight-line pipeline of small steps (parse, verify signature, check tenant\n  policy, dispatch). Each step returns a typed `Result` (reuse ladder: check the repo for an\n  existing Result/Either helper first, then an installed dependency, before adding one).\n- **One error boundary** maps each error class to a distinct outcome, log line and metric.\n  Unknown errors fail closed (reject), never pass.\n- Each step gets its own unit test; the boundary gets one table-driven test per error class.\n- DRY: cache write logic exists in exactly one place (`AuthBroker`, Issue 1). `SessionMint`\n  never duplicates it.\n\n## Tests (as reviewed)\n\n### CRITICAL — Regression: legacyAuthFlow() characterization tests (mandatory, no decision needed)\nPLAN.md:27-28 rewrites existing behavior; PLAN.md:15-16 explicitly excludes it from coverage.\nUnder the regression rule this is a critical requirement:\n- **Before** any rewrite, write characterization tests for `legacyAuthFlow()` covering: valid\n  token, expired token, revoked token, wrong-tenant token, IDP unavailable, logout then replay,\n  tenant suspended then request.\n- Run the same fixtures against the `AuthBroker` path under the flag (D6) and assert parity\n  where behavior must match, and assert the intended difference where it must not.\n- These tests stay until TODO 2 deletes the legacy path, then become new-path-only tests.\n\n### Coverage map (decision D9 → 5A: full map)\n\n```\nCODE PATHS                                                USER FLOWS\n[~] legacyAuthFlow() (kept behind flag)                   [+] Tenant login via new path\n  └── [CRITICAL] characterization: valid / expired          ├── [→E2E] login → mint → validated request\n      / revoked / wrong-tenant / IDP down / logout replay    ├── [→E2E] tenant suspended mid-session → rejected\n[+] AuthBroker (single writer, versioned write)             └──        flag OFF → legacy path, parity\n  ├── write with current generation → stored               [+] Error states (user-visible)\n  ├── write with stale generation → dropped + logged         ├── IDP timeout → explicit, retryable error\n  ├── mint failure (IDP error) → typed error, no write       ├── malformed token → explicit reject\n  └── tenant A key never readable via tenant B key           └── policy miss → explicit reject, never pass\n[+] SessionMint (reads, requests mint)\n  ├── cache hit → no IDP call\n  ├── cache miss → broker mint → stored\n  ├── invalidation during mint → no resurrection (interleaving test)\n  └── two concurrent mints, same tenant/user → one entry, no corruption\n[+] validateAndDispatch() pipeline\n  ├── each step happy path\n  ├── each error class → distinct outcome + log (table test)\n  └── unknown error → fail closed\n[+] IDP validation (parallel)\n  ├── all calls succeed\n  ├── one rejects → others cancelled (assert abort), typed error\n  ├── one hangs → per-call timeout fires\n  ├── discovery/JWKS served from cache within TTL\n  └── unknown kid → JWKS refresh → success (key rotation)\n[+] Flag router\n  ├── flag ON → new path\n  └── flag OFF → legacy path; legacy counter increments\n\nCOVERAGE TODAY: 0/23 paths tested (0%)  |  GAPS: 23 (1 CRITICAL regression, 2 E2E)\nTARGET AT MERGE: 23/23\n```\nLegend: [→E2E] needs integration test. No LLM paths, no evals.\n\n### Test requirements (write alongside the code, not after)\n| # | Test | Kind | Asserts |\n|---|---|---|---|\n| 1 | `legacyAuthFlow` characterization | unit + integration | Existing behavior for 7 fixtures listed above (CRITICAL) |\n| 2 | `AuthBroker` write current generation | unit | Entry stored under full tenant key |\n| 3 | `AuthBroker` write stale generation | unit | Write dropped; log emitted with tenant and reason |\n| 4 | `AuthBroker` mint failure | unit | Typed error returned; adapter untouched |\n| 5 | Cross-tenant isolation | unit | Store under tenant A; read as tenant B returns miss |\n| 6 | `SessionMint` hit / miss | unit | Hit makes zero IDP calls; miss calls broker once |\n| 7 | Invalidation during mint | unit (controlled async) | read → invalidate → write; final state is empty |\n| 8 | Concurrent mints | unit | One stored entry; both callers get a valid result or a clean error |\n| 9 | Pipeline steps | unit | Each step's Result on valid and invalid input |\n| 10 | Error boundary | table-driven unit | Each error class → its outcome, log, metric; unknown → reject |\n| 11 | IDP all succeed | unit (stubbed IDP) | Result assembled; call count = expected |\n| 12 | IDP one rejects | unit | Other calls' AbortSignal aborted; typed error |\n| 13 | IDP one hangs | unit (fake timers) | Timeout error within the bound |\n| 14 | Discovery/JWKS cache | unit | Second validation makes no discovery/JWKS call |\n| 15 | Unknown kid rotation | unit | Refresh once, then verify succeeds |\n| 16 | Flag routing | unit | ON → new path; OFF → legacy path + counter |\n| 17 | Login → validated request | E2E | Full flow succeeds; second request is a cache hit |\n| 18 | Suspend mid-session | E2E | Next request rejected; no token resurrection |\n\nTest framework: none detected in this fixture repo (no `package.json`, zero test files). Match\nthe real repo's existing convention (`*.test.ts` or `*.spec.ts`) when implementing.\n\n## Performance (as reviewed)\n\n### Issue 6 — Bare Promise.all over 5 IDP calls (decision D10 → 6A)\n`[P2] (confidence: 7/10) PLAN.md:31-32` — \"parallelized via Promise.all trivially.\"\nPromise.all is fail-fast but does not cancel: the first rejection leaves four calls running\nagainst an already-degraded IDP. 1→5 concurrent calls per request multiplies burst against\nrate-limited per-tenant IDPs.\n\n**Remedy (approved):**\n- Run the independent calls with `Promise.all`, all sharing one `AbortController` signal;\n  the first rejection aborts the rest.\n- Each call gets `AbortSignal.timeout(...)` combined with the shared signal, so a hung IDP\n  bounds the tail.\n- **Cache the discovery document (TTL hours) and JWKS (TTL minutes)** per issuer; on an\n  unknown `kid`, refresh once and retry the verification. Hot path drops to 3 or fewer network\n  calls. **[Layer 1]** — standard OIDC practice, no new dependency needed.\n- Memory: the discovery/JWKS cache is bounded by issuer count, not request count.\n\nNo N+1 or database access patterns in scope.\n\n## What already exists\n| Existing piece | Plan's use | Verdict |\n|---|---|---|\n| Tenant-keyed cache adapter with eviction and invalidation hooks + tests | Reused unchanged, injected | Correct reuse |\n| `legacyAuthFlow()` | Was to be rewritten in place | Now kept behind a flag with characterization tests until TODO 2 |\n| Module cache singleton semantics | Was relied on via module-level export | Replaced by constructor injection; the global bought nothing |\n| `AuthCache` facade (proposed) | Wrapped the adapter | Dropped as duplicate |\n\n## NOT in scope\n- `RequestPolicy` — no consumer named; deferred to TODO 1.\n- `TokenStore` and `AuthCache` — dropped; the adapter already does this job.\n- Changing the adapter's key schema or serializing mutations inside the adapter — the\n  generation check in `AuthBroker` closes the race without touching the adapter contract.\n- Deleting `legacyAuthFlow()` and the flag — TODO 2, after all tenants migrate.\n- Module-wide audit of swallow-and-continue catch blocks — TODO 3, separate diff.\n- IDP-side changes, multi-region cache, new artifacts or distribution — none introduced.\n\n## Failure modes\n| New codepath | Realistic failure | Test | Handling | User sees |\n|---|---|---|---|---|\n| `AuthBroker` write | Stale write after invalidation | #7 | Generation check drops + logs | Rejected on next request, log for on-call |\n| `AuthBroker` mint | IDP 5xx | #4, #12 | Typed error via boundary | Clear retryable error |\n| `SessionMint` read | Wrong tenant key | #5 | Adapter key includes tenant ID | Miss, then mint for own tenant |\n| Pipeline boundary | Unmapped error class | #10 | Fail closed | Explicit reject |\n| IDP parallel | One call hangs | #13 | Per-call timeout | Timeout error, no spinner |\n| JWKS cache | Key rotation | #15 | Refresh on unknown kid | Transparent |\n| Flag router | Flag store unavailable | #16 (add case) | Default to legacy path, log | No change in behavior |\n| Legacy path | Behavior drift during refactor | #1 (CRITICAL) | Parity assertions | None if tests hold |\n\n**Critical gaps: 0.** The stale-write resurrection race would have been a critical gap (no\ntest, no handling, silent) under the original plan; decision D5 closes it with test #7.\nFlag-store unavailability is added to test #16 as a case.\n\n## Worktree parallelization strategy\n\n| Step | Modules touched | Depends on |\n|---|---|---|\n| S0 Author confirms Context (P0) | PLAN.md | — |\n| S1 Characterization tests for legacy path | auth/__tests__ | S0 |\n| S2 `AuthBroker` + `SessionMint` + generation check | auth/ (broker, mint) | S0 |\n| S3 `validateAndDispatch()` pipeline + boundary | auth/ (validate) | S0 |\n| S4 IDP parallel calls + discovery/JWKS cache | auth/idp | S0 |\n| S5 Flag router + legacy counter | auth/ (routing), config/ | S1, S2 |\n| S6 Interleaving, isolation, concurrency tests | auth/__tests__ | S2 |\n| S7 E2E flows | e2e/ | S2, S3, S4, S5 |\n\nLanes:\n- Lane A: S1 (independent, test-only, must land before any rewrite)\n- Lane B: S2 → S6 (sequential, shared broker/mint module)\n- Lane C: S3 (independent)\n- Lane D: S4 (independent)\n- Lane E: S5 → S7 (after A, B, C, D merge)\n\nExecution: after S0, launch A + B + C + D in parallel worktrees. Merge all four. Then E.\nConflict flag: Lanes B and C both live under `auth/`; keep them in separate files (broker/mint\nvs validate) and expect a small import-level merge in the module index.\n\n## TODOs (approved; write to TODOS.md when plan mode exits)\n\n### RequestPolicy seam (D11)\n**What:** Introduce a `RequestPolicy` type once a concrete consumer needs per-request policy\ndecisions beyond the adapter's policy-version key.\n**Why:** Dropped from scope because no plan section names a caller; keeps the author's intent.\n**Context:** PLAN.md listed it with no description. After the refactor lands, grep call sites\nthat branch on tenant policy; 2+ sites is the consumer.\n**Effort:** M **Priority:** P3 **Depends on:** Refactor merged.\n\n### Delete legacyAuthFlow() and the per-tenant flag (D12)\n**What:** Remove the legacy path, the routing flag, and the parity assertions once every tenant\nis on the `AuthBroker` path.\n**Why:** A strangler without scheduled demolition is two auth code paths forever.\n**Context:** Watch the legacy-path counter added in S5; when it reads zero for a full cycle,\ndelete. Characterization tests become new-path-only tests.\n**Effort:** S **Priority:** P2 **Depends on:** All tenants flagged onto the new path.\n\n### Audit auth module for swallow-and-continue catch blocks (D13)\n**What:** Find catch blocks that neither rethrow, return an explicit failure, nor log, and route\nthem through the D8 error boundary.\n**Why:** `validateAndDispatch()` is unlikely to be the only site; same silent-failure class.\n**Context:** Grep `catch` in the auth directory for bodies with no throw/return-error/log.\n**Effort:** M **Priority:** P2 **Depends on:** D8 pipeline merged.\n\n## Implementation Tasks\nSynthesized from this review's findings. Each task derives from a specific finding above.\nRun with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~1 day / CC: ~20 min)** — auth/legacy — Write characterization tests for `legacyAuthFlow()` before any rewrite\n  - Surfaced by: Test review, REGRESSION RULE — PLAN.md:27-28, PLAN.md:15-16\n  - Files: auth/__tests__/ (match repo convention)\n  - Verify: tests pass against the current legacy path; fixtures cover the 7 listed cases\n- [ ] **T2 (P1, human: ~30 min / CC: ~5 min)** — plan — Author confirms goal, latency target and two invariants in Context\n  - Surfaced by: Architecture issue 3 (D7)\n  - Files: this plan's Context section\n  - Verify: Context has no \"(draft)\" markers left\n- [ ] **T3 (P1, human: ~1 day / CC: ~20 min)** — auth/broker — `AuthBroker` sole writer with invalidation-generation check; `SessionMint` reads; adapter constructor-injected\n  - Surfaced by: Architecture issue 1 (D5) — PLAN.md:19-20, :10\n  - Files: auth/ (broker, mint), existing invalidation hooks bump the generation\n  - Verify: tests #2-#8\n- [ ] **T4 (P1, human: ~1 day / CC: ~15 min)** — auth/routing — Per-tenant flag between legacy and new path, plus legacy-path counter\n  - Surfaced by: Architecture issue 2 (D6)\n  - Files: auth/ (routing), config/\n  - Verify: test #16 incl. flag-store-unavailable → legacy\n- [ ] **T5 (P1, human: ~1 day / CC: ~20 min)** — auth/validate — Flatten `validateAndDispatch()` into typed pipeline + one error boundary\n  - Surfaced by: Code quality issue 4 (D8) — PLAN.md:23-24\n  - Files: auth/ (validate); reuse an existing Result helper if one exists\n  - Verify: tests #9-#10\n- [ ] **T6 (P1, human: ~3 days / CC: ~45 min)** — auth/tests — Full test map: race, isolation, concurrency, IDP failure modes, 2 E2E\n  - Surfaced by: Test review issue 5 (D9)\n  - Files: auth/__tests__/, e2e/\n  - Verify: coverage map reads 23/23\n- [ ] **T7 (P2, human: ~1.5 days / CC: ~25 min)** — auth/idp — Parallel IDP calls with shared abort + per-call timeout; cache discovery + JWKS with unknown-kid refresh\n  - Surfaced by: Performance issue 6 (D10) — PLAN.md:31-32\n  - Files: auth/idp/\n  - Verify: tests #11-#15; hot path makes ≤3 network calls\n- [ ] **T8 (P3, human: ~15 min / CC: ~3 min)** — docs — Create TODOS.md with the three approved entries\n  - Surfaced by: TODOS.md updates (D11-D13)\n  - Files: TODOS.md\n  - Verify: file exists with three H3 entries in the TODOS-format shape\n\n## Suppressed findings\n- `[P3] (confidence: 5/10) PLAN.md:7-9` — Cache keys omit the IDP client ID; if a tenant runs two\n  clients against one issuer/audience, entries could collide. Medium confidence, verify this\n  is actually an issue against the real adapter key before acting. No code was available to\n  quote, so this stays in the appendix.\n\n## Review completion summary\n- Step 0: Scope Challenge — scope reduced per recommendation (5 types/12 files → 2 types/~7 files)\n- Architecture Review: 3 issues found (all resolved: 1A, 2A, 3A)\n- Code Quality Review: 1 issue found (resolved: 4A)\n- Test Review: diagram produced, 23 gaps identified (1 CRITICAL regression added by rule; rest resolved: 5A)\n- Performance Review: 1 issue found (resolved: 6A)\n- NOT in scope: written\n- What already exists: written\n- TODOS.md updates: 3 items proposed to user, 3 accepted\n- Failure modes: 0 critical gaps remaining (1 would-be critical gap closed by D5)\n- Outside voice: skipped (codex_reviews disabled)\n- Parallelization: 5 lanes, 4 parallel / 1 sequential after merge\n- Lake Score: 6/6 recommendations chose the complete option\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |\n| Outside Review | codex via `/plan-eng-review` (disabled) | Independent 2nd opinion | 1 | disabled | 0 (skipped, host=claude, provider=codex, phase=plan-review) |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean (PLAN) | 24 issues, 0 critical gaps, mode SCOPE_REDUCED |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |\n\n**OUTSIDE COVERAGE:** provider codex, phase plan-review, outside_status disabled (user opt-out via `codex_reviews=disabled`); no native fallback dispatched; 0 findings. Outside coverage is absent, not clean.\n\n**VERDICT:** ENG CLEARED — ready to implement once Prerequisite P0 (author confirms Context) is done. Outside review disabled by config.\n\nNO UNRESOLVED DECISIONS\n",
+  "transcript": {
+    "status": "ready",
+    "calls": [
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01PB4xuaMCGz1CRsiJYoirn5",
+        "questions": [
+          {
+            "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, about to run /plan-eng-review on PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so that requests like \"review the architecture\" or \"ship this\" automatically route to the right skill instead of you naming it each time. This is a one-time setup prompt per project. Note: we are in plan mode right now, so if you pick A I will record the choice and append/commit the section only after plan mode exits.\nStakes if we pick wrong: Without routing, skills only fire when you name them explicitly; with routing, nothing breaks, you just get one extra section in CLAUDE.md.\nRecommendation: A because routing rules make the skill suite self-serve and cost one small commit.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small CLAUDE.md append versus invoking skills by name forever.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "✅ Requests auto-route to the matching skill without naming it each time. ✅ One short section appended to CLAUDE.md, committed once (human: ~2 min / CC: ~10 sec). ❌ Adds a gstack-specific block to a project file teammates also read."
+              },
+              {
+                "label": "No thanks, invoke manually",
+                "description": "✅ CLAUDE.md stays exactly as it is today, nothing extra committed. ✅ You keep full explicit control over when skills run. ❌ You must type the /skill name every time, and this prompt will not re-offer."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, about to run /plan-eng-review on PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so that requests like \"review the architecture\" or \"ship this\" automatically route to the right skill instead of you naming it each time. This is a one-time setup prompt per project. Note: we are in plan mode right now, so if you pick A I will record the choice and append/commit the section only after plan mode exits.\nStakes if we pick wrong: Without routing, skills only fire when you name them explicitly; with routing, nothing breaks, you just get one extra section in CLAUDE.md.\nRecommendation: A because routing rules make the skill suite self-serve and cost one small commit.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small CLAUDE.md append versus invoking skills by name forever.": "Add routing rules (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:18:59.984Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01DCxScs8A4buRspLArYkfSR",
+        "questions": [
+          {
+            "question": "D2 — Run /office-hours first, or proceed with the standard review?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, reviewing PLAN.md (Multi-tenant Auth Refactor).\nELI10: No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives, which gives this review sharper input. It takes about 10 minutes. The design doc is per-feature, not per-product. PLAN.md today reads as a list of known smells with no stated goal, so the problem statement is genuinely missing.\nStakes if we pick wrong: Skipping means the review must infer the goal from the smells and flag the missing problem statement as a finding; running it delays the requested review deliverable by a full extra workflow.\nRecommendation: B because you asked for the reviewed plan deliverable now, and the missing goal statement is better captured as an explicit finding in this review than by detouring.\nNote: options differ in kind, not coverage — no completeness score.\nNet: sharper input versus the deliverable you asked for, sooner.",
+            "header": "Prereq",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Skip, standard review (recommended)",
+                "description": "✅ Delivers the reviewed plan now, as requested, with the missing goal flagged as a finding. ✅ No extra workflow or context spent before the review starts (human: 0 / CC: 0). ❌ The review infers the refactor's goal from the listed smells rather than a stated problem."
+              },
+              {
+                "label": "Run /office-hours now",
+                "description": "✅ Produces a real problem statement and alternatives before architecture gets locked in. ✅ The review then grounds every recommendation in a stated goal (human: ~10 min / CC: ~10 min). ❌ Delays the requested deliverable and adds a second interactive workflow to this session."
+              }
+            ]
+          },
+          {
+            "question": "D3 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, one-time gstack setting.\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local, no data leaves your machine. Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Enabling on a multi-client machine could surface one client's patterns while reviewing another's; disabling loses reuse of pitfalls you already paid for elsewhere.\nRecommendation: A because it is local-only and the learnings store is currently empty here, so the only upside comes from other projects.\nNote: options differ in kind, not coverage — no completeness score.\nNet: reuse of past lessons versus strict per-project isolation.",
+            "header": "Learnings",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Enable cross-project (recommended)",
+                "description": "✅ Past pitfalls and patterns from your other repos inform this and future reviews. ✅ Entirely local; one config flag you can flip back any time. ❌ On a shared or multi-client machine, learnings from unrelated codebases can leak into recommendations."
+              },
+              {
+                "label": "Project-scoped only",
+                "description": "✅ Guarantees no cross-codebase contamination of review advice. ✅ Simplest mental model: what this repo taught gstack stays with this repo. ❌ This repo has zero learnings today, so the search adds nothing until the store grows."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Run /office-hours first, or proceed with the standard review?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, reviewing PLAN.md (Multi-tenant Auth Refactor).\nELI10: No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives, which gives this review sharper input. It takes about 10 minutes. The design doc is per-feature, not per-product. PLAN.md today reads as a list of known smells with no stated goal, so the problem statement is genuinely missing.\nStakes if we pick wrong: Skipping means the review must infer the goal from the smells and flag the missing problem statement as a finding; running it delays the requested review deliverable by a full extra workflow.\nRecommendation: B because you asked for the reviewed plan deliverable now, and the missing goal statement is better captured as an explicit finding in this review than by detouring.\nNote: options differ in kind, not coverage — no completeness score.\nNet: sharper input versus the deliverable you asked for, sooner.": "Skip, standard review (recommended)",
+          "D3 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, one-time gstack setting.\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local, no data leaves your machine. Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Enabling on a multi-client machine could surface one client's patterns while reviewing another's; disabling loses reuse of pitfalls you already paid for elsewhere.\nRecommendation: A because it is local-only and the learnings store is currently empty here, so the only upside comes from other projects.\nNote: options differ in kind, not coverage — no completeness score.\nNet: reuse of past lessons versus strict per-project isolation.": "Enable cross-project (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:20:58.274Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01TKTdk9cTrnYbRqZeLaqaUd",
+        "questions": [
+          {
+            "question": "D4 — Scope: 12 files and 5 new types for the auth refactor. Reduce, or proceed as-is?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md lines 19-20 and 35-36.\nELI10: The plan adds AuthBroker, SessionMint, TokenStore, AuthCache and RequestPolicy. But PLAN.md:11-13 says AuthCache is just a facade over the existing adapter with one backing cache and the adapter stays unchanged, so AuthCache is a second name for something you already have. TokenStore overlaps the adapter's token storage job, and RequestPolicy has no stated consumer anywhere in the plan. Every extra type is another place a 3am on-call engineer has to look when auth breaks.\nStakes if we pick wrong: Over-scoped, you ship a 12-file auth change with two layers doing one job and a harder rollback. Under-scoped, a real seam (say, RequestPolicy) gets cut and gets bolted on later in a worse spot.\nRecommendation: A because the existing adapter already owns tenant keys, eviction and invalidation, so handing it to AuthBroker and SessionMint by constructor injection achieves the goal with two new types and roughly 7 files.\nNote: options differ in kind, not coverage — no completeness score.\nNet: two focused services on the proven adapter versus five types that split one cache across two layers.",
+            "header": "Scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Reduce to 2 new types (recommended)",
+                "description": "✅ AuthBroker and SessionMint take the existing adapter via constructor; AuthCache and TokenStore dropped, RequestPolicy deferred until a consumer exists (human: ~3 days / CC: ~1 hr). ✅ Fewer files in the auth diff means a smaller blast radius and an easier revert. ❌ If RequestPolicy turns out to be load-bearing, it lands as a follow-up rather than in this design pass."
+              },
+              {
+                "label": "B) Proceed as-is, 5 types / 12 files",
+                "description": "✅ Every seam the author envisioned is present from day one; no follow-up structural PR. ✅ No re-planning cost right now (human: ~1 week / CC: ~2 hr). ❌ Two cache layers (adapter + AuthCache) over one backing store, plus two types with no stated job, in an auth path."
+              },
+              {
+                "label": "C) Drop AuthCache only, keep TokenStore + RequestPolicy",
+                "description": "✅ Removes the clearest duplicate while keeping the author's other seams intact. ✅ Moderate diff, roughly 9-10 files (human: ~4 days / CC: ~1.5 hr). ❌ TokenStore still overlaps the adapter's storage role, and RequestPolicy still has no consumer in the plan."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Scope: 12 files and 5 new types for the auth refactor. Reduce, or proceed as-is?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md lines 19-20 and 35-36.\nELI10: The plan adds AuthBroker, SessionMint, TokenStore, AuthCache and RequestPolicy. But PLAN.md:11-13 says AuthCache is just a facade over the existing adapter with one backing cache and the adapter stays unchanged, so AuthCache is a second name for something you already have. TokenStore overlaps the adapter's token storage job, and RequestPolicy has no stated consumer anywhere in the plan. Every extra type is another place a 3am on-call engineer has to look when auth breaks.\nStakes if we pick wrong: Over-scoped, you ship a 12-file auth change with two layers doing one job and a harder rollback. Under-scoped, a real seam (say, RequestPolicy) gets cut and gets bolted on later in a worse spot.\nRecommendation: A because the existing adapter already owns tenant keys, eviction and invalidation, so handing it to AuthBroker and SessionMint by constructor injection achieves the goal with two new types and roughly 7 files.\nNote: options differ in kind, not coverage — no completeness score.\nNet: two focused services on the proven adapter versus five types that split one cache across two layers.": "A) Reduce to 2 new types (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:22:14.017Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01MaBGFFWUhpt2tpUYCffX3Z",
+        "questions": [
+          {
+            "question": "D5 — Issue 1: AuthBroker and SessionMint both mutate one shared cache with no ordering guard. Who owns writes?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:19-20 (\"share a global mutable AuthCache ... Both services mutate it\") and PLAN.md:10 (\"they do not serialize mutations\").\nELI10: Two services writing the same tenant-keyed cache with nothing ordering them is a race. Realistic failure: SessionMint starts minting a session for tenant A, the tenant gets suspended and the existing hook invalidates A's entries, then SessionMint's in-flight write lands and puts a fresh token back. A suspended tenant keeps working until the token expires, silently. The existing adapter guarantees validity and tenant keys, but PLAN.md:10 says outright that it does not serialize mutations, so nothing today prevents this. Even with constructor injection (D4), two writers still race.\nStakes if we pick wrong: Revoked or suspended tenants can resurrect access with no error and no log line; that is a security incident, not a bug.\nRecommendation: A because a single writer plus a version check on write is explicit, testable, and costs one small guard where all writes route through, which matches your explicit-over-clever and root-cause preferences.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: one guarded write path versus two unguarded writers that only fail under the timing you never see in tests.",
+            "header": "Arch 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A) Single writer + versioned write (recommended)",
+                "description": "✅ AuthBroker is the only component that writes tokens; SessionMint reads and asks the broker to mint. Writes carry the invalidation generation they read, and a write with a stale generation is dropped and logged (human: ~1 day / CC: ~20 min). ✅ Testable deterministically: one interleaving test proves a suspended tenant cannot resurrect a token. ❌ Adds a generation counter to the adapter wrapper call path and one more concept to explain."
+              },
+              {
+                "label": "1B) Inject the adapter into both, both still write",
+                "description": "✅ Removes the module-level global, so tests can pass a fake adapter (human: ~2 hr / CC: ~5 min). ✅ Smallest diff on top of the D4 scope reduction. ❌ The invalidate-then-stale-write race stays; only the failure's discoverability improves."
+              },
+              {
+                "label": "1C) Keep the module-level export as planned",
+                "description": "✅ Zero additional work beyond what PLAN.md already describes. ✅ Matches the module-cache singleton idiom some TypeScript codebases already use. ❌ Hidden global coupling, untestable without module mocking, and the resurrection race ships unaddressed."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Issue 1: AuthBroker and SessionMint both mutate one shared cache with no ordering guard. Who owns writes?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:19-20 (\"share a global mutable AuthCache ... Both services mutate it\") and PLAN.md:10 (\"they do not serialize mutations\").\nELI10: Two services writing the same tenant-keyed cache with nothing ordering them is a race. Realistic failure: SessionMint starts minting a session for tenant A, the tenant gets suspended and the existing hook invalidates A's entries, then SessionMint's in-flight write lands and puts a fresh token back. A suspended tenant keeps working until the token expires, silently. The existing adapter guarantees validity and tenant keys, but PLAN.md:10 says outright that it does not serialize mutations, so nothing today prevents this. Even with constructor injection (D4), two writers still race.\nStakes if we pick wrong: Revoked or suspended tenants can resurrect access with no error and no log line; that is a security incident, not a bug.\nRecommendation: A because a single writer plus a version check on write is explicit, testable, and costs one small guard where all writes route through, which matches your explicit-over-clever and root-cause preferences.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: one guarded write path versus two unguarded writers that only fail under the timing you never see in tests.": "1A) Single writer + versioned write (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:22:50.133Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01FpJ6XEt4Yh3nyovGp5qWts",
+        "questions": [
+          {
+            "question": "D6 — Issue 2: legacyAuthFlow() is rewritten in place with no way to roll back. Gate the new path behind a flag?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:27-28 (\"legacyAuthFlow() will get rewritten as part of this work\").\nELI10: The plan replaces the existing login path outright. If the new AuthBroker path has a bug for one tenant's IDP quirk, the only fix is a revert of the whole 7-file change while users are locked out. A strangler-fig rollout keeps legacyAuthFlow() callable, routes traffic by a per-tenant flag, and lets you move tenants over in waves, then delete the old path in a follow-up commit once every tenant is on the new one.\nStakes if we pick wrong: Without a flag, the first production auth regression is a full revert under lockout pressure; with one, it is a flag flip for one tenant.\nRecommendation: A because auth is the one path where reversibility is worth a temporary second branch, and the deletion is a trivial follow-up once tenants are migrated.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: a short-lived flag and one extra branch versus a big-bang cutover on the login path.",
+            "header": "Arch 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A) Per-tenant flag, strangler rollout (recommended)",
+                "description": "✅ New path enabled per tenant; any regression is a flag flip, not a revert (human: ~1 day / CC: ~15 min). ✅ Old and new paths run side by side, so the characterization tests can assert parity on the same inputs. ❌ Two live code paths until the cleanup commit deletes legacyAuthFlow()."
+              },
+              {
+                "label": "2B) Global on/off flag only",
+                "description": "✅ Still a one-line rollback instead of a revert (human: ~2 hr / CC: ~5 min). ✅ Less flag plumbing than per-tenant routing. ❌ A problem for one tenant's IDP forces every tenant back to the old path."
+              },
+              {
+                "label": "2C) Rewrite in place, no flag",
+                "description": "✅ Smallest diff and no temporary dual path to maintain. ✅ Nothing to clean up afterwards. ❌ Rollback is a full revert under active lockout, on the auth path."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — Issue 2: legacyAuthFlow() is rewritten in place with no way to roll back. Gate the new path behind a flag?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:27-28 (\"legacyAuthFlow() will get rewritten as part of this work\").\nELI10: The plan replaces the existing login path outright. If the new AuthBroker path has a bug for one tenant's IDP quirk, the only fix is a revert of the whole 7-file change while users are locked out. A strangler-fig rollout keeps legacyAuthFlow() callable, routes traffic by a per-tenant flag, and lets you move tenants over in waves, then delete the old path in a follow-up commit once every tenant is on the new one.\nStakes if we pick wrong: Without a flag, the first production auth regression is a full revert under lockout pressure; with one, it is a flag flip for one tenant.\nRecommendation: A because auth is the one path where reversibility is worth a temporary second branch, and the deletion is a trivial follow-up once tenants are migrated.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: a short-lived flag and one extra branch versus a big-bang cutover on the login path.": "2A) Per-tenant flag, strangler rollout (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:23:08.211Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_0147cpYN9qq37APE6SWMwcUX",
+        "questions": [
+          {
+            "question": "D7 — Issue 3: PLAN.md never states the refactor's goal or its invariants. Require them before implementation?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:4-36 (every section describes a smell; none states what users or operators gain).\nELI10: The plan says what is wrong with the code but not what \"done\" means: which tenant-isolation guarantees must hold, which latency target token validation must hit, and what the multi-tenant change unlocks. Without that, every implementer picks their own definition, and the tests in Section 3 have nothing to assert against beyond \"it runs.\" The reviewed plan will carry a Context section with the goal I can infer and two invariants (no cross-tenant reads, no token resurrection after revocation), but the author must confirm or correct them.\nStakes if we pick wrong: Code that passes its own tests but solves a different problem than the one that prompted the refactor.\nRecommendation: A because writing three sentences now is far cheaper than discovering the goal mismatch in review of a 7-file auth diff, matching your thoughtfulness-over-speed preference.\nCompleteness: A=10/10, B=6/10\nNet: a short, explicit definition of done versus an inferred one that nobody signed off on.",
+            "header": "Arch 3",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3A) Author confirms goal + invariants first (recommended)",
+                "description": "✅ Implementation starts from a stated goal, a latency target, and two named security invariants that tests assert directly (human: ~30 min / CC: ~5 min to draft). ✅ The reviewed plan ships with the inferred draft filled in, so confirming is a read-and-edit, not a blank page. ❌ Implementation is blocked until someone with product context confirms the draft."
+              },
+              {
+                "label": "3B) Proceed on the inferred goal",
+                "description": "✅ No blocking step; the review's inferred Context section stands as written. ✅ Fine if the author is you and the inference matches your intent. ❌ If the inference is wrong, tests and architecture were tuned to the wrong target."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 — Issue 3: PLAN.md never states the refactor's goal or its invariants. Require them before implementation?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:4-36 (every section describes a smell; none states what users or operators gain).\nELI10: The plan says what is wrong with the code but not what \"done\" means: which tenant-isolation guarantees must hold, which latency target token validation must hit, and what the multi-tenant change unlocks. Without that, every implementer picks their own definition, and the tests in Section 3 have nothing to assert against beyond \"it runs.\" The reviewed plan will carry a Context section with the goal I can infer and two invariants (no cross-tenant reads, no token resurrection after revocation), but the author must confirm or correct them.\nStakes if we pick wrong: Code that passes its own tests but solves a different problem than the one that prompted the refactor.\nRecommendation: A because writing three sentences now is far cheaper than discovering the goal mismatch in review of a 7-file auth diff, matching your thoughtfulness-over-speed preference.\nCompleteness: A=10/10, B=6/10\nNet: a short, explicit definition of done versus an inferred one that nobody signed off on.": "3A) Author confirms goal + invariants first (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:23:26.274Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01AYqEFiSbnVFUrhPY3WGjA8",
+        "questions": [
+          {
+            "question": "D8 — Issue 4: validateAndDispatch() is 60 lines with three nested try/catch blocks that each swallow an error class. Flatten it?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:23-24 (\"three nested try/catch blocks; each catch swallows a different error class\").\nELI10: A swallowed error means the function keeps going as if nothing happened. In an auth path, that is how an IDP timeout, a malformed token, and a policy lookup miss all turn into the same silent \"validation passed\" or \"validation failed\" with no log, no metric and no way for on-call to tell them apart at 3am. The fix is a straight-line pipeline of small steps, each returning a typed result, with one boundary that maps each error class to an explicit outcome and a log line.\nStakes if we pick wrong: Production auth failures stay invisible; the first signal is a customer ticket rather than an alert.\nRecommendation: A because a typed pipeline with a single error boundary is explicit over clever, each step gets its own unit test, and the diff is the same size as fixing the swallows in place.\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: three observable, testable failure modes versus three invisible ones.",
+            "header": "Code 4",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A) Typed step pipeline + one error boundary (recommended)",
+                "description": "✅ Steps (parse, verify signature, check tenant policy, dispatch) each return a typed Result; one boundary maps every error class to a distinct outcome, log line and metric (human: ~1 day / CC: ~20 min). ✅ Each step is unit-testable in isolation; the error boundary gets one table-driven test per class. ❌ Introduces a small Result type or reuses one already in the repo; implementer must check the reuse ladder first."
+              },
+              {
+                "label": "4B) Keep the structure, stop swallowing",
+                "description": "✅ Minimal diff: each catch now rethrows a typed error or returns an explicit failure (human: ~2 hr / CC: ~5 min). ✅ Errors become visible and loggable without restructuring. ❌ Three nested blocks stay, so the 60-line function remains hard to test branch by branch."
+              },
+              {
+                "label": "4C) Leave as-is",
+                "description": "✅ No change, no risk of altering current behavior. ✅ Zero effort. ❌ Silent failures on the auth path ship into the refactor untouched."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D8 — Issue 4: validateAndDispatch() is 60 lines with three nested try/catch blocks that each swallow an error class. Flatten it?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:23-24 (\"three nested try/catch blocks; each catch swallows a different error class\").\nELI10: A swallowed error means the function keeps going as if nothing happened. In an auth path, that is how an IDP timeout, a malformed token, and a policy lookup miss all turn into the same silent \"validation passed\" or \"validation failed\" with no log, no metric and no way for on-call to tell them apart at 3am. The fix is a straight-line pipeline of small steps, each returning a typed result, with one boundary that maps each error class to an explicit outcome and a log line.\nStakes if we pick wrong: Production auth failures stay invisible; the first signal is a customer ticket rather than an alert.\nRecommendation: A because a typed pipeline with a single error boundary is explicit over clever, each step gets its own unit test, and the diff is the same size as fixing the swallows in place.\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: three observable, testable failure modes versus three invisible ones.": "4A) Typed step pipeline + one error boundary (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:23:48.343Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01J1JWDEDDrabRKK9YwUNauA",
+        "questions": [
+          {
+            "question": "D9 — Issue 5: PLAN.md:14-15 promises success/error coverage for new components only. How far does test coverage go?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:14-16 (\"coverage is planned for the new components and their success/error paths\").\nELI10: The legacyAuthFlow() characterization tests are already mandatory under the regression rule and are not part of this question. What is open is the rest of the map above: the invalidation-during-mint race, the tenant-isolation check (tenant A's token never visible through tenant B's key), IDP partial failure and timeout, the error-boundary table, and the two end-to-end flows (login through a validated request, and tenant suspended mid-session). These are the tests that prove the two security invariants from D7, and unit tests alone cannot show the suspended-tenant flow works across broker, cache and hooks.\nStakes if we pick wrong: The two invariants that justify the refactor ship unproven; the race in D5 is exactly the kind of bug that only a deliberate interleaving test ever catches.\nRecommendation: A because with CC the full set costs minutes, not days, and you have said you would rather have too many tests than too few.\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: every branch and both invariants asserted versus happy-path confidence on an auth path.",
+            "header": "Tests 5",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "5A) Full map: units + race + isolation + 2 E2E (recommended)",
+                "description": "✅ All 18 non-regression gaps covered, including a deterministic interleaving test for the stale-write race and a cross-tenant isolation test (human: ~3 days / CC: ~45 min). ✅ Two E2E flows prove the invariants end to end where mocking would hide hook wiring mistakes. ❌ The interleaving test needs controllable async ordering in the fake adapter; slightly more test scaffolding."
+              },
+              {
+                "label": "5B) Units + race + isolation, no E2E",
+                "description": "✅ Every unit branch and both invariant tests land at the unit level (human: ~2 days / CC: ~30 min). ✅ No E2E harness or IDP stub to stand up. ❌ Hook wiring between adapter, broker and suspension path is only proven by mocks, which is where real failures hide."
+              },
+              {
+                "label": "5C) Success/error paths as the plan states",
+                "description": "✅ Matches PLAN.md as written, no added test scope. ✅ Fastest to land (human: ~1 day / CC: ~15 min). ❌ The race, tenant isolation, IDP timeout and both E2E flows stay untested; the invariants are asserted nowhere."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D9 — Issue 5: PLAN.md:14-15 promises success/error coverage for new components only. How far does test coverage go?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:14-16 (\"coverage is planned for the new components and their success/error paths\").\nELI10: The legacyAuthFlow() characterization tests are already mandatory under the regression rule and are not part of this question. What is open is the rest of the map above: the invalidation-during-mint race, the tenant-isolation check (tenant A's token never visible through tenant B's key), IDP partial failure and timeout, the error-boundary table, and the two end-to-end flows (login through a validated request, and tenant suspended mid-session). These are the tests that prove the two security invariants from D7, and unit tests alone cannot show the suspended-tenant flow works across broker, cache and hooks.\nStakes if we pick wrong: The two invariants that justify the refactor ship unproven; the race in D5 is exactly the kind of bug that only a deliberate interleaving test ever catches.\nRecommendation: A because with CC the full set costs minutes, not days, and you have said you would rather have too many tests than too few.\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: every branch and both invariants asserted versus happy-path confidence on an auth path.": "5A) Full map: units + race + isolation + 2 E2E (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:24:24.490Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_016wNkSKGArZFFzxvxVN3B7i",
+        "questions": [
+          {
+            "question": "D10 — Issue 6: 5 sequential IDP calls per validation. Promise.all as planned, or bounded parallelism plus caching?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:31-32 (\"5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially\").\nELI10: Parallelizing is right, but \"trivially\" hides two problems. Promise.all is fail-fast: when one call rejects, the other four keep running against the IDP with nobody listening, so a flaky IDP now costs 5 wasted calls per failed validation instead of 1. And per-tenant IDPs usually rate-limit; going from 1 to 5 concurrent calls per request multiplies your burst. Separately, at least two of the five calls (discovery document, JWKS signing keys) are static-ish and standard practice is to cache them with a TTL and refresh on unknown key id, which removes those calls entirely rather than speeding them up.\nStakes if we pick wrong: Under IDP degradation the naive version amplifies load on the thing that is already failing, and validation latency stays bound by the slowest of five network calls.\nRecommendation: A because AbortController plus a shared signal makes fail-fast actually cancel, per-call timeouts bound the tail, and caching discovery and JWKS is Layer 1 practice that turns 5 calls into 3 or fewer on the hot path.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: fewer, bounded, cancellable IDP calls versus five unbounded calls that pile onto a degraded IDP.",
+            "header": "Perf 6",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "6A) Cancel-on-fail + timeouts + cache discovery/JWKS (recommended)",
+                "description": "✅ Promise.all over calls sharing one AbortSignal, per-call AbortSignal.timeout, and a TTL cache for discovery and JWKS with refresh on unknown kid (human: ~1.5 days / CC: ~25 min). ✅ Hot path drops to 3 or fewer network calls; failures are typed and bounded; IDP burst per request is capped. ❌ JWKS caching needs the unknown-kid refresh path and its test, or a key rotation locks tenants out."
+              },
+              {
+                "label": "6B) Promise.all + per-call timeouts only",
+                "description": "✅ Latency drops from sum-of-5 to max-of-5 with bounded tails (human: ~3 hr / CC: ~8 min). ✅ No new cache surface to reason about. ❌ First rejection still leaves four calls running; still 5 calls per validation and 5x burst against rate-limited IDPs."
+              },
+              {
+                "label": "6C) Bare Promise.all as PLAN.md states",
+                "description": "✅ One-line change, exactly what the plan proposes. ✅ Immediate latency win on the happy path. ❌ No timeouts, no cancellation, no caching: a hung IDP call hangs validation, and failures amplify IDP load."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D10 — Issue 6: 5 sequential IDP calls per validation. Promise.all as planned, or bounded parallelism plus caching?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:31-32 (\"5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially\").\nELI10: Parallelizing is right, but \"trivially\" hides two problems. Promise.all is fail-fast: when one call rejects, the other four keep running against the IDP with nobody listening, so a flaky IDP now costs 5 wasted calls per failed validation instead of 1. And per-tenant IDPs usually rate-limit; going from 1 to 5 concurrent calls per request multiplies your burst. Separately, at least two of the five calls (discovery document, JWKS signing keys) are static-ish and standard practice is to cache them with a TTL and refresh on unknown key id, which removes those calls entirely rather than speeding them up.\nStakes if we pick wrong: Under IDP degradation the naive version amplifies load on the thing that is already failing, and validation latency stays bound by the slowest of five network calls.\nRecommendation: A because AbortController plus a shared signal makes fail-fast actually cancel, per-call timeouts bound the tail, and caching discovery and JWKS is Layer 1 practice that turns 5 calls into 3 or fewer on the hot path.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: fewer, bounded, cancellable IDP calls versus five unbounded calls that pile onto a degraded IDP.": "6A) Cancel-on-fail + timeouts + cache discovery/JWKS (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:24:46.590Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01EaGbiNdd6gqQMbuwLcUT2o",
+        "questions": [
+          {
+            "question": "D11 — TODO 1: RequestPolicy (deferred in D4).\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:35-36.\nWhat: Introduce a RequestPolicy type once a concrete consumer needs per-request policy decisions beyond what the adapter's policy-version key already provides.\nWhy: The scope reduction dropped it because no plan section names who calls it; capturing it keeps the author's intent from being lost.\nPros: Preserves the design idea with the reasoning; a future implementer starts from the seam the author saw. Cons: Risk of building a type nobody calls if the need never materialises.\nContext: PLAN.md listed RequestPolicy among 4 new classes with no description. The adapter already keys on policy version. Start by grepping call sites that branch on tenant policy after the refactor lands; if there are 2+, that is the consumer.\nDepends on: Refactor merged (D4 scope).\nRecommendation: A because the idea had an author behind it and a TODO with context costs nothing.\nNote: options differ in kind, not coverage — no completeness score.\nNet: keep the idea with its reasoning versus let it vanish with the scope cut.",
+            "header": "TODO 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Add to TODOS.md (recommended)",
+                "description": "✅ The seam and its trigger condition are recorded for whoever hits the need (P3, Effort M). ✅ Nothing is built speculatively now. ❌ One more backlog item that may never be picked up."
+              },
+              {
+                "label": "B) Skip, not valuable enough",
+                "description": "✅ Backlog stays clean; the idea can be re-derived if the need appears. ✅ Zero bookkeeping. ❌ The author's reasoning for wanting it is lost with the scope cut."
+              },
+              {
+                "label": "C) Build it now in this PR",
+                "description": "✅ Every seam the author envisioned ships together. ✅ No follow-up structural change. ❌ Reverses D4 and adds a type with no stated consumer to an auth diff."
+              }
+            ]
+          },
+          {
+            "question": "D12 — TODO 2: Delete legacyAuthFlow() and the per-tenant flag after migration (from D6).\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:27-28.\nWhat: Once every tenant runs on the AuthBroker path, remove legacyAuthFlow(), the routing flag, and the parity tests that compare the two paths.\nWhy: A strangler flag left in place forever becomes two auth code paths to maintain and an accidental rollback nobody remembers exists.\nPros: The refactor actually finishes; dead auth code is removed. Cons: Requires confirming 100% tenant migration first, which needs a metric or flag audit.\nContext: D6 chose per-tenant flag routing. Start by adding a counter of requests served by the legacy path; when it reads zero for a full cycle, delete. The characterization tests move from parity assertions to asserting the new path alone.\nDepends on: All tenants flagged onto the new path.\nRecommendation: A because a strangler without a scheduled demolition is just two code paths.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a planned cleanup versus a permanent dual path.",
+            "header": "TODO 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Add to TODOS.md (recommended)",
+                "description": "✅ The cleanup has an owner condition and a start point (P2, Effort S). ✅ Prevents the flag from becoming permanent architecture. ❌ Requires the legacy-path counter to be part of the flag work now."
+              },
+              {
+                "label": "B) Skip, not valuable enough",
+                "description": "✅ No backlog entry to track. ✅ Nothing changes in this PR. ❌ The dual path has no scheduled end and will outlive everyone's memory of why it exists."
+              },
+              {
+                "label": "C) Build it now in this PR",
+                "description": "✅ No dual path ever exists. ✅ Smallest final codebase immediately. ❌ Contradicts D6; deleting the legacy path now removes the rollback the flag exists to provide."
+              }
+            ]
+          },
+          {
+            "question": "D13 — TODO 3: Audit the rest of the auth module for the swallow-and-continue try/catch pattern (from D8).\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:23-24.\nWhat: Grep the auth module for catch blocks that neither rethrow nor return an explicit failure, and route them through the error boundary introduced in D8.\nWhy: validateAndDispatch() is unlikely to be the only place the pattern appears; the same silent-failure class probably exists in siblings.\nPros: One error boundary becomes the module convention; on-call sees every auth failure. Cons: Touches files outside this refactor's diff; each site needs its own test.\nContext: D8 introduces a typed Result pipeline and a single boundary. Start with a grep for `catch` blocks in the auth directory whose body has no throw, no return of an error, and no log call.\nDepends on: D8 pipeline merged so there is a boundary to route to.\nRecommendation: A because it is separate scope (other files) but the same root cause, and root-cause fixes belong where all callers route through.\nNote: options differ in kind, not coverage — no completeness score.\nNet: module-wide visibility of auth failures versus fixing one function and hoping.",
+            "header": "TODO 3",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Add to TODOS.md (recommended)",
+                "description": "✅ The sibling sites get fixed with the same boundary once it exists (P2, Effort M). ✅ Keeps this PR's diff scoped to the plan while not losing the finding. ❌ Silent failures elsewhere persist until the follow-up lands."
+              },
+              {
+                "label": "B) Skip, not valuable enough",
+                "description": "✅ No extra backlog. ✅ Assumes validateAndDispatch() was the outlier. ❌ If it was not, the same 3am invisibility remains in neighbouring code."
+              },
+              {
+                "label": "C) Build it now in this PR",
+                "description": "✅ Whole module converges on one error convention in a single change. ✅ No follow-up needed. ❌ Widens an auth diff past the agreed 7 files and mixes unrelated behavior changes into the refactor."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D11 — TODO 1: RequestPolicy (deferred in D4).\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:35-36.\nWhat: Introduce a RequestPolicy type once a concrete consumer needs per-request policy decisions beyond what the adapter's policy-version key already provides.\nWhy: The scope reduction dropped it because no plan section names who calls it; capturing it keeps the author's intent from being lost.\nPros: Preserves the design idea with the reasoning; a future implementer starts from the seam the author saw. Cons: Risk of building a type nobody calls if the need never materialises.\nContext: PLAN.md listed RequestPolicy among 4 new classes with no description. The adapter already keys on policy version. Start by grepping call sites that branch on tenant policy after the refactor lands; if there are 2+, that is the consumer.\nDepends on: Refactor merged (D4 scope).\nRecommendation: A because the idea had an author behind it and a TODO with context costs nothing.\nNote: options differ in kind, not coverage — no completeness score.\nNet: keep the idea with its reasoning versus let it vanish with the scope cut.": "A) Add to TODOS.md (recommended)",
+          "D12 — TODO 2: Delete legacyAuthFlow() and the per-tenant flag after migration (from D6).\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:27-28.\nWhat: Once every tenant runs on the AuthBroker path, remove legacyAuthFlow(), the routing flag, and the parity tests that compare the two paths.\nWhy: A strangler flag left in place forever becomes two auth code paths to maintain and an accidental rollback nobody remembers exists.\nPros: The refactor actually finishes; dead auth code is removed. Cons: Requires confirming 100% tenant migration first, which needs a metric or flag audit.\nContext: D6 chose per-tenant flag routing. Start by adding a counter of requests served by the legacy path; when it reads zero for a full cycle, delete. The characterization tests move from parity assertions to asserting the new path alone.\nDepends on: All tenants flagged onto the new path.\nRecommendation: A because a strangler without a scheduled demolition is just two code paths.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a planned cleanup versus a permanent dual path.": "A) Add to TODOS.md (recommended)",
+          "D13 — TODO 3: Audit the rest of the auth module for the swallow-and-continue try/catch pattern (from D8).\nProject/branch/task: gstack-plan-count-b3qdhZ on main, PLAN.md:23-24.\nWhat: Grep the auth module for catch blocks that neither rethrow nor return an explicit failure, and route them through the error boundary introduced in D8.\nWhy: validateAndDispatch() is unlikely to be the only place the pattern appears; the same silent-failure class probably exists in siblings.\nPros: One error boundary becomes the module convention; on-call sees every auth failure. Cons: Touches files outside this refactor's diff; each site needs its own test.\nContext: D8 introduces a typed Result pipeline and a single boundary. Start with a grep for `catch` blocks in the auth directory whose body has no throw, no return of an error, and no log call.\nDepends on: D8 pipeline merged so there is a boundary to route to.\nRecommendation: A because it is separate scope (other files) but the same root cause, and root-cause fixes belong where all callers route through.\nNote: options differ in kind, not coverage — no completeness score.\nNet: module-wide visibility of auth failures versus fixing one function and hoping.": "A) Add to TODOS.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:25:54.870Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_01Je2eR9CH4vWsDYmEdCnsAP",
+        "questions": [
+          {
+            "question": "D14 — Next step after this eng review?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, reviewed plan written to gstack-test-plan-eng.md.\nELI10: The eng review is the only gate that blocks shipping and it is clear. No UI is touched, so a design review does not apply. A CEO review is optional and normally for product-direction changes; this is a backend auth refactor, so it is a soft mention only.\nStakes if we pick wrong: Low either way; the CEO review would cost time on a change with no product-facing scope decision left open.\nRecommendation: A because all required reviews are complete and the plan's remaining blocker is the author confirming the Context section, not another review.\nNote: options differ in kind, not coverage — no completeness score.\nNet: start implementing versus an optional strategy pass on a backend refactor.",
+            "header": "Next",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Ready to implement (recommended)",
+                "description": "✅ All relevant reviews complete; run /ship when the work is done. ✅ The first task is the author confirming Context, then T1 characterization tests. ❌ No second strategic opinion on whether the refactor is the right thing to build now."
+              },
+              {
+                "label": "B) Run /plan-ceo-review",
+                "description": "✅ Adds a scope-and-strategy pass before any code is written. ✅ Useful if the refactor's business motivation is contested. ❌ Backend-only refactor with no product-direction choice; likely low yield for the time."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D14 — Next step after this eng review?\nProject/branch/task: gstack-plan-count-b3qdhZ on main, reviewed plan written to gstack-test-plan-eng.md.\nELI10: The eng review is the only gate that blocks shipping and it is clear. No UI is touched, so a design review does not apply. A CEO review is optional and normally for product-direction changes; this is a backend auth refactor, so it is a soft mention only.\nStakes if we pick wrong: Low either way; the CEO review would cost time on a change with no product-facing scope decision left open.\nRecommendation: A because all required reviews are complete and the plan's remaining blocker is the author confirming the Context section, not another review.\nNote: options differ in kind, not coverage — no completeness score.\nNet: start implementing versus an optional strategy pass on a backend refactor.": "A) Ready to implement (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T03:29:41.500Z"
+      }
+    ],
+    "assistantMessages": [
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Running the plan-eng-review preamble, then reviewing PLAN.md as the review target.",
+        "timestamp": "2026-09-10T03:18:33.274Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "The preamble fired a one-time onboarding directive about CLAUDE.md skill routing. Asking that first, as instructed.",
+        "timestamp": "2026-09-10T03:18:52.415Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "I've noted the routing rules addition, but the CLAUDE.md update and commit will wait until plan mode ends. Now I'm checking the design doc, recovering context, and reading PLAN.md along with the review-sections file.\n\n",
+        "timestamp": "2026-09-10T03:19:13.106Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Preflight results: no design doc, Codex outside voice is disabled in config, no learnings on file, and cross-project learnings is unset. Two setup questions before Step 0.",
+        "timestamp": "2026-09-10T03:20:33.830Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "I've completed step 0: the plan wraps an existing tenant-keyed cache in a redundant facade, rewrites `legacyAuthFlow()` instead of reusing it, and never states the refactor's user-facing goal. It also trips complexity thresholds (12 files, 5 new types), and my research shows the global singleton export adds nothing over constructor injection, `Promise.all` risks leaving IDP calls in flight on failure, and JWKS/discovery caching could eliminate those calls entirely — I'll carry these as findings.",
+        "timestamp": "2026-09-10T03:22:02.107Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Scope reduced per D4. Two new types, existing adapter injected. Committing to that; no more scope re-argument. Now Section 1, Architecture. Three issues, one question each.",
+        "timestamp": "2026-09-10T03:22:34.819Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Architecture section wrapped up with all three issues resolved. Moving to Code Quality—found one potential issue there, but the duplicate cache-write logic concern is already addressed by the D5 single-writer decision, so I'll skip re-raising it.",
+        "timestamp": "2026-09-10T03:23:35.656Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Code Quality done, one issue, complete option chosen. Section 3, Tests.\n\nThe regression rule applies with no question: `legacyAuthFlow()` is existing behavior being rewritten with zero regression coverage (PLAN.md:27-28, and PLAN.md:15-16 explicitly excludes it). Characterization tests for `legacyAuthFlow()` go into the plan as a CRITICAL requirement, written before the rewrite starts, and run against both paths under the D6 flag.\n\nCoverage map for the planned code (no test framework or source is present in this fixture repo, so every path is a GAP today):\n\n```\nCODE PATHS                                                USER FLOWS\n[~] legacyAuthFlow() (rewritten)                          [+] Tenant login via new path\n  └── [GAP] [CRITICAL] characterization: valid / expired    ├── [GAP] [→E2E] login → mint → validated request\n      / revoked / wrong-tenant / IDP down                   ├── [GAP] [→E2E] tenant suspended mid-session\n[+] AuthBroker (single writer, versioned write)             └── [GAP]        flag off → legacy path, parity\n  ├── [GAP] write with current generation → stored         [+] Error states\n  ├── [GAP] write with stale generation → dropped + logged   ├── [GAP] IDP timeout → explicit error, retryable\n  └── [GAP] tenant A key never readable via tenant B         ├── [GAP] malformed token → explicit reject\n[+] SessionMint (reads, requests mint)                       └── [GAP] policy miss → explicit reject, not pass\n  ├── [GAP] cache hit → no IDP call\n  ├── [GAP] cache miss → broker mint → stored\n  └── [GAP] invalidation during mint → no resurrection\n[+] validateAndDispatch() pipeline\n  ├── [GAP] each step happy path\n  ├── [GAP] each error class → distinct outcome + log\n  └── [GAP] boundary table test: unknown error → fail closed\n[+] IDP validation (parallel calls)\n  ├── [GAP] all 5 succeed\n  ├── [GAP] one rejects → others cancelled, typed error\n  └── [GAP] one hangs → per-call timeout fires\n\nCOVERAGE: 0/19 paths tested (0%)  |  GAPS: 19 (1 CRITICAL regression, 2 E2E)\n```",
+        "timestamp": "2026-09-10T03:24:07.566Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "All four sections are done, and since codex_reviews is disabled, I'm skipping the Codex review (re-enable with `gstack-config set codex_reviews enabled`). I'll note that and check the TODO format before moving to the TODO questions.\n\n",
+        "timestamp": "2026-09-10T03:25:05.174Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Moving to the TODO candidates now, one question each. Since TODOS.md doesn't exist and plan mode blocks file creation, I'll record these items in the plan's TODO section and write them to TODOS.md once plan mode exits.",
+        "timestamp": "2026-09-10T03:25:13.361Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "All decisions are in: D4's scope was reduced, D5-D10 went with the complete remedy, and three TODOs were accepted. Now I'll generate the tasks JSONL, review log, decision log, test-plan artifact, and the reviewed plan with its report.",
+        "timestamp": "2026-09-10T03:26:25.388Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "Exit gate checks all pass — Eng Review is clear, both log entries match HEAD with no staleness, and the review readiness dashboard confirms CLEARED status.\n\n",
+        "timestamp": "2026-09-10T03:29:34.661Z"
+      },
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "text": "All relevant reviews complete. Run /ship when ready. Logging telemetry and the background brain refresh, then exiting plan mode.",
+        "timestamp": "2026-09-10T03:29:46.388Z"
+      }
+    ],
+    "planReadyRequests": [
+      {
+        "sessionId": "e5829792-573f-4de0-8cbc-97379840c953",
+        "toolUseId": "toolu_019TVvkeXoLv89EKxXSXZHjD",
+        "timestamp": "2026-09-10T03:29:49.951Z",
+        "failed": false
+      }
+    ]
+  },
+  "screen": "\n GSTACK REVIEW REPORT\n\n ┌───────────┬──────────────────────────┬────────────────────┬──────┬───────────┬─────────────────────────────────┐\n │  Review   │         Trigger          │        Why         │ Runs │  Status   │            Findings             │\n ├───────────┼──────────────────────────┼────────────────────┼──────┼───────────┼─────────────────────────────────┤\n │ CEO       │ /plan-ceo-review         │ Scope & strategy   │ 0    │ —         │ —                               │\n │ Review    │                          │                    │      │           │                                 │\n ├───────────┼──────────────────────────┼────────────────────┼──────┼───────────┼─────────────────────────────────┤\n │ Outside   │ codex via                │ Independent 2nd    │      │           │ 0 (skipped, host=claude,        │\n │ Review    │ /plan-eng-review         │ opinion            │ 1    │ disabled  │ provider=codex,                 │\n │           │ (disabled)               │                    │      │           │ phase=plan-review)              │\n ├───────────┼──────────────────────────┼────────────────────┼──────┼───────────┼─────────────────────────────────┤\n │ Eng       │ /plan-eng-review         │ Architecture &     │ 1    │ clean     │ 24 issues, 0 critical gaps,     │\n │ Review    │                          │ tests (required)   │      │ (PLAN)    │ mode SCOPE_REDUCED              │\n ├───────────┼──────────────────────────┼────────────────────┼──────┼───────────┼─────────────────────────────────┤\n │ Design    │ /plan-design-review      │ UI/UX gaps         │ 0    │ —         │ —                               │\n │ Review    │                          │                    │      │           │                                 │\n ├───────────┼──────────────────────────┼────────────────────┼──────┼───────────┼─────────────────────────────────┤\n │ DX Review │ /plan-devex-review       │ Developer          │ 0    │ —         │ —                               │\n │           │                          │ experience gaps    │      │           │                                 │\n └───────────┴──────────────────────────┴────────────────────┴──────┴───────────┴─────────────────────────────────┘\n\n OUTSIDE COVERAGE: provider codex, phase plan-review, outside_status disabled (user opt-out via\n codex_reviews=disabled); no native fallback dispatched; 0 findings. Outside coverage is absent, not clean.\n\n VERDICT: ENG CLEARED — ready to implement once Prerequisite P0 (author confirms Context) is done. Outside review\n disabled by config.\n\n NO UNRESOLVED DECISIONS\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Claude has written up a plan and is ready to execute. Would you like to proceed?\n\n ❯ 1. Yes, and use auto mode\n   2. Yes, manually approve edits\n   3. Tell Claude what to change\n      shift+tab to approve with this feedback\n",
+  "startedAt": 1789010299798.0,
+  "captureAt": "2026-09-10T03:36:31.588Z"
+}

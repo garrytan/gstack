@@ -2211,6 +2211,43 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
   return currentProblem && amendment;
 }
 
+/** A descriptive menu header can accompany a fully numbered issue brief. */
+function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][number], number: string): boolean {
+  const title = q.question.split('\n')[0]!;
+  if (!/^D[1-9]\d*\s+\(Issue [1-9]\d*\)\s*[—–-]\s*(?:What|How|Which|Should)\b[^\n?]+\?$/i.test(title) ||
+      /\b(?:hypothetical|example|template)\b/i.test(title)) return false;
+  const prose = q.question
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+    .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  const explanations = [...prose.matchAll(/^ELI10:\s*(.+)$/gm)];
+  const recommendations = [...prose.matchAll(/^Recommendation:\s*([1-9]\d*)([A-Z])\b/gim)];
+  if (explanations.length !== 1 || recommendations.length !== 1 ||
+      recommendations[0]![1] !== number || !/\w/.test(explanations[0]![1]!) ||
+      /^(?:if|unless|whether|example|template|hypothetical|historical|quoted)\b/i.test(explanations[0]![1]!.trim())) return false;
+  // Current prose may explicitly withdraw an earlier issue. Literal examples
+  // and attributed quotations cannot supply either the brief or its withdrawal.
+  if (/\b(?:no (?:(?:current|unresolved) )?(?:defect|gap|issue|problem)|(?:this|that|the) (?:issue|finding|gap|problem|defect)\s+(?:is|was|has been)\s+(?:(?:already|now)\s+)?(?:resolved|fixed|closed)|(?:this|that|the) (?:question|finding|issue)\s+is\s+(?:only\s+)?(?:an?\s+)?(?:example|hypothetical)|(?:I|we)\s+(?:withdraw|retract)\s+(?:this|that|the)\s+(?:finding|issue|question))\b/i.test(prose)) return false;
+  // The number is identity, not evidence of a defect. Require a current
+  // missing contract in the assessment and a concrete offered amendment.
+  const assessment = [prose.split('\n')[0], /^Project\/branch\/task:\s*(.+)$/m.exec(prose)?.[1] ?? '', explanations[0]![1]!].join(' ');
+  const missingContract = /\b(?:no|without)\s+(?:error handling|tests?|checks?|validation|coordination)\b|\b(?:the|this) plan(?: itself)?\s+(?:(?:says|states|defines|specifies)\s+nothing\b|(?:does not|doesn't)\s+(?:define|specify|cover|mention|handle)\b)/i.test(assessment);
+  const amendment = q.options.some(option => [option.label.replace(/^[1-9]\d*[A-Z][):.]\s*/i, ''), option.description ?? ''].some(text =>
+    text.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""')
+      .replace(/^Completeness\s+\d+\/10\.\s*/i, '').split(/[.;]\s+/).some(clause =>
+        /^(?:add|remove|replace|send|rescue|handle|validate|check|assert|pin|require|define|specify|guard|serialize|parameterize|use|implement|write)\b/i.test(clause.trim()) &&
+        !/^[a-z]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim()))));
+  if (!missingContract || !amendment) return false;
+  const headerNumber = /^(?:(?:Finding|Issue)\s+F?|F)([1-9]\d*)(?:\s+[a-z][a-z -]*)?$/i.exec(q.header.trim());
+  if (/^(?:finding|issue)\b|^f\d/i.test(q.header.trim()) && !headerNumber) return false;
+  if (headerNumber && headerNumber[1] !== number) return false;
+  const labels = q.options.map(option => /^([1-9]\d*)([A-Z])[):.]\s*\S/i.exec(option.label));
+  return q.options.length >= 2 && q.options.every((option, i) =>
+    Boolean(option.description?.trim()) && labels[i]?.[1] === number) &&
+    new Set(labels.map(label => label![2]!.toUpperCase())).size === labels.length &&
+    labels.some(label => label![2]!.toUpperCase() === recommendations[0]![2]!.toUpperCase());
+}
+
 function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionId = false): boolean {
   const call = fp.nativeCall;
   // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
@@ -2254,6 +2291,7 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   const identity = /^(Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*([^\n]+)$/i.exec(normalized);
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
   const parenthesized = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+  if (parenthesized && allowQuestionId) return ceoParenthesizedIssueBrief(q, parenthesized[1]!);
   if (identity && !/^[^\n?]+\?$/.test(identity[3]!) && !ceoNumberedBriefDecision(q, identity[3]!)) return false;
   if (numberedSubject && (numberedSubject[2]!.trim().toLowerCase() !== q.header.trim().toLowerCase() ||
       !ceoNumberedBriefDecision(q, numberedSubject[3]!))) return false;
@@ -2281,6 +2319,7 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
     const title = q.question.split('\n')[0];
+    if (/^D[1-9]\d*\s+\(Issue\s+[1-9]\d*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (!/^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title)) return false;
     if (/^(?:D\s*\d+\s*[—–-]\s*)?(?:Finding|Issue)\s+F?\d/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (/\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title)) return true;
@@ -2681,10 +2720,12 @@ export async function launchClaudePty(
       const runtime = withHermeticSkillRuntime(childEnv);
       childEnv = runtime.env;
       hermeticSkillStateRoot = runtime.stateRoot;
-      // Installed sections and generated ~/.gstack snapshots are owned inputs
-      // outside the fixture cwd. Grant only these two runtime directories;
-      // explicit GSTACK_HOME paths and operator permission settings stay separate.
-      args.push('--add-dir', runtime.root, '--add-dir', runtime.stateRoot);
+      // Runtime paths, registered skill assets, and ~/.gstack snapshots are
+      // owned inputs outside the fixture cwd. The registry has separate real
+      // directories, so its paths also need a grant beside the runtime symlink.
+      // Explicit HOME/config/state and operator permission settings stay separate.
+      args.push('--add-dir', runtime.root, '--add-dir', runtime.stateRoot,
+        '--add-dir', path.join(childEnv.CLAUDE_CONFIG_DIR, 'skills'));
     }
   }
 

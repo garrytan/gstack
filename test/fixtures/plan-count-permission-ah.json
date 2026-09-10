@@ -1,0 +1,42 @@
+{
+  "runLabel": "ship-source-ah-delta-paid-20260910-v1",
+  "sourceHead": "c9e7a422be47b69d855f48cfce9024457e0dd4fc",
+  "pid": 321153,
+  "startUnix": 1789009886.02,
+  "cwd": "/tmp/gstack-paid-shard-H8EbsZ/tmp/gstack-plan-count-7c0HlE",
+  "config": "/tmp/gstack-paid-shard-H8EbsZ/tmp/gstack-hermetic-321113-CTsKll/with-skills/.claude",
+  "screen": "    + text + sibling Retry (aria-label \"Retry save\")                  |                                                 \n    + |                                                                                                                 \n 79 +Export             | Spinner + \"Exporting\u2026\" inside disabled    | n/a (exports last saved preferences)       | Same \n    +error/retry area, fields untouched, Retry (aria-label \"Retry     | JSON download; clears only the Export error     \n    + | n/a                                                                                                             \n 80 +                   | button, aria-busy=true, reduced motion    |                                            | expor\n    +t\")                                                              |                                                 \n    + |                                                                                                                 \n 81 +Reset              | Disabled while Save/Export pending        | Not dirty: no-op (nothing to restore)      | n/a  \n    +                                                                 | Dialog \"Discard unsaved changes?\" \u2192 confirm     \n    + | n/a                                                                                                             \n 82 +                   |                                           |                                            |      \n    +                                                                 | restores saved values and last status text      \n    + |                                                                                                                 \n 83 +Cancel             | Disabled while Save/Export pending        | Not dirty: returns immediately             | n/a  \n    +                                                                 | Dialog \u2192 \"Discard and leave\" \u2192 previous page,   \n    + | n/a                                                                                                             \n 84 +                   |                                           |                                            |      \n    +                                                                 | focus destination main heading                  \n    + |                                                                                                                 \n 85 +InlineStatus       | unchanged during pending                  | Blank before first successful save         | \"Unsa\n    +ved changes\" retained beside error                               | \"Saved at HH:mm\"                                \n    + | n/a                                                                                                             \n 86 +Dirty tracking     | n/a                                       | Unchanged values: blank / last saved text  | n/a  \n    +                                                                 | Edit \u2192 \"Unsaved changes\"; revert \u2192 prior text   \n    + | n/a                                                                                                             \n 87 +```                                                                                                                \n 88 +                                                                                                                   \n 89  ## Review findings (pending until each is individually approved)\n 90  \n 91  Each finding below is a documented violation of DESIGN.md in the current\n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n Do you want to make this edit to gstack-test-plan-design.md?\n \u276f 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-H8EbsZ/tmp/gstack-e2e-plan-design-fUi1gF for this session\n   3. Nohift+tab)\n\n Esc to cancel \u00b7 Tab to amend\n",
+  "state": {
+    "cwd": "/tmp/gstack-paid-shard-H8EbsZ/tmp/gstack-plan-count-7c0HlE",
+    "expected": "/tmp/gstack-paid-shard-H8EbsZ/tmp/gstack-e2e-plan-design-fUi1gF/gstack-test-plan-design.md",
+    "sessionId": "72749819-b356-4fdd-af06-b075dadec9ff",
+    "transcriptPath": "/tmp/gstack-paid-shard-H8EbsZ/tmp/gstack-hermetic-321113-CTsKll/with-skills/.claude/projects/-tmp-gstack-paid-shard-H8EbsZ-tmp-gstack-plan-count-7c0HlE/72749819-b356-4fdd-af06-b075dadec9ff.jsonl",
+    "seenIds": [
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01P5SHThBn2wpcArmnBDJFtf",
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01VWPw6KhWQz5LD1buvv87Us",
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01JhN4DTKCBkwaNhgWRo9wG7",
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01Y75biat54XcRZpusrUtWuL"
+    ],
+    "pendingId": "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01Y75biat54XcRZpusrUtWuL",
+    "completedId": "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01JhN4DTKCBkwaNhgWRo9wG7",
+    "completedIds": [
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01P5SHThBn2wpcArmnBDJFtf",
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01VWPw6KhWQz5LD1buvv87Us",
+      "72749819-b356-4fdd-af06-b075dadec9ff:toolu_01JhN4DTKCBkwaNhgWRo9wG7"
+    ],
+    "timestamp": "2026-09-10T03:15:34.900Z"
+  },
+  "transcriptStatus": "ready",
+  "transcriptSessions": [
+    "72749819-b356-4fdd-af06-b075dadec9ff"
+  ],
+  "provenance": {
+    "proof": ".context/ship-source-ah-delta-paid-20260910-v1/design-permission-checkpoint-v1/proof.json",
+    "proofSha256": "6195102842dc224e4778ceee654ab4266053680430dfa294783413b624b0d735",
+    "binding": ".context/ship-source-ah-delta-paid-20260910-v1/design-permission-checkpoint-v1/binding.json",
+    "bindingSha256": "378ac2789131c42873536f21afa8e8948e2d63bddef26f4fcde0951e8bcb9d89",
+    "pendingPublished": false,
+    "noLaterMutationEvent": true,
+    "note": "Exact captured screen and current content-free native hook identity; the pending Edit body was unpublished, and no input was sent."
+  }
+}
