@@ -32,7 +32,7 @@ import {
 } from './helpers/claude-pty-runner';
 import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, publishedAutoplanArtifactPermissionInput, autoplanArtifactMenuKey } from './helpers/autoplan-artifact-permission';
 import { readPendingAutoplanArtifact, autoplanArtifactRecorderStatus } from './helpers/autoplan-artifact-recorder';
-import { autoplanSetupDecision, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
+import { autoplanSetupDecision, autoplanBlockingQuestionBoundary, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
 import { readPendingQuestion, pendingQuestionRecorderStatus } from './helpers/plan-count-pending-question';
@@ -92,8 +92,9 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         let pendingArtifact: ReturnType<typeof readPendingAutoplanArtifact>;
         let viewportCapturedAt = Date.now();
         let methodologyAudit: AutoplanMethodReadAudit[] = [];
-        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' = 'timeout';
+        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' | 'blocked_on_question' = 'timeout';
         let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
+        let blockedQuestion: ReturnType<typeof autoplanBlockingQuestionBoundary> = null;
         let evidence = '';
         let viewport = '';
         let fullSessionEvidence = '';
@@ -119,7 +120,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
-            observation: { state, hits, native: transcript, pendingSetupQuestion, pendingArtifact, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup,
+            observation: { state, hits, native: transcript, pendingSetupQuestion, pendingArtifact, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup, blockedQuestion,
               ownedArtifactStateRoot: session.hermeticSkillStateRoot,
               artifactRecorder:autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, tempDir, session.hermeticConfigDir, session.hermeticSkillStateRoot),
               pendingQuestionRecorder:pendingQuestionRecorderStatus(session.pendingQuestionFile, tempDir, session.hermeticConfigDir),
@@ -226,6 +227,17 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               break;
             }
 
+            // Autoplan auto-decides until its final human gate. An unrelated
+            // unanswered question blocks this test; never supply an answer or credit.
+            // Keep waiting on already-handled/partial setup panels as before.
+            blockedQuestion = setup.kind === 'unrelated' ? autoplanBlockingQuestionBoundary(visible, {
+              commandStartedAt, viewportCapturedAt, transcript, publicTools, pending:pendingSetupQuestion}) : null;
+            if (blockedQuestion) {
+              outcome = 'blocked_on_question';
+              evidence = visible.slice(-3000);
+              break;
+            }
+
             // Plan-ready as a fallback terminal — autoplan finished without
             // surfacing a Phase 3 marker. This is a regression surface.
             if (isPlanReadyVisible(visible)) {
@@ -250,6 +262,16 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             }
             capture(outcome);
           } finally { await session.close(); }
+        }
+
+        if (outcome === 'blocked_on_question') {
+          const missing = [1, 2, 2.5, 3].filter(phase => !hits.some(hit => hit.phase === phase));
+          throw new Error(
+            `autoplan chain test FAILED: outcome=blocked_on_question; missing phase markers=${JSON.stringify(missing)}; ` +
+              `question=${JSON.stringify(blockedQuestion)}; no input sent.\n` +
+              `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +
+              `--- evidence ---\n${evidence}`,
+          );
         }
 
         if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup' || outcome === 'incomplete_methodology') {

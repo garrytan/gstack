@@ -22,7 +22,10 @@ function withdrawsPlanSelection(message: string, title: string): boolean {
   for (const statement of assertions.join('\n').split(/(?<=[.!?])\s+|\n+/).map(line => line.trim())) {
     if (statement.endsWith('?')) continue;
     const claim = statement.replace(/^Correction:\s*/i, '');
-    const plain = claim.replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, '[quoted]');
+    const plain = claim.replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, (quoted, index) =>
+      /^(?:withdrawn|retracted|cancelled|canceled|hypothetical)$/i.test(quoted.slice(1, -1)) &&
+      /^(?:The|This|That|My)\s+(?:(?:scope|target)\s+)?(?:selection|declaration)\s+(?:is|was|has been|remains)\s+(?:now\s+)?$/i.test(claim.slice(0, index))
+        ? quoted.slice(1, -1) : '[quoted]');
     if (/^(?:The|This|That|My)\s+(?:(?:scope|target)\s+)?(?:selection|declaration)\s+(?:is|was|has been|remains)\s+(?:now\s+)?(?:withdrawn|retracted|cancelled|canceled|hypothetical)\b/i.test(plain)
       || /^(?:(?:I|We)\s+(?:have\s+)?)?(?:withdrawn?|withdrew|retract(?:ed)?|cancel(?:led|ed)?|disregard(?:ed)?|ignore(?:d)?)\s+(?:this|that|the|my)\s+(?:selection|declaration)\b/i.test(plain)) return true;
     const changedTarget = /^(?:The|This|My)\s+(?:selected|review)\s+target\s+is\s+(?:now\s+)?(.+?)[.!?]?$/i.exec(claim);
@@ -66,14 +69,21 @@ export function nativeSeededPlanSelection(
     const line = message.text.split(/\r?\n/).find(value => value.trim());
     if (!line || /^(?: {4}|\t)/.test(line)) continue;
     const text = line.trim();
+    const automatic = /^(?:I\'ll|I will) auto[- ]select option B and review\s+(?:the\s+)?(.+?)\s+(?:draft(?:\s+plan)?|plan)\s+(?:you shared|you pasted|pasted here)(.*)$/i.exec(text);
+    const automaticTarget = automatic?.[1]?.replace(/^(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)$/, (_, straight, curly, code) => straight ?? curly ?? code);
     const selectedNow = /^(?:I've|I have) selected (?:option B, )?(?:reviewing|to review)\s+(?:the\s+)?pasted\s+(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(.*)$/i.exec(text);
     const selected = selectedNow ?? /^(?:Scope gate confirms plan mode, so )?(?:I'll review|I will review|I'll go with reviewing|I will go with reviewing|I'll proceed with reviewing|I will proceed with reviewing|I'm proceeding with reviewing|I am proceeding with reviewing)\s+(?:the\s+)?(?:pasted\s+)?(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(?:\s+(?:you pasted|pasted here))?(.*)$/i.exec(text);
-    if (!selected || (selected[1] ?? selected[2] ?? selected[3])!.trim().toLowerCase() !== title.toLowerCase()) continue;
-    const tail = selected[4]!;
+    const selectedTarget = automaticTarget ?? (selected && (selected[1] ?? selected[2] ?? selected[3]));
+    if (!selectedTarget || selectedTarget.trim().toLowerCase() !== title.toLowerCase()) continue;
+    const tail = automatic?.[2] ?? selected![4]!;
     if (/\b(?:if|unless|assuming|pending|only after|instead|not|won't|cannot)\b/i.test(tail)) continue;
     if (/\b(?:retract|withdraw|cancel|disregard|ignore)\s+(?:that|this|the|my)\s+(?:selection|declaration)\b/i.test(tail)) continue;
     if (/\b(?:treat|consider|regard)\s+(?:that|this|the|my)\s+(?:selection|declaration)\s+as\s+(?:a\s+)?(?:hypothetical|example|proposal)\b/i.test(tail)) continue;
     if (/\b(?:that|this|the|my)\s+(?:selection|declaration)\s+(?:is|was)\s+(?:withdrawn|cancelled|canceled|hypothetical|retracted)\b/i.test(tail)) continue;
+    if (automatic) {
+      if (/^(?:\.|,\s*running\s+(?:the\s+)?(?:pre-review\s+)?audit\b[^?]*\.)$/i.test(tail) && remainsSelected(message.timestamp)) return true;
+      continue;
+    }
     if (selectedNow) {
       // A completed selection may name the pasted target before its plan-mode
       // reason. Keep the first assertion bound; later work is not a new target.

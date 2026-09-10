@@ -9,7 +9,15 @@ function phaseDeclaration(text: string): RegExpExecArray | null {
   const declaration = String.raw`Phase[ \t]+(1|2(?:\.5)?|3)(?:[ \t]+\(([^()]*)\))?[ \t]+(?:is[ \t]+)?(?:complete(?:d)?|done|finished|wrapped[ \t]+up)`;
   const plain = text.replace(new RegExp(String.raw`^\*\*(${declaration}[.:]?)\*\*`, 'i'), '$1');
   if (/\bEmit\s+phase-transition\s+summary\s*:/i.test(plain)) return null;
-  const match = new RegExp(String.raw`^${declaration}(?:[.:](?:[ \t]+.*)?|)$`, 'i').exec(plain);
+  let match = new RegExp(String.raw`^${declaration}(?:[.:](?:[ \t]+.*)?|)$`, 'i').exec(plain);
+  if (!match) {
+    // A dash can separate an actual completion from its retained-work recap.
+    // Keep this new continuation affirmative; source, future and withdrawn
+    // claims cannot supply the missing phase declaration.
+    const dash = new RegExp(String.raw`^${declaration}[ \t]*[—–][ \t]*(.+)$`, 'i').exec(plain);
+    const tail = dash?.[3]?.trim();
+    if (tail && !/^["“'‘>]|\?|\b(?:if|unless|when|once|pending|maybe|perhaps|would|could|will|source|example|sample|quote(?:d)?|historical|earlier|previous(?:ly)?|template|not|no|never|superseded|provided|rejected|incomplete|unfinished|withdrawn|retracted|cancelled|canceled)\b/i.test(tail)) match = dash;
+  }
   // Optional phase names are metadata, and must agree with the phase number.
   const names: Record<string, RegExp> = {
     '1': /^CEO(?:[ \t]+review)?$/i,

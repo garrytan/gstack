@@ -1,0 +1,259 @@
+{
+  "provenance": {
+    "at": "2026-09-10T11:43:05.299281+00:00",
+    "status": "EXACT_CURRENT_PUBLIC_CALLS",
+    "observation": {
+      "path": ".context/ship-source-ao-delta-paid-20260910-v1/ceo-paired-current-public-native-v1/observation.json",
+      "sha256": "7cee884c6bbd3403129d059967e1952793654dad7a4ca730a923c9752e26ffcd",
+      "bytes": 52129
+    },
+    "sourceSnapshot": {
+      "path": "/home/vercel-sandbox/gstack/.context/ship-source-ao-delta-paid-20260910-v1/delta-pty-evidence/blobs/18346cd8ff8c9915f69062e9bb5a05385d1ef95ee42e29f939cc389a3bc68302/current.jsonl",
+      "sha256": "af15e28348833eef7ec8f56d6104104968e6d2ea6807b45a3d99dce2fd04047d",
+      "bytes": 593503,
+      "descriptor": {
+        "process": "2827839-7071218",
+        "job": 4,
+        "sessionId": "4e1166e1-2842-4004-adb8-e76586dc3472",
+        "source": "/tmp/gstack-paid-shard-ERSX0L/tmp/gstack-hermetic-2827758-TflS0B/with-skills/.claude/projects/-tmp-gstack-paid-shard-ERSX0L-tmp-gstack-plan-count-QjuRwH/4e1166e1-2842-4004-adb8-e76586dc3472.jsonl",
+        "inode": 21543237,
+        "openedAt": "2026-09-10T11:36:03.264597+00:00",
+        "lastCapturedAt": "2026-09-10T11:43:05.112717+00:00"
+      }
+    },
+    "publicEvents": {
+      "path": ".context/ship-source-ao-delta-paid-20260910-v1/ceo-paired-current-public-native-v1/owned-public-question-events.json",
+      "sha256": "f42358578a75fa32906cf51ea59996e545143c30aa08595092b03e265d322e8c",
+      "bytes": 32632
+    },
+    "calls": [
+      {
+        "toolUseId": "toolu_016A3riQowZsb2za3pHesowQ",
+        "useLine": 77,
+        "ackLine": 78,
+        "exactQuestionsAnswersAndTime": true
+      },
+      {
+        "toolUseId": "toolu_01CekNdGxmwMVs2kbh3YLuuL",
+        "useLine": 93,
+        "ackLine": 94,
+        "exactQuestionsAnswersAndTime": true
+      },
+      {
+        "toolUseId": "toolu_01XQzemkQ2MJLbcEoBMaanzS",
+        "useLine": 98,
+        "ackLine": 99,
+        "exactQuestionsAnswersAndTime": true
+      }
+    ],
+    "privateThinkingInspected": false,
+    "paidPassCredit": false,
+    "wholeCaseStillRunning": true
+  },
+  "fingerprints": [
+    {
+      "signature": "4e1166e1-2842-4004-adb8-e76586dc3472:toolu_016A3riQowZsb2za3pHesowQ",
+      "promptSnippet": "Routing D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md? Project/branch/task: gstack-plan-count-QjuRwH on main; one-time gstack onboarding prompt. ELI10: gstack works best when your project's CLAUDE.md includes skill routing",
+      "options": [
+        {
+          "index": 1,
+          "label": "Add routing rules (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "No thanks, manual"
+        },
+        {
+          "index": 1,
+          "label": "Enable cross-project (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Project-scoped only"
+        },
+        {
+          "index": 1,
+          "label": "A: Two contract tests (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B: Four per-clause tests"
+        },
+        {
+          "index": 3,
+          "label": "C: Table-driven single test"
+        }
+      ],
+      "observedAtMs": 257010,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "4e1166e1-2842-4004-adb8-e76586dc3472",
+        "toolUseId": "toolu_016A3riQowZsb2za3pHesowQ",
+        "questions": [
+          {
+            "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-QjuRwH on main; one-time gstack onboarding prompt.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so requests like \"review this diff\" route to the right skill automatically. This repo's CLAUDE.md is a review fixture. Plan mode forbids editing it right now, so if you choose A the append and commit happen after this review exits plan mode.\nStakes if we pick wrong: Without rules you invoke skills by name; with them on a fixture file you add a section nobody may read.\nRecommendation: A because routing rules are the default gstack setup and cost nothing at runtime.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Add routing rules (recommended)\n  \u2705 Future sessions in this repo route to the right skill without typing names\n  \u2705 Matches the standard gstack project setup used everywhere else\n  \u274c Cannot be written in plan mode; deferred until after this review finishes\nB) No thanks, invoke skills manually\n  \u2705 Keeps the fixture CLAUDE.md untouched and the review scope pure\n  \u2705 One config write now, no deferred git commit to remember\n  \u274c Every future skill run here needs an explicit slash command\nNet: convenience later versus an untouched fixture now.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "Append the gstack skill-routing section to CLAUDE.md and commit it once plan mode exits."
+              },
+              {
+                "label": "No thanks, manual",
+                "description": "Set routing_declined=true in gstack config; re-enable later with gstack-config."
+              }
+            ]
+          },
+          {
+            "question": "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-QjuRwH on main; one-time gstack learnings config.\nELI10: gstack can search learnings saved from your other projects on this machine to spot patterns that apply here. Everything stays local. Good for solo developers; skip if you work across client codebases where mixing context is a concern.\nStakes if we pick wrong: Miss a relevant past lesson, or surface one from a codebase that should stay separate.\nRecommendation: A because this is a solo sandbox and local-only search has no leak path.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Enable cross-project learnings (recommended)\n  \u2705 Past pitfalls from other repos on this machine surface during reviews\n  \u2705 Local only; nothing leaves the machine and it is one config flag to flip back\n  \u274c Learnings from unrelated codebases can add noise to a small review\nB) Keep learnings project-scoped\n  \u2705 Zero chance of cross-client context mixing in a multi-tenant setup\n  \u2705 Review findings stay grounded in this repo alone\n  \u274c This fresh repo has zero learnings, so the search returns nothing useful\nNet: broader recall versus strict per-project isolation.",
+            "header": "Learnings",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Enable cross-project (recommended)",
+                "description": "gstack-config set cross_project_learnings true, then search with --cross-project."
+              },
+              {
+                "label": "Project-scoped only",
+                "description": "gstack-config set cross_project_learnings false; search stays within this repo."
+              }
+            ]
+          },
+          {
+            "question": "D3 \u2014 Which test structure should the plan commit to?\nProject/branch/task: PLAN.md adds caller-level unit tests for processPayment on main.\nELI10: The plan pins two existing behaviors: a successful charge returns a receipt with three exact fields, and repeated 502s produce exactly two attempts, one 100 ms backoff, then PaymentUnavailable. This decision is only about how the tests are shaped. What each test asserts is decided later, one finding at a time.\nStakes if we pick wrong: A shape that hides which clause broke costs debugging time; a shape with duplicated arrange code drifts from the two contracts the plan names.\nRecommendation: A because it is the smallest diff that cleanly expresses the change and still leaves room for complete assertions.\nCompleteness: A=9/10, B=10/10, C=7/10\nA) Two contract tests in the existing suite (recommended) (human ~1h / CC ~5 min)\n  \u2705 Matches the plan's own shape and the two contracts it states, smallest diff\n  \u2705 A deep-equal failure already names the mismatched field in its output\n  \u274c A multi-clause test reports only the first failing clause per run\nB) One test per contract clause, four tests (human ~1.5h / CC ~8 min)\n  \u2705 Each clause fails independently with a precise, greppable test name\n  \u2705 Bisecting a regression to receipt vs retry vs backoff takes one CI read\n  \u274c Arrange code repeats across four tests and names drift from the two contracts\nC) One table-driven test over both cases (human ~1h / CC ~5 min)\n  \u2705 Single arrange path, compact file\n  \u2705 Adding a third case later is one more table row\n  \u274c Success and 502 arrangements differ too much to share a table; rows hide which clause failed\nNet: readability as a two-contract spec versus per-clause failure isolation.",
+            "header": "Approach",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A: Two contract tests (recommended)",
+                "description": "One test per contract in the existing processPayment suite; each asserts every clause of its contract. Completeness 9/10."
+              },
+              {
+                "label": "B: Four per-clause tests",
+                "description": "Receipt shape, rejection class, attempt count, backoff record as separate tests. Completeness 10/10."
+              },
+              {
+                "label": "C: Table-driven single test",
+                "description": "One parametrized block iterating success and exhausted-502 cases. Completeness 7/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-QjuRwH on main; one-time gstack onboarding prompt.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so requests like \"review this diff\" route to the right skill automatically. This repo's CLAUDE.md is a review fixture. Plan mode forbids editing it right now, so if you choose A the append and commit happen after this review exits plan mode.\nStakes if we pick wrong: Without rules you invoke skills by name; with them on a fixture file you add a section nobody may read.\nRecommendation: A because routing rules are the default gstack setup and cost nothing at runtime.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Add routing rules (recommended)\n  \u2705 Future sessions in this repo route to the right skill without typing names\n  \u2705 Matches the standard gstack project setup used everywhere else\n  \u274c Cannot be written in plan mode; deferred until after this review finishes\nB) No thanks, invoke skills manually\n  \u2705 Keeps the fixture CLAUDE.md untouched and the review scope pure\n  \u2705 One config write now, no deferred git commit to remember\n  \u274c Every future skill run here needs an explicit slash command\nNet: convenience later versus an untouched fixture now.": "Add routing rules (recommended)",
+          "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-QjuRwH on main; one-time gstack learnings config.\nELI10: gstack can search learnings saved from your other projects on this machine to spot patterns that apply here. Everything stays local. Good for solo developers; skip if you work across client codebases where mixing context is a concern.\nStakes if we pick wrong: Miss a relevant past lesson, or surface one from a codebase that should stay separate.\nRecommendation: A because this is a solo sandbox and local-only search has no leak path.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Enable cross-project learnings (recommended)\n  \u2705 Past pitfalls from other repos on this machine surface during reviews\n  \u2705 Local only; nothing leaves the machine and it is one config flag to flip back\n  \u274c Learnings from unrelated codebases can add noise to a small review\nB) Keep learnings project-scoped\n  \u2705 Zero chance of cross-client context mixing in a multi-tenant setup\n  \u2705 Review findings stay grounded in this repo alone\n  \u274c This fresh repo has zero learnings, so the search returns nothing useful\nNet: broader recall versus strict per-project isolation.": "Enable cross-project (recommended)",
+          "D3 \u2014 Which test structure should the plan commit to?\nProject/branch/task: PLAN.md adds caller-level unit tests for processPayment on main.\nELI10: The plan pins two existing behaviors: a successful charge returns a receipt with three exact fields, and repeated 502s produce exactly two attempts, one 100 ms backoff, then PaymentUnavailable. This decision is only about how the tests are shaped. What each test asserts is decided later, one finding at a time.\nStakes if we pick wrong: A shape that hides which clause broke costs debugging time; a shape with duplicated arrange code drifts from the two contracts the plan names.\nRecommendation: A because it is the smallest diff that cleanly expresses the change and still leaves room for complete assertions.\nCompleteness: A=9/10, B=10/10, C=7/10\nA) Two contract tests in the existing suite (recommended) (human ~1h / CC ~5 min)\n  \u2705 Matches the plan's own shape and the two contracts it states, smallest diff\n  \u2705 A deep-equal failure already names the mismatched field in its output\n  \u274c A multi-clause test reports only the first failing clause per run\nB) One test per contract clause, four tests (human ~1.5h / CC ~8 min)\n  \u2705 Each clause fails independently with a precise, greppable test name\n  \u2705 Bisecting a regression to receipt vs retry vs backoff takes one CI read\n  \u274c Arrange code repeats across four tests and names drift from the two contracts\nC) One table-driven test over both cases (human ~1h / CC ~5 min)\n  \u2705 Single arrange path, compact file\n  \u2705 Adding a third case later is one more table row\n  \u274c Success and 502 arrangements differ too much to share a table; rows hide which clause failed\nNet: readability as a two-contract spec versus per-clause failure isolation.": "A: Two contract tests (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:40:07.353Z"
+      }
+    },
+    {
+      "signature": "4e1166e1-2842-4004-adb8-e76586dc3472:toolu_01CekNdGxmwMVs2kbh3YLuuL",
+      "promptSnippet": "Test 1 D4 \u2014 Test 1 (successful charge): what does it assert? Project/branch/task: PLAN.md test 1 for processPayment on main; contract 1 in \"Existing behavior retained\". ELI10: The plan states the contract exactly: a 1000-cent USD charge ret",
+      "options": [
+        {
+          "index": 1,
+          "label": "4A: Deep-equal exact receipt (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "4B: Three field assertions"
+        },
+        {
+          "index": 3,
+          "label": "4C: Truthy only, as planned"
+        }
+      ],
+      "observedAtMs": 315313,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "4e1166e1-2842-4004-adb8-e76586dc3472",
+        "toolUseId": "toolu_01CekNdGxmwMVs2kbh3YLuuL",
+        "questions": [
+          {
+            "question": "D4 \u2014 Test 1 (successful charge): what does it assert?\nProject/branch/task: PLAN.md test 1 for processPayment on main; contract 1 in \"Existing behavior retained\".\nELI10: The plan states the contract exactly: a 1000-cent USD charge returning ch_paid yields the receipt { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned test only checks that the receipt is truthy. An empty object, a receipt with amountCents 100000, or currency \"usd\" all pass that check. The test would stay green while the user is shown or charged the wrong amount.\nStakes if we pick wrong: A receipt-mapping regression (wrong amount, wrong currency, missing chargeId) ships with a green suite; that is customer-visible money.\nRecommendation: 4A because the plan already states the exact expected receipt, and well-tested code is non-negotiable; an assertion that cannot reject a wrong result is not coverage.\nCompleteness: 4A=10/10, 4B=8/10, 4C=3/10\n4A) Deep-equal the exact receipt (recommended) (human ~10 min / CC ~1 min)\n  \u2705 Rejects wrong chargeId, wrong amount, wrong currency, and unexpected extra fields\n  \u2705 Failure output names the mismatched field, so debugging is one CI read\n  \u274c A future additive receipt field will fail this test until it is updated (that is the point)\n4B) Assert the three fields individually, ignore extras (human ~10 min / CC ~1 min)\n  \u2705 Rejects wrong values on all three named fields\n  \u2705 Tolerates additive fields so unrelated receipt growth does not touch this test\n  \u274c An unintended extra field (leaked internal data on a receipt) passes silently\n4C) Keep the truthy-only assertion as planned (human ~2 min / CC ~0)\n  \u2705 Zero extra work; exactly what the sketch says\n  \u2705 Still proves processPayment resolves rather than throws on the happy path\n  \u274c Cannot reject any wrong receipt; contract 1 stays effectively untested\nNet: exact contract pinning versus tolerance for future receipt growth.",
+            "header": "Test 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A: Deep-equal exact receipt (recommended)",
+                "description": "expect(receipt).toEqual({ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }). Completeness 10/10."
+              },
+              {
+                "label": "4B: Three field assertions",
+                "description": "Assert chargeId, amountCents, currency individually; extra fields tolerated. Completeness 8/10."
+              },
+              {
+                "label": "4C: Truthy only, as planned",
+                "description": "Keep expect(receipt).toBeTruthy() as the complete assertion. Completeness 3/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 Test 1 (successful charge): what does it assert?\nProject/branch/task: PLAN.md test 1 for processPayment on main; contract 1 in \"Existing behavior retained\".\nELI10: The plan states the contract exactly: a 1000-cent USD charge returning ch_paid yields the receipt { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned test only checks that the receipt is truthy. An empty object, a receipt with amountCents 100000, or currency \"usd\" all pass that check. The test would stay green while the user is shown or charged the wrong amount.\nStakes if we pick wrong: A receipt-mapping regression (wrong amount, wrong currency, missing chargeId) ships with a green suite; that is customer-visible money.\nRecommendation: 4A because the plan already states the exact expected receipt, and well-tested code is non-negotiable; an assertion that cannot reject a wrong result is not coverage.\nCompleteness: 4A=10/10, 4B=8/10, 4C=3/10\n4A) Deep-equal the exact receipt (recommended) (human ~10 min / CC ~1 min)\n  \u2705 Rejects wrong chargeId, wrong amount, wrong currency, and unexpected extra fields\n  \u2705 Failure output names the mismatched field, so debugging is one CI read\n  \u274c A future additive receipt field will fail this test until it is updated (that is the point)\n4B) Assert the three fields individually, ignore extras (human ~10 min / CC ~1 min)\n  \u2705 Rejects wrong values on all three named fields\n  \u2705 Tolerates additive fields so unrelated receipt growth does not touch this test\n  \u274c An unintended extra field (leaked internal data on a receipt) passes silently\n4C) Keep the truthy-only assertion as planned (human ~2 min / CC ~0)\n  \u2705 Zero extra work; exactly what the sketch says\n  \u2705 Still proves processPayment resolves rather than throws on the happy path\n  \u274c Cannot reject any wrong receipt; contract 1 stays effectively untested\nNet: exact contract pinning versus tolerance for future receipt growth.": "4A: Deep-equal exact receipt (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:41:06.154Z"
+      }
+    },
+    {
+      "signature": "4e1166e1-2842-4004-adb8-e76586dc3472:toolu_01XQzemkQ2MJLbcEoBMaanzS",
+      "promptSnippet": "Test 2 D5 \u2014 Test 2 (repeated 502): what does it assert? Project/branch/task: PLAN.md test 2 for processPayment on main; contract 2 in \"Existing behavior retained\". ELI10: The plan states contract 2 exactly: with max_retries=1, repeated 502s",
+      "options": [
+        {
+          "index": 1,
+          "label": "5A: Reject + 2 attempts + [100] backoff (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "5B: Reject + 2 attempts only"
+        },
+        {
+          "index": 3,
+          "label": "5C: Reject only, as planned"
+        }
+      ],
+      "observedAtMs": 335412,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "4e1166e1-2842-4004-adb8-e76586dc3472",
+        "toolUseId": "toolu_01XQzemkQ2MJLbcEoBMaanzS",
+        "questions": [
+          {
+            "question": "D5 \u2014 Test 2 (repeated 502): what does it assert?\nProject/branch/task: PLAN.md test 2 for processPayment on main; contract 2 in \"Existing behavior retained\".\nELI10: The plan states contract 2 exactly: with max_retries=1, repeated 502s produce two total charge attempts, one recorded 100 ms backoff, then PaymentUnavailable. The planned test asserts only the rejection and explicitly skips the mock call history and sleeper record, even though the factory exposes both. A regression that retries zero times, retries three times, or drops the backoff to 0 ms still rejects with PaymentUnavailable and passes.\nStakes if we pick wrong: Too few attempts raises the transient-failure rate for real customers; too many attempts on a charge endpoint is a duplicate-charge risk; a dropped backoff hammers Stripe during an outage. All three ship green.\nRecommendation: 5A because the plan already names all three clauses and the factory already exposes the probes; the assertions are a translation of the stated contract, not new scope.\nCompleteness: 5A=10/10, 5B=7/10, 5C=3/10\n5A) Rejection class + exactly 2 attempts + sleeper record [100] (recommended) (human ~15 min / CC ~2 min)\n  \u2705 Rejects zero-retry, over-retry, and wrong or missing backoff regressions by name\n  \u2705 Uses only probes the factory already exposes: mock call history length and sleeper record\n  \u274c A deliberate future change to max_retries or backoff must update this test (that is the point)\n5B) Rejection class + exactly 2 attempts, no sleeper assertion (human ~10 min / CC ~1 min)\n  \u2705 Catches the two money-relevant regressions: zero-retry and duplicate attempts\n  \u2705 One fewer probe to wire up in the test body\n  \u274c A backoff dropped to 0 ms, or a stray extra sleep, passes silently\n5C) Rejects with PaymentUnavailable only, as planned (human ~5 min / CC ~0)\n  \u2705 Zero extra work; exactly what the sketch says\n  \u2705 Still proves the exhausted path surfaces the named error class\n  \u274c Attempt count and backoff, two of the three stated clauses, stay untested\nNet: pinning the full retry contract versus a smaller test body.",
+            "header": "Test 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "5A: Reject + 2 attempts + [100] backoff (recommended)",
+                "description": "await expect(...).rejects.toBeInstanceOf(PaymentUnavailable); expect(stripeMock.calls).toHaveLength(2); expect(sleeper.record).toEqual([100]). Completeness 10/10."
+              },
+              {
+                "label": "5B: Reject + 2 attempts only",
+                "description": "Assert rejection class and exactly two Stripe calls; skip the sleeper record. Completeness 7/10."
+              },
+              {
+                "label": "5C: Reject only, as planned",
+                "description": "Keep the rejection assertion as the complete test. Completeness 3/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 \u2014 Test 2 (repeated 502): what does it assert?\nProject/branch/task: PLAN.md test 2 for processPayment on main; contract 2 in \"Existing behavior retained\".\nELI10: The plan states contract 2 exactly: with max_retries=1, repeated 502s produce two total charge attempts, one recorded 100 ms backoff, then PaymentUnavailable. The planned test asserts only the rejection and explicitly skips the mock call history and sleeper record, even though the factory exposes both. A regression that retries zero times, retries three times, or drops the backoff to 0 ms still rejects with PaymentUnavailable and passes.\nStakes if we pick wrong: Too few attempts raises the transient-failure rate for real customers; too many attempts on a charge endpoint is a duplicate-charge risk; a dropped backoff hammers Stripe during an outage. All three ship green.\nRecommendation: 5A because the plan already names all three clauses and the factory already exposes the probes; the assertions are a translation of the stated contract, not new scope.\nCompleteness: 5A=10/10, 5B=7/10, 5C=3/10\n5A) Rejection class + exactly 2 attempts + sleeper record [100] (recommended) (human ~15 min / CC ~2 min)\n  \u2705 Rejects zero-retry, over-retry, and wrong or missing backoff regressions by name\n  \u2705 Uses only probes the factory already exposes: mock call history length and sleeper record\n  \u274c A deliberate future change to max_retries or backoff must update this test (that is the point)\n5B) Rejection class + exactly 2 attempts, no sleeper assertion (human ~10 min / CC ~1 min)\n  \u2705 Catches the two money-relevant regressions: zero-retry and duplicate attempts\n  \u2705 One fewer probe to wire up in the test body\n  \u274c A backoff dropped to 0 ms, or a stray extra sleep, passes silently\n5C) Rejects with PaymentUnavailable only, as planned (human ~5 min / CC ~0)\n  \u2705 Zero extra work; exactly what the sketch says\n  \u2705 Still proves the exhausted path surfaces the named error class\n  \u274c Attempt count and backoff, two of the three stated clauses, stay untested\nNet: pinning the full retry contract versus a smaller test body.": "5A: Reject + 2 attempts + [100] backoff (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:41:26.251Z"
+      }
+    }
+  ]
+}

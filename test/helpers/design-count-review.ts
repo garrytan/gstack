@@ -78,21 +78,23 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   // A source citation alone can describe a report or the next reviewer.
   // Bind the alternate wording to a named control's concrete style amendment
   // and the opposed choice that leaves the documented violation unresolved.
-  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|(?:only|single)(?: filled)?) primary action(?: in the header)?$/i.exec(issue[2]!) ??
+  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|visually|(?:only|single)(?: filled)?) primary action(?: in the header)?$/i.exec(issue[2]!) ??
     /^How should (?:the )?(?:header )?actions establish that ([A-Za-z][A-Za-z0-9 _-]{0,39}) is the primary action$/i.exec(issue[2]!);
   const explicitStyle = primary && `${primary[1]} filled (?:primary )?#[0-9a-f]{6}(?:/| with )(?:white|black)(?: text)?; ` +
     '[A-Za-z][A-Za-z0-9 ,/_-]{0,99} neutral ghost(?: buttons)?\\.';
   const amendments = primary && [
     new RegExp(`^(?:✅\\s*)?Matches DESIGN\\.md exactly: ${primary[1]} filled #[0-9a-f]{6} with (?:white|black) text; ` +
       '[A-Za-z][A-Za-z0-9 ,_-]{0,99} as neutral ghost buttons\\.', 'i'),
-    new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the single filled primary \\(#[0-9a-f]{6}, (?:white|black) text\\); ` +
-      '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghost buttons exactly as DESIGN\\.md specifies\\b', 'i'),
+    new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the (?:single|one) filled(?: primary)?(?: button)? \\(#[0-9a-f]{6}, (?:white|black) text\\); ` +
+      '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghost buttons (?:exactly as DESIGN\\.md specifies|per DESIGN\\.md)\\b', 'i'),
     new RegExp(`^(?:✅\\s*)?${primary[1]} is the single filled #[0-9a-f]{6} button; ` +
       '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghosts, exactly per DESIGN\\.md\\b', 'i'),
     new RegExp(`^(?:✅\\s*)?Apply DESIGN\\.md tokens: ${primary[1]} #[0-9a-f]{6} filled with (?:white|black) text; ` +
       '[A-Za-z][A-Za-z0-9 ,/_-]{0,99} neutral ghost(?: buttons)?\\.', 'i'),
     // The same concrete style can cite DESIGN.md before or after its tokens.
     new RegExp(`^(?:✅\\s*)?(?:Apply DESIGN\\.md(?: tokens)?: ${explicitStyle}|${explicitStyle} Exact DESIGN\\.md\\.)`, 'i'),
+    new RegExp(`^(?:✅\\s*)?${primary[1]}\\s*=\\s*filled #[0-9a-f]{6} with (?:white|black) text; ` +
+      '[A-Za-z][A-Za-z0-9 ,/_-]{0,99}\\s*=\\s*neutral ghost(?: buttons?)?,? per DESIGN\\.md\\b', 'i'),
   ];
   const primaryHeader = !q.header.includes(':') || q.header.split(':')[1]!.trim().toLowerCase() === primary?.[1]?.toLowerCase();
   // The style wordings share one owned decision: a current equal-weight gap,
@@ -104,8 +106,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
     // A quoted status scalar remains a current assertion when its unquoted
     // subject names this decision; whole quoted historical prose stays absent.
     .replace(/"[^"\n]*"|“[^”\n]*”/g, (quoted: string, index: number, source: string) =>
-      /^(?:withdrawn|resolved|closed|hypothetical|rejected|cancelled|canceled|not current|no longer current)$/i.test(quoted.slice(1, -1)) &&
-      /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:(?:This (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option)|Issue [1-9]\d*) (?:is|was|has been)|(?:these|the|this) (?:tokens?|styles?|primary treatment) (?:are|is|were|was|have been|has been)) $/i.test(source.slice(0, index))
+      /^(?:withdrawn|superseded|resolved|closed|hypothetical|rejected|cancelled|canceled|not current|no longer current)$/i.test(quoted.slice(1, -1)) &&
+      /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:(?:This (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option|(?:DESIGN\.md |token )?(?:requirement|contract))|Issue [1-9]\d*) (?:is|was|has been)|(?:these|the|this) (?:tokens?|styles?|primary treatment) (?:are|is|were|was|have been|has been)) $/i.test(source.slice(0, index))
         ? quoted.slice(1, -1) : '').replace(/\*\*/g, '');
   const questionText = currentText(q.question);
   const assessments = [...questionText.matchAll(/^ELI10: (.+)$/gm)];
@@ -132,7 +134,7 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const variantContract = primary && new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md already says ${primary[1]} is the only filled button ` +
     '\\(#[0-9a-f]{6} with (?:white|black) text(?:, about [0-9]+(?:\\.[0-9]+)?:1 contrast)?\\) and the other ' +
     '(two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.', 'i').exec(assessment);
-  const invalidContract = /(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:this|that|the) (?:(?:DESIGN\.md|token) )?(?:requirement|contract) (?:is|was|has been) (?:withdrawn|superseded|not current|no longer current)\b/i;
+  const invalidContract = /(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:this|that|the) (?:(?:DESIGN\.md|token) )?(?:requirement|contract) (?:is|was|has been) (?:withdrawn|superseded|rejected|cancelled|canceled|not current|no longer current)\b/i;
   const namedContract = primary && new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md already says ${primary[1]} is the only filled primary button and the other (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.`, 'i').exec(assessment);
   const statedVariant = (variantContract || namedContract) &&
     numberValue((variantContract || namedContract)![1]!) === otherControls &&
@@ -146,7 +148,7 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const primaryRepair = primaryHeader && amendments && currentPrimary &&
     !!call.answeredAt && Number.isFinite(Date.parse(call.answeredAt)) &&
     choiceIds.every(id => id?.[1] === issue[1]) &&
-    !withdrawn.test(questionText) && !closedGap.test(questionText) && !withdrawnStyles.test(questionText) &&
+    !withdrawn.test(questionText) && !closedGap.test(questionText) && !withdrawnStyles.test(questionText) && !invalidContract.test(questionText) &&
     q.options.some(amendment => {
       const body = currentText(amendment.description ?? '');
       const style = amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
@@ -171,14 +173,17 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
         // Native menus can list current benefits before the gap retained by
         // declining. Only consume a complete affirmative pro/con prefix; prose
         // framing a source example or a future condition cannot expose an icon.
-        const pros = /^(?:✅(?!\s*(?:If|When|Unless|Historical|Hypothetical|Quoted|Source|Example)\b)\s*[^✅❌]+)+❌\s*/i.exec(declined);
-        const remaining = pros && !sourceAssessment.test(pros[0]) ? declined.slice(pros[0].length) : declined;
+        const headerDeferral = /^(?:Leave|Keep) the header unchanged and record the gap as (?:debt|an open issue)\.\s*/i.exec(declined);
+        const deferralBody = headerDeferral ? declined.slice(headerDeferral[0].length) : declined;
+        const cancelledHeaderDeferral = headerDeferral && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) (?:the )?header unchanged\b/i.test(declined);
+        const pros = /^(?:✅(?!\s*(?:If|When|Unless|Historical|Hypothetical|Quoted|Source|Example)\b)\s*[^✅❌]+)+❌\s*/i.exec(deferralBody);
+        const remaining = pros && !sourceAssessment.test(pros[0]) ? deferralBody.slice(pros[0].length) : deferralBody;
         const retainedButtons = /^(?:❌\s*)?Keep all (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical; gap stays documented\./i.exec(remaining);
         const cancelledRetainedButtons = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) (?:all )?(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical\b/i.exec(declined);
-        return defer !== amendment && !sourceAssessment.test(declined) && !withdrawn.test(declined) && !closedGap.test(declined) &&
+        return defer !== amendment && !sourceAssessment.test(declined) && !withdrawn.test(declined) && !closedGap.test(declined) && !cancelledHeaderDeferral &&
           ((retainedButtons && numberValue(retainedButtons[1]!) === otherControls + 1 &&
               (!cancelledRetainedButtons || numberValue(cancelledRetainedButtons[1]!) !== otherControls + 1)) ||
-            /^(?:❌\s*)?(?:Leaves a documented DESIGN\.md violation in place|Ships the documented violation;[^.\n]*\bthe gap remains open|Primary-action ambiguity ships; documented DESIGN\.md violation remains|Decline the fix; gap stays documented and lowers the score|Keep all (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) identical; record as an open DESIGN\.md violation)\b/i.test(remaining) ||
+            /^(?:❌\s*)?(?:Leaves a documented DESIGN\.md violation in place|Ships a (?:known|documented) DESIGN\.md violation and the primary action (?:stays|remains) undiscoverable|Ships a header with no primary action; PLAN\.md['’]s own gap stays open|Ships the documented violation;[^.\n]*\bthe gap remains open|Primary-action ambiguity ships; documented DESIGN\.md violation remains|Decline the fix; gap stays documented and lowers the score|Keep all (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) identical; record as an open DESIGN\.md violation)\b/i.test(remaining) ||
             (variantRepair && /^(?:Violates DESIGN\.md and leaves users guessing which action is primary; Pass [1-7] stays at [0-9](?:\.[0-9]+)?\/10|Documented DESIGN\.md violation ships and Pass [1-7] stays at [0-9](?:\.[0-9]+)?\/10)\.$/i.test(remaining)));
       });
     });

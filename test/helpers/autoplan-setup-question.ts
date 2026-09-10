@@ -1,6 +1,7 @@
 import { capturePlanCountQuestion, parseNumberedOptions, planCountPrerequisitePick, planCountQuestionInput, planCountSubmissionInput, type AskUserQuestionFingerprint } from './claude-pty-runner';
 
-import type { NativePlanQuestion, NativePlanQuestionCall } from './plan-count-transcript';
+import type { NativePlanQuestion, NativePlanQuestionCall, NativePublicToolEvent, PlanCountTranscript } from './plan-count-transcript';
+import type { readPendingQuestion } from './plan-count-pending-question';
 
 /** A copied native panel is not actionable after prose or inside a code example. */
 function activeSetupPanel(visible: string): boolean {
@@ -364,4 +365,53 @@ export function autoplanRoutingSetupInput(visible: string, seen: Set<string>, pe
   if (decision.kind !== 'input') return null;
   for (const signature of decision.signatures) seen.add(signature);
   return decision.input;
+}
+
+/** Identify a remaining native human wait. The caller must treat it as failure, never phase credit. */
+export function autoplanBlockingQuestionBoundary(visible: string, context: {
+  commandStartedAt: number; viewportCapturedAt: number;
+  /** Both projections must come from the same owned readPlanCountTranscript poll. */
+  transcript: PlanCountTranscript; publicTools: NativePublicToolEvent[];
+  /** Only the current return from the owned, post-command readPendingQuestion. */
+  pending?: ReturnType<typeof readPendingQuestion>;
+}): { sessionId: string; toolUseId: string; source: 'native' | 'pre_tool_use' } | null {
+  const {transcript, commandStartedAt, viewportCapturedAt, publicTools} = context;
+  if (transcript.status !== 'ready' || !Number.isFinite(commandStartedAt) ||
+      !Number.isFinite(viewportCapturedAt) || commandStartedAt < 0 || viewportCapturedAt < commandStartedAt) return null;
+  const sessions = new Set([...transcript.calls.map(call => call.sessionId),
+    ...transcript.assistantMessages.map(message => message.sessionId)]);
+  if (sessions.size !== 1 || ![...sessions][0]) return null;
+  const unanswered = transcript.calls.filter(call => !call.answered && !call.failed);
+  if (unanswered.length > 1) return null;
+  const call = unanswered[0] ?? context.pending;
+  if (!call || !sessions.has(call.sessionId) || !call.toolUseId || call.answered !== false ||
+      call.failed !== false || call.questions.length !== 1 || call.questions[0]!.multiSelect) return null;
+  const identity = (questions: unknown): string | null => Array.isArray(questions) && questions.every(q =>
+    q && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) &&
+    q.options.every((o: any) => o && typeof o.label === 'string' &&
+      (o.description === undefined || typeof o.description === 'string')))
+    ? JSON.stringify(questions.map(q => [q.header,q.question,q.multiSelect ?? false,
+        q.options.map((o: any) => [o.label,o.description ?? ''])])) : null;
+  if (identity(call.questions) === null) return null;
+  const uses = publicTools.filter(event => event.sessionId === call.sessionId && event.toolUseId === call.toolUseId && event.kind === 'use');
+  if (publicTools.some(event => event.sessionId === call.sessionId && event.toolUseId === call.toolUseId && event.kind === 'result')) return null;
+  let source: 'native' | 'pre_tool_use';
+  if (unanswered.length) {
+    const use = uses[0], at = Date.parse(use?.timestamp ?? '');
+    if (uses.length !== 1 || use?.name !== 'AskUserQuestion' || !Number.isFinite(at) ||
+        at < commandStartedAt || at > viewportCapturedAt || !Array.isArray(use.input?.questions) ||
+        identity(use.input.questions as NativePlanQuestion[]) !== identity(call.questions)) return null;
+    source = 'native';
+  } else {
+    // The reader has already checked cwd/config, parent session, timestamp,
+    // recorder poison/lock state and absence of a published result or call.
+    if (context.pending?.source !== 'pre_tool_use' || uses.length ||
+        transcript.calls.some(row => row.sessionId === call.sessionId && row.toolUseId === call.toolUseId)) return null;
+    source = 'pre_tool_use';
+  }
+  const display = visible.replace(/(^|[\r\n])[\t ]*[│┃][\t ]?/g, '$1');
+  const headerAt = display.search(/^ {0,3}[☐□]/m);
+  if (headerAt < 0 || /^(?:Source|Example|Quoted|Historical|Template)\b[^\n]*:/im.test(display.slice(0, headerAt)) ||
+      !completeSetupOptions(display, call)) return null;
+  return {sessionId:call.sessionId,toolUseId:call.toolUseId,source};
 }

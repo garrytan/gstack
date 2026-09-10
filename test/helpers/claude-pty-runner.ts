@@ -1956,7 +1956,7 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   if (!call.answered || call.failed || call.questions.length !== 1 ||
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
-  if (resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call) || architecturalDxTaskNavigation(call)) return true;
+  if (manualDxTaskNavigation(call) || resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call) || architecturalDxTaskNavigation(call)) return true;
   const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
   const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const completionLines: string[] = [];
@@ -2023,6 +2023,43 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   return labels.every(label => runEng(label) || ready(label) || manual(label)) &&
     labels.filter(runEng).length === 1 && labels.filter(manual).length === 1 &&
     q.options.some(o => o.label === call.answers?.[q.question]);
+}
+
+/** A selected manual handoff leaves already recorded DX decisions unchanged. */
+function manualDxTaskNavigation(call: NativePlanQuestionCall): boolean {
+  const q = call.questions[0]!;
+  if (call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      !Number.isFinite(Date.parse(call.answeredAt ?? '')) || q.multiSelect ||
+      q.header.trim() !== 'Next steps' || q.options.length !== 3 ||
+      new Set(q.options.map(o => o.label)).size !== 3 || Object.keys(call.answers ?? {}).length !== 1) return false;
+  const prose = (text: string) => text.split(/\r?\n/).filter(line =>
+    !/^\s*>/.test(line) && !/^\s*(["'`]).*\1\s*$/.test(line)).join('\n').trim();
+  const text = prose(q.question);
+  if (/```|~~~|<gstack-qid/i.test(text) || (text.match(/\?/g)?.length ?? 0) !== 1 ||
+      !/^(?:D[1-9]\d*\s*[—–-]\s*)?DX review (?:is )?complete(?: \((?:10|[0-9])(?:\.\d+)?\/10 (?:->|→) (?:10|[0-9])(?:\.\d+)?\/10\))?\. (?:What should happen next|What happens next|What['’]s next)\?\n/i.test(text) ||
+      !/(?:^|\n)ELI10:\s*The DX review (?:found|identified)\b/i.test(text) ||
+      !/(?:^|[.!]\s+)(?:All (?:are|have been) (?:written|recorded) (?:in|into) the plan as tasks\b|All DX decisions and tasks are recorded in the plan\.)/i.test(text)) return false;
+  const metadata = /(?:^|\n)Project\/branch\/task:\s*([^\n]*)/i.exec(text)?.[1];
+  if (metadata && /^(?:if|unless|when|once|after|provided|proposed|optional|source|example|historical|earlier review|previously)\b/i.test(metadata)) return false;
+  const label = (value: string) => value.trim().replace(/\s*\((?:recommended|required gate)\)\s*$/i, '');
+  const manual = (value: string) => /^Skip(?:,|\s*[—–-])\s*I['’]ll handle next steps manually$/i.test(label(value));
+  const eng = (value: string) => /^Run \/plan-eng-review next$/i.test(label(value));
+  const implement = (value: string) => /^Ready to implement(?:,|\s*[—–-])\s*run \/devex-review after shipping$/i.test(label(value));
+  if (q.options.filter(o => manual(o.label)).length !== 1 || q.options.filter(o => eng(o.label)).length !== 1 ||
+      q.options.filter(o => implement(o.label)).length !== 1) return false;
+  const selected = q.options.find(o => o.label === call.answers?.[q.question]);
+  if (!selected || !manual(selected.label)) return false;
+  const description = prose(selected.description ?? '').replace(/[✅❌]/g, '').trim();
+  if (!/^(?:Matches your stated intent\b|Plan exits now\b|Exit the plan now\b)/i.test(description) ||
+      !/(?:^|[.!]\s+)(?:Plan exits now|Exit the plan now) with all DX (?:decisions and tasks|tasks and decisions) recorded[;.]\s*(?:nothing else is started|no further review is started)\./i.test(description)) return false;
+  // A completed recap cannot conceal another plan decision or an instruction
+  // to change the plan before the selected manual exit. Quoted archive lines
+  // do not establish current obligations; direct current-status quotes do.
+  const current = `${text}\n${description}`.replace(/\byou will run subsequent reviews yourself\b/gi, 'manual follow-up');
+  if (/(?:^|\n|[.!;]\s+)(?:Source|Example|Historical(?: review)?|Previously|Earlier review(?: assessment)?):/i.test(current)) return false;
+  if (/\b(?:This|The) (?:manual |DX )?handoff (?:is|has been) [\"'`]?(?:cancell?ed|withdrawn|retracted|superseded|not current)\b/i.test(current)) return false;
+  return !/\b(?:unresolved|outstanding)\b|\b(?:not|never)\s+(?:all\s+)?(?:done|complete|completed|recorded|written|resolved)\b|\b(?:review|findings?|decisions?|tasks?|plan)\b[^.!?\n]{0,70}\b(?:pending|remaining|withdrawn|retracted|superseded)\b|\b(?:only|complete)\s+(?:after|if|when|once)\b/i.test(current) &&
+    !/(?:^|[.!?;]\s+|\n|\b(?:should|must|need to|will)\s+)(?:(?:we|you|please|first|then|also)\s+)*(?:add|fix|edit|update|rewrite|remove|implement|resolve|decide|change|approve|start|run)\b/im.test(current);
 }
 
 /** The next gate may validate architecture already decided by this DX review. */
@@ -2415,7 +2452,8 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   // heading. Sentence punctuation and the form of the remedy question do
   // not change the completed brief's current defect and offered amendment.
   const testAssertion = /^Test ([1-9]\d*)(?:\s+\([^()\n]*\))?\s+(?:asserts?|checks?)\s+only\b[^\n]+\?$/i.exec(normalized);
-  if (testAssertion && !/^(?:finding|issue)\b|^f\d/i.test(q.header.trim())) {
+  const testIdentity = testAssertion ?? /^Test ([1-9]\d*)(?:\s+\([^()\n]*\))?(?:\s*[:—–-]\s*|\s+)[^\n]+\?$/i.exec(normalized);
+  if (testIdentity && !/^(?:finding|issue)\b|^f\d/i.test(q.header.trim())) {
     if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
         typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt))) return false;
     const headerTest = /^Test\s+([1-9]\d*)\b/i.exec(q.header.trim());
@@ -2446,8 +2484,30 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
         !description.split(/[.!?]\s+|\n/).some(clause =>
           /^(?:Correction:\s*)?(?:this|that|the)\s+(?:amendment|remedy|option|decision)\s+(?:is|has been)\s+(?:(?:only|just|an?)\s+)*(?:withdrawn|retracted|rejected|cancelled|canceled|not current|historical|hypothetical|quoted|source|example)\b/i.test(clause.trim()));
     });
-    if ((!headerTest || headerTest[1] === testAssertion[1]) && ownedPrefix && !framed && !conditionalContext && !withdrawn &&
-        currentAssessment && currentAmendment && ceoNumberedBriefDecision(q, normalized)) return true;
+    let reviewSubject = normalized;
+    if (!testAssertion) {
+      // A Test identity can ask for its assertion without restating the
+      // defect in its title. Normalize only the current owned ELI10 clause;
+      // retain the original title so source/competing identities stay visible.
+      const clauses = explanation.split(/(?<=[.!?])\s+/);
+      const assertion = /^(?:But\s+)?(?:the\s+)?(?:planned|proposed|current)\s+test\s+only\s+checks?\s+(.+)$/i;
+      const at = clauses.findIndex(clause => assertion.test(clause.trim()));
+      const decision = /^D([1-9]\d*)\s*[—–-]/i.exec(title);
+      const recommended = /^Recommendation:\s*([1-9]\d*)?[A-Z]\b/im.exec(q.question);
+      const headerIdentity = /^Test\s+([1-9]\d*)(?=\s|[:—–-]|$)/i.exec(q.header.trim());
+      const titleIdentities = normalized.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""')
+        .matchAll(/\bTest\s+(\d+(?:\.\d+)*)\b/gi);
+      if ((/^Test\s+\d/i.test(q.header.trim()) && (!headerIdentity || headerIdentity[1] !== testIdentity[1])) ||
+          (/^D\d/i.test(title) && !decision) ||
+          [...titleIdentities].some(identity => identity[1] !== testIdentity[1])) return false;
+      if (at < 0 || clauses.slice(0, at + 1).some(clause => !ceoCurrentBriefProse(clause)) ||
+          !ceoCurrentBriefProse(q.question, false) || /\b(?:Finding|Issue)\s+F?[1-9]\d*/i.test(normalized) ||
+          (decision && recommended?.[1] && decision[1] !== recommended[1])) return false;
+      reviewSubject += ` Test ${testIdentity[1]} checks only ${assertion.exec(clauses[at]!.trim())![1]}`;
+    }
+    if ((!headerTest || headerTest[1] === testIdentity[1]) && ownedPrefix && !framed && !conditionalContext && !withdrawn &&
+        currentAssessment && currentAmendment && ceoNumberedBriefDecision(q, reviewSubject, !testAssertion,
+          testAssertion ? undefined : option => ceoCurrentBriefProse(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && ceoCurrentBriefProse(option.description ?? ''))) return true;
   }
   // Section and finding counters identify a brief; they cannot supply its
   // current assessment or the authority of an offered amendment.
@@ -3471,6 +3531,10 @@ export async function runPlanSkillObservation(opts: {
   cwd?: string;
   /** Total budget for skill to reach a terminal outcome. Default 180000. */
   timeoutMs?: number;
+  /** Keep observing a judge-only waiting verdict when the caller requires
+   * a rendered prose choice list. Deterministic terminal outcomes retain
+   * precedence; this does not grant prose credit to a judge verdict. */
+  requireProseEvidence?: boolean;
   /** Extra CLI args appended after --permission-mode. Used by the v1.22+
    *  AskUserQuestion-blocked regression tests to pass
    *  `['--disallowedTools', 'AskUserQuestion']` (the flag set Conductor
@@ -3696,6 +3760,7 @@ export async function runPlanSkillObservation(opts: {
         lastJudgeVerdict = judgePtyState(visible, { testName: opts.skillName });
         if (lastJudgeVerdict.state === 'waiting' && !pendingSeededCompletion) {
           waitingEverObserved = true;
+          if (opts.requireProseEvidence && !proseAUQEverObserved) continue;
           return {
             outcome: 'asked',
             summary: `LLM judge: ${lastJudgeVerdict.reasoning} (state=waiting after ${Math.round(elapsed / 1000)}s)`,
@@ -3713,7 +3778,7 @@ export async function runPlanSkillObservation(opts: {
     // by the time the timeout fires, the buffer has moved past the
     // options into spinner state but the question DID surface earlier.
     const finalVisible = session.visibleSince(since);
-    if (proseAUQEverObserved || waitingEverObserved) {
+    if (proseAUQEverObserved || waitingEverObserved && !opts.requireProseEvidence) {
       return {
         outcome: 'asked',
         summary:
