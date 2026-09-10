@@ -92,10 +92,15 @@ function unsupportedSetup(visible: string, question: AskUserQuestionFingerprint,
 function routingSetupActions(question: AskUserQuestionFingerprint, allowTemporarySkip: boolean, knownSetupOffer = false) {
   const primary = question.promptSnippet.replace(/^(?:Routing\s*rules|CLAUDE\.md)\s*/i, '').split('?', 1)[0]!;
   const prompt = primary.replace(/\s+/g, '');
-  const options = question.options.map(option => ({
-    index: option.index,
-    title: option.label.split(/[│┌\r\n]/, 1)[0]!.replace(/\s+/g, ''),
-  }));
+  const options = question.options.map(option => {
+    const label = option.label.split(/[│┌\r\n]/, 1)[0]!.trim();
+    // A native label may repeat its menu letter. Remove one corresponding
+    // marker only for action matching; keep the original display identity.
+    const marker = /^([A-Z])\)[\t ]+/i.exec(label);
+    const action = marker && marker[1]!.toUpperCase().charCodeAt(0) - 64 === option.index
+      ? label.slice(marker[0].length) : label;
+    return { index: option.index, title: action.replace(/\s+/g, '') };
+  });
   const add = options.filter(option => /^Add(?:routingrules(?:toCLAUDE\.md)?|toCLAUDE\.md)(?:\(Recommended\))?$/i.test(option.title));
   // Match the declined setup action, not every English label separately:
   // No thanks/Skip may stand alone or opt into manual invocation. A manual
@@ -344,6 +349,10 @@ export function autoplanSetupDecision(visible: string, seen: ReadonlySet<string>
     ? completeSetupOptions(display, pending) : null;
   const actions = routingSetupActions(question, temporarySkipPanel?.length === 2);
   if (!actions) return { kind: 'unrelated' };
+  // Lettered labels are a new action presentation, not permission to use
+  // the older damaged-option fallback. Match the complete original menu.
+  if (question.options.some(option => /^[A-Z]\)[\t ]+/i.test(option.label.trim())) &&
+      completeSetupOptions(display, pending)?.length !== 2) return { kind: 'waiting' };
   const { add, decline } = actions;
   if (pending && (!question.nativeCall || pending.questions.length !== 1 || pending.questions[0]?.multiSelect)) return { kind: 'waiting' };
   // An intact Add-to-CLAUDE.md action identifies this setup offer even if

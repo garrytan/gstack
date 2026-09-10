@@ -45,6 +45,17 @@ export interface PtyScreen {
 export async function createPtyScreen(cols: number, rows: number): Promise<PtyScreen> {
   const Terminal = await loadTerminal();
   const terminal = new Terminal({ cols, rows, scrollback: 0, allowProposedApi: true });
+  // Match current CLI scalar column widths instead of xterm5's Unicode 6
+  // default. xterm still handles combining cells; this is not grapheme shaping.
+  terminal.unicode.register({
+    version: 'bun-scalar',
+    wcwidth(codepoint: number) {
+      const width = Bun.stringWidth(String.fromCodePoint(codepoint));
+      if (width !== 0 && width !== 1 && width !== 2) throw new Error('Invalid terminal scalar width.');
+      return width;
+    },
+  });
+  terminal.unicode.activeVersion = 'bun-scalar';
   let pending = 0;
   let failure: unknown;
   let final: string | undefined;

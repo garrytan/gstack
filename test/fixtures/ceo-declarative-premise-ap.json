@@ -1,0 +1,341 @@
+{
+  "description": "Exact six completed public native AskUserQuestion fingerprints from source AP distinct CEO snapshot; no private reasoning or native journal content. Actual snapshot recorded six setup calls and zero review calls; prospective classification does not change the paid failure.",
+  "sourceObservation": {
+    "path": ".context/ship-source-ap-delta-paid-20260910-v1/ceo-current-public-native-v1/plan-ceo-review-1789045534677-q9ju9a.json",
+    "sha256": "9a7586276ddac5dbe9b71be683786585bc1007dd3d943c64cedb6e2c081a4462"
+  },
+  "actualCounts": {
+    "setup": 6,
+    "review": 0
+  },
+  "fingerprints": [
+    {
+      "signature": "1cd12f69-4325-46e7-b900-3855862bd239:toolu_01MP57FboqQzbW4dKUhAUzaW",
+      "promptSnippet": "Routing D1 — Add gstack skill routing rules to this project's CLAUDE.md? Project/branch/task: gstack-plan-count-YPKqxN on main, CEO review of PLAN.md. ELI10: gstack wants a short \"when the user asks X, run skill Y\" section in CLAUDE.md so f",
+      "options": [
+        {
+          "index": 1,
+          "label": "Add routing rules (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "No thanks, invoke manually"
+        },
+        {
+          "index": 1,
+          "label": "Enable cross-project (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Project-scoped only"
+        }
+      ],
+      "observedAtMs": 199852,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "1cd12f69-4325-46e7-b900-3855862bd239",
+        "toolUseId": "toolu_01MP57FboqQzbW4dKUhAUzaW",
+        "questions": [
+          {
+            "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-YPKqxN on main, CEO review of PLAN.md.\nELI10: gstack wants a short \"when the user asks X, run skill Y\" section in CLAUDE.md so future sessions pick the right review skill automatically. This is a one-time onboarding prompt. Stakes: without it you type skill names by hand; with it Claude routes for you. Note: plan mode forbids editing CLAUDE.md or committing right now, so choosing A records your intent and I will apply it once plan mode ends (or you can run it after this review).\nStakes if we pick wrong: low either way; the setting is reversible with one config command.\nRecommendation: A because routing rules make later /plan-eng-review and /ship invocations automatic.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience now vs one fewer file touched in this fixture repo. <gstack-qid:gstack-routing-injection>",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "✅ Future sessions auto-route strategy/arch/ship requests to the right gstack skill. ✅ Standard gstack onboarding; matches other projects on this machine. ❌ Touches CLAUDE.md and needs a commit, which must wait until plan mode exits."
+              },
+              {
+                "label": "No thanks, invoke manually",
+                "description": "✅ CLAUDE.md stays exactly as seeded; nothing to commit in this fixture repo. ✅ Sets routing_declined=true so this prompt never repeats for this project. ❌ You type /plan-eng-review, /ship, etc. by hand every time."
+              }
+            ]
+          },
+          {
+            "question": "D2 — Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-YPKqxN on main, CEO review of PLAN.md.\nELI10: gstack keeps a local log of lessons learned per project. Cross-project mode lets this review also read lessons from your other repos on this machine. Nothing leaves the machine. Stakes: more prior context for reviews vs possible mixing of unrelated client codebases.\nStakes if we pick wrong: mild; a one-line config flips it back.\nRecommendation: A because a solo developer gets compounding review context at zero privacy cost.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader recall vs strict per-project isolation. <gstack-qid:gstack-cross-project-learnings>",
+            "header": "Learnings",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Enable cross-project (recommended)",
+                "description": "✅ Reviews can apply pitfalls and patterns learned in your other local projects. ✅ Fully local; no data leaves this machine, and it is reversible via gstack-config. ❌ If you work on multiple client codebases, lessons could cross-contaminate."
+              },
+              {
+                "label": "Project-scoped only",
+                "description": "✅ Strict isolation between codebases; nothing from other repos influences this review. ✅ Simplest privacy posture for consultants juggling several clients. ❌ This fresh fixture has zero learnings, so reviews start cold every time."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-YPKqxN on main, CEO review of PLAN.md.\nELI10: gstack wants a short \"when the user asks X, run skill Y\" section in CLAUDE.md so future sessions pick the right review skill automatically. This is a one-time onboarding prompt. Stakes: without it you type skill names by hand; with it Claude routes for you. Note: plan mode forbids editing CLAUDE.md or committing right now, so choosing A records your intent and I will apply it once plan mode ends (or you can run it after this review).\nStakes if we pick wrong: low either way; the setting is reversible with one config command.\nRecommendation: A because routing rules make later /plan-eng-review and /ship invocations automatic.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience now vs one fewer file touched in this fixture repo. <gstack-qid:gstack-routing-injection>": "Add routing rules (recommended)",
+          "D2 — Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-YPKqxN on main, CEO review of PLAN.md.\nELI10: gstack keeps a local log of lessons learned per project. Cross-project mode lets this review also read lessons from your other repos on this machine. Nothing leaves the machine. Stakes: more prior context for reviews vs possible mixing of unrelated client codebases.\nStakes if we pick wrong: mild; a one-line config flips it back.\nRecommendation: A because a solo developer gets compounding review context at zero privacy cost.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader recall vs strict per-project isolation. <gstack-qid:gstack-cross-project-learnings>": "Enable cross-project (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T13:08:20.808Z"
+      }
+    },
+    {
+      "signature": "1cd12f69-4325-46e7-b900-3855862bd239:toolu_017ZpZ8txuJ2gTEAKL1MB5kP",
+      "promptSnippet": "Approach D3 — How should the new Stripe handler be wired: through WebhookDispatcher or bypassing it? Project/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md Architecture section. ELI10: The plan says the new class \"bypasses the exist",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Register with WebhookDispatcher (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Separate class inside ingress guards, own routing"
+        },
+        {
+          "index": 3,
+          "label": "C) Full bypass as written in PLAN.md"
+        }
+      ],
+      "observedAtMs": 225961,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "1cd12f69-4325-46e7-b900-3855862bd239",
+        "toolUseId": "toolu_017ZpZ8txuJ2gTEAKL1MB5kP",
+        "questions": [
+          {
+            "question": "D3 — How should the new Stripe handler be wired: through WebhookDispatcher or bypassing it?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md Architecture section.\nELI10: The plan says the new class \"bypasses the existing WebhookDispatcher module\" for clean namespaces, yet the retained contracts say the handler \"runs inside those unchanged guards\" (signature check, event dedup, per-user lock, ownership and unknown-user guards). Those guards are what the dispatcher-side ingress applies before calling a handler. Bypassing the dispatcher means either duplicating every guard in a second webhook path or silently losing them. The class name Webhooks::StripePaymentWebhookHandler is already settled; only the wiring is open.\nStakes if we pick wrong: a second webhook path with copied guards drifts from the first, and a missed guard means replayed or unauthenticated payment events reach the DB.\nRecommendation: A because it keeps one webhook path, reuses every retained guard without copying, and satisfies the DRY and right-sized-diff preferences.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: one dispatch path with a namespaced handler class versus a parallel path that must re-earn every guard. <gstack-qid:plan-ceo-review-approach>",
+            "header": "Approach",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Register with WebhookDispatcher (recommended)",
+                "description": "Add Webhooks::StripePaymentWebhookHandler and register it with the existing WebhookDispatcher for payment_intent.succeeded, behind the existing feature flag. Effort S (human ~half day / CC ~10 min). Risk Low. ✅ Every retained guard applies unchanged; nothing is copied, so nothing drifts. ✅ Smallest diff: one class plus one registration line, and the settled namespace is honored. ❌ The handler stays coupled to the dispatcher's calling convention, so a later dispatcher refactor touches it."
+              },
+              {
+                "label": "B) Separate class inside ingress guards, own routing",
+                "description": "New handler class mounted by the ingress guard chain directly, with its own event-type routing next to WebhookDispatcher. Effort M (human ~1-2 days / CC ~30 min). Risk Med. ✅ Clean namespace boundary; the handler does not depend on WebhookDispatcher internals. ✅ Guards still apply because ingress applies them before either route. ❌ Two routing tables for Stripe events must stay in sync; a DRY violation the reviewer would flag."
+              },
+              {
+                "label": "C) Full bypass as written in PLAN.md",
+                "description": "Standalone StripePaymentWebhookHandler with its own endpoint path, outside WebhookDispatcher and its guard chain. Effort L (human ~1 week / CC ~1-2 h) because every guard must be reimplemented. Risk High. ✅ Maximum namespace separation, zero dependency on the dispatcher. ✅ Could be evolved independently of legacy webhook code. ❌ Contradicts the retained-contracts section; signature, dedup, lock, ownership and unknown-user guards would need duplicating or would be lost."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — How should the new Stripe handler be wired: through WebhookDispatcher or bypassing it?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md Architecture section.\nELI10: The plan says the new class \"bypasses the existing WebhookDispatcher module\" for clean namespaces, yet the retained contracts say the handler \"runs inside those unchanged guards\" (signature check, event dedup, per-user lock, ownership and unknown-user guards). Those guards are what the dispatcher-side ingress applies before calling a handler. Bypassing the dispatcher means either duplicating every guard in a second webhook path or silently losing them. The class name Webhooks::StripePaymentWebhookHandler is already settled; only the wiring is open.\nStakes if we pick wrong: a second webhook path with copied guards drifts from the first, and a missed guard means replayed or unauthenticated payment events reach the DB.\nRecommendation: A because it keeps one webhook path, reuses every retained guard without copying, and satisfies the DRY and right-sized-diff preferences.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: one dispatch path with a namespaced handler class versus a parallel path that must re-earn every guard. <gstack-qid:plan-ceo-review-approach>": "A) Register with WebhookDispatcher (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T13:08:46.414Z"
+      }
+    },
+    {
+      "signature": "1cd12f69-4325-46e7-b900-3855862bd239:toolu_01L1BDsPzrPrXjc79Yq3bCkv",
+      "promptSnippet": "Email leg D4 (Issue 2) — The inline email leg has no error handling and the transaction boundary is unspecified. How should the handler treat a mail failure? Project/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Webhook fan-out\" s",
+      "options": [
+        {
+          "index": 1,
+          "label": "2A) Commit first, rescue named mail errors (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "2B) Commit first, let the mail exception propagate"
+        },
+        {
+          "index": 3,
+          "label": "2C) Keep as written (inline, no handling, boundary unspecified)"
+        }
+      ],
+      "observedAtMs": 284256,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "1cd12f69-4325-46e7-b900-3855862bd239",
+        "toolUseId": "toolu_01L1BDsPzrPrXjc79Yq3bCkv",
+        "questions": [
+          {
+            "question": "D4 (Issue 2) — The inline email leg has no error handling and the transaction boundary is unspecified. How should the handler treat a mail failure?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Webhook fan-out\" section.\nELI10: After marking the user paid, the handler calls the shared mail client, which rethrows MailTimeout (1 s deadline) or its delivery error. Today the plan lets that exception fly. If the email runs inside the DB transaction, a mail outage rolls back the payment update and the user stays unpaid until the outage ends. If it runs after commit, the ingress returns 500 for a payment that already committed, Stripe replays it for up to 72 hours, the \"failed webhook\" alert fires for a mail problem, and the runbook's \"never replay the payment blindly\" rule is violated automatically. The mail client already writes a durable retry record and the on-call alert already watches that backlog, so the handler does not need to retry itself.\nStakes if we pick wrong: paid users shown as unpaid during any mail outage, or a flood of misattributed webhook-failure alerts and a Stripe endpoint at risk of being disabled.\nRecommendation: 2A because it makes every failure visible in the right place (mail dashboard, not webhook alert), keeps DB failures retryable, and rescues only named exceptions per the \"every error has a name\" rule.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: name the exceptions and commit first, or let Stripe's replay do double duty as a mail retry. <gstack-qid:plan-ceo-review-error-map>",
+            "header": "Email leg",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A) Commit first, rescue named mail errors (recommended)",
+                "description": "Commit the user update transaction, then call the mail client outside it. Rescue only MailTimeout and the client's delivery error class (confirm exact name at its raise site); never rescue StandardError. On rescue: structured log with event ID, user ID, PaymentIntent ID, exception class; increment a handler-level payment_receipt_send_failed metric; return success so the dedup guard records completion and Stripe stops. DB exceptions stay unrescued (500, retry). Tests: mail timeout → 200, update committed, completion marker set, retry record present. Effort S (human ~2 h / CC ~10 min). ✅ A mail outage never blocks or rolls back a committed payment. ✅ Failure shows up on the mail dashboard and retry backlog where the runbook already looks. ❌ The receipt arrives only when the existing retry procedure sends it, not on Stripe's schedule."
+              },
+              {
+                "label": "2B) Commit first, let the mail exception propagate",
+                "description": "Move the email after commit but keep no rescue: mail failure → 500 → Stripe retries the whole event; update is idempotent and the mail idempotency key prevents duplicate sends. Effort S (human ~1 h / CC ~5 min). ✅ No new rescue code; Stripe's backoff acts as the retry schedule. ✅ Idempotency key and idempotent update keep a replay harmless for the payment. ❌ Webhook-failure alert fires for mail problems, completion marker is never recorded, two retry paths race, and a long outage risks Stripe disabling the endpoint."
+              },
+              {
+                "label": "2C) Keep as written (inline, no handling, boundary unspecified)",
+                "description": "Ship the fan-out exactly as PLAN.md describes. Effort none. ✅ Zero additional code. ✅ Matches the sketch literally. ❌ If the email runs inside the transaction, a mail outage rolls back the payment update and the user stays unpaid; the failure is only visible via a 500 that the runbook tells on-call not to replay."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 (Issue 2) — The inline email leg has no error handling and the transaction boundary is unspecified. How should the handler treat a mail failure?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Webhook fan-out\" section.\nELI10: After marking the user paid, the handler calls the shared mail client, which rethrows MailTimeout (1 s deadline) or its delivery error. Today the plan lets that exception fly. If the email runs inside the DB transaction, a mail outage rolls back the payment update and the user stays unpaid until the outage ends. If it runs after commit, the ingress returns 500 for a payment that already committed, Stripe replays it for up to 72 hours, the \"failed webhook\" alert fires for a mail problem, and the runbook's \"never replay the payment blindly\" rule is violated automatically. The mail client already writes a durable retry record and the on-call alert already watches that backlog, so the handler does not need to retry itself.\nStakes if we pick wrong: paid users shown as unpaid during any mail outage, or a flood of misattributed webhook-failure alerts and a Stripe endpoint at risk of being disabled.\nRecommendation: 2A because it makes every failure visible in the right place (mail dashboard, not webhook alert), keeps DB failures retryable, and rescues only named exceptions per the \"every error has a name\" rule.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: name the exceptions and commit first, or let Stripe's replay do double duty as a mail retry. <gstack-qid:plan-ceo-review-error-map>": "2A) Commit first, rescue named mail errors (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T13:09:44.206Z"
+      }
+    },
+    {
+      "signature": "1cd12f69-4325-46e7-b900-3855862bd239:toolu_01CXGZMjp9T5jBjspXVUf8wT",
+      "promptSnippet": "SQL lookup D5 (Issue 3) — The lookup interpolates request.params.userId into a raw SQL fragment. How should the lookup be built? Project/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Database access\" section. ELI10: The retained c",
+      "options": [
+        {
+          "index": 1,
+          "label": "3A) Bound-parameter lookup via existing DB client (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "3B) Escape the string, keep the raw fragment"
+        },
+        {
+          "index": 3,
+          "label": "3C) Keep raw interpolation as written"
+        }
+      ],
+      "observedAtMs": 332009,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "1cd12f69-4325-46e7-b900-3855862bd239",
+        "toolUseId": "toolu_01CXGZMjp9T5jBjspXVUf8wT",
+        "questions": [
+          {
+            "question": "D5 (Issue 3) — The lookup interpolates request.params.userId into a raw SQL fragment. How should the lookup be built?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Database access\" section.\nELI10: The retained contracts spell it out: user_id arrives as an opaque TEXT string with punctuation and Unicode, the adapter does not escape or validate it, and a valid Stripe signature does not make it safe for SQL. Putting that string straight into a SQL fragment is classic SQL injection. Anyone who can influence PaymentIntent metadata (a compromised dashboard user, a misconfigured client, a future feature that lets customers set metadata) can read or change other rows. The ownership guard compares identity; it does not sanitize.\nStakes if we pick wrong: a single crafted metadata value dumps or rewrites the users table through a webhook that is, by design, reachable from the internet.\nRecommendation: 3A because a bound parameter is the standard-library-tier fix, matches \"explicit over clever\", and needs no ID-format rule that the contracts forbid.\nCompleteness: A=10/10, B=5/10, C=0/10\nNet: bind the value and test with hostile strings, or keep string-building and hope metadata stays honest. <gstack-qid:plan-ceo-review-security>",
+            "header": "SQL lookup",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3A) Bound-parameter lookup via existing DB client (recommended)",
+                "description": "Use the existing DB client's parameterized query (or the existing user lookup helper if one takes an id) with userId as a bind value, never string-built. No format cast or length rule, honoring the opaque TEXT contract. Tests: userId of `' OR 1=1 --`, `'; DROP TABLE users; --`, a Unicode string, and a 4 KB string each return not-found (200 via retained guard) and touch no other row; a normal id returns exactly one row. Effort S (human ~1 h / CC ~5 min). ✅ Removes the injection class entirely; the value is data, never SQL. ✅ Reuses the shared client, so tracing and deadlines apply unchanged. ❌ Requires locating the client's bind API; if the codebase has only string SQL, the helper must be added first."
+              },
+              {
+                "label": "3B) Escape the string, keep the raw fragment",
+                "description": "Keep the SQL fragment but pass userId through a quoting/escape helper before interpolation. Effort S (human ~30 min / CC ~3 min). ✅ Minimal change to the sketch's shape. ✅ Blocks the common quote-based payloads. ❌ Escape-then-interpolate is fragile across encodings and dialects; one missed call site or a Unicode edge case reopens the hole, and reviewers keep having to re-verify it."
+              },
+              {
+                "label": "3C) Keep raw interpolation as written",
+                "description": "Trust that only the app writes PaymentIntent metadata and ship the raw fragment. Effort none. ✅ Zero code change. ✅ No new tests to write. ❌ Contradicts the retained contract that says the string is not SQL-safe; any path that lets a non-app actor set metadata becomes a full SQL injection against payment data."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 (Issue 3) — The lookup interpolates request.params.userId into a raw SQL fragment. How should the lookup be built?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Database access\" section.\nELI10: The retained contracts spell it out: user_id arrives as an opaque TEXT string with punctuation and Unicode, the adapter does not escape or validate it, and a valid Stripe signature does not make it safe for SQL. Putting that string straight into a SQL fragment is classic SQL injection. Anyone who can influence PaymentIntent metadata (a compromised dashboard user, a misconfigured client, a future feature that lets customers set metadata) can read or change other rows. The ownership guard compares identity; it does not sanitize.\nStakes if we pick wrong: a single crafted metadata value dumps or rewrites the users table through a webhook that is, by design, reachable from the internet.\nRecommendation: 3A because a bound parameter is the standard-library-tier fix, matches \"explicit over clever\", and needs no ID-format rule that the contracts forbid.\nCompleteness: A=10/10, B=5/10, C=0/10\nNet: bind the value and test with hostile strings, or keep string-building and hope metadata stays honest. <gstack-qid:plan-ceo-review-security>": "3A) Bound-parameter lookup via existing DB client (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T13:10:32.461Z"
+      }
+    },
+    {
+      "signature": "1cd12f69-4325-46e7-b900-3855862bd239:toolu_01CPxY3gKbX1Zbg7Lv3f8mL4",
+      "promptSnippet": "Tests D6 (Issue 4) — PLAN.md plans no automated tests and relies on the existing integration suite plus a manual staging replay. What test coverage should the plan require? Project/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Tes",
+      "options": [
+        {
+          "index": 1,
+          "label": "4A) Unit + integration tests for every approved remedy (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "4B) Integration happy-path test only"
+        },
+        {
+          "index": 3,
+          "label": "4C) Keep as written: no automated tests, manual staging replay"
+        }
+      ],
+      "observedAtMs": 382289,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "1cd12f69-4325-46e7-b900-3855862bd239",
+        "toolUseId": "toolu_01CPxY3gKbX1Zbg7Lv3f8mL4",
+        "questions": [
+          {
+            "question": "D6 (Issue 4) — PLAN.md plans no automated tests and relies on the existing integration suite plus a manual staging replay. What test coverage should the plan require?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Tests\" section.\nELI10: The existing suite predates this handler, so nothing in it asserts the new behaviors: bound lookup with hostile strings, commit-before-send, the named mail rescue, one receipt with zero orders, and a 500 with no completion marker on DB failure. The staging checklist is a one-time manual check, not regression coverage. The retained contracts explicitly say no automated tests are planned, which leaves the three approved remedies unprotected against the next refactor.\nStakes if we pick wrong: a future change reintroduces raw SQL or moves the email back inside the transaction and nothing fails until production.\nRecommendation: 4A because \"well-tested code is non-negotiable\" and every approved remedy already names its assertion; writing them is minutes with CC.\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: encode the approved remedies as tests now, or keep them as review prose that nothing enforces. <gstack-qid:plan-ceo-review-tests>",
+            "header": "Tests",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A) Unit + integration tests for every approved remedy (recommended)",
+                "description": "Unit: hostile userId strings (`' OR 1=1 --`, `'; DROP TABLE users; --`, Unicode, 4 KB) each return not-found and touch no other row; MailTimeout and the delivery error each yield update committed, marker recorded, log + metric emitted, 200 returned; DB update error yields 500 and no marker; zero orders yields exactly one receipt with empty summary; N orders yields exactly one receipt and exactly one orders query (query-count assertion). Integration: signed fixture event through WebhookDispatcher with the flag on reaches the new handler; duplicate event skips it. Effort M (human ~1 day / CC ~20 min). ✅ Every approved remedy has a failing test if regressed. ✅ Query-count and exact-one-receipt assertions catch the two silent classes (N+1, duplicate send). ❌ Needs test doubles for the mail client and a DB failure injection point."
+              },
+              {
+                "label": "4B) Integration happy-path test only",
+                "description": "One signed fixture event through the dispatcher asserting user paid and one receipt sent. Effort S (human ~2 h / CC ~5 min). ✅ Proves the wiring (D3) and flag routing work end to end. ✅ Cheap and stable. ❌ Does not cover injection strings, mail failure, DB failure, zero orders or query count, so three of the four approved remedies stay unenforced."
+              },
+              {
+                "label": "4C) Keep as written: no automated tests, manual staging replay",
+                "description": "Rely on the existing suite and the rollout checklist. Effort none. ✅ No test code to maintain. ✅ Staging replay still catches a fully broken happy path before broad enable. ❌ Conflicts with the stated testing preference and leaves the injection, rescue and N+1 fixes regressable without any signal."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 (Issue 4) — PLAN.md plans no automated tests and relies on the existing integration suite plus a manual staging replay. What test coverage should the plan require?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Tests\" section.\nELI10: The existing suite predates this handler, so nothing in it asserts the new behaviors: bound lookup with hostile strings, commit-before-send, the named mail rescue, one receipt with zero orders, and a 500 with no completion marker on DB failure. The staging checklist is a one-time manual check, not regression coverage. The retained contracts explicitly say no automated tests are planned, which leaves the three approved remedies unprotected against the next refactor.\nStakes if we pick wrong: a future change reintroduces raw SQL or moves the email back inside the transaction and nothing fails until production.\nRecommendation: 4A because \"well-tested code is non-negotiable\" and every approved remedy already names its assertion; writing them is minutes with CC.\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: encode the approved remedies as tests now, or keep them as review prose that nothing enforces. <gstack-qid:plan-ceo-review-tests>": "4A) Unit + integration tests for every approved remedy (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T13:11:22.241Z"
+      }
+    },
+    {
+      "signature": "1cd12f69-4325-46e7-b900-3855862bd239:toolu_018cp9mTysA8s1htqVK1VzaS",
+      "promptSnippet": "Order load D7 (Issue 5) — The handler fetches each order in a loop after the user lookup. How should orders be loaded? Project/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Performance\" section. ELI10: One query per order is the c",
+      "options": [
+        {
+          "index": 1,
+          "label": "5A) Single bound query for the receipt summary (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "5B) Keep the loop, cap it and preload in batches"
+        },
+        {
+          "index": 3,
+          "label": "5C) Keep the per-order loop as written"
+        }
+      ],
+      "observedAtMs": 417995,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "1cd12f69-4325-46e7-b900-3855862bd239",
+        "toolUseId": "toolu_018cp9mTysA8s1htqVK1VzaS",
+        "questions": [
+          {
+            "question": "D7 (Issue 5) — The handler fetches each order in a loop after the user lookup. How should orders be loaded?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Performance\" section.\nELI10: One query per order is the classic N+1 pattern. The retained DB and ingress deadlines bound all DB work to 2 seconds. A user with a few hundred orders makes the loop blow that deadline, the DB client raises, the ingress returns 500, and Stripe retries into the same loop for up to 72 hours. That user never gets marked paid, and the failure looks like a DB outage rather than a data-shape problem. The receipt only needs a summary, so one query selecting the summary columns for the user is sufficient.\nStakes if we pick wrong: heavy customers, the ones most worth keeping, are exactly the ones whose payments never complete.\nRecommendation: 5A because one bound query is smaller code than a loop, fits inside the deadline at any order count that fits in memory, and the query-count test from D6 locks it in.\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: one query with the columns the receipt needs, or a loop whose runtime scales with customer loyalty. <gstack-qid:plan-ceo-review-performance>",
+            "header": "Order load",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "5A) Single bound query for the receipt summary (recommended)",
+                "description": "Replace the loop with one query: orders WHERE user_id = ? selecting only the columns the receipt summary renders, via the existing DB client. Confirm an index on orders.user_id exists (add a migration only if missing). Assert exactly one orders query in the unit test (D6). Log order count on the outcome trace for debuggability. Effort S (human ~1 h / CC ~5 min). ✅ Latency is one round trip regardless of order count; deadline headroom stays intact. ✅ Less code than the loop and covered by an exact query-count assertion. ❌ If orders.user_id is unindexed, a migration is needed before enabling the flag."
+              },
+              {
+                "label": "5B) Keep the loop, cap it and preload in batches",
+                "description": "Iterate but batch-load orders in pages of 100 and stop at a fixed cap, noting truncation in the receipt. Effort M (human ~3 h / CC ~15 min). ✅ Bounds worst-case time without changing receipt semantics for small users. ✅ Reuses the loop shape from the sketch. ❌ Adds paging and truncation logic that a single query makes unnecessary, and truncating the summary changes the notification contract."
+              },
+              {
+                "label": "5C) Keep the per-order loop as written",
+                "description": "Ship the loop and rely on the 2 s deadline to fail loudly. Effort none. ✅ No change from the sketch. ✅ Small users are unaffected. ❌ Large users hit the deadline on every Stripe retry and never get marked paid; the failure is misread as a DB outage."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 (Issue 5) — The handler fetches each order in a loop after the user lookup. How should orders be loaded?\nProject/branch/task: gstack-plan-count-YPKqxN on main, PLAN.md \"Performance\" section.\nELI10: One query per order is the classic N+1 pattern. The retained DB and ingress deadlines bound all DB work to 2 seconds. A user with a few hundred orders makes the loop blow that deadline, the DB client raises, the ingress returns 500, and Stripe retries into the same loop for up to 72 hours. That user never gets marked paid, and the failure looks like a DB outage rather than a data-shape problem. The receipt only needs a summary, so one query selecting the summary columns for the user is sufficient.\nStakes if we pick wrong: heavy customers, the ones most worth keeping, are exactly the ones whose payments never complete.\nRecommendation: 5A because one bound query is smaller code than a loop, fits inside the deadline at any order count that fits in memory, and the query-count test from D6 locks it in.\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: one query with the columns the receipt needs, or a loop whose runtime scales with customer loyalty. <gstack-qid:plan-ceo-review-performance>": "5A) Single bound query for the receipt summary (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T13:11:58.448Z"
+      }
+    }
+  ]
+}

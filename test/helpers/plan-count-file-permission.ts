@@ -84,7 +84,14 @@ function croppedEditTarget(screen: string, cwd: string, expected: string): strin
   let diff = pathOnly ? text.slice(header![0].length) : text.replace(/^[╌─━]{3,}[ \t]*\n/, '');
   // A wrapped unchanged row has no +/- marker. Its visible tail must belong
   // to the preceding line of the exact current owned file, not arbitrary prose.
-  const continuation = /^ {6}([^+\-\s][^\n]*)\n(?= {0,3}([1-9]\d*)  )/.exec(diff);
+  let continuation = /^( +)([^+\-\s][^\n]*)\n(?=( {0,3}[1-9]\d*  ))/.exec(diff);
+  // A normal numbered diff row is not a newly recognized wrapped tail.
+  if (continuation && continuation[1]!.length !== 6 &&
+      /^[1-9]\d* [ +\-]/.test(continuation[2]!)) continuation = null;
+  // Preserve the existing six-space crop. Other native gutters must align
+  // with the next unchanged row's actual padding and line-number width.
+  if (continuation && continuation[1]!.length !== 6 &&
+      continuation[1]!.length !== continuation[3]!.length) return undefined;
   if (continuation) diff = diff.slice(continuation[0].length);
   if (!/^(?:\s*\d+\s+[ +\-]?| {4,5}[+\-])/.test(diff) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
   const prompt = [...text.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?\/\\]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
@@ -98,7 +105,7 @@ function croppedEditTarget(screen: string, cwd: string, expected: string): strin
   const target = path.join(directory, prompt[1]!.trim());
   if (continuation) {
     if (target !== expected) return undefined;
-    const nextLine = Number(continuation[2]);
+    const nextLine = Number(continuation[3]!.trim());
     if (!Number.isSafeInteger(nextLine) || nextLine < 2) return undefined;
     try {
       const stat = fs.lstatSync(target);
@@ -111,7 +118,7 @@ function croppedEditTarget(screen: string, cwd: string, expected: string): strin
         const length = fs.readSync(fd, bytes, 0, bytes.length, 0);
         if (length !== opened.size || length > MAX_RECORD_BYTES) return undefined;
         const prior = bytes.subarray(0, length).toString('utf8').split(/\r?\n/)[nextLine - 2];
-        if (!prior?.trimEnd().endsWith(continuation[1]!.trimEnd())) return undefined;
+        if (!prior?.trimEnd().endsWith(continuation[2]!.trimEnd())) return undefined;
       } finally { fs.closeSync(fd); }
     } catch { return undefined; }
   }

@@ -40,6 +40,7 @@ import { createFilePermissionRecorder, currentFilePermissionBinding, type FilePe
 import { createAutoplanArtifactRecorder } from './autoplan-artifact-recorder';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
+import { isRecordedDxManualNavigation } from './dx-selected-navigation';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -1956,7 +1957,7 @@ function isCompletedDxHandoff(call: NativePlanQuestionCall): boolean {
   if (!call.answered || call.failed || call.questions.length !== 1 ||
       !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length) return false;
   const q = call.questions[0]!;
-  if (manualDxTaskNavigation(call) || resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call) || architecturalDxTaskNavigation(call)) return true;
+  if (isRecordedDxManualNavigation(call) || manualDxTaskNavigation(call) || resolvedDxTaskNavigation(call) || specifiedDxTaskNavigation(call) || architecturalDxTaskNavigation(call)) return true;
   const header = q.header.trim().replace(/^D\s*\d+\s*(?:[—–:-]\s*)?/i, '');
   const question = q.question.replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const completionLines: string[] = [];
@@ -2575,6 +2576,61 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   }
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
   const parenthesized = /^D[1-9]\d*\s+\((?:issue|finding)\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*([^\n?]+\?)$/i.exec(title);
+  const premise = parenthesized && /^((?:the|this|current)\s+[^\n?]+[.!])\s+(?:What|How|Which|Should)\b[^\n?]+\?$/i.exec(parenthesized[2]!);
+  if (allowQuestionId && premise) {
+    // The same owned issue can state its defect before asking for a remedy.
+    // Keep the native identity and current assessment; punctuation supplies
+    // neither a finding nor an offered change.
+    if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+        typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt))) return false;
+    const ownedText = (text: string) => text
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    const currentProse = (text: string) => ceoCurrentBriefProse(text) && !/^(?:previously|formerly)\b/i.test(text.trim());
+    const prefix = ownedText(q.question.slice(title.length, q.question.indexOf('\nELI10:')));
+    const contexts = [...prefix.matchAll(/^Project\/branch\/task:\s*(.+)$/gm)];
+    const numberedHeader = /^(?:(?:Finding|Issue)\s+F?|F)([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+[a-z][a-z -]*)?$/i.exec(q.header.trim());
+    if (contexts.length !== 1 || !currentProse(contexts[0]![1]!) ||
+        !prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+          /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line)) ||
+        (/^(?:Finding|Issue)\b|^F\d/i.test(q.header.trim()) && (!numberedHeader || numberedHeader[1] !== parenthesized![1])) ||
+        /\b(?:if|unless|whether|hypothetical|historical|quoted|source|example|template|previously|formerly|not|never)\b|\b(?:no longer|used to)\b/i.test(ownedText(premise[1]!)) ||
+        !currentProse(premise[1]!) || !ceoCurrentBriefProse(q.question, false) ||
+        !currentProse(/^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '')) return false;
+    return ceoNumberedBriefDecision(q, premise[1]!, false, option =>
+      currentProse(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) &&
+      currentProse(option.description ?? '') && /\w/.test(ownedText(option.description ?? '')));
+  }
+  if (allowQuestionId && !identity && !parenthesized && !numberedSubject) {
+    // "Does not say whether" states the same current missing contract as
+    // "does not specify whether". Only its owned assessment can supply that
+    // equivalence; keep the completed native decision and rich remedy checks.
+    const decision = /^D([1-9]\d*)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+    const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
+    const clauses = explanation.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '').split(/[.!?]\s+/);
+    const currentProse = (text: string) => ceoCurrentBriefProse(text) && !/^(?:previously|formerly)\b/i.test(text.trim());
+    const omission = /^(?:the|this)\s+plan\s+(?:also\s+)?(?:does not|doesn't)\s+say\s+whether\s+(.+)$/i;
+    const at = clauses.findIndex(clause => omission.test(clause.trim()));
+    if (decision && at >= 0) {
+      const prefix = q.question.slice(title.length, q.question.indexOf('\nELI10:'))
+        .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+      const contexts = [...prefix.matchAll(/^Project\/branch\/task:\s*(.+)$/gm)];
+      const recommendation = /^Recommendation:\s*([1-9]\d*)?[A-Z]\b/im.exec(q.question);
+      if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+          typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt)) ||
+          /^(?:Finding|Issue|Section|Test)\b|^F\d/i.test(q.header.trim()) ||
+          /\b(?:source|quoted|historical|hypothetical|example|template|earlier|previous)\b/i.test(title) ||
+          (recommendation?.[1] && recommendation[1] !== decision[1]) ||
+          contexts.length !== 1 || !currentProse(contexts[0]![1]!) ||
+          !prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+            /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line)) ||
+          !clauses.slice(0, at + 1).every(clause => currentProse(clause)) ||
+          !ceoCurrentBriefProse(q.question, false)) return false;
+      return ceoNumberedBriefDecision(q, `The plan does not specify whether ${omission.exec(clauses[at]!.trim())![1]}`, false,
+        option => currentProse(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && currentProse(option.description ?? ''));
+    }
+  }
   if (parenthesized && (allowQuestionId || /^D[1-9]\d*\s+\(Finding\s/i.test(title) || (parenthesized[1]!.includes('.') &&
       !/^(?:(?:Finding|Issue)\s+F?|F)[1-9]\d*/i.test(q.header.trim())))) return ceoParenthesizedIssueBrief(q, parenthesized[1]!);
   // A descriptive header can name the affected test. The full owned brief,
