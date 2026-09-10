@@ -1,5 +1,88 @@
 # Changelog
 
+## [1.85.0.0] - 2026-09-10
+
+**Decks now begin with product truth.**
+**They ship as decision-ready web surfaces, with a PDF only when the audience needs one.**
+
+gstack now includes `/deck` for adding or seriously redesigning an interactive
+deck inside an existing site. It reads the product, prior material, router,
+visual system, host configuration, and analytics before choosing what to build.
+Then it asks only the seven decisions that change the result: audience, goal,
+source material, access, route or host, requested research, and analytics.
+
+The result is a real site surface, not a generic slide export. It follows the
+target site's own stack, supports shareable tab links and keyboard and phone
+use, keeps claims grounded, and asks for confirmation before a live
+configuration change. Its headline-only story test carries the buyer, pain,
+thesis, wedge, product breadth, proof, competition, team edge, and ask, so
+important facts do not disappear behind headings such as "Platform" or
+"Traction."
+
+### The deck numbers that matter
+
+Source: the checked-in `/deck` contract and its three pinned test files. Run
+`bun test test/deck-template-invariants.test.ts test/deck-template-sync.test.ts test/skill-e2e-deck.test.ts`.
+
+| Property | Before | After | Delta |
+|----------|--------|-------|-------|
+| Dedicated interactive-deck workflow | 0 | 1 | +1 |
+| Material choices collected after site audit | 0 | 7 | +7 |
+| Headline-only story checkpoints | 0 | 9 | +9 |
+| Required visual QA contexts | 0 | 4 viewports plus scroll bottoms | new |
+| Optional PDF delivery | 0 | pre-generated, default off | new |
+
+The constraint is the point. A deck can look polished while silently losing a
+founder story, shrinking proof, clipping a decision-critical footnote, or
+leaking a sensitive leave-behind. The workflow makes those failures visible
+before release.
+
+### What this means for people making a case
+
+Use `/deck` when a raise, sale, partnership, or internal decision needs an
+interactive narrative that respects the product already in the repository. It
+will go deep on investors when that is the audience, but it does not assume an
+investor deck or a JavaScript stack. Start with `/deck`, give it the material
+choices that matter, and keep deployment and analytics changes behind your
+explicit confirmation.
+
+If you select a PDF companion under Route / host, `/deck` requires a
+pre-generated, access-aware release asset from the approved story—not a runtime
+Export button. It uses a compatible path already native to the target when one
+exists, verifies the actual built URL and every rendered page, and never adds a
+renderer, framework, or tracking event merely to produce a PDF.
+
+### Itemized changes
+
+#### Added
+- `/deck`, a product-first workflow that inspects the existing site and its
+  material before making bounded intake decisions or choosing an implementation.
+- Decision-ready story, proof, and competition gates: a headline-only narrative
+  test, preservation ledger, grounded public-source comparisons, exact
+  anonymized evidence, and a data-room-on-request pattern for sensitive detail.
+- Accessible, deep-linkable deck delivery requirements: tabs and browser history,
+  keyboard focus, mobile-first layout, in-flow notes and callouts, four viewport
+  classes, scroll-bottom captures, and built-output route and asset checks.
+- Privacy-safe anonymous engagement analytics guidance that stays separate from
+  named-recipient tracking and carries a fixed deck revision.
+- Optional pre-generated PDF companion delivery: off by default, derived from
+  the approved story, built through a compatible target-native path, and checked
+  as a real access-aware asset and every rendered page rather than a runtime
+  export button.
+
+#### Changed
+- The skill catalog, install guidance, routing instructions, and generated host
+  documentation expose `/deck` under the same slash-command convention as the
+  rest of gstack.
+- `/deck` follows the target project's native runtime, framework, package manager,
+  and deployment tooling. It does not require a new JavaScript, Python, browser,
+  or package-install stack in the target project.
+
+#### For contributors
+- Three deck contract test files pin the generated skill, delivery gates, and
+  stack-neutral fixture behavior; its behavioral scenarios remain periodic and
+  its deterministic contracts run free.
+
 ## [1.84.1.0] - 2026-09-09
 
 ### Changed

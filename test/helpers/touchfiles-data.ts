@@ -316,6 +316,34 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-review-detector-shim-dom': ['design-review/**', 'scripts/resolvers/design.ts', 'lib/design-detect-contract.ts', 'lib/dom-dump-script.ts', 'lib/dom-dump.js', 'bin/gstack-design-detect.ts', 'browse/src/**', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'test/fixtures/review-eval-design-slop.*', 'test/skill-e2e-design.test.ts'],
   'design-html-slop-gate':          ['design-html/**', 'scripts/resolvers/design.ts', 'lib/design-detect-contract.ts', 'bin/gstack-design-detect.ts', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'test/skill-e2e-design.test.ts'],
 
+  // /deck — bounded intake/access plus native Flask and nested static delivery.
+  'deck-investor-intake': [
+    'deck/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts', 'test/helpers/llm-judge.ts',
+  ],
+  'deck-investor-evidence-followup': [
+    'deck/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts', 'browse/src/**',
+    '.github/docker/Dockerfile.ci', '.github/workflows/evals-periodic.yml',
+  ],
+  'deck-full-flask-delivery': [
+    'deck/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts', 'browse/src/**',
+    '.github/docker/Dockerfile.ci', '.github/workflows/evals-periodic.yml',
+  ],
+  'deck-natural-static-monorepo': [
+    'deck/**', 'plan-ceo-review/**', 'plan-design-review/**',
+    'plan-eng-review/**', 'design-review/**', 'qa/**', 'review/**',
+    'document-release/**', 'scripts/gen-skill-docs.ts',
+    'test/skill-e2e-deck.test.ts', 'test/helpers/e2e-helpers.ts',
+    'browse/src/**', '.github/docker/Dockerfile.ci',
+    '.github/workflows/evals-periodic.yml',
+  ],
+  'deck-access-boundary-intake': [
+    'deck/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts', '.github/workflows/evals-periodic.yml',
+  ],
+
   // /diagram (diagram-render bundle consumers). Triplet = deterministic
   // functional (gate); authoring quality = LLM-judged benchmark (periodic).
   // Both render the triplet through gstack-render (lib/aside-render.ts +
@@ -745,6 +773,13 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-review-detector-shim': 'gate',       // deterministic sentinels from the fake engine (source mode on a diff)
   'design-review-detector-shim-dom': 'gate',   // same shim, DOM mode through the browse binary's dump; self-skips when the binary is absent
   'design-html-slop-gate': 'periodic',         // one-pass gate behavior is a judgment call on a fake engine's fixed output
+
+  // /deck — agent behavior is paid and non-deterministic.
+  'deck-investor-intake': 'periodic',
+  'deck-investor-evidence-followup': 'periodic',
+  'deck-full-flask-delivery': 'periodic',
+  'deck-natural-static-monorepo': 'periodic',
+  'deck-access-boundary-intake': 'periodic',
 
   // /diagram — triplet is deterministic functional (gstack-render falls back
   // to the browse daemon, so CI runs it); judge is a quality benchmark

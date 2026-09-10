@@ -15,6 +15,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. Previews render through your Aside browser. |
+| [`/deck`](#deck) | **Deck Builder** | Add or seriously redesign an evidence-led interactive web deck on an existing site. It ships accessible deep links and mobile layouts, with an optional pre-generated PDF companion. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/scrape`](#browse) | **Browser Data Extractor** | Pull structured data off a web page — tables, lists, prices — in your Aside browser with the page's real logged-in state. Same driver contract as `/browse`. On the fallback browser, a codified browser-skill answers a repeat intent in ~200ms. |
@@ -540,6 +541,25 @@ You:    Done
 
 Claude: Saved to ~/.gstack/projects/myapp/designs/hero-20260330/finalized.html
 ```
+
+---
+
+## `/deck`
+
+Use `/deck` to add or seriously redesign an evidence-led interactive web deck
+inside an existing site. It starts with the product, existing materials, design
+system, router, host configuration, and available proof before asking the
+audience- and decision-specific questions that change the outcome.
+
+The result is a real product surface rather than a generic slide export:
+accessible tabs, stable shareable section links, keyboard controls, mobile-first
+layouts, and a claim ledger that keeps sensitive proof anonymized or behind the
+right access boundary. It follows the target project's existing stack instead
+of assuming a new framework or toolchain.
+
+A PDF companion is optional and off by default. When selected, it is a
+pre-generated release asset derived from the approved story, checked for its
+actual route, access behavior, and rendered pages—not a runtime export button.
 
 ---
 
