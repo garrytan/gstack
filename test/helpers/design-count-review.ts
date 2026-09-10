@@ -78,17 +78,30 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   // A source citation alone can describe a report or the next reviewer.
   // Bind the alternate wording to a named control's concrete style amendment
   // and the opposed choice that leaves the documented violation unresolved.
-  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the visible primary action$/i.exec(issue[2]!);
+  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|only filled) primary action$/i.exec(issue[2]!);
   const amendments = primary && [
     new RegExp(`^(?:✅\\s*)?Matches DESIGN\\.md exactly: ${primary[1]} filled #[0-9a-f]{6} with (?:white|black) text; ` +
       '[A-Za-z][A-Za-z0-9 ,_-]{0,99} as neutral ghost buttons\\.', 'i'),
     new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the single filled primary \\(#[0-9a-f]{6}, (?:white|black) text\\); ` +
       '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghost buttons exactly as DESIGN\\.md specifies\\b', 'i'),
+    new RegExp(`^(?:✅\\s*)?${primary[1]} is the single filled #[0-9a-f]{6} button; ` +
+      '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghosts, exactly per DESIGN\\.md\\b', 'i'),
   ];
   const primaryHeader = !q.header.includes(':') || q.header.split(':')[1]!.trim().toLowerCase() === primary?.[1]?.toLowerCase();
-  const primaryRepair = primaryHeader && amendments &&
-    q.options.some(o => amendments.some(pattern => pattern.test(o.description ?? ''))) &&
-    opposed.some(o => /\b(?:Leaves a documented DESIGN\.md violation in place|Ships the documented violation;[^.\n]*\bthe gap remains open)\b/i.test(o.description ?? ''));
+  // The style wordings share one owned decision: a current equal-weight gap,
+  // a named control's DESIGN.md amendment, and a different choice retaining it.
+  const assessment = /^ELI10: (.+)$/m.exec(q.question)?.[1] ?? '';
+  const currentPrimary = primary && new RegExp(`^(?:Right now|Today) ${primary[1]}(?:, [A-Za-z][A-Za-z0-9 _-]{0,39})+(?:,? and [A-Za-z][A-Za-z0-9 _-]{0,39})? (?:all )?look (?:the same|identical)\\b`, 'i').test(assessment);
+  const withdrawn = new RegExp(`(?:^|[.!?]\\s+|\\n)(?:Correction:\\s*)?(?:(?:This (?:issue|finding|question)|Issue ${issue[1]}) (?:is|was|has been) (?:withdrawn|resolved|closed|hypothetical)|We have (?:resolved|closed|withdrawn) this (?:issue|finding)|No current (?:issue|finding|gap|violation) (?:remains|exists))\\b`, 'i');
+  const choiceIds = q.options.map(o => /^([1-9]\d*)[A-Z](?:[).:]?\s+)/.exec(o.label));
+  const primaryRepair = primaryHeader && amendments && currentPrimary &&
+    !!call.answeredAt && Number.isFinite(Date.parse(call.answeredAt)) &&
+    choiceIds.every(id => id?.[1] === issue[1]) &&
+    !withdrawn.test(q.question) &&
+    q.options.some(amendment => amendments.some(pattern => pattern.test(amendment.description ?? '')) &&
+      !withdrawn.test(amendment.description ?? '') && opposed.some(defer => defer !== amendment &&
+        !withdrawn.test(defer.description ?? '') &&
+        /(?:^|❌\s*)(?:Leaves a documented DESIGN\.md violation in place|Ships the documented violation;[^.\n]*\bthe gap remains open|Primary-action ambiguity ships; documented DESIGN\.md violation remains)\b/i.test(defer.description ?? '')));
   return opposed.length > 0 && !!(repair || primaryRepair);
 }
 

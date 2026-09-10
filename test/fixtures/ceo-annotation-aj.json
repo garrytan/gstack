@@ -1,0 +1,457 @@
+{
+  "sourceHead": "a6eaafacb846bdb018a1ead13985be9c05e2c2df",
+  "evidence": ".context/ship-source-aj-delta-paid-20260910-v1/ceo-first-terminal-ledger-v1/proof.json",
+  "evidenceSha256": "3615811b654f38f21bff2fe907c9a18504188bdea50fc4171f2fefe736c1f36e",
+  "cases": {
+    "paired": {
+      "capture": {
+        "skill": "plan-ceo-review",
+        "runId": "ship-source-aj-delta-paid-20260910-v1-4",
+        "cwd": "/tmp/gstack-paid-shard-rGMMii/tmp/gstack-plan-count-knpyoQ",
+        "claudeConfigDir": "/tmp/gstack-paid-shard-rGMMii/tmp/gstack-hermetic-1054183-PR2vOl/with-skills/.claude",
+        "at": "2026-09-10T05:47:58.520Z"
+      },
+      "calls": [
+        {
+          "sessionId": "a9f1e8d0-71c2-4c5d-8eb8-e2ae6883b58d",
+          "toolUseId": "toolu_0157dCDX8MR1dwx2WLrM5w8p",
+          "questions": [
+            {
+              "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: gstack wants a short block in CLAUDE.md that tells Claude which skill to reach for (bugs → /investigate, scope → /plan-ceo-review, etc.). It is a one-time setup prompt, not part of the plan review. Note: plan mode blocks editing CLAUDE.md and committing right now, so option A would be recorded and applied only after you leave plan mode; this repo is also a review fixture, so the block may not be wanted here.\nStakes if we pick wrong: pick A on a fixture and you get an unwanted CLAUDE.md commit later; pick B and future sessions in this repo won't auto-route to gstack skills (re-enable anytime with gstack-config).\nRecommendation: A because that is gstack's default onboarding path, but B is equally reasonable for a throwaway fixture.\nNote: options differ in kind, not coverage — no completeness score.\nA) Add routing rules to CLAUDE.md (recommended)\n  ✅ Future sessions in this repo auto-route requests to the right gstack skill\n  ✅ Standard gstack onboarding; matches every other gstack-enabled project\n  ❌ Cannot be applied in plan mode; lands as a deferred CLAUDE.md edit + commit after this review\nB) No thanks, I'll invoke skills manually\n  ✅ No edits or commits to a review-fixture repo; nothing deferred past this session\n  ✅ Records the decline in ~/.gstack config so this prompt never fires again here\n  ❌ Skill routing stays manual for this project until you flip the config back\nNet: convenience for future sessions in this repo versus keeping a fixture repo untouched.",
+              "header": "Routing",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Add routing rules (recommended)",
+                  "description": "Append the gstack skill-routing section to CLAUDE.md and commit it once plan mode ends."
+                },
+                {
+                  "label": "No thanks, manual skills",
+                  "description": "Set routing_declined=true in gstack config; leave CLAUDE.md untouched."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: gstack wants a short block in CLAUDE.md that tells Claude which skill to reach for (bugs → /investigate, scope → /plan-ceo-review, etc.). It is a one-time setup prompt, not part of the plan review. Note: plan mode blocks editing CLAUDE.md and committing right now, so option A would be recorded and applied only after you leave plan mode; this repo is also a review fixture, so the block may not be wanted here.\nStakes if we pick wrong: pick A on a fixture and you get an unwanted CLAUDE.md commit later; pick B and future sessions in this repo won't auto-route to gstack skills (re-enable anytime with gstack-config).\nRecommendation: A because that is gstack's default onboarding path, but B is equally reasonable for a throwaway fixture.\nNote: options differ in kind, not coverage — no completeness score.\nA) Add routing rules to CLAUDE.md (recommended)\n  ✅ Future sessions in this repo auto-route requests to the right gstack skill\n  ✅ Standard gstack onboarding; matches every other gstack-enabled project\n  ❌ Cannot be applied in plan mode; lands as a deferred CLAUDE.md edit + commit after this review\nB) No thanks, I'll invoke skills manually\n  ✅ No edits or commits to a review-fixture repo; nothing deferred past this session\n  ✅ Records the decline in ~/.gstack config so this prompt never fires again here\n  ❌ Skill routing stays manual for this project until you flip the config back\nNet: convenience for future sessions in this repo versus keeping a fixture repo untouched.": "Add routing rules (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:43:09.369Z"
+        },
+        {
+          "sessionId": "a9f1e8d0-71c2-4c5d-8eb8-e2ae6883b58d",
+          "toolUseId": "toolu_01PjbbZEfu1qtNuKovC9byvG",
+          "questions": [
+            {
+              "question": "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: gstack keeps a local file of lessons it learns per project (pitfalls, command fixes, patterns). It can also read the lessons from your OTHER projects on this machine and apply the ones that match. Nothing leaves the machine. This is a one-time config choice; this project currently has zero learnings either way.\nStakes if we pick wrong: enable it on a machine with several client codebases and one client's project quirks could color advice in another; keep it scoped and you lose cross-pollination of generic lessons (test patterns, CLI fixes).\nRecommendation: A because gstack recommends it for solo developers and the data stays local; choose B if you work across multiple client codebases.\nNote: options differ in kind, not coverage — no completeness score.\nA) Enable cross-project learnings (recommended)\n  ✅ Generic lessons (test-factory pitfalls, tooling fixes) carry over between your projects\n  ✅ Stays on this machine; sets one local config key you can flip back anytime\n  ❌ Lessons from unrelated client codebases can surface where they don't apply\nB) Keep learnings project-scoped only\n  ✅ Hard wall between codebases; nothing from another client's project appears here\n  ✅ Simplest mental model: each repo's learnings file is the whole story\n  ❌ Every new project starts cold and relearns the same tooling pitfalls\nNet: faster compounding across projects versus a strict per-repo boundary.",
+              "header": "Learnings",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Enable cross-project (recommended)",
+                  "description": "Set cross_project_learnings=true; searches learnings across all your local projects."
+                },
+                {
+                  "label": "Project-scoped only",
+                  "description": "Set cross_project_learnings=false; only this repo's learnings are searched."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: gstack keeps a local file of lessons it learns per project (pitfalls, command fixes, patterns). It can also read the lessons from your OTHER projects on this machine and apply the ones that match. Nothing leaves the machine. This is a one-time config choice; this project currently has zero learnings either way.\nStakes if we pick wrong: enable it on a machine with several client codebases and one client's project quirks could color advice in another; keep it scoped and you lose cross-pollination of generic lessons (test patterns, CLI fixes).\nRecommendation: A because gstack recommends it for solo developers and the data stays local; choose B if you work across multiple client codebases.\nNote: options differ in kind, not coverage — no completeness score.\nA) Enable cross-project learnings (recommended)\n  ✅ Generic lessons (test-factory pitfalls, tooling fixes) carry over between your projects\n  ✅ Stays on this machine; sets one local config key you can flip back anytime\n  ❌ Lessons from unrelated client codebases can surface where they don't apply\nB) Keep learnings project-scoped only\n  ✅ Hard wall between codebases; nothing from another client's project appears here\n  ✅ Simplest mental model: each repo's learnings file is the whole story\n  ❌ Every new project starts cold and relearns the same tooling pitfalls\nNet: faster compounding across projects versus a strict per-repo boundary.": "Enable cross-project (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:43:27.436Z"
+        },
+        {
+          "sessionId": "a9f1e8d0-71c2-4c5d-8eb8-e2ae6883b58d",
+          "toolUseId": "toolu_01CYrgmg182hJ1Hbxm3XAhgS",
+          "questions": [
+            {
+              "question": "D3 — Where and how should the two processPayment tests be structured?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: The plan adds two tests: one for a successful charge, one for two 502s exhausting the single retry. The structural choice is where they live and whether to add shared assertion helpers. This question is about shape only; what each test asserts is decided separately in the findings that follow.\nStakes if we pick wrong: put the tests in the adapter suite and they never exercise processPayment's own receipt-shaping and retry-exhaustion path; add helpers for two call sites and you get an abstraction nobody else uses yet.\nRecommendation: A because two focused tests in the caller's own suite is the smallest diff that fully proves both contracts, and helpers for two call sites is premature abstraction.\nCompleteness: A=10/10, B=10/10, C=4/10\nA) Two focused tests in the existing processPayment suite, using the current factory, Stripe mock and virtual sleeper as planned (recommended) (human: ~1h / CC: ~5 min)\n  ✅ Exercises processPayment's real caller path: receipt shaping and retry exhaustion\n  ✅ Zero new files, zero new helpers; reuses every fixture the plan already names\n  ❌ Assertions are spelled out inline per test rather than through a shared helper\nB) Same two tests plus small shared helpers (expectReceipt, expectRetryTrace) in the payment test factory (human: ~2h / CC: ~10 min)\n  ✅ Future processPayment tests get exact receipt and retry assertions for free\n  ✅ One place to update if the sleeper record or receipt shape ever changes\n  ❌ Two call sites do not justify a helper; it is premature abstraction and widens the diff into the factory\nC) Add the assertions to the existing Stripe adapter suite instead of the processPayment suite (human: ~1h / CC: ~5 min)\n  ✅ Keeps all Stripe-related tests in one suite\n  ✅ Adapter suite already has 502-recovery scaffolding to copy from\n  ❌ Adapter coverage does not prove processPayment's own receipt or PaymentUnavailable path; the stated contracts are the caller's\nNet: A and B cover the same contracts; A wins on diff size and avoids abstraction for two uses. C misses the caller path entirely.",
+              "header": "Approach",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A: Two tests in processPayment suite (recommended)",
+                  "description": "As planned: reuse factory, Stripe mock, virtual sleeper; inline assertions. Completeness 10/10."
+                },
+                {
+                  "label": "B: Two tests + factory helpers",
+                  "description": "Same tests plus expectReceipt/expectRetryTrace helpers in the factory. Completeness 10/10, wider diff."
+                },
+                {
+                  "label": "C: Put them in the adapter suite",
+                  "description": "Cover via Stripe adapter suite instead. Completeness 4/10; misses caller path."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 — Where and how should the two processPayment tests be structured?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: The plan adds two tests: one for a successful charge, one for two 502s exhausting the single retry. The structural choice is where they live and whether to add shared assertion helpers. This question is about shape only; what each test asserts is decided separately in the findings that follow.\nStakes if we pick wrong: put the tests in the adapter suite and they never exercise processPayment's own receipt-shaping and retry-exhaustion path; add helpers for two call sites and you get an abstraction nobody else uses yet.\nRecommendation: A because two focused tests in the caller's own suite is the smallest diff that fully proves both contracts, and helpers for two call sites is premature abstraction.\nCompleteness: A=10/10, B=10/10, C=4/10\nA) Two focused tests in the existing processPayment suite, using the current factory, Stripe mock and virtual sleeper as planned (recommended) (human: ~1h / CC: ~5 min)\n  ✅ Exercises processPayment's real caller path: receipt shaping and retry exhaustion\n  ✅ Zero new files, zero new helpers; reuses every fixture the plan already names\n  ❌ Assertions are spelled out inline per test rather than through a shared helper\nB) Same two tests plus small shared helpers (expectReceipt, expectRetryTrace) in the payment test factory (human: ~2h / CC: ~10 min)\n  ✅ Future processPayment tests get exact receipt and retry assertions for free\n  ✅ One place to update if the sleeper record or receipt shape ever changes\n  ❌ Two call sites do not justify a helper; it is premature abstraction and widens the diff into the factory\nC) Add the assertions to the existing Stripe adapter suite instead of the processPayment suite (human: ~1h / CC: ~5 min)\n  ✅ Keeps all Stripe-related tests in one suite\n  ✅ Adapter suite already has 502-recovery scaffolding to copy from\n  ❌ Adapter coverage does not prove processPayment's own receipt or PaymentUnavailable path; the stated contracts are the caller's\nNet: A and B cover the same contracts; A wins on diff size and avoids abstraction for two uses. C misses the caller path entirely.": "A: Two tests in processPayment suite (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:43:53.548Z"
+        },
+        {
+          "sessionId": "a9f1e8d0-71c2-4c5d-8eb8-e2ae6883b58d",
+          "toolUseId": "toolu_01NVdw9AQyubkBhpzuZTvCPg",
+          "questions": [
+            {
+              "question": "D4 — Finding F1 (Section 6, Test Review): the success test asserts only that the receipt is truthy. What should it assert?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: The plan's own contract says a 1000-cent USD charge with Stripe id ch_paid must return exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. Test 1 as written only checks that the receipt is not null/undefined/false. An empty object {} is truthy. A receipt with amountCents 100000 (cents/dollars mix-up), currency \"usd\", or chargeId undefined would all pass. The test cannot fail for any of the bugs it exists to catch.\nStakes if we pick wrong: a refactor of receipt building ships with a wrong amount or missing chargeId and the suite stays green; customers see wrong receipts and refunds cannot be matched to Stripe charges.\nRecommendation: 1A because the plan already states the exact receipt; the assertion is a direct translation of the retained contract, and deep equality also rejects extra or missing fields.\nCompleteness: 1A=10/10, 1B=7/10, 1C=2/10\n1A) Assert the receipt deep-equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" } (recommended) (human: ~15 min / CC: ~1 min)\n  ✅ Rejects wrong amount, wrong currency case, missing chargeId, and any extra or missing field in one assertion\n  ✅ Failure output is a field-level diff, so a 3-week-later regression is diagnosable from the test log alone\n  ❌ If the receipt legitimately gains a new field later, this test must be updated (that is the point)\n1B) Assert only receipt.chargeId === \"ch_paid\" (human: ~10 min / CC: ~1 min)\n  ✅ Proves the Stripe id flows through to the receipt\n  ✅ Tolerates receipt shape changes without edits\n  ❌ Leaves amountCents and currency unverified; the cents/dollars bug the contract exists to prevent slips through\n1C) Keep the truthy-only assertion as planned (human: ~5 min / CC: ~1 min)\n  ✅ Matches the plan text verbatim\n  ✅ Never needs updating\n  ❌ Passes for {} and for every wrong-value receipt; the test protects nothing the contract states\nNet: 1A is the stated contract written as code; anything less is a test that cannot fail for the bugs it targets.",
+              "header": "F1 receipt",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "1A: Deep-equal full receipt (recommended)",
+                  "description": "toEqual({ chargeId: 'ch_paid', amountCents: 1000, currency: 'USD' }). Completeness 10/10."
+                },
+                {
+                  "label": "1B: Assert chargeId only",
+                  "description": "Check chargeId === 'ch_paid'; amount and currency unverified. Completeness 7/10."
+                },
+                {
+                  "label": "1C: Keep truthy-only",
+                  "description": "As planned; passes for {} and any wrong values. Completeness 2/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 — Finding F1 (Section 6, Test Review): the success test asserts only that the receipt is truthy. What should it assert?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: The plan's own contract says a 1000-cent USD charge with Stripe id ch_paid must return exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. Test 1 as written only checks that the receipt is not null/undefined/false. An empty object {} is truthy. A receipt with amountCents 100000 (cents/dollars mix-up), currency \"usd\", or chargeId undefined would all pass. The test cannot fail for any of the bugs it exists to catch.\nStakes if we pick wrong: a refactor of receipt building ships with a wrong amount or missing chargeId and the suite stays green; customers see wrong receipts and refunds cannot be matched to Stripe charges.\nRecommendation: 1A because the plan already states the exact receipt; the assertion is a direct translation of the retained contract, and deep equality also rejects extra or missing fields.\nCompleteness: 1A=10/10, 1B=7/10, 1C=2/10\n1A) Assert the receipt deep-equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" } (recommended) (human: ~15 min / CC: ~1 min)\n  ✅ Rejects wrong amount, wrong currency case, missing chargeId, and any extra or missing field in one assertion\n  ✅ Failure output is a field-level diff, so a 3-week-later regression is diagnosable from the test log alone\n  ❌ If the receipt legitimately gains a new field later, this test must be updated (that is the point)\n1B) Assert only receipt.chargeId === \"ch_paid\" (human: ~10 min / CC: ~1 min)\n  ✅ Proves the Stripe id flows through to the receipt\n  ✅ Tolerates receipt shape changes without edits\n  ❌ Leaves amountCents and currency unverified; the cents/dollars bug the contract exists to prevent slips through\n1C) Keep the truthy-only assertion as planned (human: ~5 min / CC: ~1 min)\n  ✅ Matches the plan text verbatim\n  ✅ Never needs updating\n  ❌ Passes for {} and for every wrong-value receipt; the test protects nothing the contract states\nNet: 1A is the stated contract written as code; anything less is a test that cannot fail for the bugs it targets.": "1A: Deep-equal full receipt (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:44:41.784Z"
+        },
+        {
+          "sessionId": "a9f1e8d0-71c2-4c5d-8eb8-e2ae6883b58d",
+          "toolUseId": "toolu_01PFhyS7ji9nKUsiHERMy8Jx",
+          "questions": [
+            {
+              "question": "D5 — Finding F2 (Sections 2 and 6): the repeated-502 test asserts only that processPayment rejects with PaymentUnavailable. Should it also prove the retry contract?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: The plan's contract says two 502s with max_retries=1 mean exactly two charge attempts, one recorded 100 ms backoff, then PaymentUnavailable. The test as written checks only the final rejection. An implementation that never retries (one attempt, no backoff) passes. One that retries five times with no backoff also passes, as long as it eventually throws PaymentUnavailable. The factory already exposes the Stripe mock call history and the sleeper's recorded backoffs, so the evidence is free; the plan just says it will not look at it.\nStakes if we pick wrong: a retry-loop regression (zero retries, or an unbounded loop that hammers Stripe during an outage) ships green; users get instant failures on transient blips, or Stripe rate-limits the account during an incident.\nRecommendation: 2A because the plan states exact counts (two attempts, one 100 ms backoff) and Section 6 rules forbid weakening an exact count to a lower bound; the mock history and sleeper record are already exposed for exactly this purpose.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\n2A) Assert rejection is an instance of PaymentUnavailable AND Stripe mock call history has exactly 2 charge calls AND the sleeper record deep-equals one 100 ms backoff; build a fresh factory inside the test so both records start empty (recommended) (human: ~30 min / CC: ~2 min)\n  ✅ Rejects zero-retry, over-retry, and wrong-backoff regressions; the whole stated contract becomes executable\n  ✅ Fresh factory per test prevents call-history bleed from earlier tests, so the exact count cannot flake; failure prints the recorded arrays\n  ❌ Three assertions instead of one; must match the sleeper's actual record shape (number vs object) when implementing\n2B) Assert PaymentUnavailable AND exactly 2 charge calls, but skip the backoff assertion (human: ~20 min / CC: ~1 min)\n  ✅ Catches zero-retry and over-retry regressions\n  ✅ Does not depend on the sleeper record's shape\n  ❌ A retry loop that drops the backoff and hammers Stripe immediately still passes; the 100 ms contract goes unverified\n2C) Keep rejection-only as planned (human: ~10 min / CC: ~1 min)\n  ✅ Matches the plan text verbatim\n  ✅ Smallest possible test body\n  ❌ Passes with zero retries, five retries, or no backoff; the retry contract the plan states is not tested at all\nNet: 2A turns the plan's own sentence about two attempts and one 100 ms backoff into assertions; 2B and 2C leave part or all of it as prose.",
+              "header": "F2 retries",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "2A: Rejection + 2 calls + [100ms] backoff (recommended)",
+                  "description": "Full contract: instanceof PaymentUnavailable, mock calls === 2, sleeper record equals one 100 ms entry, fresh factory per test. Completeness 10/10."
+                },
+                {
+                  "label": "2B: Rejection + 2 calls only",
+                  "description": "Skip the backoff assertion. Completeness 7/10."
+                },
+                {
+                  "label": "2C: Keep rejection-only",
+                  "description": "As planned; retry count and backoff unverified. Completeness 3/10."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 — Finding F2 (Sections 2 and 6): the repeated-502 test asserts only that processPayment rejects with PaymentUnavailable. Should it also prove the retry contract?\nProject/branch/task: gstack-plan-count-knpyoQ on main, CEO review of PLAN.md (payment test coverage).\nELI10: The plan's contract says two 502s with max_retries=1 mean exactly two charge attempts, one recorded 100 ms backoff, then PaymentUnavailable. The test as written checks only the final rejection. An implementation that never retries (one attempt, no backoff) passes. One that retries five times with no backoff also passes, as long as it eventually throws PaymentUnavailable. The factory already exposes the Stripe mock call history and the sleeper's recorded backoffs, so the evidence is free; the plan just says it will not look at it.\nStakes if we pick wrong: a retry-loop regression (zero retries, or an unbounded loop that hammers Stripe during an outage) ships green; users get instant failures on transient blips, or Stripe rate-limits the account during an incident.\nRecommendation: 2A because the plan states exact counts (two attempts, one 100 ms backoff) and Section 6 rules forbid weakening an exact count to a lower bound; the mock history and sleeper record are already exposed for exactly this purpose.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\n2A) Assert rejection is an instance of PaymentUnavailable AND Stripe mock call history has exactly 2 charge calls AND the sleeper record deep-equals one 100 ms backoff; build a fresh factory inside the test so both records start empty (recommended) (human: ~30 min / CC: ~2 min)\n  ✅ Rejects zero-retry, over-retry, and wrong-backoff regressions; the whole stated contract becomes executable\n  ✅ Fresh factory per test prevents call-history bleed from earlier tests, so the exact count cannot flake; failure prints the recorded arrays\n  ❌ Three assertions instead of one; must match the sleeper's actual record shape (number vs object) when implementing\n2B) Assert PaymentUnavailable AND exactly 2 charge calls, but skip the backoff assertion (human: ~20 min / CC: ~1 min)\n  ✅ Catches zero-retry and over-retry regressions\n  ✅ Does not depend on the sleeper record's shape\n  ❌ A retry loop that drops the backoff and hammers Stripe immediately still passes; the 100 ms contract goes unverified\n2C) Keep rejection-only as planned (human: ~10 min / CC: ~1 min)\n  ✅ Matches the plan text verbatim\n  ✅ Smallest possible test body\n  ❌ Passes with zero retries, five retries, or no backoff; the retry contract the plan states is not tested at all\nNet: 2A turns the plan's own sentence about two attempts and one 100 ms backoff into assertions; 2B and 2C leave part or all of it as prose.": "2A: Rejection + 2 calls + [100ms] backoff (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:45:03.909Z"
+        }
+      ]
+    },
+    "distinct": {
+      "capture": {
+        "skill": "plan-ceo-review",
+        "runId": "ship-source-aj-delta-paid-20260910-v1-4",
+        "cwd": "/tmp/gstack-paid-shard-rGMMii/tmp/gstack-plan-count-XMrFHU",
+        "claudeConfigDir": "/tmp/gstack-paid-shard-rGMMii/tmp/gstack-hermetic-1054183-PR2vOl/with-skills/.claude",
+        "at": "2026-09-10T05:54:50.782Z"
+      },
+      "calls": [
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_019mAdWcT7psVdpKNQ3kGAfZ",
+          "questions": [
+            {
+              "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Payment Processing Integration).\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules. These tell the agent which slash skill to invoke when you say things like 'review this' or 'ship it', so you get the right workflow without naming it. This is a one-time setup prompt per project.\nStakes if we pick wrong: Nothing breaks either way. Without routing you invoke skills by name manually.\nRecommendation: A because routing makes skill invocation automatic and costs one small CLAUDE.md append. Note: plan mode is active, so the append and commit happen after this review exits plan mode.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience now versus keeping CLAUDE.md untouched.",
+              "header": "Routing",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Add routing rules (recommended)",
+                  "description": "✅ Future requests like 'review this plan' auto-route to the right gstack skill without naming it. ✅ One-time small append to CLAUDE.md, committed as a chore. ❌ Adds a section to CLAUDE.md that this test fixture repo may not want; edit deferred until plan mode exits."
+                },
+                {
+                  "label": "B) No thanks, invoke manually",
+                  "description": "✅ CLAUDE.md stays exactly as seeded, no extra commit in the fixture repo. ✅ Config records the decline so this prompt never reappears here. ❌ You must type skill names explicitly every time."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Payment Processing Integration).\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules. These tell the agent which slash skill to invoke when you say things like 'review this' or 'ship it', so you get the right workflow without naming it. This is a one-time setup prompt per project.\nStakes if we pick wrong: Nothing breaks either way. Without routing you invoke skills by name manually.\nRecommendation: A because routing makes skill invocation automatic and costs one small CLAUDE.md append. Note: plan mode is active, so the append and commit happen after this review exits plan mode.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience now versus keeping CLAUDE.md untouched.": "A) Add routing rules (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:41:43.499Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_013oTguWa66iMTSRDUFKxGFq",
+          "questions": [
+            {
+              "question": "D2 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Payment Processing Integration).\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local; no data leaves your machine. It is recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Too broad and a client's project quirks could leak into another client's review; too narrow and you lose reusable pitfalls you already paid to learn.\nRecommendation: A because a single-machine solo setup gains reusable pitfalls with no privacy cost, and the setting is a two-way door you can flip later with gstack-config.\nNote: options differ in kind, not coverage — no completeness score.\nNet: reuse of past learnings versus strict per-project isolation.",
+              "header": "Learnings",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Enable cross-project (recommended)",
+                  "description": "✅ Pitfalls and patterns you logged in other repos surface here, so the review gets sharper over time. ✅ Everything stays on this machine; nothing is uploaded anywhere. ❌ If you juggle multiple client codebases, one client's quirks can bleed into another's review."
+                },
+                {
+                  "label": "B) Keep project-scoped only",
+                  "description": "✅ Hard isolation between projects, safe for multi-client consulting setups. ✅ Still logs and searches learnings for this repo alone. ❌ Loses reusable insights you already earned elsewhere, so each project relearns the same pitfalls."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D2 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Payment Processing Integration).\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local; no data leaves your machine. It is recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Too broad and a client's project quirks could leak into another client's review; too narrow and you lose reusable pitfalls you already paid to learn.\nRecommendation: A because a single-machine solo setup gains reusable pitfalls with no privacy cost, and the setting is a two-way door you can flip later with gstack-config.\nNote: options differ in kind, not coverage — no completeness score.\nNet: reuse of past learnings versus strict per-project isolation.": "A) Enable cross-project (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:42:01.568Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_012MEvW2WrMb8DqbdxTT9xbx",
+          "questions": [
+            {
+              "question": "D3 — Which implementation structure should the handler use?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler).\nELI10: The plan wants a brand-new handler class that skips the existing WebhookDispatcher for 'clean namespace separation'. But the plan also promises the handler runs inside the existing guards and uses the existing feature flag and rollback. Those two promises are easiest to keep if the handler is registered through the dispatcher like the prior handler was. A third path moves the email into a background job, which is the industry default but changes the plan's stated 'both happen inline' contract.\nStakes if we pick wrong: A bypassing handler can silently drift out from under the dedup lock or the feature flag, so a bad deploy has no tested rollback and duplicates slip through. Going async changes the deletion-ordering guarantee the plan relies on.\nRecommendation: B because it makes 'runs inside unchanged guards' and 'uses the existing rollout path' true by construction and keeps one webhook routing path (DRY, explicit over clever).\nCompleteness: A=5/10, B=9/10, C=8/10\nNet: namespace purity (A) versus guard and rollback reuse by construction (B) versus resilience that rewrites a stated contract (C).",
+              "header": "Approach",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "B) Register via WebhookDispatcher (recommended)",
+                  "description": "Completeness 9/10. human ~1 day / CC ~25 min. ✅ Existing feature flag, tested rollback, guard order and logging apply to the new class unchanged. ✅ The existing integration suite exercises the new code once the flag is on, instead of testing only the prior handler. ❌ Must conform to the dispatcher's handler interface; namespace separation comes from file layout, not a parallel entry point."
+                },
+                {
+                  "label": "A) Standalone class, bypass dispatcher",
+                  "description": "Completeness 5/10. human ~1 day / CC ~20 min. ✅ Smallest possible diff and exactly what the plan sketch says. ✅ Dispatcher module stays untouched, zero risk of regressing other event types. ❌ Second routing path; the flag/rollback and guard wiring must be re-proven for the bypass, and the existing suite never touches the new class."
+                },
+                {
+                  "label": "C) Dispatcher + background email job",
+                  "description": "Completeness 8/10. human ~2-3 days / CC ~45 min. ✅ Email latency leaves the Stripe 10-second window and the per-user lock. ✅ Email retries become independent of payment retries, matching the 'receive fast, process safe' convention. ❌ Changes the stated inline contract and the deletion-ordering guarantee; adds a queue failure surface. In HOLD SCOPE this is a behavior change, not a repair."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 — Which implementation structure should the handler use?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler).\nELI10: The plan wants a brand-new handler class that skips the existing WebhookDispatcher for 'clean namespace separation'. But the plan also promises the handler runs inside the existing guards and uses the existing feature flag and rollback. Those two promises are easiest to keep if the handler is registered through the dispatcher like the prior handler was. A third path moves the email into a background job, which is the industry default but changes the plan's stated 'both happen inline' contract.\nStakes if we pick wrong: A bypassing handler can silently drift out from under the dedup lock or the feature flag, so a bad deploy has no tested rollback and duplicates slip through. Going async changes the deletion-ordering guarantee the plan relies on.\nRecommendation: B because it makes 'runs inside unchanged guards' and 'uses the existing rollout path' true by construction and keeps one webhook routing path (DRY, explicit over clever).\nCompleteness: A=5/10, B=9/10, C=8/10\nNet: namespace purity (A) versus guard and rollback reuse by construction (B) versus resilience that rewrites a stated contract (C).": "B) Register via WebhookDispatcher (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:44:45.846Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_01M7iPAc7vziAUL7HRXKV9o6",
+          "questions": [
+            {
+              "question": "D4 — What is the per-order fetch loop for, and how should the handler load orders?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler).\nELI10: The plan says each webhook looks up the user and then 'fetches each order in a loop', but the described behavior only marks the user paid and sends one email. Nothing in the plan consumes the orders. If the email needs order details, the fetch belongs in one batched query. If nothing needs them, the loop is dead work running inside the per-user lock and inside Stripe's 10-second response window. The implementer will hit this ambiguity in hour 4 and guess; better to decide now.\nStakes if we pick wrong: A user with 200 orders turns one webhook into 201 queries under a lock, Stripe times out at 10s, retries, and the retries queue on the same lock. Dropping the fetch when the email needs it ships a receipt with no line items.\nRecommendation: A because it preserves the plan's stated behavior (orders are fetched) while removing the N+1, and it maps to the 'handle more edge cases, engineered enough' preference.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: keep orders but load them once (A) versus remove an unexplained fetch (B) versus ship the loop as sketched (C).",
+              "header": "Orders loop",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A) Batch-load orders in one query (recommended)",
+                  "description": "Completeness 9/10. human ~1h / CC ~5 min. ✅ One query with the user's ID (or an IN list) replaces N round trips; lock hold time and Stripe latency stay flat as order count grows. ✅ Whatever consumes the orders (email body, audit) still gets them; a test asserts query count is constant. ❌ Requires stating in the plan what the orders feed, so the batch shape is right."
+                },
+                {
+                  "label": "B) Remove the orders fetch entirely",
+                  "description": "Completeness 7/10. human ~30 min / CC ~3 min. ✅ Smallest handler: lookup, update, email, nothing else under the lock. ✅ Removes a whole failure surface and its tests. ❌ If the email or a downstream consumer actually needs order data, this silently ships an incomplete notification."
+                },
+                {
+                  "label": "C) Keep the per-order loop as written",
+                  "description": "Completeness 3/10. human 0 / CC 0. ✅ No change from the sketch, zero extra implementation thought. ✅ Works fine for users with a handful of orders. ❌ N+1 under a per-user lock inside a 10s webhook timeout; heavy users trigger timeout-retry storms that the dedup guard then serializes."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 — What is the per-order fetch loop for, and how should the handler load orders?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler).\nELI10: The plan says each webhook looks up the user and then 'fetches each order in a loop', but the described behavior only marks the user paid and sends one email. Nothing in the plan consumes the orders. If the email needs order details, the fetch belongs in one batched query. If nothing needs them, the loop is dead work running inside the per-user lock and inside Stripe's 10-second response window. The implementer will hit this ambiguity in hour 4 and guess; better to decide now.\nStakes if we pick wrong: A user with 200 orders turns one webhook into 201 queries under a lock, Stripe times out at 10s, retries, and the retries queue on the same lock. Dropping the fetch when the email needs it ships a receipt with no line items.\nRecommendation: A because it preserves the plan's stated behavior (orders are fetched) while removing the N+1, and it maps to the 'handle more edge cases, engineered enough' preference.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: keep orders but load them once (A) versus remove an unexplained fetch (B) versus ship the loop as sketched (C).": "A) Batch-load orders in one query (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:45:51.708Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_01KepjnLm3wYHtNTqMPzLjym",
+          "questions": [
+            {
+              "question": "D5 (Issue 1.1) — Should the inline email call get an explicit timeout budget inside the webhook?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 1 Architecture.\nELI10: Stripe waits 10 seconds for your webhook to answer, then treats it as failed and retries. The plan sends the email inline while holding the per-user lock, with no cap on how long the mail provider may take. A slow mail provider makes every webhook time out at Stripe, the retries pile up behind the lock, and the 'failed webhook processing' alert fires for events that actually succeeded. A fixed per-call mail timeout keeps the handler under 10s and turns slowness into a named, traced exception.\nStakes if we pick wrong: Without a budget, a mail-provider slowdown becomes a webhook outage plus alert noise; with too aggressive a budget, healthy sends get cut off and retried.\nRecommendation: 1A because explicit over clever: name the failure (mail timeout), bound it, test it. It preserves the plan's inline contract and lets the existing 500-and-retry path do the rest.\nCompleteness: A=9/10, B=6/10, C=2/10\nNet: bound the mail call and test the bound (A) versus rely on whatever default the mail client has (B) versus accept unbounded latency (C).",
+              "header": "Mail budget",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "1A) Explicit mail timeout, ~4s, tested (recommended)",
+                  "description": "Completeness 9/10. human ~1h / CC ~5 min. ✅ Handler worst case stays under Stripe's 10s window; slowness surfaces as the mail client's named timeout exception, traced with event and user IDs. ✅ Test stubs a hanging mail client and asserts the timeout exception is raised inside the budget. ❌ A send that would have finished at 5s now fails and is retried by Stripe; the notification marker from Section 2 keeps that from duplicating."
+                },
+                {
+                  "label": "1B) Rely on the shared mail client's default timeout",
+                  "description": "Completeness 6/10. human 0 / CC 0. ✅ No handler-specific configuration to maintain. ✅ Works if the shared default already happens to be short. ❌ The plan does not state that default; if it is 30s or unset, the webhook silently exceeds Stripe's window and nobody notices until the retry storm."
+                },
+                {
+                  "label": "1C) No timeout budget, accept the risk",
+                  "description": "Completeness 2/10. human 0 / CC 0. ✅ Zero implementation work. ✅ Fine while the mail provider is fast. ❌ Mail-provider p99 becomes webhook p99 with no bound; a provider slowdown turns into Stripe retry storms serialized on the per-user lock and repeated false 'failed processing' alerts."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 (Issue 1.1) — Should the inline email call get an explicit timeout budget inside the webhook?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 1 Architecture.\nELI10: Stripe waits 10 seconds for your webhook to answer, then treats it as failed and retries. The plan sends the email inline while holding the per-user lock, with no cap on how long the mail provider may take. A slow mail provider makes every webhook time out at Stripe, the retries pile up behind the lock, and the 'failed webhook processing' alert fires for events that actually succeeded. A fixed per-call mail timeout keeps the handler under 10s and turns slowness into a named, traced exception.\nStakes if we pick wrong: Without a budget, a mail-provider slowdown becomes a webhook outage plus alert noise; with too aggressive a budget, healthy sends get cut off and retried.\nRecommendation: 1A because explicit over clever: name the failure (mail timeout), bound it, test it. It preserves the plan's inline contract and lets the existing 500-and-retry path do the rest.\nCompleteness: A=9/10, B=6/10, C=2/10\nNet: bound the mail call and test the bound (A) versus rely on whatever default the mail client has (B) versus accept unbounded latency (C).": "1A) Explicit mail timeout, ~4s, tested (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:47:17.691Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_01NRSM7BJG9DzYZrHSAA5uPB",
+          "questions": [
+            {
+              "question": "D6 (Issue 2.1) — How should the email leg behave when Stripe retries after the user update already committed?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 2 Error map.\nELI10: The handler commits 'paid' to the database, then sends the email. If the email fails, the whole request returns 500 and Stripe retries the event for up to three days. The dedup guard only records 'done' when the handler finishes cleanly, so every retry reruns the email. A mail timeout where the provider actually delivered means the customer gets the email twice. A permanently bad address means three days of alerts for a payment that is already fine. Recording 'email sent' per Stripe event, under the same lock, lets retries skip the email once it has gone out.\nStakes if we pick wrong: Duplicate payment emails on every retry storm erode customer trust, and permanent mail rejections page on-call for three days about a committed payment.\nRecommendation: 2A because zero silent failures and every error has a name: the marker makes the email idempotent per event, keeps the inline contract, and keeps permanent rejections loud through the existing alert.\nCompleteness: A=9/10, B=5/10, C=2/10\nNet: idempotent email via a per-event marker (A) versus rescue-and-log the email so the webhook succeeds (B) versus ship 'no error handling' as written (C).",
+              "header": "Email retry",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "2A) Per-event notification marker under the lock (recommended)",
+                  "description": "Completeness 9/10. human ~3h / CC ~15 min. ✅ Rerun after a transient mail failure sends exactly once more then records completion; rerun after 'sent' sends zero emails; Stripe event ID doubles as the mail idempotency key where the provider supports it. ✅ Permanent rejections still propagate to the existing alert and runbook; the residual ambiguous-timeout case is logged with notification_retry=true. ❌ Adds one small table or column plus three tests."
+                },
+                {
+                  "label": "2B) Rescue MailDeliveryError, log, return 200",
+                  "description": "Completeness 5/10. human ~1h / CC ~5 min. ✅ Webhook succeeds once the payment commits; no Stripe retry storm from mail failures. ✅ Mail failure still visible on the shared mail dashboard and on-call alert. ❌ The email is never retried automatically; it relies on on-call running the manual notification retry procedure, and the plan's own contract says tracing must not rescue email errors."
+                },
+                {
+                  "label": "2C) Keep 'no error handling on the email leg' as written",
+                  "description": "Completeness 2/10. human 0 / CC 0. ✅ Zero implementation work; matches the sketch exactly. ✅ Transient mail failures do get retried by Stripe. ❌ Every retry re-sends the email; timeouts after delivery duplicate it; a bad address alerts for three days about a committed payment; the runbook's 'never replay the payment blindly' is violated by design."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D6 (Issue 2.1) — How should the email leg behave when Stripe retries after the user update already committed?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 2 Error map.\nELI10: The handler commits 'paid' to the database, then sends the email. If the email fails, the whole request returns 500 and Stripe retries the event for up to three days. The dedup guard only records 'done' when the handler finishes cleanly, so every retry reruns the email. A mail timeout where the provider actually delivered means the customer gets the email twice. A permanently bad address means three days of alerts for a payment that is already fine. Recording 'email sent' per Stripe event, under the same lock, lets retries skip the email once it has gone out.\nStakes if we pick wrong: Duplicate payment emails on every retry storm erode customer trust, and permanent mail rejections page on-call for three days about a committed payment.\nRecommendation: 2A because zero silent failures and every error has a name: the marker makes the email idempotent per event, keeps the inline contract, and keeps permanent rejections loud through the existing alert.\nCompleteness: A=9/10, B=5/10, C=2/10\nNet: idempotent email via a per-event marker (A) versus rescue-and-log the email so the webhook succeeds (B) versus ship 'no error handling' as written (C).": "2A) Per-event notification marker under the lock (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:48:13.537Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_01JLWZnbpnVmmtT58UjwbFQY",
+          "questions": [
+            {
+              "question": "D7 (Issue 3.1) — How should the handler build the user lookup query?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 3 Security.\nELI10: The plan pastes the user ID string straight into SQL. The plan's own contracts say user IDs are opaque text that can contain punctuation and Unicode, and that a valid Stripe signature does not make the string safe for SQL. So a perfectly legitimate ID with an apostrophe breaks the query, the webhook returns 500 forever, and that customer is never marked paid. If users can influence their own ID, they can also make their own payment run arbitrary SQL under the app's database role. A bound parameter (the existing user finder) makes both problems disappear.\nStakes if we pick wrong: Silent non-payment for any user with an odd ID, plus a self-service SQL injection path that signature checks and ownership checks both wave through.\nRecommendation: 3A because security is not optional and the fix is smaller than the bug: reuse the existing finder with a bound parameter and prove it with an adversarial-ID test.\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: parameterize and test (A) versus escape or whitelist the string (B) versus raw fragment as written (C).",
+              "header": "SQL lookup",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "3A) Existing finder, bound parameter, adversarial-ID tests (recommended)",
+                  "description": "Completeness 10/10. human ~1h / CC ~5 min. ✅ Any opaque TEXT ID, including quotes, semicolons, Unicode and 512 chars, resolves correctly or hits the unknown-user path with no exception. ✅ Same treatment for the D4 orders batch query; a lint or review rule forbids string interpolation into SQL in this module. ❌ Requires the implementer to locate and reuse the existing lookup rather than writing a one-liner."
+                },
+                {
+                  "label": "3B) Escape or format-validate the ID before interpolating",
+                  "description": "Completeness 6/10. human ~2h / CC ~10 min. ✅ Keeps the raw-fragment structure the plan sketched. ✅ Blocks the most obvious injection strings. ❌ Contradicts the contract that every nonempty string is a valid ID (a whitelist rejects legitimate users); escaping is driver-specific and historically the source of bypasses."
+                },
+                {
+                  "label": "3C) Keep the raw SQL fragment as written",
+                  "description": "Completeness 1/10. human 0 / CC 0. ✅ No change from the sketch. ✅ Works for IDs that happen to be plain alphanumerics. ❌ Legitimate punctuated IDs break the query and are never marked paid; self-service SQL injection under the app's DB role; three days of 500 retries per affected event."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D7 (Issue 3.1) — How should the handler build the user lookup query?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 3 Security.\nELI10: The plan pastes the user ID string straight into SQL. The plan's own contracts say user IDs are opaque text that can contain punctuation and Unicode, and that a valid Stripe signature does not make the string safe for SQL. So a perfectly legitimate ID with an apostrophe breaks the query, the webhook returns 500 forever, and that customer is never marked paid. If users can influence their own ID, they can also make their own payment run arbitrary SQL under the app's database role. A bound parameter (the existing user finder) makes both problems disappear.\nStakes if we pick wrong: Silent non-payment for any user with an odd ID, plus a self-service SQL injection path that signature checks and ownership checks both wave through.\nRecommendation: 3A because security is not optional and the fix is smaller than the bug: reuse the existing finder with a bound parameter and prove it with an adversarial-ID test.\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: parameterize and test (A) versus escape or whitelist the string (B) versus raw fragment as written (C).": "3A) Existing finder, bound parameter, adversarial-ID tests (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:48:59.359Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_01XFSnvQXHHcLXz7eZngavzq",
+          "questions": [
+            {
+              "question": "D8 (Issue 6.1) — Should the PR include automated tests for the handler, and at what depth?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 6 Tests.\nELI10: The plan ships a handler that changes who is marked as paid with no automated tests, relying on the existing integration suite and a manual staging replay. The existing suite was written for the prior handler and cannot check anything decided in this review: parameterized IDs, the mail timeout, the once-per-event email, the batched orders query. Every one of those decisions named a test as its proof. Without the tests, they are promises in a document, not behavior in the code.\nStakes if we pick wrong: A regression in payment marking or a duplicate-email bug reaches production and is caught by customers, not CI; the tested rollback flag limits blast radius but cannot detect the bug.\nRecommendation: 6A because well-tested code is non-negotiable and AI-assisted test writing compresses a day of human work into minutes. Boil the lake.\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: full unit plus integration coverage of every decided invariant (A) versus unit tests only (B) versus none as written (C).",
+              "header": "Tests",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "6A) Full table: unit + integration + 2 ordering tests (recommended)",
+                  "description": "Completeness 10/10. human ~1 day / CC ~20 min. ✅ Every D4-D7 invariant has an observable assertion: exact mail send counts across reruns, query count == 1, adversarial IDs resolve, MailTimeout under budget, completion marker only after clean return. ✅ Two controlled-pause tests prove Schedules 1 and 2 instead of asserting them. ❌ Ordering tests need explicit pause/release hooks in the handler or guard test seam."
+                },
+                {
+                  "label": "6B) Unit tests only, skip integration and ordering",
+                  "description": "Completeness 6/10. human ~3h / CC ~10 min. ✅ Covers lookup, update, orders count, timeout and the marker branch in isolation. ✅ Fast, no DB or lock fixtures. ❌ The two bugs most likely to ship (duplicate email on rerun, dispatcher flag routing) live at the integration boundary and stay untested."
+                },
+                {
+                  "label": "6C) No automated tests, as written",
+                  "description": "Completeness 1/10. human 0 / CC 0. ✅ No test code to write or maintain. ✅ Manual staging replay still exercises one happy path before broad enablement. ❌ Zero automated proof for a payment-mutating codepath; D5/D6/D7 become unverified claims; regressions surface via customers or on-call."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D8 (Issue 6.1) — Should the PR include automated tests for the handler, and at what depth?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 6 Tests.\nELI10: The plan ships a handler that changes who is marked as paid with no automated tests, relying on the existing integration suite and a manual staging replay. The existing suite was written for the prior handler and cannot check anything decided in this review: parameterized IDs, the mail timeout, the once-per-event email, the batched orders query. Every one of those decisions named a test as its proof. Without the tests, they are promises in a document, not behavior in the code.\nStakes if we pick wrong: A regression in payment marking or a duplicate-email bug reaches production and is caught by customers, not CI; the tested rollback flag limits blast radius but cannot detect the bug.\nRecommendation: 6A because well-tested code is non-negotiable and AI-assisted test writing compresses a day of human work into minutes. Boil the lake.\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: full unit plus integration coverage of every decided invariant (A) versus unit tests only (B) versus none as written (C).": "6A) Full table: unit + integration + 2 ordering tests (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:50:25.599Z"
+        },
+        {
+          "sessionId": "c28b8f0e-b2ad-4c33-9441-a93b68c440f2",
+          "toolUseId": "toolu_01JCY2zE5AcfrXDDX3dCk1ku",
+          "questions": [
+            {
+              "question": "D9 (Issue 9.1) — Should the manual staging replay checklist gain failure-path replays before broad enablement?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 9 Deployment.\nELI10: The existing rollout checklist replays one successful payment in staging and checks the update, the email and the trace. That proves the happy path and nothing else. The failure modes this review fixed (odd user IDs breaking SQL, duplicate deliveries re-sending email, a failing mail provider) would pass that checklist untouched. Adding three short replays to the same checklist makes the manual gate check what the automated tests check, against real staging infrastructure.\nStakes if we pick wrong: A staging pass gives false confidence and the first punctuated user ID or mail-provider blip in production is the real test.\nRecommendation: 9A because deployments are not atomic and the checklist is already the documented gate; three extra replays cost minutes per release and catch the exact classes of bugs found here.\nCompleteness: A=9/10, B=4/10\nNet: extend the existing gate with the failure paths (A) versus keep the happy-path-only replay (B).",
+              "header": "Staging gate",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "9A) Add three failure-path replays to the checklist (recommended)",
+                  "description": "Completeness 9/10. human ~1h to write, ~15 min per release / CC ~5 min to write. ✅ Punctuated/Unicode ID replay proves the parameterized lookup against the real staging DB; double delivery proves exactly one email and a sent marker. ✅ Failing-sink replay proves 500, alert, no marker, then one email on redelivery, exercising the runbook path end to end. ❌ Adds ~15 minutes to every release's manual gate."
+                },
+                {
+                  "label": "9B) Keep the happy-path replay only",
+                  "description": "Completeness 4/10. human 0 / CC 0. ✅ No change to the documented, tested checklist. ✅ CI integration tests from D8 already cover the failure paths against test doubles. ❌ Staging never exercises the real DB driver, real mail provider, or real dedup guard on the failure paths; a mismatch between test doubles and staging goes unnoticed until production."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D9 (Issue 9.1) — Should the manual staging replay checklist gain failure-path replays before broad enablement?\nProject/branch/task: gstack-plan-count-XMrFHU on main, reviewing PLAN.md (Stripe payment webhook handler), Section 9 Deployment.\nELI10: The existing rollout checklist replays one successful payment in staging and checks the update, the email and the trace. That proves the happy path and nothing else. The failure modes this review fixed (odd user IDs breaking SQL, duplicate deliveries re-sending email, a failing mail provider) would pass that checklist untouched. Adding three short replays to the same checklist makes the manual gate check what the automated tests check, against real staging infrastructure.\nStakes if we pick wrong: A staging pass gives false confidence and the first punctuated user ID or mail-provider blip in production is the real test.\nRecommendation: 9A because deployments are not atomic and the checklist is already the documented gate; three extra replays cost minutes per release and catch the exact classes of bugs found here.\nCompleteness: A=9/10, B=4/10\nNet: extend the existing gate with the failure paths (A) versus keep the happy-path-only replay (B).": "9A) Add three failure-path replays to the checklist (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-10T05:51:33.727Z"
+        }
+      ]
+    }
+  }
+}

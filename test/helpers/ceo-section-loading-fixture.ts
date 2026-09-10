@@ -347,7 +347,7 @@ function assertedStructuredOwner(prose: string[], index: number): boolean {
 }
 
 /** A same-ID assessment survives intervening diagrams and named assessment headings. */
-function structuredFindingAssessment(prose: string[], finding: number, traceEnd: number, ids: string[]): string[] {
+function structuredFindingAssessment(prose: string[], finding: number, traceEnd: number, ids: string[], assertedOwner = assertedStructuredOwner): string[] {
   const assessment: string[] = [];
   const sameId = new RegExp(`^(?:${ids.join('|')})\\b`);
   const ownsHeading = new RegExp(`\\b(?:${ids.join('|')})\\b`);
@@ -362,7 +362,7 @@ function structuredFindingAssessment(prose: string[], finding: number, traceEnd:
       followingTrace = false;
       namedAssessment = false;
     }
-    if (assertedStructuredOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) assessment.push(line);
+    if (assertedOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) assessment.push(line);
   }
   return assessment;
 }
@@ -633,11 +633,41 @@ function hasOrderedStaleFillOperations(text: string): boolean {
   // Table cells cannot lend operation order to each other. Bare "reader"
   // refers back to the missed read; explicit foreign cache/key references,
   // quoted examples and conditional/negated executions cannot establish it.
-  return text.split(/\s*\|\s*/).some(cell =>
-    !/["“”?]|\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|quoted)\b/i.test(cell)
+  return text.split(/\s*\|\s*/).some(cell => {
+    // A finding may describe a fill's lifetime instead of naming the first
+    // cache miss. Its original-plan sequence must still place the same old
+    // version in the cache after commit/delete and deliver it to a later read.
+    // Quoted requirements can accompany that assertion, but quoted operations
+    // cannot supply it; never join fragments across a quoted span or table cell.
+    const unquoted = cell.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[quoted]');
+    const compact = /^Original (?:plan|sketch|wrapper)\b[^.!?]*\.\s+(?:Schedule(?: Diagram)? [A-Za-z0-9][\w.-]*:\s*)?fill starts,\s*write commits,\s*write deletes(?:\s*\(no-op\))?,\s*fill sets pre-commit ([A-Za-z0-9][\w.-]*),\s*later read hits ([A-Za-z0-9][\w.-]*)\.(?=\s|$)/i.exec(unquoted);
+    if (compact && compact[1] === compact[2]
+      && !/\b(?:if|unless|whether|might|may|could|never|no\s+longer|example|template|hypothetical|historical)\b/i.test(unquoted)
+      && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(unquoted)
+      && !/\b(?:trace|scenario|execution|sequence)\s+(?:is|was|remains)\s+impossible\b/i.test(unquoted)) return true;
+    return !/["“”?]|\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|quoted)\b/i.test(cell)
     && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(cell)
     && !/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(cell)
-    && sequence.test(cell));
+    && sequence.test(cell);
+  });
+}
+
+/** Explicit copied/example framing owns its section and descendant headings. */
+function assertedProseOwner(prose: string[], index: number): boolean {
+  const owners = [{ level: 0, source: false }];
+  for (const line of prose.slice(0, index + 1)) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      while (owners.length > 1 && owners.at(-1)!.level >= heading[1]!.length) owners.pop();
+      // An explicit fresh review ends an unheaded introductory source block.
+      if (/^(?:Current|Actual)\s+(?:review|findings|assessment)\b/i.test(heading[2]!)) owners[0]!.source = false;
+      owners.push({ level: heading[1]!.length, source: /\b(?:hypothetical|examples?|quoted|copied|historical|template|source)\b/i.test(heading[2]!) });
+    } else if (/\b(?:unproven\s+hypothesis|(?:hypothetical|historical)\s+example|quoted\s+source)\b/i.test(line)
+      || /^(?:The\s+following\b|Below\b|This\s+(?:section|material|example)\b)[^.!?]*\b(?:copied|quoted|source|examples?|hypothetical|historical|template)\b/i.test(line.trim())) {
+      owners.at(-1)!.source = true;
+    }
+  }
+  return !owners.some(owner => owner.source);
 }
 
 function hasProseStaleFillFinding(report: string): boolean {
@@ -655,9 +685,12 @@ function hasProseStaleFillFinding(report: string): boolean {
   }).join('\n');
   // Independent list items and table rows cannot borrow each other's words.
   const blocks = prose.split(/\n\s*\n|\n(?=\s*(?:#{1,6}\s|\||\d+\.\s|[-*]\s))/).map(block => block.trim());
+  const lines = blocks.flatMap(block => block.split('\n'));
   const normalize = (text: string) => text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
   return blocks.some((block, index) => {
     const text = normalize(block);
+    const owners = blocks.slice(0, index + 1).flatMap(part => part.split('\n'));
+    if (!assertedProseOwner(owners, owners.length - 1)) return false;
     const stale = /\b(?:stale|outdated)\b|\b(?:old(?:er)?|pre[- ]write)\s+(?:value|data|result|version|snapshot)\b/i.test(text);
     const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text)
       || hasOrderedStaleFillOperations(text);
@@ -681,7 +714,13 @@ function hasProseStaleFillFinding(report: string): boolean {
     // following dismissal cannot turn a traced race into positive coverage.
     const next = blocks[index + 1] ?? '';
     const independent = /^(?:#{1,6}(?:\s|\d)|\d+\.\s|[-*]\s|\||(?:[*_]+)?(?:Finding\b|Section\s|P[0-3]\b))/i.test(next);
-    const context = text + (independent ? '' : ' ' + normalize(next));
+    const explicitId = /^\|\s*(F[1-9]\d*)\s*\|/.exec(text)?.[1];
+    const assessment = explicitId
+      ? structuredFindingAssessment(lines, owners.length - 1, owners.length - 1, [explicitId], assertedProseOwner).join(' ')
+      : '';
+    const context = text + (independent ? '' : ' ' + normalize(next)) + ' ' + normalize(assessment);
+    const findingId = explicitId ?? 'F[1-9]\\d*';
+    if (new RegExp(`\\b(?:(?:this|that|the)\\s+(?:finding|issue|gap|race)|${findingId})\\s+(?:is|was|remains)\\s+(?:withdrawn|rejected|dismissed)\\b`, 'i').test(context)) return false;
 
     const finding = /\b(?:P[0-3]|missing|gap|bug|defect|violat\w*|unsafe|incorrect)\b|\bno\s+mention\s+of\s+(?:this|the)\s+race\b/i.test(context);
     const subsequentRead = /\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(context);
@@ -691,7 +730,8 @@ function hasProseStaleFillFinding(report: string): boolean {
       /\bper[- ]key\s+(?:epoch|generation|version)\b/i.test(sentence));
     // Table cells and semicolon-separated statements have separate owners;
     // retain an explicit "that return" continuation with the return it names.
-    const claims = context.split(/(?:[.!?]\s+|;\s+(?!that\s+return\b)|\s+\|\s+|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i);
+    const claims = context.split(/\s*\|\s*/).flatMap(cell =>
+      cell.split(/(?:[.!?]\s+|;\s+(?!that\s+return\b)|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i));
     const violation = claims.some(claim => /\b(?:violat\w*|break\w*)\b[^.!?]*\b(?:contract|guarantee|consistency|rule)\b/i.test(claim)
       && !/\b(?:not|no|never)\b/i.test(claim));
     for (const [claimIndex, claim] of claims.entries()) {

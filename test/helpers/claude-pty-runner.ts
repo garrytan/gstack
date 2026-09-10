@@ -2193,41 +2193,77 @@ function ceoAssertionMismatchBrief(q: NativePlanQuestionCall['questions'][number
 }
 
 /** Native finding evidence when CEO mode selection is omitted or left unanswered. */
-function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number], subject: string): boolean {
+function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number], subject: string, inspectFullAssessment = false): boolean {
   // A numbered title may be declarative. Its current problem and proposed
   // decision still have to be present in the complete native question.
-  const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
-  const recommendation = /^Recommendation:\s*([1-9]\d*)?([A-Z])\b/im.exec(q.question);
-  const label = (text: string) => /^([1-9]\d*)?([A-Z])[):.]\s*/i.exec(text.trim());
-  if (!explanation || !recommendation || q.options.length < 2 || q.options.some(o => !o.description?.trim()) ||
-      !q.options.some(o => { const token = label(o.label); return token && `${token[1] ?? ''}${token[2]}`.toLowerCase() === `${recommendation[1] ?? ''}${recommendation[2]}`.toLowerCase(); })) return false;
   const publicText = (text: string) => text.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  const prose = publicText(q.question
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, ''));
+  const explanations = [...prose.matchAll(/^ELI10:\s*(.+)$/gm)];
+  const recommendations = [...prose.matchAll(/^Recommendation:\s*([1-9]\d*)?([A-Z])\b/gim)];
+  const explanation = explanations[0]?.[1] ?? '';
+  // The opening declaration owns the assessment that follows. A source or
+  // hypothetical frame cannot lend its later defect wording current status.
+  const openingAssessment = explanation.trim().split(/[.!?]\s+/, 1)[0] ?? '';
+  const recommendation = recommendations[0];
+  const label = (text: string) => /^([1-9]\d*)?([A-Z])[):.]\s*/i.exec(text.trim());
+  if (explanations.length !== 1 || recommendations.length !== 1 || !/\w/.test(explanation) ||
+      /^(?:if|unless|whether|suppose|imagine|example|template|hypothetical|historical|quoted)\b|^["'‘“`]/i.test(explanation.trim()) ||
+      /\b(?:is|was|presents?|represents?)\s+(?:(?:only|just)\s+)?(?:an?\s+)?(?:quoted|hypothetical|historical|example|template)\b/i.test(openingAssessment) ||
+      /\b(?:hypothetical|example|template)\b/i.test(publicText(subject)) ||
+      !recommendation || q.options.length < 2 || q.options.some(o => !o.description?.trim()) ||
+      !q.options.some(o => { const token = label(o.label); return token && `${token[1] ?? ''}${token[2]}`.toLowerCase() === `${recommendation[1] ?? ''}${recommendation[2]}`.toLowerCase(); })) return false;
+  if (/\b(?:this|that|the) (?:issue|finding|gap|problem|defect)\s+(?:is|was|has been)\s+(?:(?:already|now)\s+)?(?:resolved|fixed|closed|withdrawn|retracted|rejected)\b|\b(?:I|we)\s+(?:(?:have|has)\s+)?(?:withdraw|withdrawn|retract|retracted|resolve|resolved)\s+(?:this|that|the)\s+(?:finding|issue|question)\b/i.test(prose)) return false;
+  if (prose.split(/[.!?;]\s+|\n/).some(clause =>
+    /^(?:there\s+(?:is|are)\s+no\s+(?:current\s+)?|no\s+current\s+)(?:defect|gap|issue|problem)s?\b/i.test(clause.trim()))) return false;
+  const findingIdentity = /\b(?:Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)\b/i.exec(prose.split('\n')[0]!);
+  if (findingIdentity && new RegExp('\\b(?:(?:Finding|Issue)\\s+F?|F)' + findingIdentity[1]!.replace(/\./g, '\\.') + '\\s+(?:is|was|has been)\\s+(?:withdrawn|rejected|retracted|resolved)\\b', 'i').test(prose)) return false;
   if ([subject, explanation].some(text => /\b(?:gap|defect|issue|problem)\b[^.!?]{0,80}\b(?:already|now)\s+(?:resolved|fixed|closed)\b/i.test(publicText(text)))) return false;
   // A complete assessment can withdraw a historical problem in a later
   // sentence. Quoted old assessments do not make that current assertion.
   if ([subject, explanation].some(text => publicText(text).split(/[.!?;]\s+/).some(clause =>
     /^(?:there\s+(?:is|are)\s+no\s+(?:current\s+)?|no\s+current\s+)(?:defect|gap|issue|problem)s?\b/i.test(clause.trim())))) return false;
-  const currentProblem = [subject, explanation].some(text => {
-    const statement = publicText(text).split(/[.!?]\s+/)[0]!;
+  const currentProblem = [subject, explanation].flatMap(text => {
+    const statements = publicText(text).split(/[.!?]\s+/);
+    return inspectFullAssessment ? statements : statements.slice(0, 1);
+  }).some(statement => {
     // A numbered test may state its assertion gap through the regression it
     // cannot reject, without using the word "missing" or a question mark.
     const assertionGap = /^test\s+[1-9]\d*(?:\s+\([^()\n]*\))?\s+(?:cannot\s+(?:detect|catch|reject)\b[^.!?\n]*\bregressions|accepts\s+any\s+truthy\s+value)\b/i.test(statement.trim()) && ceoAssertionMismatchBrief(q);
     return !/^(?:if|unless|whether|example|template|hypothetical|quoted)\b|\b(?:already resolved|no (?:current )?(?:defect|gap|issue|problem)s?\b|not true)\b/i.test(statement.trim()) &&
       !/\b(?:not|never|no longer|isn't)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
+      !/\b(?:not|never|no longer|doesn't|does not)\s+(?:asserts?|checks?)\s+only\b/i.test(statement) &&
       !/\b(?:was|were)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
-      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:error handling|tests?|checks?|validation|coordination)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b/i.test(statement));
+      !/\b(?:not|never|no longer|doesn't|does not)\s+(?:paste|send|deliver|receive)\b/i.test(statement) &&
+      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b|\bpastes?\b[^.!?]*\bstraight into (?:a )?SQL\b|\b(?:gets?|sends?|delivers?|receives?)\b[^.!?]*\btwice\b|\b(?:proves?|checks?|tests?|covers?)\s+(?:the\s+)?happy path\s+and\s+nothing else\b/i.test(statement));
   });
-  const amendment = q.options.some(option => [option.label.replace(/^([1-9]\d*)?[A-Z][):.]\s*/i, ''), option.description ?? ''].some(text =>
+  const amendment = q.options.some(option => {
+    const token = label(option.label);
+    const optionLabel = option.label.replace(/^([1-9]\d*)?[A-Z][):.]\s*/i, '');
+    if (/^(?:keep|leave|preserve|save|archive|record|document|render|format|start|pause|resume|continue|finish|end|defer|proceed)\b/i.test(optionLabel) ||
+        /^[a-z-]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored|exact|expected|full|complete|whole)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(optionLabel)) return false;
+    // The full brief may spell out an assertion while the native menu uses
+    // an abbreviated label. Only that offered option's own numbered row can
+    // supply the action; source quotations and neighboring choices cannot.
+    const optionRows = token?.[1] ? [...prose.matchAll(new RegExp('^' + token[1] + token[2] + '[):.]\\s*(.+)$', 'gmi'))] : [];
+    if (optionRows.length > 1) return false;
+    const boundedConfiguration = /\b(?:no|without)\s+(?:cap|bound|timeout)\b/i.test(explanation) &&
+      /^explicit\b[^.!?]*\b(?:timeout|budget|cap|bound)\b/i.test(optionLabel);
+    const completeTestSuite = /\b(?:no|without)\s+(?:automated\s+)?tests?\b/i.test(explanation) &&
+      /^full\s+(?:test\s+)?(?:matrix|table|suite)\b[^.!?]*\b(?:unit|integration|ordering|tests?)\b/i.test(optionLabel);
+    return boundedConfiguration || completeTestSuite || [optionLabel, option.description ?? '', optionRows[0]?.[1] ?? ''].some(text =>
     publicText(text).split(/[.;]\s+/).some(clause =>
-      /^(?:add|remove|replace|send|rescue|handle|validate|check|assert|pin|require|define|specify|guard|serialize|parameterize|use|implement|write)\b/i.test(clause.trim()) &&
-      !/^[a-z]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim()))));
+      /^(?:add|remove|replace|send|rescue|handle|validate|check|assert|pin|deep-equal|require|define|specify|guard|serialize|parameterize|escape|use|implement|write)\b/i.test(clause.trim()) &&
+      !/^[a-z-]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored|exact|expected|full|complete|whole)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim())));
+  });
   return currentProblem && amendment;
 }
 
 /** A descriptive menu header can accompany a fully numbered issue brief. */
 function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][number], number: string): boolean {
   const title = q.question.split('\n')[0]!;
-  if (!/^D[1-9]\d*\s+\(Issue [1-9]\d*\)\s*[—–-]\s*(?:What|How|Which|Should)\b[^\n?]+\?$/i.test(title) ||
+  if (!/^D[1-9]\d*\s+\(Issue [1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]\s*(?:What|How|Which|Should)\b[^\n?]+\?$/i.test(title) ||
       /\b(?:hypothetical|example|template)\b/i.test(title)) return false;
   const prose = q.question
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
@@ -2235,8 +2271,9 @@ function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][numbe
     .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
   const explanations = [...prose.matchAll(/^ELI10:\s*(.+)$/gm)];
   const recommendations = [...prose.matchAll(/^Recommendation:\s*([1-9]\d*)([A-Z])\b/gim)];
+  const section = number.split('.')[0]!;
   if (explanations.length !== 1 || recommendations.length !== 1 ||
-      recommendations[0]![1] !== number || !/\w/.test(explanations[0]![1]!) ||
+      recommendations[0]![1] !== section || !/\w/.test(explanations[0]![1]!) ||
       /^(?:if|unless|whether|example|template|hypothetical|historical|quoted)\b/i.test(explanations[0]![1]!.trim())) return false;
   // Current prose may explicitly withdraw an earlier issue. Literal examples
   // and attributed quotations cannot supply either the brief or its withdrawal.
@@ -2250,13 +2287,13 @@ function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][numbe
       .replace(/^Completeness\s+\d+\/10\.\s*/i, '').split(/[.;]\s+/).some(clause =>
         /^(?:add|remove|replace|send|rescue|handle|validate|check|assert|pin|require|define|specify|guard|serialize|parameterize|use|implement|write)\b/i.test(clause.trim()) &&
         !/^[a-z]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim()))));
-  if (!missingContract || !amendment) return false;
-  const headerNumber = /^(?:(?:Finding|Issue)\s+F?|F)([1-9]\d*)(?:\s+[a-z][a-z -]*)?$/i.exec(q.header.trim());
+  if (number.includes('.') ? !ceoNumberedBriefDecision(q, title.replace(/^D[1-9]\d*\s+\(Issue [^)]+\)\s*[—–-]\s*/i, ''), true) : !missingContract || !amendment) return false;
+  const headerNumber = /^(?:(?:Finding|Issue)\s+F?|F)([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+[a-z][a-z -]*)?$/i.exec(q.header.trim());
   if (/^(?:finding|issue)\b|^f\d/i.test(q.header.trim()) && !headerNumber) return false;
   if (headerNumber && headerNumber[1] !== number) return false;
   const labels = q.options.map(option => /^([1-9]\d*)([A-Z])[):.]\s*\S/i.exec(option.label));
   return q.options.length >= 2 && q.options.every((option, i) =>
-    Boolean(option.description?.trim()) && labels[i]?.[1] === number) &&
+    Boolean(option.description?.trim()) && labels[i]?.[1] === section) &&
     new Set(labels.map(label => label![2]!.toUpperCase())).size === labels.length &&
     labels.some(label => label![2]!.toUpperCase() === recommendations[0]![2]!.toUpperCase());
 }
@@ -2334,10 +2371,21 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
       /\b(?:exact|exactly|full|complete)\b/i.test(directAssertion[1]!) &&
       !/\b(?:if|unless|hypothetical|no|not|already)\b/i.test(normalized) &&
       ceoAssertionMismatchBrief(q) && ceoNumberedBriefDecision(q, normalized)) return true;
-  const identity = /^(Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Section\s+[1-9]\d*\))?\s*:\s*([^\n]+)$/i.exec(normalized);
+  const identity = /^(Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+\(Sections?\s+[1-9]\d*(?:\s+(?:and|&)\s+[1-9]\d*|,\s*[1-9]\d*)*(?:,\s*[a-z][a-z -]*)?\))?\s*:\s*([^\n]+)$/i.exec(normalized);
+  const annotation = /\((Sections?\s+[^)]+)\)/i.exec(normalized)?.[1];
+  if (identity && annotation && !/^Section\s+[1-9]\d*$/i.test(annotation)) {
+    if (/\b(?:hypothetical|example|template|historical|quoted)\b/i.test(annotation) ||
+        !ceoNumberedBriefDecision(q, identity[3]!)) return false;
+    const recommended = /^Recommendation:\s*([1-9]\d*)?([A-Z])\b/im.exec(q.question);
+    const labels = q.options.map(option => /^([1-9]\d*)?([A-Z])[):.]\s*\S/i.exec(option.label));
+    if (!recommended || labels.some(token => !token || (token[1] ?? '') !== (recommended[1] ?? '')) ||
+        (recommended[1] && recommended[1] !== identity[2]) ||
+        new Set(labels.map(token => token![2]!.toUpperCase())).size !== labels.length) return false;
+  }
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
   const parenthesized = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
-  if (parenthesized && allowQuestionId) return ceoParenthesizedIssueBrief(q, parenthesized[1]!);
+  if (parenthesized && (allowQuestionId || (parenthesized[1]!.includes('.') &&
+      !/^(?:(?:Finding|Issue)\s+F?|F)[1-9]\d*/i.test(q.header.trim())))) return ceoParenthesizedIssueBrief(q, parenthesized[1]!);
   if (identity && !/^[^\n?]+\?$/.test(identity[3]!) && !ceoNumberedBriefDecision(q, identity[3]!)) return false;
   if (numberedSubject && (numberedSubject[2]!.trim().toLowerCase() !== q.header.trim().toLowerCase() ||
       !ceoNumberedBriefDecision(q, numberedSubject[3]!))) return false;
@@ -2365,7 +2413,7 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
     const title = q.question.split('\n')[0];
-    if (/^D[1-9]\d*\s+\(Issue\s+[1-9]\d*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
+    if (/^D[1-9]\d*\s+\(Issue\s+[1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (!/^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title)) return false;
     if (/^(?:D\s*\d+\s*[—–-]\s*)?(?:Finding|Issue)\s+F?\d/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (/\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title)) return true;

@@ -44,6 +44,20 @@ function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string
     if (!numbered) return null;
     rows = rows.slice(header);
   }
+  // A viewport can start at the native Edit panel after its tool title has
+  // scrolled away. The remaining displayed path must still bind the complete
+  // owned project/artifact path; the menu and current request are checked below.
+  if (/^[─╌]{8,}$/.test(rows[0] ?? '') && rows[1]?.trim() === 'Edit file') {
+    if (!ownedStateRoot || !/^[─╌]{8,}$/.test(rows[3] ?? '')) return null;
+    const relative = path.relative(ownedStateRoot, file).split(path.sep).join('/');
+    const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
+    const displayed = rows[2]?.trim() ?? '';
+    if (displayed !== file && displayed !== alias) {
+      const suffix = displayed.startsWith('…') ? displayed.slice(1) : '';
+      if ((suffix !== relative && !suffix.endsWith('/' + relative)) || !file.endsWith(suffix)) return null;
+    }
+    return rows.slice(4);
+  }
   const update = /^[●⏺] Update\(([^\n]+)\)$/.exec(rows[0] ?? '');
   if (!update) return rows; // Existing cropped-only row guards still apply.
   if (!ownedStateRoot || rows[1]?.trim() !== '' || !/^[─╌]{8,}$/.test(rows[2] ?? '') ||

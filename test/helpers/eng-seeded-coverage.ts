@@ -5,9 +5,9 @@ export const ENG_DECISION_SEEDS = ['complexity', 'shared-cache', 'swallowed-erro
 type Seed = typeof ENG_DECISION_SEEDS[number];
 
 // Ignore displayed examples/code, while retaining inline code identifiers.
-function prose(text: string): string {
+function prose(text: string, omitLiteralProse = false): string {
   let fence: string | undefined;
-  return text.split('\n').filter(line => {
+  const lines = text.split('\n').filter(line => {
     const mark = line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (mark) {
       if (!fence) fence = mark[1];
@@ -15,7 +15,8 @@ function prose(text: string): string {
       return false;
     }
     return !fence && !/^(?: {0,3}>| {4}|\t)/.test(line);
-  }).join('\n').replace(/[`*]/g, '');
+  }).join('\n');
+  return (omitLiteralProse ? lines.replace(/`([^`]+)`/g, (span, body: string) => /\s/.test(body) ? '' : span) : lines).replace(/[`*]/g, '');
 }
 
 function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
@@ -27,12 +28,26 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   const offered = q.options.map(o => `${o.label} ${o.description ?? ''}`).join('\n');
   const directAction = title.match(/\b(?:should|shall|can|do|would)\s+(?:we|I)\s+([^?]+)\?\s*$/i)?.[1];
   const action = (re: RegExp) => re.test(offered) || Boolean(directAction && new RegExp(`^(?:${re.source})`, re.flags).test(directAction));
+  // A shared adapter title may name its cache in the issue's own asserted
+  // explanation. Options alone or a neighboring source excerpt cannot do so.
+  const adapterPublic = prose(q.question, true);
+  const adapterExplanations = [...adapterPublic.matchAll(/^ELI10:\s*(.+)$/gm)];
+  const adapterPrefix = adapterPublic.slice(0, adapterExplanations[0]?.index ?? 0).split('\n').filter(line => line.trim()).slice(1);
+  const adapterMetadata = adapterPrefix.join(' ').replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+  const adapterExplanation = adapterExplanations.length === 1 && adapterPrefix.every(line => /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line))
+    && !/\b(?:copied|quoted|source|hypothetical|historical)\s+(?:(?:source|quoted)\s+)?(?:example|excerpt|text|material)\b|\b(?:ELI10|assessment|finding)\s+is\s+not\s+(?:a\s+)?current\b/i.test(adapterMetadata)
+    ? adapterExplanations[0]![1]! : '';
+  const adapterAssessment = adapterPublic.replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+  const sharedAdapter = /\bwrite-after-invalidate race\b/i.test(title)
+    && /\bSessionMint\b/.test(title) && /\bAuthBroker\b/.test(title) && /\bshared adapter\b/i.test(title)
+    && /^(?:Even after injection,\s*)?(?:both|the two) services (?:write into|mutate) the same cache\./i.test(adapterExplanation)
+    && !/\b(?:(?:this|that|the) (?:issue|finding|race)|Issue\s+[1-9]\d*)\s+(?:is|was|has been)\s+(?:withdrawn|retracted|rejected|resolved|fixed)\b|\bno (?:current )?shared-cache race\b/i.test(adapterAssessment);
   const ids: Seed[] = [];
   if (/\b(?:scope|complexity|classes|types|abstractions)\b/i.test(title) &&
       /\b(?:files|classes|types|abstractions)\b/i.test(title) &&
       action(/\b(?:reduce|cut|simplify|remove|collapse|merge|pure function)\b/i)) ids.push('complexity');
-  if (/\b(?:AuthCache|cache)\b/i.test(title) &&
-      /\b(?:global|module[ -]level|mutab\w*|both|shar\w*|ownership|writers|same\s+(?:AuthCache|cache))\b/i.test(title) &&
+  if ((sharedAdapter || /\b(?:AuthCache|cache)\b/i.test(title) &&
+      /\b(?:global|module[ -]level|mutab\w*|both|shar\w*|ownership|writers|same\s+(?:AuthCache|cache))\b/i.test(title)) &&
       action(/\b(?:inject\w*|DI|serializ\w*|single[ -]writer|ownership|composition root)\b/i)) ids.push('shared-cache');
   if (/\b(?:validateAndDispatch|catch\w*)\b/i.test(title) &&
       /\b(?:swallow\w*|nested|silent\w*|hidden|suppres\w*)\b/i.test(title) &&
@@ -130,6 +145,44 @@ function declaredLegacyCharacterization(text: string): boolean {
         if (!match || match[2] !== parity[2] || match[3] !== parity[3] || withdrawn(task, match[1])) continue;
         const files = /^\s+- Files: ([^\n]+)$/m.exec(task);
         if (files?.[1] === parity[1] && /^\s+- Verify: contract suite green on both paths[\t ]*$/m.test(task)) return true;
+      }
+    }
+  }
+  // A mandatory snapshot can state the legacy oracle as a required test
+  // list item, then bind it to the numbered task's unchanged-code verification.
+  const snapshotSource = prose(text, true).replace(/\s+/g, ' ');
+  const unquoted = (body: string) => body.replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+  const suiteWithdrawn = current.some(s => {
+    // A named foreign suite owns its generic withdrawal; it cannot cancel
+    // the legacy obligation in another section of the same report.
+    const namedSuite = /^(.*?)\b(?:regression|characterization)\s+(?:suite|tests?)\b/i.exec(s.title);
+    const foreignSuite = Boolean(namedSuite?.[1]?.trim() && !/^(?:legacy(?:AuthFlow(?:\(\))?)?|final|current|updated)[\s:—–-]*$/i.test(namedSuite[1]));
+    return unquoted(s.body.join('\n')).split(/\n|[.!?]\s+/).some(statement => {
+      const subject = /^(?:Correction:\s*)?(?:the|this|that)\s+(legacy\s+)?(?:regression|characterization)\s+(?:suite|tests?)\b/i.exec(statement.trim());
+      return Boolean(subject && (!foreignSuite || subject[1]) && withdrawn(statement));
+    });
+  });
+  for (const section of current.filter(s => /^Required tests(?: \([^\n]*\))?$/i.test(s.title))) {
+    const body = section.body.join('\n').trim();
+    if (!body.startsWith('- ')) continue;
+    for (const block of body.split(/\n(?=-\s)/)) {
+      const claim = block.replace(/\s+/g, ' ').trim();
+      if (suiteWithdrawn || !/^- CRITICAL regression legacyAuthFlow(?:\(\))? snapshot: capture current outputs for [^;.!?]{1,240} BEFORE any change; assert both legacy \(flag OFF\) and new \(flag ON\) paths produce identical observable results\. Mandatory under the coverage-audit regression rule\./.test(claim)
+          || !snapshotSource.includes(claim) || withdrawn(unquoted(claim))
+          || /["“”]|\b(?:not|never|maybe|might|could|if|unless|optional|hypothetical|unproven)\b/i.test(claim)) continue;
+      for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+        const body = tasks.body.join('\n').trim();
+        const taskPrefix = body.split(/\n(?=-\s)/)[0]?.trim() ?? '';
+        if (!body.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(taskPrefix)
+            || /\b(?:if|unless|optional|hypothetical|example|source|quoted|unproven)\b/i.test(taskPrefix))) continue;
+        for (const task of body.split(/\n(?=-\s)/)) {
+          const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–] [A-Za-z][\w-]*(?:\/[A-Za-z][\w-]*)+ [—–] Snapshot legacyAuthFlow\(\) behavior as regression tests before any change[\t ]*(?:\n|$)/.exec(task);
+          if (!match || !snapshotSource.includes(task.replace(/\s+/g, ' ').trim())
+              || !/^\s+- Verify: tests pass against unmodified legacy code, then against flag-OFF route[\t ]*$/m.test(task)
+              || withdrawn(unquoted(task).replace(/\b(?:this|that|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), match[1])) continue;
+          const taskWithdrawal = new RegExp(`\\b${match[1]}\\s+(?:is|was|has been)\\s+(?:cancelled|canceled|withdrawn|rejected|deferred|optional|not required|no longer required)\\b`, 'i');
+          if (!current.some(s => taskWithdrawal.test(unquoted(s.body.join('\n'))))) return true;
+        }
       }
     }
   }

@@ -1,0 +1,52 @@
+{
+  "signature": "9aedb365-c1e6-4f04-ac07-e4fc5dd32b9c:toolu_01JzHqoCyg4cy5S94wCE5p3q",
+  "promptSnippet": "TODO 1 D10 \u2014 TODO proposal: record a deferred TODOS.md item to evaluate a real body typeface for the settings shell (replacing system-ui) in a later design pass? Project/branch/task: main, /plan-design-review of PLAN.md, post-pass TODOS.md ",
+  "options": [
+    {
+      "index": 1,
+      "label": "A Add to TODOS.md (recommended)"
+    },
+    {
+      "index": 2,
+      "label": "B Skip, not valuable enough"
+    },
+    {
+      "index": 3,
+      "label": "C Build it now in this PR"
+    }
+  ],
+  "observedAtMs": 445568,
+  "preReview": false,
+  "nativeCall": {
+    "sessionId": "9aedb365-c1e6-4f04-ac07-e4fc5dd32b9c",
+    "toolUseId": "toolu_01JzHqoCyg4cy5S94wCE5p3q",
+    "questions": [
+      {
+        "question": "D10 \u2014 TODO proposal: record a deferred TODOS.md item to evaluate a real body typeface for the settings shell (replacing system-ui) in a later design pass?\nProject/branch/task: main, /plan-design-review of PLAN.md, post-pass TODOS.md updates.\nELI10: DESIGN.md and this plan keep system-ui as the app font, and you excluded visual exploration from this update, so nothing changes now. The only design-debt item left is that system-ui is the one AI-slop signal the review flagged: it is the default stack, not a chosen voice. This question is only about whether to write that down in TODOS.md so a future /design-consultation picks it up, not about changing anything here. What: evaluate one role-scoped sans (for example DM Sans, Instrument Sans, IBM Plex Sans) for the settings shell and controls. Why: a chosen typeface is the cheapest tell that the app was designed rather than assembled. Pros: brand voice across the whole app. Cons: touches every screen, needs a font-loading strategy and a DESIGN.md revision; not a settings-page task. Depends on: a DESIGN.md update via /design-consultation. Principle: subtraction default says do not add it now; the TODO just keeps the debt visible.\nStakes if we pick wrong: either the debt is forgotten, or a note lands in TODOS.md that you consider noise.\nRecommendation: A because the debt is real but explicitly out of scope, and a written TODO costs nothing.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: keep the typography debt visible vs. drop it.",
+        "header": "TODO 1",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A Add to TODOS.md (recommended)",
+            "description": "\u2705 The one remaining design-debt item stays visible for the next /design-consultation run (human: ~5min / CC: ~1min to record). \u2705 Nothing changes in this update; DESIGN.md and system-ui stay as approved. \u274c Adds a TODOS.md file to a repo that does not have one yet (written after plan mode ends)."
+          },
+          {
+            "label": "B Skip, not valuable enough",
+            "description": "\u2705 No TODOS.md noise; system-ui is a deliberate design-system choice. \u2705 Zero follow-up work. \u274c The typography debt is not recorded anywhere and may be re-discovered later."
+          },
+          {
+            "label": "C Build it now in this PR",
+            "description": "\u2705 Removes the slop signal immediately across the settings page. \u2705 Fonts load with the existing shell. \u274c Directly contradicts the plan's \"no visual exploration\" and DESIGN.md's system-ui rule; app-wide scope in a settings-page PR."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D10 \u2014 TODO proposal: record a deferred TODOS.md item to evaluate a real body typeface for the settings shell (replacing system-ui) in a later design pass?\nProject/branch/task: main, /plan-design-review of PLAN.md, post-pass TODOS.md updates.\nELI10: DESIGN.md and this plan keep system-ui as the app font, and you excluded visual exploration from this update, so nothing changes now. The only design-debt item left is that system-ui is the one AI-slop signal the review flagged: it is the default stack, not a chosen voice. This question is only about whether to write that down in TODOS.md so a future /design-consultation picks it up, not about changing anything here. What: evaluate one role-scoped sans (for example DM Sans, Instrument Sans, IBM Plex Sans) for the settings shell and controls. Why: a chosen typeface is the cheapest tell that the app was designed rather than assembled. Pros: brand voice across the whole app. Cons: touches every screen, needs a font-loading strategy and a DESIGN.md revision; not a settings-page task. Depends on: a DESIGN.md update via /design-consultation. Principle: subtraction default says do not add it now; the TODO just keeps the debt visible.\nStakes if we pick wrong: either the debt is forgotten, or a note lands in TODOS.md that you consider noise.\nRecommendation: A because the debt is real but explicitly out of scope, and a written TODO costs nothing.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: keep the typography debt visible vs. drop it.": "A Add to TODOS.md (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T05:47:13.383Z"
+  }
+}
