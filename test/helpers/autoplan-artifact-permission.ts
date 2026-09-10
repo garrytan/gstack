@@ -313,6 +313,23 @@ function queuedArtifactViewport(viewport: string, current: NativePublicToolEvent
   return lines.slice(panel).join('\n');
 }
 
+/** A native command description can remain above an unpublished Edit panel.
+ * Its text supplies no command identity, completion, or approval authority.
+ * Only the digest-bound pending path may discard this one display prefix. */
+function pendingCommandDisplayViewport(viewport: string): string {
+  const text = viewport.replace(/\r\n?/g, '\n');
+  const panels = [...text.matchAll(/^[─╌]{8,}\n {0,3}Edit file[ \t]*\n/gm)];
+  if (panels.length !== 1 || panels[0]!.index === 0) return viewport;
+  const prefix = text.slice(0, panels[0]!.index).split('\n').filter(line => line.trim());
+  const title = /^[●⏺] ([^\n]+)$/.exec(prefix[0] ?? '')?.[1];
+  if (!title || /^(?:["'`“‘]|(?:source|example|quoted|history|historical|hypothetical|previous|earlier)\b)/i.test(title) ||
+      !/^ {2}⎿[ \u00a0]+\$ \S.*$/.test(prefix[1] ?? '') ||
+      prefix.slice(2).some(line => !/^ {5}\S.*$/.test(line)) ||
+      prefix.slice(1).some(line => /^[ \t]*[●⏺❯☐□>]|^[ \t]*(?:`{3,}|~{3,})/.test(line)) ||
+      /(?:Do you want|Would you like|Bash command[^\n]*permission|requested permissions?|allow all edits|always allow access|Esc to cancel|Edit file)/i.test(prefix.join('\n'))) return viewport;
+  return text.slice(panels[0]!.index);
+}
+
 /** Metadata-only fallback. Added rows are display evidence, never request content. */
 export function pendingAutoplanArtifactPermissionInput(viewport: string,
   context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact; viewportCapturedAt: number },
@@ -349,7 +366,8 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
       !mutations.some(e => e.input?.file_path === p.file && results.get(e.toolUseId)?.isError === false &&
         Date.parse(results.get(e.toolUseId)!.timestamp) <= pendingTime)) return null;
   try {
-    const text = viewport.replace(/\r\n?/g, '\n');
+    const currentViewport = p.editDigest ? pendingCommandDisplayViewport(viewport) : viewport;
+    const text = currentViewport.replace(/\r\n?/g, '\n');
     const menu = /^ {0,3}Do you want to make this edit to ([^\n?]+)\? *\n {0,3}❯ *1\. Yes *\n {0,3}2\. Yes, and switch to accept edits \(auto-approve file edits and common file commands\) for this session(?: \(shift\+tab\))? *\n {0,3}3\. No *\n\s*Esc to cancel [·•] Tab to amend\s*$/m.exec(text);
     if (!menu || menu.index + menu[0].length !== text.length || menu[1] !== path.basename(p.file)) return null;
     const rows = text.slice(0, menu.index).trimEnd().split('\n');
@@ -360,7 +378,8 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
     if (p.editDigest) {
       const before = readAutoplanDigestFile(p.file);
       if (!before || createHash('sha256').update(before).digest('hex') !== p.editDigest.beforeSHA256) return null;
-      if (matchesAutoplanDigestRows(diffRows,before,p.editDigest)) return {input:'1\r', signature, file:p.file};
+      if (matchesAutoplanDigestRows(diffRows,before,p.editDigest,currentViewport !== viewport)) return {input:'1\r', signature, file:p.file};
+      if (currentViewport !== viewport) return null; // The new prefix path requires the exact digest, including additions.
       // Digest authority adds insertion-only crops; existing anchored deletion
       // authority remains available after the current-file binding succeeds.
     }

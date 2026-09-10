@@ -1,0 +1,39 @@
+{
+  "provenance": {
+    "source": "db1db6d9723f465e90e5ed72fd740e7c1cbb3552",
+    "publicEvidence": ".context/ship-source-au-delta-paid-20260910-v1/eng-retry-public-evidence-sdk-v1/proof.json",
+    "originalOutcome": "no_review_questions",
+    "retrospectivePass": false
+  },
+  "call": {
+    "sessionId": "b830c8f4-5af2-47a2-ab15-09b149579b45",
+    "toolUseId": "toolu_01UV3sEzbujkuGkhXdnPcA1a",
+    "questions": [
+      {
+        "header": "Arch 1",
+        "question": "D5 — Issue 1 [P1] (confidence 8/10) PLAN.md:19-20 + :10 — AuthBroker and SessionMint both mutate one module-level AuthCache that does not serialize mutations. How should the shared cache be wired?\nProject/branch/task: gstack-plan-count-kpTDIg on main, PLAN.md multi-tenant auth refactor.\nELI10: Two services share one global cache object exported from a module, and both write to it. The plan admits the cache 'does not serialize mutations'. So when a tenant-suspension invalidation fires while SessionMint is halfway through minting, the mint can land after the invalidation and a suspended tenant keeps a live session. Module-level exports also leak state between tests and break under hot reload. Constructor injection (passing the cache in) is the boring, proven fix; the write-ordering problem needs an explicit rule on top.\nStakes if we pick wrong: a suspended or logged-out tenant session survives invalidation (security bug, silent), and unit tests pass or fail depending on run order.\nRecommendation: A because injection fixes test isolation and single-writer plus policy-version check at write time closes the write-after-invalidate race; matches your explicit-over-clever and edge-case-first preferences.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: an explicit ownership rule now vs debugging interleaved cache writes in production later.",
+        "options": [
+          {
+            "label": "Inject + single-writer + version-checked writes (recommended)",
+            "description": "✅ AuthCache passed into both services by constructor from one composition root; SessionMint is the only writer, AuthBroker reads and invalidates. ✅ Writes carry the policy version and are rejected if the entry was invalidated since read (compare-and-set), with a unit test for the interleaving. ❌ Slightly more plumbing and one extra check per write (human: ~1 day / CC: ~20 min)."
+          },
+          {
+            "label": "Constructor injection only",
+            "description": "✅ Fixes test isolation and hot-reload double instances with minimal change. ✅ Keeps existing adapter untouched, no new write semantics. ❌ Both services still write freely; the write-after-invalidate race stays open (human: ~2h / CC: ~5 min)."
+          },
+          {
+            "label": "Keep module-level export as planned",
+            "description": "✅ Zero extra plumbing; simplest possible wiring for the first cut. ✅ Matches what the plan author already sketched. ❌ Global mutable state shared by two writers, no serialization, order-dependent tests, and a silent tenant-isolation hole."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — Issue 1 [P1] (confidence 8/10) PLAN.md:19-20 + :10 — AuthBroker and SessionMint both mutate one module-level AuthCache that does not serialize mutations. How should the shared cache be wired?\nProject/branch/task: gstack-plan-count-kpTDIg on main, PLAN.md multi-tenant auth refactor.\nELI10: Two services share one global cache object exported from a module, and both write to it. The plan admits the cache 'does not serialize mutations'. So when a tenant-suspension invalidation fires while SessionMint is halfway through minting, the mint can land after the invalidation and a suspended tenant keeps a live session. Module-level exports also leak state between tests and break under hot reload. Constructor injection (passing the cache in) is the boring, proven fix; the write-ordering problem needs an explicit rule on top.\nStakes if we pick wrong: a suspended or logged-out tenant session survives invalidation (security bug, silent), and unit tests pass or fail depending on run order.\nRecommendation: A because injection fixes test isolation and single-writer plus policy-version check at write time closes the write-after-invalidate race; matches your explicit-over-clever and edge-case-first preferences.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: an explicit ownership rule now vs debugging interleaved cache writes in production later.": "Inject + single-writer + version-checked writes (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T21:15:03.350Z"
+  }
+}

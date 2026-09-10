@@ -4,17 +4,24 @@ import type { NativePlanQuestion } from './plan-count-transcript';
  * Called only after engNumberedFindingAUQ validates completed native metadata. */
 export function engCacheWriterDecision(q: NativePlanQuestion): boolean {
   const lines = q.question.split('\n');
-  const ordinal = /^D([1-9]\d*) [—–:-] Who is allowed to write to the auth cache\?$/.exec(lines[0] ?? '')?.[1];
-  if (!ordinal || q.header !== 'Cache writes') return false;
-  const context = /^Project\/branch\/task: (\S[^\n]*), ([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*) both mutating one backing cache \(([\w./-]+\.md):\d+(?:, \d+(?:[-–]\d+)?)?\)\.$/.exec(lines[1] ?? '');
-  const assessment = /^ELI10: Two services write to the same cache and nothing orders their writes\. /.test(lines[2] ?? '');
-  if (!context || context[2] === context[3] || !assessment ||
+  // Severity, confidence and source citations annotate an owned issue; they
+  // never replace its current defect, assessment or opposed choices.
+  const annotated = /^D([1-9]\d*) [—–:-] Issue ([1-9]\d*) \[P[0-3]\] \(confidence (?:10|[1-9])\/10\) [A-Za-z][\w./-]*:[1-9]\d*(?:-[1-9]\d*)?(?: \+ :[1-9]\d*(?:-[1-9]\d*)?)? [—–:-] ([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*) both mutate one module-level ([A-Za-z_$][\w$]*) that does not serialize mutations\. How should the shared cache be wired\?$/.exec(lines[0] ?? '');
+  const ordinal = annotated?.[1] ?? /^D([1-9]\d*) [—–:-] Who is allowed to write to the auth cache\?$/.exec(lines[0] ?? '')?.[1];
+  if (!ordinal || (annotated ? q.header !== `Arch ${annotated[2]}` : q.header !== 'Cache writes')) return false;
+  const context = annotated ? /^Project\/branch\/task: (\S[^\n]*)\.$/.exec(lines[1] ?? '')
+    : /^Project\/branch\/task: (\S[^\n]*), ([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*) both mutating one backing cache \(([\w./-]+\.md):\d+(?:, \d+(?:[-–]\d+)?)?\)\.$/.exec(lines[1] ?? '');
+  const actors = annotated ? [annotated[3]!, annotated[4]!] : [context?.[2] ?? '', context?.[3] ?? ''];
+  const assessment = annotated
+    ? /^ELI10: Two services share one global cache object exported from a module, and both write to it\. /.test(lines[2] ?? '')
+    : /^ELI10: Two services write to the same cache and nothing orders their writes\. /.test(lines[2] ?? '');
+  if (!context || actors[0] === actors[1] || !assessment ||
       lines.filter(line => /^Project\/branch\/task:/.test(line)).length !== 1 ||
       lines.filter(line => /^ELI10:/.test(line)).length !== 1) return false;
   const boundary = '(?:^|[.!?;]\\s+|\\n|[✅❌]\\s*)(?:Correction:\\s*)?';
-  const owner = `(?:(?:this|the|that) (?:finding|issue|gap|assessment|option|action|remedy|race|single-writer requirement)|D\\s*${ordinal})`;
-  const status = '(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)';
-  const current = (text: string) => text
+  const owner = `(?:(?:this|the|that) (?:finding|issue|gap|assessment|option|action|remedy|race|single-writer requirement)|D\\s*${ordinal}${annotated ? `|Issue ${annotated[2]}` : ''})`;
+  const status = `(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current${annotated ? '|optional|unproven|proposed|conditional on approval' : ''})`;
+  const current = (text: string) => (annotated ? text.replace(/\*\*/g, '').replace(/\((?:human|CC):[^)\n]*\)[ \t]+(?=(?:Correction:\s*)?(?:this|the|that) (?:option|action|remedy)\b)/gi, '$&. ') : text)
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
     .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
     .replace(new RegExp(`(${boundary}${owner} (?:is|was|has been) )["“'‘\x60](${status})["”'’\x60]`, 'gim'), '$1$2')
@@ -27,9 +34,31 @@ export function engCacheWriterDecision(q: NativePlanQuestion): boolean {
   if (/\b(?:if|when|once|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(current(context[1]!)) || framed.test(current(context[1]!)) || framed.test(current(lines.slice(0, 3).join('\n').split('ELI10:')[0]!)) ||
       closed.test(current(q.question))) return false;
   const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const actors = [context[2]!, context[3]!];
   const contradiction = new RegExp(`${boundary}(?:(?:the|these|both) services (?:no longer (?:writes?|mutates?)|now serialize)|(?:${actors.map(escape).join('|')}) (?:no longer|does not) (?:writes?|mutates?)|(?:the |this )?(?:auth )?cache (?:is no longer shared|now serializes)|(?:the )?(?:race is (?:resolved|closed)|(?:writes|writers) are (?:now )?(?:ordered|serialized)))\\b`, 'i');
   if (contradiction.test(current(q.question))) return false;
+  if (annotated) {
+    const text = current(q.question), explanation = current(lines[2] ?? '');
+    const conditional = new RegExp(`\\b(?:if|when|once|unless) (?:approved|accepted)|\\b(?:after|pending) approval\\b|${boundary}${owner} (?:requires (?:approval|acceptance)|is (?:conditional|contingent|dependent) on (?:approval|acceptance))\\b`, 'i');
+    const namedResolved = new RegExp(`${boundary}${escape(annotated[5]!)} (?:is (?:now |already )?(?:serialized|ordered)|no longer (?:shares|has) (?:mutable )?state)\\b`, 'i');
+    const scenario = /while ([A-Za-z_$][\w$]*) is halfway through minting, the mint can land after the invalidation and a suspended tenant keeps a live session\./.exec(explanation);
+    if (!scenario || !actors.includes(scenario[1]!) || framed.test(text) || conditional.test(text) || namedResolved.test(text)) return false;
+    const rows = q.options.map(option => ({ label: option.label.replace(/ \(recommended\)$/, ''), text: current(option.description ?? '').trim() }));
+    const cancelled = new RegExp(`${boundary}(?:do not|don't|never|skip|cancel|withdraw) (?:inject|use|keep|accept|adopt|choose|proceed|reject|write|serialize|document)\\b`, 'i');
+    if (rows.some(row => framed.test(row.text) || closed.test(row.text) || conditional.test(row.text) || cancelled.test(row.text))) return false;
+    const remedy = rows.find(row => row.label === 'Inject + single-writer + version-checked writes');
+    const unchanged = rows.find(row => row.label === 'Keep module-level export as planned');
+    if (!remedy || !unchanged) return false;
+    const writer = new RegExp(`^✅\\s*${escape(annotated[5]!)} passed into both services by constructor from one composition root; ([A-Za-z_$][\\w$]*) is the only writer, ([A-Za-z_$][\\w$]*) reads and invalidates\\.`).exec(remedy.text);
+    if (!writer || writer[1] === writer[2] || !actors.includes(writer[1]) || !actors.includes(writer[2]) ||
+        !/✅\s*Writes carry the policy version and are rejected if the entry was invalidated since read \(compare-and-set\), with a unit test for the interleaving\./.test(remedy.text) ||
+        !/❌\s*Global mutable state shared by two writers, no serialization, order-dependent tests, and a silent tenant-isolation hole\./.test(unchanged.text) ||
+        contradiction.test(unchanged.text) || namedResolved.test(unchanged.text)) return false;
+    const override = new RegExp(`${boundary}(?:${escape(writer[2]!)} (?:also |still )?writes|${escape(writer[1]!)} (?:does not|no longer) writes|(?:the )?adapter (?:accepts stale writes|does not reject stale writes)|(?:the )?(?:version check|single-writer requirement) is (?:removed|disabled|optional))\\b`, 'i');
+    if (override.test(remedy.text) || new RegExp(`${boundary}only (?:${actors.map(escape).join('|')}) writes\\b`, 'i').test(unchanged.text)) return false;
+    return rows.every(row => row === remedy || row === unchanged || row.label === 'Constructor injection only' &&
+      /❌\s*Both services still write freely; the write-after-invalidate race stays open\b/.test(row.text) && !contradiction.test(row.text) &&
+      !namedResolved.test(row.text) && !new RegExp(`${boundary}only (?:${actors.map(escape).join('|')}) writes\\b`, 'i').test(row.text));
+  }
   const rows = q.options.map(option => ({
     id: new RegExp(`^${ordinal}([A-D]) (.+?)(?: \\(recommended\\))?$`).exec(option.label),
     text: current(option.description ?? '').trim(),

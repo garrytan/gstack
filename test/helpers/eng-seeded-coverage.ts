@@ -1,4 +1,5 @@
 import type { NativePlanQuestionCall, PlanCountTranscript } from './plan-count-transcript';
+import { hasRetainedLegacyCorpus } from './eng-retained-corpus';
 
 /** Evidence for this fixture's four decision seeds; regression coverage is auto-added by the skill. */
 export const ENG_DECISION_SEEDS = ['complexity', 'shared-cache', 'swallowed-errors', 'sequential-idp'] as const;
@@ -796,7 +797,82 @@ function declaredLegacyCharacterization(text: string): boolean {
     }
   }
 
-  return false;
+  // A required-test item may own the named legacy oracle while a separate
+  // parity item and task preserve its compatibility obligation. Bind these
+  // small obligations structurally; unrelated prose cannot complete the chain.
+  for (const section of current.filter(s => /^Required tests(?: \([^\n]*\))?$/i.test(s.title))) {
+    const blocks = section.body.join('\n').trim().split(/\n\s*\n/);
+    for (const block of blocks) {
+      const claim = block.replace(/\s+/g, ' ').trim();
+      const rule = /^CRITICAL\s*\([^)]*\bmandatory\b[^)]*\):\s*([A-Za-z][\w/.-]*\.test\.[jt]s)\./i.exec(claim);
+      if (!rule || /\b(?:not|never|no longer)\s+mandatory\b/i.test(rule[0]) || !/^\s*(?:Pin|Capture|Record) current behavior of legacyAuthFlow\(\) before any (?:change|rewrite|refactor):/i.test(claim.slice(rule[0].length))
+          || !/\bThis is the oracle for the parity suite\b/i.test(claim) || !snapshotSource.includes(claim)) continue;
+      const quoteFree = (value: string) => value.replace(/"[^"\n]*"|“[^”\n]*”|(?<![\w])'[^'\n]*'(?![\w])|‘[^’\n]*’/g, '');
+      const inactiveWords = '(?:withdrawn|rejected|declined|cancelled|canceled|superseded|deferred|optional|proposed|not current|no longer current|not required|no longer required|hypothetical|unproven)';
+      const subject = '(?:(?:this|the) (?:(?:legacy|baseline|unchanged-code) )?(?:(?:regression|characterization|parity) )?(?:suite|tests?|requirement|verification|oracle))';
+      const currentText = (value: string, ids: string) => quoteFree(value.replace(new RegExp(
+        `((?:^|[.!?;]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?(?:${ids}|${subject}) (?:is|are|was|were|has been|have been) )["“'‘](${inactiveWords})["”'’]`, 'gim'), '$1$2'));
+      // Input conditions describe asserted behavior, including accepted tokens.
+      // An implicit approval or an explicit work/approver subject instead
+      // governs whether this work exists.
+      const conditionalApproval = /(?:^|[.!?;]\s+|\n)[\t ]*(?:if|unless|assuming|provided|once|when|pending|after)\s+(?:(?:approv\w*|authoriz\w*|consent|confirm\w*|accept\w*|desired|requested|needed)\b|(?:(?:this|the|our) )?(?:work|plan|review|task|baseline|parity|regression|characterization|suite|tests?|requirement|verification|proposal|implementation|T[1-9]\d*|we|you|they|reviewer|owner|user)\b[^.!?;,\n]{0,80}\b(?:approv\w*|authoriz\w*|consent|confirm\w*|accept\w*|desired|requested|needed|proceed)\b)/i;
+      const unowned = (value: string) => extractionSourceOwner(value) || /\b(?:proposed|optional|hypothetical|unproven|maybe|might|could)\b/i.test(quoteFree(value)) || conditionalApproval.test(quoteFree(value));
+      const inactive = (value: string, ids: string) => unowned(value) || new RegExp(
+        `\\b(?:${ids}|${subject}) (?:is|are|was|were|has been|have been) ${inactiveWords}\\b|\\b(?:skip|defer|omit) (?:the |this )?(?:baseline|regression|characterization|parity) (?:test|suite|verification)`, 'i').test(currentText(value, ids));
+      if (inactive(block, 'T[1-9]\\d*')) continue;
+      for (const parityBlock of blocks) {
+        const parity = parityBlock.replace(/\s+/g, ' ').trim();
+        const comparison = /^Decision [1-9]\d*[A-D], parity suite:\s*([A-Za-z][\w/.-]*\.test\.[jt]s)\./i.exec(parity);
+        if (!comparison || inactive(parityBlock, 'T[1-9]\\d*') || !snapshotSource.includes(parity)
+            || !/^\s*(?:One|The same) fixture table, each row run through both paths \(flag off, flag on\), assert identical outcomes?\b/i.test(parity.slice(comparison[0].length))) continue;
+        for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+          const taskBody = tasks.body.join('\n').trim(), taskBlocks = taskBody.split(/\n(?=-\s)/);
+          const rows = taskBlocks.map(body => ({ body, match: /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] ([^\n]+)(?:\n|$)/.exec(body) })).filter(row => row.match);
+          if (rows.length !== new Set(rows.map(row => row.match![1])).size) continue;
+          const field = (body: string, name: string) => {
+            const found = [...body.matchAll(new RegExp(`^  - ${name}: ([^\\n]+)$`, 'gm'))];
+            return found.length === 1 ? found[0]![1] : undefined;
+          };
+          // Match the asserted action after its component label. A later
+          // positive test phrase cannot override a leading "Do not write".
+          const taskAction = (title: string) => /^[^\n]*?\s+[—–-]\s+(.+)$/.exec(title)?.[1] ?? title;
+          const ownedTask = (body: string) => {
+            // Source quotations identify the finding but cannot grant or revoke
+            // its separately asserted action or verification.
+            const action = body.replace(/^  - Surfaced by:.*$/gm, '');
+            const preceding = taskBody.slice(0, taskBody.indexOf(body)).trim().split('\n').at(-1) ?? '';
+            return !unowned(action) && !unowned(preceding) && snapshotSource.includes(body.replace(/\s+/g, ' ').trim());
+          };
+          for (const baseline of rows) {
+            const title = baseline.match![2]!, id = baseline.match![1]!;
+            if (!/^(?:(?:Write|Add|Create) (?:the )?)?CRITICAL (?:regression|characterization) tests? (?:pinning|capturing|recording) current legacyAuthFlow\(\) behavior before any (?:change|rewrite|refactor)\b/i.test(taskAction(title))
+                || field(baseline.body, 'Files') !== rule[1] || !ownedTask(baseline.body)
+                || !/^(?:test|suite) passes against (?:unmodified|unchanged|untouched) legacyAuthFlow\(\) (?:first|before any (?:change|rewrite|refactor))$/i.test(field(baseline.body, 'Verify') ?? '')) continue;
+            for (const next of rows) {
+              const nextId = next.match![1]!;
+              if (nextId === id || field(next.body, 'Files') !== comparison[1] || !ownedTask(next.body)
+                  || !/^(?:(?:Write|Add|Implement) (?:the )?)?(?:Table-driven )?parity suite running each fixture row through flag-off and flag-on paths\b/i.test(taskAction(next.match![2]!))
+                  || !/^suite green for every row\b/i.test(field(next.body, 'Verify') ?? '')) continue;
+              const ids = `(?:${id}|${nextId})(?: (?:baseline requirement|baseline verification|verification|rerun))?`;
+              if ([block, parityBlock, baseline.body, next.body].some(value => inactive(value.replace(/^  - Surfaced by:.*$/gm, ''), ids))) continue;
+              const cancelled = new RegExp(`\\b${ids} (?:is|was|has been) ${inactiveWords}\\b`, 'i');
+              const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${id}\\b`, 'i');
+              const withdrawn = current.some(s => {
+                if (/\b(?:history|historical|source|quoted|example)\b/i.test(s.title)) return false;
+                const body = s.body.join('\n');
+                if (new RegExp(`^\\s*\\|\\s*(?:${id}|${nextId})\\s*\\|\\s*["“'‘]?${inactiveWords}["”'’]?\\s*\\|`, 'im').test(body)) return true;
+                return currentText(body, ids).split(/\n|[.!?;]\s+/).some(line => !extractionSourceOwner(line) && !/\b(?:if|unless|assuming|provided)\b|\b(?:once|when|pending|after)\b[^.!?\n]{0,50}\bapprov/i.test(line) && (cancelled.test(line) || changedFirst.test(line.trim())
+                  || new RegExp(`\\b(?:the|this) legacy (?:regression|characterization) (?:suite|tests?|requirement) (?:is|are|was|were|has been|have been) ${inactiveWords}\\b`, 'i').test(line)));
+              });
+              if (!withdrawn) return true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return hasRetainedLegacyCorpus(current, snapshotSource);
 }
 
 function regressionEvidence(text: string): boolean {

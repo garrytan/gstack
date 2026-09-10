@@ -4,15 +4,31 @@
 
 **Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-7) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
+**Context:** This section continues `plan-design-review/SKILL.md`. If its setup
+is no longer in context, Read `~/.claude/skills/gstack/plan-design-review/SKILL.md`
+for the System Audit, Design Philosophy, Step 0, Step 0.5 mockup setup (`$D`),
+and Section self-check. Use their existing results; do not restart the review.
+
 **Anti-shortcut clause:** Complete one decision cycle per unresolved finding:
 explain the gap, recommend options, obtain its individual decision, then apply
 the selected fix. Scope, focus, setup, and next-step choices approve no remedies.
-Writing a report, mapping a token, creating a mockup, or listing a task does not
-approve a remedy. Inherited exact decisions and preamble-authorized per-issue
-auto-decisions remain valid; do not re-ask them.
-If findings exist but only navigation was answered, the review is still waiting
-for its first issue decision. Never use the final next-step AskUserQuestion to satisfy the issue-approval loop.
+Never use the final next-step AskUserQuestion to satisfy the issue-approval loop.
 With no unresolved findings, no issue question is required.
+
+**Carry decisions across passes.** An issue is one unresolved design requirement
+or tradeoff, even when it appears in several plan locations. Before each pass,
+compare the plan, DESIGN.md, and the decisions already made:
+
+| Situation | Required action |
+|-----------|-----------------|
+| The exact fix already has an individual user decision or a preamble-authorized per-issue auto-decision. | Reuse that decision. Apply it to all affected references and matching tokens; do not ask again. |
+| An accepted requirement needs to be copied unchanged into a required artifact, such as the journey storyboard. | Create the artifact without a separate format question. This records the requirement; it approves no new remedy. |
+| The plan violates DESIGN.md or has a gap, and no individual decision has approved its fix. | Ask about that issue and wait before fixing it, even if the input names the gap or DESIGN.md prescribes the exact token. Keep the proposed remedy pending meanwhile. |
+| New evidence introduces a missing requirement, a conflict, or a new tradeoff. | Name the new issue, offer alternatives, and obtain its individual decision before changing the plan. |
+
+Writing a report, mapping a token, creating a mockup, or listing a task does not
+approve a remedy. If findings exist but only navigation was answered, the review
+is still waiting for its first issue decision.
 
 ## Prior Learnings
 
@@ -52,23 +68,6 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-**Carry decisions across passes.** Before each pass, reconcile the plan, its
-inherited DESIGN.md requirements, and the user's decisions so far. An issue is an
-unresolved design requirement or tradeoff, not each paragraph where it appears. Apply an
-approved fix to all affected plan references and matching established tokens;
-reference that decision in later passes instead of asking for it again.
-
-Create required review artifacts, such as the journey storyboard, from accepted
-design requirements without asking about their format. Copying an inherited
-requirement unchanged needs no new design decision. Changing a documented
-violation to conform to that requirement is a fix: offer the remedy and obtain
-its first individual approval, even when DESIGN.md prescribes the exact token.
-Until then, keep the gap and proposed remedy pending in the plan. If
-that work exposes a missing design requirement, conflicting requirements, or a new
-tradeoff,
-raise that unresolved issue individually and wait for approval. A gap explicitly
-listed in the input still needs its first individual approval before it is fixed.
-
 **Pass protocol (1-6):** Record the initial 0-10 score. Every `FIX TO 10` below is a proposal: ask about each issue, wait for approval, then edit the plan and re-rate that pass with the reason for the score change. A declined fix remains documented and lowers the final score. Never edit first and ask afterward. Pass 7 is the unscored decision register, not a seventh rating.
 
 ### Pass 1: Information Architecture
@@ -102,7 +101,10 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 
 ### Pass 4: AI Slop Risk
 
-### Design Hard Rules
+**Pass 4 evaluation:** Rate 0-10: Does the plan describe specific, intentional UI, or generic patterns? Record each hard-rejection hit and litmus YES/NO with evidence. An unresolved hard rejection caps this pass below 8 (not design-complete); it does not automatically set the score to 0. Litmus answers support findings, not a separate numeric score.
+Use plan text and any available mockups as evidence for the rules below.
+
+#### Design Hard Rules
 
 **Classifier: name the mode before you judge a pixel.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
 - **PERSUADE** (MARKETING/LANDING PAGE: hero-driven, brand-forward, pricing, campaigns) → they decide and act. Design IS the product. Apply Landing Page Rules.
@@ -201,8 +203,6 @@ Judgment tells with no detector rule: gradient cta button, stock-photo hero, car
 
 Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.
 
-**Pass 4 evaluation:** Rate 0-10: Does the plan describe specific, intentional UI, or generic patterns? Record each hard-rejection hit and litmus YES/NO with evidence. An unresolved hard rejection caps this pass below 8 (not design-complete); it does not automatically set the score to 0. Litmus answers support findings, not a separate numeric score.
-
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives:
 - "Cards with icons" → what differentiates these from every SaaS template?
 - "Hero section" → what makes this hero feel like THIS product?
@@ -213,6 +213,7 @@ If visual mockups were generated in Step 0.5, evaluate them against the AI slop 
 
 ### Pass 5: Design System Alignment
 Rate 0-10: Does the plan align with DESIGN.md?
+If DESIGN.md is absent, rate the plan's explicit token and component specifications. Missing specifications remain findings; do not skip the score or assume alignment.
 FIX TO 10: If DESIGN.md exists, annotate with specific tokens/components; when it has YAML front matter (the open DESIGN.md format), cite tokens by path (`{colors.primary}`, `{rounded.md}`) so the plan and the file share one vocabulary. If no DESIGN.md, flag the gap and recommend `/design-consultation`.
 Flag any new component — does it fit the existing vocabulary?
 Before offering a token-alignment fix, check whether an earlier pass already approved that outcome. If so, apply the established tokens and update every stale gap/reference under that decision; changing the plan location or spelling out the same fix is not a new issue. Ask again only if new evidence exposes an unresolved requirement or tradeoff, and name it. An unapproved violation still needs its first individual decision.
@@ -239,6 +240,8 @@ Each decision = one AskUserQuestion with recommendation + WHY + alternatives. Ed
 **STOP.** Wait for each answer before editing or advancing. Record unanswered decisions as unresolved.
 
 ### Post-Pass: Update Mockups (if generated)
+
+After Pass 7: offer the mockup update below when applicable, resolve deferred TODO proposals, reconcile approvals, then synthesize tasks and the Completion Summary.
 
 If mockups were generated in Step 0.5 and review passes changed significant design decisions (information architecture restructure, new states, layout changes), offer to regenerate (one-shot, not a loop):
 
@@ -282,7 +285,7 @@ For design debt: missing a11y, unresolved responsive behavior, deferred empty st
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
 Before synthesizing tasks or the completion summary, perform the approval
-reconciliation from the Section self-check. Export only agreed implementation work; retain unapproved remedies as pending findings.
+reconciliation from the Section self-check in `~/.claude/skills/gstack/plan-design-review/SKILL.md` (Read it if no longer in context). Export only agreed implementation work; retain unapproved remedies as pending findings.
 Count only individually approved new decisions in "Decisions made" and the
 review log; a proposed remedy or next-step answer contributes zero.
 
@@ -359,6 +362,12 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 
 
 ### Completion Summary
+
+**Overall design score:** use the lowest of the six rated pass scores (1-6),
+separately before and after approved fixes. Pass 7 is unscored. Keep Step 0's
+initial impression in its own row. An overall 8+ therefore means every rated
+pass is 8+; unresolved findings still prevent a clean review log.
+
 ```
   +====================================================================+
   |         DESIGN PLAN REVIEW — COMPLETION SUMMARY                    |

@@ -99,21 +99,38 @@ export function createAutoplanEditDigest(file: string, removed: string, added: s
 }
 
 /** Require complete numbered rows and the marker column of this exact diff. */
-export function matchesAutoplanDigestRows(rows: string[], before: Buffer, digest: AutoplanEditDigest): boolean {
+export function matchesAutoplanDigestRows(rows: string[], before: Buffer, digest: AutoplanEditDigest,
+  allowReplacementReset = false): boolean {
   if (!validAutoplanEditDigest(digest) || sha(before) !== digest.beforeSHA256) return false;
   const fullRow = /^( {0,3})([1-9]\d*) ([+ -])(.*)$/;
   const first = rows.findIndex(row => fullRow.test(row));
   const leading = first > 0 ? rows.slice(0, first) : [];
   const chunks: Array<{kind: string; text: string; line: number}> = [];
   let column: number | undefined, previousLine = 0;
+  let removedStart: number | undefined, replacementReset = false;
   for (const row of leading.length ? rows.slice(first) : rows) {
     const full = fullRow.exec(row);
     if (full) {
       const line = Number(full[2]), markerColumn = full[1]!.length + full[2]!.length + 1;
-      if (!Number.isSafeInteger(line) || line < previousLine ||
+      const kind = full[3]!, previousKind = chunks.at(-1)?.kind;
+      // The complete native replacement panel numbers the old block first,
+      // then restarts additions at that block's first line. Only the caller
+      // that owns this full panel opts in; all row hashes still must match.
+      const reset = allowReplacementReset && !replacementReset && previousKind === '-' && kind === '+' && line === removedStart;
+      if (!Number.isSafeInteger(line) || (line < previousLine && !reset) ||
           (column !== undefined && column !== markerColumn)) return false;
+      if (allowReplacementReset) {
+        if ((kind === '-' || kind === '+') && kind === previousKind && line !== previousLine + 1) return false;
+        if (kind === '-' && previousKind !== '-') {
+          if (removedStart !== undefined || chunks.some(c => c.kind === '+')) return false;
+          removedStart = line;
+        }
+        if (previousKind === '-' && kind !== '-' && !reset) return false;
+        if (kind === '+' && previousKind !== '+' && removedStart !== undefined && !reset) return false;
+        if (reset) replacementReset = true;
+      }
       column = markerColumn; previousLine = line;
-      chunks.push({kind: full[3]!, text: full[4]!, line});
+      chunks.push({kind, text: full[4]!, line});
     } else {
       if (column === undefined || !row.startsWith(' '.repeat(column))) return false;
       const last = chunks.at(-1), kind = row[column];
@@ -122,6 +139,25 @@ export function matchesAutoplanDigestRows(rows: string[], before: Buffer, digest
     }
   }
   const originals = new Set(before.toString('utf8').split('\n').map(autoplanEditLineHash));
+  if (allowReplacementReset) {
+    const oldRows = chunks.filter(c => c.kind !== '+').map(c => autoplanEditLineHash(c.text));
+    const newRows = chunks.filter(c => c.kind !== '-').map(c => autoplanEditLineHash(c.text));
+    const starts = (rows: string[], hashes: string[]) => rows.flatMap((_, index) =>
+      hashes.every((hash, offset) => rows[index + offset] === hash) ? [index] : []);
+    const oldStarts = starts(oldRows, digest.oldLineHashes), newStarts = starts(newRows, digest.newLineHashes);
+    if (oldStarts.length !== 1 || newStarts.length !== 1 || oldStarts[0] !== newStarts[0]) return false;
+    const originalLines = before.toString('utf8').split('\n').map(autoplanEditLineHash);
+    const delta = digest.newLineHashes.length - digest.oldLineHashes.length;
+    let oldLine = chunks[0]!.line, newLine = oldLine, added = false;
+    for (const row of chunks) {
+      if (row.kind !== '+') {
+        if (row.line !== oldLine + (added ? delta : 0) || autoplanEditLineHash(row.text) !== originalLines[oldLine - 1]) return false;
+        oldLine++;
+      }
+      if (row.kind !== '-' && row.line !== newLine++) return false;
+      if (row.kind === '+') added = true;
+    }
+  }
   let authenticatedClip = false;
   if (leading.length) {
     const c = digest.clippedAdditions, next = chunks[0];

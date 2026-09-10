@@ -1015,7 +1015,8 @@ Judgment tells with no detector rule: ${judgmentTells.map(e => e.name.toLowerCas
   // design-review's Methodology categories 5 and 7 already carry the first two.
   const reflexBlock = (ctx.skillName === 'design-review' ? reflexes.slice(2) : reflexes).join('\n');
 
-  return `### Design Hard Rules
+  const heading = ctx.skillName === 'plan-design-review' ? '####' : '###';
+  return `${heading} Design Hard Rules
 
 **Classifier: name the mode before you judge a pixel.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
 - **PERSUADE** (MARKETING/LANDING PAGE: hero-driven, brand-forward, pricing, campaigns) → they decide and act. Design IS the product. Apply Landing Page Rules.

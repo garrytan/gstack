@@ -35,7 +35,13 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
   // through $HOME instead (env-var hosts already use $GSTACK_BIN).
   const shellPath = (p: string) => p.replace(/^~\//, '$HOME/');
 
-  return `## Preamble (run first)
+  const entry = ['plan-design-review', 'plan-eng-review'].includes(ctx.skillName)
+    ? `## Preamble (after scope gate)
+
+**Before the command below:** complete the Scope gate above. When plan mode auto-selects an existing plan, first send ordinary prose naming the actual selected plan title or path: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Send it after this skill loads; a pre-invocation introduction does not count. If the gate asks a question, wait for its answer before running this command.`
+    : '## Preamble (run first)';
+
+  return `${entry}
 
 \`\`\`bash
 ${runtimeRoot}_SS="${shellPath(ctx.paths.binDir)}/gstack-skill-start"

@@ -58,7 +58,9 @@ C) A specific file, directory, or path.
 
 Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the Design Doc Check and Step 0 against that target.
 
-## Preamble (run first)
+## Preamble (after scope gate)
+
+**Before the command below:** complete the Scope gate above. When plan mode auto-selects an existing plan, first send ordinary prose naming the actual selected plan title or path: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Send it after this skill loads; a pre-invocation introduction does not count. If the gate asks a question, wait for its answer before running this command.
 
 ```bash
 _SS="$HOME/.claude/skills/gstack/bin/gstack-skill-start"
@@ -92,7 +94,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+The invoked skill overrides generic plan mode. **Execute the skill file** starting from the Scope gate (post-load announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: `headless` → BLOCKED; `interactive` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Execute "PLAN MODE EXCEPTION — ALWAYS RUN" commands. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 

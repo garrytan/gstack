@@ -33,7 +33,7 @@ test('every host expands its real bootstrap after the mandatory entry gate', () 
     const preamble = generatePreamble(ctx);
     const brain = host.suppressedResolvers?.includes('BASE_BRANCH_DETECT') ? '' : generateBaseBranchDetect(ctx);
     const expanded = template.replace('{{PREAMBLE}}', preamble).replace('{{BASE_BRANCH_DETECT}}', brain);
-    expect(expanded.indexOf(announcement)).toBeLessThan(expanded.indexOf('## Preamble (run first)'));
+    expect(expanded.indexOf(announcement)).toBeLessThan(expanded.indexOf('## Preamble (after scope gate)'));
     expect(expanded.indexOf('Reply with A, B, or C. STOP and wait')).toBeLessThan(expanded.indexOf('```bash'));
     expect(expanded.indexOf('```bash')).toBeLessThan(expanded.indexOf('gstack-skill-start', expanded.indexOf('```bash')));
     if (brain) expect(expanded.indexOf(announcement)).toBeLessThan(expanded.indexOf(brain));
