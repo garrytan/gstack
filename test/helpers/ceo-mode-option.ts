@@ -149,29 +149,39 @@ function hasNativePostureProse(text: string, posture: RegExp): boolean {
 /** Current scope lock + exclusion + hardening can apply HOLD without naming it. */
 function hasCurrentHoldScopePosture(text: string, selected: NativePlanQuestionCall): boolean {
   const plain = text.replace(/\*\*/g, '').replace(/’/g, "'").trim();
-  // Require the declaration itself, not a quote, promise, example or comparison.
-  const sentence = /^[\s\S]*?[.!?](?=\s|$)/.exec(plain)?.[0] ?? '';
-  if (/\b(?:not|never|won't|can't|don't|isn't|aren't|if|unless|until|may|might|could|would|will|later|example|hypothetical)\b/i.test(sentence)) return false;
+  // This gate checks adopted review posture, not completed review work. An
+  // immediate first-person commitment carries the same scope obligations as
+  // a present-tense declaration; deferred or conditional plans still do not.
+  const opening = /^[\s\S]*?[.!?](?=\s|$)/.exec(plain)?.[0] ?? '';
+  const sentence = opening.replace(/^(?:I'll|I will|We'll|We will) (lock|keep|hold)\b/i,
+    (_match, verb: string) => `I am ${{ lock: 'locking', keep: 'keeping', hold: 'holding' }[verb.toLowerCase()]}`);
+  if (/\b(?:not|never|won't|can't|don't|isn't|aren't|if|unless|until|may|might|could|would|will|later|tomorrow|eventually|future|example|hypothetical|after|once|when|whenever|following|pending|provided|assuming)\b|\b(?:next (?:week|month|year)|subject to)\b/i.test(sentence)) return false;
   const declaration = /^(?:I'm|I am|We're|We are) (?:locking|keeping|holding) (?:the )?scope (?:to|at) ([^,\n]+),\s*(?:flagging|treating|marking) (?:anything|everything) (?:beyond|outside) that(?: \([^()\n]+\))? as out of scope,? and (?:hunting|checking|looking) for (?:silent )?(?:failure modes|errors|edge cases)\b([^.!?\n]*)\.$/i.exec(sentence);
-  if (!declaration) return false;
+  const pressureTest = /^(?:I'm|I am|We're|We are) (?:locking|keeping|holding) (?:the )?scope fixed to ([^,\n]+),\s*pressure[- ]testing every stated behavior for failure modes, ([^.!?\n]+?) while deferring (?:anything|everything) extra rather than adding it silently\.$/i.exec(sentence);
+  const commitment = declaration ?? pressureTest;
+  if (!commitment) return false;
   // A later current correction can withdraw the declaration. Quoted examples
   // cannot; the opening declaration was matched before removing quoted blocks.
   const currentProse = plain.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
     .replace(/^\s*>.*$/gm, '').replace(/"[^"\n]*"|“[^”\n]*”/g, '');
   if (/\b(?:expand\w*|widen\w*|reduc(?:e|ing)|shrink\w*)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
       /\b(?:add|adding)\b[^.!?\n]*\b(?:to|into)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
-      /\b(?:no longer|not)\s+(?:locking|keeping|holding)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
+      /\b(?:no longer|not)\s+(?:locking|keeping|holding|lock|keep|hold)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
       /\b(?:previously|formerly) excluded\b[^.!?\n]*\b(?:now )?in scope\b/i.test(currentProse)) return false;
   const context = selected.questions.map(q => /^Project\/branch\/task:([^\n]*)/im.exec(q.question)?.[1] ?? '').join(' ');
   const plans = new Set(context.match(/\b[\w./-]+\.md\b/gi) ?? []);
-  const baseline = declaration[1]!.trim();
+  const baseline = commitment[1]!.trim();
   const namedPlan = /^(?:the )?(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) )?([\w./-]+\.md) (?:bullets|requirements|scope)(?: from approach [A-Z])?$/i.exec(baseline);
-  if (namedPlan ? plans.size !== 1 || !plans.has(namedPlan[1]!)
+  const possessivePlan = /^(?:the )?([\w./-]+\.md)'s (?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) )?(?:bullets|requirements|scope)( plus the approved schema)?$/i.exec(baseline);
+  const plan = namedPlan ?? possessivePlan;
+  if (plan ? plans.size !== 1 || !plans.has(plan[1]!)
     : !/^the (?:current|agreed|approved|existing) (?:plan|scope)$/i.test(baseline)) return false;
+  if (possessivePlan?.[2] && (!/\bschema\b[^.!?\n]{0,80}\bapproved\b|\bapproved\b[^.!?\n]{0,80}\bschema\b/i.test(context)
+    || /\b(?:not|no|unapproved|rejected|hypothetical|if|unless|until|after|once|when|whenever|following|pending|provided|assuming)\b|\bsubject to\b/i.test(context))) return false;
   // Concrete failure surfaces distinguish review rigor from merely retaining scope.
-  const hardening = declaration[2]!;
-  return [/\bconstraints\b/i, /\berror handling\b/i, /\bedge cases\b/i,
-    /\baccess(?:-rule)? leaks\b/i, /\bsecurity\b/i, /\btest(?:ing|s)\b/i]
+  const hardening = commitment[2]!;
+  return [/\bconstraints\b/i, /\b(?:error handling|errors)\b/i, /\bedge cases\b/i,
+    /\baccess(?:-rule)? leaks\b/i, /\bsecurity\b/i, /\btest(?:ing|s)\b/i, /\bproduction visibility\b/i]
     .filter(surface => surface.test(hardening)).length >= 2;
 }
 

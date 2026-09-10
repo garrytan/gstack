@@ -40,6 +40,7 @@ import { auditAutoplanMethodReads, loadAutoplanMethodologyBinding, type Autoplan
 import { getHermeticDirs } from './helpers/hermetic-env';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
 import { createNativeReviewState } from './helpers/plan-count-fixture';
+import { seedAutoplanOnboarding } from './helpers/autoplan-preconfigured-fixture';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -70,6 +71,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         const plansDir = path.join(tempDir, '.claude', 'plans');
         fs.mkdirSync(plansDir, { recursive: true });
         fs.copyFileSync(UI_FIXTURE, path.join(plansDir, 'ui-heavy-feature.md'));
+        // Exercise review sequencing with real, already configured prerequisites.
+        seedAutoplanOnboarding(tempDir);
         fs.writeFileSync(path.join(tempDir, 'README.md'), '# Autoplan chain fixture\n');
         gitRun(['add', '.']);
         gitRun(['commit', '-m', 'init UI-heavy fixture']);

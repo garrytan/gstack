@@ -96,7 +96,11 @@ function declaredLegacyCharacterization(text: string): boolean {
   const sections: Array<{ title: string; body: string[]; asserted: boolean }> = [];
   const owners: Array<{ level: number; asserted: boolean }> = [];
   let preamble = '', sourcePreamble = false;
-  const sourceFrame = (body: string) => /\b(?:(?:hypothetical|historical) example|unproven hypothesis|(?:source|quoted) (?:material|text) only|(?:are|is) not requirements? of this plan)\b/i.test(body.replace(/"[^"\n]*"|“[^”\n]*”/g, '').replace(/\s+/g, ' '));
+  const sourceFrame = (body: string) => {
+    const text = body.replace(/"[^"\n]*"|“[^”\n]*”/g, '').replace(/\s+/g, ' ');
+    return /\b(?:(?:hypothetical|historical) example|unproven hypothesis|(?:source|quoted) (?:material|text) only|(?:are|is) not requirements? of this plan)\b/i.test(text)
+      || /^\s*(?:(?:quoted )?source(?: (?:excerpt|text|material))?|(?:historical|earlier|previous) (?:review )?assessment):(?:\s|$)/i.test(text);
+  };
   for (const line of prose(text).split('\n')) {
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) {
@@ -467,6 +471,54 @@ function declaredLegacyCharacterization(text: string): boolean {
           const count = /^\d+$/.test(verify[1]!) ? Number(verify[1]) : ['zero','one','two','three','four','five','six','seven','eight','nine','ten'].indexOf(verify[1]!);
           if (count === rule[3]!.split(',').length) return true;
         }
+      }
+    }
+  }
+
+
+  // A mandatory before-rewrite declaration binds exact captured behavior to
+  // the same task file's current-code baseline and flag-on rerun.
+  const approvalPending = (value: string) => unquoted(value).split('\n').some(line =>
+    /^\s*(?:once|when|pending)\b[^.!?\n]{0,80}\bapprov(?:e[ds]?|al)\b/i.test(line));
+  for (const section of current.filter(s => s.title === 'REGRESSION RULE (mandatory, no decision required)')) {
+    const body = unquoted(section.body.join(' ')).replace(/\s+/g, ' ').trim();
+    const rule = /^legacyAuthFlow\(\) is existing behavior being rewritten\b[^!?]{1,240}\. CRITICAL: before any rewrite, record a characterization suite in ([A-Za-z][\w/.-]*\.test\.[jt]s): for each supported tenant configuration, capture inputs \([^()!?]{1,300}\) and the exact output \([^()!?]{1,300}\)\. The new path must pass the same suite with the flag on\. This is the parity gate for D[1-9]\d*\.$/.exec(body);
+    if (!rule || suiteWithdrawn || !snapshotSource.includes(body) || withdrawn(body) ||
+        /\b(?:if|unless|maybe|might|could|optional|hypothetical|unproven)\b/i.test(body)) continue;
+    for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = tasks.body.join('\n').trim(), blocks = taskBody.split(/\n(?=-\s)/);
+      const prefix = blocks[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(prefix) ||
+          extractionSourceOwner(prefix) || approvalPending(prefix) || /\b(?:if|unless|assuming|provided|optional|hypothetical|unproven)\b/i.test(unquoted(prefix)))) continue;
+      const ids = blocks.map(block => /^- (?:\[[ xX]\] )?(T[1-9]\d*)\b/.exec(block)?.[1]).filter(Boolean);
+      if (ids.length !== new Set(ids).size) continue;
+      for (const task of blocks) {
+        const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w/-]* [—–-] Write the legacyAuthFlow\(\) characterization \(regression\) suite before any rewrite[\t ]*(?:\n|$)/.exec(task);
+        const file = /^\s+- Files: ([^\n]+)$/m.exec(task);
+        const verify = /^\s+- Verify: suite green on current code; green again with flag on after rewrite[\t ]*$/m.exec(task);
+        const preceding = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        if (!match || file?.[1] !== rule[1] || !verify || !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+            extractionSourceOwner(preceding) || conditionalOwner(preceding) || approvalPending(preceding) ||
+            extractionSourceOwner(task.slice(0, verify.index)) || conditionalOwner(task.slice(0, verify.index)) || approvalPending(task.slice(0, verify.index)) ||
+            /(?:^|\n)\s*(?:assuming|provided)\b/i.test(unquoted(task.slice(0, verify.index)))) continue;
+        const id = match[1]!;
+        // Preserve a quoted status word on a current subject, while still
+        // ignoring quoted historical sentences and foreign suite withdrawals.
+        const assessment = (value: string) => unquoted(value.replace(new RegExp(
+          `(\\b(?:${id}(?: (?:verification|baseline verification|rerun))?|(?:this|the) (?:(?:legacy|baseline|unchanged-code) )?(?:(?:regression|characterization) )?(?:suite|requirement|verification)) (?:is|was|has been) )["“](withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)["”]`, 'gi'), '$1$2'));
+        const inactive = (value: string) => {
+          const body = assessment(value).replace(/\b(?:this|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement');
+          return withdrawn(body, id) || /\b(?:this|the) (?:suite|requirement) (?:is|was|has been) (?:superseded|not current|no longer current)\b/i.test(body);
+        };
+        const cancelled = new RegExp(`\\b${id}(?: (?:verification|baseline verification|rerun))? (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)\\b`, 'i');
+        const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${id}\\b`, 'i');
+        const statusRow = new RegExp(`^\\s*\\|\\s*${id}\\s*\\|\\s*["“]?(?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)["”]?\\s*\\|`, 'im');
+        if (inactive(task) || current.some(s => {
+          const value = assessment(s.body.join('\n'));
+          return statusRow.test(s.body.join('\n')) || cancelled.test(value) || /\b(?:the|this) legacy (?:regression|characterization) (?:suite|tests?|requirement) (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|optional|not current|no longer required)\b/i.test(value) ||
+            value.split(/\n|[.!?]\s+/).some(line => changedFirst.test(line.trim()));
+        })) continue;
+        return true;
       }
     }
   }

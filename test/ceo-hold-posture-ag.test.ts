@@ -22,6 +22,8 @@ test('the captured selected HOLD scope lock and hardening establish posture with
 
 test('ordinary current scope declarations preserve the same three obligations', () => {
   for (const text of [
+    original.replace("I'm locking", 'I will lock'),
+    original.replace("I'm locking", "I'll lock"),
     original.replace("I'm locking", 'We are keeping').replace('the four PLAN.md bullets from approach B', 'the agreed plan')
       .replace('flagging anything beyond', 'treating everything outside').replace('hunting', 'checking'),
     original.replace("I'm locking", 'I am holding').replace('four PLAN.md bullets from approach B', 'PLAN.md requirements')
@@ -33,10 +35,10 @@ test('ordinary current scope declarations preserve the same three obligations', 
   }
 });
 
-test('promises, conditions and quotation cannot establish the current posture', () => {
+test('deferred commitments, conditions and quotation cannot establish the current posture', () => {
   for (const text of [
-    original.replace("I'm locking", 'I will lock'),
     original.replace("I'm locking", 'I would lock'),
+    original.replace("I'm locking", 'I will later lock'),
     'If you approve, ' + original,
     'Later, ' + original,
     'Example only: ' + original,

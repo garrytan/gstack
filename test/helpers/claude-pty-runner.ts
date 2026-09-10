@@ -2425,6 +2425,57 @@ function ceoCurrentBriefProse(text: string, inspectOpening = true): boolean {
       /^(?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|(?:no[- ]error[- ]handling\s+)?contract)\s+(?:is|has been)\s+(?:(?:only|just|an?)\s+)*(?:withdrawn|retracted|rejected|cancelled|canceled|resolved|closed|not current|historical|hypothetical|quoted|source|example)\b/i.test(clause.trim()));
 }
 
+/** A transaction header can identify a current boundary decision without a section counter. */
+function ceoTransactionBoundaryBrief(q: NativePlanQuestionCall['questions'][number], title: string): boolean {
+  const decision = /^D([1-9]\d*)\s*[—–-]\s*(?:Where|When|How|What)\b[^\n]+\?$/i.exec(title);
+  const header = /^(?:D([1-9]\d*)\s+)?(?:Txn|Transaction) boundary$/i.exec(q.header.trim());
+  if (!decision || !header || (header[1] && header[1] !== decision[1]) ||
+      !/\bcommit\b/i.test(title) || !/\b(?:email|mail)\b/i.test(title)) return false;
+  const publicText = (text: string) => text
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+    .replace(/(^|\n|[.)!?]\s+|\s+(?=This\b|Correction:))((?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|transaction boundary)\s+(?:is|has been)\s+(?:(?:now|already)\s+)?)["“'](withdrawn|superseded|resolved|specified|defined|cancelled|canceled|not current|no longer current)["”']/gim, '$1$2$3')
+    .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  const current = (text: string) => ceoCurrentBriefProse(text) &&
+    !/^(?:assuming|provided|previously|formerly)\b/i.test(text.trim()) &&
+    !publicText(text).split(/[.!?]\s+|\n/).some(clause =>
+      /^(?:source|earlier|previous|historical|quoted|example|template|hypothetical)\s+(?:review\s+)?(?:assessment|finding|excerpt|material|text)\b/i.test(clause.trim())) &&
+    !publicText(text).split(/[.)!?]\s+|\n|\s+(?=This\b|Correction:)/).some(clause =>
+      /^(?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|transaction boundary)\s+(?:is|has been)\s+(?:(?:now|already)\s+)?(?:withdrawn|superseded|resolved|specified|defined|cancelled|canceled|not current|no longer current)\b/i.test(clause.trim()));
+  const prose = publicText(q.question);
+  const field = (name: string) => [...prose.matchAll(new RegExp('^' + name + ':\\s*(.+)$', 'gm'))];
+  const contexts = field('Project/branch/task'), assessments = field('ELI10');
+  const stakes = field('Stakes if we pick wrong'), recommendations = field('Recommendation');
+  if ([contexts, assessments, stakes, recommendations].some(rows => rows.length !== 1) ||
+      !current(q.question) || ![contexts[0]![1]!, assessments[0]![1]!, stakes[0]![1]!].every(current)) return false;
+  const prefix = prose.slice(title.length, prose.indexOf('\nELI10:')).split('\n').map(line => line.trim()).filter(Boolean);
+  if (prefix.length !== 1 || prefix[0] !== contexts[0]![0]) return false;
+  const labels = q.options.map(option => /^([1-9]\d*)([A-Z])(?:[):.]\s*|\s+)(\S[\s\S]*)$/i.exec(option.label));
+  const recommended = /^([1-9]\d*)([A-Z])\b/i.exec(recommendations[0]![1]!);
+  if (q.options.length < 2 || q.options.length > 4 || recommended?.[1] !== decision[1] ||
+      labels.some(label => label?.[1] !== decision[1]) ||
+      new Set(labels.map(label => label![2]!.toUpperCase())).size !== labels.length ||
+      !labels.some(label => label![2]!.toUpperCase() === recommended![2]!.toUpperCase()) ||
+      !q.options.every((option, i) => current(labels[i]![3]!) && current(option.description ?? ''))) return false;
+  const remedy = q.options.findIndex((option, i) => {
+    const description = publicText(option.description ?? '');
+    return /^Commit (?:the )?update, then (?:email|mail)(?: \(recommended\))?$/i.test(labels[i]![3]!) &&
+      /✅\s*Lookup and update commit in one transaction;\s*the (?:email|mail) call runs after commit, outside any DB transaction\b/i.test(description) &&
+      /✅\s*A (?:mail|email) failure can never roll back paid status\b/i.test(description) &&
+      !/(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|cancel|withdraw) commit\b/i.test(description);
+  });
+  const opposed = q.options.some((option, i) => i !== remedy &&
+    /^(?:Leave|Keep) ordering unspecified$/i.test(labels[i]![3]!) &&
+    /❌\s*If the (?:email|mail) lands inside the transaction, a (?:mail|email) timeout rolls back the payment while a retry record for its receipt already exists\b/i.test(publicText(option.description ?? '')));
+  if (remedy < 0 || !opposed) return false;
+  // These are presentation-only copies; the native menu and selected answer
+  // remain exact. The established rich validator still owns gap/remedy proof.
+  const semantic = { ...q, options: q.options.map((option, i) => ({ ...option,
+    label: `${labels[i]![1]}${labels[i]![2]}) ${i === remedy ? labels[i]![3]!.replace(/^Commit/i, 'Write and commit') : labels[i]![3]}` })) };
+  return ceoNumberedBriefDecision(semantic, title, true,
+    option => current(option.label.replace(/^[1-9]\d*[A-Z][):.]\s*/i, '')) && current(option.description ?? ''));
+}
+
 /** An explicit sequencing decision needs the current missing contract and opposed remedies. */
 function ceoSequenceChoiceBrief(q: NativePlanQuestionCall['questions'][number], title: string): boolean {
   const decision = /^D([1-9]\d*)\s*[—–-]\s*(?:In what order|How|What|Which)\b[^\n]+\?$/i.exec(title);
@@ -2496,7 +2547,7 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   if (!allowQuestionId && ceoSectionChoiceBrief(q, title)) return true;
   if (!allowQuestionId && (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0) &&
       typeof call.answeredAt === 'string' && Number.isFinite(Date.parse(call.answeredAt)) &&
-      ceoSequenceChoiceBrief(q, title)) return true;
+      (ceoSequenceChoiceBrief(q, title) || ceoTransactionBoundaryBrief(q, title))) return true;
   // The issue identity is separate from the decision counter and section
   // numbering. A completed "Issue 2" choice and "Finding 2.1" choice carry
   // the same review evidence as the already-supported numbered findings.
@@ -2608,8 +2659,25 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
     return ceoNumberedBriefDecision(semantic, architectureIssue[3]!, false,
       option => current(option.label.replace(/^[1-9]\d*[A-Z][):.]\s*/i, '')) && current(option.description ?? ''));
   }
-  const sectionFinding = /^Section\s+([1-9]\d*)\s+finding(?:\s+([1-9]\d*))?\s*[—–:-]\s*([^\n]+\?)$/i.exec(normalized);
+  const sectionFinding = /^Section\s+([1-9]\d*)\s*,?\s+finding(?:\s+([1-9]\d*))?\s*[—–:-]\s*([^\n]+)$/i.exec(normalized);
   if (sectionFinding) {
+    // A comma or declarative title does not weaken this newly admitted
+    // route's explicit identity and single current assessment ownership.
+    if (!/^Section\s+[1-9]\d*\s+finding(?:\s+[1-9]\d*)?\s*[—–:-]\s*[^\n]+\?$/i.test(normalized)) {
+      const contexts = [...q.question.matchAll(/^Project\/branch\/task:\s*(.+)$/gm)];
+      const assessments = [...q.question.matchAll(/^ELI10:\s*(.+)$/gm)];
+      // Preserve quoted history while recognizing a current supersession,
+      // including a quoted status word, as withdrawal of this decision.
+      const current = (text: string) => {
+        const status = text.replace(/(^|\n|[.)!?]\s+|\s+(?=This\b|Correction:))((?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|(?:no[- ]error[- ]handling\s+)?contract)\s+(?:is|has been)\s+)(["“']?)(?:superseded|no longer current)(["”']?)/gim, '$1$2$3withdrawn$4');
+        return ceoCurrentBriefProse(status) &&
+          !/^(?:assuming|provided|previously|formerly)\b/i.test(text.trim());
+      };
+      if ((/^D\d/i.test(title) && !/^D[1-9]\d*\s*[—–-]/i.test(title)) ||
+          contexts.length !== 1 || assessments.length !== 1 ||
+          !current(contexts[0]![1]!) || !current(assessments[0]![1]!) || !current(q.question) ||
+          !q.options.every(option => current(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && current(option.description ?? ''))) return false;
+    }
     if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
         typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt))) return false;
     const headerSection = /^Section\s+([1-9]\d*)(?:\s+finding\s+([1-9]\d*))?$/i.exec(q.header.trim());

@@ -349,7 +349,7 @@ function assertedStructuredOwner(prose: string[], index: number): boolean {
 /** A same-ID assessment survives intervening diagrams and named assessment headings. */
 function structuredFindingAssessment(prose: string[], finding: number, traceEnd: number, ids: string[], assertedOwner = assertedStructuredOwner): string[] {
   const assessment: string[] = [];
-  const sameId = new RegExp(`^(?:${ids.join('|')})\\b`);
+  const sameId = new RegExp(`^(?:(?:${ids.join('|')})\\b|\\|\\s*(?:${ids.join('|')})\\s*\\|)`);
   const ownsHeading = new RegExp(`\\b(?:${ids.join('|')})\\b`);
   let followingTrace = false, namedAssessment = false;
   for (let i = finding + 1; i < prose.length; i++) {
@@ -362,7 +362,12 @@ function structuredFindingAssessment(prose: string[], finding: number, traceEnd:
       followingTrace = false;
       namedAssessment = false;
     }
-    if (assertedOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) assessment.push(line);
+    if (assertedOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) {
+      // A current table can put a scalar verdict in the cited finding's row.
+      // Normalize that owned status only, never borrow a neighboring row.
+      const status = /^\|\s*(F[1-9]\d*)\s*\|\s*["“']?(withdrawn|rejected|dismissed)\b/i.exec(line);
+      assessment.push(status && ids.includes(status[1]!) ? `${status[1]} is ${status[2]}. ${line}` : line);
+    }
   }
   return assessment;
 }
@@ -620,7 +625,7 @@ export function hasStaleFillRaceFinding(report: string): boolean {
 }
 
 /** An ordered execution can establish overlap without naming it "in-flight". */
-function hasOrderedStaleFillOperations(text: string): boolean {
+function hasOrderedStaleFillOperations(text: string, sourceText = text): boolean {
   const separator = String.raw`\s*[,;.]\s*(?:then\s+)?`;
   const subject = String.raw`(?:(?:a|the)\s+)?`;
   const sameObject = String.raw`(?:\s+(?:(?:the\s+)?same\s+)?(?:cache\s+)?(?:key|entry))?`;
@@ -630,6 +635,21 @@ function hasOrderedStaleFillOperations(text: string): boolean {
   const later = String.raw`(?:(?:every|all|the)\s+)?(?:later|next|new|subsequent)\s+readers?\s+(?:sees?|gets?|observes?|receives?)\s+(?:the\s+)?(?:stale|old|outdated)\s+(?:data|value|snapshot)`;
   const findingPrefix = String.raw`(?:(?:F[1-9]\d*|(?:Finding|Issue)\s+[1-9]\d*)\s*[—–:-]\s*)?(?:P[0-3]\s*[—–:-]\s*)?`;
   const sequence = new RegExp(String.raw`^${findingPrefix}${read}${separator}${write}${separator}${fill}${separator}${later}(?=[\s.!?;]|$)`, 'i');
+  // An asserted schedule can name the read's resolution and store separately.
+  // All four operations must remain in one cell and in their causal order;
+  // quoted requirements may follow, but inline code cannot supply operations.
+  const resolvedRead = String.raw`${subject}(?:(?:original|same)\s+)?read(?:er)?\s+resolves\s+and\s+stores\s+(?:the\s+)?(?:old|stale|pre[- ](?:write|commit))\s+(?:snapshot|value|data)`;
+  const staleHit = String.raw`(?:(?:a|the)\s+)?(?:later|next|new|subsequent)\s+read\s+hits\s+(?:the\s+)?(?:stale|old)\s+(?:value|data|snapshot)`;
+  const assertedSchedule = new RegExp(String.raw`^Original (?:plan|sketch|wrapper)\b[^.?]*\.\s+Schedule:\s*${read}${separator}${write}${separator}${resolvedRead}\.\s+${staleHit}(?=[\s.!?;]|$)`, 'i');
+  const scheduleCells = sourceText.replace(/`[^`]*`/g, '[literal]').replace(/[*_]/g, '')
+    .replace(/\s+/g, ' ').trim().split(/\s*\|\s*/);
+  if (scheduleCells.some(cell => {
+    const unquoted = cell.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[quotation]');
+    return assertedSchedule.test(unquoted)
+      && !/\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|hypothetical|historical|quoted|copied|source|earlier\s+review)\b/i.test(unquoted)
+      && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(unquoted)
+      && !/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(unquoted);
+  })) return true;
   // Table cells cannot lend operation order to each other. Bare "reader"
   // refers back to the missed read; explicit foreign cache/key references,
   // quoted examples and conditional/negated executions cannot establish it.
@@ -662,7 +682,9 @@ function assertedProseOwner(prose: string[], index: number): boolean {
       // An explicit fresh review ends an unheaded introductory source block.
       if (/^(?:Current|Actual)\s+(?:review|findings|assessment)\b/i.test(heading[2]!)) owners[0]!.source = false;
       owners.push({ level: heading[1]!.length, source: /\b(?:hypothetical|examples?|quoted|copied|historical|template|source)\b/i.test(heading[2]!) });
-    } else if (/\b(?:unproven\s+hypothesis|(?:hypothetical|historical)\s+example|quoted\s+source)\b/i.test(line)
+    } else if (/^(?:Source|Earlier review):\s*$/i.test(line.trim())
+      || /^Hypothetical scenario[.:](?:\s|$)/i.test(line.trim())
+      || /\b(?:unproven\s+hypothesis|(?:hypothetical|historical)\s+example|quoted\s+source)\b/i.test(line)
       || /^(?:The\s+following\b|Below\b|This\s+(?:section|material|example)\b)[^.!?]*\b(?:copied|quoted|source|examples?|hypothetical|historical|template)\b/i.test(line.trim())) {
       owners.at(-1)!.source = true;
     }
@@ -693,7 +715,7 @@ function hasProseStaleFillFinding(report: string): boolean {
     if (!assertedProseOwner(owners, owners.length - 1)) return false;
     const stale = /\b(?:stale|outdated)\b|\b(?:old(?:er)?|pre[- ]write)\s+(?:value|data|result|version|snapshot)\b/i.test(text);
     const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text)
-      || hasOrderedStaleFillOperations(text);
+      || hasOrderedStaleFillOperations(text, block);
     const read = /\b(?:read|fetch)\w*\b/i.test(text);
     const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor|restor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
     const fill = fillPattern.test(text);
@@ -705,11 +727,15 @@ function hasProseStaleFillFinding(report: string): boolean {
     // Inline source cannot supply the assertion; the amendment label is metadata.
     const coordinationText = normalize(block.replace(/`([^`]*)`/g, (_span, body: string) =>
       /^\[Amended:[^\]]+\]$/.test(body) ? body : '[literal]'));
-    const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(sketch|wrapper|implementation)\s+(?:(?:had|has)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b|stated\s+that\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\s+was\s+proposed\b)/i.exec(coordinationText);
+    const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(sketch|wrapper|implementation)\s+(?:(?:had|has|proposed)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b|stated\s+that\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\s+was\s+proposed\b)/i.exec(coordinationText);
     const citedConclusion = /(?:^|[.;]\s+)Review\s+(?:showed|shows)\s+that\s+(sketch|wrapper|implementation)\s+(?:violates|breaks)\s+the\s+(?:retained\s+)?read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)\s+\(see\s+(F[1-9]\d*)\)(?:[.!](?=\s|$)|$)/i.exec(coordinationText);
-    const conclusion = /(?:^|[.;]\s+)(?:finding\s+[\w.-]+\s+(?:showed|shows)\s+)?(?:this|that|it)\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:[.!](?=\s|$)|$)/i.exec(coordinationText) ?? citedConclusion;
+    // The reviewer can assert the original coordination violation directly,
+    // immediately after its premise, without naming the old version 'stale'.
+    const reportedViolation = /(?:^|[.;]\s+)(?:the\s+)?review\s+found\s+that\s+this\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:\s+above)?\s+\((F[1-9]\d*)\)(?=\s+and\s+omits\b|[.!](?:\s|$)|$)/i.exec(coordinationText);
+    const conclusion = /(?:^|[.;]\s+)(?:finding\s+[\w.-]+\s+(?:showed|shows)\s+)?(?:this|that|it)\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:[.!](?=\s|$)|$)/i.exec(coordinationText) ?? citedConclusion ?? reportedViolation;
     const coordinationGap = premise !== null && conclusion !== null && premise.index < conclusion.index
       && (conclusion !== citedConclusion || premise[1]!.toLowerCase() === citedConclusion![1]!.toLowerCase())
+      && (conclusion !== reportedViolation || /^\s*$/.test(coordinationText.slice(premise.index + premise[0].length, conclusion.index)))
       && !coordinationText.slice(premise.index, conclusion.index).includes('|')
       && !/["“”]|\b(?:if|example|template|quoted)\b/i.test(text)
       && !/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(blocks[index - 1] ?? '');
@@ -721,13 +747,14 @@ function hasProseStaleFillFinding(report: string): boolean {
     const next = blocks[index + 1] ?? '';
     const independent = /^(?:#{1,6}(?:\s|\d)|\d+\.\s|[-*]\s|\||(?:[*_]+)?(?:Finding\b|Section\s|P[0-3]\b))/i.test(next);
     const explicitId = /^\|\s*(F[1-9]\d*)\s*\|/.exec(text)?.[1]
-      ?? (coordinationGap && conclusion === citedConclusion ? citedConclusion?.[2] : undefined);
+      ?? (coordinationGap && conclusion === citedConclusion ? citedConclusion?.[2] : undefined)
+      ?? (coordinationGap && conclusion === reportedViolation ? reportedViolation?.[1] : undefined);
     const assessment = explicitId
       ? structuredFindingAssessment(lines, owners.length - 1, owners.length - 1, [explicitId], assertedProseOwner).join(' ')
       : '';
     const context = text + (independent ? '' : ' ' + normalize(next)) + ' ' + normalize(assessment);
     const findingId = explicitId ?? 'F[1-9]\\d*';
-    if (new RegExp(`\\b(?:(?:this|that|the)\\s+(?:finding|issue|gap|race)|${findingId})\\s+(?:is|was|remains)\\s+(?:withdrawn|rejected|dismissed)\\b`, 'i').test(context)) return false;
+    if (new RegExp(`\\b(?:(?:this|that|the)\\s+(?:finding|issue|gap|race)|${findingId})\\s+(?:is|was|remains)\\s+["“'‘]?(?:withdrawn|rejected|dismissed)\\b`, 'i').test(context)) return false;
 
     const finding = /\b(?:P[0-3]|missing|gap|bug|defect|violat\w*|unsafe|incorrect)\b|\bno\s+mention\s+of\s+(?:this|the)\s+race\b/i.test(context);
     const subsequentRead = /\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(context);

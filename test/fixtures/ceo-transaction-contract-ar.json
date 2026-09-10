@@ -1,0 +1,240 @@
+{
+  "provenance": {
+    "source": ".context/ship-source-ar-delta-paid-20260910-v1/ceo-distinct-first-terminal-public-native-v1/observation.json",
+    "scope": "Eight exact completed owned native calls from the failed distinct first attempt; no private reasoning."
+  },
+  "calls": [
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01Jam614QAXdZe3c6uETgaCF",
+      "questions": [
+        {
+          "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-DThKI5 on main, about to run a HOLD SCOPE CEO review of PLAN.md.\nELI10: gstack has a short block of routing rules that tells Claude which skill to reach for when you say things like \"review this diff\" or \"ship it\". Appending it to CLAUDE.md means future sessions route to the right skill without you typing slash commands. This is a one-time setup prompt per project.\nStakes if we pick wrong: without rules you invoke skills by hand every time; with them, CLAUDE.md gains ~15 lines and a commit. Both are reversible.\nRecommendation: A because it removes a recurring manual step and the edit is small and easy to revert.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNote on plan mode: we are in plan mode, so if you pick A the CLAUDE.md append and commit happen after the review, once plan mode exits.\nNet: a small durable convenience now versus keeping CLAUDE.md untouched.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "\u2705 Future requests like \"review this\" or \"ship it\" route to the right gstack skill automatically. \u2705 One small, self-contained CLAUDE.md section, easy to revert. \u274c Adds ~15 lines and one commit to a fixture repo that may not need them."
+            },
+            {
+              "label": "No thanks, manual skills",
+              "description": "\u2705 CLAUDE.md stays exactly as checked in, nothing to commit. \u2705 Prompt never fires again for this project. \u274c You type /skill-name by hand for every gstack workflow here."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-DThKI5 on main, about to run a HOLD SCOPE CEO review of PLAN.md.\nELI10: gstack has a short block of routing rules that tells Claude which skill to reach for when you say things like \"review this diff\" or \"ship it\". Appending it to CLAUDE.md means future sessions route to the right skill without you typing slash commands. This is a one-time setup prompt per project.\nStakes if we pick wrong: without rules you invoke skills by hand every time; with them, CLAUDE.md gains ~15 lines and a commit. Both are reversible.\nRecommendation: A because it removes a recurring manual step and the edit is small and easy to revert.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNote on plan mode: we are in plan mode, so if you pick A the CLAUDE.md append and commit happen after the review, once plan mode exits.\nNet: a small durable convenience now versus keeping CLAUDE.md untouched.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:24:14.508Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01VF8C2V6jcp3TybiVDmFWQ5",
+      "questions": [
+        {
+          "question": "D2 \u2014 How should the new handler be wired into webhook routing?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review of PLAN.md, Step 0C-bis.\nELI10: Stripe sends one webhook to one URL. Today a dispatcher module looks at the event type and calls the right handler. The plan sketch adds a new handler class but routes around that dispatcher to get a \"clean namespace\". The class name Webhooks::StripePaymentWebhookHandler already gives you the clean namespace, so the only thing the bypass adds is a second routing path that every future guard change must be applied to twice.\nStakes if we pick wrong: with a bypass, a future fix to dedup or the ownership guard can land on one path and not the other, and a payment gets processed twice or not at all with no test to catch it.\nRecommendation: 2A because one routing path satisfies DRY and the approved app-owned motivation together, with the smallest correct diff.\nCompleteness: A=10/10, B=6/10, C=5/10\nNet: one dispatcher registration line versus a permanent parallel entry point or a dispatcher that grows into business logic.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A Register via WebhookDispatcher (recommended)",
+              "description": "Completeness 10/10. human ~1 day / CC ~20 min. \u2705 One routing path, so every retained guard provably wraps the new handler. \u2705 Namespace separation already delivered by the approved class name. \u2705 Flag flip is a single registration swap between prior and new handler. \u274c Handler must conform to the dispatcher's handler interface, and the registration table gets one edit."
+            },
+            {
+              "label": "2B Standalone handler, bypass dispatcher",
+              "description": "Completeness 6/10. human ~2 days / CC ~40 min. \u2705 Dispatcher untouched, so zero regression risk to other event types today. \u2705 Handler is fully self-contained and readable in one file. \u274c Two routing paths to keep in sync forever; the bypass buys nothing the class name does not already give."
+            },
+            {
+              "label": "2C Inline into WebhookDispatcher, no new class",
+              "description": "Completeness 5/10. human ~half day / CC ~15 min. \u2705 Smallest possible diff and no new file to review. \u2705 Reuses the dispatcher's existing payment_intent.succeeded branch directly. \u274c Fails the approved motivation of an app-owned, separately named handler and turns the dispatcher into a business-logic module."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 How should the new handler be wired into webhook routing?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review of PLAN.md, Step 0C-bis.\nELI10: Stripe sends one webhook to one URL. Today a dispatcher module looks at the event type and calls the right handler. The plan sketch adds a new handler class but routes around that dispatcher to get a \"clean namespace\". The class name Webhooks::StripePaymentWebhookHandler already gives you the clean namespace, so the only thing the bypass adds is a second routing path that every future guard change must be applied to twice.\nStakes if we pick wrong: with a bypass, a future fix to dedup or the ownership guard can land on one path and not the other, and a payment gets processed twice or not at all with no test to catch it.\nRecommendation: 2A because one routing path satisfies DRY and the approved app-owned motivation together, with the smallest correct diff.\nCompleteness: A=10/10, B=6/10, C=5/10\nNet: one dispatcher registration line versus a permanent parallel entry point or a dispatcher that grows into business logic.": "2A Register via WebhookDispatcher (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:28:01.000Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01AjMcW89AbhQtHDqFsQ9M95",
+      "questions": [
+        {
+          "question": "D3 \u2014 Where does the user update commit relative to the email call?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Step 0E temporal interrogation.\nELI10: The handler does two things: mark the user paid in the database, then send a receipt. The plan says \"both happen inline\" but never says whether the email runs inside the database transaction. If it does, a one-second mail timeout rolls back the paid status, yet the shared mail client has already written a durable \"retry this receipt\" record. On-call then retries a receipt for a payment the database says never happened.\nStakes if we pick wrong: a receipt goes out for an unpaid account, or a paid account stays unpaid until Stripe's retry lands, and the two systems disagree for the whole gap.\nRecommendation: 3A because the retained contracts already assume this order: the dedup guard records completion after the transaction commits, and the mail client's retry record only makes sense against a committed payment.\nCompleteness: A=10/10, B=4/10\nNet: an explicit commit-then-notify boundary versus leaving the transaction shape to whoever writes the code.",
+          "header": "Txn boundary",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A Commit update, then email (recommended)",
+              "description": "Completeness 10/10. human ~1h / CC ~5 min. \u2705 Lookup and update commit in one transaction; the email call runs after commit, outside any DB transaction. \u2705 A mail failure can never roll back paid status, so the mail client's durable retry record always points at a committed payment. \u2705 Verified by a test that stubs MailTimeout and asserts payment_status=paid persisted. \u274c The handler must hold the per-user lock across commit and send, which the retained event guard already does."
+            },
+            {
+              "label": "3B Leave ordering unspecified",
+              "description": "Completeness 4/10. human 0 / CC 0. \u2705 No plan edit needed today. \u2705 Implementer picks whatever the shared DB client makes easiest. \u274c If the email lands inside the transaction, a mail timeout rolls back the payment while a retry record for its receipt already exists, and no test would catch it."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Where does the user update commit relative to the email call?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Step 0E temporal interrogation.\nELI10: The handler does two things: mark the user paid in the database, then send a receipt. The plan says \"both happen inline\" but never says whether the email runs inside the database transaction. If it does, a one-second mail timeout rolls back the paid status, yet the shared mail client has already written a durable \"retry this receipt\" record. On-call then retries a receipt for a payment the database says never happened.\nStakes if we pick wrong: a receipt goes out for an unpaid account, or a paid account stays unpaid until Stripe's retry lands, and the two systems disagree for the whole gap.\nRecommendation: 3A because the retained contracts already assume this order: the dedup guard records completion after the transaction commits, and the mail client's retry record only makes sense against a committed payment.\nCompleteness: A=10/10, B=4/10\nNet: an explicit commit-then-notify boundary versus leaving the transaction shape to whoever writes the code.": "3A Commit update, then email (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:28:42.732Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01EpZXVnCrJR6ib3veGmjF4J",
+      "questions": [
+        {
+          "question": "D4 \u2014 What happens when the inline receipt email raises after the payment has committed?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 2 Error & Rescue Map.\nELI10: After the database says \"paid\", the handler calls the mail client. That client has a one-second deadline and rethrows MailTimeout and its delivery error to the handler, after durably writing a retry record and updating the failure dashboard. The sketch says \"no error handling on the email leg\", so that exception flies up to the ingress wrapper, which returns 500 and fires the failed-webhook alert. Stripe then retries a payment that is already committed, for up to three days, once per mail blip.\nStakes if we pick wrong: a mail brownout looks like a payment outage on the pager, Stripe may flag the endpoint as failing, and the notification runbook already handles the receipt via the retry record anyway.\nRecommendation: 4A because the payment is committed and the mail client already made the failure durable and visible; the handler's job is to acknowledge the event and leave the receipt to the existing retry procedure.\nCompleteness: A=10/10, B=5/10\nNet: named rescue plus 200 versus letting notification failures masquerade as payment failures.",
+          "header": "Email leg",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A Rescue named mail errors, log, return 200 (recommended)",
+              "description": "Completeness 10/10. human ~2h / CC ~10 min. \u2705 Rescue exactly MailTimeout and the mail client's delivery error class, after commit; no StandardError catch-all. \u2705 Emit one structured warning with event id, user id, PaymentIntent id, handler identity, and outcome receipt_deferred; return 200 so the dedup guard records completion and Stripe stops. \u2705 Failure stays visible through the mail client's existing failure-rate alert, backlog alert, and retry record; tests stub MailTimeout and assert 200, paid persisted, one warning emitted. \u274c The ingress failed-webhook alert no longer fires for mail failures, so on-call must watch the mail dashboard for them (it already does)."
+            },
+            {
+              "label": "4B Keep the sketch: let mail errors propagate",
+              "description": "Completeness 5/10. human 0 / CC 0. \u2705 Zero handler code for the email leg. \u2705 Stripe's own retry schedule re-attempts the receipt automatically. \u274c Every mail timeout becomes a webhook 500, a failed-webhook page, and a Stripe retry storm against an already committed payment for up to three days."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 What happens when the inline receipt email raises after the payment has committed?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 2 Error & Rescue Map.\nELI10: After the database says \"paid\", the handler calls the mail client. That client has a one-second deadline and rethrows MailTimeout and its delivery error to the handler, after durably writing a retry record and updating the failure dashboard. The sketch says \"no error handling on the email leg\", so that exception flies up to the ingress wrapper, which returns 500 and fires the failed-webhook alert. Stripe then retries a payment that is already committed, for up to three days, once per mail blip.\nStakes if we pick wrong: a mail brownout looks like a payment outage on the pager, Stripe may flag the endpoint as failing, and the notification runbook already handles the receipt via the retry record anyway.\nRecommendation: 4A because the payment is committed and the mail client already made the failure durable and visible; the handler's job is to acknowledge the event and leave the receipt to the existing retry procedure.\nCompleteness: A=10/10, B=5/10\nNet: named rescue plus 200 versus letting notification failures masquerade as payment failures.": "4A Rescue named mail errors, log, return 200 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:29:40.564Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01JtLRNpUiT2VRFTpKURYgJq",
+      "questions": [
+        {
+          "question": "D5 \u2014 How does the handler pass the adapter's user id to the lookup query?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 3 Security.\nELI10: The plan reads request.params.userId straight into a raw SQL fragment. That value is whatever string sits in the PaymentIntent's metadata.user_id. Your own contracts say user ids are opaque text with punctuation and Unicode, the adapter never escapes them, and the ownership guard only checks equality, not shape. A single quote in a legitimate id breaks the query; a crafted id in metadata rewrites it. A valid Stripe signature proves who sent the event, not that the string is safe to splice into SQL.\nStakes if we pick wrong: at best, users whose ids contain punctuation never get marked paid; at worst, one metadata field reads or rewrites arbitrary rows in the users table.\nRecommendation: 5A because a bound parameter is the only defense that works for every legal identifier, and the shared DB client already supports it.\nCompleteness: A=10/10, B=3/10\nNet: one bound parameter versus an injection surface on the payment path.",
+          "header": "SQL lookup",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A Bound parameter via shared DB client (recommended)",
+              "description": "Completeness 10/10. human ~1h / CC ~5 min. \u2705 The lookup uses the shared DB client's parameterized query API; the user id is never concatenated into SQL text. \u2705 Works for every legal id: quotes, semicolons, comment markers, Unicode, 47+ chars; unknown ids fall through to the retained 200 path. \u2705 Tests feed ids containing a single quote, `; DROP`, `--`, and multibyte Unicode and assert exactly one row matched or none, with no error. \u274c None beyond writing the query the way the rest of the app already does."
+            },
+            {
+              "label": "5B Keep raw fragment, add an allow-list regex",
+              "description": "Completeness 3/10. human ~2h / CC ~10 min. \u2705 Rejects the obvious payloads before they reach SQL. \u2705 No change to the query text itself. \u274c Contradicts the retained contract that every nonempty string is a valid id, so real users with punctuation or Unicode ids are silently never marked paid, and regex allow-lists have a long history of bypasses."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 How does the handler pass the adapter's user id to the lookup query?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 3 Security.\nELI10: The plan reads request.params.userId straight into a raw SQL fragment. That value is whatever string sits in the PaymentIntent's metadata.user_id. Your own contracts say user ids are opaque text with punctuation and Unicode, the adapter never escapes them, and the ownership guard only checks equality, not shape. A single quote in a legitimate id breaks the query; a crafted id in metadata rewrites it. A valid Stripe signature proves who sent the event, not that the string is safe to splice into SQL.\nStakes if we pick wrong: at best, users whose ids contain punctuation never get marked paid; at worst, one metadata field reads or rewrites arbitrary rows in the users table.\nRecommendation: 5A because a bound parameter is the only defense that works for every legal identifier, and the shared DB client already supports it.\nCompleteness: A=10/10, B=3/10\nNet: one bound parameter versus an injection surface on the payment path.": "5A Bound parameter via shared DB client (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:30:14.258Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01ULfBjZ8UV7b3E6BAW4aMBJ",
+      "questions": [
+        {
+          "question": "D6 \u2014 Does this change ship with automated handler tests?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 6 Tests.\nELI10: The plan says no tests, rely on the existing integration suite. But your own contracts say the only verification is a manual staging replay of one payment event. That replay cannot feed a user id with a quote in it, cannot make the mail provider time out, and cannot prove the handler rescues exactly two exception classes and nothing else. Every decision approved so far (D2 through D5) has a behavior that only a test can lock in.\nStakes if we pick wrong: the parameterized lookup, the commit-then-notify order, and the named rescue all regress silently the first time someone refactors the handler, and you find out from a Stripe retry storm or an unpaid user.\nRecommendation: 6A because tests are the cheapest lake to boil and each approved remedy already names its assertion.\nCompleteness: A=10/10, B=2/10\nNet: about 13 specs written in minutes with CC versus a payment handler whose only regression check is a human in staging.",
+          "header": "Tests",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "6A Full handler spec suite (recommended)",
+              "description": "Completeness 10/10. human ~1 day / CC ~20 min. \u2705 Roughly 10 unit specs plus 3 integration specs, one per approved behavior: bound-parameter ids, commit-then-notify, named mail rescue with exactly one warning, no catch-all, unknown user, nil address, zero and N orders, single orders query, flag routing, dedup, deletion race, DB rollback, chaos timeout. \u2705 Every spec names its observable assertion and the wrong result it rejects; failure shows up in CI, not in production. \u274c Adds one spec file and the mail-client deadline test hook if it does not exist yet."
+            },
+            {
+              "label": "6B No new tests, keep the sketch",
+              "description": "Completeness 2/10. human 0 / CC 0. \u2705 Nothing to write or maintain. \u2705 Staging replay still catches a totally broken happy path. \u274c No automated check exists for the injection fix, the transaction boundary, or the mail rescue, so all three can regress without anyone noticing until an incident."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 Does this change ship with automated handler tests?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 6 Tests.\nELI10: The plan says no tests, rely on the existing integration suite. But your own contracts say the only verification is a manual staging replay of one payment event. That replay cannot feed a user id with a quote in it, cannot make the mail provider time out, and cannot prove the handler rescues exactly two exception classes and nothing else. Every decision approved so far (D2 through D5) has a behavior that only a test can lock in.\nStakes if we pick wrong: the parameterized lookup, the commit-then-notify order, and the named rescue all regress silently the first time someone refactors the handler, and you find out from a Stripe retry storm or an unpaid user.\nRecommendation: 6A because tests are the cheapest lake to boil and each approved remedy already names its assertion.\nCompleteness: A=10/10, B=2/10\nNet: about 13 specs written in minutes with CC versus a payment handler whose only regression check is a human in staging.": "6A Full handler spec suite (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:31:32.304Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01FuoeUfs6jfYH6KMYHsVBLV",
+      "questions": [
+        {
+          "question": "D7 \u2014 How are the user's orders loaded for the receipt?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 7 Performance.\nELI10: The receipt needs a summary of the user's orders. The sketch fetches them one at a time in a loop, so a customer with 300 orders costs 300 database round trips while the per-user lock is held and the two-second database budget is ticking. One query with WHERE user_id = ? returns them all in a single round trip. Running that query inside the same transaction as the paid update also means any database failure is a clean rollback and retry, never a committed payment that answers 500.\nStakes if we pick wrong: your best customers, the ones with the most orders, are exactly the ones whose payment webhooks time out and retry.\nRecommendation: 7A because it removes the N+1 and closes the committed-then-500 window in the same edit.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: one bounded query inside the transaction versus a loop whose cost scales with customer loyalty.",
+          "header": "Order load",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "7A One query, inside the transaction before commit (recommended)",
+              "description": "Completeness 10/10. human ~1h / CC ~5 min. \u2705 Single `orders WHERE user_id = ?` query via the shared DB client, bound parameter, ordered deterministically; executed after the update and before COMMIT so every DB failure rolls back cleanly and Stripe retries a clean slate. \u2705 Zero orders still yields one receipt with an empty summary (retained). \u2705 Verified by a query-count spec (exactly one orders query) and a 500-order fixture finishing well under the 2s DB budget. \u274c Requires confirming the `orders.user_id` index exists."
+            },
+            {
+              "label": "7B One query, after commit",
+              "description": "Completeness 6/10. human ~1h / CC ~5 min. \u2705 Fixes the N+1 with the same single query. \u2705 Keeps the transaction as short as possible. \u274c A DB failure in the orders query after commit returns 500 for an already-paid user, so Stripe retries a committed payment until the query succeeds."
+            },
+            {
+              "label": "7C Keep the loop",
+              "description": "Completeness 3/10. human 0 / CC 0. \u2705 No query change. \u2705 Matches the prior handler's shape if it also looped. \u274c Round trips scale with order count inside a held lock and a 2s deadline; high-order customers time out and retry."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 How are the user's orders loaded for the receipt?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 7 Performance.\nELI10: The receipt needs a summary of the user's orders. The sketch fetches them one at a time in a loop, so a customer with 300 orders costs 300 database round trips while the per-user lock is held and the two-second database budget is ticking. One query with WHERE user_id = ? returns them all in a single round trip. Running that query inside the same transaction as the paid update also means any database failure is a clean rollback and retry, never a committed payment that answers 500.\nStakes if we pick wrong: your best customers, the ones with the most orders, are exactly the ones whose payment webhooks time out and retry.\nRecommendation: 7A because it removes the N+1 and closes the committed-then-500 window in the same edit.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: one bounded query inside the transaction versus a loop whose cost scales with customer loyalty.": "7A One query, inside the transaction before commit (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:31:58.004Z"
+    },
+    {
+      "sessionId": "106d8b12-1955-4cd0-8839-755d1724170f",
+      "toolUseId": "toolu_01U6vNchaBhFdn96GiLQJkay",
+      "questions": [
+        {
+          "question": "D8 \u2014 Should the handler class carry the request-flow ASCII diagram as a code comment?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 10 Long-Term Trajectory.\nELI10: This review produced a flow diagram showing the guards, the transaction boundary, the order query, and the mail rescue. Your engineering preferences ask for ASCII diagrams in code comments for request flows, and say a stale diagram is worse than none. Putting the diagram at the top of the handler class means the next engineer sees the commit-then-notify boundary before they touch it. It also means the diagram must be updated whenever the flow changes.\nStakes if we pick wrong: a future refactor moves the email inside the transaction because nobody saw why it was outside, or a diagram rots and misleads.\nRecommendation: 8A because it matches your stated preference and the diagram already exists in this plan.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: a maintained class-level diagram versus relying on this plan file staying findable.",
+          "header": "Flow diagram",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "8A Add the flow diagram as a class comment (recommended)",
+              "description": "human ~20 min / CC ~2 min. \u2705 The commit-then-notify boundary and the named rescue are visible at the top of the file that implements them. \u2705 Matches the engineering preference for request-flow diagrams on controllers and handlers. \u274c Diagram maintenance becomes part of every future change to the handler."
+            },
+            {
+              "label": "8B Keep the diagram in the plan file only",
+              "description": "human 0 / CC 0. \u2705 No comment to keep in sync with code. \u2705 The plan file already holds the full diagram with decision references. \u274c Nothing in the source explains why the mail call sits outside the transaction, so the next refactor can undo D3 without noticing."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 \u2014 Should the handler class carry the request-flow ASCII diagram as a code comment?\nProject/branch/task: gstack-plan-count-DThKI5 on main, HOLD SCOPE CEO review, Section 10 Long-Term Trajectory.\nELI10: This review produced a flow diagram showing the guards, the transaction boundary, the order query, and the mail rescue. Your engineering preferences ask for ASCII diagrams in code comments for request flows, and say a stale diagram is worse than none. Putting the diagram at the top of the handler class means the next engineer sees the commit-then-notify boundary before they touch it. It also means the diagram must be updated whenever the flow changes.\nStakes if we pick wrong: a future refactor moves the email inside the transaction because nobody saw why it was outside, or a diagram rots and misleads.\nRecommendation: 8A because it matches your stated preference and the diagram already exists in this plan.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: a maintained class-level diagram versus relying on this plan file staying findable.": "8A Add the flow diagram as a class comment (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:32:55.986Z"
+    }
+  ]
+}

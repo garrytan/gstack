@@ -41,10 +41,19 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   const rawTitle = q.question.split('\n')[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const title = rawTitle.replace(/`([^`\n]+)`/g, '$1');
   const questionMarks = title.match(/\?/g)?.length ?? 0;
+  // Journey labels, possessives and a positive inclusive aside format the
+  // asserted subject. Keep the original title for all meaning/currentness checks.
+  const stage = title.match(/^Journey stage (?:HELLO WORLD|REAL USAGE|DEBUG|UPGRADE): (.+)$/i);
+  if (stage && /^(?:Assuming|Provided)\b/i.test(stage[1]!.trim())) return [];
+  const assertionTitle = stage ? stage[1]!
+    .replace(/\b([A-Za-z0-9_.]+)['’]s\b/g, '$1')
+    .replace(/, including ([A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+){0,6}),/gi, (aside, subject: string) =>
+      /\b(?:if|unless|assuming|provided|except|excluding|only|no|not|never|without|was|were|is|are|has|had|may|might|could|would|historical|earlier|quoted|source|example|hypothetical|fixed|resolved|cancelled|canceled|withdrawn|rejected|superseded)\b/i.test(subject) ? aside : '')
+    : title;
   // A native choice can present an asserted defect as its title. Punctuation
   // does not turn its concrete offered repairs into a missing review decision.
   const declaration = questionMarks === 0 &&
-    /^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(title) &&
+    /^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(assertionTitle) &&
     !/^`[^`]*`$/.test(rawTitle) &&
     !/\b(?:if|unless|suppose|might|may|could|would|previously|earlier|historical|hypothetical|example|quoted|source|never|no longer|does not|do not|did not)\b/i.test(title);
   if ((!declaration && (!title.endsWith('?') || questionMarks !== 1)) ||
@@ -55,8 +64,11 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   let offered = q.options;
   if (declaration) {
     const currentProse = (text: string) => {
+      // Preserve a scalar status asserted by a current, unquoted owner before
+      // removing source quotations. This applies only to the new stage form.
+      const owned = stage ? text.replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation|option|action|correction)|D\s*[1-9]\d*) (?:is|was|has been) )["“](cancelled|canceled|superseded|withdrawn|rejected|not current)["”]/gim, '$1$2$3') : text;
       let fence = false;
-      return text.split('\n').filter(line => {
+      return owned.split('\n').filter(line => {
         if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; return false; }
         return !fence && !/^\s*>/.test(line);
       }).join('\n')
@@ -66,15 +78,20 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     const sourceFrame = /(?:^|[.!?\n;]\s*)(?:(?:ELI10|Project\/branch\/task):\s*)?(?:(?:Source(?: excerpt| example)?|Quoted(?: source| example)?|Historical(?: example| assessment)?(?: only)?|Earlier(?: review)? assessment|Example|Hypothetical(?: example| assessment)?|If approved|If accepted)[,:]|(?:The following|This assessment|This explanation)\b[^.\n]*\b(?:quoted|source|historical|hypothetical|example)\b|Historically,)/i;
     const lines = q.question.split('\n'), explanation = lines.findIndex(line => /^ELI10:/.test(line));
     const preface = lines.slice(0, explanation < 0 ? undefined : explanation + 1).join('\n');
+    if (stage && /^(?:Project\/branch\/task|ELI10):\s*(?:Assuming|Provided)\b/im.test(currentProse(preface))) return [];
     if (/^\s*(?:```|~~~)/m.test(preface) || sourceFrame.test(currentProse(preface)) ||
         /\bnot (?:a )?current (?:finding|issue|defect)\b/i.test(currentProse(preface))) return [];
     const current = currentProse(q.question);
+    const decision = stage && /^D\s*([1-9]\d*)\s*[—–:-]/i.exec(q.question);
+    if (decision && new RegExp(`(?:^|[.!?\\n]\\s*)(?:Correction:\\s*)?D\\s*${decision[1]} (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|not current)\\b`, 'i').test(current)) return [];
+    if (stage && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:cancelled|canceled|superseded)\b/i.test(current)) return [];
     if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current|(?:a |only a )?source example)|there is no (?:current )?(?:finding|issue|gap|defect))\b/i.test(current)) return [];
     // A declaration's action evidence must belong to a current offered option,
     // rather than an example or an explicitly withdrawn correction.
     const action = (text: string) => currentProse(text.replace(/`([A-Za-z_$][\w.$/-]*(?:\([^`\n]*\))?)`/g, '$1'));
     offered = offered.filter(option => {
       const text = `${option.label}\n${option.description ?? ''}`, prose = currentProse(text);
+      if (stage && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:canceled|superseded)\b/i.test(prose)) return false;
       return !/^(?:>|"|“)|^`[^`]*`$/.test(option.label.trim()) && !sourceFrame.test(prose) &&
         !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|the) (?:option|action|correction) (?:is|was|has been) (?:withdrawn|rejected|cancelled)\b/i.test(prose);
     }).map(option => ({ ...option, label: action(option.label), description: action(option.description ?? '') }));
