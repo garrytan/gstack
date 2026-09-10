@@ -74,11 +74,11 @@ describe("swept mkdirp sites under bun-on-Windows EEXIST semantics (#2635)", () 
       fs.mkdirSync(work, { recursive: true });
       const payload = '{"decision":"eexist probe","rationale":"r","scope":"repo","source":"user"}';
       const env = { ...process.env, HOME: base };
-      const first = spawnSync("bun", [DECISION_LOG, payload], { cwd: work, encoding: "utf8", env });
+      const first = spawnSync("bun", [DECISION_LOG, payload], { cwd: work, encoding: "utf8", env, timeout: 30_000 });
       expect(first.status).toBe(0);
       const second = spawnSync(
         "bun", ["--preload", EEXIST_PRELOAD, DECISION_LOG, payload],
-        { cwd: work, encoding: "utf8", env },
+        { cwd: work, encoding: "utf8", env, timeout: 30_000 },
       );
       expect(second.status).toBe(0);
       expect(second.stderr ?? "").not.toContain("EEXIST");
@@ -93,7 +93,7 @@ describe("install-prepush-hook under bun-on-Windows EEXIST semantics (#2635)", (
     const base = tmpdir();
     try {
       const repo = path.join(base, "repo");
-      spawnSync("git", ["init", "-q", repo]);
+      spawnSync("git", ["init", "-q", repo], { timeout: 30_000 });
       const hookDir = path.join(repo, ".git", "hooks");
       fs.mkdirSync(hookDir, { recursive: true });
       const hookPath = path.join(hookDir, "pre-push");
@@ -105,6 +105,7 @@ describe("install-prepush-hook under bun-on-Windows EEXIST semantics (#2635)", (
       const r = spawnSync("bun", ["--preload", EEXIST_PRELOAD, REDACT, "install-prepush-hook"], {
         cwd: repo,
         encoding: "utf8",
+        timeout: 30_000,
       });
       expect(r.status).toBe(0);
       expect(r.stderr ?? "").not.toContain("EEXIST");

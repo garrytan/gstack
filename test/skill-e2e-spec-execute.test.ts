@@ -16,30 +16,19 @@
  * minimum smoke that proves --execute end-to-end works.
  */
 
-import { test, expect } from 'bun:test';
+import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
-import * as fs from 'fs';
-import * as path from 'path';
 
 const describeE2E = describeE2ETier('periodic');
 
-const ROOT = path.resolve(import.meta.dir, '..');
-
 describeE2E('/spec --execute end-to-end (periodic)', () => {
-  test('phase gating + magical Phase 3 + quality gate + spawn — full pipeline', async () => {
-    // Sanity: spec template + generated SKILL.md exist at expected paths.
-    expect(fs.existsSync(path.join(ROOT, 'spec', 'SKILL.md.tmpl'))).toBe(true);
-    expect(fs.existsSync(path.join(ROOT, 'spec', 'SKILL.md'))).toBe(true);
-
-    // Full PTY-driven E2E lives in a follow-up. For now this test exists as
-    // the periodic-tier surface registered in E2E_TIERS so the diff-based
-    // selector knows to run it when spec/ changes. The deterministic
-    // template-invariant coverage in spec-template-invariants.test.ts +
-    // spec-template-sync.test.ts gates the gate tier; this stub is the
-    // periodic-tier hook for the full claude-pty-runner driven test.
-
-    // Mark as pending — replace with full PTY driver in follow-up TODO:
-    //   "/spec --execute E2E full pipeline test (v1.1)"
-    expect(true).toBe(true);
-  }, 600_000);
+  // test.todo, not expect(true): the placeholder reported PASS on every
+  // periodic run while asserting nothing — a lying green with a 600s budget.
+  // The file itself stays: it is the periodic-tier surface registered in
+  // E2E_TIERS so the diff-based selector runs it when spec/ changes, and
+  // the deterministic template-invariant coverage in
+  // spec-template-invariants.test.ts + spec-template-sync.test.ts gates the
+  // gate tier. Implementation spec for the real PTY-driven test lives in
+  // the header TODO ("/spec --execute E2E full pipeline test (v1.1)").
+  test.todo('phase gating + magical Phase 3 + quality gate + spawn — full pipeline');
 });

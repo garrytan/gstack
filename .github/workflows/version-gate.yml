@@ -15,6 +15,7 @@ jobs:
   check:
     name: Check VERSION is not stale vs queue
     runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -27,6 +28,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
 
       - name: Read versions
         id: versions

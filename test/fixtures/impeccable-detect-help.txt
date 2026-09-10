@@ -1,0 +1,58 @@
+Usage: impeccable detect [options] [file-or-dir-or-url...]
+
+Scan files or URLs for UI anti-patterns and design quality issues.
+
+Options:
+  --json              Output results as JSON
+  --quiet             In text mode, only print the final findings count
+  --scope <name>      Only report rules in the given design domain
+                      (type, layout). Comma-separated.
+  --viewport <WxH>    Browser viewport for URL scans (default 1280x800),
+                      e.g. --viewport 390x844 for a mobile-width pass
+  --no-config         Do not apply project config, detector ignores, inline
+                      ignore comments, or DESIGN.md
+  --no-inline-ignores Do not honor in-file impeccable-disable* ignore comments
+  --no-design-system  Do not load local DESIGN.md / .impeccable/design.json context
+  --no-advisory       Suppress advisory findings entirely (e.g. em-dash overuse)
+  --help              Show this help message
+
+Advisory findings:
+  Some rules are advisory: detected and listed in a separate section, but never
+  counted as failures and never changing the exit code. They stay out of the
+  failure count so they never block automation. --no-advisory hides them.
+
+Output streams:
+  Human-readable findings go to stderr so stdout stays available for structured
+  output. Use --json for JSON on stdout, or redirect text with 2> findings.txt.
+
+Exit status:
+  0  Scan completed with no primary findings (advisories may still be listed)
+  1  At least one requested target could not be scanned
+  2  Scan completed with primary findings
+  Operational failure takes precedence when a multi-target scan is partial.
+
+Project config:
+  Respects .impeccable/config.json and .impeccable/config.local.json detector
+  settings: detector.ignoreRules, detector.ignoreFiles, detector.ignoreValues,
+  and detector.designSystem.enabled.
+
+Inline ignores:
+  In-file comments waive a finding where it lives and travel with the file:
+    <!-- impeccable-disable overused-font -- exported brand doc -->
+    .brand { font-family: Inter } /* impeccable-disable-line overused-font */
+    // impeccable-disable-next-line bounce-easing: intentional bounce
+  impeccable-disable applies to the whole file; -line / -next-line are scoped.
+  List one or more rule ids (comma-separated), or omit them / use * for all.
+
+Detection modes:
+  HTML files     Static HTML/CSS analysis (default, catches linked CSS)
+  Non-HTML files Regex pattern matching (CSS, JSX, TSX, etc.)
+  URLs           Puppeteer full browser rendering (auto-detected;
+                 http(s):// and file:// URLs; accessible linked CSS included)
+
+Examples:
+  impeccable detect src/
+  impeccable detect index.html
+  impeccable detect https://example.com
+  impeccable detect --json .
+  impeccable detect --no-config src/

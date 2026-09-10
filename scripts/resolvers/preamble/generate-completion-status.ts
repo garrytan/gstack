@@ -58,36 +58,24 @@ Do not log obvious facts or one-time transient errors.
 
 ## Telemetry (run last)
 
-After workflow completion, log telemetry. Use skill \`name:\` from frontmatter. OUTCOME is success/error/abort/unknown.
+After workflow completion, log telemetry with ONE command. OUTCOME is
+success/error/abort/unknown; \`SESSION_ID\` and \`TEL_START\` are the values the
+preamble's skill-start output echoed. It also drains the artifacts-sync queue
+(the former skill-end sync step — do not run gstack-brain-sync separately).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
 \`~/.gstack/analytics/\`, matching preamble analytics writes.
 
-Run this bash:
-
 \`\`\`bash
-_TEL_END=$(date +%s)
-_TEL_DUR=$(( _TEL_END - _TEL_START ))
-rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-# Session timeline: record skill completion (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
-# Local analytics (gated on telemetry setting)
-if [ "$_TEL" != "off" ]; then
-echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-fi
-# Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
-    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
-    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" \\
-    --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null &
-fi
+${ctx.paths.binDir}/gstack-skill-end --skill "${ctx.skillName}" --outcome OUTCOME \\
+  --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \\
+  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
 \`\`\`
 
-Replace \`SKILL_NAME\`, \`OUTCOME\`, and \`USED_BROWSE\` before running.
-Replace \`ERROR_MESSAGE\` with a short description of the error (if outcome is error,
-otherwise use empty string ""), and \`FAILED_STEP\` with the step name or number where
-the failure occurred (if outcome is error, otherwise use empty string "").
+Replace \`OUTCOME\` and \`USED_BROWSE\` (yes/no) before running; substitute
+\`SESSION_ID\`/\`TEL_START\` from the skill-start echoes. \`ERROR_MESSAGE\`/\`FAILED_STEP\`
+are "" unless outcome is error. If the command is missing (stale install), skip
+telemetry — it never blocks the workflow.
 
 ## Plan Status Footer
 

@@ -16,7 +16,7 @@
  * factory/opencode can't silently regress.
  */
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -165,7 +165,7 @@ function runInstaller(
     ...fns.map(extractFn),
     invocation,
   ].join('\n');
-  const r = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 15_000 });
+  const r = runBashScript(script, { timeout: 15_000 });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 

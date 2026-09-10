@@ -356,7 +356,9 @@ describe('opt-in contract (adapted from the fork: NOT registered by default)', (
     expect(mentions.length).toBeGreaterThan(0);   // the exclusion itself is pinned
     for (const line of mentions) {
       const t = line.trim();
-      const allowed = t.startsWith('#') || t.includes('GSTACK_SWEEP_EXCLUDE_SOURCES="verify-gate"');
+      // The exclusion list may name other user-registered opt-ins beside
+      // verify-gate (gstack-memorable); it must still start with verify-gate.
+      const allowed = t.startsWith('#') || /GSTACK_SWEEP_EXCLUDE_SOURCES="verify-gate(,[a-z-]+)*"/.test(t);
       expect(allowed).toBe(true);
       expect(t).not.toContain('add-event');
     }

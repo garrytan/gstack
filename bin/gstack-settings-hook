@@ -14,10 +14,13 @@
 #        gstack-settings-hook add-event --event <name — see the validator in add-event> \
 #          --command <cmd> --source <tag> [--matcher <regex>] [--timeout <s>]
 #        gstack-settings-hook ensure-event --event ... --command ... --source ... [--matcher ...] [--timeout <s>]
-#        gstack-settings-hook remove-source --source <tag>
+#        gstack-settings-hook remove-source --source <tag>   # removes items the table identifies as <tag>'s, tagged or not
 #        gstack-settings-hook diff-event   --event ... --command ... --source ... [--matcher ...]
 #        gstack-settings-hook rollback     # restore latest backup (single-step undo)
 #        gstack-settings-hook list-sources # show all gstack-tagged hook entries
+#        gstack-settings-hook list-items --event <name> [--owned-by <tag>] [--command-regex <js-re>]
+#                                          # read-only: one JSON string literal per matching hook COMMAND
+#                                          # (identity via KNOWN_HOOKS, never the tag); empty stdout = none
 #
 #   3. Self-heal (phantom-hooks fix):
 #        gstack-settings-hook prune-stale                     # prune dead gstack hook items
@@ -76,11 +79,12 @@ Usage:
   gstack-settings-hook remove <hook-command>          # legacy SessionStart remove
   gstack-settings-hook add-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
   gstack-settings-hook ensure-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
-  gstack-settings-hook remove-source --source <tag>
+  gstack-settings-hook remove-source --source <tag>   # tagged OR table-identified items of <tag>
   gstack-settings-hook diff-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
   gstack-settings-hook prune-stale [--repoint <root>] [--all]
   gstack-settings-hook rollback
   gstack-settings-hook list-sources
+  gstack-settings-hook list-items --event <name> [--owned-by <tag>] [--command-regex <js-re>]
 EOF
   exit 1
 fi
@@ -115,6 +119,7 @@ var KNOWN_HOOKS = {
   "question-preference-hook": { source: "plan-tune-cathedral", event: "PreToolUse",   matcher: "(AskUserQuestion|mcp__.*__AskUserQuestion)", relpath: "hosts/claude/hooks/question-preference-hook" },
   "auq-error-fallback-hook":  { source: "auq-error-fallback",  event: "PostToolUse",  matcher: "(AskUserQuestion|mcp__.*__AskUserQuestion)", relpath: "hosts/claude/hooks/auq-error-fallback-hook" },
   "timeline-stop-hook":       { source: "gstack-timeline-stop", event: "Stop",        matcher: "", relpath: "hosts/claude/hooks/timeline-stop-hook" },
+  "memorable-user-prompt-hook": { source: "gstack-memorable", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/memorable-user-prompt-hook" },
   "gstack-session-update":    { source: "gstack-session-update", event: "SessionStart", matcher: "", relpath: "bin/gstack-session-update" },
   "gstack-verify-gate":       { source: "verify-gate", event: "Stop", matcher: "", relpath: "bin/gstack-verify-gate" }
 };
@@ -597,29 +602,45 @@ case "$ACTION" in
       if (!settings.hooks) { console.log("OK: removed 0 hook entry/entries tagged source=" + source); process.exit(0); }
       const before = JSON.stringify(settings, null, 2);
       let removed = 0;
+      // Identity-aware removal (tag OR table). Claude Code strips the
+      // _gstack_source tag when it rewrites settings.json, so a tag-only
+      // off switch silently no-ops on exactly the entries it was written
+      // for. Decision per item, identity first (D = drop, K = keep):
+      //
+      //   item ->               | row.source == SOURCE | row of another source | no table row
+      //   entry tagged SOURCE   |          D           |          K            | D if single item, else K
+      //   untagged / other tag  |          D           |          K            | K
+      //
+      // Entries with nothing of ours stay byte-identical (tag included);
+      // an entry we emptied is dropped; a tagged entry we trimmed loses
+      // the tag with its last owned item. Callers that need every gstack
+      // item gone still pair this with prune-stale --all.
       for (const event of Object.keys(settings.hooks)) {
+        const entries = settings.hooks[event];
+        if (!Array.isArray(entries)) continue;   // foreign shape: not ours to judge
         const kept = [];
-        for (const entry of settings.hooks[event]) {
-          if (entry._gstack_source !== source) { kept.push(entry); continue; }
-          if (!Array.isArray(entry.hooks) || entry.hooks.length === 0) { removed++; continue; }
-          // Item-aware: remove table-owned items (or the single item of a
-          // tagged legacy-stray entry); foreign items in a tagged multi-item
-          // entry are preserved and the tag is dropped with the last owned item.
+        for (const entry of entries) {
+          const tagged = !!entry && entry._gstack_source === source;
+          if (!entry || !Array.isArray(entry.hooks) || entry.hooks.length === 0) {
+            if (tagged) { removed++; continue; }   // tagged but empty/malformed: legacy stray
+            kept.push(entry); continue;
+          }
           const single = entry.hooks.length === 1;
+          let touched = 0;
           const remain = entry.hooks.filter(h => {
             // Command-less items cannot be ours (gstack only writes
             // type:command items) -- preserve them.
-            const owned = (h && h.command)
-              ? gsOwnedRow(h.command, event, entry.matcher || "") !== null
-              : false;
-            // The single-item stray claim requires a command item (gstack
-            // never writes command-less items).
-            if (owned || (single && h && h.command)) { removed++; return false; }
+            const cmd = (h && typeof h.command === "string") ? h.command : "";
+            const row = cmd ? gsOwnedRow(cmd, event, entry.matcher || "") : null;
+            const ours = !!row && row.source === source;
+            const stray = tagged && single && !!cmd && !row;
+            if (ours || stray) { removed++; touched++; return false; }
             return true;
           });
+          if (touched === 0) { kept.push(entry); continue; }
           if (remain.length === 0) continue;
           entry.hooks = remain;
-          delete entry._gstack_source;
+          if (tagged) delete entry._gstack_source;
           kept.push(entry);
         }
         settings.hooks[event] = kept;
@@ -815,6 +836,66 @@ case "$ACTION" in
     cp "$LATEST" "$_RB_TMP"
     mv "$_RB_TMP" "$SETTINGS_FILE"
     echo "OK: restored $SETTINGS_FILE from $LATEST"
+    ;;
+
+  list-items)
+    # Read-only identity view: one JSON string literal per matching hook
+    # command (JSON.stringify, so a command containing tabs or newlines
+    # cannot split a line), filters applied inside the JS. Empty stdout
+    # means no match. Exit 1 usage, 3 unparseable settings, 4 unexpected
+    # shape -- the same codes the mutating verbs use, because callers
+    # (bin/gstack-memorable) decide mutations from this output.
+    LI_EVENT=""
+    LI_OWNED_BY=""
+    LI_CMD_RE=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --event)         LI_EVENT="$2"; shift 2 ;;
+        --owned-by)      LI_OWNED_BY="$2"; shift 2 ;;
+        --command-regex) LI_CMD_RE="$2"; shift 2 ;;
+        *) echo "unknown flag: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "$LI_EVENT" ]; then
+      echo "list-items requires --event <name>" >&2
+      exit 1
+    fi
+    [ -f "$SETTINGS_FILE" ] || exit 0
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_LI_EVENT="$LI_EVENT" GSTACK_LI_OWNED_BY="$LI_OWNED_BY" GSTACK_LI_CMD_RE="$LI_CMD_RE" bun -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+      const event = process.env.GSTACK_LI_EVENT;
+      const ownedBy = process.env.GSTACK_LI_OWNED_BY || "";
+      const reSrc = process.env.GSTACK_LI_CMD_RE || "";
+      let re = null;
+      if (reSrc) {
+        try { re = new RegExp(reSrc); }
+        catch (e) {
+          process.stderr.write("list-items: invalid --command-regex (" + e.message + ")\n");
+          process.exit(1);
+        }
+      }
+      const loaded = gsLoadSettings(process.env.GSTACK_SETTINGS_PATH);
+      const hooks = loaded.settings.hooks || {};
+      const entries = hooks[event];
+      if (entries === undefined || entries === null) process.exit(0);
+      if (!Array.isArray(entries)) throw new Error("hooks." + event + " is not an array");
+      for (const entry of entries) {
+        if (!entry || !Array.isArray(entry.hooks)) continue;   // foreign shape, preserved by prune-stale too
+        for (const h of entry.hooks) {
+          const cmd = (h && typeof h.command === "string") ? h.command : "";
+          if (!cmd) continue;
+          const row = gsOwnedRow(cmd, event, entry.matcher || "");
+          if (ownedBy && (!row || row.source !== ownedBy)) continue;
+          // Alone, the regex only ever sees items no table row owns (the
+          // vendor-own probe). Combined with --owned-by it narrows THAT set:
+          // filters intersect, a regex never widens a selection.
+          if (re && !ownedBy && row) continue;
+          if (re && !re.test(cmd)) continue;
+          console.log(JSON.stringify(cmd));
+        }
+      }
+    });
+    '
     ;;
 
   list-sources)

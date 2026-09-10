@@ -10,16 +10,26 @@ on:
 # windows-free-tests.yml, etc.). head_ref is set on pull_request; ref_name is
 # the fallback for push so a rapid push series doesn't pile up stale runs.
 concurrency:
-  group: skill-docs-${{ github.head_ref || github.ref_name }}
+  # PR-number keyed (run_id fallback for push/dispatch): a bare branch name
+  # carries no fork prefix, so same-name branches from two forks would share
+  # one group and cancel each other's runs (same rationale as free-tests.yml).
+  group: skill-docs-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
+
+# The job only reads the checkout and runs the generator — no token writes.
+permissions:
+  contents: read
 
 jobs:
   check-freshness:
     runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - run: bun install
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
       # One generation pass for ALL 10 hosts. gen-skill-docs --host all
       # hard-fails on any per-host generation error (scripts/gen-skill-docs.ts
       # aggregates failures and exits non-zero), so every host is gated on

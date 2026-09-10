@@ -8,15 +8,27 @@
  * timestamp + scope + reason + CI provenance.
  */
 
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logBudgetOverride } from './budget-override';
 
 const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-override-test-'));
-process.env.GSTACK_HOME = TMP_HOME;
 const AUDIT_PATH = path.join(TMP_HOME, 'analytics', 'spend-overrides.jsonl');
+
+// GSTACK_HOME is scoped to this file's execution window (beforeAll/afterAll),
+// never set at module load: bun evaluates sibling modules before running
+// their tests, so a module-scope assignment leaks into every other file in
+// the shard process (pinned by test/gstack-home-module-scope.test.ts).
+const ORIGINAL_GSTACK_HOME = process.env.GSTACK_HOME;
+beforeAll(() => {
+  process.env.GSTACK_HOME = TMP_HOME;
+});
+afterAll(() => {
+  if (ORIGINAL_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIGINAL_GSTACK_HOME;
+});
 
 describe('logBudgetOverride', () => {
   beforeEach(() => {

@@ -6,6 +6,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
@@ -50,7 +51,7 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
     const obs = await runPlanSkillObservation({
       skillName: 'plan-eng-review',
       inPlanMode: true,
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
@@ -63,7 +64,7 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
     assertReportAtBottomIfPlanWritten(obs);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
   // D3-B / D4-B: when a plan with guaranteed-finding-triggering complexity
   // is seeded, the skill MUST fire AskUserQuestion (or fall back to a
@@ -79,7 +80,7 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
       // must use mcp__*__AskUserQuestion (outcome='asked') or fall back to
       // writing Decisions ('plan_ready').
       extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (
@@ -118,5 +119,5 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
     // question.
     expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
     expect(obs.scopeGateAutoSelectObserved ?? false).toBe(true);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });

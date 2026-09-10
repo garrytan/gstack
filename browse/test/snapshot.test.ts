@@ -5,13 +5,33 @@
  * ref invalidation on navigation, and ref resolution in commands.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import * as path from 'path';
+import * as os from 'os';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import { handleReadCommand as _handleReadCommand } from '../src/read-commands';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
 import * as fs from 'fs';
+
+// Per-FILE Chromium profile: this file launches an in-process persistent
+// context (BrowserManager.launch()), and sharing a profile dir with the
+// long-lived browse daemon a sibling file may have spawned kills one side's
+// Chromium (ProcessSingleton on user-data-dir). Scoped via hooks, never
+// module scope (see test/gstack-home-module-scope.test.ts's rationale).
+const ORIGINAL_CHROMIUM_PROFILE = process.env.CHROMIUM_PROFILE;
+let CHROMIUM_PROFILE_DIR: string | undefined;
+beforeAll(() => {
+  CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
+  process.env.CHROMIUM_PROFILE = CHROMIUM_PROFILE_DIR;
+});
+afterAll(() => {
+  if (ORIGINAL_CHROMIUM_PROFILE === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = ORIGINAL_CHROMIUM_PROFILE;
+  if (CHROMIUM_PROFILE_DIR) { try { fs.rmSync(CHROMIUM_PROFILE_DIR, { recursive: true, force: true }); } catch {} }
+});
+
 
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleReadCommand(cmd, args, b.getActiveSession(), b);
@@ -222,11 +242,7 @@ describe('Ref staleness detection', () => {
     expect(bm.getRefCount()).toBeGreaterThan(0);
   });
 
-  // QUARANTINED (pre-existing): fails identically on origin/main v1.64.1.0,
-  // solo, on dev machines (blame protocol, 2026-08 test-infra pass). Main's
-  // CI lane skip-lists this whole FILE; we quarantine only this test so the
-  // rest keeps guarding. Un-skip when the underlying env dependency is fixed.
-  test.skip('stale ref after DOM removal gives descriptive error', async () => {
+  test('stale ref after DOM removal gives descriptive error', async () => {
     await handleWriteCommand('goto', [baseUrl + '/snapshot.html'], bm);
     const snap = await handleMetaCommand('snapshot', ['-i'], bm, shutdown);
     // Find a button ref
@@ -276,11 +292,7 @@ describe('Snapshot diff', () => {
     expect(result).toContain('baseline');
   });
 
-  // QUARANTINED (pre-existing): fails identically on origin/main v1.64.1.0,
-  // solo, on dev machines (blame protocol, 2026-08 test-infra pass). Main's
-  // CI lane skip-lists this whole FILE; we quarantine only this test so the
-  // rest keeps guarding. Un-skip when the underlying env dependency is fixed.
-  test.skip('snapshot -D shows diff after change', async () => {
+  test('snapshot -D shows diff after change', async () => {
     await handleWriteCommand('goto', [baseUrl + '/snapshot.html'], bm);
     // Take first snapshot
     await handleMetaCommand('snapshot', [], bm, shutdown);
@@ -367,11 +379,7 @@ describe('Annotated screenshots', () => {
     if (fs.existsSync(screenshotPath)) fs.unlinkSync(screenshotPath);
   });
 
-  // QUARANTINED (pre-existing): fails identically on origin/main v1.64.1.0,
-  // solo, on dev machines (blame protocol, 2026-08 test-infra pass). Main's
-  // CI lane skip-lists this whole FILE; we quarantine only this test so the
-  // rest keeps guarding. Un-skip when the underlying env dependency is fixed.
-  test.skip('annotation overlays are cleaned up', async () => {
+  test('annotation overlays are cleaned up', async () => {
     await handleWriteCommand('goto', [baseUrl + '/snapshot.html'], bm);
     await handleMetaCommand('snapshot', ['-a'], bm, shutdown);
     // Check that overlays are removed

@@ -1,0 +1,360 @@
+#!/usr/bin/env bash
+# gstack-retro-metrics — /retro's metric pipelines, consolidated (token-reduction).
+#
+# Absorbs the inline git/awk pipelines retro/SKILL.md used to carry in Steps
+# 0.5-9 and 11 (~13KB of fences in every install). The skill now runs ONE
+# fence; this script emits labeled `METRIC_NAME: value` lines the prose
+# interprets. The contract is pinned by test/gstack-retro-metrics.test.ts.
+#
+# LOCAL READS ONLY — no network ops of any kind. The freshness fetch stays in
+# the skill's own Step 0.5 fence (skill prose, same as before this script
+# existed), so this script never needs egress receipts.
+#
+# Conventions mirror bin/gstack-skill-start:
+#   - Paths resolve $0-relative (works for every host + install layout).
+#   - State paths honor ${GSTACK_HOME:-$HOME/.gstack}.
+#   - Error style: per-line `|| true`, never `set -e` — a mid-script failure
+#     must not drop later METRIC lines.
+#   - No heredocs (nothing to BASH_COMPAT-guard; see
+#     test/heredoc-pipe-deadlock.test.ts if one is ever added).
+#
+# Usage:
+#   gstack-retro-metrics --base <default-branch> --since <git-since-expr> \
+#                        [--until <git-until-expr>]
+#
+#   --base   the detected default branch (from BASE_BRANCH_DETECT). The script
+#            prefers origin/<base>, falls back to the local <base> (local-only
+#            repos), then HEAD. The ref actually used is echoed as RETRO_REF.
+#   --since  midnight-aligned ISO date ("2026-03-11T00:00:00") or a relative
+#            expression ("24 hours ago"). Default: "7 days ago".
+#   --until  optional window end (compare mode's prior window).
+
+BASE=""
+SINCE="7 days ago"
+UNTIL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base)  BASE="$2"; shift 2 ;;
+    --since) SINCE="$2"; shift 2 ;;
+    --until) UNTIL="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# $0-relative resolution (parity with gstack-skill-start; any future
+# sibling-bin call must go through $_BIN, never bare PATH lookup).
+_SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+_BIN="$_SCRIPT_DIR"
+_GH="${GSTACK_HOME:-$HOME/.gstack}"
+
+echo "RETRO_METRICS_PROTO: 1"
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "RETRO_METRICS_ERROR: not inside a git repository"
+  exit 0
+fi
+
+# ── Guard + ref resolution (Step 0.5's local checks; the fetch stays in prose) ─
+_HAS_ORIGIN=$(git remote 2>/dev/null | grep -c '^origin$' || true)
+case "$_HAS_ORIGIN" in ''|*[!0-9]*) _HAS_ORIGIN=0 ;; esac
+[ "$_HAS_ORIGIN" -gt 0 ] && echo "GUARD_REMOTE: origin" || echo "GUARD_REMOTE: none"
+
+_HEAD_REF=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+[ -n "$_HEAD_REF" ] && echo "GUARD_HEAD: $_HEAD_REF" || echo "GUARD_HEAD: detached"
+
+if [ -z "$BASE" ]; then
+  BASE=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||')
+fi
+if [ -z "$BASE" ]; then
+  for _CAND in main master; do
+    if git rev-parse --verify --quiet "refs/heads/$_CAND" >/dev/null 2>&1 \
+       || git rev-parse --verify --quiet "refs/remotes/origin/$_CAND" >/dev/null 2>&1; then
+      BASE="$_CAND"; break
+    fi
+  done
+fi
+[ -n "$BASE" ] || BASE="$_HEAD_REF"
+
+REF="HEAD"
+if [ -n "$BASE" ] && git rev-parse --verify --quiet "refs/remotes/origin/$BASE" >/dev/null 2>&1; then
+  REF="origin/$BASE"
+elif [ -n "$BASE" ] && git rev-parse --verify --quiet "refs/heads/$BASE" >/dev/null 2>&1; then
+  REF="$BASE"
+fi
+echo "RETRO_REF: $REF"
+
+_LATEST=$(git log -1 --format=%ci "$REF" 2>/dev/null | cut -d' ' -f1)
+echo "GUARD_LATEST_COMMIT: ${_LATEST:-unknown}"
+
+echo "WINDOW_SINCE: $SINCE"
+echo "WINDOW_UNTIL: ${UNTIL:-(now)}"
+
+_USER_NAME=$(git config user.name 2>/dev/null || true)
+_USER_EMAIL=$(git config user.email 2>/dev/null || true)
+echo "USER_NAME: ${_USER_NAME:-unknown}"
+echo "USER_EMAIL: ${_USER_EMAIL:-unknown}"
+
+# Window args, applied uniformly to every windowed git query below.
+_S="--since=$SINCE"
+_U=""
+[ -n "$UNTIL" ] && _U="--until=$UNTIL"
+
+# ── Main pass: one numstat walk computes the whole per-commit metric family ──
+# Emits COMMIT: lines (newest first, capped) plus every aggregate. Subjects may
+# contain '|', so fields are re-joined from index 6 on. Test-file detection is
+# the union of the historical patterns (dir-based test/|spec/|__tests__/ and
+# suffix-based .test./.spec./_test./_spec.).
+git log "$REF" "$_S" ${_U:+"$_U"} --date=format-local:'%Y-%m-%d %H:%M' \
+    --format='C|%h|%aN|%at|%ad|%s' --numstat 2>/dev/null | awk '
+  function is_test(p) {
+    return (p ~ /(^|\/)(tests?|spec|__tests__)\//) || (p ~ /(\.(test|spec)\.|_test\.|_spec\.)/)
+  }
+  function type_of(s) {
+    if (s ~ /^Merge /) return "merge"
+    sub(/^v[0-9][0-9.]* /, "", s)   # squash-merge convention: "v1.2.3.0 fix: ..."
+    if (match(s, /^(feat|fix|refactor|test|chore|docs|perf|style|build|ci|revert)(\(|!|:)/)) {
+      t = substr(s, 1, RLENGTH - 1); sub(/[(!:]$/, "", t); return t
+    }
+    return "other"
+  }
+  function bucket_of(loc) {
+    if (loc < 100) return "small"; if (loc < 500) return "medium"
+    if (loc < 1500) return "large"; return "xl"
+  }
+  function flush() {
+    if (h == "") return
+    commits++
+    ins += cins; del += cdel; tins += ctins
+    files_sum = (cfiles > 20 ? 20 : cfiles); weighted += files_sum
+    t = type_of(subj); types[t]++; atypes[author "|" t]++
+    if (t == "merge") merges++
+    hour = substr(dt, 12, 2); hours[hour]++; ahours[author "|" hour]++
+    day = substr(dt, 1, 10); days[day] = 1
+    wk = int((anchor - at) / 604800)
+    wcommits[wk]++; wins[wk] += cins; wdel[wk] += cdel; wtins[wk] += ctins
+    if (wk > maxwk) maxwk = wk
+    acommits[author]++; ains[author] += cins; adel[author] += cdel; atins[author] += ctins
+    loc = cins + cdel; sizes[bucket_of(loc)]++
+    if (loc > bigloc) { bigloc = loc; bigline = h "|" loc "|" author "|" subj }
+    if (loc > abigloc[author]) { abigloc[author] = loc; abig[author] = h "|" loc "|" subj }
+    # 45-minute session gaps (walked newest→oldest; equivalent to ascending).
+    if (prev_at == 0) { sess = 1; sess_end = at; }
+    else if (prev_at - at > 2700) {
+      sess_dur = (sess_end - sess_start_at) / 60; classify(sess_dur)
+      sess++; sess_end = at
+    }
+    sess_start_at = at; prev_at = at
+    if (commits <= 300) printf "COMMIT: %s|%s|%s|+%d/-%d|%s\n", h, author, dt, cins, cdel, subj
+    h = ""
+  }
+  function classify(mins) {
+    total_mins += mins
+    if (mins >= 50) deep++; else if (mins >= 20) medium++; else micro++
+  }
+  /^C\|/ {
+    flush()
+    n = split($0, a, "|")
+    h = a[2]; author = a[3]; at = a[4] + 0; dt = a[5]
+    subj = a[6]; for (i = 7; i <= n; i++) subj = subj "|" a[i]
+    if (anchor == 0) anchor = at
+    cins = 0; cdel = 0; ctins = 0; cfiles = 0
+    next
+  }
+  /^[0-9-]+\t/ {
+    if ($1 != "-") cins += $1; if ($2 != "-") cdel += $2
+    if ($1 != "-" && is_test($3)) ctins += $1
+    cfiles++
+    filecount[$3]++
+    d = ($3 ~ /\//) ? substr($3, 1, index($3, "/") - 1) "/" : "(root)"
+    dircount[d]++; adir[author "|" d]++
+    if ($3 ~ /(\.(test|spec)\.|_test\.|_spec\.)/) testfiles[$3] = 1
+  }
+  END {
+    flush()
+    if (commits > 0 && prev_at != 0) { sess_dur = (sess_end - sess_start_at) / 60; classify(sess_dur) }
+    if (commits > 300) printf "COMMIT_LIST_TRUNCATED: showing 300 of %d (newest first; git log for the rest)\n", commits
+    printf "COMMITS: %d\n", commits
+    printf "MERGE_COMMITS: %d\n", merges
+    nauth = 0; for (au in acommits) nauth++
+    printf "CONTRIBUTORS: %d\n", nauth
+    printf "INSERTIONS: %d\n", ins
+    printf "DELETIONS: %d\n", del
+    printf "NET_LOC: %d\n", ins - del
+    printf "TEST_INSERTIONS: %d\n", tins
+    printf "TEST_RATIO: %s\n", (ins > 0 ? sprintf("%d%%", tins * 100 / ins) : "n/a")
+    printf "WEIGHTED_COMMITS: %d\n", weighted
+    nd = 0; for (d in days) nd++
+    printf "ACTIVE_DAYS: %d\n", nd
+    ntf = 0; for (f in testfiles) ntf++
+    printf "TEST_FILES_CHANGED: %d\n", ntf
+    printf "SESSIONS: %d\n", sess
+    printf "DEEP_SESSIONS: %d\n", deep
+    printf "MEDIUM_SESSIONS: %d\n", medium
+    printf "MICRO_SESSIONS: %d\n", micro
+    printf "TOTAL_ACTIVE_MINUTES: %d\n", total_mins
+    printf "AVG_SESSION_MINUTES: %d\n", (sess > 0 ? total_mins / sess : 0)
+    if (total_mins >= 5) printf "LOC_PER_SESSION_HOUR: %d\n", int(ins / (total_mins / 60) / 50 + 0.5) * 50
+    else printf "LOC_PER_SESSION_HOUR: n/a (too little session time)\n"
+    line = ""
+    for (t in types) line = line (line == "" ? "" : " ") t "=" types[t]
+    printf "COMMIT_TYPES: %s\n", (line == "" ? "none" : line)
+    printf "FIX_RATIO: %s\n", (commits > 0 ? sprintf("%d%%", types["fix"] * 100 / commits) : "n/a")
+    printf "COMMIT_SIZE_BUCKETS: small=%d medium=%d large=%d xl=%d\n", sizes["small"], sizes["medium"], sizes["large"], sizes["xl"]
+    # Hour histogram (nonzero hours only, chronological).
+    line = ""
+    for (i = 0; i < 24; i++) { hh = sprintf("%02d", i); if (hours[hh] > 0) line = line (line == "" ? "" : " ") hh "=" hours[hh] }
+    printf "HOURS: %s\n", (line == "" ? "none" : line)
+    peak = ""; pc = -1
+    for (hh in hours) if (hours[hh] > pc) { pc = hours[hh]; peak = hh }
+    printf "PEAK_HOUR: %s\n", (peak == "" ? "n/a" : peak)
+    # Focus score: share of file changes in the single busiest top-level dir.
+    tot = 0; for (d in dircount) tot += dircount[d]
+    fd = ""; fc = -1
+    for (d in dircount) if (dircount[d] > fc) { fc = dircount[d]; fd = d }
+    if (tot > 0) printf "FOCUS_SCORE: %d%% (%s)\n", fc * 100 / tot, fd
+    else printf "FOCUS_SCORE: n/a\n"
+    if (bigline != "") printf "BIGGEST_COMMIT: %s\n", bigline
+    # Top-10 hotspots by change count.
+    for (k = 0; k < 10; k++) {
+      bf = ""; bc = 0
+      for (f in filecount) if (filecount[f] > bc) { bc = filecount[f]; bf = f }
+      if (bf == "") break
+      printf "HOTSPOT: %d %s\n", bc, bf
+      delete filecount[bf]
+    }
+    # Per-author lines, sorted by commits desc (selection sort — small n).
+    while (1) {
+      ba = ""; bc = -1
+      for (au in acommits) if (!(au in done) && acommits[au] > bc) { bc = acommits[au]; ba = au }
+      if (ba == "") break
+      done[ba] = 1
+      tr = (ains[ba] > 0 ? sprintf("%d%%", atins[ba] * 100 / ains[ba]) : "n/a")
+      # top-3 areas for this author
+      areas = ""
+      for (k = 0; k < 3; k++) {
+        bd = ""; bdc = 0
+        for (key in adir) {
+          split(key, kk, "|")
+          if (kk[1] == ba && !((key) in adone) && adir[key] > bdc) { bdc = adir[key]; bd = key }
+        }
+        if (bd == "") break
+        adone[bd] = 1
+        split(bd, kk, "|")
+        areas = areas (areas == "" ? "" : ",") kk[2]
+      }
+      tl = ""
+      for (key in atypes) { split(key, kk, "|"); if (kk[1] == ba) tl = tl (tl == "" ? "" : ",") kk[2] ":" atypes[key] }
+      ph = ""; phc = -1
+      for (key in ahours) { split(key, kk, "|"); if (kk[1] == ba && ahours[key] > phc) { phc = ahours[key]; ph = kk[2] } }
+      printf "AUTHOR: %s|commits=%d|ins=%d|del=%d|test_ratio=%s|top_areas=%s|types=%s|peak_hour=%s\n", ba, acommits[ba], ains[ba], adel[ba], tr, areas, tl, ph
+      if (abig[ba] != "") printf "AUTHOR_BIGGEST: %s|%s\n", ba, abig[ba]
+    }
+    # Weekly buckets, newest week first (w0 = week containing the newest commit).
+    for (w = 0; w <= maxwk; w++) {
+      if (wcommits[w] == 0) continue
+      wr = (wins[w] > 0 ? sprintf("%d%%", wtins[w] * 100 / wins[w]) : "n/a")
+      printf "WEEK: w%d|commits=%d|ins=%d|del=%d|test_ratio=%s\n", w, wcommits[w], wins[w], wdel[w], wr
+    }
+  }
+' || true
+
+# ── Co-author trailers: AI-assist count + human co-author credit lines ──────
+git log "$REF" "$_S" ${_U:+"$_U"} \
+    --format='%h %(trailers:key=Co-Authored-By,valueonly,separator=;)' 2>/dev/null | awk '
+  {
+    if (NF < 2) next
+    rest = substr($0, index($0, " ") + 1)
+    n = split(rest, tr, ";")
+    for (i = 1; i <= n; i++) {
+      t = tr[i]
+      if (t ~ /^[ \t]*$/) continue
+      if (tolower(t) ~ /(claude|copilot|codex|gemini|gpt|anthropic|openai|cursor|devin|\[bot\])/) { ai[$1] = 1 }
+      else { human++; if (human <= 40) printf "COAUTHOR: %s|%s\n", $1, t }
+    }
+  }
+  END {
+    if (human > 40) printf "COAUTHOR_LIST_TRUNCATED: showing 40 of %d\n", human
+    c = 0; for (h in ai) c++
+    printf "AI_ASSISTED_COMMITS: %d\n", c
+  }
+' || true
+
+# ── Logical SLOC added: non-blank, non-comment added lines in the window ────
+_LSLOC=$(git log "$REF" "$_S" ${_U:+"$_U"} -p --format= 2>/dev/null | awk '
+  /^\+/ && !/^\+\+\+/ {
+    l = substr($0, 2); gsub(/^[ \t]+|[ \t]+$/, "", l)
+    if (l == "") next
+    if (l ~ /^(\/\/|#|\*|\/\*|<!--|--)/) next
+    n++
+  }
+  END { print n + 0 }
+' || echo 0)
+echo "LOGICAL_SLOC_ADDED: ${_LSLOC:-0}"
+
+# ── PR/MR references in commit subjects (GitHub #NNN, GitLab !NNN) ──────────
+_PRS=$(git log "$REF" "$_S" ${_U:+"$_U"} --format='%s' 2>/dev/null | grep -oE '[#!][0-9]+' | sort -u | tr '\n' ' ' | sed 's/ $//' || true)
+echo "PRS_REFERENCED: $(printf '%s' "$_PRS" | wc -w | tr -d ' ')"
+[ -n "$_PRS" ] && echo "PR_REFS: $_PRS" || true
+
+# ── Test health (repo-wide + window) ─────────────────────────────────────────
+# Deliberately suffix-only (narrower than is_test's dir-based patterns): the
+# repo-wide census counts conventional test FILES; is_test additionally counts
+# dir-homed helpers toward test-insertion ratios.
+_TF_TOTAL=$(git ls-files 2>/dev/null | grep -cE '(\.test\.|\.spec\.|_test\.|_spec\.)' || true)
+case "$_TF_TOTAL" in ''|*[!0-9]*) _TF_TOTAL=0 ;; esac
+echo "TEST_FILES_TOTAL: $_TF_TOTAL"
+_REG=$(git log "$REF" "$_S" ${_U:+"$_U"} --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage" 2>/dev/null || true)
+if [ -n "$_REG" ]; then
+  echo "REGRESSION_TEST_COMMITS: $(printf '%s\n' "$_REG" | wc -l | tr -d ' ')"
+  printf '%s\n' "$_REG" | sed 's/^/REGRESSION_COMMIT: /'
+else
+  echo "REGRESSION_TEST_COMMITS: 0"
+fi
+
+# ── Version range across the window (VERSION file, when tracked) ────────────
+if git cat-file -e "$REF:VERSION" 2>/dev/null; then
+  _V_LAST_C=$(git log "$REF" "$_S" ${_U:+"$_U"} --format=%H -- VERSION 2>/dev/null | head -1)
+  _V_FIRST_C=$(git log "$REF" "$_S" ${_U:+"$_U"} --format=%H -- VERSION 2>/dev/null | tail -1)
+  if [ -n "$_V_LAST_C" ]; then
+    _V_NEW=$(git show "$_V_LAST_C:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')
+    _V_OLD=$(git show "$_V_FIRST_C^:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')
+    [ -n "$_V_OLD" ] || _V_OLD=$(git show "$_V_FIRST_C:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')
+    echo "VERSION_RANGE: v$_V_OLD → v$_V_NEW"
+  else
+    _V_CUR=$(git show "$REF:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')
+    echo "VERSION_RANGE: v$_V_CUR (unchanged this window)"
+  fi
+fi
+
+# ── Streaks: consecutive commit days, full history (Step 11) ─────────────────
+# Anchored at the NEWEST commit date on the ref — the prose compares the anchor
+# against the session-reminder "today" (never the system clock) to decide
+# whether the streak is live or broken.
+_streak_awk='
+  function jdn(y, m, d) {
+    a = int((14 - m) / 12); yy = y + 4800 - a; mm = m + 12 * a - 3
+    return d + int((153 * mm + 2) / 5) + 365 * yy + int(yy / 4) - int(yy / 100) + int(yy / 400) - 32045
+  }
+  {
+    split($0, p, "-")
+    j = jdn(p[1] + 0, p[2] + 0, p[3] + 0)
+    if (NR == 1) { anchor = $0; prev = j; streak = 1; next }
+    if (j == prev - 1) { streak++; prev = j } else if (j != prev) exit
+  }
+  END { if (NR > 0) printf "%d days (anchor %s)\n", streak, anchor; else print "0 days (no commits)" }
+'
+_TEAM_STREAK=$(git log "$REF" --date=format-local:'%Y-%m-%d' --format='%ad' 2>/dev/null | awk '!seen[$0]++' | awk "$_streak_awk" || true)
+echo "TEAM_STREAK: ${_TEAM_STREAK:-0 days (no commits)}"
+if [ -n "$_USER_NAME" ]; then
+  _USER_STREAK=$(git log "$REF" --author="$_USER_NAME" --date=format-local:'%Y-%m-%d' --format='%ad' 2>/dev/null | awk '!seen[$0]++' | awk "$_streak_awk" || true)
+  echo "USER_STREAK: ${_USER_STREAK:-0 days (no commits)}"
+fi
+
+# ── Aux inputs (presence only — the model Reads what exists) ─────────────────
+[ -f "$_GH/retro-context.md" ]            && echo "RETRO_CONTEXT: present ($_GH/retro-context.md)"            || echo "RETRO_CONTEXT: absent"
+[ -f "$_GH/greptile-history.md" ]         && echo "GREPTILE_HISTORY: present ($_GH/greptile-history.md)"      || echo "GREPTILE_HISTORY: absent"
+[ -f "TODOS.md" ]                         && echo "TODOS_FILE: present (TODOS.md)"                            || echo "TODOS_FILE: absent"
+[ -f "$_GH/analytics/skill-usage.jsonl" ] && echo "SKILL_USAGE_LOG: present ($_GH/analytics/skill-usage.jsonl)" || echo "SKILL_USAGE_LOG: absent"
+[ -f "$_GH/analytics/eureka.jsonl" ]      && echo "EUREKA_LOG: present ($_GH/analytics/eureka.jsonl)"         || echo "EUREKA_LOG: absent"
+
+echo "RETRO_METRICS_END: ok"

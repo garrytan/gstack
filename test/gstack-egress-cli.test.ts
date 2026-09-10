@@ -36,6 +36,7 @@ function run(args: string[]) {
   const result = spawnSync(BIN, args, {
     encoding: 'utf-8',
     env: { ...process.env, GSTACK_HOME: home },
+    timeout: 30_000,
   });
   return { code: result.status ?? -1, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
@@ -107,10 +108,10 @@ describe('gstack-egress verify', () => {
 });
 
 describe('gstack-egress grants', () => {
-  test('fresh home shows the four upstream grants off, each naming file and revoke command', () => {
+  test('fresh home shows the five standing grants off, each naming file and revoke command', () => {
     const r = run(['grants']);
     expect(r.code).toBe(0);
-    for (const grant of ['telemetry', 'brain-sync', 'redact_repo_visibility', 'redact_prepush_hook']) {
+    for (const grant of ['telemetry', 'brain-sync', 'redact_repo_visibility', 'redact_prepush_hook', 'memorable-recall']) {
       expect(r.stdout).toContain(grant);
     }
     expect(r.stdout).not.toContain('[GRANTED]');
@@ -122,11 +123,13 @@ describe('gstack-egress grants', () => {
     const config = spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'telemetry', 'community'], {
       encoding: 'utf-8',
       env: { ...process.env, GSTACK_HOME: home },
+      timeout: 30_000,
     });
     expect(config.status).toBe(0);
     spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'artifacts_sync_mode', 'full'], {
       encoding: 'utf-8',
       env: { ...process.env, GSTACK_HOME: home },
+      timeout: 30_000,
     });
     const r = run(['grants', '--json']);
     expect(r.code).toBe(0);
@@ -139,6 +142,17 @@ describe('gstack-egress grants', () => {
     expect(sync.value).toBe('full');
     const hook = grants.find((g: any) => g.grant === 'redact_prepush_hook');
     expect(hook.granted).toBe(false);
+    // the Memorable bridge consent is a standing grant too: off by default, on only via gstack-memorable enable
+    const memo = grants.find((g: any) => g.grant === 'memorable-recall');
+    expect(memo.granted).toBe(false);
+    expect(memo.key).toBe('memorable_recall');
+    expect(memo.revoke).toContain('gstack-memorable disable');
+    spawnSync(path.join(ROOT, 'bin', 'gstack-config'), ['set', 'memorable_recall', 'on'], {
+      encoding: 'utf-8', env: { ...process.env, GSTACK_HOME: home }, timeout: 30_000,
+    });
+    const after = JSON.parse(run(['grants', '--json']).stdout).find((g: any) => g.grant === 'memorable-recall');
+    expect(after.granted).toBe(true);
+    expect(run(['grants']).stdout).toContain('[GRANTED] memorable-recall: on');
   });
 });
 

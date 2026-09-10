@@ -281,13 +281,21 @@ export function carvedSkill(): { skillMd: string; sectionsFrom: string | null } 
   };
 }
 
-/** Read the pre-carve verbose monolith plan-ceo SKILL.md from git. */
-export function verboseSkill(gitRef = 'ab66193e^'): string {
-  return execGit(['show', `${gitRef}:plan-ceo-review/SKILL.md`]);
+/** Read the pre-carve verbose monolith plan-ceo SKILL.md.
+ *  VENDORED fixture (v1.75 precedent), not a git ref: the old default
+ *  `git show ab66193e^:...` pinned a BRANCH-LOCAL commit — it dies the day
+ *  that branch is pruned and already fails on shallow clones. The fixture
+ *  is the frozen pre-cut render; test/git-ref-fixture-tripwire.test.ts
+ *  keeps this class from coming back. */
+export function verboseSkill(): string {
+  return fs.readFileSync(
+    path.join(ROOT, 'test', 'fixtures', 'auq-pre-cut-plan-ceo-review-SKILL.md'),
+    'utf-8',
+  );
 }
 
 function execGit(args: string[]): string {
-  const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024, timeout: 30_000 });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
   return r.stdout;
 }

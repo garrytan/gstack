@@ -1,5 +1,6 @@
 <!-- AUTO-GENERATED from proposal-and-preview.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+<!-- The font-selection procedure and the three-looks calibration in this section are derived from pbakaus/impeccable reference/new-work.md (Apache-2.0), rewritten and modified. See NOTICE.md. -->
 ## Phase 3: The Complete Proposal
 
 This is the soul of the skill. Propose EVERYTHING as one coherent package.
@@ -37,14 +38,16 @@ The SAFE/RISK breakdown is critical. Design coherence is table stakes — every 
 
 ### Your Design Knowledge (use to inform proposals — do NOT display as tables)
 
+**Calibration: the three looks.** AI-built interfaces land in one of three looks no matter what the product is: (1) cream ground, high-contrast serif display, terracotta or signal-red accent; (2) near-black, one neon accent, glowing edges; (3) broadsheet hairlines, italic display serif, tiny tracked mono labels. Each is fine when the brief asks for it. If the brief left the look open and you landed in one anyway, you stopped looking. The test: could someone guess your look from the category alone? From "the category, but avoiding the obvious"? Either way, start over. "It's about books, so cream and a serif" fails this test. Book cloth and jackets come in every saturated color there is.
+
 **Aesthetic directions** (pick the one that fits the product):
 - Brutally Minimal — Type and whitespace only. No decoration. Modernist.
 - Maximalist Chaos — Dense, layered, pattern-heavy. Y2K meets contemporary.
-- Retro-Futuristic — Vintage tech nostalgia. CRT glow, pixel grids, warm monospace.
+- Retro-Futuristic — Vintage tech nostalgia. Phosphor palette, bitmap type, warm monospace for data (no glow halos, no grid-paper backgrounds).
 - Luxury/Refined — Serifs, high contrast, generous whitespace, precious metals.
-- Playful/Toy-like — Rounded, bouncy, bold primaries. Approachable and fun.
+- Playful/Toy-like — Rounded, springy (no overshoot), bold primaries. Approachable and fun.
 - Editorial/Magazine — Strong typographic hierarchy, asymmetric grids, pull quotes.
-- Brutalist/Raw — Exposed structure, system fonts, visible grid, no polish.
+- Brutalist/Raw — Exposed structure, one utilitarian grotesk, visible grid, no polish (a system stack only when the user asks for it by name).
 - Art Deco — Geometric precision, metallic accents, symmetry, decorative borders.
 - Organic/Natural — Earth tones, rounded forms, hand-drawn texture, grain.
 - Industrial/Utilitarian — Function-first, data-dense, monospace accents, muted palette.
@@ -53,48 +56,76 @@ The SAFE/RISK breakdown is critical. Design coherence is table stakes — every 
 
 **Layout approaches:** grid-disciplined (strict columns, predictable alignment) / creative-editorial (asymmetry, overlap, grid-breaking) / hybrid (grid for app, creative for marketing)
 
-**Color approaches:** restrained (1 accent + neutrals, color is rare and meaningful) / balanced (primary + secondary, semantic colors for hierarchy) / expressive (color as a primary design tool, bold palettes)
+**Color approaches:** Restrained (1 accent + neutrals, color is rare and meaningful) / Committed (one hue owns the page, neutrals derive from it) / Full palette (primary + secondary + semantic colors for hierarchy) / Drenched (color as the primary design tool, surfaces carry it)
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Font recommendations by purpose:**
-- Display/Hero: Satoshi, General Sans, Instrument Serif, Fraunces, Clash Grotesk, Cabinet Grotesk
-- Body: Instrument Sans, DM Sans, Source Sans 3, Geist, Plus Jakarta Sans, Outfit
-- Data/Tables: Geist (tabular-nums), DM Sans (tabular-nums), JetBrains Mono, IBM Plex Mono
-- Code: JetBrains Mono, Fira Code, Berkeley Mono, Geist Mono
+**Choosing faces: a procedure, not a menu.** Type comes from the subject's world, in the mode's register. (1) Name the world: the publication, notation, identity program, or object this audience already reads. (2) Shortlist three faces per role (display, body, label, mono) from that world. (3) Strike anything on the overused list for the role it would play. (4) Verify availability this session: WebSearch or Aside the Google Fonts / Fontshare page, or confirm the license of a self-hosted face. Unverified faces do not go in the proposal. (5) State the loading strategy with the name.
 
-**Font blacklist** (never recommend):
-Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New (for body)
+**Overused as display** (never the display voice, on any surface; the body/UI exception below is the only one; the detector flags several as `overused-font`): Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins, Space Grotesk, Space Mono, Fraunces, Playfair Display, Cormorant, Lora, Crimson, Newsreader, Syne, IBM Plex Sans, IBM Plex Serif, DM Sans, DM Serif, Outfit, Plus Jakarta Sans, Instrument Sans, Geist.
 
-**Overused fonts** (never recommend as primary — use only if user specifically requests):
-Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins, Space Grotesk.
+**Fine as body/UI on an Operate or Read surface when the proposal says so:** DM Sans, Instrument Sans, IBM Plex Sans. **Mono for data and code:** JetBrains Mono, IBM Plex Mono, Fira Code.
 
-Space Grotesk is on the list specifically because every AI design tool converges on it
-as "the safe alternative to Inter." That's the convergence trap. Treat it the same as
-Inter: only use if the user asks for it by name.
+**Banned in any role:** Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New.
 
-**Anti-convergence directive:** Across multiple generations in the same project, VARY
-light/dark, fonts, and aesthetic directions. Never propose the same choices twice
-without explicit justification. If the user's prior session used Geist + dark + editorial,
-propose something different this time (or explicitly acknowledge you're doubling down
-because it fits the brief). Convergence across generations is slop.
+**Freely available faces on no default list** (verified 2026-09-08; re-verify in-session before naming one): Satoshi, General Sans, Clash Grotesk, Cabinet Grotesk (Fontshare); Instrument Serif, Source Sans 3, JetBrains Mono, Fira Code (Google Fonts). Short on purpose. A long list of "good" fonts is how the last convergence happened.
+
+User asks for a listed face by name: comply, state the tradeoff once.
+
+**Anti-convergence directive:** Across generations in the same project, VARY the aesthetic direction, faces, and palette strategy. Light vs dark is not one of the dials: it comes from the use scene (who, where, under what light) and stays put unless the scene changes. Doubling down is allowed if you say why. Convergence across generations is slop.
 
 **AI slop anti-patterns** (never include in your recommendations):
-- Purple/violet gradients as default accent
-- 3-column feature grid with icons in colored circles
-- Centered everything with uniform spacing
-- Uniform bubbly border-radius on all elements
-- Gradient buttons as the primary CTA pattern
-- Generic stock-photo-style hero sections
-- system-ui / -apple-system as the primary display or body font (the "I gave up on typography" signal)
-- "Built for X" / "Designed for Y" marketing copy patterns
+- Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes
+- **The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.
+- Icons in colored circles as section decoration (SaaS starter template look)
+- Centered everything (`text-align: center` on all headings, descriptions, cards)
+- Uniform bubbly border-radius on every element (same large radius on everything)
+- Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)
+- Emoji as design elements (rockets in headings, emoji as bullet points)
+- Colored left-border on cards (`border-left: 3px solid <accent>`)
+- Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")
+- Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)
+- system-ui or `-apple-system` as the PRIMARY display/body font — the "I gave up on typography" signal. Pick a real typeface.
+- A colored edge on a rounded card: the side-tab in a costume. Signal state with a background tint, an icon, or a label.
+- A training-data default as the display voice means you stopped looking. As body or UI on an Operate or Read surface, several of these are fine. Say which and why.
+- Headings within a step of body size. Pick a scale and let the levels differ by more than a weight.
+- Emphasis is weight or size. Gradient text is emphasis in a costume.
+- Cream ground, serif display, terracotta accent: look number one. Fine when the brief asked for it; a default when it did not.
+- A card inside a card is always wrong. Cards are the lazy container; nesting them is the lazy container squared.
+- An illustration built from CSS shapes standing in for an asset. Produce the asset or ship nothing.
+- Glowing edges on dark surfaces: look number two. Depth has an offset; a zero-offset colored halo is decoration.
+- A radial gradient halo behind the hero content. Look number two again.
+- A spotlight glow washing the top of the page. Same family as the halo.
+- An infinitely scrolling logo strip. If the logos matter, show them still; if they do not, cut them.
+- The rounded-square icon above every heading. Try side by side, or drop the container.
+- Look three: the italic display serif reaching for editorial credibility. Earn it with the content or set the display upright.
+- A pill-shaped label floating above the hero headline. The headline carries its own weight; cut the chip.
+- A kicker above a heading is the strongest default there is: the heading carries its own weight, so delete the label. If the user wants it anyway, comply and say the tradeoff once.
+- "Seamless", "effortless", "supercharge", "streamline": words that describe nothing. Say what the product does.
+- Short. Punchy. Fragments. Every sentence a slogan. Write like a person explaining something.
+- Display type past 6rem on a page that is not a poster. Size is not hierarchy.
+- "Built for the way you work", "Designed for teams like yours", "Meet your new...": phrases that perform a launch instead of describing one.
+- Gradient buttons as the primary call to action. One solid color the palette owns.
+- A generic stock-photo hero, or a gray placeholder div standing in for one. Show the product or show nothing.
+- Rounded cards with drop shadows as the container for everything. App UI made of stacked cards is not layout.
+- A testimonial row with avatars, five stars, and quotes nobody said. Real names with real claims, or cut it.
+- The cookie-cutter hero: headline left, screenshot right, two buttons. The first template every generator reaches for.
+- "Get Started" and "Learn More" as the only calls to action. Name the outcome the click buys.
+- Three big numbers with tiny labels under the hero ("10k+ users", "99.9%"). The template counts, not the product.
+- A grid of cards with the same shape, the same icon slot, the same two lines. Content of unequal weight given equal boxes.
+- Frosted-glass panels with blurred backdrops as the default surface. One translucent layer where it explains depth, not everywhere.
+- Generated SVG doodles and mascots in place of art direction. Commission or license an asset, or ship none.
+- Every secondary action in a modal. Inline, a side panel, or a new page usually costs the user less.
+- Sparklines, progress rings, and fake avatars filling space where content should be. Real data or an honest empty state.
+- Dark because it is a dev tool, light because it is health. Light or dark comes from the use scene: who, where, under what light.
+- Only the happy path is designed. Empty, loading, error, and long-content states are part of the component.
 
 ### Coherence Validation
 
 When the user overrides one section, check if the rest still coheres. Flag mismatches with a gentle nudge — never block:
 
 - Brutalist/Minimal aesthetic + expressive motion → "Heads up: brutalist aesthetics usually pair with minimal motion. Your combo is unusual — which is fine if intentional. Want me to suggest motion that fits, or keep it?"
-- Expressive color + restrained decoration → "Bold palette with minimal decoration can work, but the colors will carry a lot of weight. Want me to suggest decoration that supports the palette?"
+- Drenched color + minimal decoration → "Bold palette with minimal decoration can work, but the colors will carry a lot of weight. Want me to suggest decoration that supports the palette?"
 - Creative-editorial layout + data-heavy product → "Editorial layouts are gorgeous but can fight data density. Want me to show how a hybrid approach keeps both?"
 - Always accept the user's final choice. Never refuse to proceed.
 
@@ -146,7 +177,7 @@ Show each variant inline (Read tool on each PNG) for instant preview.
 a human designer be embarrassed to put their name on this?"* If yes, discard the
 variant and regenerate. This is a hard gate. A mediocre AI mockup is worse than no
 mockup. Embarrassment triggers include: purple gradient hero, 3-column SaaS grid,
-centered-everything, Inter body text, generic stock-photo vibe, system-ui font,
+centered-everything, an overused face as the display voice, generic stock-photo vibe, system-ui font,
 gradient CTA button, bubble-radius everything. Any of those = reject and regenerate.
 
 Tell the user: "I've generated 3 visual directions applying your design system to a realistic [product type] screen. Pick your favorite in the comparison board that just opened in your browser. You can also remix elements across variants."
@@ -292,7 +323,7 @@ open "$PREVIEW_FILE"
 
 The agent writes a **single, self-contained HTML file** (no framework dependencies) that:
 
-1. **Loads proposed fonts** from Google Fonts (or Bunny Fonts) via `<link>` tags
+1. **Loads proposed fonts** from the source verified in step (4) of the font procedure (Google Fonts, Fontshare, or the self-hosted files) via `<link>` tags
 2. **Uses the proposed color palette** throughout — dogfood the design system
 3. **Shows the product name** (not "Lorem Ipsum") as the hero heading
 4. **Font specimen section:**
@@ -327,61 +358,124 @@ If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the pr
 
 **If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
 
-**If NOT in plan mode:** Write `DESIGN.md` to the repo root with this structure:
+**If NOT in plan mode:** Write `DESIGN.md` to the repo root in the open DESIGN.md format (google-labs-code/design.md). The YAML front matter is normative: every token an agent needs lives there, in exactly five groups (`colors`, `typography`, `rounded`, `spacing`, `components`). The sections explain why the tokens exist and how to apply them, and never restate a token value. Line 2 is gstack's format marker, so no skill asks about conversion later. If a legacy file was kept in Phase 0, update that file in its own shape instead.
 
 ```markdown
-# Design System — [Project Name]
+---
+# gstack: design-md-format=spec
+name: [Project Name]
+description: [one sentence: mood, material, energy]
+colors:
+  primary: "#..."          # descriptive slugs; hex, or the project's canonical color space
+  on-primary: "#..."
+  surface: "#..."
+  text: "#..."
+  text-muted: "#..."
+  accent: "#..."
+  success: "#..."
+  warning: "#..."
+  error: "#..."
+typography:
+  display:
+    fontFamily: [face]
+    fontWeight: [weight]
+    fontSize: [clamp() or rem]
+    letterSpacing: [em]
+  body:
+    fontFamily: [face]
+    fontSize: 1rem
+    lineHeight: 1.5
+  label:
+    fontFamily: [face]
+    fontSize: 0.75rem
+    letterSpacing: 0.04em
+  mono:
+    fontFamily: [face]
+    fontFeature: tnum
+rounded:
+  sm: 4px
+  md: 8px
+  lg: 12px
+  full: 9999px
+spacing:
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+  2xl: 48px
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.md}"
+  button-primary-hover:
+    backgroundColor: "#..."
+  input:
+    borderColor: "{colors.text-muted}"
+    rounded: "{rounded.sm}"
+  card:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.lg}"
+  nav-link:
+    textColor: "{colors.text}"
+---
 
-## Product Context
-- **What this is:** [1-2 sentence description]
-- **Who it's for:** [target users]
-- **Space/industry:** [category, peers]
-- **Project type:** [web app / dashboard / marketing site / editorial / internal tool]
+# [Project Name]
 
-## Aesthetic Direction
-- **Direction:** [name]
-- **Decoration level:** [minimal / intentional / expressive]
-- **Mood:** [1-2 sentence description of how the product should feel]
-- **Reference sites:** [URLs, if research was done]
+## Overview
+
+**Creative North Star:** [one sentence: the aesthetic direction and why it is right for these users]
+**Product context:** [what this is, who it is for, the space and its peers, the project type]
+**Mode per surface:** [Persuade / Operate / Read / Experience, per surface, in one line each]
+**Reference sites:** [URLs, if research was done]
+**Key characteristics:** [3-5 bullets: what someone notices in the first five seconds]
+
+## Colors
+
+**Strategy:** [Restrained / Committed / Full palette / Drenched] — [why]
+**Light or dark:** [decided by the use scene: who, where, under what light]
+Named rules: [which token carries interaction, which carries emphasis, what neutrals derive from, how dark mode redesigns surfaces (never a lightness inversion)]
 
 ## Typography
-- **Display/Hero:** [font name] — [rationale]
-- **Body:** [font name] — [rationale]
-- **UI/Labels:** [font name or "same as body"]
-- **Data/Tables:** [font name] — [rationale, must support tabular-nums]
-- **Code:** [font name]
-- **Loading:** [CDN URL or self-hosted strategy]
-- **Scale:** [modular scale with specific px/rem values for each level]
 
-## Color
-- **Approach:** [restrained / balanced / expressive]
-- **Primary:** [hex] — [what it represents, usage]
-- **Secondary:** [hex] — [usage]
-- **Neutrals:** [warm/cool grays, hex range from lightest to darkest]
-- **Semantic:** success [hex], warning [hex], error [hex], info [hex]
-- **Dark mode:** [strategy — redesign surfaces, reduce saturation 10-20%]
-
-## Spacing
-- **Base unit:** [4px or 8px]
-- **Density:** [compact / comfortable / spacious]
-- **Scale:** 2xs(2) xs(4) sm(8) md(16) lg(24) xl(32) 2xl(48) 3xl(64)
+[Why these faces, in the mode's register: the world they come from, the roles they play, where the display voice is allowed. Loading strategy. Scale rationale. The overused-list exceptions you made and why.]
 
 ## Layout
-- **Approach:** [grid-disciplined / creative-editorial / hybrid]
-- **Grid:** [columns per breakpoint]
-- **Max content width:** [value]
-- **Border radius:** [hierarchical scale — e.g., sm:4px, md:8px, lg:12px, full:9999px]
+
+[Grid per breakpoint, max content width, density, the spacing scale's rhythm (large step vs small step), what breaks the grid on purpose]
+
+## Elevation & Depth
+
+[How depth is shown: offset + soft blur shadows, surface tints, borders. Never a zero-offset glow.]
+
+## Shapes
+
+[Radius hierarchy and what each level is for; inner radius = outer radius − gap on nested elements]
+
+## Components
+
+[Per component token group above: states (hover, focus-visible, active, disabled), what never changes, what adapts]
+
+## Do's and Don'ts
+
+- Do: [3-5 specific, checkable rules]
+- Don't: [3-5 specific anti-patterns for THIS system, including the catalog entries most tempting for this category]
 
 ## Motion
+
 - **Approach:** [minimal-functional / intentional / expressive]
 - **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
 - **Duration:** micro(50-100ms) short(150-250ms) medium(250-400ms) long(400-700ms)
+- **The one authored moment:** [what it is]
 
 ## Decisions Log
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
+
+Fill every token with a real value (no placeholders survive into the file); drop a `components` entry rather than invent one. Verify the result parses: `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md` must print `DESIGN_MD_FORMAT: spec`.
 
 **Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 

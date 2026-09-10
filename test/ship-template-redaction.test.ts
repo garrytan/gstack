@@ -34,7 +34,9 @@ describe("/ship redaction wiring", () => {
   });
   test("edit path also scans before sending", () => {
     expect(TMPL).toMatch(/gh pr edit --body-file "\$PR_BODY_FILE"/);
-    expect(TMPL).toMatch(/same redaction scan-at-sink.*before editing/i);
+    const scanAt = TMPL.indexOf('gstack-redact --from-file "$PR_BODY_FILE"');
+    expect(scanAt).toBeGreaterThan(0);
+    expect(TMPL.indexOf('gh pr edit --body-file "$PR_BODY_FILE"')).toBeGreaterThan(scanAt);
   });
   test("HIGH blocks the PR (exit 3), no skip", () => {
     expect(TMPL).toMatch(/BLOCKED — credential in PR body/);
@@ -45,7 +47,9 @@ describe("/ship redaction wiring", () => {
     expect(TMPL).toMatch(/greptile/);
   });
   test("scans the title too", () => {
-    expect(TMPL).toMatch(/scan the title/i);
+    expect(TMPL).toContain('printf \'%s\' "$NEW_TITLE" | ~/.claude/skills/gstack/bin/gstack-redact');
+    expect(TMPL).toContain('gh pr create --base <base> --title "$NEW_TITLE"');
+    expect(TMPL).toContain('gh pr edit --title "$NEW_TITLE"');
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -9,7 +9,7 @@ const SETUP_SRC = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
 // Run a bash snippet, return {stdout, stderr, status}.
 function runBash(script: string): { stdout: string; stderr: string; status: number } {
-  const r = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
+  const r = runBashScript(script, { timeout: 30_000 });
   return { stdout: r.stdout || '', stderr: r.stderr || '', status: r.status ?? -1 };
 }
 

@@ -41,7 +41,7 @@ function runJq(program: string, inputLines: string[], branch: string, commits: s
   const out = execFileSync(
     "jq",
     ["-c", "--arg", "branch", branch, "--arg", "commits", commits, program],
-    { input: inputLines.join("\n"), encoding: "utf-8" },
+    { input: inputLines.join("\n"), encoding: "utf-8", timeout: 30_000 },
   );
   return out.split("\n").filter(Boolean);
 }

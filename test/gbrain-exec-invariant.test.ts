@@ -35,9 +35,12 @@ const GUARDED_FILES = [
 // Patterns that would bypass lib/gbrain-exec.ts. Match the literal `"gbrain"`
 // as the first argument since these helpers are the failure mode.
 const BANNED_PATTERNS: Array<{ name: string; regex: RegExp }> = [
+  // tripwire-exempt: grep-needle STRING for this invariant, not a process spawn
   { name: 'spawnSync("gbrain", ...)', regex: /spawnSync\s*\(\s*["']gbrain["']/g },
   { name: 'spawn("gbrain", ...)', regex: /\bspawn\s*\(\s*["']gbrain["']/g },
+  // tripwire-exempt: grep-needle STRING for this invariant, not a process spawn
   { name: 'execFileSync("gbrain", ...)', regex: /execFileSync\s*\(\s*["']gbrain["']/g },
+  // tripwire-exempt: grep-needle STRING for this invariant, not a process spawn
   { name: 'execSync("...gbrain...")', regex: /execSync\s*\(\s*["'`][^"'`]*\bgbrain\b/g },
 ];
 

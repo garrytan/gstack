@@ -26,13 +26,19 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: windows-setup-e2e-${{ github.head_ref || github.run_id }}
+  # PR-number keyed: head_ref carries no fork prefix, so same-name branches
+  # from two forks would share one group and cancel each other's runs.
+  group: windows-setup-e2e-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
+
+# Install-path exercise only — no token writes.
+permissions:
+  contents: read
 
 jobs:
   windows-setup:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v7
@@ -47,6 +53,10 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: windows-bun-${{ hashFiles('bun.lock') }}
+          # A lockfile bump starts from the previous cache instead of cold
+          # (restore alone costs ~43s; without this a bump pays it for nothing).
+          restore-keys: |
+            windows-bun-
 
       - name: Configure git identity
         run: |

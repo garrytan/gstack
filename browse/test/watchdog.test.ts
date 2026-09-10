@@ -27,8 +27,10 @@ import { resolveConfig } from '../src/config';
 // seam as idleCheckTick) and tunnelActive is simulated via setTunnelActive.
 //
 // Each test spawns the real server.ts. Tests 1 and 2 verify behavior via
-// stdout log line (fast). Test 3 waits for the watchdog poll cycle to confirm
-// the server REMAINS alive after parent death (slow — ~20s observation window).
+// stdout log line (fast). Test 3 shrinks the poll cadence via
+// BROWSE_PARENT_WATCHDOG_INTERVAL_MS (test seam in server.ts), waits for the
+// tick's one-time "parent exited (server stays alive" log to prove a tick
+// observed the death, then confirms the server REMAINS alive.
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SERVER_SCRIPT = path.join(ROOT, 'src', 'server.ts');
@@ -139,21 +141,37 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     const parentPid = parentProc.pid!;
 
     // Default headless: no BROWSE_HEADED, real parent PID — watchdog active.
-    serverProc = spawnServer({ BROWSE_PARENT_PID: String(parentPid) }, 34903);
+    // The poll cadence is shrunk via the server's env seam (250ms instead of
+    // the production 15s) so observing a real tick doesn't cost a 20s sleep.
+    serverProc = spawnServer({
+      BROWSE_PARENT_PID: String(parentPid),
+      BROWSE_PARENT_WATCHDOG_INTERVAL_MS: '250',
+    }, 34903);
     const serverPid = serverProc.pid!;
 
-    // Give the server a moment to start and register the watchdog interval.
-    await Bun.sleep(2000);
+    // Startup barrier: poll stdout for the listen line instead of a fixed 2s
+    // sleep. The watchdog interval is registered at module load, before this
+    // line prints, so once we see it the ticks are running.
+    const bootOut = await readStdoutUntil(serverProc, 'Server running on', 15_000);
+    expect(bootOut).toContain('Server running on');
     expect(isProcessAlive(serverPid)).toBe(true);
 
-    // Kill the parent. The watchdog polls every 15s, so first tick after
-    // parent death lands within ~15s. Pre-#994 the server would shutdown
-    // here. Post-#994 the server logs the parent exit and stays alive.
+    // Kill the parent, then wait for a tick to OBSERVE the death: the
+    // stay-alive branch logs a one-time latched line. Seeing it proves a tick
+    // ran after parent death and chose NOT to shut down — pre-#994 the same
+    // tick called shutdown instead. (Await exited first so the PID is reaped
+    // and the tick's kill(pid, 0) probe sees ESRCH, not a zombie.)
     parentProc.kill('SIGKILL');
+    await parentProc.exited;
+    const marker = `Parent process ${parentPid} exited (server stays alive`;
+    const out = await readStdoutUntil(serverProc, marker, 15_000);
+    expect(out).toContain(marker);
+    expect(out).not.toContain('shutting down');
 
-    // Wait long enough for at least one watchdog tick (15s) plus margin.
-    // Server should still be alive — that's the whole point of #994.
-    await Bun.sleep(20_000);
+    // Let several more ticks land (4+ at 250ms — the old fixed 20s sleep
+    // covered ~1 production tick) and confirm the server is still alive —
+    // that's the whole point of #994.
+    await Bun.sleep(1_000);
     expect(isProcessAlive(serverPid)).toBe(true);
   }, 45_000);
 });

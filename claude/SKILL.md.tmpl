@@ -30,6 +30,11 @@ modify files.
 
 The generated external invocation name is `gstack-claude`.
 
+Claude outside voices default to the frontier model via `{{CLAUDE_MODEL_FLAG}}`.
+Use `GSTACK_CLAUDE_MODEL=<model>` to override it. If the user names a model in
+the request, replace the default `--model` value with their model for every call,
+including resumed sessions.
+
 ---
 
 ## Step 0: Resolve Claude CLI
@@ -176,7 +181,7 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p {{CLAUDE_MODEL_FLAG}} --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -223,7 +228,7 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p {{CLAUDE_MODEL_FLAG}} --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -276,14 +281,14 @@ For a new session:
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p {{CLAUDE_MODEL_FLAG}} --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 For a resumed session:
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --resume "<session-id>" {{CLAUDE_MODEL_FLAG}} --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Parse and save the session id:

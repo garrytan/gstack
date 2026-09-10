@@ -16,18 +16,26 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: make-pdf-gate-${{ github.head_ref || github.run_id }}
+  # PR-number keyed: head_ref carries no fork prefix, so same-name branches
+  # from two forks would share one group and cancel each other's runs.
+  group: make-pdf-gate-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
+
+# Build + test only — no token writes.
+permissions:
+  contents: read
 
 jobs:
   gate:
     strategy:
       fail-fast: false
       matrix:
-        # macOS only: the Linux leg became redundant when the free-tests lane
-        # started running make-pdf/test (incl. e2e/) on every PR via the
-        # canonical runner — this gate's remaining value is macOS rendering
-        # coverage on make-pdf-scoped changes.
+        # macOS only: the Linux leg is covered by the free-tests lane, which
+        # builds the gate binaries (build:gates) and runs make-pdf/test
+        # (incl. e2e/) on every PR via the canonical runner, with
+        # GSTACK_EXPECT_BINARIES=1 arming ci-prereqs.test.ts so the gates
+        # can never silently self-skip there again. This gate's remaining
+        # value is macOS rendering coverage on make-pdf-scoped changes.
         os: [macos-latest]
         # Windows is tolerant-mode — Xpdf / Poppler-Windows extraction
         # differs enough from the Linux/macOS baseline that the strict
@@ -39,12 +47,13 @@ jobs:
         #     tolerant: true
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.13
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

@@ -14,6 +14,7 @@
  */
 
 import { expect, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -55,7 +56,7 @@ async function detectVia(workDir: string, testName: string): Promise<string> {
     workingDirectory: workDir,
     maxTurns: 3,
     allowedTools: ['Bash'],
-    timeout: 120_000,
+    timeout: JUDGE_MS,
     testName,
     runId,
     model: MODEL,
@@ -77,10 +78,10 @@ describeIfSelected('first-run scaffold detection (E2E)', ['first-task-scaffold']
     // greenfield bucket: git repo, zero commits.
     const greenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fts-green-'));
     try {
-      execSync('git init -q -b main', { cwd: nodeDir, env: GIT_ENV });
+      execSync('git init -q -b main', { cwd: nodeDir, env: GIT_ENV, timeout: 30_000 });
       fs.writeFileSync(path.join(nodeDir, 'package.json'), '{"name":"x"}');
-      execSync('git add -A && git commit -qm init', { cwd: nodeDir, env: GIT_ENV });
-      execSync('git init -q -b main', { cwd: greenDir, env: GIT_ENV });
+      execSync('git add -A && git commit -qm init', { cwd: nodeDir, env: GIT_ENV, timeout: 30_000 });
+      execSync('git init -q -b main', { cwd: greenDir, env: GIT_ENV, timeout: 30_000 });
 
       const nodeOut = await detectVia(nodeDir, 'first-task-scaffold');
       expect(nodeOut).toContain('code_node');
@@ -91,7 +92,7 @@ describeIfSelected('first-run scaffold detection (E2E)', ['first-task-scaffold']
       fs.rmSync(nodeDir, { recursive: true, force: true });
       fs.rmSync(greenDir, { recursive: true, force: true });
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 afterAll(() => finalizeEvalCollector(evalCollector));

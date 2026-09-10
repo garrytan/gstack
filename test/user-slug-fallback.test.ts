@@ -15,7 +15,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'fs';
+import { mkdtempSync, existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, symlinkSync } from 'fs';
+import { createHash } from 'crypto';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
@@ -109,6 +110,114 @@ describe('resolve-user-slug fallback chain', () => {
     // Second call ignores new $USER because the slug was already persisted.
     expect(first.stdout.trim()).toBe('stabletest');
     expect(second.stdout.trim()).toBe('stabletest');
+  });
+});
+
+describe('sha8_of portable hash (sha256sum → shasum fallback)', () => {
+  // sha8_of must work on coreutils-only Linux (no shasum: the exit-127
+  // regression) AND on stock macOS (no sha256sum). The ambient PATH decides
+  // which branch runs, so a plain subprocess call only ever covers one branch
+  // per platform. Pin BOTH deterministically: extract the real function text
+  // from bin/gstack-config (no drift-prone copy) and run it under /bin/sh
+  // with a shim-only PATH that makes exactly one hasher visible. The wrong
+  // branch exits 127 (its tool is absent from the shim dir), so branch
+  // selection is asserted structurally, not inferred.
+  const EXPECTED = '2cf24dba'; // sha256("hello") = 2cf24dba5fb0a30e2…
+
+  function sha8FnSource(): string {
+    const src = readFileSync(CONFIG_BIN, 'utf-8');
+    const m = src.match(/^sha8_of\(\) \{\n[\s\S]*?\n\}/m);
+    if (!m) throw new Error('sha8_of() not found in bin/gstack-config');
+    return m[0];
+  }
+
+  /** Absolute-path sha256 pipeline for shims (host has sha256sum OR shasum). */
+  function realHasherLine(): string {
+    const sha256sum = Bun.which('sha256sum');
+    if (sha256sum) return `exec ${sha256sum} "$@"`;
+    const shasum = Bun.which('shasum');
+    if (shasum) return `exec ${shasum} -a 256 "$@"`;
+    throw new Error('neither sha256sum nor shasum available on this host');
+  }
+
+  function runSha8(shimDir: string) {
+    const result = spawnSync('/bin/sh', ['-c', `${sha8FnSource()}\nsha8_of "hello"`], {
+      encoding: 'utf-8',
+      env: { PATH: shimDir }, // ONLY the shim dir: absent tools are really absent
+      timeout: 5000,
+    });
+    return { stdout: (result.stdout || '').trim(), status: result.status ?? -1, stderr: result.stderr || '' };
+  }
+
+  function makeShimDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'gstack-sha8-shim-'));
+    const cut = Bun.which('cut');
+    if (!cut) throw new Error('cut not on PATH');
+    symlinkSync(cut, join(dir, 'cut'));
+    return dir;
+  }
+
+  test('coreutils-only PATH (sha256sum present, shasum absent) — the Linux exit-127 regression', () => {
+    const shim = makeShimDir();
+    try {
+      writeFileSync(join(shim, 'sha256sum'), `#!/bin/sh\n${realHasherLine()}\n`, { mode: 0o755 });
+      const result = runSha8(shim);
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(EXPECTED);
+    } finally {
+      rmSync(shim, { recursive: true, force: true });
+    }
+  });
+
+  test('sha256sum absent falls back to `shasum -a 256` with identical output (macOS branch)', () => {
+    const shim = makeShimDir();
+    try {
+      // Arg-validating shasum shim: wrong/missing `-a 256` exits 64, which
+      // would surface as a failed pipeline — pins the exact invocation.
+      writeFileSync(
+        join(shim, 'shasum'),
+        `#!/bin/sh\n[ "$1" = "-a" ] && [ "$2" = "256" ] || exit 64\nshift 2\n${realHasherLine()}\n`,
+        { mode: 0o755 },
+      );
+      const result = runSha8(shim);
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(EXPECTED); // same vector ⇒ branches are equivalent
+    } finally {
+      rmSync(shim, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('endpoint-hash collision escalation (sha8 → sha16)', () => {
+  // endpoint_hash_with_collision_check's sha16 arm carries its own portable
+  // hash pipeline (sha256sum → shasum). This drives it end-to-end through the
+  // real binary: a gbrain MCP URL in $HOME/.claude.json plus config keys at
+  // BOTH the sha8 and sha16 namespaces is the recorded-collision evidence
+  // that makes `endpoint-hash` emit the 16-char hash. Skipped where jq is
+  // absent (the script itself degrades to 'local' there).
+  test('emits sha8 normally, sha16 when a stored sha16-namespaced key exists', () => {
+    if (!Bun.which('jq')) return; // endpoint_hash requires jq; degrades to 'local' without it
+    const url = 'https://gbrain.example.test/mcp';
+    const hex = createHash('sha256').update(url).digest('hex');
+    const sha8 = hex.slice(0, 8);
+    const sha16 = hex.slice(0, 16);
+    writeFileSync(join(TMP_HOME, '.claude.json'), JSON.stringify({ mcpServers: { gbrain: { url } } }));
+
+    // No collision evidence yet → plain sha8.
+    const plain = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(plain.status).toBe(0);
+    expect(plain.stdout.trim()).toBe(sha8);
+
+    // Keys stored at both namespaces → escalate to sha16.
+    writeFileSync(
+      join(TMP_HOME, 'config.yaml'),
+      `brain_trust_policy@${sha8}: personal\nbrain_trust_policy@${sha16}: shared\n`,
+    );
+    const escalated = runConfig(['endpoint-hash'], { GSTACK_HOME: TMP_HOME });
+    expect(escalated.status).toBe(0);
+    expect(escalated.stdout.trim()).toBe(sha16);
   });
 });
 

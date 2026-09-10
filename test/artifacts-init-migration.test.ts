@@ -22,6 +22,7 @@ function runMigration(fakeHome: string): { code: number; stdout: string; stderr:
     env: { ...process.env, HOME: fakeHome },
     stdout: 'pipe',
     stderr: 'pipe',
+    timeout: 30_000,
   });
   return {
     code: proc.exitCode ?? -1,
@@ -217,6 +218,7 @@ function runMigrationV140(fakeHome: string): { code: number; stdout: string; std
     env: { ...process.env, HOME: fakeHome },
     stdout: 'pipe',
     stderr: 'pipe',
+    timeout: 30_000,
   });
   return {
     code: proc.exitCode ?? -1,

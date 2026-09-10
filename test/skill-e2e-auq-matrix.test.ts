@@ -23,6 +23,7 @@
  * Run a subset in the foreground with AUQ_MATRIX_ONLY="plan-eng-review,cso".
  */
 import { test } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
@@ -174,7 +175,7 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
           );
         }
       },
-      300_000,
+      CAPTURE_MS,
     );
   }
 });

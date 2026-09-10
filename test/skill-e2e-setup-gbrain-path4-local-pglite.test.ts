@@ -19,6 +19,7 @@
 // Cost: ~$0.50-$1.00 per run. Periodic-tier (EVALS=1 EVALS_TIER=periodic).
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -29,6 +30,7 @@ import {
   passThroughNonAskUserQuestion,
   resolveClaudeBinary,
 } from './helpers/agent-sdk-runner';
+import { buildSetupGbrainFixture } from './helpers/setup-gbrain-fixture';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -166,11 +168,14 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
     process.env.GBRAIN_MCP_TOKEN = 'gbrain_fake_token_for_test';
 
     try {
-      const skillPath = path.resolve(
-        import.meta.dir,
-        '..',
-        'setup-gbrain',
-        'SKILL.md',
+      // Carve-aware fixture (see test/helpers/setup-gbrain-fixture.ts):
+      // skeleton + brain-init (Step 4 Path 4 body incl. the Step 4d local
+      // PGLite offer this test says Yes to) + claude-md-persist (Step 8 sits
+      // on the walked path to Step 10). Non-empty guard inside the builder.
+      const skillPath = path.join(sandboxHome, 'setup-gbrain-SKILL.md');
+      fs.writeFileSync(
+        skillPath,
+        buildSetupGbrainFixture(['brain-init.md', 'claude-md-persist.md']),
       );
       const result = await runAgentSdkTest({
         systemPrompt: { type: 'preset', preset: 'claude_code' },
@@ -260,5 +265,5 @@ describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () 
       fs.rmSync(sandboxHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 });

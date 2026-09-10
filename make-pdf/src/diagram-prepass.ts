@@ -6,8 +6,8 @@
  *        │        fences → placeholder tokens        │
  *        │                                           ▼
  *        └─▶ renderFenceSlots() ───────────▶ substituteSlots(html, slots)
- *             one browse render tab/run              │
- *             error ⇒ diagnostic block + page reload ▼
+ *             one browser render per batch           │
+ *             error ⇒ diagnostic block               ▼
  *                                          inlineLocalImages(html)
  *                                            data URIs, probe dims from bytes,
  *                                            downscale >2x content box @300dpi,
@@ -19,9 +19,11 @@
  * through the same sanitizer as user content before substitution (the bundle
  * renders with securityLevel strict — the sanitizer is the second layer).
  *
- * Reset contract (eng-review D6.2): each fence renders with a fresh
- * mermaid.render id; after ANY render error the bundle page is reloaded before
- * the next fence so a poisoned global can't corrupt diagram N+1.
+ * Bundle calls are batched: one render per batch (Aside runs one script per `aside repl` process) and
+ * nothing survives it, so every consumer collects its calls, runs them in one
+ * script (`BundleRun`), and substitutes the results. A failed call is data
+ * (diagnostic block / warning), never an abort. Each PDF run gets a fresh
+ * bundle page and each fence a fresh mermaid.render id (eng-review D6.2).
  */
 
 import * as fs from "node:fs";
@@ -30,7 +32,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import * as browseClient from "./browseClient";
+import { render as renderHtml, renderTmpDir } from "../../lib/aside-render";
 import { escapeHtml, sanitizeUntrustedHtml } from "./render";
 import { imageDims } from "./image-size";
 
@@ -72,8 +74,8 @@ export interface PrepassImageOptions {
   /** Physical content-box width in inches (page width minus margins). */
   contentWidthIn: number;
   warn: (msg: string) => void;
-  /** Lazily provides a ready bundle tab (only opened when needed). */
-  getTab: () => RenderTab | null;
+  /** Bundle runner for print-resolution downscaling; null = inline at full size. */
+  run: BundleRun | null;
 }
 
 /** Print-resolution policy (eng-review D4): downscale rasters wider than
@@ -289,145 +291,89 @@ function diagramLabel(fence: DiagramFence): string {
   return fence.title ?? `diagram ${fence.ordinal}`;
 }
 
-// ─── Render tab (bundle page lifecycle) ───────────────────────────────
+// ─── Bundle runner (diagram-render page, driven through Aside or gstack's browser) ────────
 
-const PAYLOAD_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
+export type BundleCall = { fn: string; args: unknown[] };
+export type BundleResult =
+  | { ok: true; value: string }
+  | { ok: false; error: string };
+/** Run bundle calls in order. Every call gets a result; failures are data. */
+export type BundleRun = (calls: BundleCall[]) => Promise<BundleResult[]>;
+
 const READY_TIMEOUT_MS = 20_000;
-// Expressions bigger than this ship via `browse eval <file>` instead of argv.
-// 8KB is safe on every platform (Windows CreateProcess caps the WHOLE command
-// line at 32,767 chars; Linux MAX_ARG_STRLEN is ~128KiB) and the tmp-file
-// round-trip costs microseconds — one spawn regardless of payload size.
-const MAX_ARGV_EXPR_BYTES = 8_000;
+/** Aside caps a script at 120s (the browse path shares the budget); ~40 mermaid renders fit with room to spare. */
+const CALLS_PER_SCRIPT = 40;
 
-export class RenderTab {
-  private constructor(
-    public readonly tabId: number,
-    private readonly stagedBundlePath: string,
-  ) {}
-
-  /**
-   * Open a tab and load the diagram-render bundle. The bundle HTML is staged
-   * under /tmp (content-addressed, reused across runs — load-html only reads
-   * inside its safe dirs) and loaded by PATH, not --from-file: a 9MB JSON
-   * round-trip per run would be pure waste.
-   */
-  static open(): RenderTab {
-    const bundleSrc = resolveBundlePath();
-    const html = fs.readFileSync(bundleSrc);
-    const sha = crypto.createHash("sha256").update(html).digest("hex").slice(0, 16);
-    const staged = path.join(PAYLOAD_TMP_DIR, `gstack-diagram-render-${sha}.html`);
-    // Never trust an existing file at the predictable shared-/tmp name: verify
-    // its content hash and re-stage on mismatch (a pre-planted file would
-    // otherwise be loaded into the render tab as the bundle).
-    let needsWrite = true;
-    if (fs.existsSync(staged)) {
-      try {
-        const existing = crypto.createHash("sha256").update(fs.readFileSync(staged)).digest("hex").slice(0, 16);
-        needsWrite = existing !== sha;
-      } catch {
-        needsWrite = true;
-      }
-    }
-    if (needsWrite) {
-      // Concurrent-safe: write to a unique temp name, then atomic rename.
-      const tmp = `${staged}.${process.pid}.${crypto.randomBytes(4).toString("hex")}`;
-      fs.writeFileSync(tmp, html);
-      try {
-        fs.renameSync(tmp, staged);
-      } catch (renameErr) {
-        try { fs.unlinkSync(tmp); } catch { /* best-effort tmp cleanup */ }
-        // Only swallow the rename failure when the surviving file HASHES to
-        // the expected bundle (a concurrent writer won an OS-level race).
-        // Sticky-bit /tmp makes rename-over-foreign-file fail EPERM — if the
-        // survivor were trusted on existence alone, a pre-planted file would
-        // ride through the exact check added to stop it.
-        let survivorOk = false;
-        try {
-          const survivor = crypto.createHash("sha256").update(fs.readFileSync(staged)).digest("hex").slice(0, 16);
-          survivorOk = survivor === sha;
-        } catch { /* unreadable survivor = not ok */ }
-        if (!survivorOk) throw renameErr;
-      }
-    }
-    const tabId = browseClient.newtab();
-    const tab = new RenderTab(tabId, staged);
-    tab.loadBundle();
-    return tab;
-  }
-
-  /** (Re)load the bundle page — also the reset path after a render error. */
-  loadBundle(): void {
-    browseClient.loadHtmlFile({ file: this.stagedBundlePath, tabId: this.tabId });
-    const ready = browseClient.waitForExpression({
-      expression: "document.getElementById('status') !== null && document.getElementById('status').textContent === 'ready'",
-      tabId: this.tabId,
-      timeoutMs: READY_TIMEOUT_MS,
-    });
-    if (!ready) {
-      throw new Error(
-        "diagram-render bundle did not become ready in the browse tab " +
-        `(${READY_TIMEOUT_MS}ms). Check \`browse js "window.__errors"\` on tab ${this.tabId}.`,
-      );
-    }
-  }
-
-  /**
-   * Call one of the bundle's async window functions with JSON-safe string
-   * args. Errors come back as a recognizable ERR: prefix so a render failure
-   * is data, not a thrown browse exit.
-   */
-  call(fn: string, ...args: Array<string | number>): string {
-    const argList = args.map((a) => JSON.stringify(a)).join(",");
-    const expression =
-      `window.${fn}(${argList})` +
-      `.then(r => "OK:" + r)` +
-      `.catch(e => "ERR:" + String((e && e.message) || e))`;
-    const result = this.js(expression);
-    if (result.startsWith("OK:")) return result.slice(3);
-    if (result.startsWith("ERR:")) throw new RenderCallError(result.slice(4));
-    throw new RenderCallError(`unexpected bundle result: ${result.slice(0, 200)}`);
-  }
-
-  private js(expression: string): string {
-    // Large payloads (scene JSON, SVG text, data URIs) blow past argv limits —
-    // browseClient.js shells out with the expression as an argv element. The
-    // limit is BYTES, not chars (CJK content is 3x its char count in UTF-8),
-    // and Windows caps the whole command line at 32,767 chars — so anything
-    // big ships via `browse eval <file>` instead: one spawn, any size.
-    if (Buffer.byteLength(expression, "utf8") <= MAX_ARGV_EXPR_BYTES) {
-      return browseClient.js({ expression, tabId: this.tabId });
-    }
-    return this.jsViaFile(expression);
-  }
-
-  /** argv-safe path for big expressions: stage to a tmp file under browse's
-   *  safe dirs and run `browse eval <file>` (one spawn regardless of size). */
-  private jsViaFile(expression: string): string {
-    const file = path.join(
-      PAYLOAD_TMP_DIR,
-      `gstack-diagram-expr-${process.pid}-${crypto.randomBytes(4).toString("hex")}.js`,
-    );
-    fs.writeFileSync(file, expression, "utf8");
+/**
+ * Build the runner. The bundle path resolves lazily on the first call so an
+ * image-only document never touches it; a missing bundle fails every call
+ * with the resolver's message instead of throwing.
+ */
+export function bundleRunner(opts: { bundlePath?: string; render?: typeof renderHtml } = {}): BundleRun {
+  const render = opts.render ?? renderHtml;
+  let bundlePath = opts.bundlePath;
+  return async (calls) => {
+    const results: BundleResult[] = [];
     try {
-      return browseClient.evalFile({ file, tabId: this.tabId });
-    } finally {
-      try { fs.unlinkSync(file); } catch { /* best-effort tmp cleanup */ }
+      if (calls.length > 0) bundlePath ??= resolveBundlePath();
+      for (let i = 0; i < calls.length; i += CALLS_PER_SCRIPT) {
+        results.push(...await runScript(bundlePath!, calls.slice(i, i + CALLS_PER_SCRIPT), render));
+      }
+    } catch (err: any) {
+      // Unresolvable/unreadable bundle, staging failure: fail what's left as data.
+      const error = firstLine(err?.message ?? String(err));
+      while (results.length < calls.length) results.push({ ok: false, error });
     }
-  }
-
-  close(): void {
-    try {
-      browseClient.closetab(this.tabId);
-    } catch {
-      // best-effort: orchestrator finally path
-    }
-  }
+    return results;
+  };
 }
 
-export class RenderCallError extends Error {
-  constructor(msg: string) {
-    super(msg);
-    this.name = "RenderCallError";
+/**
+ * One render (an Aside script, or a browse tab): open the bundle, wait for #done, evaluate one expression
+ * per call, write each result to a file and read them back. The bundle copy
+ * and one JSON args file per call sit in a private dir served over loopback,
+ * so multi-MB payloads (data URIs, scene JSON) never ride argv; results are
+ * files too (never inline stdout) so SVG/PNG text survives intact.
+ */
+async function runScript(
+  bundlePath: string,
+  calls: BundleCall[],
+  render: typeof renderHtml,
+): Promise<BundleResult[]> {
+  const dir = fs.mkdtempSync(path.join(renderTmpDir(), "make-pdf-diagrams-"));
+  try {
+    const bundle = path.join(dir, "diagram-render.html");
+    fs.copyFileSync(bundlePath, bundle, fs.constants.COPYFILE_FICLONE);
+    const steps = calls.map((call, i) => {
+      fs.writeFileSync(path.join(dir, `call-${i}.json`), JSON.stringify(call.args));
+      // try/catch INSIDE the expression: a throwing fence returns an ERR
+      // marker and the script keeps going for the other fences. The URL is
+      // resolved against location.href, not the document base: the bundle
+      // sets <base href="https://gstack-render.localhost/"> for excalidraw.
+      const expression =
+        `(async () => { try { const a = await (await fetch(new URL("call-${i}.json", location.href).href)).json(); ` +
+        `return "OK:" + await window[${JSON.stringify(call.fn)}](...a); } ` +
+        `catch (e) { return "ERR:" + String((e && e.message) || e); } })()`;
+      return { kind: "eval" as const, expression, out: path.join(dir, `result-${i}.txt`) };
+    });
+    const r = await render({
+      file: bundle,
+      serveRoot: dir,
+      waitFor: { selector: "#done", timeoutMs: READY_TIMEOUT_MS },
+      steps,
+    });
+    if (!r.ok) {
+      const error = `diagram renderer: ${firstLine(r.error ?? "unknown error")}`;
+      return calls.map(() => ({ ok: false, error }));
+    }
+    return calls.map((_, i) => {
+      const text = fs.readFileSync(path.join(dir, `result-${i}.txt`), "utf8");
+      if (text.startsWith("OK:")) return { ok: true, value: text.slice(3) };
+      if (text.startsWith("ERR:")) return { ok: false, error: text.slice(4) };
+      return { ok: false, error: `unexpected bundle result: ${text.slice(0, 200)}` };
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -457,38 +403,39 @@ export function resolveBundlePath(env: NodeJS.ProcessEnv = process.env): string 
 // ─── Fence rendering ──────────────────────────────────────────────────
 
 /**
- * Render every extracted fence to its slot HTML. One bundle tab serves all
- * fences; a failed fence yields a diagnostic block and a bundle reload
- * (reset contract) before the next fence renders.
+ * Render every extracted fence to its slot HTML in one batch. A failed fence
+ * yields a visible diagnostic block; the others still render.
  */
-export function renderFenceSlots(
+export async function renderFenceSlots(
   fences: DiagramFence[],
-  tab: RenderTab,
+  run: BundleRun,
   warn: (msg: string) => void,
-): Map<string, string> {
+): Promise<Map<string, string>> {
   const slots = new Map<string, string>();
+  const fail = (fence: DiagramFence, msg: string) => {
+    warn(`diagram ${fence.ordinal} (${fence.lang}) failed to render: ${firstLine(msg)}`);
+    slots.set(fence.token, buildDiagnosticBlock(fence, msg));
+  };
+  const todo: DiagramFence[] = [];
   for (const fence of fences) {
-    try {
-      let svg: string;
-      if (fence.lang === "mermaid") {
-        svg = tab.call("__renderMermaid", `mermaid-fence-${fence.ordinal}`, fence.source);
-      } else {
-        JSON.parse(fence.source); // fail fast with a JSON diagnostic, not a bundle stack
-        svg = tab.call("__excalidrawToSvg", fence.source);
-      }
-      slots.set(fence.token, buildDiagramFigure(fence, svg));
-    } catch (err: any) {
-      const msg = err?.message ?? String(err);
-      warn(`diagram ${fence.ordinal} (${fence.lang}) failed to render: ${firstLine(msg)}`);
-      slots.set(fence.token, buildDiagnosticBlock(fence, msg));
-      // Reset contract: a poisoned page must not corrupt the next fence.
+    if (fence.lang !== "mermaid") {
       try {
-        tab.loadBundle();
-      } catch (reloadErr: any) {
-        warn(`bundle reload after render error failed: ${firstLine(reloadErr?.message ?? String(reloadErr))}`);
+        JSON.parse(fence.source); // fail fast with a JSON diagnostic, not a bundle stack
+      } catch (err: any) {
+        fail(fence, err?.message ?? String(err));
+        continue;
       }
     }
+    todo.push(fence);
   }
+  const results = await run(todo.map((f) => f.lang === "mermaid"
+    ? { fn: "__renderMermaid", args: [`mermaid-fence-${f.ordinal}`, f.source] }
+    : { fn: "__excalidrawToSvg", args: [f.source] }));
+  todo.forEach((fence, i) => {
+    const r = results[i];
+    if (r.ok) slots.set(fence.token, buildDiagramFigure(fence, r.value));
+    else fail(fence, r.error);
+  });
   return slots;
 }
 
@@ -498,15 +445,26 @@ export function renderFenceSlots(
  * Replace inline diagram SVGs (and svg data-URI images) with PNG <img> tags
  * for the DOCX export — Word's SVG support is unreliable, so the content-
  * fidelity contract embeds rasters at 300dpi of the placed width (the
- * content box). Diagnostic blocks keep their text form.
+ * content box). Diagnostic blocks keep their text form. Two passes: swap
+ * each target for a token while collecting its bundle call, run the batch,
+ * substitute results.
  */
-export function rasterizeDiagramFigures(
+export async function rasterizeDiagramFigures(
   html: string,
-  tab: RenderTab,
+  run: BundleRun,
   contentWidthIn: number,
   warn: (msg: string) => void,
-): string {
+): Promise<string> {
   const targetPx = Math.round(contentWidthIn * PRINT_DPI);
+  const runId = crypto.randomBytes(4).toString("hex");
+  const calls: BundleCall[] = [];
+  const pending: Array<{ token: string; onOk: (png: string) => string; onErr: (reason: string) => string }> = [];
+  const enqueue = (svgText: string, onOk: (png: string) => string, onErr: (reason: string) => string): string => {
+    const token = `gstack-raster-slot-${runId}-${calls.length}`;
+    calls.push({ fn: "__rasterize", args: [svgText, targetPx] });
+    pending.push({ token, onOk, onErr });
+    return token;
+  };
 
   // 1. Rendered diagram figures → <img> with the figure's aria-label as alt.
   let out = html.replace(
@@ -515,21 +473,21 @@ export function rasterizeDiagramFigures(
       const svgMatch = figure.match(/<svg\b[\s\S]*<\/svg>/i);
       if (!svgMatch) return figure;
       const label = figure.match(/\baria-label\s*=\s*"([^"]*)"/i)?.[1] ?? "diagram";
-      try {
-        const png = tab.call("__rasterize", svgMatch[0], targetPx);
-        return `<p><img src="${png}" alt="${label}"></p>`;
-      } catch (err: any) {
-        const reason = firstLine(err?.message ?? String(err));
-        warn(`docx: diagram rasterization failed (${reason}); embedding source text instead`);
-        // The converter drops <figure>/<svg> entirely, so returning the figure
-        // would make the diagram vanish without a trace — the exact invisible
-        // failure the diagnostic contract forbids. Surface the source.
-        const source = decodeFigureSource(figure) ?? "(source unavailable)";
-        return [
-          `<p><strong>Diagram could not be rasterized for DOCX (${escapeHtml(reason)}) — source:</strong></p>`,
-          `<pre>${escapeHtml(source)}</pre>`,
-        ].join("\n");
-      }
+      return enqueue(
+        svgMatch[0],
+        (png) => `<p><img src="${png}" alt="${label}"></p>`,
+        (reason) => {
+          warn(`docx: diagram rasterization failed (${reason}); embedding source text instead`);
+          // The converter drops <figure>/<svg> entirely, so returning the figure
+          // would make the diagram vanish without a trace — the exact invisible
+          // failure the diagnostic contract forbids. Surface the source.
+          const source = decodeFigureSource(figure) ?? "(source unavailable)";
+          return [
+            `<p><strong>Diagram could not be rasterized for DOCX (${escapeHtml(reason)}) — source:</strong></p>`,
+            `<pre>${escapeHtml(source)}</pre>`,
+          ].join("\n");
+        },
+      );
     },
   );
 
@@ -538,18 +496,25 @@ export function rasterizeDiagramFigures(
     const m = tag.match(SRC_RE);
     const src = m?.[2] ?? m?.[3] ?? "";
     if (!src.startsWith("data:image/svg+xml")) return tag;
-    try {
-      const b64 = src.slice(src.indexOf(",") + 1);
-      const svgText = Buffer.from(b64, "base64").toString("utf8");
-      const png = tab.call("__rasterize", svgText, targetPx);
+    const svgText = Buffer.from(src.slice(src.indexOf(",") + 1), "base64").toString("utf8");
+    return enqueue(
+      svgText,
       // Function replacement: data URIs can contain $-patterns.
-      return tag.replace(SRC_RE, () => `src="${png}"`);
-    } catch (err: any) {
-      warn(`docx: svg image rasterization failed (${firstLine(err?.message ?? String(err))})`);
-      return tag;
-    }
+      (png) => tag.replace(SRC_RE, () => `src="${png}"`),
+      (reason) => {
+        warn(`docx: svg image rasterization failed (${reason})`);
+        return tag;
+      },
+    );
   });
 
+  if (calls.length === 0) return out;
+  const results = await run(calls);
+  pending.forEach((p, i) => {
+    const r = results[i];
+    // split/join, not replace(): the replacement carries user content.
+    out = out.split(p.token).join(r.ok ? p.onOk(r.value) : p.onErr(firstLine(r.error)));
+  });
   return out;
 }
 
@@ -581,14 +546,21 @@ const SRC_RE = /\bsrc\s*=\s*("([^"]*)"|'([^']*)')/i;
  * tab. Missing files become visible placeholders (or throw under --strict);
  * remote URLs warn (offline posture) unless --allow-network.
  */
-export function inlineLocalImages(html: string, opts: PrepassImageOptions): string {
+export async function inlineLocalImages(html: string, opts: PrepassImageOptions): Promise<string> {
   const maxPx = Math.round(opts.contentWidthIn * PRINT_DPI * DOWNSCALE_FACTOR);
   const targetPx = Math.round(opts.contentWidthIn * PRINT_DPI);
   // An image referenced N times is read/probed/downscaled once; the same data
   // URI string is reused (also dedupes memory until the final join).
   const memo = new Map<string, { dataUri: string; attrs: string }>();
+  // Oversized rasters get a token src in this pass and their downscaled bytes
+  // in the second — one bundle batch for the whole document.
+  const runId = crypto.randomBytes(4).toString("hex");
+  const downscales: Array<{
+    token: string; src: string; name: string; buf: Buffer; mime: string;
+    dims: { width: number; height: number };
+  }> = [];
 
-  return html.replace(IMG_TAG_RE, (tag) => {
+  const out = html.replace(IMG_TAG_RE, (tag) => {
     const srcMatch = tag.match(SRC_RE);
     if (!srcMatch) return tag;
     const src = srcMatch[2] ?? srcMatch[3] ?? "";
@@ -675,38 +647,54 @@ export function inlineLocalImages(html: string, opts: PrepassImageOptions): stri
       return buildMissingImagePlaceholder(src);
     }
 
-    let buf = fs.readFileSync(filePath);
-    let dims = imageDims(buf);
-    let mime = dims?.mime ?? mimeFromExtension(filePath);
+    const buf = fs.readFileSync(filePath);
+    const dims = imageDims(buf);
+    const mime = dims?.mime ?? mimeFromExtension(filePath);
 
     // Print-resolution normalization (D4): rasters only — SVG scales free.
-    if (dims && mime !== "image/svg+xml" && dims.width > maxPx) {
-      const tab = opts.getTab();
-      if (tab) {
-        try {
-          const dataUri = `data:${mime};base64,${buf.toString("base64")}`;
-          const scaled = tab.call("__downscaleRaster", dataUri, targetPx, mime);
-          const scaledB64 = scaled.replace(/^data:[^,]*,/, "");
-          opts.warn(
-            `downscaled ${path.basename(filePath)} ${dims.width}px → ${targetPx}px ` +
-            `(print is ${PRINT_DPI}dpi; original exceeds ${maxPx}px content-box ceiling)`,
-          );
-          buf = Buffer.from(scaledB64, "base64");
-          mime = scaled.slice(5, scaled.indexOf(";"));
-          dims = { ...dims, height: Math.round((dims.height * targetPx) / dims.width), width: targetPx };
-        } catch (err: any) {
-          opts.warn(`downscale failed for ${src}, inlining at full size: ${firstLine(err?.message ?? String(err))}`);
-        }
-      }
+    if (dims && mime !== "image/svg+xml" && dims.width > maxPx && opts.run) {
+      const token = `gstack-downscale-slot-${runId}-${downscales.length}`;
+      downscales.push({ token, src, name: path.basename(filePath), buf, mime, dims });
+      memo.set(filePath, { dataUri: token, attrs: "" });
+      return rewriteImgTag(tag, memo.get(filePath)!);
     }
 
-    const dataUri = `data:${mime};base64,${buf.toString("base64")}`;
-    const attrs = dims
-      ? ` data-gstack-px-width="${Math.round(dims.width)}" data-gstack-px-height="${Math.round(dims.height)}"`
-      : "";
-    memo.set(filePath, { dataUri, attrs });
+    memo.set(filePath, inlineEntry(buf, mime, dims));
     return rewriteImgTag(tag, memo.get(filePath)!);
   });
+
+  if (downscales.length === 0) return out;
+  const results = await opts.run!(downscales.map((d) => ({
+    fn: "__downscaleRaster",
+    args: [`data:${d.mime};base64,${d.buf.toString("base64")}`, targetPx, d.mime],
+  })));
+  const byToken = new Map<string, { dataUri: string; attrs: string }>();
+  downscales.forEach((d, i) => {
+    const r = results[i];
+    if (r.ok) {
+      opts.warn(
+        `downscaled ${d.name} ${d.dims.width}px → ${targetPx}px ` +
+        `(print is ${PRINT_DPI}dpi; original exceeds ${maxPx}px content-box ceiling)`,
+      );
+      const height = Math.round((d.dims.height * targetPx) / d.dims.width);
+      byToken.set(d.token, { dataUri: r.value, attrs: dimAttrs({ width: targetPx, height }) });
+    } else {
+      opts.warn(`downscale failed for ${d.src}, inlining at full size: ${firstLine(r.error)}`);
+      byToken.set(d.token, inlineEntry(d.buf, d.mime, d.dims));
+    }
+  });
+  return out.replace(IMG_TAG_RE, (tag) => {
+    const entry = byToken.get(tag.match(SRC_RE)?.[2] ?? "");
+    return entry ? rewriteImgTag(tag, entry) : tag;
+  });
+}
+
+function inlineEntry(buf: Buffer, mime: string, dims: { width: number; height: number } | null): { dataUri: string; attrs: string } {
+  return { dataUri: `data:${mime};base64,${buf.toString("base64")}`, attrs: dims ? dimAttrs(dims) : "" };
+}
+
+function dimAttrs(dims: { width: number; height: number }): string {
+  return ` data-gstack-px-width="${Math.round(dims.width)}" data-gstack-px-height="${Math.round(dims.height)}"`;
 }
 
 /** Apply a memoized inline result to an img tag. */

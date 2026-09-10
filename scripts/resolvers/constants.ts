@@ -1,26 +1,18 @@
 // ─── Shared Design Constants ────────────────────────────────
 
+import { DESIGN_SLOP_CATALOG } from '../../lib/design-catalog';
+
 /**
  * gstack's AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES.
  *
- * Overused fonts worth calling out in templates (not a pattern to blacklist, but a
- * convergence risk): Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat,
- * Poppins, and increasingly Space Grotesk. Every AI design tool picks one of these.
- * Design prompts should bias toward less-common display faces.
+ * Derived from the typed catalog in lib/design-catalog.ts: the 11 entries flagged
+ * `legacyBlacklist`, prose verbatim, in catalog order. Overused fonts live there
+ * too (OVERUSED_FONTS_DISPLAY), role-scoped: banned as the display voice, several
+ * still fine as body/UI on an Operate or Read surface.
  */
-export const AI_SLOP_BLACKLIST = [
-  'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
-  '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',
-  'Icons in colored circles as section decoration (SaaS starter template look)',
-  'Centered everything (`text-align: center` on all headings, descriptions, cards)',
-  'Uniform bubbly border-radius on every element (same large radius on everything)',
-  'Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)',
-  'Emoji as design elements (rockets in headings, emoji as bullet points)',
-  'Colored left-border on cards (`border-left: 3px solid <accent>`)',
-  'Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")',
-  'Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)',
-  'system-ui or `-apple-system` as the PRIMARY display/body font — the "I gave up on typography" signal. Pick a real typeface.',
-];
+export const AI_SLOP_BLACKLIST: string[] = DESIGN_SLOP_CATALOG
+  .filter(e => e.legacyBlacklist)
+  .map(e => e.prose);
 
 /** OpenAI hard rejection criteria (from "Designing Delightful Frontends with GPT-5.4", Mar 2026) */
 export const OPENAI_HARD_REJECTIONS = [
@@ -63,6 +55,19 @@ export const OPENAI_LITMUS_CHECKS = [
  * configuration, so on that path the flag is a harmless no-op.
  */
 export const CODEX_WEB_SEARCH_FLAG = `-c 'web_search="cached"'`;
+
+/**
+ * Default model for gstack-owned Codex invocations.
+ *
+ * Conductor's current Codex CLI default may lag the frontier model exposed to
+ * agents, so gstack pins its own default and lets users override it per shell
+ * with GSTACK_CODEX_MODEL or per invocation with an explicit `-c model=...`.
+ * The -c form is accepted by both `codex exec` and `codex review`.
+ */
+export const CODEX_FRONTIER_MODEL = 'gpt-6-astra';
+export const CODEX_MODEL_CONFIG_FLAG = `-c "model=\\"\${GSTACK_CODEX_MODEL:-${CODEX_FRONTIER_MODEL}}\\""`;
+// Native review prefers review_model over model when the user has pinned it.
+export const CODEX_REVIEW_MODEL_CONFIG_FLAG = `${CODEX_MODEL_CONFIG_FLAG} -c "review_model=\\"\${GSTACK_CODEX_MODEL:-${CODEX_FRONTIER_MODEL}}\\""`;
 
 /**
  * Shared Codex error handling block for resolver output.
@@ -130,19 +135,41 @@ elif ! command -v codex >/dev/null 2>&1; then
   ${m}="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   ${m}="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
-elif ! _gstack_codex_model_probe; then
-  ${m}="model_unusable"
 else
-  ${m}="ready"; _gstack_codex_version_check 2>/dev/null || true
+  # Capture the probe's code: 2 means the CLI cannot execute at all, which is a
+  # different problem (and a different fix) from a model the account can't use.
+  _gstack_codex_model_probe; _CODEX_MP=$?
+  if [ "$_CODEX_MP" -eq 2 ]; then
+    ${m}="broken_install"
+  elif [ "$_CODEX_MP" -ne 0 ]; then
+    ${m}="model_unusable"
+  else
+    ${m}="ready"; _gstack_codex_version_check 2>/dev/null || true
+  fi
 fi
 echo "CODEX_MODE: $${m}"
 \`\`\`
 
 Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
-- **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: \`npm install -g @openai/codex\`." Fall back to the Claude subagent path.
+- **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed — falling back to a Claude subagent (fresh context, but the SAME model family — not an outside model). Install Codex for an actual outside-model read: \`npm install -g @openai/codex\`." Fall back to the Claude subagent path.
 - **\`under_codex\`** — this session is already running INSIDE a Codex host, so spawning codex again is the same model reviewing itself at multiplied token cost (#2519). Print exactly one line: "[running under Codex — nested codex passes skipped; set GSTACK_FORCE_CODEX_REVIEW=1 to force]" and skip the codex invocations below; run the section's free in-host pass instead if it defines one.
-- **\`not_authed\`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run \`codex login\` or set \`$CODEX_API_KEY\`." Fall back to the Claude subagent path.
-- **\`model_unusable\`** — authed but the account cannot use its configured model (#2477: HTTP 400 on every call, usually a stale \`model =\` pin in \`~/.codex/config.toml\`). Relay the probe's HINT lines, tell the user the one-line fix (update the pin; \`[notice.model_migrations]\` names the replacement), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to \`ready\`.
+- **\`not_authed\`** — installed but no credentials. Print: "Codex installed but not authenticated — falling back to a Claude subagent (same model family, not an outside model). Run \`codex login\` or set \`$CODEX_API_KEY\`." Fall back to the Claude subagent path.
+- **\`broken_install\`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: \`npm install -g @openai/codex\`." Relay the probe's HINT lines and fall back to the Claude subagent path. This state exists because a missing binary used to land in the model probe's fail-open bucket and report \`ready\`, so every Codex pass was skipped silently (#2742).
+- **\`model_unusable\`** — authed but the account cannot use gstack's selected Codex model (#2477: HTTP 400 on every call). Relay the probe's HINT lines, tell the user the one-line fix (set \`GSTACK_CODEX_MODEL=<supported-model>\` or pass an explicit \`-c model=...\` override), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to \`ready\`.
 - **\`ready\`** — run the Codex pass below.`;
 }
+
+/**
+ * Canonical foreground-dispatch guidance (#497 → #2440 → third recurrence at
+ * /ship Step 18). Claude Code v2.1.198 made Agent-tool subagents run in the
+ * BACKGROUND by default; a synchronous dispatch site must pass the flag
+ * explicitly or the parent waits on output that never arrives. Rendered via
+ * {{FOREGROUND_DISPATCH_NOTE}} in section templates; resolver sites may
+ * interpolate it directly. Same name as the placeholder for grep-ability.
+ */
+/** The Claude Code release that flipped Agent-tool subagents to background-by-default (#497/#2440 class). Interpolated at every RESOLVER site; three templates carry the literal inline (autoplan/sections/ceo-phase, cso, design-shotgun) — grep 'Claude Code v2.1' when bumping. */
+export const CC_BACKGROUND_DEFAULT_SINCE = 'Claude Code v2.1.198';
+
+export const FOREGROUND_DISPATCH_NOTE =
+  `**Foreground required:** pass \`run_in_background: false\` on the Agent call — subagents run in the BACKGROUND by default since ${CC_BACKGROUND_DEFAULT_SINCE}. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.) The dispatch happens ONLY via the Agent tool: invoking the target as a Skill, or executing its workflow inline in your own context, is WRONG even though the skill may appear in your available-skills list — inline execution forfeits the fresh-context isolation this dispatch exists for, and the explicit flag already makes the Agent call block. (Where a step defines an inline FALLBACK, it applies only after a dispatched subagent has failed.)`;

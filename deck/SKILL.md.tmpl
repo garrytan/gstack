@@ -197,10 +197,14 @@ real architectural fork. Research and Analytics keep their defaults unless the
 user requested them.
 
 A pre-generated PDF companion is a Route / host delivery choice, not an eighth
-category. It is off by default. When selected or already supplied, settle its
-artifact name/direct URL and access boundary with Route / host; do not spend a
-separate intake question on implementation. When unselected, add no deck-PDF
-link, generator, route, build dependency, or QA work.
+category. It is off by default. A legacy PDF discovered during inspection is
+source material, not a delivery choice: it activates companion work only when
+the user explicitly selects it as a deliverable or explicitly supplies a
+requested companion. When selected, settle its intended delivery location and
+access policy with Route / host; record the final artifact name/direct URL only
+after the actual build. Do not spend a separate intake question on
+implementation. When unselected, add no deck-PDF link, generator, route, build
+dependency, or QA work.
 
 For an investor audience, sharpen three existing categories rather than adding
 new ones:
@@ -252,8 +256,9 @@ change.
 ## Step 2: Make the story and evidence earn attention
 
 Write a short execution brief before implementation: audience, goal/CTA, product
-truth map, route or host and PDF decision (off/on, artifact path/URL, canonical
-source, and generator), access boundary, section order, and a claim ledger. For
+truth map, route or host and PDF decision (off/on, intended delivery location,
+access policy, canonical source, and generator), access boundary, section order,
+and a claim ledger. For
 every claim, record its source, owner, public/sensitive boundary, as-of date, and
 whether the copy is verified, qualified, or omitted. For every metric, chart,
 market-size, or comparative claim, also record its definition, unit, denominator
@@ -461,10 +466,12 @@ button, client-side print path, or on-demand server render. If unselected, add
 no deck-PDF link, generator, route, build dependency, or PDF QA work.
 
 Generate it from the same approved story, claim ledger, heading order, and
-access boundary as the web deck. A format-specific publication view is allowed
-only when the preservation ledger records where each substantive point,
-citation, qualifier, and required decision content appears; never keep a silent
-second narrative. Use the target project's existing print/build/render path.
+access policy as the web deck. It may use a narrower compatible boundary only
+when the user expressly selects it; it must never be broader. A format-specific
+publication view is allowed only when the preservation ledger records where each
+substantive point, citation, qualifier, and required decision content appears;
+never keep a silent second narrative. Use the target project's existing
+print/build/render path.
 `/make-pdf` is eligible only when its Markdown/print contract fits a canonical
 source already present; do not create Markdown, install a renderer, or import a
 runtime/framework solely to use it. Review renderer-added footer, watermark,
@@ -570,8 +577,8 @@ regress:
    fallback page; it returns `application/pdf`, honors the intended Access
    behavior, and includes every required asset. Render or open and visually
    inspect every PDF page and page boundary for headline/claim sequence,
-   hierarchy, readable type, clipping,
-   page splits, citations/footnotes, and missing or remote assets. Use available
+   hierarchy, readable type, clipping, page splits, citations/footnotes, and
+   missing or remote assets. Use available
    target-native or local PDF proof; do not install a PDF QA dependency solely
    for this. Test the direct asset on every declared host that is meant to serve
    it.

@@ -22,11 +22,14 @@
  *   5. skillify-approval-reject — /scrape then /skillify but reject in
  *      the approval gate; temp dir is removed, nothing at final path.
  *
- * All five run gate-tier (~$0.50–$1.50 each, ~$5 total per CI).
- * Set EVALS=1 to enable. Set EVALS_MODEL to override (default sonnet-4-6).
+ * The three skillify keys run gate-tier; the two scrape keys are periodic
+ * (/scrape is Aside-first and its fallback no longer prescribes the match +
+ * prototype flow they assert — see E2E_TIERS). ~$0.50–$1.50 each.
+ * Set EVALS=1 to enable. Set EVALS_MODEL to override (default frontier Claude).
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId,
@@ -204,7 +207,7 @@ Do NOT enter the prototype phase. Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 12,
       allowedTools: ['Skill', 'Bash', 'Read'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'scrape-match-path',
       runId,
     });
@@ -224,7 +227,7 @@ Do NOT enter the prototype phase. Do NOT use AskUserQuestion.`,
     expect(listedSkills).toBe(true);
     expect(ranBundledSkill).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 180_000);
+  }, CAPTURE_MS);
 
   // ── 2. /scrape prototype path: drive $B primitives against fixture ────
   testConcurrentIfSelected('scrape-prototype-path', async () => {
@@ -248,7 +251,7 @@ Do NOT use AskUserQuestion.`,
       env: { GSTACK_HOME: gstackHome },
       maxTurns: 18,
       allowedTools: ['Skill', 'Bash', 'Read'],
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'scrape-prototype-path',
       runId,
     });
@@ -283,7 +286,7 @@ Do NOT use AskUserQuestion.`,
     expect(hasJsonItems).toBe(true);
     expect(mentionsSkillify).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 240_000);
+  }, CAPTURE_MS);
 
   // ── 3. /skillify happy path: scrape then skillify in one session ─────
   testConcurrentIfSelected('skillify-happy-path', async () => {
@@ -291,6 +294,9 @@ Do NOT use AskUserQuestion.`,
     const fixturePath = path.join(workDir, 'fixture.html');
     fs.writeFileSync(fixturePath, PROTOTYPE_FIXTURE_HTML);
     const fileUrl = `file://${fixturePath}`;
+
+    const childHome = path.join(workDir, 'home');
+    fs.mkdirSync(childHome, { recursive: true });
 
     const result = await runSkillTest({
       prompt: `Two steps in this session:
@@ -305,31 +311,39 @@ Do NOT use AskUserQuestion.`,
    - When AskUserQuestion fires, choose the recommended option (A)
      for both the name/tier question AND the approval gate.
 
-Use HOME=${workDir} so all skill writes land under the test workdir
+Use HOME=${childHome} so all skill writes land under the test sandbox
 (translates to ~/.gstack/browser-skills/<name>/ via $HOME).
 
 Do NOT halt for clarification.`,
       workingDirectory: workDir,
       env: {
         GSTACK_HOME: gstackHome,
-        HOME: workDir,  // /skillify writes to $HOME/.gstack/browser-skills/
+        // Fresh subdir, NEVER the cwd: with HOME == cwd, claude resolves
+        // <cwd>/.claude/skills as the PERSONAL skills dir and the seeded
+        // project-tier skills stop registering — this test's Skill() calls
+        // silently errored ("Unknown skill") and only passed via the agent
+        // self-recovering by Reading SKILL.md manually. Same fix as the
+        // provenance-refusal test below.
+        HOME: childHome, // /skillify writes to $HOME/.gstack/browser-skills/
       },
       maxTurns: 40,
       allowedTools: ['Skill', 'Bash', 'Read', 'Write'],
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'skillify-happy-path',
       runId,
     });
 
     logCost('skillify-happy-path', result);
 
-    // The skill should land in $HOME/.gstack/browser-skills/<name>/
-    const skillsRoot = path.join(workDir, '.gstack', 'browser-skills');
-    const writtenSkills = fs.existsSync(skillsRoot)
-      ? fs.readdirSync(skillsRoot).filter(d => !d.startsWith('.') && d !== 'hackernews-frontpage')
-      : [];
-    const skillName = writtenSkills[0];
-    const skillDir = skillName ? path.join(skillsRoot, skillName) : '';
+    // The skill lands under $HOME/.gstack/browser-skills/<name>/ (= childHome);
+    // sweep the cwd tier too in case the skill's write path resolves cwd-relative.
+    const skillRoots = [childHome, workDir].map((r) => path.join(r, '.gstack', 'browser-skills'));
+    const writtenSkills = skillRoots.flatMap((root) => (fs.existsSync(root)
+      ? fs.readdirSync(root)
+        .filter(d => !d.startsWith('.') && d !== 'hackernews-frontpage')
+        .map((d) => path.join(root, d))
+      : []));
+    const skillDir = writtenSkills[0] ?? '';
     const hasAllFiles = !!skillDir
       && fs.existsSync(path.join(skillDir, 'SKILL.md'))
       && fs.existsSync(path.join(skillDir, 'script.ts'))
@@ -360,11 +374,20 @@ Do NOT halt for clarification.`,
     expect(hasAllFiles).toBe(true);
     expect(prosesClean).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 420_000);
+  }, CAPTURE_LONG_MS);
 
   // ── 4. /skillify provenance refusal: D1 contract ─────────────────────
   testConcurrentIfSelected('skillify-provenance-refusal', async () => {
     const { workDir, gstackHome } = setupSkillifyWorkdir('refusal', ['skillify']);
+    // Child HOME must be a FRESH dir, never workDir itself: with HOME == cwd,
+    // claude resolves <cwd>/.claude/skills as the PERSONAL skills dir and the
+    // project-tier skills seeded there never register — the Skill tool then
+    // errors "Unknown skill: skillify" (observed on claude 2.1.237). A
+    // sibling home/ dir keeps the override's intent (any ~/.gstack write from
+    // the child lands inside the assertable sandbox, not the operator's real
+    // home) without colliding with project-skill discovery.
+    const childHome = path.join(workDir, 'home');
+    fs.mkdirSync(childHome, { recursive: true });
 
     const result = await runSkillTest({
       prompt: `Run /skillify via the Skill tool. There has been NO prior /scrape
@@ -375,40 +398,68 @@ write any files.`,
       workingDirectory: workDir,
       env: {
         GSTACK_HOME: gstackHome,
-        HOME: workDir,
+        HOME: childHome,
       },
       maxTurns: 8,
       allowedTools: ['Skill', 'Bash', 'Read'],
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'skillify-provenance-refusal',
       runId,
     });
 
     logCost('skillify-provenance-refusal', result);
 
+    // Tripwire: the Skill tool must actually LOAD skillify. A not-loaded
+    // skill (tool error "Unknown skill: skillify", or the agent narrating
+    // "not registered" and improvising a refusal) must never pass as a D1
+    // refusal. Neither phrase appears in the skillify fixture or the prompt,
+    // so a hit can only come from a real load failure.
     const surface = fullSurface(result);
-    const refusalText = /no recent \/?scrape result|run \/scrape.*first|no prior \/?scrape/i.test(surface);
+    const skillLoadFailed = /unknown skill|not registered/i.test(surface);
 
-    // Critical: nothing on disk. No staged dir, no committed skill.
-    const skillsRoot = path.join(workDir, '.gstack', 'browser-skills');
-    const stagingRoot = path.join(workDir, '.gstack', '.tmp');
-    const noSkillsWritten = !fs.existsSync(skillsRoot)
-      || fs.readdirSync(skillsRoot).filter(d => !d.startsWith('.')).length === 0;
-    const noStaging = !fs.existsSync(stagingRoot)
-      || fs.readdirSync(stagingRoot).filter(d => d.startsWith('skillify-')).length === 0;
+    // The refusal must be in the AGENT'S OWN words. When the Skill tool
+    // loads skillify, the SKILL.md body — which contains the exact refusal
+    // message — is injected into the transcript as a user message, so
+    // matching the full surface would pass vacuously. Match only assistant
+    // text blocks + the final result.
+    const agentText = [
+      result.output,
+      ...result.transcript
+        .filter((e: any) => e?.type === 'assistant')
+        .flatMap((e: any) => ((e.message?.content ?? []) as any[])
+          .filter((c: any) => c?.type === 'text')
+          .map((c: any) => String(c.text ?? ''))),
+    ].join('\n');
+    const refusalText = /no recent \/?scrape result|run \/scrape.*first|no prior \/?scrape/i.test(agentText);
+
+    // Critical: nothing on disk. No staged dir, no committed skill. Tier
+    // paths resolve under $HOME/.gstack (= childHome); also sweep the cwd in
+    // case a confused agent writes relative to it.
+    const diskRoots = [childHome, workDir];
+    const noSkillsWritten = diskRoots.every((root) => {
+      const skillsRoot = path.join(root, '.gstack', 'browser-skills');
+      return !fs.existsSync(skillsRoot)
+        || fs.readdirSync(skillsRoot).filter(d => !d.startsWith('.')).length === 0;
+    });
+    const noStaging = diskRoots.every((root) => {
+      const stagingRoot = path.join(root, '.gstack', '.tmp');
+      return !fs.existsSync(stagingRoot)
+        || fs.readdirSync(stagingRoot).filter(d => d.startsWith('skillify-')).length === 0;
+    });
 
     const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
 
     recordE2E(evalCollector, 'skillify D1 refusal — no on-disk write', 'Phase 2a E2E', result, {
-      passed: exitOk && refusalText && noSkillsWritten && noStaging,
+      passed: exitOk && !skillLoadFailed && refusalText && noSkillsWritten && noStaging,
     });
 
     expect(exitOk).toBe(true);
+    expect(skillLoadFailed).toBe(false);
     expect(refusalText).toBe(true);
     expect(noSkillsWritten).toBe(true);
     expect(noStaging).toBe(true);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 120_000);
+  }, JUDGE_MS);
 
   // ── 5. /skillify approval-gate reject: D3 cleanup ────────────────────
   testConcurrentIfSelected('skillify-approval-reject', async () => {
@@ -416,6 +467,9 @@ write any files.`,
     const fixturePath = path.join(workDir, 'fixture.html');
     fs.writeFileSync(fixturePath, PROTOTYPE_FIXTURE_HTML);
     const fileUrl = `file://${fixturePath}`;
+
+    const childHome = path.join(workDir, 'home');
+    fs.mkdirSync(childHome, { recursive: true });
 
     const result = await runSkillTest({
       prompt: `Two steps:
@@ -427,15 +481,16 @@ write any files.`,
    of A (Commit). The D3 contract says the temp dir must be removed and
    nothing should land at the final tier path.
 
-Use HOME=${workDir}. Do NOT commit the skill.`,
+Use HOME=${childHome}. Do NOT commit the skill.`,
       workingDirectory: workDir,
       env: {
         GSTACK_HOME: gstackHome,
-        HOME: workDir,
+        // Fresh subdir, never the cwd — see the happy-path comment.
+        HOME: childHome,
       },
       maxTurns: 35,
       allowedTools: ['Skill', 'Bash', 'Read', 'Write'],
-      timeout: 360_000,
+      timeout: CAPTURE_LONG_MS,
       testName: 'skillify-approval-reject',
       runId,
     });
@@ -443,14 +498,20 @@ Use HOME=${workDir}. Do NOT commit the skill.`,
     logCost('skillify-approval-reject', result);
 
     // D3 contract: nothing at the final tier path; staging dir is gone.
-    const skillsRoot = path.join(workDir, '.gstack', 'browser-skills');
-    const writtenSkills = fs.existsSync(skillsRoot)
-      ? fs.readdirSync(skillsRoot).filter(d => !d.startsWith('.'))
-      : [];
-    const stagingRoot = path.join(workDir, '.gstack', '.tmp');
-    const stagingLeftovers = fs.existsSync(stagingRoot)
-      ? fs.readdirSync(stagingRoot).filter(d => d.startsWith('skillify-'))
-      : [];
+    // Sweep BOTH roots: $HOME/.gstack (= childHome) and cwd-relative .gstack.
+    const negativeRoots = [childHome, workDir];
+    const writtenSkills = negativeRoots.flatMap((root) => {
+      const skillsRoot = path.join(root, '.gstack', 'browser-skills');
+      return fs.existsSync(skillsRoot)
+        ? fs.readdirSync(skillsRoot).filter(d => !d.startsWith('.'))
+        : [];
+    });
+    const stagingLeftovers = negativeRoots.flatMap((root) => {
+      const stagingRoot = path.join(root, '.gstack', '.tmp');
+      return fs.existsSync(stagingRoot)
+        ? fs.readdirSync(stagingRoot).filter(d => d.startsWith('skillify-'))
+        : [];
+    });
 
     const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
 
@@ -462,5 +523,5 @@ Use HOME=${workDir}. Do NOT commit the skill.`,
     expect(writtenSkills.length).toBe(0);
     expect(stagingLeftovers.length).toBe(0);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
-  }, 420_000);
+  }, CAPTURE_LONG_MS);
 });

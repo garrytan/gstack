@@ -20,6 +20,7 @@
  * test turns out stable.
  */
 import { expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
@@ -133,7 +134,7 @@ ${captureInstruction(outFile)}
 After writing the file with that ONE Phase 4 question, stop. Do not continue to Phase 4.5 or Phase 5.`,
       workingDirectory: workDir,
       maxTurns: 12,
-      timeout: 300_000,
+      timeout: CAPTURE_MS,
       testName: 'office-hours-phase4-fork',
       runId,
       model: 'claude-opus-4-7',
@@ -162,7 +163,7 @@ After writing the file with that ONE Phase 4 question, stop. Do not continue to 
       result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });
 
 afterAll(async () => {

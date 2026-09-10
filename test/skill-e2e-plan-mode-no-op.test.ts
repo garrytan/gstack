@@ -31,6 +31,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillObservation } from './helpers/claude-pty-runner';
 
@@ -62,7 +63,7 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
       const obs = await runPlanSkillObservation({
         skillName,
         inPlanMode: false,
-        timeoutMs: 300_000,
+        timeoutMs: CAPTURE_MS,
         // eng/design: force the prose-fallback path. The unconditional
         // gate-must-ask assert below pins the render shape the detector
         // anchors on, and only the --disallowedTools prose fallback makes
@@ -115,7 +116,7 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
           );
         }
       }
-    }, 360_000);
+    }, CAPTURE_LONG_MS);
   }
 
   // Named-target exception (outside plan mode): a pasted draft IS an
@@ -130,7 +131,7 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
       inPlanMode: false,
       initialPlanContent: NAMED_TARGET_SEED,
       trackTokens: [SEED_TOKEN],
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (
@@ -159,5 +160,5 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
     // unreachable outside plan mode (extractPlanFilePath only matches
     // plan-mode save renders).
     expect(obs.tokensObserved?.[SEED_TOKEN] ?? false).toBe(true);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });

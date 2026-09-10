@@ -15,7 +15,10 @@
  */
 
 import * as path from 'path';
+import { spawn } from 'child_process';
+import { Readable } from 'node:stream';
 import { hermeticChildEnv } from './hermetic-env';
+import { killProcessGroup } from '../../scripts/test-strict-output';
 
 // --- Interfaces ---
 
@@ -108,7 +111,7 @@ export async function runGeminiSkill(opts: {
   const startTime = Date.now();
 
   // Check if gemini binary exists
-  const whichResult = Bun.spawnSync(['which', 'gemini']);
+  const whichResult = Bun.spawnSync(['which', 'gemini'], { timeout: 30_000 });
   if (whichResult.exitCode !== 0) {
     return {
       output: 'SKIP: gemini binary not found',
@@ -130,27 +133,40 @@ export async function runGeminiSkill(opts: {
   // Spawn gemini — uses real HOME for auth (~/.gemini; HOME is allowlisted),
   // cwd for skill discovery. Hermetic scrub with gemini's auth surface
   // re-admitted (previously this spawn inherited the full operator env).
-  const proc = Bun.spawn(['gemini', ...args], {
+  // node:child_process spawn with `detached` (own process group) — mirrors
+  // session-runner.ts. A bare kill signalled only gemini itself; tool
+  // subprocesses survived as orphans holding our pipes open (the same
+  // blocked-drain hang the claude runner fixed — this copy lacked it).
+  const proc = spawn('gemini', args, {
     cwd: cwd || process.cwd(),
-    stdout: 'pipe',
-    stderr: 'pipe',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
     env: hermeticChildEnv(undefined, {
       extraAllow: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_*', 'GEMINI_*'],
     }),
+  });
+  const stdoutWeb = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+  const stderrWeb = Readable.toWeb(proc.stderr!) as ReadableStream<Uint8Array>;
+  const procExited: Promise<number> = new Promise((resolve) => {
+    proc.on('close', (code) => resolve(code ?? 1));
+    proc.on('error', () => resolve(1));
   });
 
   // Race against timeout
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
-    proc.kill();
+    // Group SIGKILL + reader cancel: kill the whole tree AND unblock the
+    // read loop even if a stray grandchild survives the group kill.
+    killProcessGroup(proc, 'SIGKILL');
+    reader.cancel().catch(() => { /* stream already closed */ });
   }, timeoutMs);
 
   // Stream and collect JSONL from stdout
   const collectedLines: string[] = [];
-  const stderrPromise = new Response(proc.stderr).text();
+  const stderrPromise = new Response(stderrWeb).text();
 
-  const reader = proc.stdout.getReader();
+  const reader = stdoutWeb.getReader();
   const decoder = new TextDecoder();
   let buf = '';
 
@@ -185,8 +201,18 @@ export async function runGeminiSkill(opts: {
     collectedLines.push(buf);
   }
 
-  const stderr = await stderrPromise;
-  const exitCode = await proc.exited;
+  // Same orphan hazard as stdout: a grandchild holding stderr open would
+  // block this drain forever. Race against child exit + a short grace window
+  // (ported from session-runner.ts — the gemini copy lacked it).
+  const stderr = await Promise.race([
+    stderrPromise,
+    (async () => {
+      await procExited;
+      await new Promise((r) => setTimeout(r, 5_000));
+      return '';
+    })(),
+  ]);
+  const exitCode = await procExited;
   clearTimeout(timeoutId);
 
   const durationMs = Date.now() - startTime;

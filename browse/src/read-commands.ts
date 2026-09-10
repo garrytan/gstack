@@ -23,27 +23,116 @@ export const SENSITIVE_COOKIE_NAME = /(^|[_.-])(token|secret|key|password|creden
 export const SENSITIVE_COOKIE_VALUE = /^(eyJ|sk-|sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|sk-ant-|ghp_|gho_|github_pat_|xox[bpsa]-|AKIA[A-Z0-9]{16}|AIza|SG\.|Bearer\s|sbp_)/;
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
-function hasAwait(code: string): boolean {
+export function hasAwait(code: string): boolean {
   const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   return /\bawait\b/.test(stripped);
 }
 
+/**
+ * Find the index of the bracket that closes the group opened at `start`
+ * (which must be `(` or `[`), skipping string literals and escapes.
+ * Returns -1 when unbalanced. Shared by the single-expression scanner below.
+ */
+function findBalancedClose(src: string, start: number): number {
+  const open = src[start];
+  const close = open === '(' ? ')' : ']';
+  let depth = 0;
+  let inString: string | null = null;
+  let escape = false;
+  for (let i = start; i < src.length; i++) {
+    const char = src[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (inString) {
+      if (char === inString) inString = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      inString = char;
+      continue;
+    }
+    if (char === open) {
+      depth++;
+    } else if (char === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Detect whether code is a single top-level expression (such as an IIFE or parenthesized expression),
+ * even if it contains internal statements, semicolons, or multiple lines (#2727).
+ *
+ * The tail after the initial `(...)` group must be a CONTINUOUS member/call/
+ * index chain consumed to end-of-input. Accepting any tail that merely starts
+ * with `(` or `.` classified `(iife)().then(x=>x); stmt` as a single
+ * expression, and the expression wrapper then emitted a SyntaxError.
+ */
+export function isSingleParenOrIifeExpression(code: string): boolean {
+  const trimmed = code.trim().replace(/;+\s*$/, '');
+  let src = trimmed;
+  if (src.startsWith('await ') || src.startsWith('await\t') || src.startsWith('await\n')) {
+    src = src.slice(5).trim();
+  }
+  if (!src.startsWith('(')) return false;
+
+  const mainCloseIndex = findBalancedClose(src, 0);
+  if (mainCloseIndex === -1) return false;
+
+  // Consume the ENTIRE tail as a chain of `.member`, `(...)`, `[...]`, or
+  // optional-chaining segments. Anything else (a `;`, a second statement,
+  // an operator) means this is not a single expression.
+  let i = mainCloseIndex + 1;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      i++;
+      continue;
+    }
+    if (ch === '(' || ch === '[') {
+      const close = findBalancedClose(src, i);
+      if (close === -1) return false;
+      i = close + 1;
+      continue;
+    }
+    if (ch === '.' || (ch === '?' && src[i + 1] === '.')) {
+      i += ch === '.' ? 1 : 2;
+      // Member name (or the `(`/`[` of `?.()` / `?.[]`, handled next loop).
+      while (i < src.length && /[\w$]/.test(src[i])) i++;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 /** Detect whether code needs a block wrapper {…} vs expression wrapper (…) inside an async IIFE. */
-function needsBlockWrapper(code: string): boolean {
+export function needsBlockWrapper(code: string): boolean {
   const trimmed = code.trim();
-  if (trimmed.split('\n').length > 1) return true;
-  if (/\b(const|let|var|function|class|return|throw|if|for|while|switch|try)\b/.test(trimmed)) return true;
-  if (trimmed.includes(';')) return true;
+  if (isSingleParenOrIifeExpression(trimmed)) return false;
+  const clean = trimmed.replace(/;+\s*$/, '');
+  if (clean.split('\n').length > 1) return true;
+  if (/\b(const|let|var|function|class|return|throw|if|for|while|switch|try)\b/.test(clean)) return true;
+  if (clean.includes(';')) return true;
   return false;
 }
 
 /** Wrap code for page.evaluate(), using async IIFE with block or expression body as needed. */
-function wrapForEvaluate(code: string): string {
+export function wrapForEvaluate(code: string): string {
   if (!hasAwait(code)) return code;
   const trimmed = code.trim();
+  const cleanExpr = trimmed.replace(/;+\s*$/, '');
   return needsBlockWrapper(trimmed)
     ? `(async()=>{\n${code}\n})()`
-    : `(async()=>(${trimmed}))()`;
+    : `(async()=>(${cleanExpr}))()`;
 }
 
 /** Flags split out of `js`/`eval` args by parseOutArgs. */

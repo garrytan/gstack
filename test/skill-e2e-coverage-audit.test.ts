@@ -20,6 +20,7 @@
  */
 
 import { test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
@@ -78,7 +79,7 @@ Output the diagram directly.`,
       workingDirectory: reviewCoverageDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'review-coverage-audit',
       runId,
     });
@@ -107,7 +108,7 @@ Output the diagram directly.`,
     // At minimum, the agent should have read the source and test files
     const readCalls = result.toolCalls.filter(tc => tc.tool === 'Read');
     expect(readCalls.length).toBeGreaterThan(0);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Plan Eng Review Coverage Audit E2E ---
@@ -153,7 +154,7 @@ Output the diagram directly.`,
       workingDirectory: planCoverageDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'plan-eng-coverage-audit',
       runId,
     });
@@ -182,7 +183,7 @@ Output the diagram directly.`,
     // At minimum, the agent should have read the source and test files
     const readCalls = result.toolCalls.filter(tc => tc.tool === 'Read');
     expect(readCalls.length).toBeGreaterThan(0);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

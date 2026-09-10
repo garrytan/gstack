@@ -28,6 +28,8 @@ import * as path from 'path';
 import { runSkillTest } from './helpers/session-runner';
 import { callJudge } from './helpers/llm-judge';
 import { isHermeticEnabled } from './helpers/hermetic-env';
+import { isPaidTestFile } from './helpers/paid-test-set';
+import { collectPaidTestFiles, selectPaidTestFiles } from '../scripts/test-paid-shards';
 import {
   ROOT,
   runId,
@@ -3276,21 +3278,29 @@ synthetic-4,paying,39
 
   test('wires the paid deck suite to periodic CI with its native Python runtime', () => {
     const workflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'evals-periodic.yml'), 'utf-8');
-    expect(workflow).toMatch(/name:\s*e2e-deck\s+file:\s*test\/skill-e2e-deck\.test\.ts/);
-    expect(workflow).toMatch(/name:\s*e2e-deck[\s\S]{0,100}timeout:\s*55/);
+    // The periodic lane derives its census from the paid runner rather than a
+    // hand-maintained e2e-deck matrix row. The hybrid file remains free for
+    // deterministic contracts and is also enumerated for periodic behavior.
+    expect(workflow).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --emit-plan/);
+    expect(workflow).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --plan .* --slice/);
+    expect(workflow).toContain('EVALS_ALL: "1"');
+    expect(workflow).not.toMatch(/^\s+suite:\s*$/m);
+    expect(isPaidTestFile('test/skill-e2e-deck.test.ts')).toBe(true);
+    expect(selectPaidTestFiles(collectPaidTestFiles(), 'periodic').selected)
+      .toContain('test/skill-e2e-deck.test.ts');
     expect(workflow).not.toMatch(/EVALS_HERMETIC:\s*["']?0/);
 
     const gateWorkflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'evals.yml'), 'utf-8');
     // The gate uses the repository's current fork-safe image path: untrusted
     // fork PRs build for validation but skip secret-backed evals; trusted
-    // contexts may publish and run the matrix. Assert the behavior rather
-    // than an obsolete implementation detail from the prior helper.
+    // contexts may publish and run the sliced lane.
     expect(gateWorkflow).toContain('image-tag: ${{ steps.meta.outputs.tag }}');
     expect(gateWorkflow).toContain("push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}");
     expect(gateWorkflow).toContain("if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository");
     expect(gateWorkflow).toContain('github.event.pull_request.head.repo.full_name == github.repository');
     expect(gateWorkflow).toContain('cache-to:');
-    expect(gateWorkflow).toMatch(/evals:\s+[\s\S]*?if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+    expect(gateWorkflow).toContain('EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan');
+    expect(gateWorkflow).toMatch(/plan-slices:\s+[\s\S]*?if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
     expect(gateWorkflow).not.toMatch(/pull_request_target/);
 
     const dockerfile = fs.readFileSync(path.join(ROOT, '.github', 'docker', 'Dockerfile.ci'), 'utf-8');

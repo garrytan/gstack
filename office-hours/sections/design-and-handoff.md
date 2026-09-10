@@ -170,7 +170,9 @@ Before presenting the document to the user for approval, run an adversarial revi
 
 **Step 1: Dispatch reviewer subagent**
 
-Use the Agent tool to dispatch an independent reviewer. The reviewer has fresh context
+Use the Agent tool to dispatch an independent reviewer, passing `run_in_background: false`
+(subagents default to background since Claude Code v2.1.198; this loop consumes the
+reviewer's verdict). The reviewer has fresh context
 and cannot see the brainstorming conversation — only the document. This ensures genuine
 adversarial independence.
 

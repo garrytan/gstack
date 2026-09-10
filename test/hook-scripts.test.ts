@@ -76,12 +76,45 @@ function withFreezeDir(freezePath: string, fn: (stateDir: string) => void) {
   }
 }
 
+// The freeze WRITER resolves its state root through bin/gstack-paths, which
+// trusts CLAUDE_PLUGIN_DATA only when CLAUDE_PLUGIN_ROOT names gstack; the
+// reader mirrors that exact chain (#1459 / #1509). A test standing in for a
+// plugin install must supply both, and must neutralize a GSTACK_HOME inherited
+// from the shard's process.env (an empty value reads as unset in ${VAR:-}).
+function freezeEnv(stateDir: string, extra: Record<string, string> = {}): Record<string, string> {
+  return { GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: stateDir, CLAUDE_PLUGIN_ROOT: '/plugins/gstack', ...extra };
+}
+
+const HOOK_EXTRACT = path.join(ROOT, 'careful', 'bin', 'hook-extract.sh');
+const GSTACK_PATHS = path.join(ROOT, 'bin', 'gstack-paths');
+
+/** What the hook helper resolves as the state root under a given env. */
+function hookStateRoot(env: Record<string, string>): string {
+  const r = spawnSync('bash', ['-c', `. "${HOOK_EXTRACT}" && gstack_hook_state_root`], {
+    env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf-8', timeout: 5000,
+  });
+  return r.stdout.trim();
+}
+
+/** What bin/gstack-paths resolves as GSTACK_STATE_ROOT under the same env. */
+function pathsStateRoot(env: Record<string, string>): string {
+  const r = spawnSync('bash', ['-c', `eval "$("${GSTACK_PATHS}")" && printf '%s' "$GSTACK_STATE_ROOT"`], {
+    env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf-8', timeout: 5000,
+  });
+  return r.stdout.trim();
+}
+
 // ============================================================
 // Frontmatter hook wiring (#2469 / #1871)
 // ============================================================
 // Frontmatter hooks run before any runtime variable exists, so a
 // ${CLAUDE_SKILL_DIR}-relative command silently never resolves and the guard
 // never fires. Every command: line must anchor on $HOME like careful/freeze.
+function withEmptyDir(fn: (dir: string) => void) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hook-empty-'));
+  try { fn(dir); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 describe('frontmatter hook command paths', () => {
   test.each(['investigate/SKILL.md', 'careful/SKILL.md', 'freeze/SKILL.md', 'guard/SKILL.md'])(
     '%s hook commands are $HOME-anchored, never CLAUDE_SKILL_DIR',
@@ -666,6 +699,52 @@ describe('check-careful.sh', () => {
       });
     });
 
+    test('an older hook-extract.sh without gstack_hook_state_root still loads rules from $HOME/.gstack and emits a decision (no set -e death)', () => {
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-careful-oldhelper-'));
+      const carefulBin = path.join(base, 'careful', 'bin');
+      fs.mkdirSync(carefulBin, { recursive: true });
+      fs.copyFileSync(CAREFUL_SCRIPT, path.join(carefulBin, 'check-careful.sh'));
+      const helper = fs.readFileSync(HOOK_EXTRACT, 'utf-8');
+      const start = helper.indexOf('gstack_hook_state_root() {');
+      const end = helper.indexOf('\n}\n', start) + 3;
+      fs.writeFileSync(path.join(carefulBin, 'hook-extract.sh'), helper.slice(0, start) + helper.slice(end));
+      const fakeHome = path.join(base, 'home');
+      fs.mkdirSync(path.join(fakeHome, '.gstack'), { recursive: true });
+      fs.writeFileSync(path.join(fakeHome, '.gstack', 'careful-patterns.txt'), 'terraform\\s+destroy\n');
+      try {
+        const { exitCode, output } = runHook(path.join(carefulBin, 'check-careful.sh'), carefulInput('terraform destroy'), { HOME: fakeHome, GSTACK_HOME: '' });
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
+      } finally {
+        fs.rmSync(base, { recursive: true, force: true });
+      }
+    });
+
+    test('plugin install: patterns under CLAUDE_PLUGIN_DATA load when CLAUDE_PLUGIN_ROOT names gstack (same root the writer uses)', () => {
+      withPatternFile('terraform\\s+destroy\n', (pluginData) => {
+        withEmptyDir((fakeHome) => {
+          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('terraform destroy'),
+            { HOME: fakeHome, GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: pluginData, CLAUDE_PLUGIN_ROOT: '/plugins/gstack' });
+          expect(exitCode).toBe(0);
+          expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+          expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
+        });
+      });
+    });
+
+    test('GSTACK_HOME outranks CLAUDE_PLUGIN_DATA for careful patterns, exactly as for the freeze file', () => {
+      withPatternFile('terraform\\s+destroy\n', (gstackHome) => {
+        withEmptyDir((pluginData) => {
+          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('terraform destroy'),
+            { GSTACK_HOME: gstackHome, CLAUDE_PLUGIN_DATA: pluginData, CLAUDE_PLUGIN_ROOT: '/plugins/gstack' });
+          expect(exitCode).toBe(0);
+          expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+          expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('Project rule');
+        });
+      });
+    });
+
     test('safe commands still allow with a pattern file present', () => {
       withPatternFile('terraform\\s+destroy\n', (gstackHome) => {
         const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('ls -la'), { GSTACK_HOME: gstackHome });
@@ -687,7 +766,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/project/src/index.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
@@ -699,7 +778,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/project/src/components/Button.tsx'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
@@ -713,7 +792,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/other-project/index.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
@@ -727,7 +806,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/etc/hosts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
@@ -743,7 +822,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/Users/dev/project/src-old/index.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
@@ -759,7 +838,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/anywhere/at/all.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
@@ -775,7 +854,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHook(
           FREEZE_SCRIPT,
           { tool_input: {} },
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
@@ -787,7 +866,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output } = runHookRaw(
           FREEZE_SCRIPT,
           'not json at all {{{{',
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
@@ -803,7 +882,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output, raw } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/tmp/evil"quoted/x.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(() => JSON.parse(raw)).not.toThrow();
@@ -816,7 +895,7 @@ describe('check-freeze.sh', () => {
         const { exitCode, output, raw } = runHook(
           FREEZE_SCRIPT,
           freezeInput('/tmp/evil\npath.ts'),
-          { CLAUDE_PLUGIN_DATA: stateDir },
+          freezeEnv(stateDir),
         );
         expect(exitCode).toBe(0);
         expect(() => JSON.parse(raw)).not.toThrow();
@@ -834,11 +913,11 @@ describe('check-freeze.sh', () => {
       fs.mkdirSync(boundary, { recursive: true });
       try {
         withFreezeDir(boundary + '/', (stateDir) => {
-          const inside = runHook(FREEZE_SCRIPT, freezeInput(path.join(boundary, 'index.ts')), { CLAUDE_PLUGIN_DATA: stateDir });
+          const inside = runHook(FREEZE_SCRIPT, freezeInput(path.join(boundary, 'index.ts')), freezeEnv(stateDir));
           expect(inside.exitCode).toBe(0);
           expect(inside.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
 
-          const outside = runHook(FREEZE_SCRIPT, freezeInput(path.join(base, 'elsewhere.ts')), { CLAUDE_PLUGIN_DATA: stateDir });
+          const outside = runHook(FREEZE_SCRIPT, freezeInput(path.join(base, 'elsewhere.ts')), freezeEnv(stateDir));
           expect(outside.exitCode).toBe(0);
           expect(outside.output.hookSpecificOutput?.permissionDecision).toBe('deny');
         });
@@ -859,7 +938,7 @@ describe('check-freeze.sh', () => {
       fs.copyFileSync(FREEZE_SCRIPT, script);
       try {
         withFreezeDir('/Users/dev/project/src/', (stateDir) => {
-          const { exitCode, output } = runHook(script, freezeInput('/Users/dev/project/src/x.ts'), { CLAUDE_PLUGIN_DATA: stateDir });
+          const { exitCode, output } = runHook(script, freezeInput('/Users/dev/project/src/x.ts'), freezeEnv(stateDir));
           expect(exitCode).toBe(0);
           expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
           expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('fail closed');
@@ -884,19 +963,216 @@ describe('check-freeze.sh', () => {
       fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(boundary, 'link.txt'));
       try {
         withFreezeDir(boundary + '/', (stateDir) => {
-          const viaLink = runHook(FREEZE_SCRIPT, freezeInput(path.join(boundary, 'link.txt')), { CLAUDE_PLUGIN_DATA: stateDir });
+          const viaLink = runHook(FREEZE_SCRIPT, freezeInput(path.join(boundary, 'link.txt')), freezeEnv(stateDir));
           expect(viaLink.exitCode).toBe(0);
           expect(viaLink.output.hookSpecificOutput?.permissionDecision).toBe('deny');
 
           // A real in-boundary file is unaffected.
           fs.writeFileSync(path.join(boundary, 'real.txt'), 'y');
-          const real = runHook(FREEZE_SCRIPT, freezeInput(path.join(boundary, 'real.txt')), { CLAUDE_PLUGIN_DATA: stateDir });
+          const real = runHook(FREEZE_SCRIPT, freezeInput(path.join(boundary, 'real.txt')), freezeEnv(stateDir));
           expect(real.exitCode).toBe(0);
           expect(real.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
         });
       } finally {
         fs.rmSync(base, { recursive: true, force: true });
       }
+    });
+  });
+});
+
+// ============================================================
+// check-freeze.sh state-root resolution (#1459 / #1509)
+// ============================================================
+// /freeze writes freeze-dir.txt under the root gstack-paths resolves
+// (GSTACK_HOME first). The reader used to read ${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}
+// — so with GSTACK_HOME set it found no file and ALLOWED everything. A deny-tier
+// boundary that fails open is not a boundary; writer and reader now share one
+// chain (gstack_hook_state_root in careful/bin/hook-extract.sh).
+describe('check-freeze.sh state-root resolution (#1459 / #1509)', () => {
+  const BOUNDARY = '/Users/dev/project/src/';
+  const OUTSIDE = '/Users/dev/other-project/index.ts';
+
+
+  test('REGRESSION: freeze file under GSTACK_HOME (HOME has none) denies an outside edit', () => {
+    withFreezeDir(BOUNDARY, (gstackHome) => {
+      withEmptyDir((fakeHome) => {
+        const { exitCode, output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE), {
+          GSTACK_HOME: gstackHome, HOME: fakeHome, CLAUDE_PLUGIN_DATA: '', CLAUDE_PLUGIN_ROOT: '',
+        });
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      });
+    });
+  });
+
+  test('GSTACK_HOME wins over CLAUDE_PLUGIN_DATA (matches gstack-paths precedence)', () => {
+    withFreezeDir(BOUNDARY, (pluginData) => {
+      withEmptyDir((gstackHome) => {
+        // The freeze file lives under CLAUDE_PLUGIN_DATA, but GSTACK_HOME is set and
+        // has none — the writer would have written there, so the reader must look there.
+        const { output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE),
+          freezeEnv(pluginData, { GSTACK_HOME: gstackHome }));
+        expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+      });
+    });
+  });
+
+  test('CLAUDE_PLUGIN_DATA is ignored when CLAUDE_PLUGIN_ROOT is another plugin', () => {
+    withFreezeDir(BOUNDARY, (pluginData) => {
+      withEmptyDir((fakeHome) => {
+        const { output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE),
+          freezeEnv(pluginData, { CLAUDE_PLUGIN_ROOT: '/plugins/codex', HOME: fakeHome }));
+        // Falls through to $HOME/.gstack, which has no freeze file → allow.
+        expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+      });
+    });
+  });
+
+  test('CLAUDE_PLUGIN_DATA is honoured when CLAUDE_PLUGIN_ROOT names gstack', () => {
+    withFreezeDir(BOUNDARY, (pluginData) => {
+      withEmptyDir((fakeHome) => {
+        const { output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE), freezeEnv(pluginData, { HOME: fakeHome }));
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+      });
+    });
+  });
+
+  test('gstack_hook_state_root is byte-identical to gstack-paths GSTACK_STATE_ROOT', () => {
+    const combos: Record<string, string>[] = [
+      { HOME: '/home/u', GSTACK_HOME: '/state/x', CLAUDE_PLUGIN_DATA: '/plug/data', CLAUDE_PLUGIN_ROOT: '/plugins/gstack' },
+      { HOME: '/home/u', GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: '/plug/data', CLAUDE_PLUGIN_ROOT: '/plugins/gstack' },
+      { HOME: '/home/u', GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: '/plug/data', CLAUDE_PLUGIN_ROOT: '/plugins/codex' },
+      { HOME: '/home/u', GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: '/plug/data', CLAUDE_PLUGIN_ROOT: '' },
+      { HOME: '/home/u', GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: '', CLAUDE_PLUGIN_ROOT: '' },
+      { HOME: '', GSTACK_HOME: '', CLAUDE_PLUGIN_DATA: '', CLAUDE_PLUGIN_ROOT: '' },
+    ];
+    for (const env of combos) {
+      expect(hookStateRoot(env)).toBe(pathsStateRoot(env));
+    }
+  });
+});
+
+// ============================================================
+// gstack_hook_log_fire analytics sink follows the same state root (#1459)
+// ============================================================
+// The hook_fire record lands under ${GSTACK_HOME:-$HOME/.gstack}/analytics —
+// the SAME two-step chain every other analytics writer and reader uses
+// (gstack-skill-start, gstack-retro-metrics, gstack-analytics) — deliberately
+// NOT the plugin-aware state root the freeze FILE uses, so the usage log stays
+// one file. Logging is best-effort: an unwritable sink never changes the decision.
+describe('gstack_hook_log_fire writes under the resolved state root', () => {
+  const BOUNDARY = '/Users/dev/project/src/';
+  const OUTSIDE = '/Users/dev/other-project/index.ts';
+
+  function lastRecord(file: string): any {
+    const lines = fs.readFileSync(file, 'utf-8').trim().split('\n');
+    return JSON.parse(lines[lines.length - 1]);
+  }
+
+  test('REGRESSION: a freeze deny under GSTACK_HOME appends hook_fire to $GSTACK_HOME/analytics, not $HOME/.gstack', () => {
+    withFreezeDir(BOUNDARY, (gstackHome) => {
+      withEmptyDir((fakeHome) => {
+        const { exitCode, output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE), {
+          GSTACK_HOME: gstackHome, HOME: fakeHome, CLAUDE_PLUGIN_DATA: '', CLAUDE_PLUGIN_ROOT: '',
+        });
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        const rec = lastRecord(path.join(gstackHome, 'analytics', 'skill-usage.jsonl'));
+        expect(rec.event).toBe('hook_fire');
+        expect(rec.skill).toBe('freeze');
+        expect(rec.pattern).toBe('boundary_deny');
+        expect(typeof rec.ts).toBe('string');
+        expect(fs.existsSync(path.join(fakeHome, '.gstack'))).toBe(false);
+      });
+    });
+  });
+
+  test('plugin install: the freeze FILE is read from CLAUDE_PLUGIN_DATA but hook_fire still lands under $HOME/.gstack/analytics (one usage log)', () => {
+    withFreezeDir(BOUNDARY, (pluginData) => {
+      withEmptyDir((fakeHome) => {
+        const { output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE),
+          freezeEnv(pluginData, { HOME: fakeHome, CLAUDE_PLUGIN_ROOT: '/Plugins/GSTACK' }));
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        const rec = lastRecord(path.join(fakeHome, '.gstack', 'analytics', 'skill-usage.jsonl'));
+        expect(rec.event).toBe('hook_fire');
+        expect(rec.skill).toBe('freeze');
+        expect(fs.existsSync(path.join(pluginData, 'analytics'))).toBe(false);
+      });
+    });
+  });
+
+  test('a GSTACK_HOME ending in a newline round-trips exactly (writer %q and reader sentinel agree)', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-nl-'));
+    const nlDir = path.join(base, 'root\n');
+    fs.mkdirSync(nlDir);
+    fs.writeFileSync(path.join(nlDir, 'freeze-dir.txt'), BOUNDARY);
+    try {
+      const { output } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE), {
+        GSTACK_HOME: nlDir, HOME: base, CLAUDE_PLUGIN_DATA: '', CLAUDE_PLUGIN_ROOT: '',
+      });
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('an unexpected set -e death inside the hook (a tool on PATH failing) DENIES via the EXIT backstop instead of exiting with no JSON', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-backstop-'));
+    const fakeBin = path.join(base, 'bin');
+    fs.mkdirSync(fakeBin);
+    fs.writeFileSync(path.join(fakeBin, 'head'), '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(path.join(fakeBin, 'head'), 0o755);
+    try {
+      withFreezeDir(BOUNDARY, (stateDir) => {
+        const { exitCode, output } = runHook(FREEZE_SCRIPT, freezeInput('/Users/dev/project/src/x.ts'),
+          freezeEnv(stateDir, { PATH: `${fakeBin}:${process.env.PATH ?? ''}` }));
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('failed unexpectedly');
+      });
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('a hook helper from an older install that lacks gstack_hook_state_root DENIES (fail closed), never exit 127', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-oldhelper-'));
+    const freezeBin = path.join(base, 'freeze', 'bin');
+    const carefulBin = path.join(base, 'careful', 'bin');
+    fs.mkdirSync(freezeBin, { recursive: true });
+    fs.mkdirSync(carefulBin, { recursive: true });
+    fs.copyFileSync(FREEZE_SCRIPT, path.join(freezeBin, 'check-freeze.sh'));
+    const helper = fs.readFileSync(HOOK_EXTRACT, 'utf-8');
+    const start = helper.indexOf('gstack_hook_state_root() {');
+    const end = helper.indexOf('\n}\n', start) + 3;
+    fs.writeFileSync(path.join(carefulBin, 'hook-extract.sh'), helper.slice(0, start) + helper.slice(end));
+    try {
+      withFreezeDir(BOUNDARY, (stateDir) => {
+        const { exitCode, output } = runHook(path.join(freezeBin, 'check-freeze.sh'), freezeInput('/Users/dev/project/src/x.ts'), freezeEnv(stateDir));
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        // 'out of date' is the helper-without-function branch; the plain
+        // helpers-unavailable deny also says 'fail closed', so pin the specific one.
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('out of date');
+      });
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('an unwritable analytics sink never changes the decision: deny is still emitted as valid JSON', () => {
+    withFreezeDir(BOUNDARY, (gstackHome) => {
+      // `analytics` is a regular FILE, so mkdir -p and the >> append both fail.
+      fs.writeFileSync(path.join(gstackHome, 'analytics'), 'not a directory');
+      withEmptyDir((fakeHome) => {
+        const { exitCode, output, raw } = runHook(FREEZE_SCRIPT, freezeInput(OUTSIDE), {
+          GSTACK_HOME: gstackHome, HOME: fakeHome, CLAUDE_PLUGIN_DATA: '', CLAUDE_PLUGIN_ROOT: '',
+        });
+        expect(exitCode).toBe(0);
+        expect(() => JSON.parse(raw)).not.toThrow();
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        expect(fs.readFileSync(path.join(gstackHome, 'analytics'), 'utf-8')).toBe('not a directory');
+      });
     });
   });
 });

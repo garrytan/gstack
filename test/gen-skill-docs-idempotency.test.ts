@@ -12,18 +12,26 @@
  * file's timestamp never matched the latest gen. Fixed in 43e18af4 — this
  * test pins the contract going forward.
  *
- * The test pays a small cost (~2 gen-skill-docs invocations, ~3s total) but
- * catches a class of bugs that's invisible until CI fails.
+ * Isolation: each run renders into its OWN --out-dir (the working tree is
+ * never written), and the two out-dirs are diffed RECURSIVELY byte-for-byte
+ * — strictly stronger than the old sampled-file snapshot of an in-place
+ * double regen. The only tolerated difference is the out-dir path itself:
+ * --out-dir repoints section-base paths into the render, so each file is
+ * normalized by replacing its own out-dir path with a placeholder before
+ * comparison. Any OTHER byte difference (timestamp, random ID, iteration
+ * order) still fails.
  */
 
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 
-/** Files that gen-skill-docs writes and that must be byte-stable across runs. */
+/** Presence sanity list: key Claude-host outputs that must exist in a render
+ * (guards the recursive diff against vacuously comparing two empty dirs). */
 const STABLE_OUTPUTS = [
   'SKILL.md',
   'ship/SKILL.md',
@@ -33,10 +41,11 @@ const STABLE_OUTPUTS = [
 ];
 
 /**
- * Sampled outputs from EVERY non-Claude host. The full host-all run touches
- * .agents/, .cursor/, .factory/, .gbrain/, .hermes/, .kiro/, .openclaw/,
- * .opencode/, .slate/ — picking one canonical file per host catches per-host
- * non-determinism without paying the cost of snapshotting hundreds of files.
+ * Presence sanity for the --host all render: one canonical file per
+ * representative non-Claude host. The full host-all run touches .agents/,
+ * .cursor/, .factory/, .gbrain/, .hermes/, .kiro/, .openclaw/, .opencode/,
+ * .slate/ — the recursive diff covers every file; this list only proves the
+ * render actually fanned out across hosts.
  */
 const STABLE_HOST_ALL_OUTPUTS = [
   'SKILL.md',
@@ -59,51 +68,83 @@ function runGen(extraArgs: string[] = []): { exitCode: number; stderr: string } 
   };
 }
 
-function snapshot(files: string[] = STABLE_OUTPUTS): Map<string, string> {
-  const m = new Map<string, string>();
-  for (const rel of files) {
-    const full = path.join(REPO_ROOT, rel);
-    if (fs.existsSync(full)) {
-      m.set(rel, fs.readFileSync(full, 'utf-8'));
-    }
+/** Recursively list all regular files under dir as sorted relative paths. */
+function listFiles(dir: string, prefix = ''): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...listFiles(path.join(dir, entry.name), rel));
+    else out.push(rel);
   }
-  return m;
+  return out;
 }
 
-describe('gen-skill-docs idempotency', () => {
-  test('two consecutive runs produce byte-identical outputs (no flapping fields)', () => {
-    const firstRun = runGen();
+/**
+ * Diff two render dirs recursively. Every generated output is text, so files
+ * are read as utf-8 and each dir's own absolute path is normalized to
+ * <OUT_DIR> (the section-base repoint is the ONLY sanctioned difference
+ * between two renders of the same tree). Returns human-readable mismatches.
+ */
+function diffRenderDirs(dirA: string, dirB: string): string[] {
+  const filesA = listFiles(dirA);
+  const filesB = listFiles(dirB);
+  const problems: string[] = [];
+  const setB = new Set(filesB);
+  for (const f of filesA) {
+    if (!setB.has(f)) { problems.push(`${f} (only in first render)`); continue; }
+    const a = fs.readFileSync(path.join(dirA, f), 'utf-8').replaceAll(dirA, '<OUT_DIR>');
+    const b = fs.readFileSync(path.join(dirB, f), 'utf-8').replaceAll(dirB, '<OUT_DIR>');
+    if (a !== b) problems.push(`${f} (content differs)`);
+  }
+  const setA = new Set(filesA);
+  for (const f of filesB) {
+    if (!setA.has(f)) problems.push(`${f} (only in second render)`);
+  }
+  return problems;
+}
+
+/** Render twice into two fresh out-dirs, assert byte-identical outputs. */
+function assertDoubleRenderStable(extraArgs: string[], presenceSanity: string[], label: string): void {
+  const outA = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-idem-a-'));
+  const outB = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-idem-b-'));
+  try {
+    const firstRun = runGen([...extraArgs, '--out-dir', outA]);
     expect(firstRun.exitCode).toBe(0);
-
-    const after1 = snapshot();
-    expect(after1.size).toBeGreaterThan(0);
-
-    const secondRun = runGen();
+    const secondRun = runGen([...extraArgs, '--out-dir', outB]);
     expect(secondRun.exitCode).toBe(0);
 
-    const after2 = snapshot();
-
-    // Compare each stable output byte-for-byte.
-    const flapping: string[] = [];
-    for (const [file, before] of after1.entries()) {
-      const now = after2.get(file);
-      if (now !== before) flapping.push(file);
+    // Non-vacuous guard: the key outputs actually rendered.
+    for (const rel of presenceSanity) {
+      expect({ file: rel, exists: fs.existsSync(path.join(outA, rel)) })
+        .toEqual({ file: rel, exists: true });
     }
 
+    const flapping = diffRenderDirs(outA, outB);
     if (flapping.length > 0) {
       throw new Error(
-        `${flapping.length} file(s) changed between two consecutive gen-skill-docs runs (flapping):\n` +
+        `${flapping.length} file(s) differ between two consecutive ${label} gen runs (flapping):\n` +
         flapping.map(f => `  - ${f}`).join('\n') +
         `\nLikely cause: a non-deterministic field (timestamp, random ID, ` +
         `filesystem-iteration order) leaked into the generated output. CI freshness ` +
         `checks (git diff --exit-code) will fail unpredictably until this is fixed.`,
       );
     }
+  } finally {
+    fs.rmSync(outA, { recursive: true, force: true });
+    fs.rmSync(outB, { recursive: true, force: true });
+  }
+}
+
+describe('gen-skill-docs idempotency', () => {
+  test('two consecutive runs produce byte-identical outputs (no flapping fields)', () => {
+    assertDoubleRenderStable([], STABLE_OUTPUTS, 'claude-host');
   }, 180_000); // ~2 min budget for two gen runs
 
-  test('--dry-run after a fresh gen reports zero stale files', () => {
-    // Pre-condition: working tree gen must be fresh (idempotency test above ran first).
-    // If a contributor introduces a non-deterministic field, this dry-run reports STALE.
+  test('--dry-run against the tracked tree reports zero stale files', () => {
+    // Tracked-tree freshness assertion (deliberately a READ of the committed
+    // files — the out-dir renders above never touch them). If a contributor
+    // edits a template without regenerating, or introduces a
+    // non-deterministic field, this dry-run reports STALE.
     const result = spawnSync('bun', ['run', 'gen:skill-docs', '--dry-run'], {
       cwd: REPO_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -115,7 +156,7 @@ describe('gen-skill-docs idempotency', () => {
     const staleLines = stdout.split('\n').filter(l => l.startsWith('STALE:'));
     if (staleLines.length > 0) {
       throw new Error(
-        `--dry-run reports ${staleLines.length} stale file(s) after a fresh gen:\n` +
+        `--dry-run reports ${staleLines.length} stale file(s) against the tracked tree:\n` +
         staleLines.map(l => `  ${l}`).join('\n') +
         `\nRun \`bun run gen:skill-docs\` and commit the result.`,
       );
@@ -127,31 +168,8 @@ describe('gen-skill-docs idempotency', () => {
     // (Codex, Factory, Cursor, OpenClaw, GBrain, Slate, OpenCode, Hermes,
     // Kiro) have their own output paths and could carry their own
     // non-deterministic fields. We hit a "--host all needed for freshness
-    // check" mid-/ship; this test pins the contract across every host.
-    const firstRun = runGen(['--host', 'all']);
-    expect(firstRun.exitCode).toBe(0);
-
-    const after1 = snapshot(STABLE_HOST_ALL_OUTPUTS);
-    expect(after1.size).toBeGreaterThan(0);
-
-    const secondRun = runGen(['--host', 'all']);
-    expect(secondRun.exitCode).toBe(0);
-
-    const after2 = snapshot(STABLE_HOST_ALL_OUTPUTS);
-
-    const flapping: string[] = [];
-    for (const [file, before] of after1.entries()) {
-      const now = after2.get(file);
-      if (now !== before) flapping.push(file);
-    }
-
-    if (flapping.length > 0) {
-      throw new Error(
-        `${flapping.length} file(s) changed between two consecutive --host all gen runs:\n` +
-        flapping.map(f => `  - ${f}`).join('\n') +
-        `\nLikely cause: a non-deterministic field leaked into a non-Claude host's ` +
-        `config or resolver output. CI freshness checks for that host will flap.`,
-      );
-    }
+    // check" mid-/ship; this test pins the contract across every host — the
+    // recursive diff covers EVERY rendered file for EVERY host.
+    assertDoubleRenderStable(['--host', 'all'], STABLE_HOST_ALL_OUTPUTS, '--host all');
   }, 300_000); // ~5 min budget for two host-all runs
 });

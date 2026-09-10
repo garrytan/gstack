@@ -27,6 +27,8 @@
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   engStep0Boundary,
@@ -38,30 +40,38 @@ const describeE2E = describeE2ETier('periodic');
 const N = 4;
 const FLOOR = N - 1; // 3 — agent must fire at least one AUQ per non-batched finding
 
-const PLAN_PATH = '/tmp/gstack-test-plan-eng-batching.md';
+/** Plan-file target baked into the FORCING_BATCHING_ENG fixture prompt.
+ *  Rewritten per-run to a mkdtemp path so concurrent runs (--retry,
+ *  EVALS_JOBS>1, sibling worktrees) never share one /tmp artifact. */
+const FIXTURE_PLAN_PATH = '/tmp/gstack-test-plan-eng-batching.md';
 
 describeE2E('/plan-eng-review multi-finding batching regression (periodic)', () => {
   test(
     `4-finding plan emits >= ${FLOOR} review-phase AskUserQuestions (no batching)`,
     async () => {
-      try {
-        fs.rmSync(PLAN_PATH, { force: true });
-      } catch {
-        /* best-effort */
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-eng-batching-'));
+      const planPath = path.join(tmpDir, 'gstack-test-plan-eng-batching.md');
+      const followUpPrompt = FORCING_BATCHING_ENG.replaceAll(FIXTURE_PLAN_PATH, planPath);
+      if (!followUpPrompt.includes(planPath)) {
+        throw new Error(
+          `fixture drift: FORCING_BATCHING_ENG no longer contains ${FIXTURE_PLAN_PATH} — update FIXTURE_PLAN_PATH`,
+        );
       }
 
-      const obs = await runPlanSkillCounting({
-        skillName: 'plan-eng-review',
-        slashCommand: '/plan-eng-review',
-        followUpPrompt: FORCING_BATCHING_ENG,
-        isLastStep0AUQ: engStep0Boundary,
-        reviewCountCeiling: N + 3, // hard cap above floor + tolerance
-        cwd: process.cwd(),
-        timeoutMs: 1_500_000, // 25 min
-        env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
-      });
-
       try {
+        const obs = await runPlanSkillCounting({
+          skillName: 'plan-eng-review',
+          slashCommand: '/plan-eng-review',
+          followUpPrompt,
+          isLastStep0AUQ: engStep0Boundary,
+          reviewCountCeiling: N + 3, // hard cap above floor + tolerance
+          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
+          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
+          cwd: process.cwd(),
+          timeoutMs: 1_500_000, // 25 min
+          env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
+        });
+
         if (!['plan_ready', 'completion_summary', 'ceiling_reached'].includes(obs.outcome)) {
           throw new Error(
             `multi-finding batching test FAILED: outcome=${obs.outcome}\n` +
@@ -85,12 +95,12 @@ describeE2E('/plan-eng-review multi-finding batching regression (periodic)', () 
         }
       } finally {
         try {
-          fs.rmSync(PLAN_PATH, { force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }
       }
     },
-    1_700_000,
+    1_500_000 /* physical ceiling: the 25-min CI job + 1800s shard wall cap what can actually execute */,
   );
 });

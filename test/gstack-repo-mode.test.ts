@@ -25,6 +25,7 @@ function run(command: string, args: string[], cwd: string, home: string): Comman
     cwd,
     encoding: 'utf8',
     env: { ...process.env, HOME: home, GSTACK_HOME: path.join(home, '.gstack') },
+    timeout: 30_000,
   });
   return {
     stdout: result.stdout ?? '',

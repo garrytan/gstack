@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { CODEX_FRONTIER_MODEL } from '../../../scripts/resolvers/constants';
 
 /**
  * GPT adapter — wraps the OpenAI `codex` CLI (codex exec with --json output).
@@ -36,8 +37,8 @@ export class GptAdapter implements ProviderAdapter {
     // often run in temp dirs / non-git paths), so the read-only sandbox is now
     // the only boundary preventing codex from mutating the workdir. If you ever
     // remove `-s read-only`, drop `--skip-git-repo-check` too.
-    const args = ['exec', opts.prompt, '-C', opts.workdir, '-s', 'read-only', '--skip-git-repo-check', '--json'];
-    if (opts.model) args.push('-m', opts.model);
+    const model = opts.model ?? process.env.GSTACK_CODEX_MODEL ?? CODEX_FRONTIER_MODEL;
+    const args = ['exec', opts.prompt, '-C', opts.workdir, '-s', 'read-only', '--skip-git-repo-check', '--json', '-m', model];
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
     try {
@@ -53,27 +54,27 @@ export class GptAdapter implements ProviderAdapter {
         tokens: parsed.tokens,
         durationMs: Date.now() - start,
         toolCalls: parsed.toolCalls,
-        modelUsed: parsed.modelUsed || opts.model || 'gpt-5.4',
+        modelUsed: parsed.modelUsed || model,
       };
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
       const stderr = e.stderr?.toString() ?? '';
       if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
-        return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
+        return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, model);
       }
       if (/unauthorized|auth|login/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
+        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, model);
       }
       if (/rate[- ]?limit|429/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
+        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, model);
       }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, model);
     }
   }
 
   estimateCost(tokens: { input: number; output: number; cached?: number }, model?: string): number {
-    return estimateCostUsd(tokens, model ?? 'gpt-5.4');
+    return estimateCostUsd(tokens, model ?? CODEX_FRONTIER_MODEL);
   }
 
   /**
@@ -120,7 +121,7 @@ export class GptAdapter implements ProviderAdapter {
       tokens: { input: 0, output: 0 },
       durationMs,
       toolCalls: 0,
-      modelUsed: model ?? 'gpt-5.4',
+      modelUsed: model ?? CODEX_FRONTIER_MODEL,
       error,
     };
   }

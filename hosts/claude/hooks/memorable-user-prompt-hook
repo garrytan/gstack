@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Bash shim — Claude Code hooks run `command` strings via /bin/sh, so this
+# wrapper makes the TypeScript hook executable via bun. Settings.json
+# references this file directly (registered by bin/gstack-memorable enable,
+# never by ./setup).
+#
+# FAIL-OPEN: a third-party recall bridge must never block a prompt. Every
+# failure path — bun missing, script crash — still exits 0 with empty stdout.
+#
+# bun runs as a job, not a foreground child: bash holds a SIGTERM until a
+# foreground child exits, so a host that terminates this shim would leave the
+# vendor process running with the prompt on its stdin. Forwarded, the signal
+# reaches the .ts, which kills the vendor's process group on its way out.
+# `<&0` keeps stdin: bash hands background jobs /dev/null otherwise.
+HERE="$(cd "$(dirname "$0")" && pwd)" || exit 0
+bun "$HERE/memorable-user-prompt-hook.ts" <&0 &
+_child=$!
+trap 'kill -TERM "$_child" 2>/dev/null' TERM INT HUP
+wait "$_child" 2>/dev/null || wait "$_child" 2>/dev/null || true
+exit 0

@@ -31,6 +31,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { PTY_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -136,12 +137,12 @@ function snapshotFixture(workTree: string): FixtureSnapshot {
   const changelog = fs.readFileSync(path.join(workTree, 'CHANGELOG.md'), 'utf-8');
   // Count `## [0.0.2]` headings — should stay at 1 across re-runs.
   const changelogEntryCount = (changelog.match(/^##\s*\[0\.0\.2\]/gm) ?? []).length;
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: workTree, stdio: 'pipe' });
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: workTree, stdio: 'pipe', timeout: 30_000 });
   const branchHead = head.stdout?.toString().trim() ?? '';
   // Count "chore: bump version" commits on this branch since main.
   const log = spawnSync(
     'git', ['log', '--format=%s', 'main..HEAD'],
-    { cwd: workTree, stdio: 'pipe' },
+    { cwd: workTree, stdio: 'pipe', timeout: 30_000 },
   );
   const subjects = log.stdout?.toString() ?? '';
   const bumpCommitCount = subjects.split('\n').filter(s => /chore:\s*bump\s+version/i.test(s)).length;
@@ -158,7 +159,7 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
       const session = await launchClaudePty({
         permissionMode: 'plan',
         cwd: fixture.workTree,
-        timeoutMs: 1_080_000,
+        timeoutMs: PTY_LONG_MS,
         // Disable network-y pieces so the agent can't reach actual github.
         env: { GH_TOKEN: 'mock-not-real', NO_COLOR: '1' },
         seedSkills: true,
@@ -279,6 +280,6 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
         try { fs.rmSync(path.dirname(fixture.workTree), { recursive: true, force: true }); } catch { /* ignore */ }
       }
     },
-    1_200_000, // 20 min wall clock
+    PTY_LONG_MS, // 20 min wall clock
   );
 });

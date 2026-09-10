@@ -55,7 +55,7 @@ describe("PR #1169 bug #2: build-app.sh sed escape for $APP_NAME", () => {
           "_",
           appName,
         ],
-        { encoding: "utf-8" }
+        { encoding: "utf-8", timeout: 30_000 }
       );
 
       expect(result.status).toBe(0);
@@ -149,6 +149,7 @@ describe("PR #1169 bug #3: build-app.sh DMG_TMP mktemp failure guard", () => {
       {
         encoding: "utf-8",
         env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+        timeout: 30_000,
       }
     );
 

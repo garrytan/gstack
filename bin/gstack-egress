@@ -151,6 +151,7 @@ function egressGrants(args: string[], home: string): number {
   const syncMode = configGet('artifacts_sync_mode') || 'off';
   const repoVisibility = configGet('redact_repo_visibility') || 'unknown';
   const prepushHook = configGet('redact_prepush_hook') || 'false';
+  const memorableRecall = configGet('memorable_recall') || 'off';
 
   const grants: Grant[] = [
     {
@@ -188,6 +189,15 @@ function egressGrants(args: string[], home: string): number {
       file: configFile,
       key: 'redact_prepush_hook',
       revoke: 'gstack-config set redact_prepush_hook false (disables the guard)',
+    },
+    {
+      grant: 'memorable-recall',
+      value: memorableRecall,
+      granted: memorableRecall === 'on',
+      detail: 'Claude Code UserPromptSubmit hook hands each prompt to the third-party memorable CLI (receipted per prompt as sink memorable-recall; the vendor\'s own capture consent is separate)',
+      file: configFile,
+      key: 'memorable_recall',
+      revoke: 'gstack-memorable disable (or gstack-config set memorable_recall off)',
     },
   ];
 

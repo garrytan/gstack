@@ -16,6 +16,7 @@
  * (N SDK runs, ~$0.50-1 each).
  */
 import { test } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
@@ -99,6 +100,6 @@ describeE2E('AUQ consistency across runs (periodic)', () => {
           `format elements every run; substance ${minSub}-${maxSub}`,
       );
     },
-    N_RUNS * 300_000 + 60_000,
+    N_RUNS * CAPTURE_MS + 60_000,
   );
 });

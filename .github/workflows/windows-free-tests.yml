@@ -31,6 +31,10 @@ concurrency:
   group: windows-free-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
+# Test-only lane — no token writes.
+permissions:
+  contents: read
+
 jobs:
   windows-free-tests:
     # Ubicloud Windows runner (same provider as the Linux evals workflow).
@@ -52,6 +56,10 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: windows-bun-${{ hashFiles('bun.lock') }}
+          # A lockfile bump starts from the previous cache instead of cold
+          # (restore alone costs ~26s; without this a bump pays it for nothing).
+          restore-keys: |
+            windows-bun-
 
       - name: Configure git identity (required by tests that init temp repos)
         run: |

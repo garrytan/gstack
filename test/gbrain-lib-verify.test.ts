@@ -28,6 +28,7 @@ function runVerify(arg: string, stdin?: string) {
   const res = spawnSync(VERIFY, arg === '' ? [] : [arg], {
     input: stdin,
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   return {
     stdout: (res.stdout || '').trim(),
@@ -43,6 +44,7 @@ function runLibSnippet(snippet: string, stdin: string = '') {
   const res = spawnSync('bash', ['-c', script], {
     input: stdin,
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   return {
     stdout: (res.stdout || '').trim(),

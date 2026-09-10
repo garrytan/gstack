@@ -299,6 +299,33 @@ const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-
 const UUID_CONTEXT_CHARS = 40;
 
 /**
+ * True when an `internal.hostname` span is really the tail of a dotenv
+ * FILENAME (`.env.local`, `.env.staging`, `.env.prod`) rather than a host.
+ *
+ * The hostname pattern ends in `.local|.prod|.staging|…`, so `.env.local`
+ * matches on `env.local` — a false positive on one of the most commonly
+ * committed filenames there is. It arrives via npm scripts
+ * (`--env-file=.env.local`), READMEs, `.gitignore` and setup docs, i.e. on
+ * ordinary branches that leak nothing, which is the noise that teaches people
+ * to skim past MEDIUM findings.
+ *
+ * Deliberately narrow, in the same spirit as `insideUuid`: it exempts ONLY a
+ * span beginning `env.` that is immediately preceded by a dot — the literal
+ * `.env.<suffix>` form. A real host still reports, `api.corp` and
+ * `build-7.internal` included, and so does `myenv.local`, which is not a
+ * dotenv file.
+ */
+export function isDotenvFilename(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  const span = match[1] ?? match[0];
+  if (!/^env\./i.test(span)) return false;
+  // Mirror the engine: capture group 1 when present, else the whole match.
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const spanStart = match.index + Math.max(0, spanStartInMatch);
+  return spanStart > 0 && input[spanStart - 1] === ".";
+}
+
+/**
  * True when the matched span sits ENTIRELY inside a UUID.
  *
  * Digit-only UUIDs — `00000000-0000-0000-0000-000000000000`,
@@ -437,6 +464,33 @@ export const PATTERNS: RedactPattern[] = [
     // glpat- personal access, glptt- pipeline trigger, gldt- deploy token.
     // gstack drives glab first-class — these were a coverage gap (#1946).
     regex: /\b(gl(?:pat|ptt|dt)-[A-Za-z0-9_-]{20,})\b/,
+  },
+  {
+    id: "groq.key",
+    tier: "HIGH",
+    category: "secret",
+    description: "Groq API key",
+    regex: /\b(gsk_[A-Za-z0-9]{20,})\b/,
+  },
+  {
+    id: "tavily.key",
+    tier: "HIGH",
+    category: "secret",
+    description: "Tavily API key (incl. tvly-dev-/tvly-prod-)",
+    // Explicit environment infixes rather than a globally-optional segment,
+    // which would also match separator-less tvly-devabc… (same reasoning as
+    // openai.key above).
+    regex: /\b(tvly-(?:dev-|prod-)?[A-Za-z0-9]{16,})\b/,
+  },
+  {
+    id: "notion.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "Notion integration token (ntn_ current, secret_ legacy)",
+    // Two explicit shapes. The legacy `secret_` form keeps a high {40,} floor
+    // because the prefix is an ordinary English word — the length is what makes
+    // it a credential rather than prose.
+    regex: /\b(ntn_[A-Za-z0-9]{40,}|secret_[A-Za-z0-9]{40,})\b/,
   },
   {
     id: "huggingface.token",
@@ -724,6 +778,8 @@ export const PATTERNS: RedactPattern[] = [
     category: "internal",
     description: "Internal hostname (*.internal/.corp/.local/.prod/.staging)",
     regex: /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i,
+    // `.env.local` and friends are filenames, not hosts. See isDotenvFilename.
+    validate: (_span, match) => !isDotenvFilename(match),
   },
   {
     id: "internal.url_private",

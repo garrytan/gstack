@@ -1,0 +1,14 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 32rem;
+  margin: 2rem auto;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+#confirmation {
+  color: #1a7f37;
+}

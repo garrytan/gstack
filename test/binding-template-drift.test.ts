@@ -31,7 +31,9 @@ describe('content-binding template drift', () => {
   });
 
   test('land-and-deploy grades staleness content-first (wtree rule) and checks evidence', () => {
-    const land = rendered('land-and-deploy/SKILL.md');
+    // Carved (prompt-token-load-reduction): Step 3.5 moved out of the skeleton
+    // into the on-demand readiness-gate section — the grading rules live there.
+    const land = rendered('land-and-deploy/sections/readiness-gate.md');
     expect(land).toContain('wtree');
     expect(land).toContain('---WTREE---');
     expect(land).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --max-age 24/);
@@ -54,13 +56,15 @@ describe('content-binding template drift', () => {
     // structurally: the three row names in order inside the rule sentence.
     const rowList = /diff-scoped rows only:[\s\S]{0,80}?adversarial-review[\s\S]{0,80}?codex-review[\s\S]{0,80}?ship-stage entries/;
     expect(rendered('ship/SKILL.md')).toMatch(rowList);
-    expect(rendered('land-and-deploy/SKILL.md')).toMatch(rowList);
+    // land-and-deploy's copy of the row list lives in the carved readiness-gate
+    // section (Step 3.5a), not the skeleton.
+    expect(rendered('land-and-deploy/sections/readiness-gate.md')).toMatch(rowList);
   });
 
   test('release-body write side carries the banner tripwire (and it actually fires)', () => {
     const body = rendered('document-release/sections/release-body.md');
-    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" /tmp/gstack-pr-body-$$.md');
-    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" /tmp/gstack-pr-body-orig-$$.md');
+    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" "<run-dir>/body.md"');
+    expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" "<run-dir>/body-original.md"');
     // The fail-open shape: grep -c prints 0 AND exits 1 on no-match, so an
     // `|| echo 0` double-emits and breaks the -gt into the clean branch.
     expect(body).not.toContain('|| echo 0');
@@ -90,15 +94,15 @@ describe('content-binding template drift', () => {
         fs.writeFileSync(path.join(dir, 'orig.md'), origContent);
         fs.writeFileSync(path.join(dir, 'new.md'), newContent);
         return block![0]
-          .replaceAll('/tmp/gstack-pr-body-orig-$$.md', path.join(dir, 'orig.md'))
-          .replaceAll('/tmp/gstack-pr-body-$$.md', path.join(dir, 'new.md'));
+          .replaceAll('<run-dir>/body-original.md', path.join(dir, 'orig.md'))
+          .replaceAll('<run-dir>/body.md', path.join(dir, 'new.md'));
       };
 
       // Banner leaked into the outgoing body → the ABORT branch fires, loudly.
       const abort = spawnSync('bash', ['-c', scriptFor(
         'clean body\n',
         'body with UNTRUSTED TRACKER CONTENT banner leak\n',
-      )], { encoding: 'utf-8' });
+      )], { encoding: 'utf-8', timeout: 30_000 });
       expect(abort.stderr).toContain('ABORT: envelope banner leaked');
       expect(abort.stdout).not.toContain('banner tripwire clean');
 
@@ -106,7 +110,7 @@ describe('content-binding template drift', () => {
       const clean = spawnSync('bash', ['-c', scriptFor(
         'clean body\n',
         'also clean body\n',
-      )], { encoding: 'utf-8' });
+      )], { encoding: 'utf-8', timeout: 30_000 });
       expect(clean.stdout).toContain('banner tripwire clean');
       expect(clean.stderr).not.toContain('ABORT');
     } finally {

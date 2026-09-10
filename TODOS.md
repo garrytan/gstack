@@ -2,6 +2,121 @@
 
 ## NEXT PRIORITY
 
+### P2/P3: impeccable interop deferrals (filed 2026-09-08, from the CEO + eng reviews of docs/designs/IMPECCABLE_INTEROP.md)
+
+Each item was weighed during the review and deferred with a reason; none blocks
+the shipped detector, catalog, or open DESIGN.md format.
+
+- **Carve design-review Phases 7-11 into a section (budget lever)** — design-review's
+  eager tokens landed at +2.87K against the review's 2.5K target after every
+  planned lever (ids-only detector rules in category 9, the dump script moved to
+  `lib/dom-dump.js`, trimmed prose); the ceiling in
+  `test/fixtures/context-budget.json` moved to the measured 31,319. The next real
+  lever is carving the fix loop (Phases 7-11) into a section, which touches the
+  E2E copy logic in `test/skill-e2e-design.test.ts`. Effort M. Priority P2.
+- **Bun `.env` auto-load audit across `bin/*.ts`** — Bun loads a cwd `.env` into
+  `process.env` even for a script outside cwd. `gstack-design-detect.ts` and
+  `gstack-design-md.ts` render with `--no-env-file` and ignore in-repo
+  `IMPECCABLE_BIN` / `IMPECCABLE_HOME`; every other `bun run
+  ~/.claude/skills/gstack/bin/*.ts` a skill renders has the same exposure for any
+  env-driven exec path. Audit them, render `--no-env-file` where an env var can
+  name a binary or a path. Effort S. Priority P2.
+- **Kiro install arm links `SKILL.md` and `sections/` only** — every gstack
+  `bin/` path a Kiro render carries (the detector, the DESIGN.md tool, the render
+  CLI, review-log, diff-scope) is a pre-existing gap on that host. Link `bin/`
+  and `lib/` together there like the other arms (`setup` ~2341). Effort S.
+  Priority P2. Collaborative repo, not fixed in the interop PR.
+- **`$D check` slop rubric** — add the catalog's LLM-only tells (hero metrics,
+  identical cards, glassmorphism, content stand-ins) to `design/src/check.ts`'s
+  vision pass once those entries have been exercised in reviews. Open questions:
+  a paid GPT-4o call per variant, and vision misjudging cream palettes and nested
+  cards. Effort M. Priority P3.
+- **Taste-profile interplay for `overused-font`** — downgrade a detector
+  overused-font hit to polish when the face is in the user's approved taste
+  profile. Today `impeccable hooks ignore-value overused-font <face>` covers it
+  without coupling the two schemas. Effort S. Priority P3.
+- **plan-ceo-review Section 11 catalog bullets** — render `{{DESIGN_SLOP_BULLETS}}`
+  into the CEO review's design section. Blocked on the plan-ceo-review doctrine
+  carve (~555 B of skeleton headroom today). Effort S. Priority P3.
+- **Detector scan cache** — cache `gstack-design-detect.ts scan` results under
+  `${GSTACK_HOME}/cache/design-detect/` keyed on engine hash, target-set hash,
+  and `.impeccable/config*.json` hash, so Phase 9's rescan and repeated ship
+  reviews skip unchanged files. Effort S. Priority P3.
+
+
+### P2: fork-port residual wave deferrals (filed at Wave A, 2026-09-03)
+
+Filed from the time-attack/gstack residual evaluation
+(docs/designs/fork-port-residual-2026-09/REPORT.md) and its CEO + eng reviews.
+Waves B–E2 of that plan are scheduled work, not TODOs; these are the items the
+reviews deliberately deferred, each with rationale:
+
+- **Shared `_gstack_owned_link` helper** — the ownership gate now exists in
+  seven places (setup's `_claude_entry_is_ours` / `_claude_entry_owned_strongly`
+  used by link_claude_skill_dirs and _install_alias_skill_md, while
+  cleanup_old_claude_symlinks and cleanup_prefixed_claude_symlinks inline their
+  own marker/cmp/banner chain and readlink `case`; bin/gstack-relink
+  `_entry_is_ours`; bin/gstack-uninstall's per-entry loop; and, since the
+  Aside-first wave, setup's `_prune_stale_generated`, which removes a retired
+  host entry behind the banner-only `_owned_for_windows_refresh` check —
+  symlinks outright, real dirs through `_cleanup_weak_dir` — and must route
+  through the same helper). Extract one sourced
+  helper so the destructive-path guard cannot drift, and while there: make the
+  `.gstack-owned` marker's recorded install path load-bearing (today any marker
+  counts, so a Windows fork copy carrying gstack's generated header is still
+  treated as ours on a mode flip). Effort S. Priority P2. Depends on: none.
+- **Non-Claude host loops + stale-render prune under the marker rule** — the
+  Codex, Factory, OpenCode, Cursor and Kiro link loops (setup's
+  `link_*_skill_dirs`, the `_owned_for_windows_refresh` gate at each) still
+  `rm -rf` + re-copy a REAL host directory on banner-only proof, and
+  `_prune_stale_generated` routes a bannered real dir through
+  `_cleanup_weak_dir` only because those hosts never receive a `.gstack-owned`
+  marker. Write the marker for every host's copy install, then switch all five
+  loops and the prune to the strong/weak split the Claude host and
+  `gstack-relink` already use (#2119). Effort M (human ~2 days / CC ~1h).
+  Priority P2. Depends on: the shared `_gstack_owned_link` helper above (same
+  code motion; do them together).
+- **Free test: CHANGELOG top heading equals VERSION** — a fork PR that claimed
+  a version main had since shipped auto-merged VERSION, package.json and the
+  digest header with no git conflict (both sides identical); only
+  `bin/gstack-next-version` and the PR-time queue check saw it. A tiny free
+  test asserting the first `## [X]` in CHANGELOG.md equals VERSION would make
+  the collision a red test on any branch. Decide first whether mid-branch
+  VERSION bumps without a CHANGELOG entry are a workflow the suite must
+  tolerate (`/ship` writes both in one step, so probably not). Effort S
+  (human ~2h / CC ~10min). Priority P3. Depends on: none.
+- **Config-key reader tripwire** — `transcript_ingest_mode=off` sat unread for
+  months while setup-gbrain advertised it. A free test that asserts every key
+  in bin/gstack-config's default table is read by at least one binary (or is
+  explicitly listed as prose-only) makes a dead consent switch a red test.
+  Effort S. Priority P2. Depends on: Wave E1 landing the reader.
+- **"Pre-existing" failure vocabulary** — scripts/resolvers/preamble/
+  generate-test-failure-triage.ts classifies from `git diff --name-only` and
+  never asks for a base-branch run. Rewrite T1 to verified/unverified with the
+  base branch's CI status (`gh run list --branch <base>`) as default evidence
+  and a failing-files-only worktree run as an opt-in. Effort M → S with CC.
+  Priority P2. Depends on: none.
+- **Opt-in `reply_language` config key** (#679) — render into the Writing
+  Style section only when set; keep identifiers and commands in English; add
+  the mixed-language tests the issue asked for. Not an always-on voice line
+  (community-PR guardrail). Effort S. Priority P3.
+- **Remove the `~/.gstack/.auth.json` writer** — browser-manager.ts:638-640
+  says the component-baked GBrowser extension reads it. Confirm GBrowser
+  bootstraps via `POST /extension-token`; if so, delete the writer plus a
+  migration that removes the orphaned credential file. Effort S. Priority P3.
+  Depends on: GBrowser source check.
+- **CONTRIBUTING rule for fork-derived changes** — a change lifted from a fork
+  enters upstream only behind a test verified red on upstream HEAD first, with
+  credit to the original author; cherry-picks allowed when the fork commit
+  carries that test. 34 of 48 top fork candidates died under refutation; the
+  rule is what made the survivors safe. Effort S. Priority P2.
+- **Hook slug-derivation parity audit** — question-preference-hook keyed
+  project prefs by cwd basename while the writer keyed by owner-repo (Wave E1
+  fixes it via `slugFromCacheOnly`). Audit question-log-hook and every other
+  Claude hook that buckets by project for the same mismatch. Effort S.
+  Priority P3. Depends on: Wave E1.
+
+
 ### P1: ZeroEntropy sunset — gbrain's default embedding provider dies Sept 4, 2026 (#2365)
 
 **What:** ZeroEntropy (acquired by Notion) shuts down September 4, 2026. gbrain's
@@ -48,6 +163,40 @@ wave"). Each was explicitly deferred with rationale, not dropped:
   (gbrain MCP routing), #2535 (outside voice for /investigate,/cso,/devex),
   #2576 (fast-ship rework — re-evaluate against v1.66's CI speedup),
   #2580 (land-and-deploy CI tiers — human-gate UX needs maintainer call).
+
+### P2/P3: v1.78 fix-wave deferrals (filed at wave time, each deferred with rationale)
+
+- **mermaid 10→11-class major bumps in lib/diagram-render** — the wave's
+  dependency pass cleared 102 of 105 OSV advisories via in-range bumps +
+  overrides; the residual ignores (image-size no-fix, @anthropic-ai/sdk under
+  the harness-pinned agent-sdk) carry `ignoreUntil` expiries (~2026-11-30) and
+  re-justify themselves on expiry. When the agent-sdk pin next moves, drop the
+  GHSA-p7fg ignore. Effort S. **Priority:** P3.
+- **#2701 cookie-import profile pills (Local State info_cache)** — confirmed
+  bug + minimal fix known, but PR #2658 rewrites the same file; land or
+  reject #2658 first, then apply the info_cache read + numeric-aware sort.
+  Effort S. **Priority:** P3. **Blocked by:** #2658 disposition.
+- **#2750 split absorption** — the record-scanning Codex JSONL parser (real
+  fix; current Codex streams interleave envelopes so sessions vanish from
+  /retro global) should be absorbed once the author splits it from the
+  bundled schema additions + 1 MiB scan-budget change (asked in the wave's
+  disposition comment). Effort S (review). **Priority:** P3.
+- **#2709 macOS live verification** — the GPU flag set is reporter-validated
+  and darwin-gated with a GSTACK_DISABLE_GPU=off escape; the stop-path reap
+  is Linux-tested. Verify both on real Apple-silicon hardware (flags drop the
+  spin to 0%, screenshots still work, reap kills the survivor) on first
+  access to an M-series box. Effort S. **Priority:** P3.
+- **Periodic-lane stabilization (#2756)** — the weekly lane in its v1.77
+  shape (73-shard sharded runner, pinned CLI, EVALS_ALL census) has never
+  been green; the v1.78 wave killed the deterministic v1.76 AUQ collapse but
+  the residual set churns (band-edge variance, the pre-existing
+  exited/hits=[] startup class, known flakes). Evidence table + suggested
+  direction (band recalibration against a fresh pinned-container
+  distribution) in the issue. Effort M. **Priority:** P2.
+- **Outside-voice resolved-model print** — #2735's second suggestion (print
+  the concrete fallback model at dispatch time) is a functional change
+  needing model resolution in the preflight; descoped from the copy fix.
+  Effort S. **Priority:** P3.
 
 ### P2: v1.69 fix-wave residuals (filed at wave time, each deferred with rationale)
 
@@ -162,10 +311,11 @@ The wave's Step-7 coverage audit (5 subsystem agents, ~700 changed paths,
 shipped verified by hand or adjacent tests); each is a cheap pin against
 silent regression:
 
-- **setup Playwright bootstrap block** — `_clear_playwright_quarantine`,
-  `_PW_LOCK` stale-holder reclaim, `_kill_tree`/`_wait_with_deadline`, Ubuntu
-  26.04 platform override: zero test references. The P0 #2554 heal's shell
-  half. Effort S each.
+- **setup Playwright bootstrap block** — `_PW_LOCK` stale-holder reclaim,
+  `_kill_tree`/`_wait_with_deadline`, and the platform override are now pinned
+  by test/setup-playwright-best-effort.test.ts (fork-port Wave A). Still
+  unpinned: `_clear_playwright_quarantine` (the P0 #2554 heal's shell half).
+  Effort S.
 - **redact-prepush `scanAddedLines` slicing** — the >1MiB catch-up-diff chunk
   path (the reason the function exists) is unexercised; a regression
   reintroduces blocking-while-unscanned. Effort S.
@@ -353,7 +503,16 @@ touchfiles and re-offer pending ones on the next interactive run.
 false) permanently misses the artifacts-rename migration unless they paste the
 manual command. **Effort:** M. **Priority:** P2.
 
-### P2: periodic tier — three documented-red tests need structural repair
+### P2: periodic tier — TWO documented-red tests need structural repair (was three)
+
+**2026-08-29 update (test-infra overhaul):** (1) the sidebar E2E trio is
+ALREADY DELETED — no file in the tree POSTs to /sidebar-command or
+/sidebar-chat; only tombstone tests remain (browse/test/sidebar-tabs.test.ts
+asserts the endpoints STAY deleted), so part (1) closes as already-done.
+(2) skill-e2e-ship-idempotency and (3) skill-e2e-brain-privacy-gate are now
+EXCLUDED from the weekly lane with tracking
+(test/helpers/periodic-exclude-data.ts) — removing their entries re-activates
+them; the structural investigations below are the re-entry condition.
 
 **What:** (1) The sidebar E2E trio (navigate, url-accuracy, css-interaction)
 POSTs to /sidebar-command and /sidebar-chat — endpoints removed on every tree
@@ -414,7 +573,365 @@ references — include it in this fix's coverage list.
 - Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
 - Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
 
+## Memorable bridge follow-ups (filed via /plan-ceo-review + /plan-eng-review on the Memorable bridge fix-up, #2831)
+
+### P3: gstack-mediated third-party hook seam
+
+**What:** Generalize what the Memorable bridge instantiates: a `mediate <name>`
+verb (or provider table) that gives ANY third-party Claude Code hook a consent
+key, a receipt sink, an envelope, healing and clean removal, with Memorable as
+the first provider.
+
+**Why:** The bridge fixes the interface (config key, sink name, source tag,
+hook basename, gate, envelope). A second vendor today would copy
+`bin/gstack-memorable` and the hook `.ts`; the seam makes it a registration.
+
+**Context:** Deliberately not built with one provider (premature abstraction;
+CEO review D1/ED17). Start from `bin/gstack-memorable`,
+`hosts/claude/hooks/memorable-user-prompt-hook.ts`, and the `KNOWN_HOOKS`
+row shape.
+
+**Effort:** L (human ~1.5 weeks / CC+gstack ~4 h). **Priority:** P3.
+**Depends on:** a second third-party hook actually wanting in.
+
+### P2: Windows support for the Memorable bridge (D21)
+
+**What:** `enable` refuses on Windows and the hook exits 0 there. Bring it up:
+descendant termination (`taskkill /T` or a job object) so a vendor process
+cannot outlive a timeout, `.cmd` and extensionless shim handling for the
+vendor path, the `bash ` command prefix setup uses for registrations, and a
+live verification on the windows lane with a real `npm i -g memorable-cli`.
+
+**Why:** Without process groups the containment guarantee the bridge makes
+cannot be given; refusing was the honest choice for this wave.
+
+**Context:** `runExternal` in `hosts/claude/hooks/spawn-bin.ts` returns
+`EPLATFORM` on win32; the behavioural tests are auto-excluded from the
+windows lane because they spawn `bin/` scripts.
+
+**Effort:** M (human ~2 days / CC+gstack ~1 h). **Priority:** P2.
+**Depends on:** none.
+
+### P3: `lib/tracker-guard.ts` envelope `kind` parameter
+
+**What:** The envelope wraps recall text with the TRACKER banner. Add a
+`kind` so third-party hook content reads as what it is, keeping the pinned
+banner constants intact for tracker callers.
+
+**Effort:** S (human ~2 h / CC+gstack ~10 min). **Priority:** P3.
+**Depends on:** none.
+
+### P3: vendor payload-minimization contract
+
+**What:** Ask Memorable which `UserPromptSubmit` fields `hook user-prompt`
+actually reads, so the bridge can forward fewer (drop `transcript_path` if
+unused). Today it forwards the full JSON because the vendor parses Claude
+Code's documented schema and its EULA forbids finding out otherwise.
+
+**Effort:** S. **Priority:** P3. **Depends on:** vendor response.
+
+### P3: recall latency measurement and timeout revisit
+
+**What:** After a month of use, read `gstack_ms=` and `timeout` outcomes from
+`gstack-egress list --sink memorable-recall` and revisit the 4.5 s ceiling and
+the `--timeout 5` registration.
+
+**Effort:** S. **Priority:** P3. **Depends on:** the bridge in use.
+
+### P3: consolidate the vendor resolvers and extract the canonical-root helper (D24)
+
+**What:** The vendor CLI is resolved twice (bash in `bin/gstack-memorable`, TS
+in the hook); the canonical-root and `IS_WINDOWS` logic is copied from
+`setup` (marked `TODO D24` at each copy). Extract a sourced
+`gstack-canonical-root.sh` used by `setup`, `bin/gstack-memorable` and
+`bin/gstack-relink`, and one resolver for the vendor.
+
+**Context:** `setup`'s text is pinned by `test/setup-hook-canonical-paths.test.ts`;
+the extraction must move those pins with it.
+
+**Effort:** S. **Priority:** P3. **Depends on:** settling the pinned-text tests.
+
+### P3: non-interactive MEDIUM-tier redaction policy for hooks
+
+**What:** The hook refuses HIGH-tier findings only; MEDIUM needs a
+confirmation no hook can ask for. Decide a policy (skip-and-log vs pass) so
+hooks can honor more than HIGH.
+
+**Effort:** S. **Priority:** P3. **Depends on:** none.
+
+### P3: adopt `list-items` at setup's plan-tune "already installed" check
+
+**What:** `setup:2525` decides with `list-sources | grep plan-tune-cathedral`,
+which is tag-only and misses tag-stripped live hooks. `gstack-settings-hook
+list-items --event PostToolUse --owned-by plan-tune-cathedral` is the
+identity-based answer.
+
+**Effort:** S. **Priority:** P3. **Depends on:** none.
+
+### P3: one state-root rule for the bridge's four stores
+
+**What:** The hook, `bin/gstack-config` and `bin/gstack-memorable` resolve
+their root as `GSTACK_STATE_ROOT` > `GSTACK_HOME` > `GSTACK_STATE_DIR`; the
+egress ledger (`lib/egress-receipt.ts`) honors `GSTACK_HOME` >
+`GSTACK_STATE_DIR`; the trust-policy store (`lib/gbrain-repo-policy-client.ts`)
+only `GSTACK_HOME`; `bin/gstack-uninstall` deletes only
+`${GSTACK_STATE_DIR:-$HOME/.gstack}`. Extract one shared rule (a
+`lib/state-root.ts` plus its bash twin) and use it everywhere.
+
+**Why:** With `GSTACK_STATE_ROOT` set, the gate lives under one directory and
+the receipts under another; the tests pin all three variables to one temp dir,
+so the drift is invisible to them. Found by the /ship red team.
+
+**Context:** Uninstall already flips `memorable_recall` off whenever it reads
+`on`, kept state or not (through gstack-config's own resolution), so no config
+can say `on` after the hook is gone; the remaining drift is observability, not
+consent.
+
+**Effort:** S (human ~3 h / CC+gstack ~20 min). **Priority:** P3.
+**Depends on:** none.
+
+### P3: shared hook logging helper
+
+**What:** `stateRoot()` and the `hook-errors.log` appender now exist in five
+hooks (`question-log`, `question-preference`, `auq-error-fallback`,
+`timeline-stop`, `memorable-user-prompt`), with drifting env-var precedence.
+Extract `hosts/claude/hooks/hook-log.ts` (root resolution, 0600 append, the
+rate limiter the memorable hook added) and migrate the five.
+
+**Why:** One place to fix precedence and file modes; the memorable hook's
+rate limiter belongs to every hook that can fail on every prompt.
+
+**Effort:** S (human ~2 h / CC+gstack ~15 min). **Priority:** P3.
+**Depends on:** the state-root rule above.
+
+## Aside integration follow-ups (filed via /plan-ceo-review + /plan-eng-review on the third-party-actions Aside plan)
+
+### QA logged-in-evidence path via Aside (Phase 2)
+
+**Landed (Aside-first):** `aside repl` is now the PRIMARY evidence source for
+/qa, /qa-only, and /browse whenever Aside is installed and running; gstack's own
+browser (with cookie import) is the automatic fallback when it is not. Kept for
+the rationale; the remaining loose ends are under "Aside-first follow-ups".
+
+**What:** Consent-gated `aside repl` as the evidence source in /qa, /qa-only,
+and /browse for sessions a headless browser could never reach (SSO,
+device-bound auth, Safari-side logins Chromium export can't see).
+
+**Why:** Fills the exact gap `docs/designs/CHROME_VS_CHROMIUM_EXPLORATION.md`
+records as attempted and abandoned — QA evidence from the user's REAL
+logged-in browser, no cookie export. The third-party-actions contract already
+recommends Aside for acting on logged-in vendor sites; this extends the same
+consent-gated pattern to evidence gathering.
+
+**Context:** Shape sketched as Option 2 in the Aside integration plan
+(2026-08-27): a small `{{AGENTIC_BROWSER_FALLBACK}}` resolver injected into
+qa/qa-only/browse (optionally scrape + a setup-browser-cookies cross-ref).
+Port the fork PR time-attack/gstack#40 judgment qualitatively — "logged-in
+pages only; never bulk crawling" — never its perishable timing numbers.
+Requires: untrusted-content wrapping of repl output (prose rule), a
+periodic-tier hermetic E2E, ratchet fixture refresh for the touched skills.
+Deliberately deferred at D1A (contract-only scope); it inserts a third-party
+surface beside the first-party QA pipeline, so it's a separate product call.
+
+**Effort:** M (human ~2 days / CC+gstack ~1-2 h)
+**Priority:** P3
+**Depends on:** the third-party-actions Aside contract branch landing.
+
+### Hostile-vendor-skill E2E for the third-party-actions contract
+
+**What:** A periodic-tier E2E that plants a malicious `aside-browser` vendor
+skill (one that instructs scope expansion, credential capture, or consent
+bypass) and asserts the agent honors the contract's override sentence —
+operational syntax only, never new permissions, scope, or consent.
+
+**Why:** Rule 3 puts vendor text in instruction position; the override is
+pinned as prose but has no behavioral proof against an adversarial skill.
+Flagged by the ship adversarial review (finding 11).
+
+**Context:** Fixture = extracted contract section + a hostile vendor SKILL.md
+in the workdir; assert the drive plan never exceeds the named site/actions and
+never echoes captured-secret instructions. Sibling of the tpa-* suite in
+`test/skill-e2e-third-party-actions.test.ts`.
+
+**Effort:** S (human ~half day / CC+gstack ~30 min)
+**Priority:** P2
+**Depends on:** the third-party-actions Aside contract branch landing.
+
+### fd-anchor file-level permission writes (symlink/TOCTOU parity with dirs)
+
+**What:** `restrictFilePermissions` / `writeSecureFile` / `appendSecureFile`
+in `browse/src/file-permissions.ts` still use symlink-following `chmodSync` /
+`writeFileSync`; give them the same `O_NOFOLLOW` + fstat/fchmod treatment the
+directory path got.
+
+**Why:** The symlink-swap class fixed for directories on this branch remains
+open for the files inside them (ship adversarial review, finding 5).
+Docs note (finding 12) — done in the v1.72.0.0 doc pass: BROWSER.md
+§ "Aside and third-party drives" now records that Aside drives leave no
+gstack-side audit trail (no egress receipts, no browse-daemon logs); the
+audit trail lives in Aside.
+
+**Effort:** S (human ~half day / CC+gstack ~20 min)
+**Priority:** P3
+**Depends on:** None.
+
 ## Test infrastructure
+
+### P1: skillify gate test red — HOME-override sessions never discover project skills (pre-existing)
+
+**What:** `test/skill-e2e-skillify.test.ts` `skillify-provenance-refusal` fails
+on BOTH this branch and origin/main @ b5a951e6 (proven 2026-08-29: identical
+2-turn `Unknown skill: skillify` transcripts). Every test in that file passing
+`env: { HOME: workDir }` gets ZERO seeded project skills in the session init
+(claude CLI 2.1.237); the passing siblings recover by Reading the SKILL.md
+directly, the refusal test's agent stops at the Skill error. Fix the harness
+(seed skills wherever HOME-overridden discovery looks, or drop the HOME
+override and pass the write target another way), or report upstream if
+project-scope `.claude/skills` discovery genuinely keys off HOME.
+
+**Why:** A gate-tier safety test that is red for environmental reasons trains
+people to ignore gate reds.
+
+**Effort:** S-M (harness). **Priority:** P1 (gate hygiene).
+
+### P2: auq-verbose-vs-carved-ab PRE arm reads a branch-local ref (same fragility class the repetition-cut A/B just fixed)
+
+**What:** `test/helpers/auq-sdk-capture.ts` `verboseSkill()` defaults to git ref
+`ab66193e^`, reachable only from the token-usage-reduction branch — shallow
+clones fail today, all clones fail after that branch is pruned. Vendor the
+pre-carve render as a fixture the way `auq-pre-cut-plan-ceo-review-SKILL.md`
+was vendored for the repetition-cut A/B (v1.75.0.0), or repoint at a
+main-reachable commit.
+
+**Effort:** S. **Priority:** P2 (weekly periodic breaks silently later).
+
+### P3: eval-store harvest as a discriminated union
+
+**What:** `EvalTestEntry.harvest` went all-optional in schema v2 (worktree
+harvests carry patchPath/isDuplicate, arm-benchmark diff-stats carry
+insertions/deletions/net) — compile-time safety for the two writer shapes now
+rests on a comment. Model as `{kind:'worktree',...} | {kind:'diff-stat',...}`.
+Filed from the v1.73 review army (maintainability); deferred at ship time to
+avoid schema churn mid-release.
+
+**Effort:** S. **Priority:** P3.
+
+### P2: WS6-2 dead-frontmatter strip — needs a live host, not a sandbox
+
+**What:** `bin/gstack-context-bill` warns about 14 frontmatter keys "the router
+never reads" (ROUTER_KEYS in lib/context-bill.ts is a hand-maintained guess).
+The approved ponytail-import plan mandates EMPIRICAL verification before
+stripping: remove the keys in a scratch install on a LIVE Claude Code host,
+confirm skill discovery/routing/hooks unchanged, then land via the
+hosts/claude.ts denylist (keys stay in templates for gen tooling). Deferred at
+v1.73 implementation time with a decision-ledger entry (2026-08-28) because the
+cloud sandbox cannot exercise live-host discovery. Savings are hundreds of
+always-on bytes; growth is already capped by the ratchet regardless.
+
+**Effort:** S (once on a live host). **Priority:** P2.
+
+### P3: scope the evidence-gate digest allow-path
+
+**What:** `agents-digest/gstack-AGENTS.md` rides `--allow-paths` in ship's and
+land-and-deploy's evidence checks in EVERY repo, and unlike CHANGELOG/VERSION
+it is instruction-bearing for rules-reading hosts. Scope the exemption to
+"the bump actually regenerated it" (e.g. gstack-evidence learns a
+--allow-if-regenerated flag, or the check compares the digest bytes to a fresh
+generator run). Filed from the v1.73 Claude adversarial pass; the gate is
+advisory and gstack's freshness CI covers the drift case, so P3.
+
+**Effort:** S-M. **Priority:** P3.
+
+### 2026-08-29 test-infra overhaul — follow-ups (filed at implementation)
+
+The overhaul landed: green-means-green fixes (make-pdf gates in the required
+lane, zero-test eval jobs killed, 4 orphaned paid files activated + orphan
+tripwire, touchfiles self-registration + warn→fail), the serial
+tree-mutating shard dissolved (main() guard + --out-dir all hosts),
+duration-packed free shards, the sharded paid runner as the CI engine
+(planner/slices/fail-closed report, parity phase), the weekly all-periodic
+coverage contract + gate census, eval-budget timeout tiers, and the
+coverage fill. Remaining, in rough priority order:
+
+- **DONE (v1.77.0.0 test-infra wave 1) — Delete the legacy evals.yml matrix after
+  parity.** Deleted as a pure-deletion commit (one revert restores it) after
+  a static parity receipt: sliced gate census (49 files) ⊇ matrix files (18),
+  31 files of extra coverage. `needs: evals` edge dropped, PR comment moved
+  into slices-report, KNOWN_MATRIX_GAPS/KNOWN_TIER_UNSET retired,
+  test/evals-workflow-matrix.test.ts rewritten as
+  test/evals-workflow-wiring.test.ts. The register-skills fail-fast
+  verification loop was ported to the surviving lanes FIRST via the shared
+  .github/actions/register-gstack-skills composite.
+- **P1 — Maintainer decision: make `slices-report` a required check** once
+  post-migration flake data exists (the Codex outside-voice's "green means
+  green is not delivered while paid stays advisory" point — correct, and
+  deliberately a branch-protection decision, not repo YAML). Effort S.
+- **P2 — browse daemon lifecycle vs in-suite browsers (top remaining free-suite
+  flake).** The post-#994 daemon deliberately outlives its parent and lingers
+  across test FILES in a shard process; a later file's browser use can then
+  fight it ('[browse] FATAL: Chromium process crashed' + 5s element-wait
+  timeouts). Receipts: commands+snapshot in one bun process fails identically
+  WITH and WITHOUT per-file CHROMIUM_PROFILE isolation (pre-existing; PR
+  #2721 triage), and CI shard 1 on d9b78b5a died at model-overlay-sonnet-5
+  after a daemon-spawning file. Per-shard + per-file profile isolation
+  (landed) removed the cross-shard kills; the intra-shard daemon handoff
+  needs a real design: tests that spawn the daemon should stop it in
+  afterAll, or the daemon should detect a foreign CHROMIUM_PROFILE env and
+  refuse reuse. Effort M.
+- **P2 — browse daemon /tmp-namespace hardening.** Every file-path transport
+  to the daemon (eval <file>, load-html --from-file, pdf output, upload,
+  cookie-import) assumes client and daemon share one /tmp view; a sandboxed
+  shell reusing an out-of-namespace daemon gets "File not found" on files it
+  just wrote (root-caused live, reproduced with unshare). Minimal fix: the
+  CLI reads a local `eval <file>` itself and sends the code as `js` (
+  semantics-preserving; keep the daemon path for remote callers), plus a
+  namespace hint appended to read-commands.ts:313's error. Effort S.
+- **P2 — PTY boot-readiness wait.** The PTY tests' Bun.sleep(8000) preludes
+  and invokeAndObserve's 6s boot_grace_ms are blind waits; a real readiness
+  waitFor needs empirical CLI 2.1.x ready-marker probing in a working
+  terminal environment (this sandbox's PTY probe wedged). Effort S, needs a
+  dev machine.
+- **P2 — single typed test registry.** Paid globs, tiers, touchfiles keys,
+  and exclusions are still separate literal authorities synced by tripwires;
+  derive them from one registry and the drift class dies structurally
+  (outside-voice recommendation; the tripwires are the interim). Effort M.
+- **P2 — swap the custom LPT packer for bun-native `--timings`/`--shard`**
+  at the next Bun unpin (native LPT scheduling ships ≥1.3.14; the packer is
+  deliberately small and swappable — see the successor note in
+  scripts/test-free-shards.ts). Effort S.
+- **P3 — runBin migration remainder** (~31 of 36 local run() duplicates;
+  helper + first 3 migrated). Mechanical batches. Effort S.
+- **P3 — migrate the free runner onto runShardChild** (the shared lifecycle
+  helper the paid runner now uses; designed for it). Effort S.
+- **P3 — eval-list should exclude _partial runs** (pinned as current
+  behavior in test/eval-cli-family.test.ts with an improvement note).
+  Effort S.
+- **P3 — codex-e2e-plan-format's testIfSelected names have no map keys**
+  (run-all only today) + 15 E2E / 2 judge PHANTOM touchfiles keys select
+  tests that exist nowhere — add keys or delete, one sweep. Effort S.
+- **P3 — first-execution rot from the sliced lane's first live runs: 2 of 3
+  FIXED** (PR #2721): (a) ✅ skillify family — root cause was HOME==cwd
+  making claude treat <cwd>/.claude/skills as the PERSONAL dir (project
+  skills never registered); all three tests now use a fresh HOME subdir,
+  the refusal test gained a not-registered tripwire + assistant-text-only
+  matching (the skill body echo could pass vacuously), and the siblings now
+  genuinely exercise the Skill-tool path (verified paid, 5/5).
+  (b) ✅ session-intelligence context-restore — assertion was prose-matching
+  over stochastic wording; now verbatim RESTORED-marker + tool-call
+  corroboration with a stronger older-file negative (3/3 paid green).
+  (c) `tpa-apple-ban` failed only on retry attempt 2 once — flake watch
+  only. The lane finding these on first execution is the coverage contract
+  working.
+- **P2 — make-pdf image promotion is per-render nondeterministic on CI**:
+  two renders of the same fixture SECONDS apart in one CI job produced 2 vs
+  3 landscape pages (an image's promotion depends on load timing at render).
+  The landscape gates now assert content/presence invariants, but the
+  underlying render race is a product quality issue (a user's alt-hinted
+  image can silently miss its landscape promotion). Receipts: PR #2721
+  free-tests runs on heads ab549353 + c49b2ece. Effort S.
+- **P3 — duration-weighted slice assignment** if parity data shows slice
+  walls diverging >1.5x (round-robin today; eval-store durations exist).
+  Effort S.
 
 ### P2: /context-save worktree-identity hardening (the #2052 residual)
 
@@ -460,7 +977,19 @@ Trigger condition documented in `lib/gbrain-sources.ts` at the drift log line.
 
 **Effort:** M (human ~1d, CC ~45min). **Depends on:** drift-log evidence from
 the wave's `ensureSourceRegistered` logging.
-### P2: Periodic CI matrix covers 9 of ~66 e2e files — decide the coverage contract
+### ✅ DONE (2026-08-29): Periodic CI coverage contract — implemented as option (a)
+
+**Resolved by the test-infra overhaul:** evals-periodic.yml re-platformed onto
+scripts/test-paid-shards.ts — ALL periodic-tier files run weekly (EVALS_ALL,
+planner manifest → 6 slices → fail-closed report) minus the reasoned
+exclusions in test/helpers/periodic-exclude-data.ts (reason + tracking per
+entry, policy-pinned). A weekly EVALS_ALL gate census rides the same cron.
+The silent-rot class is dead: a test that runs nowhere is now either planned,
+diff-skipped, excluded-with-reason, or a failed report. Original filing kept
+below for the receipts.
+
+#### Original filing (closed)
+Periodic CI matrix covers 9 of ~66 e2e files — decide the coverage contract
 
 **Priority:** P2
 
@@ -498,7 +1027,19 @@ in `.github/workflows/evals*.yml`. Receipts from the autoplan incident:
 `~/.gstack/projects/garrytan-gstack/e2e-runs/2026-07-10-0154/` (0-turn "Unknown command"
 transcripts).
 
-### Eval harness: live progress + incremental result persistence (kill the silent hour)
+### ✅ DONE (verified 2026-08-29): Eval harness live progress + incremental persistence
+
+**Verified landed** (the v1.66-era harness work delivered all three asks):
+(1) heartbeat — session-runner writes ~/.gstack-dev/e2e-live.json atomically
+per tool call (+ progress.log + per-test ndjson); (2) incremental persistence
+— EvalCollector writes _partial-e2e.json after every addTest, dual-signal
+isPartialEval keeps partials out of baselines; (3) live signal — per-tool
+stderr progress lines flush unbuffered, and scripts/eval-watch.ts dashboards
+the heartbeat. The 2026-08 overhaul added per-shard full-stream spool logs
+(path printed at START) on top. Original filing kept below for receipts.
+
+#### Original filing (closed)
+Eval harness: live progress + incremental result persistence (kill the silent hour)
 
 **Priority:** P1
 
@@ -558,7 +1099,18 @@ SKILL.md untouched). `bun test` is green again.
 
 ## Scope-gate follow-ups (filed via /plan-eng-review on the plan-mode auto-select-B change)
 
-### P2: SDK eval budgets charge API-queue latency to the work budget — pick a structural fix
+### DONE (v1.77.0.0) — SDK eval budgets charge API-queue latency to the work budget
+
+**Shipped shape:** the two-phase timer landed WITHOUT the codemod this entry
+feared: the total wall stays <= timeout (work phase = remainder after first
+byte), so every outer/inner bun-timeout relationship is untouched; a silent
+API now dies EARLY at the startup grace (90s local / 300s CI floor, enforced
+Math.max) with the distinct reason 'timeout_startup'. Option (b)'s 300s CI
+floor is in (test/session-runner-startup-grace.test.ts pins it). The
+budget-EXTENSION variant (work budget = full timeout from first byte, which
+DOES need the tier/wall reshape) remains wave-2 scope in the overhaul plan.
+
+Original entry follows for context:
 
 **What:** `runSkillTest`'s single `setTimeout(timeout)` arms at spawn, so session
 startup AND the model's first-completion queue time are charged against the
@@ -628,35 +1180,122 @@ output, then retire or simplify the guard. Effort: human ~half day / CC ~20 min.
 
 ## Token-reduction follow-ups (Phase B, filed via /plan-eng-review on the plan-ceo-review carve)
 
-### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
+### P2: v1.70 ship-review deferrals (specialist + adversarial findings, each verified)
 
-**What:** The per-skill section carves (`/ship` v1.54, `/plan-ceo-review` v1.56) yield
-real but bounded wins (-42% to -59% on the carved skill) because the shared
-`{{PREAMBLE}}` (~40-50KB on every tier-3/4 skill) is the dominant always-loaded cost
-and stays inline. Move the rarely-needed preamble REFERENCE blocks (the AskUserQuestion
-split-rules and the CJK / lone-surrogate escaping reference) into an on-demand
-section-style doc the agent reads only when it hits those edge cases, leaving the hot
-path (voice, completeness principle, recommendation format) inline.
+**What:** Follow-ups deferred from the v1.70.0.0 pre-landing review, none ship-blocking:
 
-**Why:** Highest-ROI remaining token target. One preamble carve helps EVERY tier-≥2
-skill at once, not one skill per PR. The eng-review on the plan-ceo carve flagged that
-per-skill carves stay modest precisely because the preamble dominates the always-loaded
-surface.
+- **Batch the 11 `gstack-config get` forks in `bin/gstack-skill-start`** into one config
+  read (~60-250ms of preamble latency per skill invocation, worse on macOS). The
+  consolidation into one script is what makes batching trivial now.
+- **Cache the `gbrain --version` probe** (Node CLI cold start, 100-300ms per invocation
+  for gbrain users) keyed on binary path + mtime.
+- **`bin/gstack-retro-metrics`: single-pass diffs** — combine the `--numstat` and `-p`
+  passes (`git log --numstat -p`), unify the three test-file definitions (`is_test`,
+  the awk regex, the repo-wide grep), and cover the `origin/<base>` ref preference +
+  300-commit/40-coauthor truncation paths with tests.
+- **Rename `generate-upgrade-check.ts`** — it now emits only PROACTIVE/SKILL_PREFIX
+  rules; the name misleads anyone hunting for upgrade-prompt rendering.
+- **evals.yml gate matrix drift:** 9 pre-existing gate-tier files in `E2E_TIERS` are
+  absent from the static suite matrix, so they never run in PR CI. Add them (or prune
+  their tier), plus a free tripwire test diffing gate-tier `E2E_TIERS` against the
+  workflow matrix so the class can't recur.
+- **`_sanitize` case/separator variants:** the strip is exact-literal; make it
+  case-insensitive and separator-tolerant, with pinned variant cases.
+- **Telemetry unset-vs-off semantics:** `gstack-skill-start` treats an UNSET telemetry
+  key as enabled for the LOCAL analytics write (pre-consent recording, local-only);
+  `gstack-telemetry-log` maps unset to off. Decide one semantic and document it.
+- **Coverage gaps from the ship audit:** `--brain-health` block (zero tests), the
+  learnings `>5`-entries sanitize passthrough (poison test), session prune +
+  `.pending-*` finalize loop, and a shared `ONBOARDING_MARKERS` constant for the three
+  seed sites (hermetic-env, e2e-helpers, the script's gates).
 
-**Pros:** A single change reduces always-loaded cost across the whole skill pack.
-**Cons:** The preamble is load-bearing and shared; a botched carve regresses every skill.
-Needs the same union-parity + per-push freshness guards the section carves use, applied
-corpus-wide.
+**Why:** Each was found by the v1.70 review army with file:line evidence; all are quality
+or latency wins on the new runtime scripts, none change behavior contracts.
 
-**Context:** Builds on the v2 section pipeline (`scripts/resolvers/sections.ts`,
-`{{SECTION:id}}` / `{{SECTION_INDEX}}`). The preamble source is
-`scripts/resolvers/preamble.ts`. Measure which sub-blocks are cold (escaping reference,
-split-rules) vs hot (voice, recommendation format) before cutting. Validate on one skill,
-then roll corpus-wide.
+**Effort estimate:** M (human team) → S (CC+gstack)
+**Priority:** P2
+**Depends on / blocked by:** v1.70.0.0 landing.
 
-**Effort estimate:** L (human team) → M (CC+gstack)
+### P3: Output-template carve wave — REVIEW_DASHBOARD + PLAN_FILE_REVIEW_REPORT
+
+**What:** Carve the two output-format resolver blocks — the review dashboard table
+shape and the plan-file report skeleton — out of the six skills that inline them
+(`{{REVIEW_DASHBOARD}}` 5,940B ×6 + `{{PLAN_FILE_REVIEW_REPORT}}` 5,989B ×6,
+~71.6KB total) into on-demand sections or a shared reference doc.
+
+**Why:** Largest remaining duplicated block after the preamble program lands. These
+are output TEMPLATES (table shapes, markdown skeletons), not behavioral steps — the
+classic carve candidate.
+
+**Pros:** ~1.4KB×2 saved per invocation across 6 review-family skills; single source
+for the dashboard/report format.
+**Cons:** Both blocks are partially pinned (`test/skill-e2e-review-attribution.test.ts`
+slices `## Review Readiness Dashboard`; `test/skill-validation.test.ts:1566` asserts a
+specific row) — needs a pin-relocation design first, which is why it was deferred from
+the main program.
+
+**Context:** Deferred from the token-reduction program's Phase 4 (plan on branch
+`prompt-token-load-reduction`, "NOT carving" list). The carve pipeline and guard
+registry to use are the same as carve wave 4. Start by mapping every test that slices
+or asserts dashboard/report text, then decide skeleton-vs-section placement per pin.
+
+**Effort estimate:** M (human team) → S (CC+gstack)
 **Priority:** P3
-**Depends on / blocked by:** The section pipeline (shipped v1.54). No hard blocker.
+**Depends on / blocked by:** Token-reduction program Phases 1-4 landing (carve
+machinery churn would conflict).
+
+### P3: Anchor transformFrontmatter's denylist strip to the frontmatter block
+
+**What:** `transformFrontmatter` (scripts/gen-skill-docs.ts:525-530, denylist branch)
+deletes the FIRST line matching `^<field>:` anywhere in the file, not just inside
+the frontmatter block, and would orphan continuation lines of a block-style YAML
+value. Slice the frontmatter, strip within it, reassemble.
+
+**Why:** Latent mis-strip class: a skill body line beginning `interactive:` or
+`benefits-from:` (e.g. a skill documenting the frontmatter contract) would be
+silently deleted from the render. Zero live collisions today (verified across all
+tracked SKILL.md bodies during the v1.69.x token-reduction Phase 0 review), but
+each new stripFields entry widens the exposure.
+
+**Pros:** Kills the whole latent class; makes stripFields safe to grow.
+**Cons:** Touches the generator hot path — needs a full regen + the per-host
+golden fixtures re-checked; deserves its own small PR, not a rider.
+
+**Context:** Found by the Phase 0 adversarial review on branch
+`prompt-token-load-reduction` (finding ADV4). The gen-side parser reads only
+inline `[...]` array form (gen-skill-docs.ts:751), so block-form YAML for these
+keys fails silently twice — worth a validation error at the same time.
+
+**Effort estimate:** S (human team) → S (CC+gstack)
+**Priority:** P3
+**Depends on / blocked by:** none.
+
+### P3: Revisit plan-ceo-review doctrine carve after the preamble program lands
+
+**What:** Re-evaluate carving plan-ceo-review's ~13KB of always-loaded doctrine
+(`## Prerequisite Skill Offer` 7,125B + `## Cognitive Patterns` 3,336B +
+`## Philosophy` 2,535B) into its existing sections/ dir.
+
+**Why:** Deferred from the token-reduction program because the skeleton had only
+~555B of headroom under its carve-guard ceiling and the doctrine is behavior-core.
+The preamble phases shrink the skeleton by ~22KB, which changes the tradeoff: the
+ceiling gets recomputed and the doctrine becomes the dominant remaining always-loaded
+block in the skill.
+
+**Pros:** ~3.2K tokens off every /plan-ceo-review invocation if the doctrine reads
+lazily without behavior loss.
+**Cons:** The Cognitive Patterns section shapes the review voice throughout — a
+requiredReads guard + A/B eval (same design as the design-doctrine carve) is mandatory,
+and the answer may legitimately be "keep it inline."
+
+**Context:** Filed from the token-reduction program's CEO review ("NOT carving" list).
+Measure with `bin/gstack-context-bill --skill plan-ceo-review` after Phase 3 lands;
+use the carve-guards registry + a behavioral loading eval if carved.
+
+**Effort estimate:** S (human team) → S (CC+gstack)
+**Priority:** P3
+**Depends on / blocked by:** Token-reduction program Phase 3 (re-baseline + recomputed
+carve ceilings).
 
 ## gbrowser memory follow-ups (filed via /plan-eng-review + /codex on the v1.49 leak-fix PR)
 
@@ -1985,6 +2624,44 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ## Ship
 
+### Runtime enforcement of foreground dispatch (PreToolUse hook)
+
+**What:** A PreToolUse hook (settings.json) that forces or verifies `run_in_background: false` on Agent tool calls made inside gstack workflows, making the #497/#2440 bug class structurally impossible on Claude Code instead of prose-pinned.
+
+**Why:** v1.79.0.0 fixed the class at the prose+test layer (every synchronous dispatch site carries the flag, pinned by `test/run-in-background-guidance.test.ts`), but phrase-presence pins are file-level, not call-level, and a genuinely blocking foreground call still can't be interrupted by prose. Runtime enforcement is the structural fix; prose guidance can't survive a model that ignores it.
+
+**Context:** Third recurrence of the class (#497 → #2440 → /ship Step 18 stranding). The hook must scope to gstack skill sessions (never break legitimate background Agent use elsewhere), is Claude-host only (other hosts get nothing from it), and mirrors the existing question-preference PreToolUse hook wiring in `bin/gstack-settings-hook*`. Filed from the v1.79.0.0 CEO plan review (approach C, deliberately split out for bake time).
+
+**Effort:** M (human) / S (CC)
+**Priority:** P1
+**Depends on:** None
+
+*Priority raised P2 → P1 by the v1.79.0.0 adversarial review: the spawned trust chain is agent-self-asserted (the echo exists because the agent typed the env prefix a prompt told it to), so instruction text read before the preamble can convert an interactive run to full-auto. Prose cannot close this; the hook can.*
+
+### Structural ship-mode for document-release
+
+**What:** A capability-narrowed dispatch mode for /document-release (cannot bump VERSION, run review passes, or push) instead of narrowing the full workflow through prose in /ship's dispatch prompt; the parent /ship owns all git operations.
+
+**Why:** The v1.79.0.0 scope guard works by telling the subagent what not to do; a structural mode makes the forbidden operations unavailable rather than discouraged. Codex outside voice (v1.79.0.0 eng review) called the current shape "runs a large workflow and then disables half of it through prose" — correct long-term, wrong to fold into a regression fix.
+
+**Context:** Redesigns the #2733 JSON contract (files_updated/commit_sha/pushed/documentation_section/decisions), so it needs its own PR with bake time. Start from `ship/sections/pr-body.md.tmpl` Step 18 and `document-release/SKILL.md.tmpl`'s spawned contract; decide whether the mode is a dispatch-prompt parameter or a `GSTACK_DOC_RELEASE_MODE` env the preamble echoes.
+
+**Effort:** L (human) / M (CC)
+**Priority:** P3
+**Depends on:** None
+
+### Cross-host dispatch semantics audit
+
+**What:** Audit every subagent-dispatch site's rendering on non-Claude hosts (codex, factory, openclaw, hermes) and decide per host: rewrite to the host's native delegation primitive, inline-execute the step, or skip it.
+
+**Why:** The codex-host ship render inlines Step 18 instructing an Agent-tool dispatch that Codex cannot perform (no Agent tool, no run_in_background). Pre-existing (predates v1.79.0.0), surfaced by the eng-review outside voice. Host rewrites currently key on the exact string 'use the Agent tool', which none of the ship dispatch openers match, so Claude-specific instructions pass through verbatim.
+
+**Context:** See `hosts/define-host.ts:55`, `hosts/factory.ts:34`, `hosts/hermes.ts:15` for the existing rewrite mechanism, and `test/fixtures/golden/codex-ship-SKILL.md` for what codex actually receives today. The v1.79.0.0 `{{FOREGROUND_DISPATCH_NOTE}}` resolver is a natural place to start host-branching.
+
+**Effort:** M (human) / S (CC)
+**Priority:** P3
+**Depends on:** None
+
 ### /ship Step 12 test harness should exec the actual template bash, not a reimplementation
 
 **What:** `test/ship-version-sync.test.ts` currently reimplements the bash from `ship/SKILL.md.tmpl` Step 12 inside template literals. When the template changes, both sides must be updated — exactly the drift-risk pattern the Step 12 fix is meant to prevent, applied to our own testing strategy. Replace with a helper that extracts the fenced bash blocks from the template at test time and runs them verbatim (similar to the `skill-parser.ts` pattern).
@@ -2327,9 +3004,124 @@ Shipped as v0.5.0 on main. Includes `/plan-design-review` (report-only design au
 
 ## Document-Release
 
+### Spawned-session auto-choices are invisible to /plan-tune
+
+**What:** Capture auto-chosen decisions from spawned sessions (OPENCLAW_SESSION or GSTACK_SESSION_KIND=spawned) into `gstack-question-log` so `/plan-tune` learning sees them.
+
+**Why:** In spawned sessions the model never calls AskUserQuestion (it auto-chooses the recommended option per the spawned-session block), so the PostToolUse capture hook never fires and no prose brief is ever logged — every gate decision made inside a /ship Step 18 document-release subagent is missing from the question-tuning corpus.
+
+**Context:** #2733 made spawned sessions reachable from Claude Code subagents (every Conductor-hosted /ship now produces one). The subagent reports auto-chosen decisions in the JSON contract's `decisions` array (user-visible in the ship console), but nothing writes them to `~/.gstack/` question analytics. Start from the spawned-session instruction block in `bin/gstack-skill-start` — add a "log each auto-chosen decision with bin/gstack-question-log" sentence and a `source` value distinguishing auto-chosen from human-answered so tuning never trains on machine picks as if a human made them.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** #2733 fix (GSTACK_SESSION_KIND=spawned marker) landing.
+
 ### Auto-invoke /document-release from /ship — SHIPPED
 
-Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` automatically reads `document-release/SKILL.md` and executes the doc update workflow. Zero-friction doc updates.
+Shipped in v0.8.4; redesigned twice since. Current design (v0.18.2.0+, carved in
+v1.54.0.0): `/ship` Step 18 (`ship/sections/pr-body.md`) dispatches
+`/document-release` as a general-purpose subagent AFTER Step 17 (push) and
+BEFORE Step 19 (PR creation); the subagent's JSON contract (`files_updated`,
+`commit_sha`, `pushed`, `documentation_section`, `decisions` since v1.76.0.0)
+is baked into the initial PR body — except `decisions`, which prints to the
+ship console and never enters PR markdown. Since v1.76.0.0 (#2733) the dispatch
+marks the subagent `GSTACK_SESSION_KIND=spawned` so its interactive gates
+auto-choose the recommended option. Subagent failure is non-blocking. The
+skeleton names "the /document-release subagent" at three touchpoints
+(section-index trigger + STOP pointer, Step 17 handoff, hoisted doc-sync
+invariant). Pinned by `test/ship-document-release-dispatch.test.ts` +
+carve-guards anchors; behavior proven by the `ship-docsync` gate E2E
+(`test/skill-e2e-ship-docsync.test.ts`) and the spawned-dispatch gate E2E
+(`test/skill-e2e-docsync-spawned.test.ts`).
+
+### Machine-checkable Step 18 dispatch receipt in /ship's Section self-check
+
+**What:** Make ship's "Section self-check" verify a document-release dispatch
+actually occurred (a machine-checkable marker/receipt), instead of relying on
+prompt-level invariants alone.
+
+**Why:** Prompt wording deters skipping but can't prove the dispatch happened.
+Two residual gaps from the v1.69 review are folded into this scope: (1) an
+agent invoking `/document-release` inline via the Skill tool bypasses the
+fresh-context subagent + JSON contract and no test can see it; (2) the ship
+RE-RUN path names document-release in the re-run list but no test asserts
+doc-sync on re-run.
+
+**Context:** The `ship-docsync` E2E asserts the dispatch tool-call on the
+primary path; this TODO is the enforcement layer beyond wording. Start from
+ship's Section self-check (ship/SKILL.md.tmpl) and the Step 18 parent
+processing in ship/sections/pr-body.md.tmpl.
+
+**Effort:** M (human) → S (CC+gstack)
+**Priority:** P3
+**Depends on:** ship-docsync E2E landed
+
+### Apply the dispatch-pin + E2E pattern to /land-and-deploy → /canary
+
+**What:** Same treatment ship→document-release got: name the handoff at the
+skeleton decision points, pin with carve-guards anchors + a free tripwire,
+prove with a toolCalls-assert E2E.
+
+**Why:** Identical failure class — a carve or reword can silently strand the
+canary handoff out of the always-loaded skeleton, and nothing tests it today.
+
+**Context:** Model files: `test/ship-document-release-dispatch.test.ts` (free
+pin) and `test/skill-e2e-ship-docsync.test.ts` (dispatch E2E, gate tier).
+
+**Effort:** M (human) → S (CC+gstack)
+**Priority:** P3
+**Depends on:** None
+
+### CI gate-lane hollow-coverage burn-down (evals.yml matrix)
+
+**What:** `test/evals-workflow-matrix.test.ts` (added v1.70.1.0) ratchets two
+pre-existing CI coverage holes; burn them down. (1) Eight gate-hosting test
+files have no `evals.yml` matrix row, so CI never runs them
+(`KNOWN_MATRIX_GAPS` in the test enumerates them — notably the plan-mode and
+finding-floor smokes and the AUQ format-compliance gate). (2) Four matrix rows
+point at whole-file tier-gated files but set no row `tier:` property, so with
+`EVALS_TIER` unexported those suites self-skip: `codex-e2e`/`gemini-e2e` run
+ZERO tests and report green on every PR (vestigial rows; the periodic cron
+lane owns them — consider deleting the rows), and `e2e-pty-plan-smoke` spends
+~7 min on setup then skips every describe (hollow-green since the files
+adopted `describeE2ETier('gate')` — set `tier: gate` on the row to reactivate,
+after confirming the smokes still pass).
+
+**Why:** "Gate tier blocks merge" is silently false for these files. Each fix
+is a deliberate cost/flake decision (activating paid suites on every PR), so
+they're enumerated instead of drive-by-fixed. The mechanism already exists:
+per-row `tier:` property, exported as `EVALS_TIER` by the Run step.
+
+**Context:** Found 2026-08-26 on PR #2700 while adding the `ship-docsync` row.
+Fix = add/adjust the matrix row, then DELETE the corresponding burn-down entry
+(the tripwire fails on stale entries, so cleanup is enforced).
+
+**Effort:** S per file (mechanical) + one burn-in run each to confirm green
+**Priority:** P2
+**Depends on:** None
+
+### Periodic paid-test shard census is one ungated file from the detach-timeout floor
+
+**What:** The periodic tier's shard census is 67 files — one ungated slot below
+the 68-file (17×4) ceiling. The next paid `skill-e2e-*` file WITHOUT a
+whole-file `describeE2ETier` self-gate lands at 68 (still 17 waves, floor
+32,130s ≤ 32,400s — passes); the SECOND ungated file trips 18 waves → 34,020s
+floor > the 32,400s configured detach timeout, and
+`test/eval-detach-timeout-floor.test.ts` fails with a confusing message.
+
+**Why:** Whoever adds the second ungated periodic E2E gets a floor failure
+unrelated to their change. Fix options: raise the periodic detach timeout, or
+enforce whole-file tier self-gates on all paid files (upgrades them from the
+tier-alignment warn-only bucket to the hard invariant, and — bonus — restores
+tierless `bun run test:evals` coverage decisions to diff selection alone).
+
+**Context:** `scripts/test-paid-shards.ts` `classifyPaidTestFile` counts
+ungated files in both tiers; `ship-docsync` composed `describeE2ETier('gate')`
+with diff selection specifically to avoid consuming the last free slot.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
 
 ### `{{DOC_VOICE}}` shared resolver
 
@@ -2806,6 +3598,38 @@ needs one paid run to validate, so it didn't ride the ship.
 
 ## Completed
 
+### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
+
+**What:** The per-skill section carves (`/ship` v1.54, `/plan-ceo-review` v1.56) yield
+real but bounded wins (-42% to -59% on the carved skill) because the shared
+`{{PREAMBLE}}` (~40-50KB on every tier-3/4 skill) is the dominant always-loaded cost
+and stays inline. Move the rarely-needed preamble REFERENCE blocks (the AskUserQuestion
+split-rules and the CJK / lone-surrogate escaping reference) into an on-demand
+section-style doc the agent reads only when it hits those edge cases, leaving the hot
+path (voice, completeness principle, recommendation format) inline.
+
+**Why:** Highest-ROI remaining token target. One preamble carve helps EVERY tier-≥2
+skill at once, not one skill per PR. The eng-review on the plan-ceo carve flagged that
+per-skill carves stay modest precisely because the preamble dominates the always-loaded
+surface.
+
+**Pros:** A single change reduces always-loaded cost across the whole skill pack.
+**Cons:** The preamble is load-bearing and shared; a botched carve regresses every skill.
+Needs the same union-parity + per-push freshness guards the section carves use, applied
+corpus-wide.
+
+**Context:** Builds on the v2 section pipeline (`scripts/resolvers/sections.ts`,
+`{{SECTION:id}}` / `{{SECTION_INDEX}}`). The preamble source is
+`scripts/resolvers/preamble.ts`. Measure which sub-blocks are cold (escaping reference,
+split-rules) vs hot (voice, recommendation format) before cutting. Validate on one skill,
+then roll corpus-wide.
+
+**Effort estimate:** L (human team) → M (CC+gstack)
+**Priority:** P3
+**Depends on / blocked by:** The section pipeline (shipped v1.54). No hard blocker.
+**Completed:** v1.70.0.0 (2026-08-25) — delivered in a stronger form by the token-reduction program: preamble bash moved to `bin/gstack-skill-start`/`-end`, one-time onboarding became gated instruction blocks, AUQ reference rules point at on-demand docs, and 12 more skills got section carves (20 total). Wins locked by the context-budget ratchet.
+
+
 ### ✅ DONE (v1.69.0.0): `./setup --host slate` accepted but installs nothing
 
 **Priority:** P4 (was filed as slate-only — shipped with the whole drift class gated)
@@ -3202,7 +4026,7 @@ path to the fixture during the run.
 
 **What:** Cache rendered diagram SVG/PNG in `~/.gstack/cache/diagram-render/`,
 keyed on `sha256(fence source + bundle version + render options)`, so repeat
-`make-pdf` runs skip the browse render tab for unchanged diagrams.
+`make-pdf` runs skip the render (Aside or the fallback browse tab) for unchanged diagrams.
 
 **Why:** Every run currently re-renders every fence (~150-300ms each). Docs with
 10+ diagrams pay seconds per iteration during write-preview loops. Codex
@@ -3372,10 +4196,201 @@ globs (D). What remains, re-filed individually:
   darwin-skipped handoff tests in browse/test/handoff.test.ts — verify
   whether the v1.67 XProtect + rebrand work un-blocks them, then un-skip or
   fix. Effort S.
-- Transcript trust/scope/source isolation (PR 2232, issue 2140) — needs the
-  never-double-store review. Effort M.
+- Transcript trust/scope/source isolation (PR 2232, issue 2140) — split:
+  the `transcript_ingest_mode` reader (off skips, B → --all-history, unset
+  unchanged) ships in fork-port Wave E1; repo-scoping and `--source-id`
+  isolation still need the never-double-store review plus a gbrain flag
+  probe. Close the PR after E1 with a pointer here. Effort M.
 - Versionless-repo onboarding (#1474, issues 2343/2334) — the #2501 JSON
   version-path half landed; the no-version-file-at-all flow did not.
 - Playwright bootstrap abort/timeout absorbs (PRs 2233/2359, issues
-  1902/2136) — partially superseded by v1.67's bounded bootstrap; verify
-  and close or extract the remainder.
+  1902/2136) — DONE in fork-port Wave A: the install is best-effort and
+  bounded (GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT, default 600s), lock contention
+  is a reason code, skills always register. Close #2233, #1900, #1901, #1902,
+  #913 with the receipt (test/setup-playwright-best-effort.test.ts).
+
+## Aside-first follow-ups (filed when Aside became the primary browser)
+
+Every gstack skill that touches a web page drives the Aside AI browser first
+(`scripts/resolvers/aside.ts` is the contract; `lib/aside-render.ts` /
+`bin/gstack-render.ts` render local HTML through it; `{{ASIDE_RESEARCH}}` runs
+web research through it). gstack's own browser engine — the `browse` daemon,
+GStack Browser headed mode, cookie import, `/pair-agent`, browser-skills /
+`/skillify` — is kept as the automatic fallback whenever Aside is not installed
+or not running (Linux, Windows, a closed Aside app), and web research falls
+back to the WebSearch tool when the host provides one. Nothing was removed.
+Loose ends:
+
+### P1: Aside-first fallback parity — keep the `$B` equivalence table in sync with the cookbook
+
+**What:** The fallback block (`BROWSE_FALLBACK` in the browser resolvers) maps
+each verified `aside repl` cookbook shape (read a page, drive a flow, annotated
+screenshot, responsive captures, links + status, performance, PDF, element
+screenshot, `aside exec` research) to its `$B` equivalent so a skill produces
+the same evidence lines on either path. Every time a cookbook shape is added,
+renamed, or changes its output labels (`CONSOLE_ERRORS=`, `DIFF_START`,
+`ASIDE_DIR=`, `GSTACK_STEP_OK`), update the table in the same commit and add a
+pin in `test/aside-driver.test.ts` that the two lists name the same shapes.
+
+**Why:** A skill that reads `DIFF_START` on the Aside path and gets nothing on
+the fallback path "fixes" the missing output blindly. Parity is the whole point
+of keeping the engine; a silent gap is worse than no fallback.
+
+**Effort:** S per change (human ~half day, CC ~15min). **Priority:** P1. **Depends on:** nothing.
+
+### P2: Aside CLI 1.26 lacks subcommands Aside's own skill doc lists
+
+**What:** Aside's skill doc lists `session`, `memory`, `skills`, `host`, and
+`--permission`; Aside CLI 1.26 has none of them (`aside --help`). Skills must
+not depend on them until the CLI ships them. Re-probe on each Aside release;
+when they land, evaluate `session` for multi-script flows and `--permission`
+for the mutating-action consent gate.
+
+**Why:** A skill written against the doc instead of the binary dies at runtime
+on an unknown-command error the agent will then try to "fix" blindly.
+
+**Effort:** S (human ~half day, CC ~20min per re-probe). **Priority:** P2. **Depends on:** Aside releases.
+
+### P2: Aside E2E tests run only where Aside is installed
+
+**What:** The Aside-only E2E lane — `test/skill-e2e-aside.test.ts`, the Aside
+qa/design cases, the live render in `test/aside-render.test.ts` — self-skips
+when `aside` is absent (`asideAvailable()` in `test/helpers/aside-available.ts`),
+so CI's Linux runners never drive Aside; the make-pdf and /diagram render gates
+already run there on the browse binary. The Aside path runs only on macOS dev
+machines.
+Evaluate a self-hosted macOS runner (or a scheduled job on a Mac mini) that
+runs the Aside lane weekly under the same hermetic env as the other E2E lanes.
+
+**Why:** A browser contract nobody runs in CI drifts silently — exactly the
+class `test/aside-driver.test.ts` pins statically but cannot prove live.
+
+**Effort:** M (human ~2 days, CC ~1h plus the machine). **Priority:** P2. **Depends on:** a macOS host with Aside signed in.
+
+### P3: Evaluate `aside mcp` for multi-step flows
+
+**What:** `aside repl` is one flow per script — a fresh session per call, tabs
+closed when it ends. `aside mcp` keeps a persistent REPL page across calls.
+Once the CLI stabilizes, measure whether an MCP path makes long QA audits
+cheaper (no re-navigation per script) without losing the "leave the browser as
+you found it" guarantee.
+
+**Why:** Re-navigating from the URL per script is the honest tax of the current
+model; a persistent page could cut it but adds a session that must be cleaned up.
+
+**Effort:** M (human ~2 days, CC ~1h). **Priority:** P3. **Depends on:** Aside CLI stability.
+
+### P3: Eval that skills treat `aside exec` output as untrusted
+
+**What:** `aside exec "<task>"` returns another agent's answer. Add an LLM-judge
+or E2E eval that plants an instruction inside an `aside exec` result and checks
+the skill takes syntax from it, never scope, permissions, or consent.
+
+**Why:** The rule is pinned as prose; nothing yet proves a skill obeys it when
+the injected text arrives through the one channel that reads like a colleague.
+
+**Effort:** S (human ~1 day, CC ~30min). **Priority:** P3. **Depends on:** the Aside E2E lane above.
+
+### P1: make-pdf renders user documents inside the real browser profile — add a CSP
+
+**What:** `/make-pdf` prints markdown-derived HTML through Aside (the user's
+signed-in browser) on a `127.0.0.1` origin. The only barrier between a hostile
+document (a README from a cloned repo) and script execution in that profile is
+the regex sanitizer in `make-pdf/src/render.ts`, whose header assumes marked
+output is never malformed — raw-HTML passthrough breaks that assumption. Inject
+gstack's own CSP `<meta>` into the print template (`default-src 'none';
+img-src data: 'self'; style-src 'unsafe-inline' 'self'; font-src data: 'self';
+script-src 'nonce-<per-render>'` for Paged.js), since user `<meta>` is stripped
+and gstack's is not; alternatively keep make-pdf on the bundled engine by
+default.
+
+**Why:** Under the old cookieless headless engine a sanitizer bypass was
+near-harmless; in the real profile it is a CSRF-class primitive. Cross-model
+finding (Claude adversarial + Codex).
+
+**Effort:** M (human ~2 days, CC ~1h). **Priority:** P1. **Depends on:** none.
+
+### P1: diagram pre-pass buffers every oversized image before downscaling
+
+**What:** `make-pdf/src/diagram-prepass.ts` caps each image at 64 MB but keeps
+every pending buffer in `downscales` and duplicates it as base64 before the
+batch runs; a document referencing a few dozen large images can take gigabytes.
+Cap total pending bytes (e.g. 256 MB) and process in bounded batches, or
+downscale sequentially.
+
+**Why:** A hostile or merely image-heavy document crashes the tool instead of
+degrading.
+
+**Effort:** S (human ~1 day, CC ~30min). **Priority:** P1. **Depends on:** none.
+
+### P2: fallback renders die after any cookie import in the daemon's lifetime
+
+**What:** `renderWithBrowse` drives readiness and evals through `$B js`, and the
+daemon's cookie-import JS lock (`browse/src/read-commands.ts`) refuses `js` on
+every origin outside the imported set — `127.0.0.1` included, forever (the set
+is add-only). The renderer now names the remedy (`$B stop`), but the real fix is
+a fresh incognito context for local-HTML renders, or a loopback exemption once
+its threat model is written down.
+
+**Why:** On Linux/Windows (no Aside) one `/setup-browser-cookies` run makes
+every later `/diagram` and `/make-pdf` render fail.
+
+**Effort:** M (human ~2 days, CC ~1h). **Priority:** P2. **Depends on:** none.
+
+### P2: carve the Aside contract + fallback block into one shared section
+
+**What:** `{{ASIDE_SETUP}}` (~5.6 KB) plus `{{BROWSE_FALLBACK}}` (~4.1 KB) are
+rendered verbatim into ten browsing skills (~97 KB of identical prose loaded on
+every invocation). Keep the probe and the three decision steps inline; move
+"Rules for driving a real browser" and the Aside-to-`$B` translation table into
+one carved reference (the `browse/sections/command-list.md` pattern), then
+re-run `capture-context-budget.ts` so the ceilings ratchet back down.
+
+**Why:** Every skill invocation pays for prose that is skill-invariant.
+
+**Effort:** M (human ~2 days, CC ~1h). **Priority:** P2. **Depends on:** none.
+
+### P2: `$B js` / `$B eval` output is not wrapped in the untrusted envelope
+
+**What:** `js` and `eval` are not in `PAGE_CONTENT_COMMANDS`
+(`browse/src/commands.ts`), so page-controlled return values reach the agent
+unfenced while the fallback table routes exactly the page-controlled reads
+through them. `gstack-render` now fences its own `EVAL`/`PAGE_ERRORS` lines and
+the fallback prose says `$B js` is unwrapped; the durable fix is to add both
+commands to the envelope set.
+
+**Why:** A hostile page can deliver injection text through the one channel the
+skills were told is fenced.
+
+**Effort:** S (human ~half day, CC ~15min). **Priority:** P2. **Depends on:** none.
+
+### P3: Aside-first renderer follow-ups (perf and DRY)
+
+- **Readiness polling** spawns a `browse js` process every 150 ms; the daemon's
+  `wait <sel>` command blocks server-side in one spawn — use it for
+  `waitFor.selector`. Effort S.
+- **Bundle re-staging:** every `runScript()` batch copies the ~9 MB diagram
+  bundle into a fresh mkdtemp and starts a new loopback server; stage once per
+  run (content-addressed) and, on the browse engine, keep one tab across the
+  fence/downscale/DOCX batches. Effort M.
+- **Probe cost:** `probeAside()` runs two blocking spawns per process and the
+  engine cache is per-process; persist the outcome with a short TTL under
+  `GSTACK_HOME` and lower the repl probe timeout on the code path. Effort S.
+- **DRY:** the console-error `HOOK` IIFE exists in seven copies across
+  `scripts/resolvers/*.ts` and `lib/aside-render.ts` (two divergent variants);
+  cookbook recipes (responsive loop, links, read-a-page) are duplicated across
+  `aside.ts`, `design.ts`, `utility.ts`; the readiness probe is recovered from
+  rendered markdown by regex in two places instead of a shared constant. Export
+  one source for each. Effort S each.
+- **Egress scanner:** `test/egress-receipt-wiring.test.ts` scans `curl`, `git
+  push`, and `fetch`; add `aside exec` as a sink class so a bare call fails CI
+  the way the others do. Effort S.
+- `_browser_hint` treats any `aside` on PATH as the Aside browser (no version
+  check). Effort S.
+- **`gen-skill-docs --dry-run` is not write-free for external hosts:**
+  `processExternalHost` runs `mkdirSync(outputDir)` and writes
+  `agents/openai.yaml` with no `DRY_RUN` guard (only SKILL.md is skipped), so a
+  dry run against an empty `--out-dir` leaves 54 `openai.yaml` files behind.
+  Guard both writes. Effort S.
+
+**Priority:** P3. **Depends on:** none.

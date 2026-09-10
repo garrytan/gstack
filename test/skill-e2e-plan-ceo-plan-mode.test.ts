@@ -34,6 +34,7 @@
  */
 
 import { test } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
@@ -77,5 +78,5 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
       );
     }
     assertReportAtBottomIfPlanWritten(obs);
-  }, 480_000);
+  }, CAPTURE_LONG_MS);
 });

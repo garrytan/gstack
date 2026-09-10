@@ -32,6 +32,7 @@ describe('setup Codex model activation', () => {
 
   test('resolves the profile once, fails closed, and passes it as quoted argv', () => {
     expect(setup).toContain('scripts/resolve-codex-generation-model.ts');
+    expect(setup).toContain('CODEX_GENERATION_MODEL="gpt-6-astra"');
     expect(setup).toContain('Codex skill profile: $CODEX_GENERATION_MODEL');
     expect(setup).toContain('Source: $CODEX_GENERATION_MODEL_SOURCE');
     expect(setup).toContain('gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL"');

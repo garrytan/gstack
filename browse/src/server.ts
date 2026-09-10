@@ -13,7 +13,7 @@
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
-import { BrowserManager } from './browser-manager';
+import { BrowserManager, markDaemonProcess } from './browser-manager';
 import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
@@ -812,8 +812,17 @@ function parentWatchdogTick(parentPid: number = BROWSE_PARENT_PID): void {
     }
   }
 }
+// Poll cadence. Env-overridable as a test seam: watchdog.test.ts shrinks it
+// (250ms) so a free-tier test can observe a real tick deciding on a dead
+// parent instead of sleeping through the 15s production cadence. Production
+// launchers never set this; unparsable or non-positive values fall back to 15s.
+const rawWatchdogIntervalMs = parseInt(process.env.BROWSE_PARENT_WATCHDOG_INTERVAL_MS || '', 10);
+const PARENT_WATCHDOG_INTERVAL_MS =
+  Number.isFinite(rawWatchdogIntervalMs) && rawWatchdogIntervalMs > 0
+    ? rawWatchdogIntervalMs
+    : 15_000;
 if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
-  setInterval(parentWatchdogTick, 15_000);
+  setInterval(parentWatchdogTick, PARENT_WATCHDOG_INTERVAL_MS);
 } else if (IS_HEADED_WATCHDOG) {
   console.log('[browse] Parent-process watchdog disabled (headed mode)');
 } else if (BROWSE_PARENT_PID === 0) {
@@ -1385,6 +1394,10 @@ async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<R
 // server.ts as a submodule can register their own signal handlers without
 // fighting with gstack's. CLI path is unchanged.
 if (import.meta.main) {
+  // Standalone daemon: a Chromium crash must exit THIS process (its
+  // supervisor/user notices); embedders and in-process test launches must
+  // never be exited by browser-manager's disconnect handler.
+  markDaemonProcess();
   // SIGINT (Ctrl+C): user intentionally stopping → shutdown.
   process.on('SIGINT', () => activeShutdown?.());
   // SIGHUP (terminal hangup): with handleSIGHUP:false at the three launch
@@ -3175,6 +3188,14 @@ export async function start() {
     // daemon launch on this state file) can validate-then-cleanup orphans
     // without clobbering a recycled PID.
     ...(xvfb ? { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display } : {}),
+    // #2709: launched-Chromium identity (pid + start time) so `browse stop`
+    // can reap a survivor — the headless launch has no SingletonLock for
+    // killOrphanChromium to walk, and on macOS 26 the orphaned GPU process
+    // kept spinning at ~800% CPU after the daemon exited.
+    ...(() => {
+      const info = browserManager.getChromiumProcInfo();
+      return info ? { chromiumPid: info.pid, chromiumStartTime: info.startTime } : {};
+    })(),
   };
   const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });

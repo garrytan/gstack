@@ -265,7 +265,15 @@ fi
 # ERE per line; blank lines and #-comments skipped; an invalid regex is
 # skipped (never fatal — the hook must not break on a typo in config).
 if [ -z "$WARN" ]; then
-  _GSTACK_HOME_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+  # Same state root the writer (/careful via gstack-paths) uses — see
+  # gstack_hook_state_root in hook-extract.sh (#1459 class).
+  if command -v gstack_hook_state_root >/dev/null 2>&1; then
+    _GSTACK_HOME_DIR="$(gstack_hook_state_root; printf x)"; _GSTACK_HOME_DIR="${_GSTACK_HOME_DIR%x}"
+  else
+    # Older hook-extract.sh (partial upgrade): the plain chain beats dying
+    # under set -e with no decision JSON — rules under $HOME/.gstack still load.
+    _GSTACK_HOME_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+  fi
   _PATTERN_FILES="$_GSTACK_HOME_DIR/careful-patterns.txt"
   # Short-circuit: resolving the project slug costs a subprocess + git call on
   # EVERY Bash command while /careful is active — only pay it when some

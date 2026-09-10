@@ -11,6 +11,7 @@
  * golden), parallel shards (worktree copies), or live symlinked installs.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -20,12 +21,12 @@ import { EvalCollector } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const CODEX_AVAILABLE = spawnSync('which', ['codex']).status === 0;
+const CODEX_AVAILABLE = spawnSync('which', ['codex'], { timeout: 30_000 }).status === 0;
 // The run pins the model with --ignore-user-config; older codex CLIs reject
 // the flag with an argv error indistinguishable from a Sol regression, so
 // probe support and skip (not fail) on old CLIs.
 const IGNORE_USER_CONFIG_SUPPORTED = CODEX_AVAILABLE
-  && (spawnSync('codex', ['exec', '--help'], { encoding: 'utf8' }).stdout ?? '').includes('--ignore-user-config');
+  && (spawnSync('codex', ['exec', '--help'], { encoding: 'utf8', timeout: 120_000 }).stdout ?? '').includes('--ignore-user-config');
 const evalsEnabled = !!process.env.EVALS;
 // External-service test — periodic tier only (CLAUDE.md tiering rule 3). The
 // positive guard shape below is what classifyPaidTestFile greps to exclude
@@ -125,6 +126,9 @@ describeSol('GPT-5.6 Sol full-artifact scope termination', () => {
     const generated = spawnSync(
       'bun',
       ['run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--model', 'gpt-5.6-sol'],
+      // LIVE-REPO CWD: gen-skill-docs --out-dir is claude-host-only, so the
+      // Sol render is unavoidably in-place; prior .agents tree is snapshotted
+      // above and restored below.
       { cwd: ROOT, encoding: 'utf8', timeout: 120_000 },
     );
     if (generated.status !== 0) {
@@ -259,5 +263,5 @@ You are authorized to implement the minimal fix. The task boundary is src/parse-
     expect(readmeDecoyUntouched).toBe(true);
 
     console.log(`codex-sol-scope: ${result.tokens} tokens, ${result.toolCalls.length} tool calls, ${Math.round(result.durationMs / 1000)}s`);
-  }, 300_000);
+  }, CAPTURE_MS);
 });

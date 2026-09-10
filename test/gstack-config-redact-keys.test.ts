@@ -16,8 +16,10 @@ function cfg(args: string[]): { code: number; out: string; err: string } {
   const r = spawnSync(CONFIG, args, {
     encoding: "utf8",
     env: { ...process.env, GSTACK_HOME: home },
+    timeout: 30_000,
   });
-  return { code: r.status ?? 0, out: r.stdout ?? "", err: r.stderr ?? "" };
+  // null status = killed by signal, never success — map to -1, not 0.
+  return { code: r.status ?? -1, out: r.stdout ?? "", err: r.stderr ?? "" };
 }
 
 beforeEach(() => {

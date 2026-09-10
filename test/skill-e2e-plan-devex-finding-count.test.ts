@@ -11,6 +11,8 @@
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   devexStep0Boundary,
@@ -23,8 +25,8 @@ const N = 5;
 const FLOOR = N - 1;
 const CEILING = N + 2;
 
-const PLAN_DEVEX_5_FINDINGS = [
-  'Please review this plan thoroughly. As you go, write your plan-mode plan to /tmp/gstack-test-plan-devex.md (use Edit/Write to that exact path).',
+const planDevex5Findings = (planPath: string) => [
+  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
   '',
   '# Plan: Public SDK Beta Launch',
   '',
@@ -50,30 +52,30 @@ const PLAN_DEVEX_5_FINDINGS = [
   'of solved problems.',
 ].join('\n');
 
-const PLAN_DEVEX_PATH = '/tmp/gstack-test-plan-devex.md';
-
 describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', () => {
   test(
     `5-finding plan emits ${FLOOR}-${CEILING} review-phase AskUserQuestions`,
     async () => {
-      try {
-        fs.rmSync(PLAN_DEVEX_PATH, { force: true });
-      } catch {
-        /* best-effort */
-      }
-
-      const obs = await runPlanSkillCounting({
-        skillName: 'plan-devex-review',
-        slashCommand: '/plan-devex-review',
-        followUpPrompt: PLAN_DEVEX_5_FINDINGS,
-        isLastStep0AUQ: devexStep0Boundary,
-        reviewCountCeiling: CEILING + 1,
-        cwd: process.cwd(),
-        timeoutMs: 1_500_000,
-        env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
-      });
+      // Per-run artifact dir: a hardcoded shared /tmp path collides under
+      // --retry, EVALS_JOBS>1, or concurrent worktrees (a sibling's finally-
+      // rmSync deletes this run's artifact → spurious D19 failure).
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-devex-'));
+      const planPath = path.join(tmpDir, 'gstack-test-plan-devex.md');
 
       try {
+        const obs = await runPlanSkillCounting({
+          skillName: 'plan-devex-review',
+          slashCommand: '/plan-devex-review',
+          followUpPrompt: planDevex5Findings(planPath),
+          isLastStep0AUQ: devexStep0Boundary,
+          reviewCountCeiling: CEILING + 1,
+          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
+          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
+          cwd: process.cwd(),
+          timeoutMs: 1_500_000,
+          env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
+        });
+
         if (!['plan_ready', 'completion_summary', 'ceiling_reached'].includes(obs.outcome)) {
           throw new Error(
             `plan-devex-review finding-count FAILED: outcome=${obs.outcome}\n` +
@@ -105,17 +107,17 @@ describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', (
           );
         }
 
-        if (!fs.existsSync(PLAN_DEVEX_PATH)) {
+        if (!fs.existsSync(planPath)) {
           throw new Error(
-            `D19 FAIL: agent did not produce expected plan file at ${PLAN_DEVEX_PATH}. ` +
+            `D19 FAIL: agent did not produce expected plan file at ${planPath}. ` +
               `outcome=${obs.outcome} review=${obs.reviewCount}`,
           );
         }
-        const planContent = fs.readFileSync(PLAN_DEVEX_PATH, 'utf-8');
+        const planContent = fs.readFileSync(planPath, 'utf-8');
         const verdict = assertReviewReportAtBottom(planContent);
         if (!verdict.ok) {
           throw new Error(
-            `D19 FAIL: plan file at ${PLAN_DEVEX_PATH} ${verdict.reason}\n` +
+            `D19 FAIL: plan file at ${planPath} ${verdict.reason}\n` +
               (verdict.trailingHeadings
                 ? `Trailing headings: ${verdict.trailingHeadings.join(' | ')}\n`
                 : '') +
@@ -124,12 +126,12 @@ describeE2E('/plan-devex-review per-finding AskUserQuestion count (periodic)', (
         }
       } finally {
         try {
-          fs.rmSync(PLAN_DEVEX_PATH, { force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }
       }
     },
-    1_700_000,
+    1_500_000 /* physical ceiling: the 25-min CI job + 1800s shard wall cap what can actually execute */,
   );
 });

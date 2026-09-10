@@ -51,6 +51,15 @@ describe('plan-ceo-review carve — static ordering', () => {
     expect(stop).toBeGreaterThan(step0); // STOP fires only after Step 0
   });
 
+  test('mode selection precedes mode-specific analysis after approach approval', () => {
+    const approach = at('### 0C-bis.');
+    const mode = at('### 0F. Mode Selection');
+    const analysis = at('### 0D. Mode-Specific Analysis');
+    expect(approach).toBeGreaterThan(-1);
+    expect(mode).toBeGreaterThan(approach);
+    expect(analysis).toBeGreaterThan(mode);
+  });
+
   test('the heavy review body (Sections 1-11) is NOT in the skeleton', () => {
     expect(skeleton).not.toContain('### Section 1: Architecture Review');
     expect(skeleton).not.toContain('### Section 11:');

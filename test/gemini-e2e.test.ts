@@ -15,10 +15,11 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS } from './helpers/eval-budgets';
 import { runGeminiSkill } from './helpers/gemini-session-runner';
 import type { GeminiResult } from './helpers/gemini-session-runner';
 import { EvalCollector } from './helpers/eval-store';
-import { selectTests, detectBaseBranch, getChangedFiles, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 import { createTestWorktree, harvestAndCleanup } from './helpers/e2e-helpers';
 import * as path from 'path';
 
@@ -28,7 +29,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 const GEMINI_AVAILABLE = (() => {
   try {
-    const result = Bun.spawnSync(['which', 'gemini']);
+    const result = Bun.spawnSync(['which', 'gemini'], { timeout: 30_000 });
     return result.exitCode === 0;
   } catch { return false; }
 })();
@@ -73,10 +74,16 @@ if (!evalsEnabled) {
 
 // --- Diff-based test selection ---
 
-// Gemini E2E touchfiles — keyed by test name
-const GEMINI_E2E_TOUCHFILES: Record<string, string[]> = {
-  'gemini-smoke':  ['.agents/skills/**', 'test/helpers/gemini-session-runner.ts'],
-};
+// Gemini E2E touchfiles — DERIVED from the canonical map, never a local fork
+// (the old hand-copy kept a gitignored '.agents/skills/**' pattern that can
+// never match a git diff and missed canonical deps — same drift class as the
+// codex copy).
+const GEMINI_E2E_TOUCHFILES: Record<string, string[]> = Object.fromEntries(
+  (['gemini-smoke'] as const).map((key) => {
+    if (!E2E_TOUCHFILES[key]) throw new Error(`canonical E2E_TOUCHFILES lost key '${key}' — fix the map, not this file`);
+    return [key, E2E_TOUCHFILES[key]];
+  }),
+);
 
 let selectedTests: string[] | null = null; // null = run all
 
@@ -151,7 +158,7 @@ describeGemini('Gemini E2E', () => {
     // Uses a simple prompt that doesn't require skill invocation or complex navigation.
     const result = await runGeminiSkill({
       prompt: 'What is this project? Answer in one sentence based on the README.',
-      timeoutMs: 90_000,
+      timeoutMs: JUDGE_MS,
       cwd: testWorktree,
     });
 
@@ -163,5 +170,5 @@ describeGemini('Gemini E2E', () => {
     recordGeminiE2E('gemini-smoke', result, passed);
 
     expect(result.output.length, 'Gemini should produce output').toBeGreaterThan(10);
-  }, 120_000);
+  }, JUDGE_MS);
 });

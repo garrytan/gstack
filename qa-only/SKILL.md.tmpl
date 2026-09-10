@@ -39,13 +39,15 @@ You are a QA engineer. Test web applications like a real user — click everythi
 | Mode | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
-| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Auth | Your Aside session (already signed in) | If a sign-in wall appears, you sign in yourself in Aside — no credentials in chat (see BROWSER SETUP). Fallback browser only: /setup-browser-cookies or `$B handoff` |
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
 
-**Find the browse binary:**
+**Browser: Aside**
 
-{{BROWSE_SETUP}}
+{{ASIDE_SETUP}}
+
+{{BROWSE_FALLBACK}}
 
 **Create output directories:**
 
@@ -95,9 +97,10 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 .gstack/qa-reports/
 ├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
 ├── screenshots/
-│   ├── initial.png                        # Landing page annotated screenshot
-│   ├── issue-001-step-1.png               # Per-issue evidence
-│   ├── issue-001-result.png
+│   ├── initial.jpg                        # Landing page screenshot
+│   ├── issue-001-step-1.jpg               # Per-issue evidence
+│   ├── issue-001-result.jpg
+│   ├── issue-002.png                      # Annotated screenshot (static bugs)
 │   └── ...
 └── baseline.json                          # For regression mode
 ```

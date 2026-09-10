@@ -62,19 +62,6 @@ function installPrepushHook(): void {
   const hookPath = path.join(dir, "pre-push");
   const prepushBin = path.join(import.meta.dir, "gstack-redact-prepush");
 
-  // If a non-managed hook exists, preserve it as pre-push.local and chain it.
-  if (fs.existsSync(hookPath)) {
-    const existing = fs.readFileSync(hookPath, "utf8");
-    if (existing.includes(MANAGED_MARKER)) {
-      process.stdout.write("gstack-redact: pre-push hook already installed.\n");
-      return;
-    }
-    const localPath = path.join(dir, "pre-push.local");
-    fs.renameSync(hookPath, localPath);
-    fs.chmodSync(localPath, 0o755);
-    process.stdout.write("gstack-redact: preserved existing hook as pre-push.local (chained).\n");
-  }
-
   // stdin is single-consume: capture it once, feed both the chained hook and ours.
   // The `printf x` sentinel preserves the trailing newline that `$(cat)` strips.
   // Without it, a chained shell pre-push.local built on `while read` silently
@@ -91,6 +78,39 @@ if [ -x "$_local" ]; then
 fi
 printf '%s' "$_input" | bun "${prepushBin}" "$@"
 `;
+
+  // If a non-managed hook exists, preserve it as pre-push.local and chain it.
+  if (fs.existsSync(hookPath)) {
+    const existing = fs.readFileSync(hookPath, "utf8");
+    if (existing.includes(MANAGED_MARKER)) {
+      // A hook we already own. Returning here unconditionally froze every
+      // existing install on whatever wrapper it first received: the `printf x`
+      // fail-open fix landed in v1.64.0.0 and still had not reached a single
+      // repo that got the hook before it, because the only writer is gated on
+      // this branch. A wrapper naming a gstack that has since been moved or
+      // removed stays pointed at that dead path for the same reason.
+      //
+      // Rewrite when the body has drifted from what this version generates;
+      // stay a no-op when it has not, so the command is still idempotent. The
+      // chained pre-push.local is never touched on either path — it is the
+      // user's, not ours.
+      if (existing === wrapper) {
+        process.stdout.write("gstack-redact: pre-push hook already installed.\n");
+        return;
+      }
+      fs.writeFileSync(hookPath, wrapper, { mode: 0o755 });
+      fs.chmodSync(hookPath, 0o755);
+      process.stdout.write(
+        `gstack-redact: refreshed stale managed pre-push hook at ${hookPath}\n`,
+      );
+      return;
+    }
+    const localPath = path.join(dir, "pre-push.local");
+    fs.renameSync(hookPath, localPath);
+    fs.chmodSync(localPath, 0o755);
+    process.stdout.write("gstack-redact: preserved existing hook as pre-push.local (chained).\n");
+  }
+
   fs.writeFileSync(hookPath, wrapper, { mode: 0o755 });
   fs.chmodSync(hookPath, 0o755);
   process.stdout.write(`gstack-redact: installed pre-push hook at ${hookPath}\n`);
@@ -123,6 +143,15 @@ function flag(name: string): boolean {
 
 function readInput(): string {
   const file = arg("--from-file");
+  // An explicitly-passed EMPTY path must error, not silently fall through to
+  // stdin: skill blocks pass "$FILE" from a $(mktemp) that may have failed,
+  // and the stdin fallback then scans nothing while looking green (#2679).
+  if (file === "") {
+    process.stderr.write(
+      "gstack-redact: --from-file requires a non-empty path (did mktemp fail?)\n",
+    );
+    process.exit(1);
+  }
   if (file) {
     const st = fs.statSync(file);
     if (st.size > MAX_STDIN_BYTES) {
@@ -278,7 +307,9 @@ function main() {
           "\n",
       );
     }
-    process.exit(0);
+    // Same truncation class as the report path below: the redacted BODY can
+    // be arbitrarily large; let stdout drain instead of process.exit(0).
+    return;
   }
 
   const result = scan(input, opts);
@@ -297,7 +328,12 @@ function main() {
       process.stdout.write(`  HIGH=${HIGH} MEDIUM=${MEDIUM} LOW=${LOW} WARN=${WARN}\n`);
     }
   }
-  process.exit(code);
+  // process.exit() discards stdout still buffered in the pipe: a report past
+  // ~145 KB read by a slow consumer (node's gate-secret-scan.mjs collector)
+  // arrived truncated, JSON.parse failed, and the CI quality gate failed
+  // CLOSED on a clean scan. Set the exit code and let the runtime drain
+  // stdout instead — same contract, no truncation.
+  process.exitCode = code;
 }
 
 main();

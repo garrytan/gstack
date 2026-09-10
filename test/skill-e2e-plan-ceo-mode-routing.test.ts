@@ -31,6 +31,7 @@
  */
 
 import { test } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import {
   launchClaudePty,
@@ -151,7 +152,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
       async () => {
         const session = await launchClaudePty({
           permissionMode: 'plan',
-          timeoutMs: 540_000,
+          timeoutMs: CAPTURE_LONG_MS,
           seedSkills: true,
         });
         try {
@@ -207,7 +208,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
           await session.close();
         }
       },
-      600_000,
+      CAPTURE_LONG_MS,
     );
   }
 });

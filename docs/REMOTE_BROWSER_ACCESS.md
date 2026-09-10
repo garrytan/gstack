@@ -1,5 +1,7 @@
 # Remote Browser Access — How to Pair With a GStack Browser
 
+> **Scope:** `/pair-agent` shares gstack's own browser engine, the **fallback** that runs when the Aside browser is absent (Linux, Windows, a closed Aside app). On a Mac with Aside open, every skill drives Aside instead, and there is no shared daemon to pair with — each agent that drives Aside opens its own tabs. See [BROWSER.md](../BROWSER.md) for when the fallback kicks in.
+
 A GStack Browser server can be shared with any AI agent that can make HTTP requests.
 The agent gets scoped access to a real Chromium browser: navigate pages, read content,
 click elements, fill forms, take screenshots. Each agent gets its own tab.

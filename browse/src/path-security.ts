@@ -12,16 +12,18 @@
  * Security invariants:
  *   1. All paths resolved to absolute before checking
  *   2. Symlinks resolved to catch traversal via symlink inside safe dir
- *   3. SAFE_DIRECTORIES = [TEMP_DIR, cwd] for local commands
+ *   3. SAFE_DIRECTORIES = [...TEMP_DIRS, cwd] for local commands (TEMP_DIRS =
+ *      classic TEMP_DIR plus os.tmpdir(), which differ on macOS and under
+ *      TMPDIR-honoring CI/sandbox environments)
  *   4. TEMP_ONLY = [TEMP_DIR] for remote file serving (prevents project file exfil)
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { TEMP_DIR, isPathWithin } from './platform';
+import { TEMP_DIR, TEMP_DIRS, isPathWithin } from './platform';
 
 // Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
-export const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()].map(d => {
+export const SAFE_DIRECTORIES = [...TEMP_DIRS, process.cwd()].map(d => {
   try { return fs.realpathSync(d); } catch { return d; }
 });
 

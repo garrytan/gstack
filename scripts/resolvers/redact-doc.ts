@@ -62,7 +62,7 @@ REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibilit
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(glab repo view -F json 2>/dev/null | grep -o '"visibility":"[^"]*"' | head -1 | sed 's/.*:"//;s/"//' | tr 'A-Z' 'a-z')
 REDACT_VIS="\${REDACT_VIS:-unknown}"
-REDACT_FILE=$(mktemp)
+REDACT_FILE=$(mktemp) || { echo "ERROR: mktemp failed — refusing to send ${sink.noun} unscanned." >&2; exit 1; }
 cat > "$REDACT_FILE" <<'REDACT_BODY_EOF'
 <the exact ${sink.noun} goes here>
 REDACT_BODY_EOF

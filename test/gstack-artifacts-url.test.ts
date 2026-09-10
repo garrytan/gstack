@@ -13,7 +13,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const URL_BIN = path.join(ROOT, 'bin', 'gstack-artifacts-url');
 
 function run(args: string[]): { code: number; stdout: string; stderr: string } {
-  const r = spawnSync(URL_BIN, args, { encoding: 'utf-8' });
+  const r = spawnSync(URL_BIN, args, { encoding: 'utf-8', timeout: 30_000 });
   return {
     code: r.status ?? -1,
     stdout: (r.stdout || '').trim(),

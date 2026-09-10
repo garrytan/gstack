@@ -61,7 +61,7 @@ const SCANNER_EXEMPT: { file: string; pattern: string; reason: string }[] = [
 ];
 
 function trackedFiles(): string[] {
-  const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
+  const out = execSync('git ls-files', { cwd: ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024, timeout: 30_000 });
   return out
     .split('\n')
     .map((s) => s.trim())
@@ -129,7 +129,9 @@ describe('tracker-text wiring scanner', () => {
       'review/greptile-triage.md',
       'document-release/sections/release-body.md.tmpl',
       'spec/SKILL.md.tmpl',
-      'land-and-deploy/SKILL.md.tmpl',
+      // Carved: the pr-body trust-envelope read lives in Step 3.5c, which moved
+      // into the on-demand readiness-gate section.
+      'land-and-deploy/sections/readiness-gate.md.tmpl',
       'scripts/resolvers/review.ts',
     ];
     for (const rel of mustMention) {

@@ -10,6 +10,7 @@
  * with outcome "unknown" + source "stop-hook" for every un-closed "started".
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { canRevokeWrites } from './helpers/fs-caps';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -437,7 +438,7 @@ describe('timeline-stop-hook wiring', () => {
     // Root can write through 0o555 directories, so the failure injection
     // (read-only dir) does not bind there; the invariant is still covered by
     // the atomic tmp+rename pinned in the re-point test above.
-    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ensure-fail-'));
     try {

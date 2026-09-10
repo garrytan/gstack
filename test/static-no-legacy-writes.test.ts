@@ -49,7 +49,7 @@ const ALLOWED_FILES = new Set<string>([
 const SKIP_DIRS = new Set<string>([
   'node_modules', '.git', '.github', 'dist', 'test', 'docs',
   // Vendored binaries / build outputs.
-  'browse/dist', 'design/dist', 'extension/node_modules',
+  'browse/dist', 'design/dist', 'make-pdf/dist', 'extension/node_modules',
   // The plan file's directory was already in ALLOWED_FILES; skip docs/ entirely.
 ]);
 

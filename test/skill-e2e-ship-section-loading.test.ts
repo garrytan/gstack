@@ -24,6 +24,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import {
   setupSkillDir,
@@ -78,6 +79,6 @@ describeE2E('/ship section-loading E2E (periodic, SDK capture)', () => {
       // Guard against an empty pass: the report must have real content.
       expect(output.trim().length).toBeGreaterThan(200);
     },
-    360_000,
+    CAPTURE_LONG_MS,
   );
 });

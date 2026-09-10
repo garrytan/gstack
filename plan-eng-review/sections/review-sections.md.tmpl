@@ -6,6 +6,10 @@
 
 {{LEARNINGS_SEARCH}}
 
+**Plan-review evidence:** Apply the calibration gate below before Section 1. For proposed work, quote the motivating plan requirement (plan file:line); verify it against existing interfaces where applicable. Do not require nonexistent future code or describe a proposed regression as an observed one. Code-specific examples apply when critiquing existing code. Put suppressed findings in a `Suppressed findings` appendix to the review report.
+
+{{CONFIDENCE_CALIBRATION}}
+
 ### 1. Architecture review
 Evaluate:
 * Overall system design and component boundaries.
@@ -20,8 +24,6 @@ Evaluate:
 For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
 
 **STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
-
-{{CONFIDENCE_CALIBRATION}}
 
 ### 2. Code quality review
 Evaluate:
@@ -222,4 +224,3 @@ Use AskUserQuestion with only the applicable options:
 
 ## Unresolved decisions
 If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
-

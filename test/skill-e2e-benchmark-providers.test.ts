@@ -19,6 +19,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { ClaudeAdapter } from './helpers/providers/claude';
 import { GptAdapter } from './helpers/providers/gpt';
 import { GeminiAdapter } from './helpers/providers/gemini';
@@ -94,7 +95,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       process.stderr.write(`\nclaude live smoke: SKIPPED — ${check.reason}\n`);
       return;
     }
-    const result = await claude.run({ prompt: PROMPT, workdir, timeoutMs: 120_000 });
+    const result = await claude.run({ prompt: PROMPT, workdir, timeoutMs: JUDGE_MS });
     if (result.error) {
       throw new Error(`claude errored: ${result.error.code} — ${result.error.reason}`);
     }
@@ -106,7 +107,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(result.modelUsed.length).toBeGreaterThan(0);
     const cost = claude.estimateCost(result.tokens, result.modelUsed);
     expect(cost).toBeGreaterThan(0);
-  }, 150_000);
+  }, CAPTURE_MS);
 
   test('gpt: trivial prompt produces parseable output', async () => {
     const check = await gpt.available();
@@ -114,7 +115,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       process.stderr.write(`\ngpt live smoke: SKIPPED — ${check.reason}\n`);
       return;
     }
-    const result = await gpt.run({ prompt: PROMPT, workdir, timeoutMs: 120_000 });
+    const result = await gpt.run({ prompt: PROMPT, workdir, timeoutMs: JUDGE_MS });
     if (result.error) {
       throw new Error(`gpt errored: ${result.error.code} — ${result.error.reason}`);
     }
@@ -125,7 +126,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(typeof result.modelUsed).toBe('string');
     const cost = gpt.estimateCost(result.tokens, result.modelUsed);
     expect(cost).toBeGreaterThan(0);
-  }, 150_000);
+  }, CAPTURE_MS);
 
   test('gemini: trivial prompt produces parseable output', async () => {
     const check = await gemini.available();
@@ -133,7 +134,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       process.stderr.write(`\ngemini live smoke: SKIPPED — ${check.reason}\n`);
       return;
     }
-    const result = await gemini.run({ prompt: PROMPT, workdir, timeoutMs: 120_000 });
+    const result = await gemini.run({ prompt: PROMPT, workdir, timeoutMs: JUDGE_MS });
     if (result.error) {
       // auth / rate_limit are ENVIRONMENT conditions the test can't act on
       // (e.g. Google deprecated the individual code-assist auth path — the
@@ -155,7 +156,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
     expect(result.modelUsed.length).toBeGreaterThan(0);
-  }, 150_000);
+  }, CAPTURE_MS);
 
   test('timeout error surfaces as error.code=timeout (no exception)', async () => {
     // Use whatever adapter is available first — all three should share timeout semantics.
@@ -183,7 +184,7 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       prompt: PROMPT,
       workdir,
       providers: ['claude', 'gpt', 'gemini'],
-      timeoutMs: 120_000,
+      timeoutMs: JUDGE_MS,
       skipUnavailable: false,
     });
     expect(report.entries).toHaveLength(3);
@@ -201,5 +202,5 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     if (!hadSuccess) {
       process.stderr.write('\nrunBenchmark live: no provider produced a clean result (no auth?)\n');
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 });

@@ -1,0 +1,106 @@
+name: Register gstack skills for PTY tests
+description: >
+  Register the skills PTY smokes invoke, in every place claude looks:
+  user-scoped ($HOME/.claude/skills — a gstack root symlink for the
+  preamble's absolute runtime paths, plus per-skill REAL-FILE copies because
+  claude's interactive-TUI skill scanner does not follow the
+  /github/home -> /__w cross-mount symlink), and project-scoped
+  (<repo>/.claude/skills, which the TUI reads for /slash commands and which
+  is gitignored so absent on a fresh CI checkout). Also pre-seeds every
+  one-time preamble marker so no PTY child takes a first-run branch mid-test
+  (feature discovery under ~/.claude/skills/gstack trips Claude Code's
+  sensitive-file permission prompt — the documented intermittent
+  scope-gate-question-NOT-observed failure).
+
+  Ends with the fail-fast verification loop the legacy matrix copy grew
+  after a silent "Unknown command" + 35-min-timeout incident: a dangling
+  symlink or renamed committed target fails HERE, in seconds, with a named
+  path — never as a wedged PTY session at the shard wall. Every consuming
+  lane inherits the loop by construction (it previously existed only in the
+  matrix copy; the sliced + periodic copies had silently dropped it).
+inputs:
+  skills:
+    description: Space-separated skill dirs (each must have SKILL.md + sections/).
+    required: false
+    default: office-hours plan-ceo-review plan-eng-review plan-design-review
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SKILLS: ${{ inputs.skills }}
+      run: |
+        set -eu
+        SKILLS_DIR="$HOME/.claude/skills"
+        REPO="$GITHUB_WORKSPACE"
+        mkdir -p "$SKILLS_DIR"
+        # The gstack root stays a symlink — the preamble's runtime bash resolves
+        # ~/.claude/skills/gstack/bin/* and ~/.claude/skills/gstack/<skill>/sections/*
+        # through it, and bash follows cross-mount symlinks fine.
+        # `ln -snf` replaces a stale SYMLINK but hard-errors on a REAL
+        # directory under set -eu — clear a real-dir leftover first so the
+        # composite is rerun-safe (codex diff review). CI HOMEs are fresh;
+        # this only fires on a dirty rerun.
+        if [ -d "$SKILLS_DIR/gstack" ] && [ ! -L "$SKILLS_DIR/gstack" ]; then
+          rm -rf "${SKILLS_DIR:?}/gstack"
+        fi
+        ln -snf "$REPO" "$SKILLS_DIR/gstack"
+        for s in $SKILLS; do
+          # Input validation before rm -rf: a future caller passing '..' or a
+          # path segment would delete $HOME/.claude (claude adversarial).
+          case "$s" in */*|.|..|'') echo "ERROR: invalid skill name: '$s'" >&2; exit 1;; esac
+          rm -rf "${SKILLS_DIR:?}/$s"
+          mkdir -p "$SKILLS_DIR/$s"
+          cp "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
+          cp -R "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
+        done
+        PROJ_SKILLS="$REPO/.claude/skills"
+        mkdir -p "$PROJ_SKILLS"
+        for s in $SKILLS; do
+          rm -rf "${PROJ_SKILLS:?}/$s"
+          mkdir -p "$PROJ_SKILLS/$s"
+          cp "$REPO/$s/SKILL.md" "$PROJ_SKILLS/$s/SKILL.md"
+          cp -R "$REPO/$s/sections" "$PROJ_SKILLS/$s/sections"
+        done
+        # Pre-seed every ONE-TIME preamble marker so no PTY child ever takes a
+        # first-run branch mid-test.
+        mkdir -p "$HOME/.gstack"
+        touch "$HOME/.gstack/.activated" \
+              "$HOME/.gstack/.first-loop-tip-shown" \
+              "$HOME/.gstack/.telemetry-prompted" \
+              "$HOME/.gstack/.proactive-prompted" \
+              "$HOME/.gstack/.completeness-intro-seen" \
+              "$HOME/.gstack/.plan-tune-nudge-shown" \
+              "$HOME/.gstack/.feature-prompted-continuous-checkpoint" \
+              "$HOME/.gstack/.feature-prompted-model-overlay"
+        echo "--- registry under $SKILLS_DIR ---"
+        ls -la "$SKILLS_DIR/gstack"
+        # ── Fail-fast verification ──────────────────────────────────────────
+        # A dangling symlink or moved/renamed committed target must fail here
+        # with a named path, not resurface as a silent "Unknown command" and a
+        # PTY session wedged to its wall timeout.
+        for f in \
+          "$SKILLS_DIR/gstack/bin/gstack-update-check" \
+          "$SKILLS_DIR/gstack/scripts/gen-skill-docs.ts"; do
+          if [ ! -e "$f" ]; then
+            echo "ERROR: gstack root symlink dangles or target moved: $f" >&2
+            exit 1
+          fi
+        done
+        for s in $SKILLS; do
+          if [ ! -e "$SKILLS_DIR/$s/SKILL.md" ]; then
+            echo "ERROR: skill-registry target missing: $SKILLS_DIR/$s/SKILL.md" >&2
+            exit 1
+          fi
+          grep -m1 "^name: $s\$" "$SKILLS_DIR/$s/SKILL.md" >/dev/null \
+            || { echo "ERROR: $s SKILL.md missing 'name: $s' frontmatter" >&2; exit 1; }
+          # Sections must exist BOTH as the copied real files (TUI reads) and
+          # through the gstack root symlink (the preamble's runtime paths).
+          for d in "$SKILLS_DIR/$s/sections" "$SKILLS_DIR/gstack/$s/sections"; do
+            if [ ! -d "$d" ] || [ -z "$(ls -A "$d")" ]; then
+              echo "ERROR: skill sections missing or empty: $d" >&2
+              exit 1
+            fi
+          done
+        done
+        echo "skill registry OK"

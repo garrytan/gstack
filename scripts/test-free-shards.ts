@@ -263,8 +263,8 @@ const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   {
     file: 'test/setup-windows-rerun-refresh.test.ts',
     // Trips the "spawns bin/ shebang script" pattern via path.join(..., 'bin',
-    // 'tool.sh') fixture paths, but every spawn goes through spawnSync('bash',
-    // ['-c', ...]) — Git Bash executes it fine on windows-latest. This file IS
+    // 'tool.sh') fixture paths, but every spawn goes through test/helpers/bash-script.ts
+    // (bash <tempfile>) — Git Bash executes it fine on windows-latest, with no argv-length ceiling. This file IS
     // the #2444 Windows regression coverage (IS_WINDOWS=1 copy-refresh path);
     // excluding it here would keep the bug class unexercised on the one
     // platform it bites.
@@ -283,12 +283,18 @@ const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   {
     file: 'browse/test/file-permissions.test.ts',
     // Trips the POSIX-mode-bitmask pattern, but every `mode & 0o777` assertion
-    // is platform-guarded (win32 returns early / takes the icacls branch).
+    // is platform-guarded: win32-only tests return early, POSIX-only tests
+    // guard the bitmask behind `process.platform !== 'win32'`, and the
+    // symlink-skip regression test both wraps symlinkSync in try/catch
+    // (runners without Developer Mode can't create symlinks) and guards its
+    // bitmask — on win32 it asserts behavior (warns, skips, doesn't throw,
+    // target stays usable), never fake Windows mode bits (dirs stat 0o777
+    // there, so a 0o755 expectation fails on runner semantics, not our code).
     // This file carries the win32-only icacls-by-SID regression tests, which
     // can ONLY execute on windows-latest — excluding it here means the
     // machine-account ACL lockout regression is never exercised on the one
     // platform it bricks.
-    reason: 'mode-bitmask hits are POSIX-branch only; win32-only ACL regression tests must run on windows-latest',
+    reason: 'every mode-bitmask assertion is guarded off win32 (behavior asserted instead); win32-only ACL regression tests must run on windows-latest',
   },
   {
     file: 'browse/test/terminal-agent-owner-watchdog.test.ts',
@@ -327,14 +333,54 @@ export const PER_FILE_WALL_MS = 5_000;
 export function wallTimeoutForShard(fileCount: number, baseMs = DEFAULT_WALL_TIMEOUT_MS): number {
   return Math.max(baseMs, fileCount * PER_FILE_WALL_MS);
 }
+
+/**
+ * Wall for a duration-packed shard. The count heuristic above assumes count
+ * approximates cost; LPT packing breaks that BY DESIGN (a shard may hold six
+ * slow Playwright files), so packed shards get max(base, predicted x 3) —
+ * generous against seed drift, still bounded.
+ */
+export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_WALL_TIMEOUT_MS, fileCount = 0): number {
+  // Predictions transfer badly across machines: the committed duration seed
+  // is recorded on fast CI, and a syscall-supervised sandbox replays those
+  // files 2-4x slower (observed: a 253-file shard predicted ~242s wall-killed
+  // at its 725s predicted-x3 wall while genuinely still progressing). The
+  // packed wall may therefore be LOOSER than the count heuristic, never
+  // tighter — it keeps the per-file floor the runner has always guaranteed.
+  return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
+}
 /**
  * Full-suite parallelism: leave RESERVED_CPUS cores for the parent runner +
  * OS, cap at MAX_FULL_SUITE_JOBS — beyond ~6 concurrent bun processes the
  * playwright-heavy shards contend on browser launches instead of finishing
  * sooner (measured on an M-series dev box).
+ *
+ * GSTACK_FREE_JOBS overrides the computed count (the free runner's analogue
+ * of the paid runner's EVALS_JOBS). Exists for syscall-supervised sandboxes:
+ * on Vercel sandboxes, PID 1 (sandbox-init) installs a seccomp filter whose
+ * user-space supervisor saturates under ~6 concurrent bun+playwright shards
+ * and starts returning EACCES from plain file syscalls (measured: 200/200
+ * `git init` probes in fresh mktemp dirs fail with
+ * "Cannot access work tree: Permission denied" while the suite runs, 0/200
+ * when idle — access(dir, X_OK) = EACCES under strace). Fewer shards keep
+ * the supervisor inside its budget. Not clamped by MAX_FULL_SUITE_JOBS so a
+ * beefy box can also raise it deliberately.
  */
 export const MAX_FULL_SUITE_JOBS = 6;
 export const RESERVED_CPUS = 2;
+
+export function fullSuiteJobs(): number {
+  const raw = process.env.GSTACK_FREE_JOBS;
+  if (raw !== undefined && raw !== '') {
+    // Strict digits-only: parseInt would silently truncate "2abc" -> 2 and
+    // "3.7" -> 3, defeating the loud-failure contract the error text claims.
+    if (!/^\d+$/.test(raw.trim()) || Number.parseInt(raw, 10) <= 0) {
+      throw new Error(`GSTACK_FREE_JOBS must be a positive integer, got: ${raw}`);
+    }
+    return Number.parseInt(raw, 10);
+  }
+  return Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+}
 
 /**
  * Files that crash or wedge Bun's --parallel WORKERS but run fine in a plain
@@ -352,44 +398,23 @@ export const WORKER_HOSTILE: Record<string, string> = {
 
 /**
  * TREE-SERIAL files: run in ONE serial shard AFTER the parallel shards.
- * Two kinds live here:
- *   - MUTATORS: tests that regenerate shared repo artifacts in place (skill
- *     SKILL.md files or the .agents/ host outputs). A shard reading those
- *     files concurrently sees a moving target — this family produced an
- *     exactly-doubled catalog estimate, golden-file drift, and a spec-sync
- *     mismatch before serialization.
- *   - RATCHET READERS: tests that MEASURE the shared tree (parity caps,
- *     size budgets). Measuring while any concurrent test regenerates is
- *     undefined behavior — two runs failed with byte-identical inflated
- *     skeletons while the tree was clean before and after, so rather than
- *     hunt every present and future mutator, the measurers get a quiet
- *     tree by construction.
- * Order within the serial shard is alphabetical (the file census is sorted
- * and the serial shard is a filter over it) — safety does NOT depend on
- * mutators-before-readers ordering; it rests on every mutator restoring
- * default state itself. (CI's --shards matrix is unaffected: each CI shard
- * has its own checkout.)
+ * EMPTY since the 2026-08 dissolution — kept as a mechanism, not a museum:
+ * a test that must regenerate shared repo artifacts IN PLACE (and cannot
+ * render into an out-dir instead) earns an entry here with a reason, and
+ * the runner will serialize it again.
+ *
+ * How it emptied: gen-skill-docs gained a main() guard (imports stopped
+ * regenerating 71 files at load) and --out-dir grew to every host, so all
+ * eight mutators now render into mkdtemps — the live tree is never written
+ * by the suite (pinned by gen-skill-docs-import-purity + each migrated
+ * file's own porcelain/mtime assertions). With zero mutators, the four
+ * ratchet READERS (parity caps, size budgets, carve parity/ordering) get a
+ * quiet tree by construction in any shard, so they rejoined the parallel
+ * phase — the ~35-40s serial tail on every full-suite run is gone.
  * Keys are pinned against the live file census by test-free-shards.test.ts —
  * a renamed file fails the suite instead of silently dropping serialization.
  */
-export const TREE_MUTATING: Record<string, string> = {
-  'test/catalog-mode-full.test.ts': 'regenerates ALL SKILL.md in full-catalog mode, then restores',
-  'test/spec-template-sync.test.ts': 'regenerates all SKILL.md in place to compare spec/SKILL.md',
-  'test/gen-skill-docs-idempotency.test.ts': 'regenerates all SKILL.md twice to prove idempotency',
-  'test/gen-skill-docs.test.ts': 'regenerates .agents/ (codex host) golden artifacts in place',
-  'test/skill-validation.test.ts': 'regenerates .agents/ (codex host) artifacts in place (3 sites)',
-  'test/gbrain-detection-override.test.ts':
-    'regenerates SKILL.md in place with --respect-detection (gbrain variant), then git-restores — readers see inflated skeletons mid-window',
-  'test/host-config.test.ts':
-    'golden tests read .agents/.factory artifacts produced by gen-skill-docs.test.ts, and its beforeAll generates them when missing (#2532) — must not race the parallel readers or run before the mutators window',
-  'test/catalog-trim.test.ts':
-    'imports scripts/gen-skill-docs.ts, whose top-level body regenerates the full claude host at import time (71 files; idempotent on a fresh tree, but a stale tree gets rewritten mid-window) — same hazard class as #2532',
-  // Ratchet readers (measure the tree; need it quiet):
-  'test/parity-suite.test.ts': 'RATCHET READER — parity caps measure live SKILL.md/section bytes',
-  'test/skill-size-budget.test.ts': 'RATCHET READER — per-skill and corpus size budgets measure the live tree',
-  'test/carve-guard-completeness.test.ts': 'RATCHET READER — registry-vs-disk parity reads live sections/manifest.json files',
-  'test/carve-section-ordering.test.ts': 'RATCHET READER — checkOrdering(ROOT) reads live skeletons and sections',
-};
+export const TREE_MUTATING: Record<string, string> = {};
 
 export function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
@@ -518,6 +543,92 @@ export function assignFilesToShards(files: string[], shardCount: number): string
   return shards.map(filesInShard => filesInShard.sort());
 }
 
+// ─── Duration-aware packing (full-suite path ONLY) ─────────────────────────
+// Hash sharding balances file COUNTS (~1.15x spread) but not cost: the 15
+// Playwright-launching files land 4/3/4/1/2/1 across 6 shards, giving a
+// measured 28s–97s shard spread and ~40s of idle tail on every run. LPT
+// packing over recorded per-file durations reclaims most of it. The `--shard`
+// CI-matrix path is deliberately untouched — its contract is stable indices
+// via assignFilesToShards/stableHash (empty shards no-op; see above).
+//
+// One store, no overlay: durations come from the committed seed
+// (scripts/free-test-durations.json), refreshed occasionally via
+// `--record-durations` (each file timed in its own child — exact, and immune
+// to bun's stream buffering, where silent passers print no header to
+// timestamp). GSTACK_FREE_TEST_DURATIONS overrides the path for experiments.
+// The seed is a HINT, not a contract: missing file → hash-shard fallback;
+// unknown file → 75th-percentile pessimism (placed early by LPT, bounding
+// tail risk). Successor note: bun ≥1.3.14 ships native --timings/--shard LPT
+// scheduling — when the repo unpins 1.3.13, this packer is the code to
+// replace (keep it swappable).
+
+export const FREE_TEST_DURATIONS_FILE = 'scripts/free-test-durations.json';
+
+export function loadFreeTestDurations(rootDir = ROOT): Record<string, number> | null {
+  const file = process.env.GSTACK_FREE_TEST_DURATIONS
+    ?? path.join(rootDir, FREE_TEST_DURATIONS_FILE);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf-8');
+  } catch {
+    return null; // no seed — hash sharding, silently (fresh checkouts are normal)
+  }
+  try {
+    const parsed = JSON.parse(raw) as { durations?: Record<string, unknown> };
+    const entries = Object.entries(parsed.durations ?? {})
+      .filter((entry): entry is [string, number] =>
+        typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0);
+    if (entries.length === 0) return null;
+    return Object.fromEntries(entries);
+  } catch (error) {
+    // A corrupt seed (bad merge) must cost a warning, never the suite.
+    console.error(`[test:free] WARNING: corrupt durations seed ${file} (${(error as Error).message}) — falling back to hash sharding`);
+    return null;
+  }
+}
+
+export interface PackedShards {
+  shards: string[][];
+  /** Predicted total per shard, aligned with `shards` — feeds walls + logs. */
+  predictedMs: number[];
+}
+
+/**
+ * Longest-processing-time-first bin packing: files sorted by predicted
+ * duration (desc, path-stable tiebreak) each go to the currently-lightest
+ * shard. Deterministic for a given (files, shardCount, durations).
+ */
+export function packShardsByDuration(
+  files: string[],
+  shardCount: number,
+  durations: Record<string, number>,
+): PackedShards {
+  if (!Number.isInteger(shardCount) || shardCount <= 0) {
+    throw new Error(`Shard count must be a positive integer. Received: ${shardCount}`);
+  }
+  const known = files
+    .map((f) => durations[normalizeRelativePath(f)])
+    .filter((v): v is number => typeof v === 'number')
+    .sort((a, b) => a - b);
+  // Unknown files get the 75th percentile of known durations: pessimistic, so
+  // LPT places them early and a surprise long-runner can't recreate the tail.
+  const fallback = known.length > 0 ? known[Math.min(known.length - 1, Math.floor(known.length * 0.75))] : 1;
+  const predicted = (f: string): number => durations[normalizeRelativePath(f)] ?? fallback;
+
+  const ordered = [...files].sort((a, b) => predicted(b) - predicted(a) || (a < b ? -1 : 1));
+  const shards = Array.from({ length: shardCount }, () => [] as string[]);
+  const loads = new Array<number>(shardCount).fill(0);
+  for (const file of ordered) {
+    let lightest = 0;
+    for (let i = 1; i < shardCount; i += 1) {
+      if (loads[i] < loads[lightest]) lightest = i;
+    }
+    shards[lightest].push(file);
+    loads[lightest] += predicted(file);
+  }
+  return { shards: shards.map((s) => s.sort()), predictedMs: loads };
+}
+
 export interface BuildShardArgsOptions {
   /**
    * Pass bun's --parallel (worker-per-file, implies --isolate). No production
@@ -543,6 +654,7 @@ export function buildShardArgs(files: string[], options: BuildShardArgsOptions =
 type CliOptions = {
   dryRun: boolean;
   listOnly: boolean;
+  recordDurations: boolean;
   windowsOnly: boolean;
   verbose: boolean;
   shardCount: number;
@@ -555,6 +667,7 @@ type CliOptions = {
 function parseCliOptions(argv: string[]): CliOptions {
   let dryRun = false;
   let listOnly = false;
+  let recordDurations = false;
   let windowsOnly = false;
   let verbose = false;
   let shardCount = DEFAULT_SHARD_COUNT;
@@ -566,6 +679,7 @@ function parseCliOptions(argv: string[]): CliOptions {
     const arg = argv[index];
     if (arg === '--dry-run') { dryRun = true; continue; }
     if (arg === '--list') { listOnly = true; continue; }
+    if (arg === '--record-durations') { recordDurations = true; continue; }
     if (arg === '--windows-only') { windowsOnly = true; continue; }
     if (arg === '--verbose') { verbose = true; continue; }
     if (arg === '--shards') {
@@ -593,7 +707,7 @@ function parseCliOptions(argv: string[]): CliOptions {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  return { dryRun, listOnly, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit };
+  return { dryRun, listOnly, recordDurations, windowsOnly, verbose, shardCount, shardIndex, wallTimeoutMs, wallTimeoutExplicit };
 }
 
 function formatShardSummary(shards: string[][]): string[] {
@@ -916,6 +1030,62 @@ export function buildRunEpilogue(
 
 export type FreeShardStatus = 'passed' | 'failed' | 'timed-out';
 
+// ─── Flake ledger (WS1 telemetry) ───────────────────────────────────────────
+// Single-writer JSONL: ONLY this parent runner appends (never shards, never
+// tests — no concurrent-append hazard by construction). CI points
+// GSTACK_FLAKE_LEDGER at $RUNNER_TEMP and uploads it as an artifact every
+// run, so repeat offenders become an enumerable series instead of console
+// scrollback. Fail-open with a loud stderr warning: a broken ledger must
+// never red the only required lane.
+
+export interface FlakeLedgerEntry {
+  ts: string;
+  runner: 'free';
+  kind: 'flaky-pass';
+  file: string;
+  /** Shard the original failure surfaced in, when attributable. */
+  shard?: number;
+  /** Code-state attribution (review finding): without branch/sha the series
+   *  can't tie an entry to the state that produced it, and the WS16
+   *  promotion evidence needs exactly that. */
+  branch?: string;
+  git_sha?: string;
+}
+
+export function flakeLedgerPath(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.GSTACK_FLAKE_LEDGER) return env.GSTACK_FLAKE_LEDGER;
+  // Local default: per-PROJECT, not the machine-global tmpdir — sibling
+  // Conductor worktrees of DIFFERENT repos must not interleave into one
+  // series (review finding). CI always sets GSTACK_FLAKE_LEDGER explicitly.
+  try {
+    const slug = spawnSync('bash', ['-c', '~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null'], { stdio: 'pipe', timeout: 3000 })
+      .stdout?.toString().match(/^SLUG=(.+)$/m)?.[1];
+    if (slug) {
+      const dir = path.join(os.homedir(), '.gstack', 'projects', slug);
+      fs.mkdirSync(dir, { recursive: true });
+      return path.join(dir, 'flake-ledger.jsonl');
+    }
+  } catch { /* fall through */ }
+  return path.join(os.tmpdir(), 'gstack-flake-ledger.jsonl');
+}
+
+export function appendFlakeLedger(
+  entries: FlakeLedgerEntry[],
+  ledgerPath: string,
+  warn: (line: string) => void = (line) => console.error(line),
+): boolean {
+  if (entries.length === 0) return true;
+  try {
+    fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+    fs.appendFileSync(ledgerPath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    return true;
+  } catch (error) {
+    warn(`[test:free] WARNING: could not append flake ledger at ${ledgerPath} `
+      + `(${error instanceof Error ? error.message : String(error)}) — flaky-pass telemetry lost for this run, verdict unaffected`);
+    return false;
+  }
+}
+
 export interface FreeShardOutcome {
   shard: number;
   files: string[];
@@ -923,6 +1093,22 @@ export interface FreeShardOutcome {
   exitCode: number | null;
   elapsedMs: number;
   groupPid: number | null;
+  /**
+   * Repo-relative files with attributed test failures or crashes, deduped.
+   * Feeds the opt-in flaky retry pass (GSTACK_FREE_RETRY_FLAKY) — empty on
+   * pass, and empty when every failure was unattributed (retry would be
+   * meaningless without knowing what to re-run).
+   */
+  failingFiles: string[];
+  /**
+   * Count of failure evidence the retry pass CANNOT re-run by file: fail
+   * lines seen before any file-chunk header, unhandled errors between tests,
+   * and a truncated run (no terminal summary). Nonzero vetoes the flaky
+   * retry for the whole run — retrying only failingFiles would re-run a
+   * subset and mask the rest as a FLAKY-PASS, re-opening the silent-truncation
+   * hole the strict classifier exists to close.
+   */
+  unattributedFailures: number;
 }
 
 export interface ShardCommand {
@@ -1001,7 +1187,7 @@ export async function runFreeShard(
   // so an unoccupied index must not fail or shift work to a different runner.
   if (files.length === 0) {
     const outcome: FreeShardOutcome = {
-      shard: shardNumber, files: [], status: 'passed', exitCode: 0, elapsedMs: 0, groupPid: null,
+      shard: shardNumber, files: [], status: 'passed', exitCode: 0, elapsedMs: 0, groupPid: null, failingFiles: [], unattributedFailures: 0,
     };
     log(shardEpilogue(outcome, totalShards));
     return outcome;
@@ -1035,6 +1221,17 @@ export async function runFreeShard(
   env.TMPDIR = childTmp;
   env.TEMP = childTmp;
   env.TMP = childTmp;
+  // Per-shard Chromium profile (same isolation idea as TMPDIR): nine test
+  // files launch in-process persistent contexts or daemons that default to
+  // the SHARED ~/.gstack/chromium-profile, and two concurrent shards on one
+  // profile dir kill each other's browser — observed live on CI once
+  // duration packing recomposed shards (handoff's launchPersistentContext
+  // died "Target page, context or browser has been closed" while a sibling
+  // shard's daemon logged "Chromium process crashed"). Hash sharding had
+  // masked the collision by chance placement. Within a shard, files run
+  // serially, so sharing the per-shard profile is safe; config tests that
+  // assert resolution order save/restore this env around their assertions.
+  env.CHROMIUM_PROFILE = path.join(stateDir, 'chromium-profile');
 
   const startedAt = Date.now();
   const child = spawn(command, args, {
@@ -1133,11 +1330,20 @@ export async function runFreeShard(
     console.error(`${label} failed with exit code ${exitCode ?? 'signal'}`);
   }
 
+  const report = reporter.report();
+  const failingFiles = status === 'passed' ? [] : [...new Set([
+    ...report.failures.map((f) => f.file).filter((f): f is string => !!f),
+    ...report.crashedFiles,
+  ])];
+  const unattributedFailures = status === 'passed' ? 0
+    : report.failures.filter((f) => !f.file).length
+      + report.unhandledErrors.length
+      + (report.sawTerminalSummary ? 0 : 1);
   const outcome: FreeShardOutcome = {
-    shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid,
+    shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,
   };
   log(shardEpilogue(outcome, totalShards));
-  for (const line of buildRunEpilogue(status, reporter.report(), outcome.elapsedMs, logPath)) log(line);
+  for (const line of buildRunEpilogue(status, report, outcome.elapsedMs, logPath)) log(line);
   return outcome;
 }
 
@@ -1153,6 +1359,63 @@ function nextDefaultLogPath(): string {
 function exitCodeFor(status: FreeShardStatus): number {
   if (status === 'passed') return 0;
   return status === 'timed-out' ? 124 : 1;
+}
+
+/**
+ * `--record-durations`: time every file in its own child (exact per-file wall,
+ * immune to bun's stream buffering) and write the committed seed atomically.
+ * Occasional + manual by design — CI never records (a hint refreshed by a
+ * human beats per-run churn), and the runtime (~serial suite / jobs) is fine
+ * for an operation run a few times a quarter.
+ */
+async function recordFreeTestDurations(files: string[], jobs: number): Promise<number> {
+  const durations: Record<string, number> = {};
+  const failed: string[] = [];
+  let cursor = 0;
+  console.log(`[test:free] recording per-file durations: ${files.length} files across ${jobs} workers`);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= files.length) return;
+      const file = files[index];
+      const started = Date.now();
+      const child = spawn('bun', ['test', file, `--timeout=${FREE_TEST_TIMEOUT_MS}`], {
+        cwd: ROOT,
+        stdio: ['ignore', 'ignore', 'ignore'],
+        env: { ...process.env, GSTACK_HEADLESS: '1' },
+      });
+      const code = await new Promise<number>((resolve) => {
+        const timer = setTimeout(() => { child.kill('SIGKILL'); }, wallTimeoutForShard(1));
+        child.on('close', (c) => { clearTimeout(timer); resolve(c ?? 1); });
+        child.on('error', () => { clearTimeout(timer); resolve(1); });
+      });
+      durations[normalizeRelativePath(file)] = Date.now() - started;
+      if (code !== 0) failed.push(file);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, jobs) }, () => worker()));
+
+  const target = process.env.GSTACK_FREE_TEST_DURATIONS ?? path.join(ROOT, FREE_TEST_DURATIONS_FILE);
+  const payload = {
+    version: 1,
+    recordedAt: new Date().toISOString(),
+    durations: Object.fromEntries(Object.entries(durations).sort(([a], [b]) => (a < b ? -1 : 1))),
+  };
+  // Atomic temp+rename (capture-context-budget's pattern): a killed recorder
+  // must never leave a truncated seed for loadFreeTestDurations to warn on.
+  const tmp = `${target}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`);
+  fs.renameSync(tmp, target);
+  console.log(`[test:free] wrote ${Object.keys(durations).length} durations to ${path.relative(ROOT, target)}`);
+  if (failed.length > 0) {
+    // Failures still recorded (a red file's duration is still a real cost),
+    // but surfaced loudly — recording from a broken tree deserves a look.
+    console.error(`[test:free] WARNING: ${failed.length} file(s) failed while recording:`);
+    for (const f of failed) console.error(`  ✗ ${f}`);
+    return 1;
+  }
+  return 0;
 }
 
 async function main(): Promise<number> {
@@ -1180,6 +1443,11 @@ async function main(): Promise<number> {
     console.log(`\nDiscovered ${files.length} test files.`);
     for (const file of files) console.log(`  ${file}`);
     return 0;
+  }
+
+  if (options.recordDurations) {
+    const jobs = Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+    return recordFreeTestDurations(files, jobs);
   }
 
   if (options.dryRun) {
@@ -1220,20 +1488,34 @@ async function main(): Promise<number> {
   // proven spawn semantics, per-shard group-kill, per-shard logs, and a
   // wedge only ever costs its own shard. WORKER_HOSTILE files are moot in
   // process shards (no workers) and fold back into normal assignment.
-  const jobs = Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+  const jobs = fullSuiteJobs();
   // Phase split: tree-mutating tests run AFTER the parallel shards, in one
   // serial shard, so no concurrent shard ever reads a half-regenerated tree.
   const mutators = files.filter((f) => f in TREE_MUTATING);
   const readers = files.filter((f) => !(f in TREE_MUTATING));
-  const shards = assignFilesToShards(readers, jobs);
+  const durations = loadFreeTestDurations();
+  const packed = durations ? packShardsByDuration(readers, jobs, durations) : null;
+  const shards = packed ? packed.shards : assignFilesToShards(readers, jobs);
   const totalShards = jobs + (mutators.length > 0 ? 1 : 0);
   console.log(`[test:free] full suite: ${readers.length} files across ${jobs} shard processes`
+    + (packed ? ' (duration-packed)' : '')
     + (mutators.length > 0 ? `, then ${mutators.length} tree-mutating file(s) serially` : ''));
+  if (packed) {
+    // One line per shard so a packing regression is diagnosable from any log.
+    packed.predictedMs.forEach((ms, i) => {
+      console.log(`[test:free]   shard ${i + 1}: ${shards[i].length} files, predicted ~${Math.round(ms / 1000)}s`);
+    });
+  }
   const shardTimeout = (fileCount: number): number =>
     options.wallTimeoutExplicit ? options.wallTimeoutMs : wallTimeoutForShard(fileCount, options.wallTimeoutMs);
   const outcomes = await Promise.all(
     shards.map((shardFiles, index) => runFreeShard(shardFiles, index + 1, totalShards, {
-      wallTimeoutMs: shardTimeout(shardFiles.length),
+      // Packed shards get duration-aware walls: LPT decouples file count from
+      // cost BY DESIGN, so the 5s/file heuristic would undersize a shard
+      // holding few expensive files.
+      wallTimeoutMs: packed && !options.wallTimeoutExplicit
+        ? wallTimeoutForPackedShard(packed.predictedMs[index], options.wallTimeoutMs, shardFiles.length)
+        : shardTimeout(shardFiles.length),
       verbose: options.verbose,
     })),
   );
@@ -1257,6 +1539,68 @@ async function main(): Promise<number> {
         for (const line of dirty.slice(0, 20)) console.error(`[test:free]   ${line}`);
         console.error('[test:free]   restore with: bun run gen:skill-docs (or git checkout -- <paths>)');
       }
+    }
+    outcomes.push(mutatorOutcome);
+  }
+
+  // Opt-in flaky retry (GSTACK_FREE_RETRY_FLAKY=1): when every failure is an
+  // attributed test failure (no timeouts, no unattributed carnage), re-run
+  // just the failing files ONCE in a fresh serial shard. A clean retry
+  // downgrades the run to a loud flaky-pass; a repeat failure stays a
+  // failure. Default OFF: dev boxes should see flakes, not absorb them.
+  // Exists for syscall-supervised sandboxes (see fullSuiteJobs) where a run
+  // lands 0-1 spurious browser-timing failures under an otherwise-green
+  // suite. Capped so a genuinely broken tree never masquerades as flaky.
+  const RETRY_CAP = 5;
+  if (
+    worst !== 0
+    && process.env.GSTACK_FREE_RETRY_FLAKY === '1'
+    && !isTerminationRequested()
+    && outcomes.every((o) => o.status !== 'timed-out')
+  ) {
+    const flakyFiles = [...new Set(outcomes.flatMap((o) => o.failingFiles))]
+      .filter((f): f is string => typeof f === 'string' && f.length > 0);
+    // "Fully attributed" is per-failure, not per-shard: a shard with one
+    // attributed failure PLUS a headerless failure / unhandled error /
+    // truncated run must veto the retry — re-running only failingFiles would
+    // mask the unattributable evidence as a FLAKY-PASS.
+    const allAttributed = outcomes.every((o) => o.status === 'passed'
+      || (o.failingFiles.length > 0 && o.unattributedFailures === 0));
+    if (allAttributed && flakyFiles.length > 0 && flakyFiles.length <= RETRY_CAP) {
+      console.log(`[test:free] flaky-retry: re-running ${flakyFiles.length} failing file(s) once, serially: ${flakyFiles.join(', ')}`);
+      const retryOutcome = await runFreeShard(flakyFiles, totalShards + 1, totalShards + 1, {
+        wallTimeoutMs: shardTimeout(flakyFiles.length),
+        verbose: options.verbose,
+      });
+      if (retryOutcome.status === 'passed') {
+        console.log(`[test:free] FLAKY-PASS — ${flakyFiles.length} file(s) failed once and passed on serial retry: ${flakyFiles.join(', ')}`);
+        console.log('[test:free] treat repeat offenders as real flakes worth fixing, not noise.');
+        // Durable record (WS1): console lines vanish with the scrollback; the
+        // ledger makes repeat offenders rankable across runs (eval:flake-rank).
+        const ts = new Date().toISOString();
+        // Two separate calls: `rev-parse --abbrev-ref HEAD HEAD` abbreviates
+        // BOTH revs, printing the branch twice — git_sha recorded the branch
+        // name (codex adversarial finding).
+        const ledgerBranch = (spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 5000 }).stdout ?? '').trim();
+        const ledgerSha = (spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 5000 }).stdout ?? '').trim();
+        appendFlakeLedger(
+          flakyFiles.map((file) => ({
+            ts,
+            runner: 'free' as const,
+            kind: 'flaky-pass' as const,
+            file,
+            shard: outcomes.find((o) => o.failingFiles.includes(file))?.shard,
+            ...(ledgerBranch ? { branch: ledgerBranch } : {}),
+            ...(ledgerSha ? { git_sha: ledgerSha.slice(0, 12) } : {}),
+          })),
+          flakeLedgerPath(),
+        );
+        worst = 0;
+      } else {
+        console.error('[test:free] flaky-retry FAILED — the failures reproduce serially; not flaky.');
+      }
+    } else {
+      console.log(`[test:free] flaky-retry skipped: ${allAttributed ? `${flakyFiles.length} failing file(s) exceeds cap ${RETRY_CAP}` : 'failures not fully attributed'}.`);
     }
   }
   return worst;

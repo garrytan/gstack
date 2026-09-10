@@ -5,7 +5,8 @@
  * A real browse server is started and commands are sent via the CLI HTTP interface.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import * as os from 'os';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import { resolveServerScript } from '../src/cli';
@@ -17,6 +18,32 @@ import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetwork
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as os from 'os';
+
+// Temp files live under os.tmpdir(), never a hardcoded /tmp: macOS points
+// tmpdir at a per-user private dir, and syscall-supervised sandboxes
+// (Vercel) blanket-deny access(2) under /tmp for busy processes while
+// honoring TMPDIR overrides. Hardcoded /tmp is a portability smell.
+const tmpp = (name: string) => path.join(os.tmpdir(), name);
+
+
+// Per-FILE Chromium profile: this file launches an in-process persistent
+// context (BrowserManager.launch()), and sharing a profile dir with the
+// long-lived browse daemon a sibling file may have spawned kills one side's
+// Chromium (ProcessSingleton on user-data-dir). Scoped via hooks, never
+// module scope (see test/gstack-home-module-scope.test.ts's rationale).
+const ORIGINAL_CHROMIUM_PROFILE = process.env.CHROMIUM_PROFILE;
+let CHROMIUM_PROFILE_DIR: string | undefined;
+beforeAll(() => {
+  CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
+  process.env.CHROMIUM_PROFILE = CHROMIUM_PROFILE_DIR;
+});
+afterAll(() => {
+  if (ORIGINAL_CHROMIUM_PROFILE === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = ORIGINAL_CHROMIUM_PROFILE;
+  if (CHROMIUM_PROFILE_DIR) { try { fs.rmSync(CHROMIUM_PROFILE_DIR, { recursive: true, force: true }); } catch {} }
+});
+
 
 // Thin wrappers that bridge old test calls (bm as 3rd arg) to new signatures (session + bm)
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
@@ -255,7 +282,7 @@ describe('Inspection', () => {
   });
 
   test('eval supports await in single-line file', async () => {
-    const tmp = '/tmp/eval-await-test.js';
+    const tmp = tmpp('eval-await-test.js');
     fs.writeFileSync(tmp, 'await Promise.resolve("hello from eval")');
     try {
       const result = await handleReadCommand('eval', [tmp], bm);
@@ -266,7 +293,7 @@ describe('Inspection', () => {
   });
 
   test('eval does not wrap when await is only in a comment', async () => {
-    const tmp = '/tmp/eval-comment-test.js';
+    const tmp = tmpp('eval-comment-test.js');
     fs.writeFileSync(tmp, '// no need to await this\ndocument.title');
     try {
       const result = await handleReadCommand('eval', [tmp], bm);
@@ -277,7 +304,7 @@ describe('Inspection', () => {
   });
 
   test('eval multi-line with await and explicit return', async () => {
-    const tmp = '/tmp/eval-multiline-await.js';
+    const tmp = tmpp('eval-multiline-await.js');
     fs.writeFileSync(tmp, 'const data = await Promise.resolve("multi");\nreturn data;');
     try {
       const result = await handleReadCommand('eval', [tmp], bm);
@@ -288,7 +315,7 @@ describe('Inspection', () => {
   });
 
   test('eval multi-line with await but no return gives empty string', async () => {
-    const tmp = '/tmp/eval-multiline-no-return.js';
+    const tmp = tmpp('eval-multiline-no-return.js');
     fs.writeFileSync(tmp, 'const data = await Promise.resolve("lost");\ndata;');
     try {
       const result = await handleReadCommand('eval', [tmp], bm);
@@ -329,7 +356,7 @@ describe('Inspection', () => {
   });
 
   test('js --out writes the result to disk and returns a short status, not the payload', async () => {
-    const out = `/tmp/browse-out-large-${Date.now()}.txt`;
+    const out = tmpp(`browse-out-large-${Date.now()}.txt`);
     try {
       const result = await handleReadCommand('js', ["'y'.repeat(2 * 1024 * 1024)", '--out', out], bm);
       expect(result).toContain('JS result written:');
@@ -345,7 +372,7 @@ describe('Inspection', () => {
   test('js --out decodes a base64 PNG data URL to real bytes', async () => {
     // 1x1 transparent PNG.
     const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-    const out = `/tmp/browse-out-png-${Date.now()}.png`;
+    const out = tmpp(`browse-out-png-${Date.now()}.png`);
     try {
       const result = await handleReadCommand('js', [`'data:image/png;base64,' + '${b64}'`, '--out', out], bm);
       const buf = fs.readFileSync(out);
@@ -361,7 +388,7 @@ describe('Inspection', () => {
 
   test('js --out --raw writes the literal data-URL string (no decode)', async () => {
     const dataUrl = 'data:text/plain;base64,aGVsbG8=';
-    const out = `/tmp/browse-out-raw-${Date.now()}.txt`;
+    const out = tmpp(`browse-out-raw-${Date.now()}.txt`);
     try {
       await handleReadCommand('js', [`'${dataUrl}'`, '--out', out, '--raw'], bm);
       expect(fs.readFileSync(out, 'utf-8')).toBe(dataUrl);
@@ -371,7 +398,7 @@ describe('Inspection', () => {
   });
 
   test('js --out throws on a malformed base64 data URL instead of writing corrupt bytes', async () => {
-    const out = `/tmp/browse-out-bad-${Date.now()}.png`;
+    const out = tmpp(`browse-out-bad-${Date.now()}.png`);
     try {
       await expect(
         handleReadCommand('js', ["'data:image/png;base64,!!!not-base64!!!'", '--out', out], bm)
@@ -391,7 +418,7 @@ describe('Inspection', () => {
   test('js --out creates a missing parent directory', async () => {
     // validateOutputPath resolves the parent's realpath, so it permits one level
     // of missing dir under a safe root (/tmp). mkdir then materializes it.
-    const root = `/tmp/browse-out-nested-${Date.now()}`;
+    const root = tmpp(`browse-out-nested-${Date.now()}`);
     const out = `${root}/result.txt`;
     try {
       await handleReadCommand('js', ["'nested'", '--out', out], bm);
@@ -402,8 +429,8 @@ describe('Inspection', () => {
   });
 
   test('eval --out writes the file result to disk (parity with js)', async () => {
-    const script = `/tmp/browse-eval-out-src-${Date.now()}.js`;
-    const out = `/tmp/browse-eval-out-${Date.now()}.txt`;
+    const script = tmpp(`browse-eval-out-src-${Date.now()}.js`);
+    const out = tmpp(`browse-eval-out-${Date.now()}.txt`);
     fs.writeFileSync(script, "'from eval'");
     try {
       const result = await handleReadCommand('eval', [script, '--out', out], bm);
@@ -639,7 +666,7 @@ describe('Performance', () => {
 describe('Visual', () => {
   test('screenshot saves file', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const screenshotPath = '/tmp/browse-test-screenshot.png';
+    const screenshotPath = tmpp('browse-test-screenshot.png');
     const result = await handleMetaCommand('screenshot', [screenshotPath], bm, async () => {});
     expect(result).toContain('Screenshot saved');
     expect(fs.existsSync(screenshotPath)).toBe(true);
@@ -650,7 +677,7 @@ describe('Visual', () => {
 
   test('screenshot --viewport saves viewport-only', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const p = '/tmp/browse-test-viewport.png';
+    const p = tmpp('browse-test-viewport.png');
     const result = await handleMetaCommand('screenshot', ['--viewport', p], bm, async () => {});
     expect(result).toContain('Screenshot saved (viewport)');
     expect(fs.existsSync(p)).toBe(true);
@@ -660,7 +687,7 @@ describe('Visual', () => {
 
   test('screenshot with CSS selector crops to element', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const p = '/tmp/browse-test-element-css.png';
+    const p = tmpp('browse-test-element-css.png');
     const result = await handleMetaCommand('screenshot', ['#title', p], bm, async () => {});
     expect(result).toContain('Screenshot saved (element)');
     expect(fs.existsSync(p)).toBe(true);
@@ -671,7 +698,7 @@ describe('Visual', () => {
   test('screenshot with @ref crops to element', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     await handleMetaCommand('snapshot', [], bm, async () => {});
-    const p = '/tmp/browse-test-element-ref.png';
+    const p = tmpp('browse-test-element-ref.png');
     const result = await handleMetaCommand('screenshot', ['@e1', p], bm, async () => {});
     expect(result).toContain('Screenshot saved (element)');
     expect(fs.existsSync(p)).toBe(true);
@@ -681,7 +708,7 @@ describe('Visual', () => {
 
   test('screenshot --clip crops to region', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const p = '/tmp/browse-test-clip.png';
+    const p = tmpp('browse-test-clip.png');
     const result = await handleMetaCommand('screenshot', ['--clip', '0,0,100,100', p], bm, async () => {});
     expect(result).toContain('Screenshot saved (clip 0,0,100,100)');
     expect(fs.existsSync(p)).toBe(true);
@@ -722,7 +749,7 @@ describe('Visual', () => {
   test('screenshot unknown flag throws', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
-      await handleMetaCommand('screenshot', ['--bogus', '/tmp/foo.png'], bm, async () => {});
+      await handleMetaCommand('screenshot', ['--bogus', tmpp('foo.png')], bm, async () => {});
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toContain('Unknown screenshot flag');
@@ -762,7 +789,7 @@ describe('Visual', () => {
 
   test('responsive saves 3 screenshots', async () => {
     await handleWriteCommand('goto', [baseUrl + '/responsive.html'], bm);
-    const prefix = '/tmp/browse-test-resp';
+    const prefix = tmpp('browse-test-resp');
     const result = await handleMetaCommand('responsive', [prefix], bm, async () => {});
     expect(result).toContain('mobile');
     expect(result).toContain('tablet');
@@ -877,7 +904,7 @@ describe('Status', () => {
 
 describe('CLI server script resolution', () => {
   test('prefers adjacent browse/src/server.ts for compiled project installs', () => {
-    const root = fs.mkdtempSync('/tmp/gstack-cli-');
+    const root = fs.mkdtempSync(tmpp('gstack-cli-'));
     const execPath = path.join(root, '.claude/skills/gstack/browse/dist/browse');
     const serverPath = path.join(root, '.claude/skills/gstack/browse/src/server.ts');
 
@@ -901,7 +928,7 @@ describe('CLI server script resolution', () => {
 
 describe('CLI lifecycle', () => {
   test('dead state file triggers a clean restart', async () => {
-    const stateFile = `/tmp/browse-test-state-${Date.now()}.json`;
+    const stateFile = tmpp(`browse-test-state-${Date.now()}.json`);
     fs.writeFileSync(stateFile, JSON.stringify({
       port: 1,
       token: 'fake',
@@ -1204,7 +1231,7 @@ describe('File upload', () => {
   test('upload single file', async () => {
     await handleWriteCommand('goto', [baseUrl + '/upload.html'], bm);
     // Create a temp file to upload
-    const tempFile = '/tmp/browse-test-upload.txt';
+    const tempFile = tmpp('browse-test-upload.txt');
     fs.writeFileSync(tempFile, 'test content');
     const result = await handleWriteCommand('upload', ['#file-input', tempFile], bm);
     expect(result).toContain('Uploaded');
@@ -1219,7 +1246,7 @@ describe('File upload', () => {
 
   test('upload with @ref works', async () => {
     await handleWriteCommand('goto', [baseUrl + '/upload.html'], bm);
-    const tempFile = '/tmp/browse-test-upload2.txt';
+    const tempFile = tmpp('browse-test-upload2.txt');
     fs.writeFileSync(tempFile, 'ref upload test');
     const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
     // Find the file input ref (it won't appear as "file input" in aria — use CSS selector instead)
@@ -1231,7 +1258,7 @@ describe('File upload', () => {
   test('upload nonexistent file throws', async () => {
     await handleWriteCommand('goto', [baseUrl + '/upload.html'], bm);
     try {
-      await handleWriteCommand('upload', ['#file-input', '/tmp/nonexistent-file-12345.txt'], bm);
+      await handleWriteCommand('upload', ['#file-input', tmpp('nonexistent-file-12345.txt')], bm);
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toContain('File not found');
@@ -1253,7 +1280,7 @@ describe('File upload', () => {
 describe('Eval', () => {
   test('eval runs JS file', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tempFile = '/tmp/browse-test-eval.js';
+    const tempFile = tmpp('browse-test-eval.js');
     fs.writeFileSync(tempFile, 'document.title + " — evaluated"');
     const result = await handleReadCommand('eval', [tempFile], bm);
     expect(result).toBe('Test Page - Basic — evaluated');
@@ -1261,7 +1288,7 @@ describe('Eval', () => {
   });
 
   test('eval returns object as JSON', async () => {
-    const tempFile = '/tmp/browse-test-eval-obj.js';
+    const tempFile = tmpp('browse-test-eval-obj.js');
     fs.writeFileSync(tempFile, '({title: document.title, keys: Object.keys(document.body.dataset)})');
     const result = await handleReadCommand('eval', [tempFile], bm);
     const obj = JSON.parse(result);
@@ -1272,7 +1299,7 @@ describe('Eval', () => {
 
   test('eval file not found throws', async () => {
     try {
-      await handleReadCommand('eval', ['/tmp/nonexistent-eval.js'], bm);
+      await handleReadCommand('eval', [tmpp('nonexistent-eval.js')], bm);
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toContain('File not found');
@@ -1378,7 +1405,7 @@ describe('Header command', () => {
 describe('PDF', () => {
   test('pdf saves file with size', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const pdfPath = '/tmp/browse-test.pdf';
+    const pdfPath = tmpp('browse-test.pdf');
     const result = await handleMetaCommand('pdf', [pdfPath], bm, async () => {});
     expect(result).toContain('PDF saved');
     expect(fs.existsSync(pdfPath)).toBe(true);
@@ -1738,7 +1765,7 @@ describe('Console --errors', () => {
 describe('Cookie import', () => {
   test('cookie-import loads valid JSON cookies', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tempFile = '/tmp/browse-test-cookies.json';
+    const tempFile = tmpp('browse-test-cookies.json');
     const cookies = [
       { name: 'test-cookie', value: 'test-value' },
       { name: 'another', value: '123' },
@@ -1746,7 +1773,7 @@ describe('Cookie import', () => {
     fs.writeFileSync(tempFile, JSON.stringify(cookies));
 
     const result = await handleWriteCommand('cookie-import', [tempFile], bm);
-    expect(result).toBe('Loaded 2 cookies from /tmp/browse-test-cookies.json');
+    expect(result).toBe(`Loaded 2 cookies from ${tempFile}`);
 
     // Verify cookies were set
     const cookieList = await handleReadCommand('cookies', [], bm);
@@ -1759,7 +1786,7 @@ describe('Cookie import', () => {
 
   test('cookie-import auto-fills domain from page URL', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tempFile = '/tmp/browse-test-cookies-nodomain.json';
+    const tempFile = tmpp('browse-test-cookies-nodomain.json');
     // Cookies without domain — should auto-fill from page URL
     const cookies = [{ name: 'autofill-test', value: 'works' }];
     fs.writeFileSync(tempFile, JSON.stringify(cookies));
@@ -1775,7 +1802,7 @@ describe('Cookie import', () => {
 
   test('cookie-import preserves explicit domain', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tempFile = '/tmp/browse-test-cookies-domain.json';
+    const tempFile = tmpp('browse-test-cookies-domain.json');
     // Domain must match page hostname (127.0.0.1) — cross-domain cookies are now rejected
     const cookies = [{ name: 'explicit', value: 'domain', domain: '127.0.0.1', path: '/foo' }];
     fs.writeFileSync(tempFile, JSON.stringify(cookies));
@@ -1788,18 +1815,18 @@ describe('Cookie import', () => {
 
   test('cookie-import with empty array succeeds', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tempFile = '/tmp/browse-test-cookies-empty.json';
+    const tempFile = tmpp('browse-test-cookies-empty.json');
     fs.writeFileSync(tempFile, '[]');
 
     const result = await handleWriteCommand('cookie-import', [tempFile], bm);
-    expect(result).toBe('Loaded 0 cookies from /tmp/browse-test-cookies-empty.json');
+    expect(result).toBe(`Loaded 0 cookies from ${tempFile}`);
 
     fs.unlinkSync(tempFile);
   });
 
   test('cookie-import throws on file not found', async () => {
     try {
-      await handleWriteCommand('cookie-import', ['/tmp/nonexistent-cookies.json'], bm);
+      await handleWriteCommand('cookie-import', [tmpp('nonexistent-cookies.json')], bm);
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toContain('File not found');
@@ -1807,7 +1834,7 @@ describe('Cookie import', () => {
   });
 
   test('cookie-import throws on invalid JSON', async () => {
-    const tempFile = '/tmp/browse-test-cookies-bad.json';
+    const tempFile = tmpp('browse-test-cookies-bad.json');
     fs.writeFileSync(tempFile, 'not json {{{');
 
     try {
@@ -1821,7 +1848,7 @@ describe('Cookie import', () => {
   });
 
   test('cookie-import throws on non-array JSON', async () => {
-    const tempFile = '/tmp/browse-test-cookies-obj.json';
+    const tempFile = tmpp('browse-test-cookies-obj.json');
     fs.writeFileSync(tempFile, '{"name": "not-an-array"}');
 
     try {
@@ -1836,7 +1863,7 @@ describe('Cookie import', () => {
 
   test('cookie-import throws on cookie missing name', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tempFile = '/tmp/browse-test-cookies-noname.json';
+    const tempFile = tmpp('browse-test-cookies-noname.json');
     fs.writeFileSync(tempFile, JSON.stringify([{ value: 'no-name' }]));
 
     try {
@@ -1935,9 +1962,9 @@ describe('Path traversal prevention', () => {
 
   test('screenshot allows /tmp path', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const result = await handleMetaCommand('screenshot', ['/tmp/test-safe.png'], bm, () => {});
+    const result = await handleMetaCommand('screenshot', [tmpp('test-safe.png')], bm, () => {});
     expect(result).toContain('Screenshot saved');
-    try { fs.unlinkSync('/tmp/test-safe.png'); } catch {}
+    try { fs.unlinkSync(tmpp('test-safe.png')); } catch {}
   });
 
   test('pdf rejects path outside safe dirs', async () => {
@@ -1979,7 +2006,7 @@ describe('Path traversal prevention', () => {
   });
 
   test('eval allows /tmp path', async () => {
-    const tmpFile = '/tmp/test-eval-safe.js';
+    const tmpFile = tmpp('test-eval-safe.js');
     fs.writeFileSync(tmpFile, 'document.title');
     try {
       const result = await handleReadCommand('eval', [tmpFile], bm);
@@ -2036,7 +2063,7 @@ describe('Path traversal prevention', () => {
 describe('Chain with cookie-import', () => {
   test('cookie-import works inside chain', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const tmpCookies = '/tmp/test-chain-cookies.json';
+    const tmpCookies = tmpp('test-chain-cookies.json');
     fs.writeFileSync(tmpCookies, JSON.stringify([
       { name: 'chain_test', value: 'chain_value', domain: '127.0.0.1', path: '/' }
     ]));
@@ -2417,7 +2444,7 @@ describe('load-html', () => {
 describe('screenshot --selector', () => {
   test('--selector flag with output path captures element', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const p = `/tmp/browse-test-selector-${Date.now()}.png`;
+    const p = tmpp(`browse-test-selector-${Date.now()}.png`);
     const result = await handleMetaCommand('screenshot', ['--selector', '#title', p], bm, async () => {});
     expect(result).toContain('Screenshot saved (element)');
     expect(fs.existsSync(p)).toBe(true);
@@ -2470,7 +2497,7 @@ describe('viewport --scale', () => {
     try {
       await handleWriteCommand('viewport', ['200x200', '--scale', '2'], bm);
       await handleWriteCommand('load-html', [tmpFix], bm);
-      const p = `/tmp/scale-${Date.now()}.png`;
+      const p = tmpp(`scale-${Date.now()}.png`);
       await handleMetaCommand('screenshot', ['--selector', '#box', p], bm, async () => {});
       // Parse PNG IHDR (bytes 16-23 are width/height big-endian u32)
       const buf = fs.readFileSync(p);

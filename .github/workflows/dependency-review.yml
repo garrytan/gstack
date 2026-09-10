@@ -7,7 +7,6 @@ on:
       - 'bun.lock'
       - '**/package.json'
       - '**/bun.lock'
-      - '.github/workflows/**'
 
 concurrency:
   group: dependency-review-${{ github.event.pull_request.number }}
@@ -18,8 +17,8 @@ permissions:
 
 jobs:
   dependency-review:
-    runs-on: ubicloud-standard-8
-    timeout-minutes: 10
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: write

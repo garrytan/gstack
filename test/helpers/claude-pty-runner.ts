@@ -80,9 +80,8 @@ export interface ClaudePtyOptions {
   /**
    * Model for the spawned interactive `claude`. Without an explicit --model the
    * child inherits the operator's ~/.claude/settings.json model (e.g.
-   * claude-fable-5[1m]), which can spend 5+ min in extended thinking on an empty
-   * plan-mode context and blow every smoke budget. Resolution mirrors
-   * session-runner.ts:144 exactly: opts.model ?? EVALS_MODEL ?? 'claude-sonnet-4-6'.
+   * the operator's own settings. Resolution mirrors session-runner.ts exactly:
+   * opts.model ?? EVALS_MODEL ?? resolveEvalModel('capture').
    * Pushed BEFORE extraArgs so a test-supplied --model still wins (last flag wins).
    */
   model?: string;
@@ -1306,10 +1305,10 @@ export async function launchClaudePty(
 
   const args: string[] = [];
   // Pin the model so smokes don't inherit the operator's settings.json model
-  // (see ClaudePtyOptions.model). Chain mirrors session-runner.ts:144 so PTY and
+  // (see ClaudePtyOptions.model). Chain mirrors session-runner.ts so PTY and
   // `claude -p` evals always agree. Pushed before extraArgs => a test-supplied
   // --model wins (last flag wins).
-  const model = opts.model ?? process.env.EVALS_MODEL ?? 'claude-sonnet-4-6';
+  const model = opts.model ?? process.env.EVALS_MODEL ?? resolveEvalModel('capture');
   args.push('--model', model);
   // Permission mode: 'plan' default, null => omit flag entirely.
   const permissionMode = opts.permissionMode === undefined ? 'plan' : opts.permissionMode;
@@ -1699,7 +1698,7 @@ export async function runPlanSkillObservation(opts: {
    */
   initialPlanContent?: string;
   /** Override the spawned model. Defaults via launchClaudePty's chain
-   *  (opts.model ?? EVALS_MODEL ?? 'claude-sonnet-4-6'). */
+   *  (opts.model ?? EVALS_MODEL ?? resolveEvalModel('capture')). */
   model?: string;
   /** Literal tokens to track as high-water marks over the CUMULATIVE visible
    *  buffer (case-sensitive). Results land in obs.tokensObserved. Use for

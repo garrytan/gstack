@@ -25,9 +25,28 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TMPL = path.join(ROOT, 'setup-gbrain', 'SKILL.md.tmpl');
+const SECTIONS_DIR = path.join(ROOT, 'setup-gbrain', 'sections');
 const MEMORY_DOC = path.join(ROOT, 'setup-gbrain', 'memory.md');
 
+// Carve-aware (token-reduction Phase 4): setup-gbrain is carved. The Step 7.5
+// ingest-gate body (which owns the R1-R4 invocations) lives in
+// sections/transcript-gate.md.tmpl; the skeleton keeps dispatch + the Step 10
+// verdict prose. Negative (no-bare-invocation) checks run over the UNION so a
+// stale form can't hide in any template file.
 const tmpl = fs.readFileSync(TMPL, 'utf-8');
+const transcriptGate = fs.readFileSync(
+  path.join(SECTIONS_DIR, 'transcript-gate.md.tmpl'),
+  'utf-8',
+);
+const tmplUnion = [tmpl]
+  .concat(
+    fs
+      .readdirSync(SECTIONS_DIR)
+      .filter((f) => f.endsWith('.md.tmpl'))
+      .sort()
+      .map((f) => fs.readFileSync(path.join(SECTIONS_DIR, f), 'utf-8')),
+  )
+  .join('\n');
 const memoryDoc = fs.readFileSync(MEMORY_DOC, 'utf-8');
 
 // A "bare invocation" is the tool name immediately followed by a flag/arg
@@ -42,46 +61,46 @@ const memoryDoc = fs.readFileSync(MEMORY_DOC, 'utf-8');
 const bareMemoryIngest = /\bgstack-memory-ingest\b(?!\.ts)(?:\s|\\\r?\n)+--/;
 const bareGbrainSync = /\bgstack-gbrain-sync\b(?!\.ts)(?:\s|\\\r?\n)+--/;
 
-describe('setup-gbrain/SKILL.md.tmpl — bin invocation paths', () => {
-  test('no bare gstack-memory-ingest invocation remains', () => {
-    expect(tmpl).not.toMatch(bareMemoryIngest);
+describe('setup-gbrain templates (skeleton + sections) — bin invocation paths', () => {
+  test('no bare gstack-memory-ingest invocation remains anywhere in the union', () => {
+    expect(tmplUnion).not.toMatch(bareMemoryIngest);
   });
 
-  test('no bare gstack-gbrain-sync invocation remains', () => {
-    expect(tmpl).not.toMatch(bareGbrainSync);
+  test('no bare gstack-gbrain-sync invocation remains anywhere in the union', () => {
+    expect(tmplUnion).not.toMatch(bareGbrainSync);
   });
 
-  test('the probe step uses bun run + .ts (R1)', () => {
-    expect(tmpl).toContain(
+  test('the probe step uses bun run + .ts (R1, transcript-gate section)', () => {
+    expect(transcriptGate).toContain(
       'bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --probe'
     );
   });
 
-  test('the silent-bulk mention uses bun run + .ts (R2)', () => {
-    expect(tmpl).toContain(
+  test('the silent-bulk mention uses bun run + .ts (R2, transcript-gate section)', () => {
+    expect(transcriptGate).toContain(
       'bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --bulk --quiet'
     );
   });
 
-  test('the post-answer full-sync step uses bun run + .ts (R3)', () => {
-    expect(tmpl).toContain(
+  test('the post-answer full-sync step uses bun run + .ts (R3, transcript-gate section)', () => {
+    expect(transcriptGate).toContain(
       'bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync'
     );
   });
 
-  test('the preamble-hook incremental-sync mention uses bun run + .ts (R4)', () => {
-    expect(tmpl).toContain(
+  test('the preamble-hook incremental-sync mention uses bun run + .ts (R4, transcript-gate section)', () => {
+    expect(transcriptGate).toContain(
       'bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet'
     );
   });
 
   test('the neighboring gstack-config line in the post-answer block is untouched (bash script, no extension)', () => {
-    expect(tmpl).toContain(
+    expect(transcriptGate).toContain(
       '~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>'
     );
   });
 
-  test('the prose-only mention naming the tool as a sentence subject is left unchanged (KTD4 — not a literal invocation)', () => {
+  test('the prose-only mention naming the tool as a sentence subject is left unchanged (KTD4 — not a literal invocation; Step 10 verdict, skeleton)', () => {
     expect(tmpl).toContain('gstack-memory-ingest now persists staged transcripts to');
   });
 });

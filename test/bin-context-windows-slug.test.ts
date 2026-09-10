@@ -69,8 +69,8 @@ describe("native slug fallback mirrors bin/gstack-slug", () => {
       ["https://gitlab.com/acme/Widget", "acme-Widget"],
     ] as const) {
       const cwd = fs.mkdtempSync(path.join(tmp, "repo-"));
-      spawnSync("git", ["init", "-q"], { cwd });
-      spawnSync("git", ["remote", "add", "origin", url], { cwd });
+      spawnSync("git", ["init", "-q"], { cwd, timeout: 30_000 });
+      spawnSync("git", ["remote", "add", "origin", url], { cwd, timeout: 30_000 });
       expect(slugFromEnvironment(path.join(tmp, "home2"), cwd)).toBe(want);
     }
   });
@@ -231,8 +231,8 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     const projectRoot = path.join(tmp, "realgit");
     const subdir = path.join(projectRoot, "src", "deep");
     fs.mkdirSync(subdir, { recursive: true });
-    spawnSync("git", ["init", "-q", projectRoot]);
-    spawnSync("git", ["-C", projectRoot, "remote", "add", "origin", "https://github.com/foo/bar.git"]);
+    spawnSync("git", ["init", "-q", projectRoot], { timeout: 30_000 });
+    spawnSync("git", ["-C", projectRoot, "remote", "add", "origin", "https://github.com/foo/bar.git"], { timeout: 30_000 });
     expectBoth(subdir, "foo-bar");
   });
 
@@ -269,10 +269,10 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     const outer = path.join(tmp, "outer-project");
     const inner = path.join(outer, "vendor", "inner-lib");
     fs.mkdirSync(inner, { recursive: true });
-    spawnSync("git", ["init", "-q", outer]);
-    spawnSync("git", ["-C", outer, "remote", "add", "origin", "git@github.com:acme/outer.git"]);
-    spawnSync("git", ["init", "-q", inner]);
-    spawnSync("git", ["-C", inner, "remote", "add", "origin", "git@github.com:vendor/inner.git"]);
+    spawnSync("git", ["init", "-q", outer], { timeout: 30_000 });
+    spawnSync("git", ["-C", outer, "remote", "add", "origin", "git@github.com:acme/outer.git"], { timeout: 30_000 });
+    spawnSync("git", ["init", "-q", inner], { timeout: 30_000 });
+    spawnSync("git", ["-C", inner, "remote", "add", "origin", "git@github.com:vendor/inner.git"], { timeout: 30_000 });
     expectBoth(inner, "acme-outer");
   });
 
@@ -286,8 +286,8 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     fs.mkdirSync(path.join(strayHome, ".git"), { recursive: true }); // empty — invalid repo
     const repo = path.join(strayHome, "work", "repo");
     fs.mkdirSync(repo, { recursive: true });
-    spawnSync("git", ["init", "-q", repo]);
-    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/garrytan/gstack"]);
+    spawnSync("git", ["init", "-q", repo], { timeout: 30_000 });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/garrytan/gstack"], { timeout: 30_000 });
     expectBoth(repo, "garrytan-gstack");
     expect(slugFromEnvironment(nativeHome(), repo)).not.toBe("strayhome");
   });
@@ -299,9 +299,9 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     const outer = path.join(tmp, "outer-plain");
     const inner = path.join(outer, "vendor", "inner-lib");
     fs.mkdirSync(inner, { recursive: true });
-    spawnSync("git", ["init", "-q", outer]); // no origin — marker-only repo
-    spawnSync("git", ["init", "-q", inner]);
-    spawnSync("git", ["-C", inner, "remote", "add", "origin", "git@github.com:vendor/inner.git"]);
+    spawnSync("git", ["init", "-q", outer], { timeout: 30_000 }); // no origin — marker-only repo
+    spawnSync("git", ["init", "-q", inner], { timeout: 30_000 });
+    spawnSync("git", ["-C", inner, "remote", "add", "origin", "git@github.com:vendor/inner.git"], { timeout: 30_000 });
     expectBoth(inner, "vendor-inner");
   });
 
@@ -313,8 +313,8 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     fs.mkdirSync(path.join(strayHome, ".git"), { recursive: true });
     const repo = path.join(strayHome, "git", "proj");
     fs.mkdirSync(repo, { recursive: true });
-    spawnSync("git", ["init", "-q", repo]);
-    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/garrytan/gstack"]);
+    spawnSync("git", ["init", "-q", repo], { timeout: 30_000 });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/garrytan/gstack"], { timeout: 30_000 });
 
     const cacheDir = path.join(nativeHome(), "slug-cache");
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -335,8 +335,8 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     const inner = path.join(wrapper, "apps", "web");
     fs.mkdirSync(inner, { recursive: true });
     fs.writeFileSync(path.join(wrapper, "package.json"), '{"name":"wrapper"}\n');
-    spawnSync("git", ["init", "-q", inner]);
-    spawnSync("git", ["-C", inner, "remote", "add", "origin", "https://github.com/acme/web.git"]);
+    spawnSync("git", ["init", "-q", inner], { timeout: 30_000 });
+    spawnSync("git", ["-C", inner, "remote", "add", "origin", "https://github.com/acme/web.git"], { timeout: 30_000 });
 
     const cacheDir = path.join(nativeHome(), "slug-cache");
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -361,8 +361,8 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     // fire even though cached == basename(project root).
     const repo = path.join(tmp, "stickyproj");
     fs.mkdirSync(repo, { recursive: true });
-    spawnSync("git", ["init", "-q", repo]);
-    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/x/y.git"]);
+    spawnSync("git", ["init", "-q", repo], { timeout: 30_000 });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/x/y.git"], { timeout: 30_000 });
 
     const cacheDir = path.join(nativeHome(), "slug-cache");
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -379,8 +379,8 @@ describe("walk-up parity with bin/gstack-slug (outermost project root)", () => {
     // implementations must reject it and fall through to the basename.
     const repo = path.join(tmp, "dotty");
     fs.mkdirSync(repo, { recursive: true });
-    spawnSync("git", ["init", "-q", repo]);
-    spawnSync("git", ["-C", repo, "remote", "add", "origin", ".."]);
+    spawnSync("git", ["init", "-q", repo], { timeout: 30_000 });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", ".."], { timeout: 30_000 });
     expectBoth(repo, "dotty");
   });
 

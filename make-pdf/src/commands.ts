@@ -48,7 +48,7 @@ export const COMMANDS = new Map<string, {
     ],
   }],
   ["setup", {
-    description: "Verify browse + Chromium + pdftotext, then run a smoke test",
+    description: "Verify the browser (Aside, or gstack's own fallback) + pdftotext, then run a smoke test",
     usage: "setup",
     category: "Setup",
     flags: [],

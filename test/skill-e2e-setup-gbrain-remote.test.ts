@@ -10,14 +10,20 @@
 // Cost: ~$0.30-$0.50 per run. Gate-tier (EVALS=1 EVALS_TIER=gate).
 //
 // See setup-gbrain/SKILL.md.tmpl Step 4 (Path 4) for the contract under test.
+// The Step 4 body lives in setup-gbrain/sections/brain-init.md (carved), so
+// the fixture is built via buildSetupGbrainFixture: skeleton + the brain-init
+// and claude-md-persist sections inlined (Step 8 writes the Mode: remote-http
+// block this test asserts on).
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as http from 'http';
 import { runAgentSdkTest, passThroughNonAskUserQuestion, resolveClaudeBinary } from './helpers/agent-sdk-runner';
+import { buildSetupGbrainFixture } from './helpers/setup-gbrain-fixture';
 
 // Periodic-tier: the model's interpretation of "follow Path 4 only" is
 // non-deterministic (it sometimes skips Step 8 CLAUDE.md write, sometimes
@@ -144,7 +150,11 @@ describeE2E('/setup-gbrain Path 4 (Remote MCP) — happy path', () => {
     let modelTextOutput = '';
 
     try {
-      const skillPath = path.resolve(import.meta.dir, '..', 'setup-gbrain', 'SKILL.md');
+      // Carve-aware fixture: skeleton + brain-init (Step 4 Path 4 body) +
+      // claude-md-persist (Step 8 block formats), STOP pointers resolved
+      // inline so no Read escapes the sandbox. Non-empty guard inside.
+      const skillPath = path.join(gstackHome, 'setup-gbrain-SKILL.md');
+      fs.writeFileSync(skillPath, buildSetupGbrainFixture(['brain-init.md', 'claude-md-persist.md']));
       const result = await runAgentSdkTest({
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         env: childEnv,
@@ -236,5 +246,5 @@ describeE2E('/setup-gbrain Path 4 (Remote MCP) — happy path', () => {
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
     }
-  }, 240_000);
+  }, CAPTURE_MS);
 });

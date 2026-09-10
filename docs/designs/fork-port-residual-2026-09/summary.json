@@ -1,0 +1,28 @@
+{
+ "raw": 583,
+ "canonical": 415,
+ "residual": 287,
+ "other": 128,
+ "residual_final": {
+  "TAKE_PARTIAL": 142,
+  "TAKE": 127,
+  "SKIP": 6,
+  "RESIDUAL_UNJUDGED": 5,
+  "DEFER": 7
+ },
+ "other_final": {
+  "ABSORBED": 100,
+  "NOT_APPLICABLE": 25,
+  "SUPERSEDED": 3
+ },
+ "panel_priority_among_takeish": {
+  "P0": 4,
+  "P1": 95,
+  "P2": 126,
+  "P3": 44
+ },
+ "refute_batches": 6,
+ "refute_items": 48,
+ "skeptic_flips": 5,
+ "refuters_already_done": 36
+}

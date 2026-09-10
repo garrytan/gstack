@@ -1,6 +1,6 @@
 /**
  * Offline-posture sanitizer tests — raw-HTML fetch vectors beyond <img src>
- * (which the image inliner owns). No Playwright, no PDF generation.
+ * (which the image inliner owns). No browser, no PDF generation.
  *
  * Regression for: <style>@import, inline style="…url(https://…)…", and
  * <img srcset> surviving sanitizeUntrustedHtml, letting Chromium fetch

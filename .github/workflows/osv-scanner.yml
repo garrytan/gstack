@@ -21,6 +21,7 @@ jobs:
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@f4cfcc01edc9c8b756a9b873b7a623ca674da51e # v2.3.8
     with:
       scan-args: |-
+        --config=.osv-scanner.toml
         --include-git-root
         --recursive
         ./

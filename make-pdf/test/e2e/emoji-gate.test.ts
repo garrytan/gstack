@@ -22,8 +22,8 @@
  * Note: pdfimages -list is intentionally NOT used — macOS embeds color emoji as
  * Type 3 fonts, so pdfimages lists nothing even on a correct render.
  *
- * Gating: runs only when the compiled binary + browse + pdffonts + pdftoppm are
- * available AND a color-emoji font is installed for Chromium to fall back to.
+ * Gating: runs only when the compiled binary + a browser (Aside or browse) + pdffonts +
+ * pdftoppm are available AND a color-emoji font is installed to fall back to.
  * In CI (process.env.CI set) missing prerequisites are a HARD FAILURE, not a
  * skip — CI is expected to install poppler-utils + fonts-noto-color-emoji, so a
  * silent skip there would let the tofu regression ship behind a green build.
@@ -36,11 +36,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { resolvePopplerTool } from "../../src/pdftotext";
+import { browserAvailable, NO_BROWSER_REASON } from "./browser-available";
 
 const FIXTURE = path.resolve(__dirname, "../fixtures/emoji-gate.md");
 const ROOT = path.resolve(__dirname, "../../..");
 const PDF_BIN = path.join(ROOT, "make-pdf/dist/pdf");
-const BROWSE_BIN = path.join(ROOT, "browse/dist/browse");
 
 // Saturated-pixel floor. Measured ~1650 at 100dpi for the fixture's color
 // emoji; a tofu render yields ~0. 200 sits well clear of both.
@@ -50,9 +50,9 @@ const SATURATED_PIXEL_FLOOR = 200;
 const SATURATION_DELTA = 40;
 // Per-child wall-clock bound. Bun's test timeout doesn't reliably interrupt a
 // synchronous execFileSync, so each child gets its own ceiling — a wedged
-// browser/poppler binary (or a hostile GSTACK_*_BIN override) fails instead of
-// hanging the whole job.
-const CHILD_TIMEOUT_MS = 25_000;
+// browser session or poppler binary (or a hostile GSTACK_PDF*_BIN poppler override)
+// fails instead of hanging the whole job.
+const CHILD_TIMEOUT_MS = 60_000;
 
 /** Is a color-emoji font available for Chromium to fall back to? */
 function emojiFontAvailable(): boolean {
@@ -78,7 +78,8 @@ function emojiFontAvailable(): boolean {
 
 function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } {
   if (!fs.existsSync(PDF_BIN)) return { ok: false, reason: `make-pdf binary missing (${PDF_BIN}). Run bun run build.` };
-  if (!fs.existsSync(BROWSE_BIN)) return { ok: false, reason: `browse binary missing (${BROWSE_BIN}).` };
+  // Aside (macOS) or gstack's own browse binary (what CI builds) — a skip only when neither exists.
+  if (!browserAvailable()) return { ok: false, reason: NO_BROWSER_REASON };
   if (!fs.existsSync(FIXTURE)) return { ok: false, reason: `fixture missing (${FIXTURE}).` };
   if (!resolvePopplerTool("pdffonts")) return { ok: false, reason: "pdffonts not found (install poppler-utils)." };
   if (!resolvePopplerTool("pdftoppm")) return { ok: false, reason: "pdftoppm not found (install poppler-utils)." };
@@ -142,9 +143,6 @@ describe("emoji render gate", () => {
 
   test.skipIf(!avail.ok)("emoji render as color glyphs, not tofu", () => {
     if (!avail.ok) return; // type narrowing
-    // Private temp dir under /tmp: browse's validateOutputPath only allows
-    // /tmp and /private/tmp (not os.tmpdir()'s /var/folders), and mkdtemp
-    // dodges the predictable-path symlink/collision risk.
     const workDir = fs.mkdtempSync("/tmp/make-pdf-emoji-gate-");
     const outputPdf = path.join(workDir, "out.pdf");
     const ppmPrefix = path.join(workDir, "page");
@@ -152,7 +150,6 @@ describe("emoji render gate", () => {
     try {
       execFileSync(PDF_BIN, ["generate", FIXTURE, outputPdf, "--quiet"], {
         encoding: "utf8",
-        env: { ...process.env, BROWSE_BIN },
         stdio: ["ignore", "pipe", "pipe"],
         timeout: CHILD_TIMEOUT_MS,
       });
@@ -185,15 +182,9 @@ describe("emoji render gate", () => {
   }, 60000);
 
   if (!avail.ok) {
-    // In CI, missing prerequisites are a hard failure — a silent skip would let
-    // the Linux tofu regression ship behind a green build. Locally, just warn.
-    test("emoji gate prerequisites are present (hard-required in CI)", () => {
-      // Hard-require only where the binary is expected: the make-pdf gate
-      // workflow is macOS-only (path-filtered) and builds dist/pdf first.
-      // The Linux free lane deliberately doesn't build it — warn-skip there.
-      if (process.env.CI && process.platform === 'darwin') {
-        throw new Error(`emoji gate prerequisites missing in CI: ${avail.reason}`);
-      }
+    // A visible skip, never a failure: ci-prereqs.test.ts is the CI tripwire for
+    // the build artifacts + poppler this gate needs; CI prints through the browse binary it builds.
+    test("emoji gate prerequisites are present", () => {
       console.warn(`[skip] ${avail.reason}`);
     });
   }

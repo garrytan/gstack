@@ -18,7 +18,7 @@ export interface GenerateOptions {
   output?: string;                // output path (default: /tmp/<slug>.<ext>)
 
   // Output format (NOT --format, which is a --page-size alias):
-  //   pdf  — print-quality PDF via Chromium (default)
+  //   pdf  — print-quality PDF through the browser: Aside, else gstack's own (default)
   //   html — single self-contained file, zero network references
   //   docx — content-fidelity Word document (diagrams embedded as PNG)
   to?: OutputFormat;
@@ -83,32 +83,6 @@ export interface PreviewOptions {
 }
 
 /**
- * Parsed page.pdf() options passed to browse.
- */
-export interface BrowsePdfOptions {
-  output: string;
-  tabId: number;
-  format?: PageSize;
-  width?: string;
-  height?: string;
-  margins?: {
-    top: string;
-    right: string;
-    bottom: string;
-    left: string;
-  };
-  headerTemplate?: string;
-  footerTemplate?: string;
-  pageNumbers?: boolean;
-  displayHeaderFooter?: boolean;
-  tagged?: boolean;
-  outline?: boolean;
-  printBackground?: boolean;
-  preferCSSPageSize?: boolean;
-  toc?: boolean;                  // signals browse to wait for Paged.js
-}
-
-/**
  * Exit codes for $P generate.
  * Mirror these in orchestrator error paths.
  */
@@ -117,20 +91,19 @@ export const ExitCode = {
   BadArgs: 1,
   RenderError: 2,
   PagedJsTimeout: 3,
-  BrowseUnavailable: 4,
+  BrowserUnavailable: 4,
 } as const;
 export type ExitCode = typeof ExitCode[keyof typeof ExitCode];
 
 /**
- * Structured error for browse CLI shell-out failures.
+ * No browser at all: Aside is not installed or not open AND gstack's own
+ * headless browser is not built (exit 4). The message (lib/aside-render's
+ * NO_BROWSER text) names both remedies. A render that fails while a browser
+ * IS available is a plain Error (exit 2).
  */
-export class BrowseClientError extends Error {
-  constructor(
-    public readonly exitCode: number,
-    public readonly command: string,
-    public readonly stderr: string,
-  ) {
-    super(`browse ${command} exited ${exitCode}: ${stderr.trim()}`);
-    this.name = "BrowseClientError";
+export class BrowserUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BrowserUnavailableError";
   }
 }

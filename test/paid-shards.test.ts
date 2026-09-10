@@ -11,6 +11,7 @@
 
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -21,6 +22,7 @@ import {
   computePaidDiffSelection,
   diffSkipDecisionForFile,
   formatSummary,
+  isAllSkippedPass,
   isPaidTestFile,
   knownTestNamesInSource,
   partitionShardsByDiffSelection,
@@ -43,15 +45,22 @@ describe('paid test enumeration', () => {
     // kept here as a regression pin: its glob-invisibility is exactly how
     // two gate tests went unexecuted for ~8 releases before the rehoming.
     expect(isPaidTestFile('test/skill-e2e.test.ts')).toBe(false);
-    expect(isPaidTestFile('test/codex-e2e-recommendation-substance.test.ts')).toBe(false);
     expect(isPaidTestFile('test/paid-shards.test.ts')).toBe(false);
+    // The 2026-08 orphan fix: these four were API-spending files OUTSIDE the
+    // globs — self-skipping in the free suite and absent from the paid
+    // census, so they could never run in any lane.
+    expect(isPaidTestFile('test/codex-e2e-recommendation-substance.test.ts')).toBe(true);
+    expect(isPaidTestFile('test/codex-e2e-plan-format.test.ts')).toBe(true);
+    expect(isPaidTestFile('test/llm-judge-recommendation.test.ts')).toBe(true);
+    expect(isPaidTestFile('test/carve-section-loading.test.ts')).toBe(true);
+    expect(isPaidTestFile('test/skill-llm-eval-spec.test.ts')).toBe(true);
   });
 
   test('discovers files and gives each one its own shard', () => {
     const files = collectPaidTestFiles();
     expect(files.length).toBeGreaterThan(0);
     expect(files.every(isPaidTestFile)).toBe(true);
-    expect(PAID_TEST_GLOBS.length).toBe(6);
+    expect(PAID_TEST_GLOBS.length).toBe(7);
 
     const shards = planPaidShards(files);
     expect(shards.flat().sort()).toEqual([...files].sort());
@@ -108,10 +117,17 @@ describe('tier classification', () => {
 describe('shard execution', () => {
   const BUSY_LOOP = 'const end = Date.now() + 600000; while (Date.now() < end) {}';
 
+  // PIN UPDATE (deliberate): the strict expectedFiles check is now enforced
+  // for injected fake commands too (drift fix toward the free runner's
+  // behavior), so a fake PASSING command must print a synthetic bun terminal
+  // summary — a summary-less exit 0 is the truncation class and reads FAILED.
+  const PASS_WITH_SUMMARY = 'console.log("ok"); console.log("Ran 1 tests across 1 files. [1ms]")';
+
   const commandFor = (files: string[]) => {
     if (files[0] === 'spin') return { command: process.execPath, args: ['-e', BUSY_LOOP] };
     if (files[0] === 'fail') return { command: process.execPath, args: ['-e', 'process.exit(3)'] };
-    return { command: process.execPath, args: ['-e', 'console.log("ok")'] };
+    if (files[0] === 'silent-pass') return { command: process.execPath, args: ['-e', 'console.log("ok")'] };
+    return { command: process.execPath, args: ['-e', PASS_WITH_SUMMARY] };
   };
 
   test('a spinning shard times out, is killed, and the run continues', async () => {
@@ -144,6 +160,54 @@ describe('shard execution', () => {
     expect(lines.filter((l) => l.includes(' START ')).length).toBe(3);
     expect(lines.some((l) => /TIMED-OUT in \d+s/.test(l))).toBe(true);
     expect(lines.some((l) => /PASSED in \d+s/.test(l))).toBe(true);
+    // 90s, not the default 30s: this test spawns/kills three real children
+    // (one a busy-loop burning a full core) while 5 sibling shard processes
+    // compete for 8 vCPUs — observed blowing exactly the 30s ceiling at
+    // 30009ms under full-suite load while passing in isolation in 1.4s.
+    // Every assertion above is event-based; the only latency claim is the
+    // <30s kill-deadline sanity bound, which stays.
+  }, 90_000);
+
+  test('exit 0 WITHOUT the terminal summary is FAILED — enforced for injected commands too', async () => {
+    // The invisible-non-execution backstop: previously the paid runner
+    // exempted injected commandFor from the expectedFiles check, so a fake
+    // that exited 0 without bun's terminal summary recorded 'passed'. Now it
+    // matches the free runner: enforcement always on.
+    const summary = await runPaidShards([['silent-pass']], {
+      timeoutMs: 30_000, jobs: 1, commandFor, log: () => {},
+    });
+    expect(summary.outcomes[0].status).toBe('failed');
+  }, 30_000);
+
+  test('shard output spools to a per-shard log file; failures name the path', async () => {
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paid-shard-logs-'));
+    const lines: string[] = [];
+    try {
+      const summary = await runPaidShards([['fail'], ['pass']], {
+        timeoutMs: 30_000, jobs: 2, commandFor, logDir, log: (line) => lines.push(line),
+      });
+      const byName = (name: string) => summary.outcomes.find((o) => o.files[0] === name) as ShardOutcome;
+      expect(byName('fail').status).toBe('failed');
+      expect(byName('pass').status).toBe('passed');
+
+      // One log per shard, named by slug, and it holds the child's full stream
+      // (nothing buffered in RAM: the file IS the record).
+      const logs = fs.readdirSync(logDir).sort();
+      expect(logs.length).toBe(2);
+      expect(logs.some((f) => f.includes('fail'))).toBe(true);
+      const passLog = logs.find((f) => f.includes('pass')) as string;
+      expect(fs.readFileSync(path.join(logDir, passLog), 'utf8')).toContain('Ran 1 tests across 1 files.');
+
+      // Every shard announces its log path up front; the FAILED terminal line
+      // repeats it, the PASSED one stays clean.
+      expect(lines.filter((l) => l.includes('full log:') && !l.includes('FAILED')).length).toBe(2);
+      const failLine = lines.find((l) => l.includes('FAILED')) as string;
+      expect(failLine).toContain(logDir);
+      const passLine = lines.find((l) => l.includes('PASSED')) as string;
+      expect(passLine).not.toContain(logDir);
+    } finally {
+      fs.rmSync(logDir, { recursive: true, force: true });
+    }
   }, 30_000);
 
   test('summarize reports shards that never ran', () => {
@@ -289,5 +353,62 @@ describe('parent-side diff shard skipping', () => {
       { shard: 2, files: ['b'], status: 'skipped-by-diff', exitCode: null, elapsedMs: 0, groupPid: null },
     ]);
     expect(summaryExitCode(withNeverStarted)).toBe(1);
+  });
+});
+
+// Green-by-skip census: "Ran N tests" counts skips, so a codex/gemini file
+// whose every test self-skipped (binary absent on the runner) exits 0 and
+// used to read as coverage in the weekly report. The census label keeps the
+// pass (service availability is host state, not a repo regression) but must
+// say the shard verified nothing.
+describe('all-skipped pass census', () => {
+  const base = { shard: 1, files: ['test/codex-e2e.test.ts'], exitCode: 0, elapsedMs: 1200, groupPid: 1 };
+
+  test('isAllSkippedPass: pass with every test skipped → true', () => {
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: 8, skippedTests: 8 } as ShardOutcome)).toBe(true);
+  });
+
+  test('isAllSkippedPass: real work, a failure, or no data → false', () => {
+    // one test actually ran
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: 8, skippedTests: 7 } as ShardOutcome)).toBe(false);
+    // zero tests: that's the hollow-shard guard's territory, not this label's
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: 0, skippedTests: 0 } as ShardOutcome)).toBe(false);
+    // non-pass statuses never get the label
+    expect(isAllSkippedPass({ ...base, status: 'failed', executedTests: 8, skippedTests: 8 } as ShardOutcome)).toBe(false);
+    // stream gave no counts (crash/timeout) — unknown, not all-skipped
+    expect(isAllSkippedPass({ ...base, status: 'passed', executedTests: null, skippedTests: null } as ShardOutcome)).toBe(false);
+  });
+
+  test('wiring: a real child’s skip recap flows through runPaidShard into skippedTests', async () => {
+    // End-to-end through the actual spawn/classify path (not hand-built
+    // outcomes): a fake shard child prints bun’s recap shape with every test
+    // skipped; the outcome must carry the parsed counts and formatSummary
+    // must label it. This is the seam the unit tests above skip.
+    const ALL_SKIP = 'console.log(" 0 pass"); console.log(" 3 skip"); console.log(" 0 fail"); console.log("Ran 3 tests across 1 files. [5ms]")';
+    const summary = await runPaidShards([['all-skip']], {
+      timeoutMs: 30_000,
+      jobs: 1,
+      commandFor: () => ({ command: process.execPath, args: ['-e', ALL_SKIP] }),
+      log: () => {},
+    });
+    const outcome = summary.outcomes[0];
+    expect(outcome.status).toBe('passed');
+    expect(outcome.executedTests).toBe(3);
+    expect(outcome.skippedTests).toBe(3);
+    expect(isAllSkippedPass(outcome)).toBe(true);
+    const lines = formatSummary(summary);
+    expect(lines.find((l) => l.includes('all-skip'))).toContain('all 3 tests SKIPPED');
+  }, 30_000);
+
+  test('formatSummary labels an all-skipped pass and leaves real passes alone', () => {
+    const lines = formatSummary(summarize([
+      { ...base, status: 'passed', executedTests: 8, skippedTests: 8 } as ShardOutcome,
+      { shard: 2, files: ['test/skill-e2e-review.test.ts'], status: 'passed', exitCode: 0, elapsedMs: 900, groupPid: 2, executedTests: 3, skippedTests: 0 } as ShardOutcome,
+    ]));
+    const codexLine = lines.find((l) => l.includes('codex-e2e'));
+    const reviewLine = lines.find((l) => l.includes('skill-e2e-review'));
+    expect(codexLine).toContain('all 8 tests SKIPPED');
+    expect(codexLine).toContain('verified nothing');
+    expect(reviewLine).not.toContain('SKIPPED');
   });
 });

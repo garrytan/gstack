@@ -1,0 +1,27 @@
+name: Restore deps
+description: >
+  Restore the CI image's pre-installed node_modules via recursive copy, or
+  fall back to bun install when the lockfile changed. Symlinking breaks bun's
+  realpath-based module resolution (realpath escapes the workspace and
+  sibling deps stop resolving); hardlink copy fails across overlay-fs layers
+  ("Invalid cross-device link"). Recursive copy costs ~5s for ~200 packages —
+  still far cheaper than a network install. Extracted from five byte-similar
+  copies across the eval lanes.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
+          # rm first: `cp -r SRC node_modules` with an existing node_modules
+          # NESTS the copy (node_modules/node_modules_cache) and leaves stale
+          # deps active. CI workspaces are fresh today, but a reusable
+          # composite must survive a rerun/dirty workspace (codex diff review).
+          rm -rf node_modules
+          cp -r /opt/node_modules_cache node_modules
+        else
+          # Frozen: this composite is canonical for lanes that run PR code
+          # with provider keys in env — a drifted lockfile must fail loudly,
+          # never silently re-resolve versions (claude adversarial).
+          bun install --frozen-lockfile
+        fi

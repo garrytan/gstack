@@ -475,7 +475,14 @@ describe('preamble — QUESTION_TUNING injection', () => {
       preambleTier: 2,
     };
     const out = generatePreamble(ctx);
-    expect(out).toContain('QUESTION_TUNING: $_QUESTION_TUNING');
+    // Phase 1: the config echo moved into bin/gstack-skill-start; the render's
+    // section gates itself on the echoed key.
+    const script = fs.readFileSync(
+      path.join(import.meta.dir, '..', 'bin', 'gstack-skill-start'),
+      'utf-8',
+    );
+    expect(script).toContain('echo "QUESTION_TUNING: $_QUESTION_TUNING"');
+    expect(out).toContain('QUESTION_TUNING: false');
     expect(out).toContain('## Question Tuning');
     expect(out).toContain('gstack-question-preference --check');
     expect(out).toContain('gstack-question-log');
@@ -561,15 +568,15 @@ describe('end-to-end pipeline (binaries working together)', () => {
               ts: `2026-04-0${i + 1}T10:00:00Z`,
             }),
           ],
-          { env, cwd: ROOT, encoding: 'utf-8' },
+          { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 },
         );
         expect(r.status).toBe(0);
       }
 
-      const derive = spawnSync(devBin, ['--derive'], { env, cwd: ROOT, encoding: 'utf-8' });
+      const derive = spawnSync(devBin, ['--derive'], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
       expect(derive.status).toBe(0);
 
-      const profileOut = spawnSync(devBin, ['--profile'], { env, cwd: ROOT, encoding: 'utf-8' });
+      const profileOut = spawnSync(devBin, ['--profile'], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
       const p = JSON.parse(profileOut.stdout);
       expect(p.inferred.sample_size).toBe(5);
       expect(p.inferred.values.scope_appetite).toBeGreaterThan(0.5);
@@ -591,13 +598,13 @@ describe('end-to-end pipeline (binaries working together)', () => {
           '--write',
           JSON.stringify({ question_id: 'fake-id', preference: 'never-ask', source: 'inline-tool-output' }),
         ],
-        { env, cwd: ROOT, encoding: 'utf-8' },
+        { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 },
       );
       expect(r.status).toBe(2);
       expect(r.stderr).toContain('poisoning');
 
       // Verify no preference was written
-      const read = spawnSync(prefBin, ['--read'], { env, cwd: ROOT, encoding: 'utf-8' });
+      const read = spawnSync(prefBin, ['--read'], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
       const prefs = JSON.parse(read.stdout);
       expect(prefs['fake-id']).toBeUndefined();
     } finally {
@@ -626,11 +633,11 @@ describe('end-to-end pipeline (binaries working together)', () => {
       );
 
       // Migrate
-      const m = spawnSync(devBin, ['--migrate'], { env, cwd: ROOT, encoding: 'utf-8' });
+      const m = spawnSync(devBin, ['--migrate'], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
       expect(m.status).toBe(0);
 
       // Legacy shim should still return the same KEY: VALUE shape
-      const shimOut = spawnSync(shimBin, [], { env, cwd: ROOT, encoding: 'utf-8' });
+      const shimOut = spawnSync(shimBin, [], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
       expect(shimOut.status).toBe(0);
       expect(shimOut.stdout).toContain('SESSION_COUNT: 3');
       expect(shimOut.stdout).toContain('TIER: welcome_back');

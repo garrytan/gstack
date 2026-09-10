@@ -17,8 +17,12 @@ import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 
 const TMP_HOME = path.join(os.tmpdir(), `gstack-domain-e2e-${process.pid}-${Date.now()}`);
-process.env.GSTACK_HOME = TMP_HOME;
-process.env.GSTACK_PROJECT_SLUG = 'e2e-test-slug';
+
+// Scoped to this file's execution window — module-scope env assignment
+// leaks into sibling files in the shard process (see
+// test/gstack-home-module-scope.test.ts).
+const ORIGINAL_GSTACK_HOME = process.env.GSTACK_HOME;
+const ORIGINAL_PROJECT_SLUG = process.env.GSTACK_PROJECT_SLUG;
 
 let testServer: ReturnType<typeof startTestServer>;
 let bm: BrowserManager;
@@ -32,6 +36,8 @@ async function fakeBodyPipe(body: string): Promise<string> {
 }
 
 beforeAll(async () => {
+  process.env.GSTACK_HOME = TMP_HOME;
+  process.env.GSTACK_PROJECT_SLUG = 'e2e-test-slug';
   await fs.rm(TMP_HOME, { recursive: true, force: true });
   await fs.mkdir(path.join(TMP_HOME, 'projects', 'e2e-test-slug'), { recursive: true });
   testServer = startTestServer(0);
@@ -41,6 +47,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (ORIGINAL_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIGINAL_GSTACK_HOME;
+  if (ORIGINAL_PROJECT_SLUG === undefined) delete process.env.GSTACK_PROJECT_SLUG;
+  else process.env.GSTACK_PROJECT_SLUG = ORIGINAL_PROJECT_SLUG;
   try { await bm.cleanup?.(); } catch {}
   try { testServer.server.stop(); } catch {}
   await fs.rm(TMP_HOME, { recursive: true, force: true });

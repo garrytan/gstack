@@ -35,6 +35,7 @@ import {
   fanoutPass,
   type OverlayFixture,
 } from '../test/fixtures/overlay-nudges';
+import { CLAUDE_FRONTIER_EVAL_MODEL } from '../lib/eval-model';
 
 // ---------------------------------------------------------------------------
 // Stub SDK event builders
@@ -45,7 +46,7 @@ function uuid(): string {
   return `00000000-0000-0000-0000-${String(++uuidCounter).padStart(12, '0')}`;
 }
 
-function systemInit(model = 'claude-sonnet-4-6', version = '2.1.117'): SDKMessage {
+function systemInit(model = CLAUDE_FRONTIER_EVAL_MODEL, version = '2.1.117'): SDKMessage {
   return {
     type: 'system',
     subtype: 'init',
@@ -259,7 +260,7 @@ describe('runAgentSdkTest — happy path', () => {
     expect(result.turnsUsed).toBe(2);
     expect(result.costUsd).toBe(0.05);
     expect(result.sdkClaudeCodeVersion).toBe('2.1.117');
-    expect(result.model).toBe('claude-sonnet-4-6');
+    expect(result.model).toBe(CLAUDE_FRONTIER_EVAL_MODEL);
     expect(result.firstResponseMs).toBeGreaterThanOrEqual(0);
   });
 
@@ -699,7 +700,7 @@ describe('toSkillTestResult', () => {
     expect(s.output).toBe('hi');
     expect(s.costEstimate.estimatedCost).toBe(0.02);
     expect(s.costEstimate.turnsUsed).toBe(1);
-    expect(s.model).toBe('claude-sonnet-4-6');
+    expect(s.model).toBe(CLAUDE_FRONTIER_EVAL_MODEL);
     expect(s.firstResponseMs).toBeNumber();
     expect(s.maxInterTurnMs).toBeNumber();
     expect(s.transcript).toBeArray();

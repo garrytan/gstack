@@ -20,6 +20,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { setupSkillDir, skillFromWorktree, captureSectionReads } from './helpers/auq-sdk-capture';
 import { CARVE_GUARDS } from './helpers/carve-guards';
@@ -72,6 +73,12 @@ describeE2E('carve behavioral section-loading (periodic, SDK capture)', () => {
           reportMarker: /report|review|summary|design doc|handoff/i,
           testName: `${guard.skill} section-loading`,
           runId,
+          // 480s, not the helper's 300s default: the heavy full-workflow
+          // scenarios (plan-eng-review, office-hours, design-html) satisfy
+          // their required section reads inside 60s but need 300-450s of
+          // wall clock to finish the report on slower sandboxes — a timeout
+          // there reads as a loading failure when the carve invariant held.
+          timeout: 480_000,
         });
 
         const missing = guard.requiredReads.filter((s) => !readSections.has(s));
@@ -91,7 +98,7 @@ describeE2E('carve behavioral section-loading (periodic, SDK capture)', () => {
         });
         expect(output.trim().length).toBeGreaterThan(200);
       },
-      360_000,
+      CAPTURE_LONG_MS,
     );
   }
 });

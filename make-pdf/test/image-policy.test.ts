@@ -1,6 +1,6 @@
 /**
  * Unit tests for the image width policy + conservative auto-landscape
- * (image-policy.ts). Pure HTML-in/HTML-out — no browse daemon.
+ * (image-policy.ts). Pure HTML-in/HTML-out, no browser.
  *
  * The promotion heuristic is deliberately conservative (eng-review P4):
  * false negatives are cheap (add {page=landscape}), false positives feel

@@ -20,6 +20,7 @@
  */
 
 import { test } from 'bun:test';
+import { PTY_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as path from 'path';
 import {
@@ -43,8 +44,10 @@ describeE2E('/plan-design-review with UI scope (gate)', () => {
 
       const session = await launchClaudePty({
         permissionMode: 'plan',
+        // LIVE-REPO CWD: PTY session needs the repo cwd — skill registry,
+        // hermetic pre-trusted dir, and the repo-relative fixture path above.
         cwd: ROOT,
-        timeoutMs: 720_000,
+        timeoutMs: PTY_MS,
         seedSkills: true,
       });
 
@@ -150,6 +153,6 @@ describeE2E('/plan-design-review with UI scope (gate)', () => {
         );
       }
     },
-    780_000,
+    PTY_MS,
   );
 });

@@ -500,6 +500,7 @@ describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)",
     const POLICY = join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy");
     const seeded = spawnSync("bash", [POLICY, "set", "_unattributed", "deny"], {
       encoding: "utf-8",
+      timeout: 30_000,
       env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
     });
     expect(seeded.status).toBe(0);
@@ -622,6 +623,7 @@ esac
     expect(existsSync(stagingCopy)).toBe(true);
     const findMd = spawnSync("find", [stagingCopy, "-name", "*.md", "-type", "f"], {
       encoding: "utf-8",
+      timeout: 30_000,
     });
     const mdPaths = (findMd.stdout || "").trim().split("\n").filter(Boolean);
     expect(mdPaths.length).toBeGreaterThan(0);
@@ -685,6 +687,7 @@ esac
     // walk to find a .md and read its head.)
     const findMd = spawnSync("find", [stagingCopy, "-name", "*.md", "-type", "f"], {
       encoding: "utf-8",
+      timeout: 30_000,
     });
     const mdPaths = (findMd.stdout || "").trim().split("\n").filter(Boolean);
     expect(mdPaths.length).toBeGreaterThan(0);
@@ -913,8 +916,8 @@ describe("#2394: probe applies the same attribution gate as prepare", () => {
   function makeAttributableCwd(home: string): string {
     const repo = join(home, "work", "attributable-repo");
     mkdirSync(repo, { recursive: true });
-    spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8" });
-    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8" });
+    spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8", timeout: 30_000 });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8", timeout: 30_000 });
     return repo;
   }
 
@@ -993,8 +996,8 @@ describe("#2394: probe applies the same attribution gate as prepare", () => {
     mkdirSync(gstackHome, { recursive: true });
     const attributableCwd = join(home, "work", "attributable-repo");
     mkdirSync(attributableCwd, { recursive: true });
-    spawnSync("git", ["-C", attributableCwd, "init", "-q"], { encoding: "utf-8" });
-    spawnSync("git", ["-C", attributableCwd, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8" });
+    spawnSync("git", ["-C", attributableCwd, "init", "-q"], { encoding: "utf-8", timeout: 30_000 });
+    spawnSync("git", ["-C", attributableCwd, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8", timeout: 30_000 });
 
     const ts = new Date().toISOString();
     const cwdLine = `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${ts}","cwd":"${attributableCwd.replace(/\\/g, "\\\\")}"}\n`;
@@ -1077,8 +1080,8 @@ describe("#2392: transcript ingest honors per-remote trust policy", () => {
   function makeRepoWithRemote(home: string, name: string, remoteUrl: string): string {
     const repo = join(home, "work", name);
     mkdirSync(repo, { recursive: true });
-    spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8" });
-    spawnSync("git", ["-C", repo, "remote", "add", "origin", remoteUrl], { encoding: "utf-8" });
+    spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8", timeout: 30_000 });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", remoteUrl], { encoding: "utf-8", timeout: 30_000 });
     return repo;
   }
 
@@ -1095,6 +1098,7 @@ describe("#2392: transcript ingest honors per-remote trust policy", () => {
   function setPolicy(gstackHome: string, url: string, tier: string): void {
     const r = spawnSync(POLICY_BIN, ["set", url, tier], {
       encoding: "utf-8",
+      timeout: 30_000,
       env: { ...process.env, GSTACK_HOME: gstackHome },
     });
     expect(r.status).toBe(0);

@@ -1,5 +1,6 @@
 /**
- * Orchestrator — ties render, browseClient, and filesystem together.
+ * Orchestrator — ties render, the diagram pre-pass, asideClient, and the
+ * filesystem together.
  *
  *   generate(opts): markdown → PDF on disk. Returns output path.
  *   preview(opts):  markdown → HTML, opens it in a browser.
@@ -9,23 +10,26 @@
  *   - stderr: spinner + per-stage status lines, unless opts.quiet.
  *   - --verbose: stage timings.
  *
- * Tab lifecycle: every generate opens a dedicated tab via $B newtab --json,
- * runs load-html/js/pdf against --tab-id <N>, and closes the tab in a
- * try/finally. Parallel $P generate calls never race on the active tab.
+ * Every browser step is its own lib/aside-render `render()` call (an Aside
+ * script when Aside is running, otherwise a tab in gstack's own headless
+ * browser; nothing persists between them): one batch for diagram fences, one
+ * for oversized-image downscales, one for DOCX rasters, one print. Parallel
+ * $P generate calls never share state.
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import * as crypto from "node:crypto";
 import { spawn } from "node:child_process";
 
 import { render } from "./render";
 import { screenCss } from "./print-css";
 import type { GenerateOptions, PreviewOptions } from "./types";
 import { ExitCode } from "./types";
-import * as browseClient from "./browseClient";
+import { pickEngine } from "../../lib/aside-render";
+import { renderPdf } from "./asideClient";
 import {
-  RenderTab,
+  bundleRunner,
   contentWidthInches,
   convertDiagnosticsForDocx,
   extractDiagramFences,
@@ -36,6 +40,9 @@ import {
   substituteSlots,
 } from "./diagram-prepass";
 import { applyImagePolicy } from "./image-policy";
+
+/** Default output location (`$P generate letter.md` → /tmp/letter.pdf). */
+export const OUTPUT_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
 
 class ProgressReporter {
   private readonly quiet: boolean;
@@ -85,7 +92,7 @@ export async function generate(opts: GenerateOptions): Promise<string> {
 
   const to = opts.to ?? "pdf";
   const outputPath = path.resolve(
-    opts.output ?? path.join(browseClient.PAYLOAD_TMP_DIR, `${deriveSlug(input)}.${to}`),
+    opts.output ?? path.join(OUTPUT_TMP_DIR, `${deriveSlug(input)}.${to}`),
   );
 
   // Stage 1: read markdown
@@ -94,7 +101,7 @@ export async function generate(opts: GenerateOptions): Promise<string> {
   progress.end("Reading markdown");
 
   // Stage 1.5: diagram pre-pass — extract ```mermaid/```excalidraw fences and
-  // swap in placeholder tokens. Rendering happens after the tab opens below.
+  // swap in placeholder tokens. Rendering happens in Stage 2.5 below.
   const extraction = extractDiagramFences(markdown);
 
   // Stage 2: render HTML
@@ -120,87 +127,52 @@ export async function generate(opts: GenerateOptions): Promise<string> {
   });
   progress.end("Rendering HTML", `${rendered.meta.wordCount} words`);
 
-  // Stage 2.5: render diagram fences in a dedicated bundle tab, substitute
-  // slots, then inline + probe + (if oversized) downscale local images.
-  // The bundle tab is lazy: image-only documents open it only when a raster
-  // actually needs print-resolution downscaling (eng-review D4).
+  // Stage 2.5: render diagram fences through the bundle, substitute slots,
+  // then inline + probe + (if oversized) downscale local images. The runner
+  // resolves the bundle lazily, so image-only documents never touch it; a
+  // missing bundle or missing browser surfaces per fence as a diagnostic block.
   const warn = (msg: string) => {
     if (!opts.quiet) process.stderr.write(`\r\x1b[K[make-pdf] warning: ${msg}\n`);
   };
-  let renderTab: RenderTab | null = null;
+  const run = bundleRunner();
   let hasLandscape = false;
-  const getRenderTab = (): RenderTab | null => {
-    if (renderTab) return renderTab;
-    try {
-      renderTab = RenderTab.open();
-    } catch (err: any) {
-      warn(`diagram-render tab unavailable: ${String(err?.message ?? err).split("\n")[0]}`);
-      return null;
-    }
-    return renderTab;
-  };
 
   let finalHtml = rendered.html;
-  try {
-    if (extraction.fences.length > 0) {
-      progress.begin(`Rendering ${extraction.fences.length} diagram(s)`);
-      const tab = getRenderTab();
-      if (tab) {
-        const slots = renderFenceSlots(extraction.fences, tab, warn);
-        finalHtml = substituteSlots(finalHtml, slots);
-      } else {
-        // No bundle/tab: visible diagnostic beats silent raw tokens.
-        const slots = new Map(
-          extraction.fences.map((f) => [
-            f.token,
-            `<figure class="diagram diagram-error" role="img" aria-label="diagram ${f.ordinal} (not rendered)">` +
-            `<figcaption class="diagram-error-title">Diagram not rendered (${f.lang}) — diagram-render bundle unavailable</figcaption></figure>`,
-          ]),
-        );
-        finalHtml = substituteSlots(finalHtml, slots);
-      }
-      progress.end(`Rendering ${extraction.fences.length} diagram(s)`);
+  if (extraction.fences.length > 0) {
+    progress.begin(`Rendering ${extraction.fences.length} diagram(s)`);
+    finalHtml = substituteSlots(finalHtml, await renderFenceSlots(extraction.fences, run, warn));
+    progress.end(`Rendering ${extraction.fences.length} diagram(s)`);
+  }
+
+  progress.begin("Inlining images");
+  const contentWidthIn = contentWidthInches(opts);
+  finalHtml = await inlineLocalImages(finalHtml, {
+    inputDir: path.dirname(input),
+    strict: opts.strict === true,
+    allowNetwork: opts.allowNetwork === true,
+    contentWidthIn,
+    warn,
+    run,
+  });
+  progress.end("Inlining images");
+
+  // Width directives + conservative auto-landscape (image-policy).
+  const policy = applyImagePolicy(finalHtml, {
+    contentWidthIn,
+    landscape: landscapeContentBox(opts),
+    warn,
+  });
+  finalHtml = policy.html;
+  hasLandscape = policy.hasLandscape;
+
+  // DOCX needs rasters, not inline SVG (Word's SVG support is unreliable).
+  if (to === "docx") {
+    if (/<figure class="diagram"|data:image\/svg\+xml/.test(finalHtml)) {
+      progress.begin("Rasterizing diagrams for DOCX");
+      finalHtml = await rasterizeDiagramFigures(finalHtml, run, contentWidthIn, warn);
+      progress.end("Rasterizing diagrams for DOCX");
     }
-
-    progress.begin("Inlining images");
-    const contentWidthIn = contentWidthInches(opts);
-    finalHtml = inlineLocalImages(finalHtml, {
-      inputDir: path.dirname(input),
-      strict: opts.strict === true,
-      allowNetwork: opts.allowNetwork === true,
-      contentWidthIn,
-      warn,
-      getTab: getRenderTab,
-    });
-    progress.end("Inlining images");
-
-    // Width directives + conservative auto-landscape (image-policy).
-    const policy = applyImagePolicy(finalHtml, {
-      contentWidthIn,
-      landscape: landscapeContentBox(opts),
-      warn,
-    });
-    finalHtml = policy.html;
-    hasLandscape = policy.hasLandscape;
-
-    // DOCX needs rasters, not inline SVG (Word's SVG support is unreliable) —
-    // do it while the render tab is still open.
-    if (to === "docx") {
-      const needsRaster = /<figure class="diagram"|data:image\/svg\+xml/.test(finalHtml);
-      if (needsRaster) {
-        progress.begin("Rasterizing diagrams for DOCX");
-        const tab = getRenderTab();
-        if (tab) {
-          finalHtml = rasterizeDiagramFigures(finalHtml, tab, contentWidthIn, warn);
-        } else {
-          warn("docx: no render tab — diagrams keep their source text form");
-        }
-        progress.end("Rasterizing diagrams for DOCX");
-      }
-      finalHtml = convertDiagnosticsForDocx(finalHtml);
-    }
-  } finally {
-    renderTab?.close();
+    finalHtml = convertDiagnosticsForDocx(finalHtml);
   }
 
   // ─── --to html: write the self-contained document, no print round-trip ──
@@ -244,73 +216,43 @@ export async function generate(opts: GenerateOptions): Promise<string> {
     return outputPath;
   }
 
-  // Stage 3: write HTML to a tmp file browse can read
-  // (We don't actually write it; we pass inline via --from-file JSON.)
-  // But for preview mode and debugging, we still write to tmp.
-  const htmlTmp = tmpFile("html");
-  fs.writeFileSync(htmlTmp, finalHtml, "utf8");
-
-  // Stage 4: spin up a dedicated tab, load HTML, (wait for Paged.js if TOC),
-  // then emit PDF. Always close the tab.
-  progress.begin("Opening tab");
-  const tabId = browseClient.newtab();
-  progress.end("Opening tab", `tabId=${tabId}`);
-
-  try {
-    progress.begin("Loading HTML into Chromium");
-    browseClient.loadHtml({
-      html: finalHtml,
-      waitUntil: "domcontentloaded",
-      tabId,
-    });
-    progress.end("Loading HTML into Chromium");
-
-    if (opts.toc) {
-      progress.begin("Paginating with Paged.js");
-      // Browse's $B pdf already waits internally when --toc is passed.
-      // We pass toc=true to browseClient.pdf() below.
-      progress.end("Paginating with Paged.js", "Paged.js after");
-    }
-
-    progress.begin("Generating PDF");
-    browseClient.pdf({
-      output: outputPath,
-      tabId,
-      format: opts.pageSize ?? "letter",
-      marginTop: opts.marginTop ?? opts.margins ?? "1in",
-      marginRight: opts.marginRight ?? opts.margins ?? "1in",
-      marginBottom: opts.marginBottom ?? opts.margins ?? "1in",
-      marginLeft: opts.marginLeft ?? opts.margins ?? "1in",
-      headerTemplate: opts.headerTemplate,
-      footerTemplate: opts.footerTemplate,
-      // CSS is the single source of truth for page numbers (see print-css.ts
-      // @bottom-center). Chromium's native numbering always off to avoid double
-      // footers. The CSS layer honors pageNumbers + footerTemplate via render().
-      pageNumbers: false,
-      tagged: opts.tagged !== false,
-      outline: opts.outline !== false,
-      printBackground: !!opts.watermark,
-      // Named landscape pages only take effect when Chromium honors CSS page
-      // sizes. Flip it ONLY when a promotion exists — minimal behavior change
-      // for every other document.
-      preferCSSPageSize: hasLandscape ? true : undefined,
-      toc: opts.toc,
-    });
-    progress.end("Generating PDF");
-
-    const stat = fs.statSync(outputPath);
-    const kb = Math.round(stat.size / 1024);
-    progress.done(`${rendered.meta.wordCount} words · ${kb}KB · ${outputPath}`);
-  } finally {
-    // Always clean up the tab — even on crash, timeout, or Chromium hang.
-    try {
-      browseClient.closetab(tabId);
-    } catch {
-      // best-effort; we already exited the main path
-    }
-    // Cleanup tmp HTML
-    try { fs.unlinkSync(htmlTmp); } catch { /* best-effort */ }
+  // Stage 3: print — one render: serve the staged HTML over loopback, (wait
+  // ≤3s for Paged.js if --toc), print through whichever browser is up.
+  const engine = pickEngine().engine;
+  const via = engine === "aside" ? "Aside" : engine === "browse" ? "gstack's browser" : "a browser";
+  progress.begin(`Rendering PDF through ${via}`);
+  const used = await renderPdf(finalHtml, {
+    output: outputPath,
+    format: opts.pageSize ?? "letter",
+    marginTop: opts.marginTop ?? opts.margins ?? "1in",
+    marginRight: opts.marginRight ?? opts.margins ?? "1in",
+    marginBottom: opts.marginBottom ?? opts.margins ?? "1in",
+    marginLeft: opts.marginLeft ?? opts.margins ?? "1in",
+    headerTemplate: opts.headerTemplate,
+    footerTemplate: opts.footerTemplate,
+    // CSS is the single source of truth for page numbers (see print-css.ts
+    // @bottom-center). Chromium's native numbering always off to avoid double
+    // footers. The CSS layer honors pageNumbers + footerTemplate via render().
+    pageNumbers: false,
+    tagged: opts.tagged !== false,
+    outline: opts.outline !== false,
+    printBackground: !!opts.watermark,
+    // Named landscape pages only take effect when Chromium honors CSS page
+    // sizes. Flip it ONLY when a promotion exists — minimal behavior change
+    // for every other document.
+    preferCSSPageSize: hasLandscape ? true : undefined,
+    toc: opts.toc,
+  });
+  progress.end(`Rendering PDF through ${via}`);
+  if (used && used !== engine) {
+    // render() fell back mid-run (Aside quit or its CLI could not start): say
+    // which browser actually produced the file, since the label above was
+    // decided before the render.
+    process.stderr.write("  Aside was unavailable mid-run; the PDF was rendered through gstack's own browser.\n");
   }
+
+  const kb = Math.round(fs.statSync(outputPath).size / 1024);
+  progress.done(`${rendered.meta.wordCount} words · ${kb}KB · ${outputPath}`);
 
   return outputPath;
 }
@@ -327,7 +269,7 @@ export async function preview(opts: PreviewOptions): Promise<string> {
 
   progress.begin("Rendering HTML");
   const markdown = fs.readFileSync(input, "utf8");
-  // Preview deliberately skips the diagram/image pre-pass (no browse daemon
+  // Preview deliberately skips the diagram/image pre-pass (no browser
   // round-trip — preview is the fast loop). Be loud about the divergence so
   // nobody signs off on a preview that lacks what the PDF will have.
   if (!opts.quiet) {
@@ -357,7 +299,7 @@ export async function preview(opts: PreviewOptions): Promise<string> {
   progress.end("Rendering HTML", `${rendered.meta.wordCount} words`);
 
   // Write to a stable path under /tmp so the user can reload in the same tab.
-  const previewPath = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-preview-${deriveSlug(input)}.html`);
+  const previewPath = path.join(OUTPUT_TMP_DIR, `make-pdf-preview-${deriveSlug(input)}.html`);
   fs.writeFileSync(previewPath, rendered.html, "utf8");
 
   progress.begin("Opening preview");
@@ -373,11 +315,6 @@ export async function preview(opts: PreviewOptions): Promise<string> {
 function deriveSlug(p: string): string {
   const base = path.basename(p).replace(/\.[^.]+$/, "");
   return base.replace(/[^a-zA-Z0-9-_]+/g, "-").slice(0, 64) || "document";
-}
-
-function tmpFile(ext: string): string {
-  const hash = crypto.randomBytes(6).toString("hex");
-  return path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-${process.pid}-${hash}.${ext}`);
 }
 
 function tryOpen(pathOrUrl: string): void {

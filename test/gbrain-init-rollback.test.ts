@@ -122,6 +122,7 @@ echo "ok"
       HOME: env.home,
       PATH: `${env.bindir}:/usr/bin:/bin`,
     },
+    timeout: 30_000,
   });
   return {
     exitCode: result.status ?? 1,

@@ -612,6 +612,7 @@ class AppState {
       '--output', outputDir,
     ], {
       encoding: 'utf8',
+      timeout: 30_000,
       env: { ...process.env, GSTACK_IOS_CACHE_ROOT: join(workDir, 'cache') },
     });
     expect(result.status).toBe(4);
@@ -717,7 +718,7 @@ describe('render', () => {
   });
 
   test('typechecks beside an internal @Observable app state using a comment marker', () => {
-    if (spawnSync('swiftc', ['--version'], { encoding: 'utf8' }).status !== 0) return;
+    if (spawnSync('swiftc', ['--version'], { encoding: 'utf8', timeout: 30_000 }).status !== 0) return;
 
     const coreSource = join(workDir, 'DebugBridgeCore.swift');
     const coreModule = join(workDir, 'DebugBridgeCore.swiftmodule');
@@ -752,7 +753,7 @@ public final class StateServer {
       '-module-name', 'DebugBridgeCore',
       coreSource,
       '-emit-module-path', coreModule,
-    ], { encoding: 'utf8' });
+    ], { encoding: 'utf8', timeout: 120_000 });
     if (emitModule.status !== 0) {
       throw new Error(`failed to build DebugBridgeCore test stub:\n${emitModule.stderr}`);
     }
@@ -775,7 +776,7 @@ ${render([{
       '-D', 'DEBUG',
       '-I', workDir,
       appSource,
-    ], { encoding: 'utf8' });
+    ], { encoding: 'utf8', timeout: 120_000 });
     if (typecheck.status !== 0) {
       throw new Error(`generated accessor failed Swift type checking:\n${typecheck.stderr}`);
     }
@@ -783,7 +784,7 @@ ${render([{
 
   test('strict JSON typing and cross-model validate-before-apply restore run correctly', () => {
     if (process.platform !== 'darwin') return;
-    if (spawnSync('swiftc', ['--version'], { encoding: 'utf8' }).status !== 0) return;
+    if (spawnSync('swiftc', ['--version'], { encoding: 'utf8', timeout: 30_000 }).status !== 0) return;
 
     const coreSource = join(workDir, 'DebugBridgeCore.swift');
     const coreModule = join(workDir, 'DebugBridgeCore.swiftmodule');
@@ -830,7 +831,7 @@ public final class StateServer {
       '-module-name', 'DebugBridgeCore', coreSource,
       '-emit-module-path', coreModule,
       '-o', coreLibrary,
-    ], { encoding: 'utf8' });
+    ], { encoding: 'utf8', timeout: 120_000 });
     if (emitCore.status !== 0) throw new Error(`failed to build runtime stub:\n${emitCore.stderr}`);
 
     const appSource = join(workDir, 'OptionalRoundTrip.swift');
@@ -915,10 +916,11 @@ struct Runner {
     const compile = spawnSync('swiftc', [
       '-D', 'DEBUG', '-I', workDir, '-L', workDir, '-lDebugBridgeCore',
       '-parse-as-library', appSource, '-o', executable,
-    ], { encoding: 'utf8' });
+    ], { encoding: 'utf8', timeout: 120_000 });
     if (compile.status !== 0) throw new Error(`generated Optional accessor failed compilation:\n${compile.stderr}`);
     const run = spawnSync(executable, [], {
       encoding: 'utf8',
+      timeout: 30_000,
       env: { ...process.env, DYLD_LIBRARY_PATH: workDir },
     });
     if (run.status !== 0) throw new Error(`generated Optional accessor failed at runtime:\n${run.stderr}`);
@@ -928,7 +930,7 @@ struct Runner {
 describe('SwiftSyntax generator parity', () => {
   test('isolates canonical markers and rejects inaccessible fields', () => {
     if (process.platform !== 'darwin') return;
-    if (spawnSync('swift', ['--version'], { encoding: 'utf8' }).status !== 0) return;
+    if (spawnSync('swift', ['--version'], { encoding: 'utf8', timeout: 30_000 }).status !== 0) return;
 
     const packageDir = join(import.meta.dir, 'gen-accessors-tool');
     const inputDir = join(workDir, 'swift-syntax-input');

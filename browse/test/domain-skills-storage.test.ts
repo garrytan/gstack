@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 const TMP_HOME = path.join(os.tmpdir(), `gstack-test-${process.pid}-${Date.now()}`);
-process.env.GSTACK_HOME = TMP_HOME;
+
+// Scoped to this file's execution window — module-scope env assignment
+// leaks into sibling files in the shard process (see
+// test/gstack-home-module-scope.test.ts). freshImport() below runs inside
+// tests, so the beforeAll value is what ../src/domain-skills reads.
+const ORIGINAL_GSTACK_HOME = process.env.GSTACK_HOME;
+beforeAll(() => {
+  process.env.GSTACK_HOME = TMP_HOME;
+});
+afterAll(() => {
+  if (ORIGINAL_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIGINAL_GSTACK_HOME;
+});
 
 // Re-import after env var set so module reads updated GSTACK_HOME
 async function freshImport() {

@@ -11,20 +11,18 @@ let gstackHome: string;
 let repoDir: string;
 
 import { gitIn, findFilesBySuffix } from './helpers/scratch-repo';
+import { runBin } from './helpers/run-bin';
 
 function git(args: string) {
   gitIn(repoDir, args);
 }
 
 function run(args: string[], opts: { cwd?: string } = {}): { status: number; stdout: string; stderr: string } {
-  const r = spawnSync(EVIDENCE, args, {
+  return runBin(EVIDENCE, args, {
     cwd: opts.cwd ?? repoDir,
-    env: { ...process.env, GSTACK_HOME: gstackHome },
-    encoding: 'utf-8',
-    timeout: 60000,
+    env: { GSTACK_HOME: gstackHome },
     maxBuffer: 16 * 1024 * 1024, // the truncation test streams 3MB through the wrapper
   });
-  return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
 function ledgerFile(): string {

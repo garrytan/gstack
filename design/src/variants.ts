@@ -32,7 +32,7 @@ const STYLE_VARIATIONS = [
   "Use a calmer, more minimal style with generous whitespace and subtle colors.",
   "Use a warmer, more approachable style with rounded corners and friendly typography.",
   "Use a more professional, corporate style with sharp edges and structured grid layout.",
-  "Use a dark theme with light text and accent colors for key interactive elements.",
+  "Commit to one saturated hue across large surfaces (drenched color) with restrained decoration and texture from the product's material world.",
   "Use a playful, modern style with asymmetric layout and unexpected color accents.",
 ];
 

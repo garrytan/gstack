@@ -4,6 +4,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { canRevokeWrites } from './helpers/fs-caps';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -56,6 +57,7 @@ describe('atomicWriteSync', () => {
     // name. Bun's fs exports are readonly (no monkeypatching), so capture
     // the generated tmp names from the failure path: a read-only directory
     // makes writeFileSync throw ENOENT/EACCES with the tmp path attached.
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const roDir = path.join(dir, 'ro');
     fs.mkdirSync(roDir);
     const target = path.join(roDir, 'contended.json');

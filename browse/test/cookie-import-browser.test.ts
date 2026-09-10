@@ -31,8 +31,12 @@ const LINUX_V11_KEY = crypto.pbkdf2Sync(LINUX_V11_PASSWORD, 'saltysalt', 1, 16, 
 const IV = Buffer.alloc(16, 0x20);
 const CHROMIUM_EPOCH_OFFSET = 11644473600000000n;
 
-// Fixture DB path
-const FIXTURE_DIR = path.join(import.meta.dir, 'fixtures');
+// Fixture DB path — a per-run temp dir, NEVER the tracked browse/test/fixtures/:
+// these DBs are built in beforeAll and deleted in afterAll, so writing them
+// into the source tree makes them flash as `??` in git status mid-run, which
+// races any concurrent shard's tree-isolation porcelain snapshot (observed:
+// gen-skill-docs-out-dir's before/after porcelain pin on Windows CI).
+const FIXTURE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-cookie-fixtures-'));
 const FIXTURE_DB = path.join(FIXTURE_DIR, 'test-cookies.db');
 const LINUX_FIXTURE_DB = path.join(FIXTURE_DIR, 'test-cookies-linux.db');
 

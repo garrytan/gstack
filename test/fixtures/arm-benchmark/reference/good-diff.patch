@@ -1,0 +1,29 @@
+diff --git a/index.html b/index.html
+--- a/index.html
++++ b/index.html
+@@ -11,6 +11,7 @@
+     <form id="booking-form">
+       <label>Name <input type="text" name="name" required></label>
+       <label>Email <input type="email" name="email" required></label>
++      <label>Date <input type="date" name="date" required></label>
+       <button type="submit">Book</button>
+     </form>
+     <p id="confirmation" hidden></p>
+diff --git a/app.js b/app.js
+--- a/app.js
++++ b/app.js
+@@ -1,9 +1,13 @@
+ const form = document.getElementById('booking-form');
+ const confirmation = document.getElementById('confirmation');
++const dateInput = form.querySelector('input[name="date"]');
++
++// Native date input + min attribute: the platform rejects past dates for us.
++dateInput.min = new Date().toISOString().slice(0, 10);
+
+ form.addEventListener('submit', (event) => {
+   event.preventDefault();
+   const data = new FormData(form);
+-  confirmation.textContent = `Booked for ${data.get('name')}. Confirmation sent to ${data.get('email')}.`;
++  confirmation.textContent = `Booked for ${data.get('name')} on ${data.get('date')}. Confirmation sent to ${data.get('email')}.`;
+   confirmation.hidden = false;
+ });

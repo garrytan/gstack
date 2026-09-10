@@ -783,9 +783,9 @@ describe('launchClaudePty model pin (static tripwire)', () => {
 
   test('spawn args push --model from the EVALS_MODEL fallback chain', () => {
     expect(src).toContain("args.push('--model', model)");
-    // opts.model -> EVALS_MODEL -> 'claude-sonnet-4-6' (mirrors session-runner.ts:144)
+    // opts.model -> EVALS_MODEL -> resolveEvalModel('capture') (mirrors session-runner.ts)
     expect(src).toMatch(
-      /opts\.model\s*\?\?\s*process\.env\.EVALS_MODEL\s*\?\?\s*'claude-sonnet-4-6'/,
+      /opts\.model\s*\?\?\s*process\.env\.EVALS_MODEL\s*\?\?\s*resolveEvalModel\('capture'\)/,
     );
   });
 

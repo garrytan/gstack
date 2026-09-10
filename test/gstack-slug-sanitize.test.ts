@@ -26,6 +26,7 @@ function runSlug(cwd: string, home: string) {
   return spawnSync([SLUG_BIN], {
     cwd,
     env: { ...process.env, HOME: home },
+    timeout: 30_000,
   });
 }
 
@@ -77,6 +78,7 @@ describe('slug cache hygiene', () => {
       const r = spawnSync(['bash', SLUG_BIN], {
         cwd: os.tmpdir(),
         env: { ...process.env, GSTACK_HOME: home, GSTACK_PROJECT_SLUG: 'override-slug' },
+        timeout: 30_000,
       });
       expect(r.stdout.toString()).toContain('SLUG=override-slug');
       expect(fs.existsSync(path.join(home, 'slug-cache'))).toBe(false);
@@ -95,6 +97,7 @@ describe('slug cache hygiene', () => {
       const r = spawnSync(['bash', SLUG_BIN], {
         cwd: os.tmpdir(),
         env: { ...ambient, GSTACK_HOME: home },
+        timeout: 30_000,
       });
       expect(r.exitCode).toBe(0);
       const entries = fs.readdirSync(path.join(home, 'slug-cache'));

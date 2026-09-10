@@ -21,7 +21,7 @@
  *     down to uselessness.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -66,10 +66,23 @@ beforeAll(() => {
     extractFn('_link_or_copy'),
     extractFn('_print_windows_copy_note_once'),
     extractFn('_link_skill_runtime_assets'),
+    extractFn('_gstack_link_target_abs'),
+    extractFn('_gstack_target_is_ours'),
+    extractFn('_gstack_generated_header'),
+    extractFn('_claude_entry_owned_strongly'),
+    extractFn('_claude_entry_is_ours'),
+    extractFn('_write_owned_marker'),
+    extractFn('_backup_skill_md'),
+    extractFn('_cleanup_weak_dir'),
+    extractFn('_gstack_dir_only_links'),
+    extractFn('_cleanup_linked_dir'),
+    '_FOREIGN_SKIPPED_ENTRIES=()',
+    '_BACKED_UP_SKILL_MDS=()',
+    `_SKILL_BACKUP_ROOT="${os.tmpdir()}/gstack-harness-backups-${process.pid}"`,
     extractFn('link_claude_skill_dirs'),
     `link_claude_skill_dirs "${ROOT}" "${installDir}"`,
   ].join('\n');
-  const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 60_000 });
+  const result = runBashScript(script, { timeout: 60_000 });
   if (result.status !== 0) {
     throw new Error(`installer functions failed: ${result.stderr}\n${result.stdout}`);
   }
@@ -138,11 +151,14 @@ describe('link_claude_skill_dirs installs every runtime asset (#2317, #2454)', (
     }
   });
 
-  test('hidden files are not installed', () => {
+  test('hidden files are not installed (gstack\'s own provenance marker is the one allowed dotfile)', () => {
     for (const skill of installedSkillDirs()) {
       const hidden = fs
         .readdirSync(path.join(installDir, skill))
-        .filter((e) => e.startsWith('.'));
+        .filter((e) => e.startsWith('.'))
+        // .gstack-owned is written by the linker for directories it creates (#2119),
+        // not copied from the skill source; every other dotfile must stay out.
+        .filter((e) => e !== '.gstack-owned');
       expect(hidden).toEqual([]);
     }
   });
@@ -196,7 +212,7 @@ describe('two-class referenced-paths (ENG-OV7)', () => {
     const missing: string[] = [];
     for (const { fromSkill, skillName, rel } of collectRefs()) {
       if (skillName !== 'gstack') continue; // class 1
-      if (rel.startsWith('.')) continue; // runtime state markers (.feature-prompted-*, .git)
+      if (rel.startsWith('.')) continue; // runtime state (.git; feature markers now live in ~/.gstack — #2728)
       if (BUILT_ARTIFACT_ALLOWLIST.some((a) => rel === a || rel.startsWith(a))) continue;
       if (KNOWN_BROKEN_CLASS2[rel]) continue;
       if (!fs.existsSync(path.join(ROOT, rel))) {

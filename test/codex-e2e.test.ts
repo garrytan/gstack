@@ -14,6 +14,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runCodexSkill, parseCodexJSONL, installSkillToTempHome } from './helpers/codex-session-runner';
 import type { CodexResult } from './helpers/codex-session-runner';
 import { CODEX_REVIEW_E2E_SECTIONS } from './helpers/skill-fixture';
@@ -31,7 +32,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 const CODEX_AVAILABLE = (() => {
   try {
-    const result = Bun.spawnSync(['which', 'codex']);
+    const result = Bun.spawnSync(['which', 'codex'], { timeout: 30_000 });
     return result.exitCode === 0;
   } catch { return false; }
 })();
@@ -62,11 +63,18 @@ if (!evalsEnabled) {
 
 // --- Diff-based test selection ---
 
-// Codex E2E touchfiles — keyed by test name, same pattern as E2E_TOUCHFILES
-const CODEX_E2E_TOUCHFILES: Record<string, string[]> = {
-  'codex-discover-skill':    ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
-  'codex-review-findings':   ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
-};
+// Codex E2E touchfiles — DERIVED from the canonical map, never a local fork.
+// The old hand-copy drifted (it kept gitignored '.agents/skills/**' patterns
+// that can never match a git diff, and missed deps the canonical map gained
+// like lib/worktree.ts and this test file itself), so review-template edits
+// silently stopped selecting these tests. Deriving keeps one source of truth
+// and puts these keys under the tier-alignment + dep-existence invariants.
+const CODEX_E2E_TOUCHFILES: Record<string, string[]> = Object.fromEntries(
+  (['codex-discover-skill', 'codex-review-findings'] as const).map((key) => {
+    if (!E2E_TOUCHFILES[key]) throw new Error(`canonical E2E_TOUCHFILES lost key '${key}' — fix the map, not this file`);
+    return [key, E2E_TOUCHFILES[key]];
+  }),
+);
 
 let selectedTests: string[] | null = null; // null = run all
 
@@ -150,7 +158,7 @@ describeCodex('Codex E2E', () => {
     const result = await runCodexSkill({
       skillDir,
       prompt: 'List any skills or instructions you have available. Just list the names.',
-      timeoutMs: 60_000,
+      timeoutMs: JUDGE_MS,
       cwd: testWorktree,
       skillName: 'gstack-review',
     });
@@ -171,7 +179,7 @@ describeCodex('Codex E2E', () => {
     expect(
       outputLower.includes('review') || outputLower.includes('gstack') || outputLower.includes('skill'),
     ).toBe(true);
-  }, 120_000);
+  }, JUDGE_MS);
 
   // Validates that Codex can invoke the gstack-review skill, run a diff-based
   // code review, and produce structured review output with findings/issues.
@@ -186,7 +194,7 @@ describeCodex('Codex E2E', () => {
     const result = await runCodexSkill({
       skillDir,
       prompt: 'Run the gstack-review skill on this repository. Review the current branch diff and report your findings.',
-      timeoutMs: 540_000,
+      timeoutMs: CAPTURE_LONG_MS,
       cwd: testWorktree,
       skillName: 'gstack-review',
       sections: CODEX_REVIEW_E2E_SECTIONS,
@@ -224,5 +232,5 @@ describeCodex('Codex E2E', () => {
       outputLower.includes('p1') ||
       outputLower.includes('p2');
     expect(hasReviewContent).toBe(true);
-  }, 600_000);
+  }, CAPTURE_LONG_MS);
 });

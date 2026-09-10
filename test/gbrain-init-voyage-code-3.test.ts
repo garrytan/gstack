@@ -83,7 +83,7 @@ exit 0
 
 /**
  * Verbatim reimplementation of the skill template's voyage-code-3
- * conditional. The template (setup-gbrain/SKILL.md.tmpl Path 3, Step 1.5
+ * conditional. The template (setup-gbrain/sections/brain-init.md.tmpl Path 3, Step 1.5
  * inside the rollback wrapper, Step 4.5 Path 4 Yes branch) instructs the
  * model to execute this bash; we execute the same bash here and assert the
  * argv passed to gbrain matches the contract.
@@ -121,6 +121,7 @@ gbrain init --pglite --json "$@"
   const result = spawnSync(shell, ["-c", script], {
     encoding: "utf-8",
     env: baseEnv,
+    timeout: 30_000,
   });
   if (result.status !== 0) {
     throw new Error(`init script exited ${result.status}: ${result.stderr}`);
@@ -133,7 +134,7 @@ function lastArgc(env: FakeEnv): number {
   return parseInt(lines[lines.length - 1], 10);
 }
 
-const HAVE_ZSH = spawnSync("zsh", ["-c", "true"]).status === 0;
+const HAVE_ZSH = spawnSync("zsh", ["-c", "true"], { timeout: 30_000 }).status === 0;
 
 describe("voyage-code-3 default for gstack-driven PGLite init", () => {
   it("passes voyage-code-3 flags when VOYAGE_API_KEY is set", () => {
@@ -193,6 +194,7 @@ gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
       const result = spawnSync("zsh", ["-c", brokenShape], {
         encoding: "utf-8",
         env: { ...process.env, HOME: env.home, PATH: `${env.bindir}:/usr/bin:/bin` },
+        timeout: 30_000,
       });
       expect(result.status).toBe(0);
       expect(lastArgc(env)).toBe(4); // init, --pglite, --json, "<entire flag string>"
@@ -202,8 +204,17 @@ gbrain init --pglite --json $GBRAIN_EMBED_FLAGS
   });
 
   it("template uses the positional-params shape, not an unquoted flags var", () => {
+    // Carved (token-reduction Phase 4): count across the tmpl UNION — one
+    // PGLite init site stays in the skeleton, the Path-3/4 sites live in the
+    // brain-init section.
     const tmpl = readFileSync(
       join(import.meta.dir, "..", "setup-gbrain", "SKILL.md.tmpl"),
+      "utf-8",
+    ) + readFileSync(
+      join(import.meta.dir, "..", "setup-gbrain", "sections", "brain-init.md.tmpl"),
+      "utf-8",
+    ) + readFileSync(
+      join(import.meta.dir, "..", "setup-gbrain", "sections", "engine-remediation.md.tmpl"),
       "utf-8",
     );
     expect(tmpl).not.toContain("$GBRAIN_EMBED_FLAGS");
@@ -229,8 +240,10 @@ describe("template alignment: the .tmpl actually contains the voyage gate", () =
   // Belt-and-suspenders: if someone edits the template and drops the
   // VOYAGE_API_KEY conditional without updating the test above, this catches
   // it. The shell snippet under test must literally appear in the .tmpl.
-  const TEMPLATE_PATH = join(import.meta.dir, "..", "setup-gbrain", "SKILL.md.tmpl");
-  const tmpl = readFileSync(TEMPLATE_PATH, "utf-8");
+  // Carved union — see comment above.
+  const tmpl = readFileSync(join(import.meta.dir, "..", "setup-gbrain", "SKILL.md.tmpl"), "utf-8")
+    + readFileSync(join(import.meta.dir, "..", "setup-gbrain", "sections", "brain-init.md.tmpl"), "utf-8")
+    + readFileSync(join(import.meta.dir, "..", "setup-gbrain", "sections", "engine-remediation.md.tmpl"), "utf-8");
 
   it("setup-gbrain template gates the embedding-model flag on VOYAGE_API_KEY", () => {
     // Should appear at least once (currently 3 init sites use the same gate).

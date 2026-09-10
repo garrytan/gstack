@@ -81,6 +81,7 @@ const SCAN_PATHS = [
   'bin/',
   'scripts/',
   'setup-gbrain/SKILL.md.tmpl',
+  'setup-gbrain/sections',
   'sync-gbrain/SKILL.md.tmpl',
   'health/SKILL.md.tmpl',
   'plan-eng-review/SKILL.md.tmpl',
@@ -98,7 +99,7 @@ const SCAN_PATHS = [
 
 function grepRefs(pattern: string): string[] {
   const args = ['-rn', '--', pattern, ...SCAN_PATHS.map((p) => path.join(ROOT, p))];
-  const r = spawnSync('grep', args, { encoding: 'utf-8' });
+  const r = spawnSync('grep', args, { encoding: 'utf-8', timeout: 30_000 });
   // grep exits 1 when no matches — that's fine for our purposes.
   const lines = (r.stdout || '').split('\n').filter((l) => l.trim().length > 0);
   return lines

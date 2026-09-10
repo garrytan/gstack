@@ -93,6 +93,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# ─── Timeline Stop hook ──────────────────────────────────────────────
+# timeline_stop_hook: yes   # Controls whether ./setup registers the timeline
+#                           #   Stop hook (closes dangling session entries).
+#                           #   yes — register on every setup (default)
+#                           #   no  — never register; setup also removes a
+#                           #         live registration (persistent opt-out;
+#                           #         --no-team stays a one-shot teardown, #2677)
+#
 # ─── Plan-tune hooks ─────────────────────────────────────────────────
 # plan_tune_hooks: prompt   # Controls whether ./setup installs the plan-tune
 #                           #   Claude Code hooks (PostToolUse capture +
@@ -102,6 +110,18 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   no     — skip non-interactively
 #                           # Override per-run: ./setup --plan-tune-hooks /
 #                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
+#
+# ─── Memorable recall bridge (opt-in, third party) ──────────────────
+# memorable_recall: off     # The gstack-side consent gate for the Memorable
+#                           #   UserPromptSubmit bridge (bin/gstack-memorable).
+#                           #   off — the hook does nothing, spawns nothing (default)
+#                           #   on  — the hook hands each prompt to the local
+#                           #         `memorable` CLI, receipted as memorable-recall
+#                           # Written by `gstack-memorable enable|disable`. An
+#                           # invalid value is REJECTED and the stored value kept:
+#                           # a typo must never flip a third-party consent.
+#                           # The vendor capture consent (`memorable enable`)
+#                           # is separate; gstack never sets it.
 #
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
@@ -114,6 +134,17 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   /document-release skip the outside-voice step entirely.
 #                           #   An invalid value is REJECTED (existing value preserved) so
 #                           #   a typo cannot silently turn paid Codex calls on or off.
+# design_detector_install_prompted: false
+#                           #   true once you answered the one-time offer from the
+#                           #   design skills to download the impeccable engine with
+#                           #   "never ask again"; flip back to false to be asked again.
+# design_detector: auto     # Deterministic design pre-pass through a user-installed
+#                           #   impeccable engine (/design-review, /review, /ship,
+#                           #   /design-html). auto = use the engine when the probe
+#                           #   finds one (gstack never installs or downloads it);
+#                           #   off = no probe, no scan, no hint, no /impeccable
+#                           #   handoff lines. An invalid value is REJECTED (existing
+#                           #   value preserved) so a typo cannot silently disable it.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -141,6 +172,8 @@ lookup_default() {
     checkpoint_push) echo "false" ;;
     explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
+    design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
+    design_detector_install_prompted) echo "false" ;; # true once the user answered the one-time engine install offer with "never ask again"
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
@@ -148,10 +181,12 @@ lookup_default() {
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
+    timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
     pair_agent) echo "off" ;; # remote tunnel consent — fail-closed until /pair-agent asks
+    memorable_recall) echo "off" ;; # on | off — Memorable bridge gate, fail-closed until `gstack-memorable enable`
     founder_resources) echo "true" ;; # office-hours resource pitch — #538 permanent opt-out sets false
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
     #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
@@ -193,8 +228,16 @@ lookup_default() {
 # ──────────────────────────────────────────────────────────────────────
 
 # Compute sha8 of a string. Used for endpoint hashing.
+# shasum is macOS/perl; most Linux distros ship only coreutils sha256sum —
+# resolve whichever exists (same fallback chain as the codex-probe timeout
+# wrapper). Without this, any Linux user with a git email hit exit 127 in
+# resolve-user-slug's Layer-3 fallback.
 sha8_of() {
-  printf '%s' "$1" | shasum -a 256 | cut -c1-8
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | cut -c1-8
+  else
+    printf '%s' "$1" | shasum -a 256 | cut -c1-8
+  fi
 }
 
 # Detect the active brain endpoint hash. Reads ~/.claude.json for the gbrain
@@ -228,7 +271,11 @@ endpoint_hash_with_collision_check() {
   _claude_json="$HOME/.claude.json"
   if [ -n "$_matching" ] && [ -f "$_claude_json" ] && command -v jq >/dev/null 2>&1; then
     _url=$(jq -r '.mcpServers.gbrain.url // .mcpServers.gbrain.transport.url // empty' "$_claude_json" 2>/dev/null)
-    _sha16=$(printf '%s' "$_url" | shasum -a 256 | cut -c1-16)
+    if command -v sha256sum >/dev/null 2>&1; then
+      _sha16=$(printf '%s' "$_url" | sha256sum | cut -c1-16)
+    else
+      _sha16=$(printf '%s' "$_url" | shasum -a 256 | cut -c1-16)
+    fi
     # Look for any sha16-namespaced key that conflicts. If a stored sha16 exists
     # and differs from current sha16, that's the collision evidence; emit sha16.
     _stored16=$(grep -E "^(brain_trust_policy|user_slug_at)@${_sha16}" "$CONFIG_FILE" 2>/dev/null | head -1 || true)
@@ -384,11 +431,43 @@ case "${1:-}" in
       echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
       VALUE="prompt"
     fi
+    if [ "$KEY" = "timeline_stop_hook" ] && [ "$VALUE" != "yes" ] && [ "$VALUE" != "no" ]; then
+      echo "Warning: timeline_stop_hook '$VALUE' not recognized. Valid values: yes, no. Using yes." >&2
+      VALUE="yes"
+    fi
     # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
     # an invalid value is REJECTED and the existing setting is left unchanged — a typo
     # must never silently flip the switch and turn paid Codex calls on or off.
     if [ "$KEY" = "codex_reviews" ] && [ "$VALUE" != "enabled" ] && [ "$VALUE" != "disabled" ]; then
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # design_detector_install_prompted records "never ask again" for the one-time
+    # engine install offer. Rejecting a typo keeps the offer from silently coming
+    # back (or never coming back) because of a mistyped value.
+    if [ "$KEY" = "design_detector_install_prompted" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+      echo "Error: design_detector_install_prompted '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # design_detector gates a third-party binary the user installed. Reject a typo
+    # rather than coerce it: "of" must not silently re-enable or disable the scan.
+    if [ "$KEY" = "design_detector" ] && [ "$VALUE" != "auto" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: design_detector '$VALUE' not recognized. Valid values: auto, off. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # cross_project_learnings: empty get is the first-run prompt sentinel.
+    # Skills enable only on the literal "true". A typo must not persist — that
+    # keeps the feature off and suppresses the prompt. Reject, like
+    # codex_reviews; do not coerce (a stored default still kills the sentinel).
+    if [ "$KEY" = "cross_project_learnings" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+      echo "Error: cross_project_learnings '$VALUE' not recognized. Valid values: true, false. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # memorable_recall is a CONSENT key: `on` lets a Claude Code hook hand every
+    # prompt to a third-party binary. Reject like codex_reviews -- a typo must
+    # never flip consent in either direction, so nothing is coerced or stored.
+    if [ "$KEY" = "memorable_recall" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: memorable_recall '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
       exit 1
     fi
     mkdir -p "$STATE_DIR"
@@ -421,7 +500,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
       VALUE=$(read_config_value "$KEY" || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -437,7 +517,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
@@ -522,7 +603,7 @@ case "${1:-}" in
           # leaves the previous render fully intact.
           RENDER_TMP="$RENDER_DIR.tmp.$$"
           rm -rf "$RENDER_TMP"
-          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" >/dev/null 2>&1 ); then
+          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" >/dev/null 2>&1 ); then
             _swap_in_render "$RENDER_DIR" "$RENDER_TMP"
             # Repoint installed skills at the render — gstack-relink prefers
             # the render dir when present.

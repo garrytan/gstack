@@ -17,6 +17,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillObservation, planFileHasDecisionsSection } from './helpers/claude-pty-runner';
 
@@ -30,7 +31,7 @@ describeE2E('office-hours AskUserQuestion-blocked smoke (gate)', () => {
       skillName: 'office-hours',
       inPlanMode: true,
       extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (
@@ -55,5 +56,5 @@ describeE2E('office-hours AskUserQuestion-blocked smoke (gate)', () => {
       }
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });

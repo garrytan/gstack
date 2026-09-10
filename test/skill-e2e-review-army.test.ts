@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId, describeIfSelected, testConcurrentIfSelected,
@@ -27,10 +28,35 @@ function setupRepo(prefix: string): { dir: string; run: (cmd: string, args: stri
 // EXTRACTED (CLAUDE.md: "E2E test fixtures: extract, don't copy") — core
 // review workflow + Step 1.5 (Plan Completion Audit) + Step 4.5 (Review Army
 // dispatch: quality score, JSON schema, consensus, Red Team).
+//
+// /review is carved (T9): the Step 4.5 dispatch body lives in
+// review/sections/review-army.md and the Plan Completion Audit in
+// review/sections/plan-completion.md — the skeleton keeps only STOP-Read
+// pointers, so the '## Step 4.5' H2 no longer exists in review/SKILL.md.
+// Extract the skeleton H2s minus Step 4.5, then append both section files
+// (still an extraction: sections ARE the minimal on-demand units).
+const REVIEW_ARMY_SKELETON_SECTIONS = REVIEW_ARMY_E2E_SECTIONS.filter(
+  (s) => !s.startsWith('Step 4.5'),
+);
+
+function readReviewSection(file: string): string {
+  const p = path.join(ROOT, 'review', 'sections', file);
+  const content = fs.readFileSync(p, 'utf-8');
+  // Failure polarity: a fixture is never silently staged empty (regen missing).
+  if (content.trim().length < 500) {
+    throw new Error(`review section ${file} is unexpectedly small — was gen-skill-docs run after the carve?`);
+  }
+  return content;
+}
+
 function copyReviewFiles(dir: string) {
   fs.writeFileSync(
     path.join(dir, 'review-SKILL.md'),
-    extractSkillSections(path.join(ROOT, 'review'), REVIEW_ARMY_E2E_SECTIONS),
+    [
+      extractSkillSections(path.join(ROOT, 'review'), REVIEW_ARMY_SKELETON_SECTIONS),
+      readReviewSection('plan-completion.md'),
+      readReviewSection('review-army.md'),
+    ].join('\n'),
   );
   fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(dir, 'review-checklist.md'));
   fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(dir, 'review-greptile-triage.md'));
@@ -89,7 +115,7 @@ and apply it yourself against the diff (git diff main...HEAD).
 Write your findings to ${dir}/review-output.md`,
       workingDirectory: dir,
       maxTurns: 20,
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'review-army-migration-safety',
       runId,
     });
@@ -110,7 +136,7 @@ Write your findings to ${dir}/review-output.md`,
         content.includes('column');
       expect(hasMigrationFinding).toBe(true);
     }
-  }, 210_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review Army: N+1 Performance ---
@@ -154,7 +180,7 @@ For the specialist dispatch, read review-specialists/performance.md and apply it
 Write your findings to ${dir}/review-output.md`,
       workingDirectory: dir,
       maxTurns: 20,
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'review-army-perf-n-plus-one',
       runId,
     });
@@ -176,7 +202,7 @@ Write your findings to ${dir}/review-output.md`,
         content.includes('loop');
       expect(hasN1Finding).toBe(true);
     }
-  }, 210_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review Army: Delivery Audit ---
@@ -256,7 +282,7 @@ The email notification system should be classified as NOT DONE.
 Write your completion audit to ${dir}/review-output.md`,
       workingDirectory: dir,
       maxTurns: 15,
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'review-army-delivery-audit',
       runId,
     });
@@ -280,7 +306,7 @@ Write your completion audit to ${dir}/review-output.md`,
       expect(hasNotDone).toBe(true);
       expect(mentionsEmail).toBe(true);
     }
-  }, 150_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review Army: Quality Score ---
@@ -331,7 +357,7 @@ Write your findings AND the computed quality score to ${dir}/review-output.md
 Include the line: "PR Quality Score: X/10" where X is the computed score.`,
       workingDirectory: dir,
       maxTurns: 15,
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'review-army-quality-score',
       runId,
     });
@@ -349,7 +375,7 @@ Include the line: "PR Quality Score: X/10" where X is the computed score.`,
         content.match(/\d+\/10/);
       expect(hasScore).toBeTruthy();
     }
-  }, 150_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review Army: JSON Findings ---
@@ -396,7 +422,7 @@ Output your findings as JSON objects, one per line, following the schema:
 Write ONLY JSON findings (no preamble) to ${dir}/findings.json`,
       workingDirectory: dir,
       maxTurns: 12,
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'review-army-json-findings',
       runId,
     });
@@ -425,7 +451,7 @@ Write ONLY JSON findings (no preamble) to ${dir}/findings.json`,
         break; // One valid line is enough for the gate test
       }
     }
-  }, 120_000);
+  }, JUDGE_MS);
 });
 
 // --- Review Army: Red Team (periodic) ---
@@ -474,7 +500,7 @@ Write your red team findings to ${dir}/review-output.md
 Start the file with "RED TEAM REVIEW" on the first line.`,
       workingDirectory: dir,
       maxTurns: 20,
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'review-army-red-team',
       runId,
     });
@@ -488,7 +514,7 @@ Start the file with "RED TEAM REVIEW" on the first line.`,
       const content = fs.readFileSync(outputPath, 'utf-8');
       expect(content.toLowerCase()).toMatch(/red team|adversarial/);
     }
-  }, 210_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review Army: Consensus (periodic) ---
@@ -541,7 +567,7 @@ mark it as "MULTI-SPECIALIST CONFIRMED" with the confirming categories.
 Write findings to ${dir}/review-output.md`,
       workingDirectory: dir,
       maxTurns: 20,
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'review-army-consensus',
       runId,
     });
@@ -560,7 +586,132 @@ Write findings to ${dir}/review-output.md`,
         content.includes('interpolat');
       expect(hasSqlFinding).toBe(true);
     }
+  }, CAPTURE_MS);
+});
+
+// --- Review Army: Simplification specialist (activation) ---
+
+describeIfSelected('Review Army: Simplification activation', ['review-army-simplification'], () => {
+  let dir: string;
+
+  beforeAll(() => {
+    const repo = setupRepo('army-simplification');
+    dir = repo.dir;
+
+    fs.writeFileSync(path.join(dir, 'app.js'), '// base\n');
+    repo.run('git', ['add', '.']);
+    repo.run('git', ['commit', '-m', 'initial']);
+
+    repo.run('git', ['checkout', '-b', 'feature/date-utils']);
+    const overbuild = fs.readFileSync(
+      path.join(ROOT, 'test', 'fixtures', 'review-army-overbuild.js'), 'utf-8'
+    );
+    fs.writeFileSync(path.join(dir, 'date_utils.js'), overbuild);
+    repo.run('git', ['add', '.']);
+    repo.run('git', ['commit', '-m', 'add date utils']);
+
+    copyReviewFiles(dir);
+  });
+
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
+
+  testConcurrentIfSelected('review-army-simplification', async () => {
+    const result = await runSkillTest({
+      prompt: `You are in a git repo on a feature branch that adds a JS utility file.
+Read review-SKILL.md for instructions. Also read review-checklist.md.
+The specialist checklists are in review-specialists/ (testing.md, simplification.md, etc.).
+
+Skip the preamble, lake intro, telemetry sections.
+Run Step 4.5 (Review Army) only.
+The base branch is main. The diff is over 100 lines, so the Simplification specialist should activate.
+
+For the specialist dispatch, read review-specialists/simplification.md and apply it against the diff.
+
+Write your findings to ${dir}/review-output.md`,
+      workingDirectory: dir,
+      maxTurns: 20,
+      timeout: 180_000,
+      testName: 'review-army-simplification',
+      runId,
+    });
+
+    logCost('/review army simplification', result);
+    recordE2E(evalCollector, '/review army simplification detection', 'Review Army', result);
+    expect(result.exitReason).toBe('success');
+
+    const outputPath = path.join(dir, 'review-output.md');
+    expect(fs.existsSync(outputPath)).toBe(true);
+    const content = fs.readFileSync(outputPath, 'utf-8').toLowerCase();
+    // At least one planted invitation caught, expressed through the closed
+    // tag vocabulary or its obvious phrasing.
+    const hasStructureFinding =
+      content.includes('native') ||
+      content.includes('stdlib') ||
+      content.includes('speculative') ||
+      content.includes('intl') ||
+      content.includes('one implementation') ||
+      content.includes('single implementation');
+    expect(hasStructureFinding).toBe(true);
+    // Advisory findings must not read as defects: the disavowed frame stays out.
+    expect(content).not.toContain('lean already. ship.');
   }, 210_000);
+});
+
+// --- Review Army: Simplification specialist (false-flag precision) ---
+
+describeIfSelected('Review Army: Simplification precision', ['review-army-simplification-precision'], () => {
+  let dir: string;
+
+  beforeAll(() => {
+    const repo = setupRepo('army-simplification-lean');
+    dir = repo.dir;
+
+    fs.writeFileSync(path.join(dir, 'app.js'), '// base\n');
+    repo.run('git', ['add', '.']);
+    repo.run('git', ['commit', '-m', 'initial']);
+
+    repo.run('git', ['checkout', '-b', 'feature/parse-port']);
+    const lean = fs.readFileSync(
+      path.join(ROOT, 'test', 'fixtures', 'review-army-lean-complete.js'), 'utf-8'
+    );
+    fs.writeFileSync(path.join(dir, 'parse_port.js'), lean);
+    repo.run('git', ['add', '.']);
+    repo.run('git', ['commit', '-m', 'add parsePort with self-check']);
+
+    copyReviewFiles(dir);
+  });
+
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
+
+  testConcurrentIfSelected('review-army-simplification-precision', async () => {
+    const result = await runSkillTest({
+      prompt: `You are in a git repo on a feature branch that adds one small, complete utility (validation + error path + self-check).
+Read review-specialists/simplification.md and apply it against the diff of the current branch vs main (git diff main).
+
+Write the specialist's raw output to ${dir}/review-output.md — either the finding JSON lines or the exact NO FINDINGS sentinel.`,
+      workingDirectory: dir,
+      maxTurns: 12,
+      timeout: 150_000,
+      testName: 'review-army-simplification-precision',
+      runId,
+    });
+
+    logCost('/review army simplification precision', result);
+    recordE2E(evalCollector, '/review army simplification precision', 'Review Army', result);
+    expect(result.exitReason).toBe('success');
+
+    const outputPath = path.join(dir, 'review-output.md');
+    expect(fs.existsSync(outputPath)).toBe(true);
+    const content = fs.readFileSync(outputPath, 'utf-8');
+    // Precision: a lean, complete diff yields no simplification findings.
+    // The specialist must not flag the error path or the self-check for
+    // deletion — that is the noise failure mode this case pins.
+    const flaggedTestOrErrorPath =
+      /"category"\s*:\s*"(delete|shrink|stdlib|native|speculative)"/i.test(content) &&
+      /(testparseport|self-check|assert|throw)/i.test(content);
+    expect(flaggedTestOrErrorPath).toBe(false);
+    expect(content.toUpperCase()).toContain('NO FINDINGS');
+  }, 180_000);
 });
 
 // Finalize eval collector

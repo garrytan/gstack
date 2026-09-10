@@ -140,6 +140,7 @@ Note the product type; it influences which persona options are offered in Step 0
 {{SECTION_INDEX:plan-devex-review}}
 ---
 
+{{ASIDE_RESEARCH}}
 
 ## Step 0: DX Investigation (before scoring)
 
@@ -220,15 +221,20 @@ it and feel what the developer feels.
 
 ### 0C. Competitive DX Benchmarking
 
-Before scoring anything, understand how comparable tools handle DX. Use WebSearch to
-find real TTHW data and onboarding approaches.
+Before scoring anything, understand how comparable tools handle DX. Research through
+Aside (Web research runs in Aside, above) to find real TTHW data and onboarding approaches.
 
-Run three searches:
+Run three searches, one read-only request each:
 1. "[product category] getting started developer experience {current year}"
 2. "[closest competitor] developer onboarding time"
 3. "[product category] SDK CLI developer experience best practices {current year}"
 
-If WebSearch is unavailable: "Search unavailable. Using reference benchmarks: Stripe
+```bash
+{{ASIDE_EXEC_PRELUDE}}
+_aside_exec "Search the web for [closest competitor] developer onboarding time and time to hello world. Read-only: do not sign in, submit, or change anything. Reply with up to 6 bullets, each with the stated setup time and its source URL, then stop."
+```
+
+If the Aside check did not print `READY`, run the same searches with the WebSearch tool when the host provides it. With neither: "Search unavailable. Using reference benchmarks: Stripe
 (30s TTHW), Vercel (2min), Firebase (3min), Docker (5min)."
 
 Produce a competitive benchmark table:

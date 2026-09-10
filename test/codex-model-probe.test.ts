@@ -2,9 +2,9 @@
  * _gstack_codex_model_probe — round-trip model readiness (#2477).
  *
  * The auth probe accepts "auth exists" as readiness, but a ChatGPT account
- * with a stale `model = "..."` pin in ~/.codex/config.toml passes auth and
- * then dies with an HTTP 400 on every invocation. The model probe does one
- * short `codex exec "reply OK"` round trip with the configured model.
+ * with a model it cannot use passes auth and then dies with an HTTP 400 on
+ * every invocation. The model probe does one short `codex exec "reply OK"`
+ * round trip with gstack's selected model.
  *
  * Contract pinned here (all runs use a STUBBED codex binary):
  *   - exit 0            -> MODEL_OK, result cached (1h TTL + config/auth
@@ -29,11 +29,12 @@ const PROBE = path.join(ROOT, 'bin', 'gstack-codex-probe');
 
 const STUB = `#!/usr/bin/env bash
 echo "invoked" >> "$STUB_LOG"
+printf '%s\\n' "$*" >> "$STUB_ARGS_LOG"
 case "\${STUB_MODE:-ok}" in
   ok) echo "OK"; exit 0 ;;
   model400)
-    echo 'warning: Model metadata for \`gpt-5.4\` not found.' >&2
-    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-5.4'"'"' model is not supported when using Codex with a ChatGPT account."}}' >&2
+    echo 'warning: Model metadata for \`gpt-6-astra\` not found.' >&2
+    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6-astra'"'"' model is not supported when using Codex with a ChatGPT account."}}' >&2
     exit 1 ;;
   transient) echo "stream error: network unreachable" >&2; exit 7 ;;
 esac
@@ -45,6 +46,7 @@ interface Fixture {
   codexHome: string;
   gstackHome: string;
   stubLog: string;
+  stubArgsLog: string;
 }
 
 function makeFixture(): Fixture {
@@ -59,10 +61,11 @@ function makeFixture(): Fixture {
   fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt-5.4"\n');
   fs.writeFileSync(path.join(codexHome, 'auth.json'), '{}');
   const stubLog = path.join(home, 'stub.log');
-  return { home, stubDir, codexHome, gstackHome, stubLog };
+  const stubArgsLog = path.join(home, 'stub-args.log');
+  return { home, stubDir, codexHome, gstackHome, stubLog, stubArgsLog };
 }
 
-function runProbe(f: Fixture, stubMode: string): { stdout: string; status: number } {
+function runProbe(f: Fixture, stubMode: string, extraEnv: Record<string, string> = {}): { stdout: string; status: number } {
   const result = spawnSync(
     'bash',
     ['-c', `set +e\nsource "${PROBE}"\n_gstack_codex_model_probe`],
@@ -74,12 +77,23 @@ function runProbe(f: Fixture, stubMode: string): { stdout: string; status: numbe
         GSTACK_HOME: f.gstackHome,
         STUB_MODE: stubMode,
         STUB_LOG: f.stubLog,
+        STUB_ARGS_LOG: f.stubArgsLog,
         _TEL: 'off',
+        ...extraEnv,
       },
       timeout: 10000,
     },
   );
   return { stdout: (result.stdout ?? '').toString(), status: result.status ?? -1 };
+}
+
+function lastArgs(f: Fixture): string {
+  try {
+    const lines = fs.readFileSync(f.stubArgsLog, 'utf-8').trim().split('\n').filter(Boolean);
+    return lines.at(-1) ?? '';
+  } catch {
+    return '';
+  }
 }
 
 function invocations(f: Fixture): number {
@@ -98,6 +112,7 @@ describe('codex model probe (#2477)', () => {
       expect(first.stdout.trim()).toBe('MODEL_OK');
       expect(first.status).toBe(0);
       expect(invocations(f)).toBe(1);
+      expect(lastArgs(f)).toContain('-c model="gpt-6-astra"');
       expect(fs.existsSync(path.join(f.gstackHome, '.codex-model-probe'))).toBe(true);
 
       const second = runProbe(f, 'ok');
@@ -109,15 +124,15 @@ describe('codex model probe (#2477)', () => {
     }
   });
 
-  test('model 400 -> MODEL_UNUSABLE with config.toml hints, exit 1, negative-cached', () => {
+  test('model 400 -> MODEL_UNUSABLE with selected-model hints, exit 1, negative-cached', () => {
     const f = makeFixture();
     try {
       const r = runProbe(f, 'model400');
       expect(r.stdout).toContain('MODEL_UNUSABLE');
-      expect(r.stdout).toContain('config.toml');
-      expect(r.stdout).toContain('model_migrations');
+      expect(r.stdout).toContain('gstack requested model');
+      expect(r.stdout).toContain('GSTACK_CODEX_MODEL');
       // Surfaces the actual rejection so the user sees WHICH model.
-      expect(r.stdout).toContain('gpt-5.4');
+      expect(r.stdout).toContain('gpt-6-astra');
       expect(r.status).toBe(1);
       // The deterministic 400 is config-driven: re-probing every preflight
       // charged the user a 30s round trip + real tokens per review section.
@@ -126,7 +141,7 @@ describe('codex model probe (#2477)', () => {
       expect(invocations(f)).toBe(1);
       const second = runProbe(f, 'model400');
       expect(second.stdout).toContain('MODEL_UNUSABLE (cached)');
-      expect(second.stdout).toContain('config.toml');
+      expect(second.stdout).toContain('GSTACK_CODEX_MODEL');
       expect(second.status).toBe(1);
       expect(invocations(f)).toBe(1);
     } finally {
@@ -134,20 +149,18 @@ describe('codex model probe (#2477)', () => {
     }
   });
 
-  test('config.toml change re-probes past a cached MODEL_UNUSABLE (the recovery path)', () => {
+  test('GSTACK_CODEX_MODEL change re-probes past a cached MODEL_UNUSABLE (the recovery path)', () => {
     const f = makeFixture();
     try {
       runProbe(f, 'model400');
       expect(invocations(f)).toBe(1);
-      // Fixing the model pin changes the mtime signature — the negative cache
-      // must not outlive the config it condemned.
-      fs.writeFileSync(path.join(f.codexHome, 'config.toml'), 'model = "gpt-5.5"\n');
-      const future = Date.now() / 1000 + 10;
-      fs.utimesSync(path.join(f.codexHome, 'config.toml'), future, future);
-      const r = runProbe(f, 'ok');
+      // Fixing the gstack model override changes the cache signature — the
+      // negative cache must not outlive the model it condemned.
+      const r = runProbe(f, 'ok', { GSTACK_CODEX_MODEL: 'gpt-5.6-sol' });
       expect(r.stdout.trim()).toBe('MODEL_OK');
       expect(r.status).toBe(0);
       expect(invocations(f)).toBe(2);
+      expect(lastArgs(f)).toContain('-c model="gpt-5.6-sol"');
     } finally {
       fs.rmSync(f.home, { recursive: true, force: true });
     }

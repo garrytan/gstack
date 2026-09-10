@@ -44,13 +44,13 @@ function detect(files: Record<string, string>): string {
     }
     const script = path.join(dir, '.detect.sh');
     fs.writeFileSync(script, detectionScript());
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir });
+    const git = (...args: string[]) => execFileSync('git', args, { timeout: 30_000, cwd: dir });
     git('init', '-q', '.');
     git('add', '-A');
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
     // The block's last line is a `[ -f marker ] && echo`, so a clean project
     // exits 1 by design — read stdout, don't trust the status.
-    return execFileSync('bash', [script], { cwd: dir, encoding: 'utf-8' });
+    return execFileSync('bash', [script], { timeout: 30_000, cwd: dir, encoding: 'utf-8' });
   } catch (err: unknown) {
     const e = err as { stdout?: string };
     if (typeof e.stdout === 'string') return e.stdout;

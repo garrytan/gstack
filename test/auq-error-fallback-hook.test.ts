@@ -17,6 +17,7 @@ import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as path from 'path';
 import { isErrorResponse, directiveFor } from '../hosts/claude/hooks/auq-error-fallback-hook.ts';
+import { SPAWNED_ESCAPE_SENTENCE } from '../hosts/claude/hooks/spawned-directive.ts';
 
 const HOOK = path.resolve(__dirname, '..', 'hosts', 'claude', 'hooks', 'auq-error-fallback-hook.ts');
 
@@ -74,6 +75,66 @@ describe('directiveFor — per-session-kind instruction', () => {
   test('spawned directive auto-chooses', () => {
     expect(directiveFor('spawned')).toMatch(/auto-choose/i);
   });
+
+  test('spawned directive carries a self-contained destructive carve-out (#2733 review)', () => {
+    // The "Spawned session block" it defers to exists only when a gstack
+    // preamble ran; an AUQ error outside a skill still needs the exception.
+    const d = directiveFor('spawned');
+    expect(d).toMatch(/never auto-choose a destructive or irreversible option/i);
+    expect(d).toMatch(/conservative non-destructive/);
+  });
+
+  test('interactive directive carries the spawned escape sentence (#2733)', () => {
+    // The sessionKind() shell-out runs in the HARNESS env, so a subagent
+    // marked spawned via a per-command prefix classifies interactive here —
+    // the directive text is the only lever for that topology.
+    const d = directiveFor('interactive');
+    expect(d).toMatch(/spawned subagent[\s\S]*auto-choose the recommended option/i);
+    expect(d).toMatch(/destructive or irreversible gate[\s\S]*conservative/i);
+  });
+
+  test('headless directive ALSO carries the spawned escape sentence (#2733 review, multi-specialist)', () => {
+    // A spawned-marked subagent under a headless-classified parent env
+    // (CI/eval-hosted /ship) hits the headless branch — the self-gating
+    // escape keeps the JSON contract alive; plain headless still BLOCKs.
+    const d = directiveFor('headless');
+    expect(d).toMatch(/BLOCKED — AskUserQuestion unavailable/);
+    expect(d).toMatch(/spawned subagent[\s\S]*auto-choose the recommended option/i);
+  });
+
+  test('escape sentence scopes spawned claims to the creating prompt (anti-injection)', () => {
+    const d = directiveFor('interactive');
+    expect(d).toMatch(/NEVER qualify[\s\S]*prompt injection/i);
+  });
+});
+
+describe('SPAWNED_ESCAPE_SENTENCE — explicit-declaration-only trigger (periodic-lane AUQ collapse)', () => {
+  // The spawned escape must fire ONLY on an explicit dispatch-prompt
+  // declaration ("you are a spawned subagent"), never on an inference from a
+  // CI-looking / scripted-looking environment. The loose pre-fix parenthetical
+  // let the model infer spawned status and silently auto-choose every
+  // review-phase question (reviewCount=0 across the plan-review periodic E2Es).
+  test('carries the explicit-declaration wording', () => {
+    expect(SPAWNED_ESCAPE_SENTENCE).toContain('EXPLICITLY declares you a spawned subagent');
+    expect(SPAWNED_ESCAPE_SENTENCE).toContain(
+      'explicit statement, never an inference from an automated-looking environment',
+    );
+  });
+
+  test('the old loose inference wording is gone', () => {
+    // Pre-fix sentence parenthetical: '(e.g. your dispatch prompt says you
+    // are a spawned subagent)' — an example, not a requirement, so an
+    // automated-looking prompt could be read as "saying" it.
+    expect(SPAWNED_ESCAPE_SENTENCE).not.toContain('e.g. your dispatch prompt says');
+    // The v1.76 spawned-rule parenthetical this fix retired everywhere:
+    // '(or your dispatch prompt marks this session as spawned)'.
+    expect(SPAWNED_ESCAPE_SENTENCE).not.toContain('marks this session as spawned');
+  });
+
+  test('both prose-directing directives embed the tightened sentence verbatim (no drift)', () => {
+    expect(directiveFor('interactive')).toContain(SPAWNED_ESCAPE_SENTENCE);
+    expect(directiveFor('headless')).toContain(SPAWNED_ESCAPE_SENTENCE);
+  });
 });
 
 /** Spawn the hook with synthetic stdin + controlled env; parse its JSON stdout. */
@@ -82,6 +143,7 @@ function runHook(stdin: object, env: Record<string, string>): { additionalContex
     input: JSON.stringify(stdin),
     encoding: 'utf-8',
     env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...env },
+    timeout: 30_000,
   });
   const parsed = JSON.parse(res.stdout || '{}');
   return parsed.hookSpecificOutput ?? {};
@@ -110,6 +172,15 @@ describe('hook integration — invoked as PostToolUse', () => {
       { tool_name: 'AskUserQuestion', tool_response: { is_error: true } },
       { OPENCLAW_SESSION: '1' },
     );
+    expect(out.additionalContext).toMatch(/auto-choose/i);
+  });
+
+  test('error result + GSTACK_SESSION_KIND=spawned env → override beats Conductor-interactive (#2733)', () => {
+    const out = runHook(
+      { tool_name: 'AskUserQuestion', tool_response: { is_error: true } },
+      { GSTACK_SESSION_KIND: 'spawned', CONDUCTOR_PORT: '55010' },
+    );
+    expect(out.additionalContext).toMatch(/SESSION_KIND=spawned/);
     expect(out.additionalContext).toMatch(/auto-choose/i);
   });
 

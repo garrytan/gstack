@@ -36,6 +36,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { execFileSync, spawnSync } from 'child_process';
 import {
   chmodSync,
@@ -122,6 +123,8 @@ describeIfSelected(
             '--respect-detection',
           ],
           {
+            // LIVE-REPO CWD: gen-skill-docs regenerates the in-repo
+            // office-hours SKILL.md + section (snapshotted/restored in finally).
             cwd: ROOT,
             env: { ...process.env, GSTACK_HOME: tmpHome },
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -220,7 +223,7 @@ Generate the design doc per Phase 5. The feature-slug value to substitute into t
 This is a test of the brain-writeback path. Do NOT skip the gbrain save step under any circumstance — the runtime guard ("skip if gbrain not on PATH") does NOT apply here because gbrain IS available. Do NOT explore gbrain --help; follow the SAVE_RESULTS template's exact CLI shape. If you encounter any AskUserQuestion, auto-decide recommended.`,
           workingDirectory: workDir,
           maxTurns: 12,
-          timeout: 360_000,
+          timeout: CAPTURE_LONG_MS,
           testName: 'office-hours-brain-writeback',
           runId,
           model: 'claude-sonnet-4-6',
@@ -313,7 +316,7 @@ This is a test of the brain-writeback path. Do NOT skip the gbrain save step und
           );
         }
       },
-      420_000,
+      CAPTURE_LONG_MS,
     );
   },
 );

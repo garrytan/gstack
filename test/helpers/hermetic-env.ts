@@ -36,7 +36,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { promotedEnv } from '../../lib/conductor-env-shim';
-import { isProcessAlive, safeUnlink } from '../../browse/src/error-handling';
+import { isProcessAlive, safeUnlink } from '../../lib/error-handling';
 import { skillCensus, frontmatterName } from './skill-census';
 
 /** Exact env names a hermetic child keeps. Everything not listed (or matched
@@ -211,6 +211,27 @@ export function getHermeticDirs(): HermeticDirs {
       trustedDirs: [repoRoot()],
     });
     fs.writeFileSync(path.join(configDir, '.claude.json'), JSON.stringify(seed, null, 2));
+    // Seed one-time onboarding markers into the CHILD's GSTACK_HOME.
+    // bin/gstack-skill-start reads ${GSTACK_HOME:-$HOME/.gstack} (EOV7), so
+    // the operator-HOME seeding in e2e-helpers.ts no longer reaches hermetic
+    // children — without these, the emission layer fires lake-intro/telemetry
+    // prompts that burn turns and can stall PTY tests waiting on an answer.
+    // Tests that exercise onboarding itself override GSTACK_HOME per-test.
+    for (const f of [
+      '.activated',
+      '.completeness-intro-seen',
+      '.telemetry-prompted',
+      '.proactive-prompted',
+      '.first-loop-tip-shown',
+      '.feature-prompted-continuous-checkpoint',
+      '.feature-prompted-model-overlay',
+    ]) {
+      fs.writeFileSync(path.join(gstackHome, f), '');
+    }
+    // The privacy stop-gate is config-keyed, not marker-keyed: on machines
+    // with gbrain installed it fires whenever artifacts_sync_mode is off and
+    // the consent prompt is unrecorded — same PTY-stall class as the markers.
+    fs.writeFileSync(path.join(gstackHome, 'config.yaml'), 'artifacts_sync_mode_prompted: true\n');
   } catch (err) {
     try { fs.rmSync(runRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
     throw err;

@@ -35,6 +35,8 @@
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   ceoStep0Boundary,
@@ -46,30 +48,38 @@ const describeE2E = describeE2ETier('periodic');
 const N = 5;
 const FLOOR = N - 1; // 4 — must fire at least one AUQ per non-dropped option
 
-const PLAN_PATH = '/tmp/gstack-test-plan-ceo-split-overflow.md';
+/** Plan-file target baked into the FORCING_SPLIT_OVERFLOW_CEO fixture prompt.
+ *  Rewritten per-run to a mkdtemp path so concurrent runs (--retry,
+ *  EVALS_JOBS>1, sibling worktrees) never share one /tmp artifact. */
+const FIXTURE_PLAN_PATH = '/tmp/gstack-test-plan-ceo-split-overflow.md';
 
 describeE2E('/plan-ceo-review split-overflow regression (periodic)', () => {
   test(
     `5-option scope decision emits >= ${FLOOR} review-phase AskUserQuestions (no dropping)`,
     async () => {
-      try {
-        fs.rmSync(PLAN_PATH, { force: true });
-      } catch {
-        /* best-effort */
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-ceo-split-overflow-'));
+      const planPath = path.join(tmpDir, 'gstack-test-plan-ceo-split-overflow.md');
+      const followUpPrompt = FORCING_SPLIT_OVERFLOW_CEO.replaceAll(FIXTURE_PLAN_PATH, planPath);
+      if (!followUpPrompt.includes(planPath)) {
+        throw new Error(
+          `fixture drift: FORCING_SPLIT_OVERFLOW_CEO no longer contains ${FIXTURE_PLAN_PATH} — update FIXTURE_PLAN_PATH`,
+        );
       }
 
-      const obs = await runPlanSkillCounting({
-        skillName: 'plan-ceo-review',
-        slashCommand: '/plan-ceo-review',
-        followUpPrompt: FORCING_SPLIT_OVERFLOW_CEO,
-        isLastStep0AUQ: ceoStep0Boundary,
-        reviewCountCeiling: N + 3, // hard cap above floor + tolerance
-        cwd: process.cwd(),
-        timeoutMs: 1_500_000, // 25 min
-        env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
-      });
-
       try {
+        const obs = await runPlanSkillCounting({
+          skillName: 'plan-ceo-review',
+          slashCommand: '/plan-ceo-review',
+          followUpPrompt,
+          isLastStep0AUQ: ceoStep0Boundary,
+          reviewCountCeiling: N + 3, // hard cap above floor + tolerance
+          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
+          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
+          cwd: process.cwd(),
+          timeoutMs: 1_500_000, // 25 min
+          env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
+        });
+
         if (!['plan_ready', 'completion_summary', 'ceiling_reached'].includes(obs.outcome)) {
           throw new Error(
             `split-overflow test FAILED: outcome=${obs.outcome}\n` +
@@ -97,12 +107,12 @@ describeE2E('/plan-ceo-review split-overflow regression (periodic)', () => {
         }
       } finally {
         try {
-          fs.rmSync(PLAN_PATH, { force: true });
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }
       }
     },
-    1_700_000,
+    1_500_000 /* physical ceiling: the 25-min CI job + 1800s shard wall cap what can actually execute */,
   );
 });

@@ -1,0 +1,2104 @@
+[
+ {
+  "id": "s3-judgment-evidence-before-claimed-limitations",
+  "title": "SHARED-JUDGMENT clause 13: evidence before claimed limitations (absorbed)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #47 (merge 21a4fdfc, commit 38f0c0ef, branch time-attack/appleship-evidence-clause, v1.64.17.0)",
+   "38f0c0ef",
+   "5757efc6"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s3-judgment-evidence-before-claimed-limitations] ABSORBED as a preamble directive: scripts/resolvers/preamble/generate-evidence-directive.ts:15-17 ('## Claimed Limitations Need Evidence \u2014 A claimed limitation or requirement... is a material claim. State one only with the verbatim error, the documen"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-third-party-web-actions-contract",
+  "title": "THIRD-PARTY-ACTIONS.md contract (agentic browser first, per-task consent) (absorbed)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #24 (merge 18e0c840, branch time-attack/third-party-actions, v1.63.0.0)",
+   "c8c0c259",
+   "71b54789"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s3-judgment-third-party-web-actions-contract] ABSORBED and extended: scripts/resolvers/third-party-actions.ts:29-45 carries all five rules ('Adapted from time-attack/gstack's THIRD-PARTY-ACTIONS.md'), now recommending Aside by name with detect-and-defer (2026-08-27) and adding CAPTCHA to user-perfo"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-release-journey-core",
+  "title": "Apple App Store release adapter roll-ups (APPLE-RELEASE.md) (absorbed; s3 sub-rules stay separate)",
+  "kind": "feature",
+  "fork_refs": [
+   "fork PR #29 (merge 729134b3, branch time-attack/appleship, v1.64.0.0)",
+   "fork PRs #31-#50 (merges efa24a1e..a6bc2de3)",
+   "df7f296d",
+   "547afe49",
+   "2bbd8a06",
+   "d71162b3",
+   "6452b82e",
+   "8dee3c2b",
+   "0095fec2",
+   "ed070a75",
+   "f20e6102",
+   "b506b4ca"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s3-judgment-apple-release-journey-core] ABSORBED (wave 2, then hardened): ship/sections/apple-release.md.tmpl (58 lines, header credits 'Ported from time-attack/gstack (GStack 2) APPLE-RELEASE.md, refined across 21 live App Store releases'), covering membership gate + free-account ceiling (para 'No"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-egress-receipts",
+  "title": "Egress receipts / gstack-egress CLI / verify Stop hook / context-bill calibration (absorbed wave 1)",
+  "kind": "security",
+  "fork_refs": [
+   "f29966d9",
+   "a78c9a0f",
+   "docs/gstack-2/EGRESS-RECEIPTS.md",
+   "fcd2e444",
+   "24899e7c",
+   "08459f9f",
+   "e933731c",
+   "9606ea63",
+   "7b4fb1a7"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s4-fleet-egress-receipts] ABSORBED: bin/gstack-egress + lib/egress-receipt.ts + bin/gstack-egress-lib.sh per CLAUDE.md; test/egress-receipt-wiring.test.ts:9 ('Every enumerated off-machine sink must route its send through the receipt'), :115 SCANNER_EXEMPT. The per-surface call-site table doc has no"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-make-pdf-sibling-browse-before-path",
+  "title": "make-pdf resolves sibling browse binary before PATH (6b00ca6b)",
+  "kind": "fix",
+  "fork_refs": [
+   "6b00ca6b"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s5-beta-make-pdf-sibling-browse-before-path] ABSORBED / pre-existing (00f966b3 v1.30.0.0): make-pdf/src/browseClient.ts:10-20 order GSTACK_BROWSE_BIN -> BROWSE_BIN -> sibling via execPath (#2156) -> ~/.claude/skills/gstack -> Bun.which -> error with hint; :153-162 candidate listing.\n[s4-fleet-make-"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-ship-multi-ecosystem-markers",
+  "title": "/ship test detection: Django/JVM/Elixir/Rust markers as evidence for the ask (e3259078)",
+  "kind": "fix",
+  "fork_refs": [
+   "e3259078"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s5-beta-ship-multi-ecosystem-markers] ABSORBED: scripts/resolvers/testing.ts:8-50 contains the identical marker block (manage.py :13, mix.exs :20, pom.xml :21, gradle :22, TESTFILES :32, rust in-source :34) and offer table (:43-50).\n[s4-fleet-django-test-detection] ABSORBED: scripts/resolvers/testi"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-decision-log-supersede-replacement",
+  "title": "gstack-decision-log --supersede writes the replacement (b4d7abd1)",
+  "kind": "fix",
+  "fork_refs": [
+   "b4d7abd1"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s5-beta-decision-log-supersede-replacement] ABSORBED (2be6c06b wave 2): bin/gstack-decision-log:57 jsonArg found by leading `{`; :97 `{ ...validPayload(jsonArg), supersedes: targetId }`.\n[s4-fleet-decision-log-supersede] ABSORBED: bin/gstack-decision-log:78-97 (`const replacement = jsonArg ? { ...v"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s7-docs-method-telemetry-domain-hashing-policy",
+  "title": "Telemetry privacy: salted-hash security_url_domain + anonymous tier local-only (b79f41ee)",
+  "kind": "security",
+  "fork_refs": [
+   "evals/privacy/egress-audit-2026-07-28.md residual risk #1",
+   "b79f41ee",
+   "e1cd3096",
+   "94e46742"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "browse/src/security.ts:311-316 \u2014 NOTE: logAttempt + salted payload hashing + telemetry spawn plumbing were ripped with sidebar-agent.ts (#2557, CHANGELOG.md:902 v1.67.0.0 / :990-995); grep hashPayload|gstack-telemetry-log|buildTelemetrySpawnCommand in browse/src \u2192 0 hits",
+   "bin/gstack-telemetry-log:46,65,239,253,261 \u2014 `--url-domain` flag still parsed and emitted raw via json_safe only; repo-wide grep url-domain|urlDomain|url_domain|attack_attempt|--event-type outside this file \u2192 0 producers (only supabase/migrations/004_attack_telemetry.sql:9,29,38 and supabase/functions/community-pulse/index.ts:135,156-159 consume it)",
+   "supabase/functions/community-pulse/index.ts:156-159 \u2014 aggregates domainCounts keyed by raw security_url_domain for the 'top domains last 7 days' index (migration 004 line 18) \u2014 upstream's dashboard design intends raw hostnames"
+  ],
+  "notes": "Fork b79f41ee changed 3 things: (1) hash security_url_domain in browse/src/security.ts reportAttemptTelemetry \u2014 upstream deleted that entire producer in v1.67.0.0 (#2557), so no raw domain leaves the "
+ },
+ {
+  "id": "s5-beta-brain-context-load-cold-probe",
+  "title": "brain-context-load cold-probe latency fix (2fdf6d02, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "2fdf6d02"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s5-beta-brain-context-load-cold-probe] ABSORBED (2be6c06b wave 2): bin/gstack-brain-context-load.ts:72-73 GSTACK_BRAIN_TIMEOUT_MS override; :199-200 same '500ms budget misreported gbrain as missing whenever a cold process spawn exceeded the timeout' comment.\n[s4-fleet-brain-context-load-cold-probe]"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-gbrain-policy-ingest-staging-pdf-sanitizer",
+  "title": "gbrain-sync per-repo policy + memory-ingest gbrain 0.42 staging + make-pdf offline sanitizer (absorbed wave 2)",
+  "kind": "security",
+  "fork_refs": [
+   "b41b4a78",
+   "cca23b2d",
+   "3a082841"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s5-beta-gbrain-policy-ingest-staging-pdf-sanitizer] ABSORBED (wave 2): bin/gstack-gbrain-sync.ts:45,839,870,880 repoPolicyTier chokepoint + skipped-policy-read-only; bin/gstack-memory-ingest.ts:1408-1416 policy counters and #2392 policyError abort; make-pdf/src/render.ts:214,265-281 @import/url()/s"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-browse-lock-error-honesty",
+  "title": "browse acquireServerLock reports real errno, only EEXIST is contention (#1084/#1725, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "4a8833cc",
+   "d947d2e1",
+   "113717b0",
+   "upstream PR #1725 @jbetala7 (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s4-fleet-browse-lock-error-honesty] ABSORBED: browse/src/cli.ts:608-641 (ServerLockError, '#1084' comment, ENOENT retry), :263-281 Chromium profile lock helpers (#1781). Busy-daemon preservation (#2231/#2219) belongs to another slice.\n[gap1-s10-browsewave-lock-acquisition-errors] ABSORBED: upstream"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-no-suicide-exit-guard",
+  "title": "Remove delayed process.exit test teardowns + no-suicide-exit static guard (#2172/#2252/#2230, absorbed)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "e7c37d76",
+   "upstream PR #2230",
+   "a26de527",
+   "d947d2e1",
+   "4dced295",
+   "269acaf6",
+   "7741b754",
+   "f0beb1a7",
+   "af10edb1",
+   "2eefdea4",
+   "045bdaa5",
+   "628c76b6",
+   "upstream PR #2172 @sneakygriff (OPEN)",
+   "upstream PR #2252 @whd4 (OPEN)",
+   "upstream PR #2230 @time-attack (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s1-prewave-no-suicide-exit-guard] ABSORBED: /home/vercel-sandbox/gstack/test/no-suicide-exit.test.ts exists; v1.77 strict shard classifier also fails a shard without bun's summary line (CLAUDE.md).\n[s4-fleet-no-suicide-exit-test] ABSORBED: test/no-suicide-exit.test.ts exists; no `setTimeout(() => p"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-closetab-last-tab-race",
+  "title": "closeTab captures wasActive before page.close() (absorbed 3aab7654)",
+  "kind": "fix",
+  "fork_refs": [
+   "38381436",
+   "pr-2172-test-env",
+   "upstream PR #2230",
+   "b6572ebb"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s1-prewave-closetab-last-tab-race] ABSORBED: upstream commit 3aab7654 'capture active-tab state before close()'; browse/src/browser-manager.ts:986-1020 (`const wasActive`, 'only reassign when activeTabId no longer points at a live tab').\n[s2-runtime-closetab-wasactive] ABSORBED: upstream browse/src"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-investigate-hook-paths-claude-skill-dir-1873",
+  "title": "investigate hook paths drop Claude-only CLAUDE_SKILL_DIR (#1873, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "cdf3531a (maxpetrusenkoagent)",
+   "c896016b (t)",
+   "upstream PR #1873 OPEN (maxpetrusenkoagent); issue #2469 CLOSED 2026-08-15",
+   "8bc0a04f"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[gap2-skillwave-investigate-hook-paths-claude-skill-dir-1873] ABSORBED: investigate/SKILL.md.tmpl:33-38 hooks use `$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh`; :121-124 comment 'frontmatter hooks ... run before CLAUDE_SKILL_DIR exists ... (#2469)'.\n[s4-fleet-investigate-claude-skill-dir]"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-windows-spawn-dacl-hardening",
+  "title": "Windows windowsHide spawns (#1835) + .gstack ACL inheritance repair (#1605) (2aa255b7, absorbed)",
+  "kind": "security",
+  "fork_refs": [
+   "2aa255b7"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s5-beta-windows-spawn-dacl-hardening] ABSORBED (2be6c06b wave 2 and later): browse/src/file-permissions.ts:15-32 icacls inheritance break + explicit grant; windowsHide across browse/src spawns (config.ts:35,90,165; browse-client.ts:106; meta-commands.ts:780,844).\n[s4-fleet-windows-hardening] ABSORB"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-playwright-bump-headed-executable-pin",
+  "title": "Playwright ^1.60 bump (#1565/#1703, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "de47bf4f",
+   "upstream PR #1565 @stevenbarragan (OPEN)",
+   "6a614f8a"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[gap1-s10-browsewave-playwright-bump-headed-executable-pin] ABSORBED: /home/vercel-sandbox/gstack/package.json:62 `\"playwright\": \"^1.62.1\"` (with patchedDependencies at :90); browse/src/browser-manager.ts:717 `const chromePath = executablePath || chromium.executablePath()` and :757 explicit executab"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s7-docs-method-platform-bakeoff",
+  "title": "Model-benchmark lib / Braintrust rewrite / eval-platform bakeoff (NOT_APPLICABLE direction decision)",
+  "kind": "tooling",
+  "fork_refs": [
+   "evals/platform-bakeoff/README.md",
+   "evals/platform-bakeoff/platform_bakeoff.py",
+   "evals/platform-bakeoff/results/REAL-BAKEOFF.md",
+   "ce8088d5",
+   "36f972f2",
+   "7f4574e1",
+   "0645f52f",
+   "b6572ebb"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "grep -rli 'braintrust|langfuse|deepeval|autoevals|bake-off|bakeoff' across upstream .ts/.md/.json/.py (excluding node_modules/dist) \u2192 only scripts/brain-cache-spec.ts (BrainTrustPolicy = gbrain trust policy, unrelated)",
+   "ls lib/model-benchmark evals \u2192 both missing; bin/gstack-model-benchmark:1-40 imports test/helpers/benchmark-runner.ts + providers/{claude,gpt,gemini}; `--judge` = Anthropic SDK judge (test/helpers/benchmark-judge.ts)",
+   "grep -i 'rubric|required.term|requiredTerm|upload|writeReceipt|fetch(' bin/gstack-model-benchmark test/helpers/benchmark-runner.ts test/helpers/benchmark-judge.ts \u2192 0 (no deterministic rubric scorer, no upload sink)"
+  ],
+  "notes": "The fork's arc (b6572ebb in-house runner/judge/pricing \u2192 36f972f2/7f4574e1 Braintrust owns scoring \u2192 0645f52f consent gate \u2192 ce8088d5 Python bake-off) ends in a recommendation to stay provider-neutral"
+ },
+ {
+  "id": "s4-fleet-runtime-cli-main-guard",
+  "title": "runtime/cli.js direct-execution main() guard (fork runtime only)",
+  "kind": "fix",
+  "fork_refs": [
+   "020b84a2",
+   "5cc8ba1c"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "[s4-fleet-runtime-cli-main-guard] NOT_APPLICABLE: no runtime/ directory upstream; gen-skill-docs main() guard noted in CLAUDE.md.\n[s6-branches-runtime-cli-direct-entry-fix] ls /home/vercel-sandbox/gstack \u2192 no runtime/ directory."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-ios-stateserver-loopback-bind",
+  "title": "ios-qa StateServer binds loopback only (d22c034e, absorbed)",
+  "kind": "security",
+  "fork_refs": [
+   "d22c034e"
+  ],
+  "final": "ABSORBED",
+  "basis": "cross-reference (skeptic confirmed)",
+  "evidence": [
+   "ios-qa/templates/StateServer.swift.template:154-167 \u2014 IPv4 listener uses params.requiredLocalEndpoint = 127.0.0.1 (`NWListener(using: params)`), IPv6 keeps the wildcard port bind; landed in 2be6c06b v1.65.0.0 (fork port wave 2), diff shows the identical switch/case as fork d22c034e.",
+   "ios-qa/templates/StateServer.swift.template:176-184 \u2014 newConnectionHandler gates every connection through isLoopbackPeer(); :198-215 accepts loopback or RFC 4193 ULA fc00::/7 (CoreDevice tunnel) and cancels everything else.",
+   "ios-qa/templates/StateServer.swift.template:4 ('Loopback-only'), :32-33 (dual-stack listeners; 'The fork's single-listener IPv6-only binding was caught in eng + outside-voice review as incomplete')."
+  ],
+  "notes": "The fork's bug (wildcard IPv4 bind with dead loopback config) does not exist at upstream HEAD; the fix landed with wave 2 (v1.65.0.0). Only a comment/dead-code tidy remains \u2014 fold into any future ios-"
+ },
+ {
+  "id": "gap5-hygiene-beta-first-measurement-recalibration",
+  "title": "2026-08-09 eval timeout recalibration / auq-format-gate demotion (dispatcher-surface specific)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "35a39e58",
+   "21bb1dd7"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "test/helpers/eval-budgets.ts:2-15 \u2014 'Timeout policy for paid tests \u2014 five tiers instead of hand-tuned sprawl\u2026 46\u00d7300s, 46\u00d7120s, 44\u00d7360s\u2026 hand-ratcheted per test'; :19 JUDGE_MS=120_000, :22 CAPTURE_MS=300_000, :25 CAPTURE_LONG_MS=600_000, :28 PTY_MS=900_000, :35 PTY_LONG_MS=1_200_000",
+   "test/eval-budgets-policy.test.ts:1-14 \u2014 FIT invariant (every tier fits the sharded runner wall minus 120s overhead) + RATCHET invariant ('raw numeric timeout literals in paid test files only shrink\u2026 a literal is legal only with justification, and the count is pinned')",
+   "CHANGELOG.md:311 (v1.74.0.0, 2026-08-29) '| Hand-tuned paid timeout literals | 395 | 97 (46 justified) | 5 tiers |', :332 (seven 28-min timeouts inside 25-min jobs trimmed; eval-budgets fit test), :339 ('298 paid timeout literals swept onto five named tiers\u2026 round-up only')"
+  ],
+  "notes": "Resolves the earlier UNKNOWN: the fork's premises (dispatcher-tree turn counts; 'measured the REAL 2.0 surface for the first time'; no green baseline for auq-format-gate) are all specific to the GStac"
+ },
+ {
+  "id": "gap5-hygiene-windows-setup-e2e-runtime-lane",
+  "title": "windows-setup-e2e.yml rewrite around GStack 2 runtime installer",
+  "kind": "ci",
+  "fork_refs": [
+   "git diff upstream/main origin/main -- .github/workflows/windows-setup-e2e.yml (origin/main 0aca1f77)",
+   "f14445bb"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "/home/vercel-sandbox/gstack/.github/workflows/windows-setup-e2e.yml:72-113 \u2014 lane is `bun run build` (GSTACK_SKIP_PLAYWRIGHT=1) + .exe presence + find-browse + gstack-paths checks; it never runs ./setup, so there is no state root to isolate",
+   "/home/vercel-sandbox/gstack/.github/workflows/windows-setup-e2e.yml:28-36 \u2014 PR-number concurrency key with the explicit comment that head_ref (the fork's shape) collides across forks; `permissions: contents: read` (secretless lane)",
+   "/home/vercel-sandbox/gstack/setup:18-42 \u2014 usage block lists --host/--model/--prefix/--no-prefix/--team/--no-team/-q/-h only; `grep -nE 'dry-run|DRY_RUN|dry_run|--preview' setup` \u2192 0 hits (no preview mode to assert non-mutation against)"
+  ],
+  "notes": "Fork commit f14445bb (2026-07-20, on fork main) is the 'componentize GStack 2 runtime' wave; the workflow rewrite is a consequence of that architecture. Upstream is not adopting the runtime, so the la"
+ },
+ {
+  "id": "gap2-skillwave-autoplan-tasks-aggregator-jq-bind-2021",
+  "title": "autoplan tasks aggregator jq .commit bind (#2021/#2018, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "703e2027, a1997cbc (0xDevNinja)",
+   "upstream PR #2021 OPEN (0xDevNinja); issue #2018 CLOSED 2026-08-15",
+   "fork PR #8 (377b0747)",
+   "upstream issue #2021 (OPEN)",
+   "upstream issue #2018"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[gap2-skillwave-autoplan-tasks-aggregator-jq-bind-2021] ABSORBED: scripts/resolvers/tasks-section.ts:123-128 ('.commit must be bound BEFORE piping to the split commit array' + `.commit as $c | select(...)`); test/tasks-section-jq.test.ts:1-18 regression pin for #2018; CHANGELOG.md:1233,1306.\n[s1-pre"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-diff-dep-bump-1599",
+  "title": "diff ^7 \u2192 ^9 GHSA bump (#1599, absorbed)",
+  "kind": "security",
+  "fork_refs": [
+   "ac2c88aa (genisis0x)",
+   "upstream PR #1599 OPEN (genisis0x); issue #1588 CLOSED 2026-08-15",
+   "d0fd2c0f"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[gap2-skillwave-diff-dep-bump-1599] ABSORBED: package.json:59 `\"diff\": \"^9.0.0\"`; CHANGELOG.md:1613 'diff 9.0.0 (GHSA-73rr-hh4g-fpgx, @genisis0x)'.\n[s1-prewave-diff-pkg-ghsa-bump] ABSORBED: package.json:59 `\"diff\": \"^9.0.0\"`; bun.lock resolves `diff@9.0.0`."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-extension-getport-token-withhold-1822",
+  "title": "extension getPort withholds token from non-extension senders (#1822, absorbed via sender-auth.js)",
+  "kind": "security",
+  "fork_refs": [
+   "2e7fcd73 (Mike Ilog / Mike-E-Log)",
+   "c6b466e1 (t, test)",
+   "upstream PR #1822 OPEN (Mike-E-Log)",
+   "0af2add8",
+   "upstream PR #1822 (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[gap2-skillwave-extension-getport-token-withhold-1822] ABSORBED: extension/sender-auth.js exists; extension/background.js:317-328 'Privileged types ... are for this extension's own pages only ... gstackSenderAuth.denialFor(msg.type, sender, chrome.runtime.id)' before the getPort handler at :330.\n[s1"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-dependency-review-osv-workflows",
+  "title": "dependency-review.yml + osv-scanner.yml CI gates (#2038, absorbed)",
+  "kind": "ci",
+  "fork_refs": [
+   "09492d34",
+   "6fe51219 (Jayesh Betala / jbetala7)",
+   "964602a3 (Sinabina, fork-only removal)",
+   "upstream PR #2038 OPEN (jbetala7)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s2-runtime-dependency-review-osv-workflows] ABSORBED in wave 2 (v1.65.0.0 'supply-chain CI'): upstream .github/workflows/dependency-review.yml and osv-scanner.yml exist (both listed in .github/workflows; osv-scanner.yml has 1 SHA-pinned ref, dependency-review.yml 2), plus test/osv-config-wiring.tes"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-release-pipeline-windows-archive",
+  "title": "GStack 2 runtime packaging, attestation, release lane and npm/CI plumbing (NOT_APPLICABLE cluster)",
+  "kind": "ci",
+  "fork_refs": [
+   "dbf94804",
+   "b0047cc5",
+   "75b35766",
+   "f7d44a4e",
+   "bec9b9be",
+   ".github/workflows/release-artifacts.yml",
+   "docs/gstack-2/RELEASE-INTEGRITY.md",
+   ".github/scripts/create-runtime-release-manifest.mjs",
+   ".github/scripts/stage-runtime-components.mjs",
+   "f9afa73d",
+   "c1e45019",
+   "2f19f0b5",
+   "f14445bb",
+   "d6ef673e",
+   "b6572ebb",
+   "31ae801c"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "[s2-runtime-release-pipeline-windows-archive] Upstream has no release-artifacts workflow, cosign, or runtime bootstrap; windows-free-tests.yml:135 uses actions/upload-artifact rather than tar.\n[s7-docs-method-release-artifacts-attestation] NOT CHECKED beyond confirming absence: grep -i 'cosign|sigst"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-execution-result-contract",
+  "title": "GStack 2 runtime internals: execution-result envelope, locks, deadlines, identity plumbing (NOT_APPLICABLE cluster)",
+  "kind": "methodology",
+  "fork_refs": [
+   "9b5ae407",
+   "9b3188e7",
+   "9bb382f2",
+   "b6e4ad5a",
+   "b6572ebb",
+   "f14445bb",
+   "d6ef673e",
+   "a84a6e23",
+   "e1cd3096",
+   "b79f41ee",
+   "231fb9d7",
+   "f19d6cda",
+   "a9399ad3",
+   "682f6d03",
+   "d7908b25",
+   "b85497d7"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "[s2-runtime-execution-result-contract] grep schemaVersion/EXECUTION_RESULT/'execution result' across lib/*.ts bin/*.ts scripts/resolvers/*.ts returns nothing; upstream has no shared CLI result envelope to attach this to.\n[s2-runtime-runcommand-deadline-kill-grace] Upstream has no runtime/; grep Abor"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s9-skills-dispatcher-header-and-alias-tables",
+  "title": "GStack 2 six-dispatcher architecture scaffolding: headers, alias/compat tables, migration map, runtime-absent probe, parity fixtures (NOT_APPLICABLE cluster)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "b6572ebb",
+   "682f6d03",
+   "a9399ad3",
+   "docs/gstack-2/SKILL-MIGRATION.md",
+   "1b38be6a",
+   "44221ac7",
+   "ac06a37d",
+   "3ebde802",
+   "e6f602bc",
+   "8502961b",
+   "fork PRs #18, #19, #21, #25, #26, #30 (regression fixtures)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "[s9-skills-dispatcher-header-and-alias-tables] Upstream architecture unchanged (44 skill dirs, scripts/gen-skill-docs.ts, _gstack-command router); TODOS.md:460-505 and PACING_UPDATES_V0.md:97-110 record what upstream chose to fold in from the fork instead. grep 'Skipped modules|Context\\.dev|Global C"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-shard-isolation-heuristics",
+  "title": "GStack 2 dispatcher-surface test-runner and tier adjustments (NOT_APPLICABLE cluster)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "d7357c28",
+   "37144e8b",
+   "8fd8bf43",
+   "37042b68",
+   "9504b703",
+   "a3ed7a68",
+   "44221ac7"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "[s2-runtime-shard-isolation-heuristics] Upstream scripts/test-free-shards.ts has none of containsScheduledProcessExitZero/planBoundedFreeTestShards (grep empty), scripts/test-free-strict.ts does not exist; test/no-suicide-exit.test.ts fails the suite on any scheduled process.exit in a test file, and"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-windows-isolated-gates-harness",
+  "title": "Windows isolated cloud gates harness for specific upstream PR heads (NOT_APPLICABLE cluster)",
+  "kind": "ci",
+  "fork_refs": [
+   "fe868994",
+   "9c1ddd79",
+   "60863a71",
+   "f915a246",
+   "808bb546",
+   "codex/windows-gates-20260715-central"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "[s6-branches-windows-isolated-gates-harness] Upstream .github/workflows has windows-free-tests.yml and windows-setup-e2e.yml (curated subset + fresh-install gate), no per-PR isolated harness. `gh pr view` 1743/1981/2260/2243/2245/2246/2247 \u2192 all OPEN, unmerged. `gh run list -R time-attack/gstack --b"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap3-design-daemon-reset-cancels-shutdown-timers",
+  "title": "design daemon resetForTest clears shutdown/exit timers",
+  "kind": "test-infra",
+  "fork_refs": [
+   "467161bd",
+   "b6572ebb"
+  ],
+  "final": "SUPERSEDED",
+  "basis": "cross-reference",
+  "evidence": [
+   "design/src/daemon.ts:206 `setTimeout(() => process.exit(exitCode), 50);` \u2014 untracked handle (fork stores it in exitTimer)",
+   "design/src/daemon.ts:489 `setTimeout(() => gracefulShutdown(0), 50);` \u2014 untracked handle (fork stores it in shutdownTimer)",
+   "design/src/daemon.ts:570-581 __testInternals__.resetForTest clears boards/boardMutex/lastMeaningfulActivity/idleExtensions/shuttingDown only; grep 'clearTimeout|shutdownTimer|exitTimer|shutdownRequestTimer' design/src/daemon.ts -> 0"
+  ],
+  "notes": "The fork's stated failure (an in-process /shutdown test process.exit(0)s the bun runner mid-suite, later files silently skipped, CI green) can no longer occur upstream: the one such test stubs exit, t"
+ },
+ {
+  "id": "s2-runtime-handoff-singleton-lock-cleanup",
+  "title": "Handoff uses resolveChromiumProfile() + SingletonLock cleanup (absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "b6572ebb",
+   "7b3f391b"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s2-runtime-handoff-singleton-lock-cleanup] ABSORBED: upstream browse/src/browser-manager.ts:1796 `const userDataDir = resolveChromiumProfile();` and :1798 `cleanSingletonLocks(userDataDir);` inside handoff().\n[s1-prewave-handoff-resolve-chromium-profile] ABSORBED: browse/src/browser-manager.ts:663 "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-stop-ack-before-shutdown",
+  "title": "browse stop/restart acknowledge before shutdown (#2020, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "b6572ebb",
+   "9919c4cd",
+   "d947d2e1",
+   "d8c64ee2",
+   "upstream PR #2020 @devkd111 (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s2-runtime-stop-ack-before-shutdown] ABSORBED (wave 2 'browse stop fix'): upstream browse/src/meta-commands.ts:424-436 contains the identical comment and deferred shutdown; browse/test/stop-ack-before-shutdown.test.ts is byte-identical to the fork's.\n[gap1-s10-browsewave-daemon-stop-restart-defer] "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-live-daemon-preservation",
+  "title": "Never kill a live-but-busy browse daemon / loaded-machine lifecycle (#2219/#1732/#1847, absorbed)",
+  "kind": "fix",
+  "fork_refs": [
+   "d8a7d014",
+   "time-attack/2219",
+   "upstream PR #2231",
+   "upstream issue #2219",
+   "d947d2e1",
+   "94deed4b",
+   "efebbff9",
+   "83f872cc",
+   "upstream PR #1732 @mplatts (OPEN)",
+   "upstream PR #1847 @harjothkhara (CLOSED)",
+   "upstream PR #2231 @time-attack (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s1-prewave-live-daemon-preservation] ABSORBED: browse/src/cli.ts:684-686 daemonPidAlive + probeHealthWithBackoff, :733-745 '#2219 IRON RULE' + forceRestart, :871-895 decideDaemonRestart/report-busy; issue #2219 CLOSED 2026-08-17.\n[gap1-s10-browsewave-loaded-machine-daemon-lifecycle] ABSORBED: brows"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap4-s13-ios-xcuitest-executor-planner",
+  "title": "ios-qa/executor: IOSQAFlow \u2192 XCUITest xcodebuild argv planner (466b1ec7)",
+  "kind": "tooling",
+  "fork_refs": [
+   "466b1ec7",
+   "time-attack/gstack PR #14"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "ls /home/vercel-sandbox/gstack/ios-qa/ \u2192 SKILL.md, SKILL.md.tmpl, daemon, docs, scripts, templates (no executor/)",
+   "grep -rnE 'IOSQAFlow|selectorCandidates|xcuitest-plan|GSTACK_IOS_QA_FLOW|buildXCUITestPlan|XCUITestRunnerConfig' across upstream \u2192 0",
+   "ls test/fixtures/ios-qa/FixtureApp/Tests \u2192 DebugBridgeCoreTests only (no AdaptiveFixtureUITests / GStackFlowRunnerUITests.swift)"
+  ],
+  "notes": "Upstream still has no flow\u2192xcodebuild planner, but the planner only makes sense as the argv side of an XCUITest runner target, and upstream's ios-qa architecture (SKILL.md.tmpl:41; CHANGELOG 'no XCTes"
+ },
+ {
+  "id": "s1-prewave-sidebar-chat-era-test-deletion",
+  "title": "Delete chat-queue-era sidebar tests, re-pin surviving invariants (#1984, absorbed)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "514e5294",
+   "upstream PR #2230",
+   "d947d2e1",
+   "045bdaa5",
+   "upstream PR #1984 @maxpetrusenkoagent (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "[s1-prewave-sidebar-chat-era-test-deletion] ABSORBED: `ls browse/test/security-sidepanel-dom.test.ts browse/test/sidebar-integration.test.ts` \u2192 No such file; browse/test/sidebar-ux.test.ts present.\n[gap1-s10-browsewave-sidebar-ux-test-refresh] NOT_APPLICABLE: upstream browse/test/sidebar-ux.test.ts "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-design-docs-repo-local",
+  "title": "Design docs written to docs/designs/<topic>.md in the repo; reviews prefer the repo-local copy (#703)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #18 (merge c3dbec14, v1.61.0.0)",
+   "upstream issue #703 (CLOSED 2026-08-15)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED (wave 2): office-hours/sections/design-and-handoff.md.tmpl:20-35 'Repo copy (dual-write, #703 + #2000)... ALSO write the doc to docs/designs/{topic-slug}.md' with a redaction scan-at-sink the fork did not have; scripts/resolvers/design-doc-discovery.ts:6-7,32-39 'Repo-local docs win when at"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-design-doc-concision",
+  "title": "Design doc is a decision record: bullets, one line per ruled-out approach, omit settled/empty sections (#2000)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #19 (merge 7d5c110b, branch time-attack/designdocs, v1.61.1.0)",
+   "upstream issue #2000 (CLOSED 2026-08-15)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: office-hours/sections/design-and-handoff.md.tmpl:37-42 'Decision-record concision (#2000). The doc is a decision record, not a transcript: one bullet per decision with its why; an approach the user ruled out DURING the session gets one line (name + rejection reason)... No page cap'; CHANGE"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-founder-resources-optout",
+  "title": "Founder resources honor a persistent 'Never show me these again' opt-out (#538)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #26 (merge a1afacea, branch time-attack/motiviation, v1.61.2.0)",
+   "upstream issue #538 (CLOSED 2026-08-15)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED with an upstream improvement: office-hours/sections/design-and-handoff.md.tmpl:343-366 ('Standing opt-out check (#538) \u2014 run FIRST... skip this entire section silently... VERIFY the write... before promising anything'); bin/gstack-config:164 default true, :400-401 validation; test/founder-r"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-adapter-before-branch-gate",
+  "title": "Store distribution is not repository landing: Apple adapter loads before the branch gate; never abort over branch topology (#41)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #41 (merge a28f0b59, branch time-attack/appleship-mode-routing, v1.64.11.0)",
+   "fork PR #29 step 10"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: ship/SKILL.md.tmpl:80-90 'Step 0.9: Apple target detection \u2014 Shipping to the App Store is not landing a PR... STOP and Read ship/sections/apple-release.md FIRST \u2014 before the branch gate and any preflight... The branch gate and repository-landing pipeline below apply ONLY to repository-land"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-two-permitted-interactions",
+  "title": "The Apple journey permits exactly two interactions: the authorization/sign-in moment and the missing-assets question (#35, #36, #37)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #35 (merge 65b65013, v1.64.6.0)",
+   "fork PR #36 (merge fdb68f88, v1.64.7.0)",
+   "fork PR #37 (merge c6f8f1f1, v1.64.8.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED verbatim: ship/sections/apple-release.md.tmpl 'The one authorization moment' para ('The whole journey permits exactly two interactions, and no others... Auth menus, tool-choice questions, plan confirmations, and step-by-step narration requests are contract violations.') and para 2 ('One too"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-sticky-assets-decision-store",
+  "title": "Store-assets question asked once per app, ever \u2014 decision store checked before asking, persisted after (#38)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #38 (merge 7d4529d3, branch time-attack/appleship-sticky-assets, v1.64.9.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED verbatim: ship/sections/apple-release.md.tmpl 'Store assets' para ('Once per app, EVER: before asking, check the decision store (`bin/gstack-decision-search --scope repo --query \"store assets\"`)... persist it (`~/.claude/skills/gstack/bin/gstack-decision-log` with scope `repo`)'). Header co"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-deck-editor-no-key-live-check",
+  "title": "Marketing screenshots never require an API key; the free deck editor leads; options built from a LIVE installed-skill check (#39, #42)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #39 (merge bdcd6e13, v1.64.10.0)",
+   "fork PR #42 (merge 9c75ec20, v1.64.12.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED verbatim: ship/sections/apple-release.md.tmpl 'Store assets' section \u2014 bullet 'Marketing screenshots, free and local, no API key... never claim screenshots need an API key while this skill is installed' and closing para 'Build this question's options from a LIVE check of installed skills at"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-session-mints-upload-key",
+  "title": "Session-minted App Store Connect upload key; nobody types an app-specific password (#43, #48)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #43 (merge 2de5c36f, v1.64.13.0)",
+   "fork PR #48 (merge ba82dc01, branch time-attack/upload-key-mint, v1.64.18.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED and hardened: ship/sections/apple-release.md.tmpl step 4 carries the full mint procedure verbatim plus upstream's least-privilege change \u2014 `allAppsVisible:false` with an explicit app-scoped `apps` relationship instead of the fork's `allAppsVisible:true`, and PATCH re-association for a secon"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-credential-browser-ban-and-escalation-ladder",
+  "title": "Browser-driven credential creation banned; auth failures escalate mint \u2192 re-sign-in \u2192 self-service ASP only on permissions refusal (#44, #45)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #44 (merge 9b5ad8a2, v1.64.14.0)",
+   "fork PR #45 (merge fe194ef0, v1.64.15.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED and triple-pinned: ship/sections/apple-release.md.tmpl step 5 verbatim ('NEVER offer or recommend a browser drive to create credentials \u2014 no agentic browser of any kind, for any password, key, or token, under any framing'); scripts/resolvers/third-party-actions.ts:39 'Creating Apple credent"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-classify-errors-before-credentials",
+  "title": "Classify errors before touching credentials (metadata vs auth); adapter overrides the third-party browser offer for the whole Apple journey (#46)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #46 (merge 05ef17b8, branch time-attack/appleship-cli-only, v1.64.16.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED verbatim: ship/sections/apple-release.md.tmpl step 4 ('CLASSIFY the error before touching credentials... lootBox, ageAssurance, parentalControls, messagingAndChat') and step 5 ('this adapter OVERRIDES the Third-Party Web Actions contract (earlier in this skill)... the ONLY browser use this "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-pricing-in-authorization",
+  "title": "Pricing (free/paid + price) folded into the authorization moment, once per app, decision-store persisted; storefront pricing via appPriceSchedules because fastlane price_tier is broken (#49)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #49 (merge 138e7138, branch time-attack/pricing-question, v1.64.19.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED verbatim: ship/sections/apple-release.md.tmpl 'The one authorization moment' ('Pricing belongs to this same breath, once per app EVER... a free launch cannot be un-launched') and 'Storefront completion' ('`POST /v1/appPriceSchedules`... fastlane's `price_tier` option is broken against the c"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-non-mac-macos-ci-runner",
+  "title": "Non-macOS hosts: honest Mac-required split \u2014 build/sign/upload legs route through a macOS CI runner with the minted key as a secret; API legs stay local (#50)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #50 (merge a6bc2de3, commit df7f296d, branch time-attack/windows-ci-lane, v1.64.20.0)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED verbatim: ship/sections/apple-release.md.tmpl para 3 ('A Mac is required only for the build legs... route exactly those legs through a macOS CI runner (a GitHub Actions `macos` runner...)... Never claim the whole release is impossible off a Mac, and never pretend the build leg is possible t"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s3-judgment-apple-intermediate-browser-drive-and-asc-cli",
+  "title": "Intermediate Apple-adapter states: agentic-browser drive of App Store Connect forms (#31), asc CLI app-record creation (#32), .p8-first auth (#29/#33) \u2014 superseded within the fork",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "fork PR #31 (v1.64.2.0)",
+   "fork PR #32 (v1.64.3.0)",
+   "fork PR #33 (merge efa24a1e, v1.64.4.0)",
+   "fork PR #34 (merge 1a67db98, v1.64.5.0)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE by design: upstream ship/sections/apple-release.md.tmpl encodes only the final state \u2014 fastlane `produce` for the app record ('never call the app record a manual gate'), no `asc`, browser only for 'the paid Apple Developer Program membership purchase itself... and, for PAID apps only,"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-health-token-removal",
+  "title": "/health status-only, token via pinned-origin bootstrap",
+  "kind": "security",
+  "fork_refs": [
+   "7b3f391b",
+   "upstream PR #2226"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: browse/src/server.ts:1870-1915 (`POST /extension-token \u2014 pinned-origin token bootstrap`, 'Health check ... NEVER carries a token in any mode'); extension/manifest.json:6 `key`; extension/background.js:41-56."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-extension-storage-session-auth",
+  "title": "Provision extension auth via chrome.storage.session (TRUSTED_CONTEXTS) instead of HTTP",
+  "kind": "security",
+  "fork_refs": [
+   "7b3f391b",
+   "upstream PR #2226"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE (alternative design shipped): browse/src/server.ts:1885-1908; extension/sender-auth.js:29-60 (PRIVILEGED_TYPES incl. getPort/getToken, denialFor); browse/test/extension-token.test.ts, server-auth.test.ts, dual-listener.test.ts reference /extension-token; grep storage.session/TRUSTED_C"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-ws-subprotocol-duplicate-header",
+  "title": "Fix WS upgrade 1006 from duplicated Sec-WebSocket-Protocol echo",
+  "kind": "fix",
+  "fork_refs": [
+   "7b3f391b",
+   "upstream PR #2226"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: browse/src/terminal-agent.ts:640 'No explicit Sec-WebSocket-Protocol echo: Bun >= 1.3 auto-echoes'; extension/sidepanel-terminal.js:308,585,807 still use `gstack-pty.${token}` (upstream's chosen format)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-artifacts-init-push-protocol",
+  "title": "gstack-artifacts-init honors configured push protocol / preserves explicit URLs (--push-protocol)",
+  "kind": "fix",
+  "fork_refs": [
+   "d6b300cf",
+   "test-issue-1348",
+   "upstream PR #2225",
+   "fork PR #7 commit f036446f"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: bin/gstack-artifacts-init:11 usage, :67-82 PUSH_PROTOCOL/REMOTE_SOURCE, :218-256 resolution incl. `preserve` and `gh config get git_protocol`; test/gstack-artifacts-init.test.ts:277-380 (same test titles as fork incl. '--push-protocol overrides the inferred protocol')."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-basic-ftp-pin",
+  "title": "Pin basic-ftp to 5.3.1 (four HIGH advisories)",
+  "kind": "security",
+  "fork_refs": [
+   "fork PR #2 (5ca87456)",
+   "upstream PR #2227"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: `git log -S basic-ftp -- package.json` shows f55e2709 'override basic-ftp to 5.3.1' then ae8914af (v1.67.0.0); grep basic-ftp in package.json/bun.lock now empty (dependency gone)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-catalog-lead-embedded-periods",
+  "title": "gen-skill-docs catalog lead: don't split on embedded periods (filenames, URLs, versions)",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #3 (2f6c3e96)",
+   "upstream issue #2171 (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: scripts/gen-skill-docs.ts:344-353 regex `^((?:[^.!?]|[.!?](?!\\s|$))*[.!?])(?:\\s|$)` with comment naming 'TODOS.md', URLs, 'v1.45.0.0'; test/catalog-trim.test.ts:132-145 regression tests for DESIGN.md/v1.45.0.0/'TODOS.md backlog'."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-hermes-namespaced-frontmatter",
+  "title": "Hermes-generated frontmatter `name:` matches the namespaced directory",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #4 (bb68b1c2)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE: hosts/hermes.ts:32-37 'No full install arm \u2014 users can hand-copy the instruction-only digest', instructionTier rulesFile; grep nameTransform|emittedName|external-skill-name in scripts/gen-skill-docs.ts and scripts/host-config.ts empty; .gitignore:23 `.hermes/`."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-codex-web-search-flag",
+  "title": "Drop deprecated `--enable web_search_cached` from every codex exec/review invocation",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #5 (5f9d132e)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED (different judgment): scripts/resolvers/constants.ts:50-65 CODEX_WEB_SEARCH_FLAG with comment 'codex >=0.144 deprecated the legacy --enable-based web_search_cached'; codex/SKILL.md.tmpl:245 documents the -c override."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-gstack-paths-get",
+  "title": "`gstack-paths --get <key>` scalar output; codex skill avoids eval",
+  "kind": "tooling",
+  "fork_refs": [
+   "fork PR #5 (deed6e85)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE: bin/gstack-paths:16 'values are emitted shell-quoted (printf %q) so eval round-trips them'; codex/SKILL.md.tmpl:130 still `eval \"$(~/.claude/skills/gstack/bin/gstack-paths)\"`; no `--get` (grep empty)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-design-variant-count-validation",
+  "title": "design `--count` rejects non-integer/zero/negative instead of silently generating nothing",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #6 (03c0d24d, 9a04c05f)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: design/src/flag-utils.ts:1-45 (`--count abc \u2192 for (i < NaN) never runs \u2192 ZERO variants, exit 0`, parseIntFlag; landed 94993f74 v1.61.0.0)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-design-timeout-message",
+  "title": "Design image timeout message matches the real 240s timer",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #6 (8ae097d9, 6bdfe770)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: design/src/variants.ts:68 `240_000` and :135 `\"Timeout (240s)\"`."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-make-pdf-invisible-preamble",
+  "title": "make-pdf: a leading <style>/comment-only preamble no longer produces a blank first page",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #6 (2b412161)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: make-pdf/src/render.ts:487-506 ('A preamble that renders nothing visible (a leading <style> block ...) ... a blank page 1. Keep the non-rendering markup')."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-setup-help-side-effect-free",
+  "title": "`./setup --help` prints usage before any environment mutation",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #7 (f1e61f43)"
+  ],
+  "final": "ABSORBED",
+  "basis": "cross-reference (skeptic confirmed)",
+  "evidence": [
+   "/home/vercel-sandbox/gstack/setup:16-42 usage() heredoc (superset of the fork's text: adds `--model <id>` and a codex --model example)",
+   "/home/vercel-sandbox/gstack/setup:44-49 `# Short-circuit on -h/--help before any environment checks` loop with `-h|--help) usage; exit 0`, placed BEFORE the `command -v bun` check at setup:51",
+   "/home/vercel-sandbox/gstack/setup:6-14 BASH_COMPAT=50 heredoc-delivery guard (beyond the fork: prevents `./setup --help` hanging on macOS under pipe-KVA pressure)"
+  ],
+  "notes": "Fork PR #7 (time-attack/gstack, branch time-attack/wave-setup-install-isolated-review) was CLOSED unmerged and its commits are not in the local clone; patches were read via `gh api repos/time-attack/g"
+ },
+ {
+  "id": "s1-prewave-gstack-paths-shell-quote",
+  "title": "gstack-paths emits shell-quoted values",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #7 (dcb92b04)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: bin/gstack-paths:16-22 (printf %q rationale incl. Windows paths with spaces)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-benchmark-timeout-validation",
+  "title": "gstack-model-benchmark validates --timeout-ms as a positive integer",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #7 (8878863c)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: bin/gstack-model-benchmark:91-99 parsePositiveIntegerFlag, :124 used for '--timeout-ms'."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-settings-hook-malformed-fail-closed",
+  "title": "gstack-settings-hook refuses to overwrite malformed settings.json; honors CLAUDE_CONFIG_DIR",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #7 (034326ab)",
+   "upstream PR #2234"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: bin/gstack-settings-hook:70 CLAUDE_CONFIG_DIR, :100-110 gsMain fail-closed prelude, :219-223 'is not valid JSON ... refusing to mutate' exit 3."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-hermes-owned-install-arm",
+  "title": "setup --host hermes installs ownership-marked skills into ~/.hermes/skills",
+  "kind": "feature",
+  "fork_refs": [
+   "fork PR #7 (6ba91c53)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE (upstream decision): hosts/hermes.ts:32-37 'No full install arm'; setup:250-257 hermes arm prints instructions only."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s1-prewave-ios-touch-release-exclusion",
+  "title": "Keep DebugBridgeTouch private UIKit selectors out of Release builds",
+  "kind": "fix",
+  "fork_refs": [
+   "fork PR #7 (bbaf70df)"
+  ],
+  "final": "ABSORBED",
+  "basis": "cross-reference (skeptic confirmed)",
+  "evidence": [
+   "/home/vercel-sandbox/gstack/ios-qa/templates/DebugBridgeTouch.m.template:23 `#if !defined(DEBUG)` short-circuit before any platform gate (with :27-32 explaining the measured failure: header promised DEBUG-only but only `#if TARGET_OS_IOS` was tested), :353 `#else // !TARGET_OS_IOS`, :365 `#endif // !DEBUG / TARGET_OS_IOS` \u2014 functionally a superset of the fork's `#if TARGET_OS_IOS && defined(DEBUG)` (compiles out in ANY non-DEBUG build, not only iOS Release)",
+   "/home/vercel-sandbox/gstack/ios-qa/templates/Package.swift.template:59-65 `cSettings: [ .define(\"DEBUG\", .when(configuration: .debug)) ]` on the DebugBridgeTouch target with the rationale 'Swift settings do not propagate to Objective-C' expressed as 'SwiftPM's implicit DEBUG for C-family targets is not something to bet a private-API exposure on'; :15-33 Release-build guard hierarchy + `Guard 1 was added 2026-08-15 after a measured failure` + the nm -j CI invariant",
+   "/home/vercel-sandbox/gstack/ios-qa/templates/Package.swift.template:1 `// swift-tools-version:5.9` is the first line (the fork's second sub-piece); landed earlier via 0b869898 2026-07-14 'fix(ios-qa): make generated Swift manifests valid on first run' (the fork's own iOS-hardening wave, upstream PR #2264)"
+  ],
+  "notes": "Independently re-implemented upstream on 2026-08-15/16 (credited to @Bastea, #2585), one month after fork commit bbaf70df (2026-07-14). No .github workflow runs the nm invariant (grep of .github/workf"
+ },
+ {
+  "id": "s2-runtime-osv-config-and-overrides",
+  "title": "OSV-Scanner suppression file + fixed-version overrides for hono/fast-uri",
+  "kind": "security",
+  "fork_refs": [
+   "d240b0fa"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED and extended: upstream .osv-scanner.toml carries the same GHSA-frvp-7c67-39w9 assessment text plus `ignoreUntil` expiry and a second entry (image-size, #2753), and documents the --config loading contract (inert v1.65-v1.78) enforced by test/osv-config-wiring.test.ts; upstream bun.lock alrea"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-gate-secret-scan",
+  "title": "quality-gate credential scan of PR added lines via bin/gstack-redact",
+  "kind": "ci",
+  "fork_refs": [
+   "f14445bb"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED and improved: upstream .github/scripts/gate-secret-scan.mjs is the fork script plus an EPIPE handler and a fail-closed path when the scanner emits no parseable report (diff shows only additions upstream); .github/workflows/quality-gate.yml header says 'fork port wave 2, adapted from time-at"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-workflow-concurrency",
+  "title": "concurrency groups with cancel-in-progress on every workflow",
+  "kind": "ci",
+  "fork_refs": [
+   "09492d34"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED independently: all 14 upstream workflows contain `concurrency:` (grep -l), enforced by test/workflow-concurrency.test.ts (header explains actionlint.yml/skill-docs.yml historically lacked it)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-bun-version-pin",
+  "title": "Pin bun-version in CI instead of `latest`",
+  "kind": "ci",
+  "fork_refs": [
+   "f14445bb"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: upstream pins `bun-version: 1.3.13` in all 9 workflows that install bun (make-pdf-gate.yml:56, evals-periodic.yml:275, evals.yml:264, free-tests.yml:57, skill-docs.yml:31, windows-setup-e2e.yml:48, quality-gate.yml:41, version-gate.yml:32, windows-free-tests.yml:50); no `bun-version: lates"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-handoff-test-isolation",
+  "title": "handoff.test.ts: per-file CHROMIUM_PROFILE, no delayed process.exit, bounded cleanup",
+  "kind": "test-infra",
+  "fork_refs": [
+   "9919c4cd",
+   "d7357c28"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED independently (v1.77 test overhaul): upstream browse/test/handoff.test.ts:17-32 per-file CHROMIUM_PROFILE with restore, :50-58 afterAll awaits bm.close() raced at 3s with explicit 'never process.exit()' comment; test/no-suicide-exit.test.ts statically bans scheduled process.exit in any test"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s2-runtime-slop-diff-generated-exclusion",
+  "title": "slop-diff should skip generated output files",
+  "kind": "tooling",
+  "fork_refs": [
+   "d7357c28"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "scripts/slop-diff.ts:22-28 \u2014 changedFiles = raw `git diff --name-only <base>...HEAD` with no generated-file filter; :125-127 head findings filtered only by changedFiles membership (confirms the candidate's factual claim about the code, but see premise)",
+   "slop-scan README (github.com/benvinegar/slop-scan, fetched): 'Current language support: .ts, .tsx, .js, .jsx, .mjs, .cjs' \u2014 slop-scan does not scan Markdown, so a *.md file can never produce a finding",
+   "git ls-files: upstream's committed generated output is exclusively `*/SKILL.md` (60 files); .gitignore:12-21 ignores .claude/skills/, .agents/, .factory/, .kiro/, .opencode/, .cursor/ and git ls-files on each returns 0 \u2014 there are no committed '.agents/** copies' and no committed generated .ts/.js anywhere (hostSubdir trees from hosts/define-host.ts:92,131 exist only on disk)"
+  ],
+  "notes": "The fork's change was correct for GStack 2's architecture (skills/** = generated packages containing duplicated .ts/.js support files) and is not portable to upstream's 44-skill tree, where the only g"
+ },
+ {
+  "id": "s2-runtime-fork-pr-secret-guards",
+  "title": "Paid/package-write jobs skip fork PR heads (head.repo.full_name == github.repository)",
+  "kind": "security",
+  "fork_refs": [
+   "f14445bb"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: upstream .github/workflows/evals.yml:78,82 (push/cache-to gated), :107 (job if), :309 (report job) carry the same guard; CLAUDE.md 'Checking out PRs from garrytan-agents' documents the fork-secret model."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-one-way-door-reset-revoke",
+  "title": "One-way-door detection catches reset/revoke (+invalidate) credential phrasing (#2024)",
+  "kind": "fix",
+  "fork_refs": [
+   "944dcab2"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: scripts/one-way-doors.ts:66-72 (identical noun alternation across revoke/reset/rotate, comment cites #2024). `invalidate` verb not present (grep -> none) \u2014 trivial residual."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-distill-model-override",
+  "title": "Distill model overridable instead of hardcoded Haiku ID",
+  "kind": "fix",
+  "fork_refs": [
+   "944dcab2",
+   "01fcb811"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: bin/gstack-distill-free-text:210-216 (GSTACK_EVAL_MODEL_DISTILL || GSTACK_EVAL_MODEL, mirrors lib/eval-model.ts); lib/eval-model.ts exists."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-careful-compound-command-guard",
+  "title": "/careful checks every segment of a compound command (#2039)",
+  "kind": "security",
+  "fork_refs": [
+   "72e3f2a5",
+   "07cd8a26"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED (independent impl): careful/bin/check-careful.sh:186-189 ('#2039 wave' hardenings), shared careful/bin/hook-extract.sh JSON helpers (:15-25), two-tier deny/ask; issue #2039 CLOSED. test/hook-scripts.test.ts exists."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-eval-model-host-neutral",
+  "title": "Eval helpers resolve models through one host-neutral point; hardcoded model IDs dropped",
+  "kind": "test-infra",
+  "fork_refs": [
+   "01fcb811",
+   "3ed66be4"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: lib/eval-model.ts exists; bin/gstack-distill-free-text:210-216 mirrors it (GSTACK_EVAL_MODEL_*)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-setup-gbrain-provider-step0",
+  "title": "setup-gbrain Step 0: explicit code-indexing provider choice, no default provider, per-repo egress consent",
+  "kind": "security",
+  "fork_refs": [
+   "8bc0a04f"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: setup-gbrain/SKILL.md.tmpl:107-142 ('Step 1.7: Code-intelligence provider choice (Step 0 of indexing)', `gstack-code-intelligence select <provider|none>`, 'Local-compute and remote-send providers are separate consents \u2014 never bundle them')."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-discovery-surface-ceiling",
+  "title": "Import-free discovery-surface ceiling test (always-on frontmatter budget)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "c549a627",
+   "a295f405"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: test/catalog-budget.test.ts (1,150 token-equivalent aggregate, 260-byte per-skill sub-cap) and test/context-budget-ratchet.test.ts with test/fixtures/context-budget.json (alwaysOnTotal 6344 + per-skill eager ceilings) per CLAUDE.md and fixture header."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s4-fleet-question-format-hook-outputs",
+  "title": "question-preference hook emits only documented PreToolUse outputs (no invalid 'defer'); packaged question-format contract",
+  "kind": "fix",
+  "fork_refs": [
+   "740f446b"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: no 'defer' literal in bin/gstack-question-preference-hook* or lib/*.ts (grep -> none); upstream v1.78 AUQ collapse fix per context. Not independently re-verified beyond the grep."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-demos-booked-fixture",
+  "title": "demos/booked flight-booking demo page + record-mac.sh headed walkthrough script",
+  "kind": "tooling",
+  "fork_refs": [
+   "f71a10c1"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "ls /home/vercel-sandbox/gstack shows no demos/ dir. Upstream test/skill-validation.test.ts 'no compiled binaries in git' allows <2 MB but repo convention keeps fixtures under browse/test/fixtures."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-web-data-egress-rails",
+  "title": "Web-data egress rails: off-machine providers get public URLs only; keys never in argv/chat; presence is not consent; never install",
+  "kind": "security",
+  "fork_refs": [
+   "f0efe76c"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "cross-reference",
+  "evidence": [
+   "scrape/SKILL.md.tmpl, browse/SKILL.md.tmpl, skillify/SKILL.md.tmpl \u2014 grep 'egress|off-machine|off machine|third.party|public URL' \u2192 zero hits; there is no off-machine scraping-provider path for such rails to govern",
+   "scripts/resolvers/third-party-actions.ts:35 \u2014 'NEVER run an installer for them, and never treat binary presence as consent to browse'; :37 per-task consent 'never persist it as standing permission'; :43 'A captured secret never appears in chat output, logs, or shell history \u2026 0600' (generic equivalents of three of the fork's rails, scoped to vendor-dashboard drives)",
+   "docs/designs/CODE_INTELLIGENCE_PROVIDER_CONTRACT.md:105-120 \u2014 per-repo egress consent for non-local providers, 'Graphify is never auto-installed', 'selection persists without granting egress consent; egress requires a separate explicit step' (the same selection\u2260consent split the fork applies to Context.dev)"
+  ],
+  "notes": "Fork ref f0efe76c (WEB-DATA.md line 19 + bin/gstack-web-data:14-16,83). Marked NOT_APPLICABLE because the rails govern a provider surface upstream does not have; they are not independently portable pr"
+ },
+ {
+  "id": "s6-branches-stealth-tests",
+  "title": "Stealth unit + real-Chromium fingerprint E2E tests",
+  "kind": "test-infra",
+  "fork_refs": [
+   "8df1c003"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ls browse/test | grep stealth \u2192 stealth-extended.test.ts, stealth-layer-c.test.ts, stealth-webdriver.test.ts; CHANGELOG.md:2073 '80 tests, real Chromium for the runtime checks'."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-opus-47-migration",
+  "title": "Opus 4.7 migration branch: overlay, routing precision, voice example, test speedups",
+  "kind": "feature",
+  "fork_refs": [
+   "4d260db7",
+   "da75ebaa",
+   "7e90b0f0",
+   "36ef9d9d",
+   "b6be59ab",
+   "d3742c88",
+   "feat/opus-4.7-migration"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "model-overlays/opus-4-7.md upstream: effort-match, 'Pace questions to the skill', literal-interpretation \u2014 no fan-out bullet. CHANGELOG.md:7012-7035 v1.10.1.0 'Pulled the bullet' with the -60%/-70% table; CHANGELOG.md:164 fanout A/B retired. scripts/models.ts:20,68 opus-4-7; test/skill-e2e-opus-47.t"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-document-release-diataxis",
+  "title": "/document-generate skill + Diataxis coverage map / diagram drift / docs-debt in /document-release",
+  "kind": "feature",
+  "fork_refs": [
+   "1730a061",
+   "369bc62c",
+   "5a425d36",
+   "fd8a7101",
+   "feat/document-release-diataxis"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "gh pr view 1477 \u2192 MERGED 2026-05-14 'v1.35.0.0 feat: add /document-generate skill + enhance /document-release with Diataxis coverage map'; git log --diff-filter=A document-generate/SKILL.md.tmpl \u2192 40e34deb (#1477). document-release/SKILL.md.tmpl:119-176 coverage map/diagram drift; ls docs/ \u2192 explana"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-posthog-instrumentation",
+  "title": "PostHog analytics wrapper in browse (capture() calls in cli/browser-skill/domain-skill paths)",
+  "kind": "tooling",
+  "fork_refs": [
+   "76c7a3df",
+   "posthog/instrumentation-dbe72c"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "grep -rln -i posthog upstream \u2192 only docs/skills.md:339 (an example prose mention). README.md:500-511 'Privacy & Telemetry ... opt-in ... Every off-machine send is receipted'; browse/src/telemetry.ts:1-20 local JSONL respecting tiers; bin/gstack-telemetry-sync uses _receipted_curl; test/egress-recei"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s6-branches-investigate-brokenness-v035",
+  "title": "v0.3.5 fix: direct browse path in SKILL setup blocks, qa/ + setup-browser-cookies/ converted to .tmpl, BROWSE_SETUP/UPDATE_CHECK resolvers",
+  "kind": "fix",
+  "fork_refs": [
+   "f4a29855",
+   "8e1feb7f",
+   "60fce976",
+   "5ac76b81",
+   "investigate-brokenness"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "git log --diff-filter=A qa/SKILL.md.tmpl setup-browser-cookies/SKILL.md.tmpl \u2192 1717ed28 2026-03-14 'fix: browse binary discovery broken for agents (v0.3.5) (#44)'. scripts/resolvers/index.ts:51 `BROWSE_SETUP: generateBrowseSetup`."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s7-docs-method-browser-provider-eval",
+  "title": "Host-native browser provider inventory + 'selection is not readiness' contract + inherited-env host-inference hazard",
+  "kind": "methodology",
+  "fork_refs": [
+   "evals/browser-provider-evals/2026-07-20-browser-provider-eval.md",
+   "evals/browser-provider-evals/2026-07-20-mac-mini-production-eval.md"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE by design: grep -i 'claude in chrome|browser provider|BROWSER-PROVIDERS|selection is not readiness' TODOS.md docs/*.md qa/SKILL.md.tmpl resolvers = 0; TODOS.md:462-480 Aside QA logged-in path deferred (P3); CLAUDE.md 'Browser interaction' section."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-hermetic-skills-config-dir",
+  "title": "hermeticSkillsConfigDir(): register the repo's skills for PTY slash-command children (un-silenced 7 plan-family gates)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "03c4eca2"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED in wave 1 (1d41ee3a v1.63.0.0): test/helpers/hermetic-env.ts:278 `export function hermeticSkillsConfigDir()`; test/helpers/claude-pty-runner.ts:66-69 `seedSkills` option, :1329-1330 sets CLAUDE_CONFIG_DIR, :1717/:2014 runPlanSkill* pass seedSkills: true; CLAUDE.md: 'A PTY test that types a "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-codex-e2e-mcp-isolation",
+  "title": "Keep the operator's MCP servers out of codex E2E children",
+  "kind": "test-infra",
+  "fork_refs": [
+   "d7adaf35"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED by a stronger mechanism: test/helpers/codex-session-runner.ts:211-214 copies only `auth.json` from CODEX_HOME (no config.toml at all), landed 60e51342 v1.67.2.0; documented in CLAUDE.md."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-browse-telemetry-config-tier",
+  "title": "browse local telemetry honors the persistent `telemetry: off` tier, not just the env switch",
+  "kind": "fix",
+  "fork_refs": [
+   "147108a4"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED and superseded in wave 2 (2be6c06b v1.65.0.0): browse/src/telemetry.ts:47-91 `isTelemetryDisabled()` reads `readGstackConfigYamlKey('telemetry')` (config.yaml, same parser as the pair-agent gate); explicit `off` disables; default is DISABLED unless a granted tier, stricter than the fork's o"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-xvfb-argv0-kill-match",
+  "title": "Xvfb cleanup matches the executable, not an 'xvfb' substring, before killing",
+  "kind": "fix",
+  "fork_refs": [
+   "126242d2"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED independently (410b4928 v1.66.0.0 #2593; comment 'First Linux CI run caught exactly that'): browse/src/xvfb.ts:144-170 `readPidArgv0` + basename compare; browse/test/xvfb.test.ts:73 'a process whose ARGUMENTS mention xvfb is not ours'. Residual: HAS_XVFB guard (:12-16) checks only Xvfb, not"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-codex-import-xargs-r",
+  "title": "codex-session-import: `xargs -r` so an empty session set does not import the repo's newest file",
+  "kind": "fix",
+  "fork_refs": [
+   "b5de3b9a"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED independently and earlier (c118e240 v1.64.1.0): bin/gstack-codex-session-import:67-71 `xargs -r ls -t` with the same GNU/BSD rationale."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-ios-boot-token-os-log",
+  "title": "StateServer boot token no longer readable from the unified log",
+  "kind": "security",
+  "fork_refs": [
+   "9f5ef002"
+  ],
+  "final": "ABSORBED",
+  "basis": "cross-reference (skeptic confirmed)",
+  "evidence": [
+   "/home/vercel-sandbox/gstack/ios-qa/templates/StateServer.swift.template:100-105 \u2014 bootstrap os_log line no longer interpolates the token at all: logger.notice(\"gstack-ios-qa-bootstrap port=... build=...\"); comment: 'the os_log line that used to carry it had no consumer and handed a live credential to anything reading the unified log during the launch window' (stronger than the fork's privacy: .private, which is still recoverable via private_data logging profiles)",
+   "/home/vercel-sandbox/gstack/test/fixtures/ios-qa/FixtureApp/Sources/DebugBridgeCore/StateServer.swift:100-105 \u2014 identical; md5 f76cb84b63dc6c52222f1b959a43a358 matches the template byte-for-byte",
+   "/home/vercel-sandbox/gstack/test/ios-qa-stateserver-hardening.test.ts:23-40 \u2014 FREE-suite tripwire over both copies: no logger.(notice|info|error|debug|log) line may contain 'bootToken'; 'gstack-ios-qa-bootstrap port=' must survive; 'gstack-ios-qa-bootstrap token=' must be absent (B3). :42-48 also pins IPv4 requiredLocalEndpoint loopback (B5)"
+  ],
+  "notes": "Confirmed absorbed and stronger in 2be6c06b (v1.65.0.0, wave 2): fork used `privacy: .private` (still recoverable with a private-data logging profile), upstream dropped the interpolation altogether. U"
+ },
+ {
+  "id": "s5-beta-ios-raw-session-tokens",
+  "title": "ios-qa daemon: GET /auth/sessions returns salted-hash token_id, never raw tokens",
+  "kind": "security",
+  "fork_refs": [
+   "4fb5e632"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED (2be6c06b wave 2): ios-qa/daemon/src/index.ts:365-376 token_id via saltedHash, :380-397 revoke by token/token_id/identity; audit.ts:65 saltedHash."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-brain-consumer-scripts-deleted",
+  "title": "Delete deprecated brain-consumer/reader curl scripts with a tripwire",
+  "kind": "security",
+  "fork_refs": [
+   "5e8f7d12"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED in wave 1 (1d41ee3a): bin/ has neither script (ls bin | grep brain-consumer -> none); test/egress-receipt-wiring.test.ts:301 tripwire over ['bin/gstack-brain-consumer', 'bin/gstack-brain-reader']."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-ci-build-gate-binaries-and-poppler",
+  "title": "CI: build compiled binaries before the free suite; install poppler-utils for the emoji gate",
+  "kind": "ci",
+  "fork_refs": [
+   "21c22ed8",
+   "b96c9a4b"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: .github/workflows/free-tests.yml:116-123 'Build gate binaries' `bun run build:gates` with GSTACK_EXPECT_BINARIES=1 arming make-pdf/test/e2e/ci-prereqs.test.ts (:126-128); :92 installs `xvfb x11-utils poppler-utils fonts-noto-color-emoji`; make-pdf-gate.yml:61-67 installs poppler on both OS"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-paid-shards-eval-bg-partial-fix",
+  "title": "Sharded paid tier, eval:bg:gate routed through it, and findPreviousRun no longer self-compares against `_partial`",
+  "kind": "test-infra",
+  "fork_refs": [
+   "e591577a",
+   "dd56bcf2",
+   "3a3b72fe"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED in wave 1 (1d41ee3a): scripts/test-paid-shards.ts (:5 rationale), CLAUDE.md documents eval:bg:gate -> sharded runner with 25200s detach timeout; test/helpers/eval-store.ts:146,183-191 `_partial` flag + filename detection excluded from baselines."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-body-floor-guard",
+  "title": "A size floor under the shipped judgment surface (gutting a module must fail, not go greener)",
+  "kind": "test-infra",
+  "fork_refs": [
+   "8c4d6e7a"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED-equivalent: test/skill-size-budget.test.ts:143-150 'Gap E (v1.46.0.0): per-skill min-size floor ... shrinkage floor'; test/context-budget-ratchet.test.ts:9 'skill-size-budget floors catch shrink'."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s5-beta-deepeval-key-presence-consent",
+  "title": "deepeval bakeoff arm: key presence is never consent for Confident AI upload",
+  "kind": "security",
+  "fork_refs": [
+   "d72f0c4b"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE. No evals/ directory or platform bakeoff upstream (ls evals -> missing; grep `deepeval`, `platform_bakeoff`, `braintrust`, `langfuse` across .py/.ts/.md -> zero hits; lib/model-benchmark/ absent)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s8-codediff-memory-ingest-total-files-tripwire",
+  "title": "memory-ingest refuses to advance state when gbrain saw fewer files than were staged (#2144 second layer)",
+  "kind": "fix",
+  "fork_refs": [
+   "cca23b2d"
+  ],
+  "final": "SUPERSEDED",
+  "basis": "cross-reference (skeptic confirmed)",
+  "evidence": [
+   "bin/gstack-memory-ingest.ts:2303-2346 \u2014 reconciliation check: `accountedLandings = (imported ?? 0) + (skipped ?? 0)` vs `expectedLandings = prep.prepared.length - failedSources.size`; on shortfall returns system_error 'gbrain import accounted for X of Y staged page(s) ... Refusing to advance state', and includes total_files in the message when reported (:2322-2325)",
+   "bin/gstack-memory-ingest.ts:2386-2397 \u2014 non-fatal silent-zero WARNING ('#2144's other half') when pages staged but imported+skipped==0 and errors==0",
+   "bin/gstack-memory-ingest.ts:1840-1860 \u2014 GIT_CEILING_DIRECTORIES first-layer fix (with platform path delimiter, more portable than fork's hardcoded ':')"
+  ],
+  "notes": "The bug the fork's tripwire targets ('green run, empty brain' \u2014 state advanced while nothing reached the index) no longer exists in upstream HEAD: upstream refuses to advance state via a more general "
+ },
+ {
+  "id": "s8-codediff-make-pdf-absorbed-batch",
+  "title": "make-pdf fixes already in upstream (verified per identifier)",
+  "kind": "fix",
+  "fork_refs": [
+   "39f9030e",
+   "2fc1c8b9"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED at upstream make-pdf/src/render.ts:69-70,213-265,375-385,487-515 and smartypants.ts:23-52. gh: #1904 still OPEN (upstream's fold covers the <style>/frontmatter cases the issue names), #2108 CLOSED."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s9-skills-question-tool-prose-fallback",
+  "title": "No structured question tool \u2192 identical options as numbered prose, STOP, never silently default",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "740f446b"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "scripts/resolvers/preamble/generate-ask-user-format.ts:13-37 (Unavailable \u2192 prose fallback; D<N> labels; 'One-way / destructive confirmations in prose\u2026 make it stronger: require an explicit typed confirmation'), plus spawned/headless/Conductor branches the fork lacks. plan-*-review sections also car"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "s9-skills-codex-host-openai-yaml",
+  "title": "Per-skill agents/openai.yaml (display_name / short_description / default_prompt) for Codex Agent Skills discovery",
+  "kind": "tooling",
+  "fork_refs": [
+   "b6572ebb"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "scripts/gen-skill-docs.ts:834-839 writes `agents/openai.yaml` per skill when `hostConfig.generation.generateMetadata` (hosts/codex.ts:19; scripts/host-config.ts:65); root agents/openai.yaml:2-4; toYamlInlineScalar guards Codex's strict YAML parser (gen-skill-docs.ts:423-441)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-spawned-session-helper-and-telemetry-state",
+  "title": "Spawned-session helper (#1188) and per-PPID telemetry start-state persistence (#1050) \u2014 solved upstream by bin/gstack-skill-start",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "f848a916",
+   "466de5fe",
+   "upstream PR #1188 @jbetala7 (OPEN)",
+   "upstream PR #1050 @walton-chris (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED by a different design: upstream bin/gstack-skill-start:69-70 resolves session kind through bin/gstack-session-kind and keeps OPENCLAW_SESSION handling in bin (skill-start:99-106), and echoes TEL_START/SESSION_ID (skill-start:137-146) which bin/gstack-skill-end consumes (scripts/resolvers/pr"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-update-check-hardening",
+  "title": "update-check CHECK_FAILED sentinel (#1982) and update_check=false prose gate (#2022)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "366745f8",
+   "1c809dd3",
+   "76a5595b",
+   "upstream PR #1982 @maxpetrusenkoagent (OPEN)",
+   "upstream PR #2022 @0xDevNinja (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: bin/gstack-update-check:22 `trap 'rc=$?; echo \"CHECK_FAILED gstack-update-check crashed ...\"; exit 0' ERR`; bin/gstack-update-check:63 honors update_check itself; bin/gstack-skill-start:152-153 echoes UPDATE_CHECK; the upgrade prose moved to runtime instruction emission (scripts/resolvers/"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-tilde-in-quoted-bin-paths",
+  "title": "Brain-sync bin paths: `~/` inside double quotes is literal \u2014 rewrite to $HOME (#1692 / #1656)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "bd6f080a",
+   "upstream PR #1692 @0xDevNinja (OPEN)",
+   "upstream issue #1656 (CLOSED)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED by restructuring: issue #1656 is CLOSED; upstream scripts/resolvers/preamble/generate-brain-sync-block.ts is now 33 lines with no bin-path interpolation (grep '~/', 'binDir', 'gstack-brain-sync' in it: 0 hits) \u2014 the sync logic moved into bin/gstack-skill-start which uses `$_BIN` (skill-star"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-windows-acl-sid",
+  "title": "Windows icacls grants to the process token SID (`*S-1-...`), not the bare username (#2170)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "afeb8369",
+   "upstream PR #2170 @IntegriGit (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: upstream browse/src/file-permissions.ts:45-87 currentUserSid() via `${systemRoot}\\System32\\whoami.exe /user /fo csv /nh` and `*${sid}` principal, with the same local-vs-domain rationale in comments. Wave caveat carries: NOT CONFIRMED on Windows in either tree. Nothing to port."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-bun-polyfill-spawn-parity",
+  "title": "bun-polyfill Bun.spawn parity: proc.exited, eager pipe drain, OOM cap, spawn-failure resolution (#1743)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "e85c953d",
+   "2e4b9709",
+   "1d7bbc5e",
+   "ec6c744b",
+   "0feebf2e",
+   "upstream PR #1743 @habassa5 (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: upstream browse/src/bun-polyfill.cjs:147-215 has the identical drain/MAX_BUFFER (GSTACK_SPAWN_MAX_BUFFER)/exited design including the exit-or-error lifecycle promise (:205-215). Wave caveat: NOT CONFIRMED on Windows. Nothing to port."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-numbered-profile-cookie-discovery",
+  "title": "Chrome numbered-profile (Profile N) cookie discovery when Default is absent (#2139)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "5fe95e9c",
+   "upstream PR #2139 @chrisreedbates (CLOSED)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: upstream browse/src/cookie-import-browser.ts:58 and :131 ('Check numbered profiles (Profile 1, Profile 2, etc.)'); CHANGELOG.md:1316 credits #2139. The headed-window half is NOT_APPLICABLE: upstream stopped rewriting the Chrome-for-Testing bundle (CHANGELOG.md:1316-1320) and cli.ts:431-442"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-disconnect-cause-null-browser",
+  "title": "resolveDisconnectCause tolerates a null browser on persistent-context disconnect (#1659, Garry's own PR)",
+  "kind": "fix",
+  "fork_refs": [
+   "d947d2e1",
+   "da065156",
+   "upstream PR #1659 @garrytan (OPEN)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: upstream browse/src/browser-manager.ts:194 `export async function resolveDisconnectCause(browser: Browser | null)`, called at :234 and :859. Nothing to port (upstream may want to close its own PR #1659, still OPEN)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap1-s10-browsewave-merged-pair-blocklist-and-brain-trust-ids",
+  "title": "Case-insensitive exfiltration blocklist (#2228) and @local brain_trust_policy ids (#2222) \u2014 already merged",
+  "kind": "security",
+  "fork_refs": [
+   "d947d2e1",
+   "1f93413c",
+   "c6f3929d",
+   "upstream PR #2228 @time-attack (MERGED 2026-07-14)",
+   "upstream PR #2222 @time-attack (MERGED 2026-07-14)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: browse/src/content-security.ts:348 `const normalizedUrl = url.toLowerCase();`; gstack-config @local handling merged via #2222 (listed in the shared 'already absorbed' context). Nothing to port."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap3-hosts-claude-desktop-auq-preempt",
+  "title": "Pre-empt broken AskUserQuestion on the Claude Desktop host with a prose decision brief (#2146)",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "e15e8979 (kalpajit279, #2146)",
+   "f36fe815 (Zachary Townsend, #1816 salvage: hook 'defer' contract doc + empty-stdout AUQ regression test)"
+  ],
+  "final": "SUPERSEDED",
+  "basis": "cross-reference (skeptic confirmed)",
+  "evidence": [
+   "/home/vercel-sandbox/gstack/hosts/claude/hooks/question-preference-hook.ts:21-23 \u2014 header: pass-through is exit 0 + empty stdout, NEVER permissionDecision:'defer' (#2035, #2006); CC v2.1.89+ 'defer' = pause-for-external-resumption",
+   "/home/vercel-sandbox/gstack/hosts/claude/hooks/question-preference-hook.ts:101-121 \u2014 passThrough(): emits no permissionDecision; comment explains every AUQ died with 'Tool result missing due to internal error' because of the old 'defer' emission (the exact symptom #2146 attributed to a Desktop host bug)",
+   "/home/vercel-sandbox/gstack/hosts/claude/hooks/question-preference-hook.ts:377-379, :482-565 \u2014 tool-name regex covers native + mcp__*__AskUserQuestion; transport-avoidance branch is isConductor() only; grep -rniE 'claude desktop|CLAUDE_DESKTOP|isDesktop|desktop host|desktopHost' over ts/tmpl/md/sh/json (excl. generated SKILL.md) \u2192 0 hits; grep 'desktop' in scripts/resolvers/preamble, lib/is-conductor.ts, hosts/claude/hooks \u2192 0"
+  ],
+  "notes": "#2146's premise (Desktop host bug; PostToolUse cannot rescue) was verified on claude.exe 2.1.197, inside the CC \u22652.1.89 window where gstack's own hook emitted permissionDecision:'defer', which the Des"
+ },
+ {
+  "id": "gap3-slate-first-class-install-arm",
+  "title": "./setup --host slate wired as a full install (clone of the cursor arm)",
+  "kind": "feature",
+  "fork_refs": [
+   "2b4aeed2"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT_APPLICABLE by upstream decision: setup:228-236 deliberately routes `--host slate` to the Claude install ('Slate is not yet a first-class install target (docs/designs/SLATE_HOST.md \u2014 blocked on the host-config refactor)'); docs/designs/SLATE_HOST.md exists. Revisit only if that design doc changes"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap3-test-infra-wave-fully-absorbed",
+  "title": "Test-infra wave (14 community PRs / 12 problems) \u2014 every item already in upstream HEAD",
+  "kind": "test-infra",
+  "fork_refs": [
+   "bcf1f932 (Ryan Chew, #553)",
+   "fa30d07b (Kaustav Mishra, #789)",
+   "8966fbcd (Asish Kumar, #1688)",
+   "902baa5c + 16692e31 (#1896)",
+   "bf67aead (Ryan Stern, #1919)",
+   "d2c3cc47 (spacegeologist)",
+   "9296cb75 (katlun-lgtm, #1936)",
+   "8627fc73 (#2025)",
+   "bb333d93 (#2040)",
+   "2ff29ea8 (#2053)",
+   "e24c9f8b",
+   "c647efec/4db858e6/d82c5d91 (ChrisQuorum)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: test/helpers/session-runner.ts:205-212 (array-form spawn, no shell) and :308-311 (first NDJSON line); lib/gstack-memory-helpers.ts:490 parseFilterMap and :111-120 (trailing-slash strip before and after .git); ios-qa/daemon/src/index.ts:247-308 shouldRefreshTunnel/invalidateTunnel (differen"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap3-hosts-codex-setup-wave-absorbed-set",
+  "title": "Hosts/codex-model/setup-install/upgrade-config/docs-pdf-design items already present in upstream HEAD (verified sub-pieces)",
+  "kind": "fix",
+  "fork_refs": [
+   "2d19016c (Daniel Nascimento, #2165)",
+   "19e3fd6b (Jizu, #2216)",
+   "8dd528df (Franz Alarcon, #2198) + 05261e54",
+   "4ed5f3b5 (ashcharus-hue, #1996)",
+   "f1ef71a9 (Matt Van Horn, #1526)",
+   "944c5f1f (spacegeologist, #1767)",
+   "d46a20db (spenquatch, #1282)",
+   "00dd533a (lmist, #900) + f3e32bc6 + ad1b382f",
+   "c7509d90 (Nikhilesh Nanduri, #1502) + 3a2a1ca8 (joeyp)",
+   "8cfcb8d1 (Nikhilesh Nanduri) + 9c1319f9",
+   "628fa8f0 (Padmaraj Nidagundi, #2101)",
+   "34e3ccbd (David Miserak)",
+   "44fb98ff",
+   "2da115ba (Brandon Lipman)",
+   "cd5a8591 (notjbg)",
+   "b8ad3396 (Matt Van Horn)",
+   "e9ef2479 (andrefogelman) + 4f161a32",
+   "222a0be6 (Erick Heslan)",
+   "a99417c8 (jbetala7)",
+   "005ad697 (Oliver Harriehausen) + 55e06b25",
+   "c1866d8d (Sina, #1348)",
+   "43f13b02 (Simonas)",
+   "789b0874 (Diego Sens)",
+   "651e55d7 (parafallen-maker, #1113)",
+   "d38d880e (Jayesh Betala, #1904)",
+   "eb74a118 (Asish Kumar)",
+   "c0a4d331 (Pablosinyores)",
+   "256b47fe",
+   "1c0ab4e4 (RagavRida)",
+   "d77c7d9f (Jayesh Betala)",
+   "d2fd23a2 (Charlie) + c7ef80b1",
+   "c848fba0 (Michael Vann)",
+   "1c180fdb (Ryan Alberts)",
+   "bad63fcf/82cf7703 (#2221)",
+   "e0dfd9d5 (#2212)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED with file:line \u2014 hosts/claude/hooks/question-preference-hook.ts:22,103 (never 'defer'); setup: 18 `supabase/config.sh` link sites (e.g. :1553-1557), lib/ links at :1261,:1316,:1369,:1532, cursor in host case :227 (upstream closed #1526 'superseded by #2142'), Windows refresh ownership gate "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-land-and-deploy-squash-readback-2011",
+  "title": "land-and-deploy squash/rebase merge readback guard + avoid detached post-merge worktrees (#2011)",
+  "kind": "fix",
+  "fork_refs": [
+   "dcb7cac4 (Max Shepherd-Cross / maxshepcross)",
+   "upstream PR #2011 OPEN (maxshepcross)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: land-and-deploy/sections/merge-and-deploy.md.tmpl:54-64 'Squash/rebase merge readback guard' including the `git switch -c codex/post-merge-pr-$PR_NUMBER` detached-HEAD avoidance text."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-ship-absolute-bin-path-1820",
+  "title": "Absolute bin path for gstack-next-version in landing-report/land-and-deploy/review (#1820)",
+  "kind": "fix",
+  "fork_refs": [
+   "63fb8c49 (William Voorhees / wsvoorhees)",
+   "d795dd7c (t, /land alignment)",
+   "upstream PR #1820 OPEN (wsvoorhees)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: land-and-deploy/SKILL.md.tmpl:199, landing-report/SKILL.md.tmpl:71, review/SKILL.md.tmpl:96 all `bun run ~/.claude/skills/gstack/bin/gstack-next-version`."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-telemetry-error-message-failed-step-769",
+  "title": "Telemetry edge function maps error_message and failed_step; completion-status prompt passes them (#769)",
+  "kind": "fix",
+  "fork_refs": [
+   "35bbb406 (Dhruv / sunnnybala)",
+   "upstream PR #769 OPEN (sunnnybala)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: supabase/functions/telemetry-ingest/index.ts:19-20,98-99; scripts/resolvers/preamble/generate-completion-status.ts:72 `--error-message \"ERROR_MESSAGE\" --failed-step \"FAILED_STEP\"`; bin/gstack-telemetry-log:60-61,194-211; CHANGELOG.md:2046 (#1947 redaction of error_message)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-setup-mirror-support-files-1502",
+  "title": "setup mirrors support .md files and asset dirs next to SKILL.md (#1502)",
+  "kind": "fix",
+  "fork_refs": [
+   "c7509d90 (Nikhilesh Nanduri)",
+   "upstream PR #1502 OPEN (NikhileshNanduri)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: setup:871 and :964-967 (comments citing #2454: 'review/checklist.md + specialists/, qa/templates + references' mirrored; '/review 404'd at Read .claude/skills/review/checklist.md'); PR #2604 body 'fresh installs missing runtime assets \u2014 setup links every runtime asset with an explicit excl"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-freeze-symlink-resolution-781",
+  "title": "freeze boundary check resolves symlinks for both FILE_PATH and FREEZE_DIR (#781)",
+  "kind": "fix",
+  "fork_refs": [
+   "c8045bf7 (Kaustav Mishra / km-git007)",
+   "upstream PR #781 CLOSED 2026-08-01 (km-git007)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: freeze/bin/check-freeze.sh:100-116 `_resolve_path` with `pwd -P` and a `while [ -L \"$_p\" ]` readlink loop, applied to FILE_PATH (:115) and FREEZE_DIR (:116); residual freeze/SKILL.md.tmpl:54 uses `pwd` not `pwd -P` (cosmetic given :116)."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-env-var-resolver-paths-1704",
+  "title": "Preserve gstack env-var resolver paths in browse/design setup blocks (#1704)",
+  "kind": "fix",
+  "fork_refs": [
+   "069839bc (Brown / o1092877777)",
+   "upstream PR #1704 OPEN (o1092877777)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: scripts/resolvers/design.ts:1 imports toShellPath; :795,:803,:840 `${toShellPath(ctx.paths.designDir)}/design` / browseDir; scripts/resolvers/browse.ts:123 `B=\"${toShellPath(ctx.paths.browseDir)}/browse\"`."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-context-recovery-slug-form-1851",
+  "title": "Context Recovery reviews.jsonl lookup uses canonical slug form (#1851)",
+  "kind": "fix",
+  "fork_refs": [
+   "4806c7e1 (harjoth / harjothkhara)",
+   "upstream PR #1851 CLOSED 2026-08-17 (absorbed)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED: scripts/resolvers/preamble/generate-context-recovery.ts:6-11 'Branch-form discipline (#2550/#1851)' and :22 `${BRANCH:-unknown}-reviews.jsonl`; CHANGELOG.md:1070 'groundwork contributed by @harjothkhara (#1851)'."
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-extension-cjk-ime-double-send-1679",
+  "title": "Sidebar terminal CJK IME double-send (#1679 / issue #1272)",
+  "kind": "fix",
+  "fork_refs": [
+   "88cc377c (0xteng)",
+   "619cebb3 (t)",
+   "upstream PR #1679 OPEN (0xteng)"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "ABSORBED (different fix): extension/sidepanel-terminal.js:436-442 'IME composition (Korean/CJK, issue #1272) is handled by xterm.js itself ... Do not re-add a manual compositionend send.'"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap2-skillwave-gpt-5-6-generic-overlay-2245",
+  "title": "Generic gpt-5.6 model overlay + resolver mapping (#2245) \u2014 conflicts with upstream's deliberate Sol-exact-only design",
+  "kind": "judgment-rule",
+  "fork_refs": [
+   "e5349d07 (ChrisQuorum / chrisquorum)",
+   "upstream PR #2245 OPEN (chrisquorum)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "NOT APPLICABLE by design: model-overlays/ has gpt-5.6-sol.md but no gpt-5.6.md; scripts/models.ts:26,36-41 'Sol is intentionally exact-only ... `gpt-*` (anything else GPT, including other 5.6 variants) \u2192 `gpt`'; README.md:136 'The Sol profile is exact-match only'. chrisquorum's other overlays (opus-"
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap5-hygiene-1110-careful-text-segment-filter-rejected",
+  "title": "careful: fork commit 268e9ed1 (#1110 text-segment filter) is a destructive-command bypass \u2014 do not port; upstream already pins the opposite by design",
+  "kind": "fix",
+  "fork_refs": [
+   "268e9ed1",
+   "origin/backup/pre-isolated-wave-review-2026-07-14:docs/pr-triage/2026-07-13-community-pr-consolidation.md:111",
+   "garrytan/gstack PR #1110 (OPEN, by @JiayuuWang)"
+  ],
+  "final": "NOT_APPLICABLE",
+  "basis": "pre-classified from sweep (fork-runtime-only)",
+  "evidence": [
+   "Upstream careful/bin/check-careful.sh has no segment split (whole file read); :29-37 comment names `git commit -m \"wip\" && rm -rf /` and `echo \"x\"; rm -rf ~` as shapes the JSON-parser extraction must expose to the pattern checks; :83-94 restricts only the HIGH deny tier to SIMPLE commands (compound "
+  ],
+  "notes": ""
+ },
+ {
+  "id": "gap5-hygiene-bac5d9a5-unreachable-gate-tests-closed",
+  "title": "Orphan commit bac5d9a5 (rename skill-e2e.test.ts so the skill-e2e-* glob reaches ship-triage / coverage-audit / ship-idempotency) \u2014 already absorbed upstream under different filenames",
+  "kind": "test-infra",
+  "fork_refs": [
+   "bac5d9a5"
+  ],
+  "final": "ABSORBED",
+  "basis": "absorbed per sweep evidence (not re-verified)",
+  "evidence": [
+   "test/skill-e2e.test.ts is absent upstream (ls \u2192 No such file). test/skill-e2e-triage.test.ts and test/skill-e2e-coverage-audit.test.ts exist and are named in test/helpers/touchfiles-data.ts:278-280 ('review-coverage-audit', 'plan-eng-coverage-audit', 'ship-triage'); 'ship-idempotency-pty' \u2192 test/ski"
+  ],
+  "notes": ""
+ }
+]

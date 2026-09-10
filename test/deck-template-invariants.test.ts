@@ -95,7 +95,10 @@ describe('/deck discovery and material intake', () => {
     }
     expect(intake).toMatch(/Route \/ host[^\n]*pre-generated PDF companion[^\n]*Default: no PDF/i);
     expect(intake).toMatch(/PDF companion is a Route \/ host delivery choice, not an eighth\s+category/i);
-    expect(intake).toMatch(/When unselected, add no deck-PDF\s+link, generator, route, build dependency, or QA work/i);
+    expect(intake).toMatch(/legacy PDF discovered during inspection is\s+source material, not a delivery choice/i);
+    expect(intake).toMatch(/activates companion work only when\s+the user explicitly selects it as a deliverable or explicitly supplies a\s+requested companion/i);
+    expect(intake).toMatch(/final artifact name\/direct URL only\s+after the actual build/i);
+    expect(intake).toMatch(/When unselected, add no deck-PDF\s+link, generator, route, build\s+dependency, or QA work/i);
     expect(intake).toMatch(/processors\/reviewers/i);
     expect(intake).toMatch(/product-inspection environment/i);
     expect(intake).toMatch(/delivered-deck access/i);
@@ -273,7 +276,8 @@ describe('/deck interaction and release proof', () => {
     const normalized = pdf.replace(/\s+/g, ' ');
     expect(normalized).toMatch(/off by default; act on it only when selected in Route \/ host/i);
     expect(normalized).toMatch(/pre-generated, static release asset, never a runtime .Export PDF. button, client-side print path, or on-demand server render/i);
-    expect(normalized).toMatch(/same approved story, claim ledger, heading order, and access boundary/i);
+    expect(normalized).toMatch(/same approved story, claim ledger, heading order, and access policy/i);
+    expect(normalized).toMatch(/narrower compatible boundary only when the user expressly selects it; it must never be broader/i);
     expect(normalized).toMatch(/never keep a silent second narrative/i);
     expect(normalized).toMatch(/target project's existing print\/build\/render path/i);
     expect(normalized).toMatch(/`\/make-pdf` is eligible only when its Markdown\/print contract fits a canonical source already present/i);

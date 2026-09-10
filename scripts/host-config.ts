@@ -89,6 +89,13 @@ export interface HostConfig {
   install: {
     /** How skills are linked into the host dir. */
     linkingStrategy: 'real-dir-symlink' | 'symlink-generated';
+    /**
+     * Instruction-only fallback tier: a committed rules digest this host's
+     * users can hand-copy when there is no full install arm. Delivery is
+     * print-path + user-performed copy ONLY — setup must never write or
+     * overwrite a user's own AGENTS.md. See scripts/gen-agents-digest.ts.
+     */
+    instructionTier?: { rulesFile: string };
   };
 
   // --- Host-Specific Behavioral Config ---

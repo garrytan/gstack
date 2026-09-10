@@ -297,7 +297,7 @@ describe('gstack-codex-probe: timeout wrapper + namespace hygiene', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-watchdog-'));
     try {
       const which = (tool: string) =>
-        spawnSync('bash', ['-c', `command -v ${tool}`]).stdout.toString().trim() || `/bin/${tool}`;
+        spawnSync('bash', ['-c', `command -v ${tool}`], { timeout: 30_000 }).stdout.toString().trim() || `/bin/${tool}`;
       fs.symlinkSync(which('bash'), path.join(dir, 'bash'));
       fs.symlinkSync(which('sleep'), path.join(dir, 'sleep'));
       const r = runProbe({
@@ -391,10 +391,12 @@ describe('gstack-codex-probe: telemetry event emission', () => {
 // ── Step 2A argv guard ─────────────────────────────────────────────────────
 // Regression test for #1428: Codex CLI >=0.130.0 rejects passing a quoted
 // prompt argument together with `--base <branch>`. Step 2A must never combine
-// the two on the same line. Asserts across both the .tmpl source and the
-// generated SKILL.md so template drift can't silently re-introduce the bug.
+// the two on the same line. Step 2A lives in the carved review-mode section
+// (codex/sections/review-mode.md, generated from its .md.tmpl) — asserts
+// across both the .tmpl source and the generated section so template drift
+// can't silently re-introduce the bug.
 
-describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', () => {
+describe('codex review-mode section Step 2A: PROMPT + --base mutual exclusion guard', () => {
   function extractStep2A(filePath: string): string {
     const content = fs.readFileSync(filePath, 'utf-8');
     const startIdx = content.indexOf('## Step 2A: Review Mode');
@@ -402,10 +404,14 @@ describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', 
     // End at next `## ` heading (skill section boundary).
     const tail = content.slice(startIdx);
     const nextHeading = tail.slice(2).search(/\n## /);
-    return nextHeading === -1 ? tail : tail.slice(0, nextHeading + 2);
+    const section = nextHeading === -1 ? tail : tail.slice(0, nextHeading + 2);
+    // Non-empty extraction: a carve/regen that leaves only the heading behind
+    // must fail here, not silently pass a vacuous scan.
+    expect(section.length).toBeGreaterThan(1000);
+    return section;
   }
 
-  for (const relPath of ['codex/SKILL.md.tmpl', 'codex/SKILL.md']) {
+  for (const relPath of ['codex/sections/review-mode.md.tmpl', 'codex/sections/review-mode.md']) {
     test(`${relPath}: no \`codex review\` line combines a quoted prompt argument with --base`, () => {
       const section = extractStep2A(path.join(ROOT, relPath));
       // Find all lines invoking `codex review` (any prefix wrapper allowed).
@@ -460,7 +466,7 @@ describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', 
 describe('codex timeout wrapper: /review + /ship diff passes', () => {
   const WRAPPED_SITES = [
     'scripts/resolvers/review.ts', // generator (source of truth)
-    'review/SKILL.md', // generated
+    'review/sections/adversarial.md', // review section (Step 5.7 carved out of the skeleton)
     'ship/sections/adversarial.md', // ship section source
   ];
 
@@ -511,11 +517,29 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
 //       budget, so the harness killed the call before the wrapper could emit
 //       its diagnosable exit-124 message — the same inversion #1036 fixed for
 //       /review and /ship.
-// Asserted across both the .tmpl source and the generated SKILL.md so a regen
-// or hand-edit of one but not the other can't silently reopen any of them.
-describe('codex SKILL.md.tmpl: review sandbox + fail-closed gate + timeout ordering', () => {
-  for (const relPath of ['codex/SKILL.md.tmpl', 'codex/SKILL.md']) {
-    const read = () => fs.readFileSync(path.join(ROOT, relPath), 'utf-8');
+// The three mode bodies are carved into codex/sections/*-mode.md (T9), so the
+// sweep reads the skeleton+sections UNION on both the .tmpl side and the
+// generated side — a regen or hand-edit of one but not the other can't
+// silently reopen any of them. Each mode section starts with its own `## `
+// heading, so the per-`## `-section split in check (c) still isolates each
+// mode's gate/wrapper pair.
+function readCodexUnion(kind: 'tmpl' | 'rendered'): string {
+  const sectionsDir = path.join(ROOT, 'codex', 'sections');
+  const skeleton = fs.readFileSync(
+    path.join(ROOT, 'codex', kind === 'tmpl' ? 'SKILL.md.tmpl' : 'SKILL.md'),
+    'utf-8',
+  );
+  const suffix = kind === 'tmpl' ? '.md.tmpl' : '.md';
+  const sections = fs.readdirSync(sectionsDir).sort()
+    .filter((f) => (kind === 'tmpl' ? f.endsWith('.md.tmpl') : f.endsWith('.md') && !f.endsWith('.md.tmpl')))
+    .map((f) => fs.readFileSync(path.join(sectionsDir, f), 'utf-8'));
+  expect(sections.length, `codex sections (*${suffix}) missing`).toBeGreaterThanOrEqual(3);
+  return [skeleton, ...sections].join('\n');
+}
+
+describe('codex skeleton+sections union: review sandbox + fail-closed gate + timeout ordering', () => {
+  for (const relPath of ['codex tmpl union', 'codex rendered union'] as const) {
+    const read = () => readCodexUnion(relPath === 'codex tmpl union' ? 'tmpl' : 'rendered');
 
     test(`${relPath}: (a) every scoped codex review invocation pins sandbox_mode="read-only"`, () => {
       const invocations = read()
@@ -574,4 +598,169 @@ describe('codex SKILL.md.tmpl: review sandbox + fail-closed gate + timeout order
       expect(inspected.length).toBeGreaterThanOrEqual(3);
     });
   }
+});
+
+// #2742: a Codex CLI that is on PATH but cannot execute (spawn ENOENT, missing
+// vendor payload, non-executable binary) used to land in the model probe's
+// fail-open bucket and resolve to CODEX_MODE: ready — so every Codex pass was
+// skipped in silence. These pin the classification, the exit-code contract, and
+// the fact that the fail-open path still exists for genuine transients.
+describe('codex broken-install detection (#2742)', () => {
+  // A fake `codex` on PATH that reproduces the real failure: node's spawn dump
+  // on stderr, non-zero exit. `mode` picks which failure shape to emit.
+  function shimHome(mode: 'enoent' | 'notexec' | 'timeout' | 'model400' | 'oksuspicious') {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-shim-'));
+    const bin = path.join(home, 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    // auth.json so the auth probe passes and we reach the model probe.
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.codex/auth.json'), '{}');
+    const bodies: Record<string, string> = {
+      enoent:
+        `echo "Error: spawn /x/vendor/aarch64-apple-darwin/codex/codex ENOENT" >&2\n` +
+        `echo "  errno: -2, code: 'ENOENT'" >&2\nexit 1\n`,
+      notexec: `echo "bash: codex: cannot execute binary file" >&2\nexit 126\n`,
+      timeout: `echo "network hiccup" >&2\nexit 124\n`,
+      model400: `echo "The 'gpt-x' model is not supported when using Codex with a ChatGPT account" >&2\nexit 1\n`,
+      oksuspicious: `echo "OK — note: the log you pasted mentions permission denied on /var/log"\nexit 0\n`,
+    };
+    fs.writeFileSync(path.join(bin, 'codex'), `#!/usr/bin/env bash\n${bodies[mode]}`, { mode: 0o755 });
+    return { home, bin };
+  }
+
+  const cases: Array<[string, 'enoent' | 'notexec', string]> = [
+    ['spawn ENOENT', 'enoent', 'ENOENT'],
+    ['non-executable binary (exit 126)', 'notexec', 'cannot execute binary file'],
+  ];
+
+  for (const [label, mode, needle] of cases) {
+    test(`${label} is classified as a broken install, not a transient`, () => {
+      const { home, bin } = shimHome(mode);
+      try {
+        const r = runProbe({
+          snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+          home,
+          env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        });
+        expect(r.stdout).toContain('MODEL_UNUSABLE_INSTALL');
+        // Exit 2 is what lets the preflight tell this apart from a model 400.
+        expect(r.stdout).toContain('EXIT:2');
+        // It must NOT fail open — that was the whole defect.
+        expect(r.stdout).not.toContain('MODEL_PROBE_INCONCLUSIVE');
+        // The remedy names the install, not the model pin.
+        expect(r.stdout).toContain('npm install -g @openai/codex');
+        expect(r.stdout.toLowerCase()).toContain(needle.toLowerCase());
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test('a broken install is never cached — a reinstall is picked up next probe', () => {
+    const { home, bin } = shimHome('enoent');
+    try {
+      runProbe({
+        snippet: '_gstack_codex_model_probe >/dev/null 2>&1',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      const cache = path.join(home, '.codex-model-probe');
+      if (fs.existsSync(cache)) {
+        expect(fs.readFileSync(cache, 'utf8')).not.toContain('MODEL_OK');
+      }
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a genuine transient (exit 124) still fails open', () => {
+    const { home, bin } = shimHome('timeout');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      expect(r.stdout).toContain('MODEL_PROBE_INCONCLUSIVE');
+      expect(r.stdout).toContain('EXIT:0');
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('the model 400 still classifies as MODEL_UNUSABLE, not a broken install', () => {
+    const { home, bin } = shimHome('model400');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      expect(r.stdout).toContain('MODEL_UNUSABLE');
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
+      expect(r.stdout).toContain('EXIT:1');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('version check warns instead of returning silently when codex cannot report a version', () => {
+    const { home, bin } = shimHome('enoent');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_version_check; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      // Previously this printed nothing: `codex --version 2>/dev/null | head -1`
+      // captured head's status, so a CLI that only ever errored read as healthy.
+      expect(r.stdout).toContain('WARN');
+      expect(r.stdout).toContain('npm install -g @openai/codex');
+      // Still non-fatal — the version check has never gated anything.
+      expect(r.stdout).toContain('EXIT:0');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // Wave-amended (#2745 absorption): string signatures only count on a FAILED
+  // spawn — a SUCCESSFUL response whose text mentions "permission denied"
+  // (e.g. the model quoting a log the user pasted) must stay healthy.
+  test('exit-0 response mentioning "permission denied" is NOT a broken install', () => {
+    const { home, bin } = shimHome('oksuspicious');
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
+        home,
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+      });
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
+      expect(r.stdout).toContain('EXIT:0');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // Wave-amended (#2745 absorption): autoplan's preflight chain is the one
+  // hand-maintained copy that isn't resolver-generated — it must capture the
+  // probe's exit code and route 2 to its own broken-install arm, or /autoplan
+  // prints the wrong remedy for a broken binary.
+  test('autoplan preflight (tmpl + rendered) captures the probe exit and routes 2 to broken-install', () => {
+    for (const rel of ['autoplan/SKILL.md.tmpl', 'autoplan/SKILL.md']) {
+      const src = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(src).toContain('_gstack_codex_model_probe; _CODEX_MP=$?');
+      expect(src).toMatch(/_CODEX_MP" -eq 2/);
+      expect(src).toContain('binary cannot run');
+      expect(src).not.toContain('elif ! _gstack_codex_model_probe');
+    }
+  });
+
+  test('the preflight resolver routes exit 2 to broken_install', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/constants.ts'), 'utf8');
+    expect(src).toContain('broken_install');
+    // The chain must capture the probe's code; `elif ! _gstack_codex_model_probe`
+    // collapses 1 and 2 into one branch and loses the distinction.
+    expect(src).toContain('_CODEX_MP=$?');
+  });
 });

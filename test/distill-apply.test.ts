@@ -60,7 +60,7 @@ function run(args: string[]): { stdout: string; stderr: string; status: number }
   env.GSTACK_STATE_ROOT = stateRoot;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   delete env.GSTACK_HOME;
-  const res = spawnSync(BIN, args, { env, encoding: 'utf-8', cwd: fixtureCwd });
+  const res = spawnSync(BIN, args, { env, encoding: 'utf-8', cwd: fixtureCwd, timeout: 30_000 });
   return {
     stdout: res.stdout ?? '',
     stderr: res.stderr ?? '',

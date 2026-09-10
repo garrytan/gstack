@@ -10,6 +10,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import {
   runPlanSkillObservation,
@@ -46,7 +47,7 @@ describeE2E('plan-design-review plan-mode smoke (periodic)', () => {
     const obs = await runPlanSkillObservation({
       skillName: 'plan-design-review',
       inPlanMode: true,
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
@@ -59,7 +60,7 @@ describeE2E('plan-design-review plan-mode smoke (periodic)', () => {
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
     assertReportAtBottomIfPlanWritten(obs);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
   // Plan-mode scope-gate bypass: with a seeded UI-heavy plan in plan mode,
   // the gate must NOT render its "What should I review?" menu — it
@@ -71,7 +72,7 @@ describeE2E('plan-design-review plan-mode smoke (periodic)', () => {
       skillName: 'plan-design-review',
       inPlanMode: true,
       initialPlanContent: SEED_PLAN_UI_HEAVY,
-      timeoutMs: 300_000,
+      timeoutMs: CAPTURE_MS,
     });
 
     if (
@@ -95,5 +96,5 @@ describeE2E('plan-design-review plan-mode smoke (periodic)', () => {
     // though the seed arrives as a pasted user message).
     expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
     expect(obs.scopeGateAutoSelectObserved ?? false).toBe(true);
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });

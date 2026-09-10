@@ -2,9 +2,12 @@
  * Coverage for PR #1620 — Post-failure PR-state check after `gh pr merge`
  * non-zero exit.
  *
- * The fix lives in land-and-deploy/SKILL.md.tmpl as Step §4a-postfail.
- * After ANY non-zero `gh pr merge`, the skill must query authoritative PR
- * state via `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
+ * The fix lives in land-and-deploy/sections/merge-and-deploy.md.tmpl as Step
+ * §4a-postfail (the Step 4/5 body was carved out of the skeleton into an
+ * on-demand section — prompt-token-load-reduction carve; the skeleton keeps
+ * only the STOP-Read pointer). After ANY non-zero `gh pr merge`, the skill
+ * must query authoritative PR state via
+ * `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
  * branch on the result instead of retrying `gh pr merge` (cli/cli#3442,
  * cli/cli#13380).
  *
@@ -25,8 +28,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const TMPL = path.join(ROOT, "land-and-deploy", "SKILL.md.tmpl");
-const MD = path.join(ROOT, "land-and-deploy", "SKILL.md");
+const TMPL = path.join(ROOT, "land-and-deploy", "sections", "merge-and-deploy.md.tmpl");
+const MD = path.join(ROOT, "land-and-deploy", "sections", "merge-and-deploy.md");
 
 function readTmpl(): string {
   return fs.readFileSync(TMPL, "utf-8");
@@ -82,18 +85,26 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/Do NOT remove the user's primary working tree/);
   });
 
-  test("MERGED branch continues to §4a CI auto-deploy detection", () => {
+  test("MERGED branch continues to §4b CI auto-deploy detection", () => {
     const body = readTmpl();
-    expect(body).toMatch(/continue to §4a/);
+    expect(body).toMatch(/continue to §4b \(CI auto-deploy detection\)/);
   });
 
   // #2656: the failed merge carried --delete-branch; the recovery path must
   // reconcile the remote branch instead of silently dropping that half.
-  test("MERGED branch reconciles the remote branch (ls-remote, confirm-first delete)", () => {
+  // #2696: that reconciliation must target the PR head repository, not the
+  // base checkout's origin, because fork branches do not exist in origin.
+  test("MERGED branch reconciles the PR head repository (ls-remote, confirm-first delete)", () => {
     const body = readTmpl();
-    expect(body).toMatch(/git ls-remote --heads origin "\$BRANCH"/);
-    expect(body).toMatch(/gh pr view --json headRefName -q \.headRefName/);
-    expect(body).toMatch(/git push origin --delete "\$BRANCH"/);
+    expect(body).toMatch(/gh pr view --json headRepositoryOwner,headRepository,headRefName/);
+    // gh leaves .headRepository.nameWithOwner empty (verified live, gh 2.83) —
+    // owner/name is composed from headRepositoryOwner.login + headRepository.name.
+    expect(body).toMatch(/headRepositoryOwner\.login/);
+    expect(body).not.toMatch(/\[\.headRepository\.nameWithOwner/);
+    expect(body).toMatch(/git ls-remote --heads "https:\/\/github\.com\/<head-repository>\.git" "<head-branch>"/);
+    expect(body).toMatch(/git push "https:\/\/github\.com\/<head-repository>\.git" --delete "<head-branch>"/);
+    expect(body).not.toMatch(/git ls-remote --heads origin/);
+    expect(body).not.toMatch(/git push origin --delete/);
     // Confirm-first: deletion is offered, never unilateral.
     expect(body).toMatch(/Delete it\?/);
   });
@@ -123,9 +134,11 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/never call `gh pr merge` a second time/);
   });
 
-  test("Generated SKILL.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
+  test("Generated merge-and-deploy.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
     const md = readMd();
     expect(md).toMatch(/### 4a-postfail: Post-failure PR-state check/);
     expect(md).toMatch(/state == "MERGED"/);
+    expect(md).toMatch(/headRepositoryOwner\.login/);
+    expect(md).not.toMatch(/git ls-remote --heads origin/);
   });
 });

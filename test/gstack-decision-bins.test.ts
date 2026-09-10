@@ -20,18 +20,18 @@ function opts(): ExecSyncOptionsWithStringEncoding {
 }
 function log(arg: string, expectFail = false): { out: string; code: number } {
   try {
-    return { out: execSync(`${LOG} '${arg.replace(/'/g, "'\\''")}'`, opts()).trim(), code: 0 };
+    return { out: execSync(`${LOG} '${arg.replace(/'/g, "'\\''")}'`, opts()).trim(), code: 0 }; // timeout via opts()
   } catch (e: any) {
     if (expectFail) return { out: (e.stderr?.toString() || "").trim(), code: e.status || 1 };
     throw e;
   }
 }
 function logFlag(flag: string): string {
-  return execSync(`${LOG} ${flag}`, opts()).trim();
+  return execSync(`${LOG} ${flag}`, opts()).trim(); // timeout via opts()
 }
 function search(args = ""): string {
   try {
-    return execSync(`${SEARCH} ${args}`, opts()).trim();
+    return execSync(`${SEARCH} ${args}`, opts()).trim(); // timeout via opts()
   } catch {
     return "";
   }

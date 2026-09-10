@@ -12,7 +12,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+
+import { runBin } from './helpers/run-bin';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN_CONFIG = path.join(ROOT, 'bin', 'gstack-config');
@@ -28,19 +29,9 @@ afterEach(() => {
 });
 
 function run(...args: string[]): { stdout: string; stderr: string; status: number } {
-  // gstack-config precedence is `${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}`,
-  // so GSTACK_HOME from the developer's parent env wins over the test's
-  // GSTACK_STATE_DIR. Override both to isolate from the real ~/.gstack.
-  const res = spawnSync(BIN_CONFIG, args, {
-    env: { ...process.env, GSTACK_STATE_DIR: tmpHome, GSTACK_HOME: tmpHome },
-    encoding: 'utf-8',
-    cwd: ROOT,
-  });
-  return {
-    stdout: (res.stdout ?? '').trim(),
-    stderr: (res.stderr ?? '').trim(),
-    status: res.status ?? -1,
-  };
+  // runBin's gstackHome sets GSTACK_HOME + GSTACK_STATE_DIR together — the
+  // config-precedence isolation this file used to document by hand.
+  return runBin(BIN_CONFIG, args, { gstackHome: tmpHome, cwd: ROOT, trim: true });
 }
 
 describe('gstack-config explain_level', () => {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
+import { runBashScript } from './helpers/bash-script';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -137,11 +137,7 @@ describe.skipIf(process.platform === 'win32')('setup: ensure_emoji_font behavior
         'echo "INSTALLED=$EMOJI_FONT_INSTALLED"',
       ].join('\n');
 
-      const result = spawnSync('bash', ['-c', script], {
-        encoding: 'utf-8',
-        timeout: 10000,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-      });
+      const result = runBashScript(script, { timeout: 10000, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
       const out = result.stdout ?? '';
       return {
         exit: Number((out.match(/EXIT=(\d+)/) ?? [])[1] ?? -1),

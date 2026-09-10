@@ -342,8 +342,15 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
   it('timeout fires, exit code 124, token revoked', async () => {
     const dir = makeSkillDir(tiers.bundled, 'sleeper',
       'name: sleeper\nhost: x.com\ntrusted: true',
-      // Sleep longer than the test timeout; the spawn should kill us.
-      `await new Promise(r => setTimeout(r, 30000)); console.log("done");`,
+      // The child's self-lifetime is a bound, not a wait — the test blocks
+      // only for the 1s spawn timeout that kills it. 8s is sized to be far
+      // above that 1s (the kill always lands first) but below this test's
+      // 10s ceiling: if the timeout-kill ever regresses, the child completes,
+      // prints "done", and the assertions below fail cleanly in-budget
+      // instead of the test opaquely timing out while the child lingers.
+      // (runToFiles gives skill children no stdin pipe, so a parent-death
+      // EOF lifetime isn't available here — self-timing is required.)
+      `await new Promise(r => setTimeout(r, 8000)); console.log("done");`,
     );
     const skill = readBrowserSkill('sleeper', tiers)!;
     const result = await spawnSkill({
@@ -351,6 +358,9 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
     });
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBe(124);
+    // The kill must land before the script completes — "done" ever appearing
+    // means the child outlived its timeout.
+    expect(result.stdout).not.toContain('done');
     expect(listTokens().filter(t => t.clientId.startsWith('skill:sleeper:'))).toEqual([]);
   }, 10_000);
 
