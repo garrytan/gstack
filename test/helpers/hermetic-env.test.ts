@@ -4,6 +4,8 @@
  * Pins three contracts:
  * 1. Allowlist semantics: contamination vars dropped, basics/auth/network
  *    kept, overrides merge last, EVALS_HERMETIC=0 is byte-identical legacy.
+ *    Includes the credential-shape screen on prefix rules — GITHUB_ is a CI
+ *    metadata prefix, never a way in for GITHUB_TOKEN.
  * 2. Seed-config shape: 20-char key suffix, trusted dirs, undefined-key safe.
  * 3. Dir lifecycle: /.claude suffix (extractPlanFilePath contract —
  *    claude-pty-runner.ts:191), sync singleton reuse, pid-aware GC.
@@ -20,6 +22,7 @@ import {
   getHermeticDirs,
   gcStaleHermeticDirs,
   hermeticChildEnv,
+  isCredentialShapedName,
 } from './hermetic-env';
 
 const CONTAMINATED: NodeJS.ProcessEnv = {
@@ -29,6 +32,9 @@ const CONTAMINATED: NodeJS.ProcessEnv = {
   ANTHROPIC_MODEL: 'sneaky-model-override',
   EVALS_MODEL: 'claude-sonnet-4-6',
   GITHUB_ACTIONS: 'true',
+  GITHUB_TOKEN: 'ghp_operator_write_credential',
+  GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_operator_pat',
+  GITHUB_APP_PRIVATE_KEY: '-----BEGIN RSA PRIVATE KEY-----',
   HTTPS_PROXY: 'http://corp:3128',
   NODE_EXTRA_CA_CERTS: '/etc/corp.pem',
   CONDUCTOR_WORKSPACE_PATH: '/Users/op/conductor/ws',
@@ -116,6 +122,84 @@ describe('buildHermeticEnv allowlist', () => {
     const base = { ...CONTAMINATED } as NodeJS.ProcessEnv;
     delete base.TERM;
     expect(buildHermeticEnv(base, HERMETIC_VARS).TERM).toBe('xterm-256color');
+  });
+});
+
+describe('prefix rules never admit credential-shaped names', () => {
+  // GH_TOKEN was named in the drop list and pinned above; its sibling
+  // GITHUB_TOKEN matched the GITHUB_ CI-metadata prefix and was kept, so a
+  // local eval child ran with the operator's GitHub write credential. CI never
+  // has that variable (workflows expose the job token as GH_TOKEN), so the
+  // module's own CI-equivalence contract was broken exactly where it counts.
+  const env = buildHermeticEnv(CONTAMINATED, HERMETIC_VARS);
+
+  test('GITHUB_ credentials are dropped even though GITHUB_ is an allowed prefix', () => {
+    for (const k of ['GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_APP_PRIVATE_KEY']) {
+      expect(env[k]).toBeUndefined();
+    }
+    // No credential VALUE survives anywhere in the built env, under any name.
+    const serialized = JSON.stringify(env);
+    for (const v of ['ghp_operator_write_credential', 'ghp_operator_pat', 'BEGIN RSA PRIVATE KEY']) {
+      expect(serialized.includes(v)).toBe(false);
+    }
+  });
+
+  test('real GitHub Actions metadata still survives the screen', () => {
+    // The prefix exists for these. Screening must cost none of them — this is
+    // the full documented runner-env set, so a widened rule fails here first.
+    const ACTIONS_METADATA = [
+      'GITHUB_ACTION', 'GITHUB_ACTIONS', 'GITHUB_ACTOR', 'GITHUB_ACTOR_ID',
+      'GITHUB_API_URL', 'GITHUB_BASE_REF', 'GITHUB_ENV', 'GITHUB_EVENT_NAME',
+      'GITHUB_EVENT_PATH', 'GITHUB_GRAPHQL_URL', 'GITHUB_HEAD_REF', 'GITHUB_JOB',
+      'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_REF', 'GITHUB_REF_NAME',
+      'GITHUB_REF_PROTECTED', 'GITHUB_REF_TYPE', 'GITHUB_REPOSITORY',
+      'GITHUB_REPOSITORY_ID', 'GITHUB_REPOSITORY_OWNER', 'GITHUB_RETENTION_DAYS',
+      'GITHUB_RUN_ATTEMPT', 'GITHUB_RUN_ID', 'GITHUB_RUN_NUMBER',
+      'GITHUB_SERVER_URL', 'GITHUB_SHA', 'GITHUB_STEP_SUMMARY',
+      'GITHUB_TRIGGERING_ACTOR', 'GITHUB_WORKFLOW', 'GITHUB_WORKFLOW_REF',
+      'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKSPACE',
+    ];
+    const base = { ...CONTAMINATED } as NodeJS.ProcessEnv;
+    for (const k of ACTIONS_METADATA) base[k] = `v-${k}`;
+    const e = buildHermeticEnv(base, HERMETIC_VARS);
+    for (const k of ACTIONS_METADATA) expect(e[k]).toBe(`v-${k}`);
+    // Same for every eval knob the harness reads through the EVALS_ prefix.
+    for (const k of ['EVALS_TIER', 'EVALS_RUN_ID', 'EVALS_CONCURRENCY', 'EVALS_SELECTION_JSON']) {
+      base[k] = 'set';
+    }
+    const e2 = buildHermeticEnv(base, HERMETIC_VARS);
+    for (const k of ['EVALS_TIER', 'EVALS_RUN_ID', 'EVALS_CONCURRENCY', 'EVALS_SELECTION_JSON']) {
+      expect(e2[k]).toBe('set');
+    }
+  });
+
+  test('extraAllow still re-admits a runner credential — screen is prefix-rule only', () => {
+    // The gemini runner passes GEMINI_* precisely to carry GEMINI_API_KEY; an
+    // exact ALLOW_EXACT auth name (ANTHROPIC_API_KEY) is equally deliberate.
+    // Screening those would break the documented per-runner opt-in.
+    const base = { ...CONTAMINATED, GEMINI_API_KEY: 'g-secret' } as NodeJS.ProcessEnv;
+    const e = buildHermeticEnv(base, HERMETIC_VARS, undefined, { extraAllow: ['GEMINI_*'] });
+    expect(e.GEMINI_API_KEY).toBe('g-secret');
+    expect(e.ANTHROPIC_API_KEY).toBe(CONTAMINATED.ANTHROPIC_API_KEY);
+    // Opting in to GEMINI_* does not re-open the GITHUB_ hole.
+    expect(e.GITHUB_TOKEN).toBeUndefined();
+  });
+
+  test('isCredentialShapedName matches the tail segment, not a substring', () => {
+    for (const k of [
+      'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_APP_PRIVATE_KEY',
+      'GITHUB_CLIENT_SECRET', 'GITHUB_WEBHOOK_SECRET', 'GITHUB_PAT',
+      'GITHUB_OAUTH_TOKEN', 'TOKEN', 'EVALS_API_KEY',
+    ]) {
+      expect(isCredentialShapedName(k)).toBe(true);
+    }
+    for (const k of [
+      'GITHUB_PATH',        // PATH, not PAT — the near-miss that matters
+      'GITHUB_PATTERN', 'GITHUB_TOKENIZER', 'GITHUB_KEYRING', 'GITHUB_SECRETS_URL',
+      'GITHUB_ACTIONS', 'GITHUB_SHA', 'GITHUB_WORKSPACE', 'EVALS_TIER',
+    ]) {
+      expect(isCredentialShapedName(k)).toBe(false);
+    }
   });
 });
 
