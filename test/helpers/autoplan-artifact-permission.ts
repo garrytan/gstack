@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
+import { validAutoplanEditDigest, readAutoplanDigestFile, matchesAutoplanDigestRows } from './autoplan-artifact-digest';
 import type { PendingAutoplanArtifact } from './autoplan-artifact-recorder';
 import type { NativePublicToolEvent } from './plan-count-transcript';
 
@@ -204,6 +205,7 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
   seen: ReadonlySet<string>,
 ): { input: '1\r'; signature: string; file: string } | null {
   const p = context.pending, now = context.now ?? Date.now();
+  if (p?.editDigest !== undefined && !validAutoplanEditDigest(p.editDigest)) return null;
   if (!p || !Number.isFinite(now) || context.transcriptStatus !== 'ready' || !Number.isFinite(context.commandStartedAt) ||
       !Number.isFinite(context.viewportCapturedAt) || context.viewportCapturedAt > now ||
       context.commandStartedAt > context.viewportCapturedAt || viewport.length > MAX_BYTES ||
@@ -241,6 +243,13 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
     const diffRows = ownedEditDiffRows(rows,p.file,context.ownedStateRoot);
     if (!diffRows) return null;
     if (Math.floor(fs.statSync(p.file).mtimeMs) > pendingTime) return null;
+    if (p.editDigest) {
+      const before = readAutoplanDigestFile(p.file);
+      if (!before || createHash('sha256').update(before).digest('hex') !== p.editDigest.beforeSHA256) return null;
+      if (matchesAutoplanDigestRows(diffRows,before,p.editDigest)) return {input:'1\r', signature, file:p.file};
+      // Digest authority adds insertion-only crops; existing anchored deletion
+      // authority remains available after the current-file binding succeeds.
+    }
     const originals = fs.readFileSync(p.file, 'utf8').split('\n').map(compact);
     const chunks: Array<{kind:string; text:string; partial?:boolean}> = [];
     let numbered = 0;

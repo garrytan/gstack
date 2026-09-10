@@ -65,7 +65,7 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const title = q.question.split('\n')[0]!.trim();
   const issue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \((?:G[1-9]\d*, )?(?:Visual Hierarchy|Spacing|Color|Typography|Motion)\))?: ([^?]+)\?$/i.exec(title);
   if (!issue || !new RegExp(`^Issue ${issue[1]}(?:: [A-Za-z][A-Za-z0-9 _-]{0,39})?$`, 'i').test(q.header.trim()) ||
-      !/\b(?:fix|resolve|address|make)\b/i.test(title) || /<gstack-qid:/i.test(q.question) || q.multiSelect ||
+      /<gstack-qid:/i.test(q.question) || q.multiSelect ||
       q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
       fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
       !q.options.some(o => o.label === call.answers?.[q.question])) return false;
@@ -78,7 +78,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   // A source citation alone can describe a report or the next reviewer.
   // Bind the alternate wording to a named control's concrete style amendment
   // and the opposed choice that leaves the documented violation unresolved.
-  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|only filled) primary action$/i.exec(issue[2]!);
+  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|only filled) primary action$/i.exec(issue[2]!) ??
+    /^How should (?:the )?(?:header )?actions establish that ([A-Za-z][A-Za-z0-9 _-]{0,39}) is the primary action$/i.exec(issue[2]!);
   const amendments = primary && [
     new RegExp(`^(?:✅\\s*)?Matches DESIGN\\.md exactly: ${primary[1]} filled #[0-9a-f]{6} with (?:white|black) text; ` +
       '[A-Za-z][A-Za-z0-9 ,_-]{0,99} as neutral ghost buttons\\.', 'i'),
@@ -88,6 +89,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
       '[A-Za-z][A-Za-z0-9 /,_-]{0,99} become neutral ghosts, exactly per DESIGN\\.md\\b', 'i'),
     new RegExp(`^(?:✅\\s*)?Apply DESIGN\\.md tokens: ${primary[1]} #[0-9a-f]{6} filled with (?:white|black) text; ` +
       '[A-Za-z][A-Za-z0-9 ,/_-]{0,99} neutral ghost(?: buttons)?\\.', 'i'),
+    new RegExp(`^(?:✅\\s*)?${primary[1]} filled (?:primary )?#[0-9a-f]{6}(?:/| with )(?:white|black)(?: text)?; ` +
+      '[A-Za-z][A-Za-z0-9 ,/_-]{0,99} neutral ghost(?: buttons)?\\. Exact DESIGN\\.md\\.', 'i'),
   ];
   const primaryHeader = !q.header.includes(':') || q.header.split(':')[1]!.trim().toLowerCase() === primary?.[1]?.toLowerCase();
   // The style wordings share one owned decision: a current equal-weight gap,
@@ -101,13 +104,16 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const assessments = [...questionText.matchAll(/^ELI10: (.+)$/gm)];
   const prefix = questionText.slice(0, assessments[0]?.index ?? 0)
     .split('\n').filter(line => line.trim()).slice(1);
-  const sourceAssessment = /\b(?:historical|hypothetical|quoted|source)\s+(?:example|excerpt|assessment|material|text)\b|\bnot\s+(?:the\s+)?current\s+(?:UI|assessment|finding)\b/i;
+  const sourceAssessment = /\b(?:historical|hypothetical|quoted|source)\s+(?:example|excerpt|assessment|material|text)\b|\bnot\s+(?:the\s+)?current\s+(?:UI|assessment|finding|amendment|deferral|remedy|choice|option)\b/i;
   const assessment = assessments.length === 1 &&
     prefix.every(line => /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line)) &&
     !sourceAssessment.test(prefix.join(' ')) && !sourceAssessment.test(assessments[0]![1]!)
     ? assessments[0]![1]! : '';
-  const currentPrimary = primary && new RegExp(`^(?:Right now|Today) ${primary[1]}(?:, [A-Za-z][A-Za-z0-9 _-]{0,39})+(?:,? and [A-Za-z][A-Za-z0-9 _-]{0,39})? (?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) )?identical buttons)\\b`, 'i').test(assessment);
-  const withdrawn = new RegExp(`(?:^|[.!?]\\s+|\\n)(?:Correction:\\s*)?(?:(?:This (?:issue|finding|question)|Issue ${issue[1]}) (?:is|was|has been) (?:withdrawn|resolved|closed|hypothetical)|We have (?:resolved|closed|withdrawn) this (?:issue|finding)|No current (?:issue|finding|gap|violation) (?:remains|exists))\\b`, 'i');
+  const primaryAssessment = primary && new RegExp(`^(?:Right now|Today) ${primary[1]}(?:, [A-Za-z][A-Za-z0-9 _-]{0,39})+(?:,? and [A-Za-z][A-Za-z0-9 _-]{0,39})? (?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) )?identical buttons)\\b`, 'i').exec(assessment)?.[0];
+  const premiseSentence = assessment.split(/[.!?](?:\s|$)/)[0] ?? '';
+  const currentPrimary = !!primaryAssessment && !/\b(?:not|never|no longer)\b/i.test(primaryAssessment) &&
+    !/\b(?:archived|historical|hypothetical|quoted|example|previous|earlier)\b/i.test(premiseSentence);
+  const withdrawn = new RegExp(`(?:^|[.!?]\\s+|\\n)(?:Correction:\\s*)?(?:(?:This (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option)|Issue ${issue[1]}) (?:is|was|has been) (?:withdrawn|resolved|closed|hypothetical)|We have (?:resolved|closed|withdrawn) this (?:issue|finding)|No current (?:issue|finding|gap|violation) (?:remains|exists))\\b`, 'i');
   const closedGap = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:this|the|that) (?:gap|violation) (?:is|was|has been) (?:already\s+|now\s+)?(?:resolved|fixed|closed)\b/i;
   const cancelledStyle = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw)\s+(?:apply|use|add|keep)\s+(?:(?:these|the|this)\s+)?(?:tokens?|styles?|primary treatment)\b/i;
   const choiceIds = q.options.map(o => /^([1-9]\d*)[A-Z](?:[).:]?\s+)/.exec(o.label));
@@ -120,7 +126,7 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
       const style = amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
       // A named primary cannot simultaneously occur in the ghost-control list.
       if (!style || new RegExp(`\\b${primary![1]}\\b`, 'i').test(style.slice(style.indexOf(';') + 1)) ||
-          withdrawn.test(body) || closedGap.test(body) || cancelledStyle.test(body)) return false;
+          sourceAssessment.test(body) || withdrawn.test(body) || closedGap.test(body) || cancelledStyle.test(body)) return false;
       return opposed.some(defer => {
         const declined = currentText(defer.description ?? '');
         // Native menus can list current benefits before the gap retained by
@@ -128,8 +134,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
         // framing a source example or a future condition cannot expose an icon.
         const pros = /^(?:✅(?!\s*(?:If|When|Unless|Historical|Hypothetical|Quoted|Source|Example)\b)\s*[^✅❌]+)+❌\s*/i.exec(declined);
         const remaining = pros && !sourceAssessment.test(pros[0]) ? declined.slice(pros[0].length) : declined;
-        return defer !== amendment && !withdrawn.test(declined) && !closedGap.test(declined) &&
-          /^(?:❌\s*)?(?:Leaves a documented DESIGN\.md violation in place|Ships the documented violation;[^.\n]*\bthe gap remains open|Primary-action ambiguity ships; documented DESIGN\.md violation remains|Decline the fix; gap stays documented and lowers the score)\b/i.test(remaining);
+        return defer !== amendment && !sourceAssessment.test(declined) && !withdrawn.test(declined) && !closedGap.test(declined) &&
+          /^(?:❌\s*)?(?:Leaves a documented DESIGN\.md violation in place|Ships the documented violation;[^.\n]*\bthe gap remains open|Primary-action ambiguity ships; documented DESIGN\.md violation remains|Decline the fix; gap stays documented and lowers the score|Keep all (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) identical; record as an open DESIGN\.md violation)\b/i.test(remaining);
       });
     });
   return opposed.length > 0 && !!(repair || primaryRepair);

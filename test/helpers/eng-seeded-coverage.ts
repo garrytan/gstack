@@ -224,6 +224,54 @@ function declaredLegacyCharacterization(text: string): boolean {
       }
     }
   }
+  // A golden-master requirement names the existing output oracle, then ties
+  // its capture task to an untouched baseline and reruns after later tasks.
+  const goldenSourceOwner = (body: string) => sourceOwner(body) || /(?:^|\n)\s*(?:Source|Quoted source) excerpt:\s*(?:\n|$)/i.test(body);
+  const goldenWithdrawn = current.some(s => {
+    const namedSuite = /^(.*?)\b(?:regression|characterization|golden[ -]master)\s+(?:suite|fixtures?|tests?)\b/i.exec(s.title);
+    const foreignSuite = Boolean(namedSuite?.[1]?.trim() && !/^(?:legacy(?:AuthFlow(?:\(\))?)?|final|current|updated)[\s:—–-]*$/i.test(namedSuite[1]));
+    return unquoted(s.body.join('\n')).split(/\n|[.!?]\s+/).some(statement => {
+      const subject = /^(?:Correction:\s*)?(?:the|this|that)\s+(legacy(?:AuthFlow(?:\(\))?)?\s+)?golden[ -]master\s+(?:suite|fixtures?|tests?)\b/i.exec(statement.trim());
+      return Boolean(subject && (!foreignSuite || subject[1]) && withdrawn(statement
+        .replace(/golden[ -]master\s+(?:suite|fixtures?|tests?)/i, 'regression suite').replace(/\b(?:are|were|have been)\b/i, 'is')));
+    });
+  });
+  for (const section of current.filter(s => /^Tests(?: \([^\n]*\))?$/i.test(s.title))) {
+    const body = unquoted(section.body.join('\n')).split(/\n\s*\n/)
+      .map(paragraph => paragraph.replace(/\s+/g, ' ').trim()).join('\n\n');
+    const claim = /^CRITICAL \(regression rule, mandatory\): legacyAuthFlow(?:\(\))? golden[ -]master\.\s+(?:Capture|Pin|Record) current outputs for [^.!?]{1,300} BEFORE any change, assert identical behavio[u]?r after the rewrite(?: and after [^.!?]{1,120})?\./im.exec(body);
+    if (!claim || suiteWithdrawn || goldenWithdrawn || withdrawn(body) ||
+        !snapshotSource.includes(claim[0].replace(/\s+/g, ' ')) ||
+        goldenSourceOwner(body.slice(0, claim.index)) || conditionalOwner(body.slice(0, claim.index))) continue;
+    for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = tasks.body.join('\n').trim();
+      const taskPrefix = taskBody.split(/\n(?=-\s)/)[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(taskPrefix) ||
+          /\b(?:if|unless|optional|hypothetical|example|source|quoted|unproven)\b/i.test(unquoted(taskPrefix)))) continue;
+      for (const task of taskBody.split(/\n(?=-\s)/)) {
+        const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w-]*(?:\/[A-Za-z][\w-]*)* [—–-] Capture golden[ -]master regression fixtures for legacyAuthFlow(?:\(\))? before any change[\t ]*(?:\n|$)/i.exec(task);
+        const verify = /^\s+- Verify: fixtures pass against untouched legacy; rerun after every later task[\t ]*$/m.exec(task);
+        const taskIntro = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        if (!match || !verify || !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+            /\b(?:if|unless|optional|hypothetical|source|quoted|unproven)\b/i.test(match[0]) ||
+            conditionalOwner(taskIntro) || goldenSourceOwner(taskIntro) ||
+            conditionalOwner(task.slice(0, verify.index)) || goldenSourceOwner(unquoted(task.slice(0, verify.index))) ||
+            withdrawn(unquoted(task).replace(/\b(?:this|that|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), match[1])) continue;
+        const taskWithdrawal = new RegExp(`\\b${match[1]}(?:\\s+rerun)?\\s+(?:is|was|has been)\\s+(?:cancelled|canceled|withdrawn|rejected|deferred|optional|not required|no longer required)\\b`, 'i');
+        if (current.some(s => taskWithdrawal.test(unquoted(s.body.join('\n'))))) continue;
+        for (const verification of current.filter(s => /^Verification(?: \([^\n]*\))?$/i.test(s.title))) {
+          const body = unquoted(verification.body.join('\n')).trim();
+          const baseline = new RegExp(`^([1-9]\\d*)\\. Run ${match[1]} fixtures before touching anything; they must pass\\.[\\t ]*$`, 'm').exec(body);
+          const rerun = new RegExp(`^([1-9]\\d*)\\. After each task, rerun the full suite plus ${match[1]} fixtures\\.[\\t ]*$`, 'm').exec(body);
+          if (baseline && rerun && Number(baseline[1]) < Number(rerun[1]) && baseline.index < rerun.index &&
+              !conditionalOwner(body.slice(0, baseline.index)) && !conditionalOwner(body.slice(0, rerun.index)) &&
+              !goldenSourceOwner(body.slice(0, baseline.index)) && !goldenSourceOwner(body.slice(0, rerun.index)) &&
+              !withdrawn(body.replace(/\b(?:this|that|the)\s+(?:baseline|verification)\b/gi, 'this requirement'), match[1]) &&
+              snapshotSource.includes(baseline[0]) && snapshotSource.includes(rerun[0])) return true;
+        }
+      }
+    }
+  }
   return false;
 }
 

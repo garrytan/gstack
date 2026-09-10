@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ownedAutoplanArtifact } from './autoplan-artifact-permission';
+import { createAutoplanEditDigest, validAutoplanEditDigest, type AutoplanEditDigest } from './autoplan-artifact-digest';
 import type { NativePublicToolEvent } from './plan-count-transcript';
 
 const MAX_BYTES = 64 * 1024, MAX_INPUT = 4 * 1024 * 1024, MAX_IDS = 128;
@@ -14,7 +15,7 @@ const id = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]
 const keys = (v: Record<string, any>, allowed: string[]) => Object.keys(v).every(k => allowed.includes(k));
 const quote = (v: string) => `'${(process.platform === 'win32' ? v.replaceAll('\\','/') : v).replaceAll("'", "'\\''")}'`;
 export interface PendingAutoplanArtifact {
-  source:'pre_tool_use'; sessionId:string; toolUseId:string; tool:'Edit'; file:string; timestamp:string;
+  source:'pre_tool_use'; sessionId:string; toolUseId:string; tool:'Edit'; file:string; timestamp:string; editDigest?:AutoplanEditDigest;
 }
 interface Pending extends PendingAutoplanArtifact { transcriptPath:string }
 interface State { version:1; cwd:string; config:string; stateRoot:string; sessionId?:string; seenIds:string[]; pending:Pending|null }
@@ -36,8 +37,9 @@ function readState(file:string, cwd:string, config:string, stateRoot:string): St
       !Array.isArray(s.seenIds) || s.seenIds.length > MAX_IDS || !s.seenIds.every(id) || new Set(s.seenIds).size !== s.seenIds.length ||
       (s.sessionId === undefined && (s.seenIds.length || s.pending !== null))) throw Error('record');
   const p = s.pending;
-  if (p !== null && (!object(p) || !keys(p,['source','sessionId','toolUseId','tool','file','timestamp','transcriptPath']) ||
+  if (p !== null && (!object(p) || !keys(p,['source','sessionId','toolUseId','tool','file','timestamp','transcriptPath','editDigest']) ||
       p.source !== 'pre_tool_use' || p.tool !== 'Edit' || p.sessionId !== s.sessionId || !id(p.toolUseId) || !s.seenIds.includes(p.toolUseId) ||
+      (p.editDigest!==undefined && !validAutoplanEditDigest(p.editDigest)) ||
       !scopedTranscript(p.transcriptPath,config,p.sessionId) || !Number.isFinite(Date.parse(p.timestamp)) ||
       !ownedAutoplanArtifact(p.file,{cwd,ownedStateRoot:stateRoot}))) throw Error('record');
   return s as State;
@@ -57,7 +59,7 @@ export function createAutoplanArtifactRecorder(cwd:string, config:string, stateR
     dispose:()=>fs.rmSync(dir,{recursive:true,force:true})};
 }
 
-/** Never persists edit text, tool results, permissions, stdout, or model context. */
+/** Persists metadata and bounded request digests, never edit text or tool results. */
 export function recordAutoplanArtifact(input:string, file:string, cwd:string, config:string, stateRoot:string) {
   let lock:number|undefined, reason:Reason='invalid_event';
   const temporary = `${file}.${process.pid}.tmp`;
@@ -90,7 +92,16 @@ export function recordAutoplanArtifact(input:string, file:string, cwd:string, co
     }
     const state:State={...old,sessionId:e.session_id};
     if (e.hook_event_name==='PreToolUse') {
-      if (old.seenIds.includes(e.tool_use_id)) return;
+      if (old.seenIds.includes(e.tool_use_id)) {
+        if (previous?.toolUseId===e.tool_use_id && previous.editDigest) {
+          reason='conflicting_replay';
+          const digest=typeof e.tool_input.old_string==='string' && typeof e.tool_input.new_string==='string' &&
+            (e.tool_input.replace_all===undefined || e.tool_input.replace_all===false)
+            ? createAutoplanEditDigest(e.tool_input.file_path,e.tool_input.old_string,e.tool_input.new_string) : undefined;
+          if (!digest || JSON.stringify(digest)!==JSON.stringify(previous.editDigest)) throw Error('request changed');
+        }
+        return;
+      }
       if (previous) { reason='concurrent_pending'; throw Error('concurrent'); }
       // Match the published-path edit scope; inspect but never retain content.
       if (typeof e.tool_input.old_string!=='string' || !e.tool_input.old_string || typeof e.tool_input.new_string!=='string' ||
@@ -98,6 +109,8 @@ export function recordAutoplanArtifact(input:string, file:string, cwd:string, co
           (e.tool_input.replace_all!==undefined && e.tool_input.replace_all!==false)) throw Error('edit scope');
       state.pending={source:'pre_tool_use',sessionId:e.session_id,toolUseId:e.tool_use_id,tool:'Edit',file:e.tool_input.file_path,
         timestamp:new Date().toISOString(),transcriptPath:e.transcript_path};
+      const digest=createAutoplanEditDigest(e.tool_input.file_path,e.tool_input.old_string,e.tool_input.new_string);
+      if (digest) state.pending.editDigest=digest;
     } else if (previous?.toolUseId===e.tool_use_id) state.pending=null;
     // Success/failure hooks clear pending and tombstone the ID, but never
     // supply successful history or phase coverage. Those still require JSONL.

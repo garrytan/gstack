@@ -1,0 +1,70 @@
+{
+  "sourceHead": "c73102357cbc3466d6a3c8d3ad0ac7e3177ce62c",
+  "sourceObservationSHA256": "2a1a437e68cee9fbef60bb5cb619deb0eb51faabfdd2fa822822b212d576a554",
+  "calls": [
+    {
+      "sessionId": "49908e50-9673-4962-82b2-7beb6ab6550e",
+      "toolUseId": "toolu_01C2v9YKfPda2mqfNeMDGfq8",
+      "questions": [
+        {
+          "question": "D4 (Finding 2) — What happens when the confirmation email fails after the payment update has committed?\nProject/branch/task: gstack-plan-count-wGAjut on main, Section 2 of the CEO review of PLAN.md.\nELI10: The plan sends the email inline with 'no error handling on the email leg'. The shared mail client rethrows, so a mail outage becomes an HTTP 500 after the user is already marked paid. Stripe then retries the whole payment event for up to three days, the webhook-failure alert pages on-call for a mail problem, and if the email was actually sent but the client timed out, the retry sends it again. Your own runbook says: retry only the failed notification, never replay the payment. As written, the code forces the replay the runbook forbids. Stripe also gives you 10 seconds per delivery, so a slow mail call inside the request can fail the webhook even when everything worked.\nStakes if we pick wrong: a mail provider incident turns into a payment-webhook incident, with duplicate emails and a failing endpoint in the Stripe dashboard.\nRecommendation: A because it keeps the runbook's contract (payment committed, notification retried on its own), names each mail exception instead of a catch-all, and stays visible through the mail client's existing failure metric and on-call alert.\nCompleteness: A=9/10, B=10/10 only if a job queue already exists, C=2/10\nNet: rescue the mail leg narrowly and return 200 (A), move the send off the request path entirely (B, needs queue infra), or leave the 500 and let Stripe replay the payment (C).",
+          "header": "Email leg",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A: Commit, then send with a narrow rescue (recommended)",
+              "description": "Order: lookup, update, COMMIT, then notify. Rescue only the mail client's named classes (DeliveryError, Timeout, RateLimited, InvalidRecipient; real names per the client). On rescue: log at warn with event ID, user ID, exception class; the shared client's tracing and failure-rate metric plus the existing on-call alert make it visible; handler returns success so Stripe gets 200 and the runbook's notification-retry path owns the redelivery. Bound the mail call timeout so total handler time stays under Stripe's 10 s deadline. Recipient is the looked-up user's stored email, never a value from the Stripe payload. Tests: email raises each class → 200, payment committed, warn line present. Effort S (human ~2h / CC ~10 min).\n✅ Mail outage no longer produces payment-webhook 500s or duplicate payment processing\n✅ Matches the runbook: committed payment, failed notification retried alone\n❌ Timeout-after-send can still yield one duplicate email when the runbook retries; bounded and visible"
+            },
+            {
+              "label": "4B: Commit, then enqueue the email to a background job",
+              "description": "Same ordering, but the handler enqueues a notification job after commit and never calls the mail provider inline. The job retries with backoff and its failures surface via the existing mail metrics. Only viable if the repo already has a job queue; adding one is out of HOLD SCOPE. Effort M (human ~1 day / CC ~30 min).\n✅ Request path never waits on the mail provider; Stripe deadline is never at risk\n✅ Retries with backoff are automatic instead of runbook-driven\n❌ Requires queue infrastructure the plan does not mention; if absent this becomes an expansion"
+            },
+            {
+              "label": "4C: Keep as written (inline, unrescued)",
+              "description": "Email exception propagates to the ingress wrapper, HTTP 500, Stripe retries the event. Effort none.\n✅ Zero new code on the email leg\n✅ Stripe's retry eventually delivers the email if the provider recovers within three days\n❌ Contradicts the runbook, pages on-call for mail incidents as webhook failures, and duplicates emails on timeout-after-send"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 (Finding 2) — What happens when the confirmation email fails after the payment update has committed?\nProject/branch/task: gstack-plan-count-wGAjut on main, Section 2 of the CEO review of PLAN.md.\nELI10: The plan sends the email inline with 'no error handling on the email leg'. The shared mail client rethrows, so a mail outage becomes an HTTP 500 after the user is already marked paid. Stripe then retries the whole payment event for up to three days, the webhook-failure alert pages on-call for a mail problem, and if the email was actually sent but the client timed out, the retry sends it again. Your own runbook says: retry only the failed notification, never replay the payment. As written, the code forces the replay the runbook forbids. Stripe also gives you 10 seconds per delivery, so a slow mail call inside the request can fail the webhook even when everything worked.\nStakes if we pick wrong: a mail provider incident turns into a payment-webhook incident, with duplicate emails and a failing endpoint in the Stripe dashboard.\nRecommendation: A because it keeps the runbook's contract (payment committed, notification retried on its own), names each mail exception instead of a catch-all, and stays visible through the mail client's existing failure metric and on-call alert.\nCompleteness: A=9/10, B=10/10 only if a job queue already exists, C=2/10\nNet: rescue the mail leg narrowly and return 200 (A), move the send off the request path entirely (B, needs queue infra), or leave the 500 and let Stripe replay the payment (C).": "4A: Commit, then send with a narrow rescue (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T08:01:09.223Z"
+    },
+    {
+      "sessionId": "49908e50-9673-4962-82b2-7beb6ab6550e",
+      "toolUseId": "toolu_013ZWhw6pGLUNzGpSrdLhi19",
+      "questions": [
+        {
+          "question": "D5 (Finding 3) — How does the lookup query receive `request.params.userId`?\nProject/branch/task: gstack-plan-count-wGAjut on main, Section 3 of the CEO review of PLAN.md.\nELI10: The plan pastes the user ID string straight into a raw SQL fragment. Your contracts say the adapter forwards that string unchanged, the signature and ownership checks do not make it SQL-safe, and user IDs are opaque text that can contain quotes and Unicode. So a legitimate ID like O'Brien breaks the query and returns HTTP 500 on every Stripe retry for three days, and a hostile ID that matches its stored binding can read or change other rows. The fix is the standard one: pass the ID as a bound parameter through the existing DB client, so the database never parses it as SQL.\nStakes if we pick wrong: a poison event that can never succeed, or a database read/write outside the intended user row.\nRecommendation: A because a bound parameter is the only mechanism that is correct for every nonempty string the contracts allow, and it uses the DB client you already have.\nCompleteness: A=10/10, B=5/10, C=1/10\nNet: bind (A), hand-escape (B, fragile and still not a defense against all encodings), or leave the fragment (C).",
+          "header": "SQL lookup",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A: Bound query parameter via the existing DB client (recommended)",
+              "description": "Lookup is `WHERE id = ?` (or the client's named-bind form) with userId passed as a parameter; no interpolation anywhere in the handler or service. Same for the payment_intent_id write. Tests: IDs `O'Brien`, `'; DROP TABLE users; --`, `用户-☃`, and a 1000-char string each return the correct row or nil with no statement error; a static grep in CI or review for string-built SQL in `Payments::`. Failure visibility: any DbClient error still propagates to the ingress 500 path per contract. Effort S (human ~1h / CC ~5 min).\n✅ Correct for every opaque TEXT ID the contracts allow, including punctuation and Unicode\n✅ Reuses the DB client's existing binding; zero new code paths or dependencies\n❌ None beyond writing the tests; this is the default form of the query"
+            },
+            {
+              "label": "5B: Escape or quote the string before interpolating",
+              "description": "Keep the raw fragment but run userId through the DB client's quote/escape helper first. Effort S (human ~1h / CC ~5 min).\n✅ Small textual change to the plan's current sketch\n✅ Stops the simple quote-in-name breakage\n❌ Depends on the helper matching the connection's charset and driver; one wrong encoding path and injection is back. Fragile where a bind is free"
+            },
+            {
+              "label": "5C: Keep the raw SQL fragment as written",
+              "description": "No change. Effort none.\n✅ Nothing to implement\n✅ Works for IDs that happen to contain no special characters\n❌ Any quote in a legitimate ID yields a permanent 500; a hostile ID with a valid binding can reach other users' rows"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 (Finding 3) — How does the lookup query receive `request.params.userId`?\nProject/branch/task: gstack-plan-count-wGAjut on main, Section 3 of the CEO review of PLAN.md.\nELI10: The plan pastes the user ID string straight into a raw SQL fragment. Your contracts say the adapter forwards that string unchanged, the signature and ownership checks do not make it SQL-safe, and user IDs are opaque text that can contain quotes and Unicode. So a legitimate ID like O'Brien breaks the query and returns HTTP 500 on every Stripe retry for three days, and a hostile ID that matches its stored binding can read or change other rows. The fix is the standard one: pass the ID as a bound parameter through the existing DB client, so the database never parses it as SQL.\nStakes if we pick wrong: a poison event that can never succeed, or a database read/write outside the intended user row.\nRecommendation: A because a bound parameter is the only mechanism that is correct for every nonempty string the contracts allow, and it uses the DB client you already have.\nCompleteness: A=10/10, B=5/10, C=1/10\nNet: bind (A), hand-escape (B, fragile and still not a defense against all encodings), or leave the fragment (C).": "5A: Bound query parameter via the existing DB client (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T08:01:49.453Z"
+    }
+  ]
+}

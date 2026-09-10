@@ -934,7 +934,7 @@ Present these approach options via AskUserQuestion using the preamble's AskUserQ
 After 0C-bis, before 0D; keep labels stable.
 Every mode requires your explicit approval for added scope.
 
-Present four options:
+The four modes are:
 1. **SCOPE EXPANSION:** The plan is good but could be great. Dream big — propose the ambitious version. Every expansion is presented individually for your approval. You opt in to each one.
 2. **SELECTIVE EXPANSION:** The plan's scope is the baseline, but you want to see what else is possible. Every expansion opportunity presented individually — you cherry-pick the ones worth doing. Neutral recommendations.
 3. **HOLD SCOPE:** The plan's scope is right. Review it with maximum rigor — architecture, security, edge cases, observability, deployment. Make it bulletproof. No expansions surfaced.
@@ -949,13 +949,15 @@ Context-dependent defaults:
 * User says "go big" / "ambitious" / "cathedral" → EXPANSION, no question
 * User says "hold scope but tempt me" / "show me options" / "cherry-pick" → SELECTIVE EXPANSION, no question
 
-Keep the approved 0C-bis approach. Reopen it only if this mode requires a concrete change; explain that change and obtain approval for it.
+For this mode, use `question_id=plan-ceo-review-mode` for the preamble's Question Tuning check, marker and log (`auto_decided: true` when automatic).
 
-Once selected, commit fully. Do not silently drift.
+Keep the approved 0C-bis approach; explain and obtain approval for any mode-required change.
 
-When asking, offer all four modes for any approach. Use one AskUserQuestion per preamble format; defaults set RECOMMENDATION. These options differ in kind (review posture), not coverage — do NOT emit `Completeness: N/10` per option. Include the one-line note from step 4 of the preamble format rule instead: `Note: options differ in kind, not coverage — no completeness score.`
+Keep the selected mode.
 
-**STOP.** Unless the user already explicitly selected a mode, ask via AskUserQuestion and wait for their choice. Then continue to 0D-prelude, 0D, 0D-POST, and 0E as applicable.
+When asking, offer all four modes in one AskUserQuestion; use preamble format and context defaults for RECOMMENDATION. Do NOT emit `Completeness: N/10` per option; include `Note: options differ in kind, not coverage — no completeness score.`
+
+**STOP.** Ask and wait unless the user explicitly selected a mode or tuning is enabled and the actual mode check exits 0 with `AUTO_DECIDE`. This settles only the mode, not approach or scope approval. Then continue to 0D-prelude, 0D, 0D-POST, and 0E as applicable.
 **Reminder: Do NOT make any code changes. Review only.**
 
 ### 0D-prelude. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)

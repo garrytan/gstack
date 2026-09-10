@@ -2213,7 +2213,7 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
   const recommendation = recommendations[0];
   const label = (text: string) => /^([1-9]\d*)?([A-Z])[):.]\s*/i.exec(text.trim());
   if (explanations.length !== 1 || recommendations.length !== 1 || !/\w/.test(explanation) ||
-      /^(?:if|unless|whether|suppose|imagine|example|template|hypothetical|historical|quoted)\b|^["'‘“`]/i.test(explanation.trim()) ||
+      /^(?:if|unless|whether|suppose|imagine|example|template|hypothetical|historical|quoted|source|previously|formerly)\b|^["'‘“`]/i.test(explanation.trim()) ||
       /\b(?:is|was|presents?|represents?)\s+(?:(?:only|just)\s+)?(?:an?\s+)?(?:quoted|hypothetical|historical|example|template)\b/i.test(openingAssessment) ||
       /\b(?:hypothetical|example|template)\b/i.test(publicText(subject)) ||
       !recommendation || q.options.length < 2 || q.options.some(o => !o.description?.trim()) ||
@@ -2246,13 +2246,21 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
     const escapingMailFailure = /^(?:(?:today|currently|now)[,:]?\s+)?(?:(?:the|this|current)\s+)?(?:plan|handler|implementation)\s+(?:lets?|allows?)\s+(?:(?:any|a|an|the)\s+)?(?:mail|email|notification)\s+failures?(?:\s*\([^()\n]*\))?\s+(?:to\s+)?escape\b/i.test(statement.trim()) &&
       !/^(?:source|previously|formerly)\b/i.test(openingAssessment) &&
       !/\b(?:if|unless|whether|hypothetical|historical|quoted|example|template|previously|formerly)\b|\bsource\s+(?:excerpt|material|text)\b/i.test(statement);
+    // A quoted contract term can describe the current plan's own behavior.
+    // Keep the affirmative owner outside the quotation; source examples and
+    // negated or past behavior cannot lend that term current status.
+    const embeddedMissingContract = /^(?:the|this|current)\s+(?:plan|handler|implementation)\s+(?:sends?|delivers?|calls?|performs?|executes?|runs?)\b/i.test(statement.trim()) &&
+      !/\b(?:if|unless|whether|not|never|historical|hypothetical|quoted|example|template|previously|formerly|source)\b|\b(?:no longer|used to)\b/i.test(statement) &&
+      /\bwith\s+['‘]no\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)(?:\s+(?:on|for|in)\s+[^'’\n.!?]+)?['’]/i.test(statement);
+    const rawSqlGap = /^(?:the|this|current)\s+(?:plan|handler|implementation|(?:lookup\s+)?query)\s+pastes?\b[^.!?]*\bstraight into (?:a )?raw SQL\b/i.test(statement.trim()) &&
+      !/\b(?:if|unless|whether|not|never|historical|hypothetical|quoted|example|template|previously|formerly|source)\b|\b(?:no longer|used to)\b/i.test(statement);
     return !/^(?:if|unless|whether|example|template|hypothetical|quoted)\b|\b(?:already resolved|no (?:current )?(?:defect|gap|issue|problem)s?\b|not true)\b/i.test(statement.trim()) &&
       !/\b(?:not|never|no longer|isn't)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
       !/\b(?:not|never|no longer|doesn't|does not)\s+(?:asserts?|checks?)\s+only\b/i.test(statement) &&
       !/\b(?:was|were)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
-      !/\b(?:not|never|no longer|doesn't|does not)\s+(?:paste|send|deliver|receive)\b/i.test(statement) &&
+      !/\b(?:not|never|no longer|doesn't|does not|used to|previously|formerly)\s+(?:pastes?|sends?|delivers?|receives?)\b/i.test(statement) &&
       !/\b(?:not|never|no longer|doesn't|does not|used to|previously|formerly)\s+(?:interpolates?|reads?|fetch(?:es)?|loads?|quer(?:y|ies))\b/i.test(statement) &&
-      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b|\bpastes?\b[^.!?]*\bstraight into (?:a )?SQL\b|\b(?:gets?|sends?|delivers?|receives?)\b[^.!?]*\btwice\b|\b(?:proves?|checks?|tests?|covers?)\s+(?:the\s+)?happy path\s+and\s+nothing else\b|\binterpolates?\b[^!?]*\b(?:raw\s+)?SQL\s+(?:fragment|string)\b|\bno\s+(?:automated\s+)?tests?\s+(?:are\s+)?planned\b|\b(?:fetch(?:es)?|reads?|loads?|queries)\b[^!?]*\bN\+1\b/i.test(statement) || escapingMailFailure);
+      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b|\bpastes?\b[^.!?]*\bstraight into (?:a )?SQL\b|\b(?:gets?|sends?|delivers?|receives?)\b[^.!?]*\btwice\b|\b(?:proves?|checks?|tests?|covers?)\s+(?:the\s+)?happy path\s+and\s+nothing else\b|\binterpolates?\b[^!?]*\b(?:raw\s+)?SQL\s+(?:fragment|string)\b|\bno\s+(?:automated\s+)?tests?\s+(?:are\s+)?planned\b|\b(?:fetch(?:es)?|reads?|loads?|queries)\b[^!?]*\bN\+1\b/i.test(statement) || escapingMailFailure || embeddedMissingContract || rawSqlGap);
   });
   const amendment = q.options.some(option => {
     const token = label(option.label);
@@ -2298,6 +2306,14 @@ function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][numbe
   const explanations = [...prose.matchAll(/^ELI10:\s*(.+)$/gm)];
   const recommendations = [...prose.matchAll(/^Recommendation:\s*([1-9]\d*)?([A-Z])\b/gim)];
   const section = number.split('.')[0]!;
+  // A bare recommendation letter can select an offered decision-numbered
+  // choice (D4 / 4A) independently of the Finding number. Normalize only a
+  // uniform prefix matching this exact decision; mixed or foreign IDs fail.
+  const decision = /^D([1-9]\d*)\b/i.exec(title)![1]!;
+  if (finding && recommendations.length === 1 && !recommendations[0]![1] &&
+      q.options.every(option => new RegExp('^' + decision + '[A-Z][):.]\\s*\\S', 'i').test(option.label))) {
+    q = { ...q, options: q.options.map(option => ({ ...option, label: option.label.replace(/^[1-9]\d*(?=[A-Z][):.])/i, '') })) };
+  }
   const optionPrefix = recommendations[0]?.[1] ?? '';
   if (explanations.length !== 1 || recommendations.length !== 1 ||
       (optionPrefix ? optionPrefix !== section : !finding) || !/\w/.test(explanations[0]![1]!) ||
