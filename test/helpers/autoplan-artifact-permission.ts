@@ -20,6 +20,24 @@ const compact = (text: string) => text.replace(/\s/g, '');
 
 /** The native header may remain above the diff; both displayed paths must bind. */
 function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string): string[] | null {
+  // A redraw can repeat the same native tool title above one current panel.
+  // Those homogeneous titles supply no authority: the full panel below must
+  // still bind its path, current request, content, and exact one-time menu.
+  const repeated: string[] = [];
+  let panelAt = 0;
+  for (; panelAt < rows.length; panelAt++) {
+    if (!rows[panelAt]!.trim()) continue;
+    const title = /^[●⏺] Update\(([^\n]+)\)$/.exec(rows[panelAt]!);
+    if (!title) break;
+    repeated.push(title[1]!);
+  }
+  if (repeated.length > 1 && ownedStateRoot && /^[─╌]{8,}$/.test(rows[panelAt] ?? '') &&
+      rows[panelAt + 1]?.trim() === 'Edit file') {
+    const relative = path.relative(ownedStateRoot, file).split(path.sep).join('/');
+    const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
+    if (repeated.some(title => title !== repeated[0]) || (repeated[0] !== file && repeated[0] !== alias)) return null;
+    rows = rows.slice(panelAt);
+  }
   const headers = rows.flatMap((row, index) => /^[●⏺] Update\(/.test(row) ? [index] : []);
   if (headers.length > 1) return null;
   const header = headers[0] ?? 0;

@@ -84,7 +84,7 @@ function declaredLegacyCharacterization(text: string): boolean {
   const sections: Array<{ title: string; body: string[]; asserted: boolean }> = [];
   const owners: Array<{ level: number; asserted: boolean }> = [];
   let preamble = '', sourcePreamble = false;
-  const sourceFrame = (body: string) => /\b(?:(?:hypothetical|historical) example|unproven hypothesis|(?:source|quoted) (?:material|text) only|(?:are|is) not requirements? of this plan)\b/i.test(body.replace(/\s+/g, ' '));
+  const sourceFrame = (body: string) => /\b(?:(?:hypothetical|historical) example|unproven hypothesis|(?:source|quoted) (?:material|text) only|(?:are|is) not requirements? of this plan)\b/i.test(body.replace(/"[^"\n]*"|“[^”\n]*”/g, '').replace(/\s+/g, ' '));
   for (const line of prose(text).split('\n')) {
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) {
@@ -182,6 +182,44 @@ function declaredLegacyCharacterization(text: string): boolean {
               || withdrawn(unquoted(task).replace(/\b(?:this|that|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), match[1])) continue;
           const taskWithdrawal = new RegExp(`\\b${match[1]}\\s+(?:is|was|has been)\\s+(?:cancelled|canceled|withdrawn|rejected|deferred|optional|not required|no longer required)\\b`, 'i');
           if (!current.some(s => taskWithdrawal.test(unquoted(s.body.join('\n'))))) return true;
+        }
+      }
+    }
+  }
+  // A mandatory declaration can require capture before touching the legacy
+  // function, with a task and ordered verification on both router settings.
+  const sourceOwner = (body: string) => sourceFrame(body) ||
+    /\b(?:is|was|presents?|represents?)\s+(?:(?:only|just)\s+)?(?:an?\s+)?(?:quoted|hypothetical|historical|example|template)\b/i.test(body);
+  const conditionalOwner = (prefix: string) => /^(?:if|unless|maybe|perhaps|proposed|optional)\b/i.test(prefix.trim().split('\n').at(-1)?.trim() ?? '');
+  for (const section of current.filter(s => /^REGRESSION \(mandatory rule, no approval needed\) [—–-] CRITICAL$/i.test(s.title))) {
+    const body = unquoted(section.body.join(' ')).replace(/\s+/g, ' ').trim();
+    const declaration = /(?:^|[.!?]\s+)Add a characterization (?:test )?suite for legacyAuthFlow\(\) before (?:touching|changing|refactoring) it:\s*(?:capture|pin|record) current inputs and outputs \([^()!?]{1,300}\) and run the same suite against ([A-Za-z][\w]*) on both flag settings\. A behavior difference between paths is a test failure\b/i.exec(body);
+    if (!declaration || suiteWithdrawn || withdrawn(body) ||
+        !snapshotSource.includes(declaration[0].trim()) || sourceOwner(body.slice(0, declaration.index)) ||
+        /\b(?:if|unless|maybe|might|could|proposed|optional|hypothetical|unproven)\b/i.test(body.slice(0, declaration.index))) continue;
+    for (const section of current.filter(s => s.title === 'Implementation Tasks')) {
+      const taskBody = section.body.join('\n').trim();
+      const taskPrefix = taskBody.split(/\n(?=-\s)/)[0]?.trim() ?? '';
+      if (!taskBody.startsWith('- ') && (!/^Synthesized from (?:this|the) review's findings\./.test(taskPrefix) ||
+          /\b(?:if|unless|optional|hypothetical|example|source|quoted|unproven)\b/i.test(taskPrefix))) continue;
+      for (const task of taskBody.split(/\n(?=-\s)/)) {
+        const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] [A-Za-z][\w-]*(?:\/[A-Za-z][\w-]*)+ [—–-] CRITICAL characterization suite for legacyAuthFlow\(\), run on both router paths[\t ]*(?:\n|$)/i.exec(task);
+        const verify = /^\s+- Verify: suite passes on legacy before any refactor; passes on new path before flag enable[\t ]*$/m.exec(task);
+        const taskIntro = unquoted(taskBody.slice(0, taskBody.indexOf(task))).trim().split('\n').at(-1) ?? '';
+        if (!match || !verify || !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+            conditionalOwner(taskIntro) || sourceOwner(taskIntro) || conditionalOwner(task.slice(0, verify.index)) || sourceOwner(unquoted(task.slice(0, verify.index))) ||
+            withdrawn(unquoted(task).replace(/\b(?:this|that|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement'), match[1])) continue;
+        const taskWithdrawal = new RegExp(`\\b${match[1]}\\s+(?:is|was|has been)\\s+(?:cancelled|canceled|withdrawn|rejected|deferred|optional|not required|no longer required)\\b`, 'i');
+        if (current.some(s => taskWithdrawal.test(unquoted(s.body.join('\n'))))) continue;
+        for (const verification of current.filter(s => /^Verification(?: \([^\n]*\))?$/i.test(s.title))) {
+          const body = unquoted(verification.body.join('\n')).trim();
+          const baseline = /^([1-9]\d*)\. Run the characterization suite against legacyAuthFlow\(\) on the unmodified code; it must pass before any refactor lands\.[\t ]*$/m.exec(body);
+          const compare = new RegExp(`^([1-9]\\d*)\\. Run the characterization suite through ${declaration[1]} with the flag on new; zero differences\\.[\\t ]*$`, 'm').exec(body);
+          if (baseline && compare && Number(baseline[1]) < Number(compare[1]) && baseline.index < compare.index &&
+              !conditionalOwner(body.slice(0, baseline.index)) && !conditionalOwner(body.slice(0, compare.index)) &&
+              !sourceOwner(body.slice(0, baseline.index)) && !sourceOwner(body.slice(0, compare.index)) &&
+              !withdrawn(body.replace(/\b(?:this|that|the)\s+(?:baseline|verification)\b/gi, 'this requirement'), match[1]) &&
+              snapshotSource.includes(baseline[0]) && snapshotSource.includes(compare[0])) return true;
         }
       }
     }

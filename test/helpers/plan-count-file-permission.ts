@@ -71,7 +71,7 @@ export function recordFilePermission(input: string, file: string, cwd: string, c
 }
 
 /** A long diff can crop its path header; the native access choice repeats the directory. */
-function croppedEditTarget(screen: string, cwd: string): string | undefined {
+function croppedEditTarget(screen: string, cwd: string, expected: string): string | undefined {
   const text = screen.replace(/\r+\n?/g, '\n');
   // Cropping may begin inside a wrapped added/deleted diff row (four/five-space gutter).
   // Still require numbered rows below and the full native footer; never a quoted AUQ.
@@ -81,7 +81,11 @@ function croppedEditTarget(screen: string, cwd: string): string | undefined {
   const headerPath = header?.[1]?.trim();
   const pathOnly = headerPath && (path.isAbsolute(headerPath) || /^\.\.?[/\\]/.test(headerPath));
   // A crop can start on the single native rule immediately above the diff.
-  const diff = pathOnly ? text.slice(header![0].length) : text.replace(/^[╌─━]{3,}[ \t]*\n/, '');
+  let diff = pathOnly ? text.slice(header![0].length) : text.replace(/^[╌─━]{3,}[ \t]*\n/, '');
+  // A wrapped unchanged row has no +/- marker. Its visible tail must belong
+  // to the preceding line of the exact current owned file, not arbitrary prose.
+  const continuation = /^ {6}([^+\-\s][^\n]*)\n(?= {0,3}([1-9]\d*)  )/.exec(diff);
+  if (continuation) diff = diff.slice(continuation[0].length);
   if (!/^(?:\s*\d+\s+[ +\-]?| {4,5}[+\-])/.test(diff) || /[☐□]|^\s*(?:>|`{3}|~{3})/m.test(text)) return undefined;
   const prompt = [...text.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?\/\\]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
   if (!prompt || (text.slice(0, prompt.index).match(/^\s*\d+\s+/gm)?.length ?? 0) < 2) return undefined;
@@ -92,6 +96,25 @@ function croppedEditTarget(screen: string, cwd: string): string | undefined {
   const directory = choices?.[1]?.trim();
   if (!directory || !path.isAbsolute(directory)) return undefined;
   const target = path.join(directory, prompt[1]!.trim());
+  if (continuation) {
+    if (target !== expected) return undefined;
+    const nextLine = Number(continuation[2]);
+    if (!Number.isSafeInteger(nextLine) || nextLine < 2) return undefined;
+    try {
+      const stat = fs.lstatSync(target);
+      if (!stat.isFile() || stat.size > MAX_RECORD_BYTES) return undefined;
+      const fd = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+      try {
+        const opened = fs.fstatSync(fd);
+        if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino || opened.size > MAX_RECORD_BYTES) return undefined;
+        const bytes = Buffer.alloc(MAX_RECORD_BYTES + 1);
+        const length = fs.readSync(fd, bytes, 0, bytes.length, 0);
+        if (length !== opened.size || length > MAX_RECORD_BYTES) return undefined;
+        const prior = bytes.subarray(0, length).toString('utf8').split(/\r?\n/)[nextLine - 2];
+        if (!prior?.trimEnd().endsWith(continuation[1]!.trimEnd())) return undefined;
+      } finally { fs.closeSync(fd); }
+    } catch { return undefined; }
+  }
   return !pathOnly || path.resolve(cwd, headerPath!) === target ? target : undefined;
 }
 
@@ -101,7 +124,7 @@ export function currentFilePermissionEpoch(file: string | undefined, expected: s
   screen: string): FilePermissionEpoch | null | undefined {
   if (!file || !expected || !config) return undefined;
   const panel = [...screen.matchAll(/(?:^|\n) {0,3}(?:Edit|Write) file[ \t]*\n {0,3}([^\n]+)\n/g)].at(-1);
-  const target = panel ? path.resolve(cwd,panel[1]!.trim()) : croppedEditTarget(screen, cwd);
+  const target = panel ? path.resolve(cwd,panel[1]!.trim()) : croppedEditTarget(screen, cwd, expected);
   if (target !== expected) {
     // A foreign path with this report's basename cannot fall back to a stale
     // owned grant. An incomplete owned menu also waits for full path identity.

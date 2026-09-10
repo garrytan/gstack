@@ -5,6 +5,37 @@ export const DEVEX_SEEDED_GAPS = [
 ] as const;
 export type DevexSeededGap = typeof DEVEX_SEEDED_GAPS[number];
 
+/** Bind an unnamed signature question to its own first asserted explanation. */
+function explainedReversedSignatures(q: NativePlanQuestion, title: string): boolean {
+  if (!/^(?:Journey stage [A-Z ]+: )?the two public functions take the same two arguments in (?:opposite|reversed) positional order\. How should (?:the plan|we) (?:fix|align|unify) the signatures\?$/i.test(title)) return false;
+  const lines = q.question.split('\n');
+  if (lines[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '') !== title) return false;
+  const explanation = lines.findIndex(line => line.startsWith('ELI10: '));
+  if (explanation < 1 || lines.slice(1, explanation).filter(line => line.trim()).some(line =>
+    !/^Project\/branch\/task: [^;\n]+; reviewing the public function signatures in [\w./-]+\.$/.test(line) ||
+    /\b(?:quoted|source excerpt|source example|hypothetical|historical|not (?:a )?current|if approved)\b/i.test(line))) return false;
+  // Inline code may name each signature; a quoted/fenced explanation, earlier
+  // unrelated sentence, past definition or hypothetical definition cannot.
+  if (!/^ELI10: [\w./-]+(?: lines? \d+(?:\s*[-–]\s*\d+)?)? define (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2\./.test(lines[explanation]!)) return false;
+  const currentProse = (text: string) => {
+    let fence = false;
+    return text.split('\n').filter(line => {
+      if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; return false; }
+      return !fence && !/^\s*>/.test(line);
+    }).join('\n').replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, '');
+  };
+  const current = currentProse(lines.slice(explanation).join('\n'));
+  if ((current.match(/^ELI10:/gm)?.length ?? 0) !== 1) return false;
+  if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|explanation)|(?:(?:this|that|the) )?argument[- ]order (?:issue|defect)|these signatures)\b[^.\n]*\b(?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|not current)\b/i.test(current) ||
+      /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:there is|there's) no argument[- ]order (?:issue|defect)\b/i.test(current) ||
+      /(?:^|[.!?\n]\s*)(?:Correction:\s*)?run_eval and run_batch now (?:use|take) the same positional order\b/i.test(current)) return false;
+  // The same offered action must align both functions and retain the call-site
+  // swap guard. Selecting an offered alternate or deferral is still a decision.
+  return q.options.some(option => /^Same order\s*\+\s*swap guard(?: \(recommended\))?$/i.test(option.label) &&
+    /^(?:✅\s*)?Both (?:become|use|take) `?\(\s*dataset\s*,\s*evaluator\s*\)`?, accept keywords, and raise a call-site `?TypeError`? naming the swapped argument and the fix if types are reversed\./i.test(option.description ?? '') &&
+    !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:do not|don't|never) (?:change|align|unify) (?:either|both|the) signatures?\b|(?:do not|don't|never|skip) (?:add|require|implement) (?:a |the )?swap guard\b|(?:this|the) (?:option|correction|action) is (?:withdrawn|rejected|cancelled)\b)/i.test(currentProse(option.description ?? '')));
+}
+
 /** Identify a dedicated seed decision by its subject and meaningful alternatives. */
 function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   const title = q.question.split('\n')[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '')
@@ -29,9 +60,9 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   if (/\bquickstart\b|examples\/first_eval\.py/i.test(title) &&
       /\b(?:README|file|example|demo|missing|absent|package|wheel|ship|point)\b|first_eval\.py/i.test(title) &&
       (options.some(o => /\b(?:point|ship|add|demo is)\b/i.test(o) && /\bquickstart\b|first_eval\.py/i.test(o)) || directAction('point|ship|add|replace|fix'))) found.push('missing-quickstart');
-  if (/\brun_eval\b/i.test(title) && /\brun_batch\b/i.test(title) &&
+  if (explainedReversedSignatures(q, title) || (/\brun_eval\b/i.test(title) && /\brun_batch\b/i.test(title) &&
       /\b(?:arguments?|order|positional|reversed|opposite|consistent|align|unify|dataset|evaluator)\b/i.test(title) &&
-      (options.some(o => /\b(?:align|unify|standardize|keyword|swap)\b/i.test(o) && /\b(?:order|dataset|arguments?|positional)\b/i.test(o)) || directAction('align|unify|standardize|enforce|make'))) found.push('reversed-arguments');
+      (options.some(o => /\b(?:align|unify|standardize|keyword|swap)\b/i.test(o) && /\b(?:order|dataset|arguments?|positional)\b/i.test(o)) || directAction('align|unify|standardize|enforce|make')))) found.push('reversed-arguments');
   if (/\bAuthError\b|\binvalid API key\b/i.test(title) &&
       /\b(?:error|message|code|cause|fix|guidance|opaque|explain)\b|request failed/i.test(title) &&
       (options.some(o => /\bcode\b/i.test(o) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');

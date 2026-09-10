@@ -1545,6 +1545,10 @@ export function createPlanCountPermissionGuard(): (visible: string, completionHi
     const candidate = planCountPermissionMenu(visible);
     if (!candidate) return null;
     const { normalized, cursorAt, prompt, menu } = candidate;
+    // A whole quoted pane is source text, even if it contains a native cursor.
+    // Returning handled also suppresses the dispatcher's default permission input.
+    const rows = stripVTControlCharacters(normalized).split('\n').filter(row => row.trim());
+    if (rows.length && rows.every(row => /^[\t ]*>/.test(row))) return 'handled';
     // File permission identity comes from the action or native approval
     // choices, not a brittle exact rendering of "Do you want to ...".
     // Other permission kinds retain the existing caller policy.
@@ -2218,6 +2222,12 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
   if (prose.split(/[.!?;]\s+|\n/).some(clause =>
     /^(?:there\s+(?:is|are)\s+no\s+(?:current\s+)?|no\s+current\s+)(?:defect|gap|issue|problem)s?\b/i.test(clause.trim()))) return false;
   const findingIdentity = /\b(?:Finding|Issue)\s+F?([1-9]\d*(?:\.[1-9]\d*)*)\b/i.exec(prose.split('\n')[0]!);
+  // A decision counter is separate from its issue number. Numbered choices
+  // and the recommendation must belong to that issue (or dotted section).
+  const optionTokens = q.options.map(option => label(option.label));
+  if (optionTokens.some(token => !token || (token[1] ?? '') !== (recommendation[1] ?? '')) ||
+      new Set(optionTokens.map(token => token![2]!.toUpperCase())).size !== optionTokens.length ||
+      (findingIdentity && recommendation[1] && recommendation[1] !== findingIdentity[1]!.split('.')[0])) return false;
   if (findingIdentity && new RegExp('\\b(?:(?:Finding|Issue)\\s+F?|F)' + findingIdentity[1]!.replace(/\./g, '\\.') + '\\s+(?:is|was|has been)\\s+(?:withdrawn|rejected|retracted|resolved)\\b', 'i').test(prose)) return false;
   if ([subject, explanation].some(text => /\b(?:gap|defect|issue|problem)\b[^.!?]{0,80}\b(?:already|now)\s+(?:resolved|fixed|closed)\b/i.test(publicText(text)))) return false;
   // A complete assessment can withdraw a historical problem in a later
@@ -2231,12 +2241,18 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
     // A numbered test may state its assertion gap through the regression it
     // cannot reject, without using the word "missing" or a question mark.
     const assertionGap = /^test\s+[1-9]\d*(?:\s+\([^()\n]*\))?\s+(?:cannot\s+(?:detect|catch|reject)\b[^.!?\n]*\bregressions|accepts\s+any\s+truthy\s+value)\b/i.test(statement.trim()) && ceoAssertionMismatchBrief(q);
+    // This clause asserts the current plan's behavior. A source prefix,
+    // negated failure, or historical/example qualification cannot supply it.
+    const escapingMailFailure = /^(?:(?:today|currently|now)[,:]?\s+)?(?:(?:the|this|current)\s+)?(?:plan|handler|implementation)\s+(?:lets?|allows?)\s+(?:(?:any|a|an|the)\s+)?(?:mail|email|notification)\s+failures?(?:\s*\([^()\n]*\))?\s+(?:to\s+)?escape\b/i.test(statement.trim()) &&
+      !/^(?:source|previously|formerly)\b/i.test(openingAssessment) &&
+      !/\b(?:if|unless|whether|hypothetical|historical|quoted|example|template|previously|formerly)\b|\bsource\s+(?:excerpt|material|text)\b/i.test(statement);
     return !/^(?:if|unless|whether|example|template|hypothetical|quoted)\b|\b(?:already resolved|no (?:current )?(?:defect|gap|issue|problem)s?\b|not true)\b/i.test(statement.trim()) &&
       !/\b(?:not|never|no longer|isn't)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
       !/\b(?:not|never|no longer|doesn't|does not)\s+(?:asserts?|checks?)\s+only\b/i.test(statement) &&
       !/\b(?:was|were)\s+(?:missing|unspecified|unvalidated|unhandled)\b/i.test(statement) &&
       !/\b(?:not|never|no longer|doesn't|does not)\s+(?:paste|send|deliver|receive)\b/i.test(statement) &&
-      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b|\bpastes?\b[^.!?]*\bstraight into (?:a )?SQL\b|\b(?:gets?|sends?|delivers?|receives?)\b[^.!?]*\btwice\b|\b(?:proves?|checks?|tests?|covers?)\s+(?:the\s+)?happy path\s+and\s+nothing else\b/i.test(statement));
+      !/\b(?:not|never|no longer|doesn't|does not|used to|previously|formerly)\s+(?:interpolates?|reads?|fetch(?:es)?|loads?|quer(?:y|ies))\b/i.test(statement) &&
+      (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b|\bpastes?\b[^.!?]*\bstraight into (?:a )?SQL\b|\b(?:gets?|sends?|delivers?|receives?)\b[^.!?]*\btwice\b|\b(?:proves?|checks?|tests?|covers?)\s+(?:the\s+)?happy path\s+and\s+nothing else\b|\binterpolates?\b[^!?]*\b(?:raw\s+)?SQL\s+(?:fragment|string)\b|\bno\s+(?:automated\s+)?tests?\s+(?:are\s+)?planned\b|\b(?:fetch(?:es)?|reads?|loads?|queries)\b[^!?]*\bN\+1\b/i.test(statement) || escapingMailFailure);
   });
   const amendment = q.options.some(option => {
     const token = label(option.label);
@@ -2250,12 +2266,21 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
     if (optionRows.length > 1) return false;
     const boundedConfiguration = /\b(?:no|without)\s+(?:cap|bound|timeout)\b/i.test(explanation) &&
       /^explicit\b[^.!?]*\b(?:timeout|budget|cap|bound)\b/i.test(optionLabel);
-    const completeTestSuite = /\b(?:no|without)\s+(?:automated\s+)?tests?\b/i.test(explanation) &&
-      /^full\s+(?:test\s+)?(?:matrix|table|suite)\b[^.!?]*\b(?:unit|integration|ordering|tests?)\b/i.test(optionLabel);
-    return boundedConfiguration || completeTestSuite || [optionLabel, option.description ?? '', optionRows[0]?.[1] ?? ''].some(text =>
-    publicText(text).split(/[.;]\s+/).some(clause =>
+    const completeTestSuite = /\b(?:no|without)\s+(?:automated\s+)?tests?\b/i.test(`${subject} ${explanation}`) &&
+      /^(?:full\s+(?:test\s+)?(?:matrix|table|suite)\b[^.!?]*\b(?:unit|integration|ordering|tests?)\b|full\s+unit\s*(?:\+|and)\s*integration\s+suite\b)/i.test(optionLabel);
+    return boundedConfiguration || completeTestSuite || [optionLabel, option.description ?? '', optionRows[0]?.[1] ?? ''].some(text => {
+    // Effort estimates are display text. A positive option bullet can own
+    // an action; a drawback bullet and its continuation cannot supply one.
+    // Preserve a source or conditional introduction before the first bullet.
+    const actionText = publicText(text);
+    if (actionText.split(/[✅❌]/, 1)[0]!.split(/[.;]\s+/).some(clause =>
+      /^(?:if|unless|whether|suppose|imagine|example|template|hypothetical|historical|quoted|source)\b/i.test(clause.trim()) ||
+      /\b(?:is|was|presents?|represents?)\s+(?:(?:only|just)\s+)?(?:an?\s+)?(?:quoted|hypothetical|historical|example|template)\b/i.test(clause))) return false;
+    return actionText.split(/(?=[✅❌])/).filter(part => !/^\s*❌/.test(part))
+      .flatMap(part => part.replace(/^\s*✅\s*/, '').split(/[.;]\s+/)).some(clause =>
       /^(?:add|remove|replace|send|rescue|handle|validate|check|assert|pin|deep-equal|require|define|specify|guard|serialize|parameterize|escape|use|implement|write)\b/i.test(clause.trim()) &&
-      !/^[a-z-]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored|exact|expected|full|complete|whole)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim())));
+      !/^[a-z-]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored|exact|expected|full|complete|whole)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim()));
+    });
   });
   return currentProblem && amendment;
 }
@@ -2263,17 +2288,19 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
 /** A descriptive menu header can accompany a fully numbered issue brief. */
 function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][number], number: string): boolean {
   const title = q.question.split('\n')[0]!;
-  if (!/^D[1-9]\d*\s+\(Issue [1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]\s*(?:What|How|Which|Should)\b[^\n?]+\?$/i.test(title) ||
+  const finding = /^D[1-9]\d*\s+\(Finding\s/i.test(title);
+  if (!/^D[1-9]\d*\s+\((?:Issue|Finding) [1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]\s*(?:What|How|Which|Should)\b[^\n?]+\?$/i.test(title) ||
       /\b(?:hypothetical|example|template)\b/i.test(title)) return false;
   const prose = q.question
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
     .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
     .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
   const explanations = [...prose.matchAll(/^ELI10:\s*(.+)$/gm)];
-  const recommendations = [...prose.matchAll(/^Recommendation:\s*([1-9]\d*)([A-Z])\b/gim)];
+  const recommendations = [...prose.matchAll(/^Recommendation:\s*([1-9]\d*)?([A-Z])\b/gim)];
   const section = number.split('.')[0]!;
+  const optionPrefix = recommendations[0]?.[1] ?? '';
   if (explanations.length !== 1 || recommendations.length !== 1 ||
-      recommendations[0]![1] !== section || !/\w/.test(explanations[0]![1]!) ||
+      (optionPrefix ? optionPrefix !== section : !finding) || !/\w/.test(explanations[0]![1]!) ||
       /^(?:if|unless|whether|example|template|hypothetical|historical|quoted)\b/i.test(explanations[0]![1]!.trim())) return false;
   // Current prose may explicitly withdraw an earlier issue. Literal examples
   // and attributed quotations cannot supply either the brief or its withdrawal.
@@ -2287,13 +2314,13 @@ function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][numbe
       .replace(/^Completeness\s+\d+\/10\.\s*/i, '').split(/[.;]\s+/).some(clause =>
         /^(?:add|remove|replace|send|rescue|handle|validate|check|assert|pin|require|define|specify|guard|serialize|parameterize|use|implement|write)\b/i.test(clause.trim()) &&
         !/^[a-z]+\s+(?:(?:the|a|this|prior|previous|completed|reviewed|current|saved|stored)\s+)*(?:review\s+)?(?:plan|report|summary|note|record|document|log)\b/i.test(clause.trim()))));
-  if (number.includes('.') ? !ceoNumberedBriefDecision(q, title.replace(/^D[1-9]\d*\s+\(Issue [^)]+\)\s*[—–-]\s*/i, ''), true) : !missingContract || !amendment) return false;
+  if (finding || number.includes('.') ? !ceoNumberedBriefDecision(q, title.replace(/^D[1-9]\d*\s+\((?:Issue|Finding) [^)]+\)\s*[—–-]\s*/i, ''), true) : !missingContract || !amendment) return false;
   const headerNumber = /^(?:(?:Finding|Issue)\s+F?|F)([1-9]\d*(?:\.[1-9]\d*)*)(?:\s+[a-z][a-z -]*)?$/i.exec(q.header.trim());
   if (/^(?:finding|issue)\b|^f\d/i.test(q.header.trim()) && !headerNumber) return false;
   if (headerNumber && headerNumber[1] !== number) return false;
-  const labels = q.options.map(option => /^([1-9]\d*)([A-Z])[):.]\s*\S/i.exec(option.label));
+  const labels = q.options.map(option => /^([1-9]\d*)?([A-Z])[):.]\s*\S/i.exec(option.label));
   return q.options.length >= 2 && q.options.every((option, i) =>
-    Boolean(option.description?.trim()) && labels[i]?.[1] === section) &&
+    Boolean(option.description?.trim()) && (labels[i]?.[1] ?? '') === optionPrefix) &&
     new Set(labels.map(label => label![2]!.toUpperCase())).size === labels.length &&
     labels.some(label => label![2]!.toUpperCase() === recommendations[0]![2]!.toUpperCase());
 }
@@ -2383,8 +2410,8 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
         new Set(labels.map(token => token![2]!.toUpperCase())).size !== labels.length) return false;
   }
   const numberedSubject = /^([1-9]\d*(?:\.[1-9]\d*)+)\s+([^:\n]+):\s*([^\n]+)$/.exec(normalized);
-  const parenthesized = /^D[1-9]\d*\s+\(issue\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
-  if (parenthesized && (allowQuestionId || (parenthesized[1]!.includes('.') &&
+  const parenthesized = /^D[1-9]\d*\s+\((?:issue|finding)\s+([1-9]\d*(?:\.[1-9]\d*)*)\)\s*[—–-]\s*[^\n?]+\?$/i.exec(title);
+  if (parenthesized && (allowQuestionId || /^D[1-9]\d*\s+\(Finding\s/i.test(title) || (parenthesized[1]!.includes('.') &&
       !/^(?:(?:Finding|Issue)\s+F?|F)[1-9]\d*/i.test(q.header.trim())))) return ceoParenthesizedIssueBrief(q, parenthesized[1]!);
   if (identity && !/^[^\n?]+\?$/.test(identity[3]!) && !ceoNumberedBriefDecision(q, identity[3]!)) return false;
   if (numberedSubject && (numberedSubject[2]!.trim().toLowerCase() !== q.header.trim().toLowerCase() ||
@@ -2413,7 +2440,7 @@ export const ceoFirstReviewAUQ: Step0BoundaryPredicate = (fp) =>
     const id = /<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?([a-z0-9-]+)/i.exec(q.question)?.[1];
     if (!id || /(?:^|-)(?:scope|mode|approach|routing|office-hours|prerequisites?|setup|next-steps|completion)(?:-|$)/i.test(id)) return false;
     const title = q.question.split('\n')[0];
-    if (/^D[1-9]\d*\s+\(Issue\s+[1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
+    if (/^D[1-9]\d*\s+\((?:Issue|Finding)\s+[1-9]\d*(?:\.[1-9]\d*)*\)\s*[—–-]/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (!/^(?:D\s*\d+\s*[—–-]|(?:Finding|Section)\s*\d+)/i.test(title)) return false;
     if (/^(?:D\s*\d+\s*[—–-]\s*)?(?:Finding|Issue)\s+F?\d/i.test(title)) return nativeExplicitCeoFinding(fp, true);
     if (/\bfinding\b|\bmissing\b|\bambiguous\b|\bundefined\b|doesn['’]t\s+(?:define|specify|cover|mention)/i.test(title)) return true;

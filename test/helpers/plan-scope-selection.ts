@@ -67,7 +67,7 @@ export function nativeSeededPlanSelection(
     if (!line || /^(?: {4}|\t)/.test(line)) continue;
     const text = line.trim();
     const selectedNow = /^(?:I've|I have) selected (?:reviewing|to review)\s+(?:the\s+)?pasted\s+(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(.*)$/i.exec(text);
-    const selected = selectedNow ?? /^(?:I'll review|I will review|I'll go with reviewing|I will go with reviewing|I'm proceeding with reviewing|I am proceeding with reviewing)\s+(?:the\s+)?(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(?:\s+(?:you pasted|pasted here))?(.*)$/i.exec(text);
+    const selected = selectedNow ?? /^(?:Scope gate confirms plan mode, so )?(?:I'll review|I will review|I'll go with reviewing|I will go with reviewing|I'll proceed with reviewing|I will proceed with reviewing|I'm proceeding with reviewing|I am proceeding with reviewing)\s+(?:the\s+)?(?:pasted\s+)?(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(?:\s+(?:you pasted|pasted here))?(.*)$/i.exec(text);
     if (!selected || (selected[1] ?? selected[2] ?? selected[3])!.trim().toLowerCase() !== title.toLowerCase()) continue;
     const tail = selected[4]!;
     if (/\b(?:if|unless|assuming|pending|only after|instead|not|won't|cannot)\b/i.test(tail)) continue;
@@ -81,7 +81,7 @@ export function nativeSeededPlanSelection(
       if (/^(?:\s+(?:since|because)\s+(?:we're|we are|I'm|I am)\s+in plan mode)?\.(?:\s+(?:Now|Next,|Then)\s+(?:I'll|I will)\s+(?:run|start|begin)\s+(?:the\s+)?(?:pre-review\s+)?audit\b(?:[^.!?]|\.(?=\S))*\.)?$/i.test(tail) && remainsSelected(message.timestamp)) return true;
       continue;
     }
-    if (/^(?:\.(?:\s+(?:Next,|Then\b).*)?|,\s*(?:starting|beginning)\s+(?:with|by)\b.*|,\s*and\s+now\s+(?:I'm|I am)\s+(?:running|starting|beginning)\s+(?:the\s+)?(?:pre-review\s+)?audit\b[^?]*\.|)$/.test(tail) && remainsSelected(message.timestamp)) return true;
+    if (/^(?:\.(?:\s+(?:Next,|Then\b).*)?|,\s*(?:starting|beginning)\s+(?:with|by)\b.*|,\s*and\s+now\s+(?:I'm|I am)\s+(?:running|starting|beginning)\s+(?:the\s+)?(?:pre-review\s+)?audit\b[^?]*\.|\. Running (?:the )?(?:pre-review )?audit\b(?:[^.!?]|\.(?=\S))*\.|)$/.test(tail) && remainsSelected(message.timestamp)) return true;
   }
   return false;
 }
