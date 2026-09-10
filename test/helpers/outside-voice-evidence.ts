@@ -47,6 +47,13 @@ function completedTaskRead(text: string): string | null {
   return /(?:^|\n)\[exited with code 0\]\s*$/.test(output) ? output : null;
 }
 
+/** A literal cat cannot replace, truncate or redirect the acknowledged task file. */
+function literalTaskCat(command: string, outputFile: string): boolean {
+  if (!/^\/[A-Za-z0-9_./-]+$/.test(outputFile)) return false;
+  return ['', '-- '].some(option => [outputFile, `"${outputFile}"`, `'${outputFile}'`]
+    .some(file => command.trim() === `cat ${option}${file}`));
+}
+
 export function claudeOutsideExecutions(transcript: unknown[]): OutsideExecution[] {
   const calls = new Map<string, { command?: string; name: string; input: any; session: string | null }>();
   const tasks = new Map<string, {
@@ -77,7 +84,14 @@ export function claudeOutsideExecutions(transcript: unknown[]): OutsideExecution
         const call = calls.get(block.tool_use_id)!;
         const output = toolText(block.content);
         if (call.name === 'Bash' && typeof call.command === 'string') {
-          const acknowledgment = /^Command running in background with ID: ([a-zA-Z0-9_-]+)\. Output is being written to: ([^\r\n]+)\. You will be notified when it completes\. To check interim output, use Read on that file path\.$/.exec(output);
+          const readTask = [...tasks.values()].find(task => call.session === task.session &&
+            sessionIdentity(event) === task.session && literalTaskCat(call.command!, task.outputFile));
+          if (readTask) {
+            const complete = block.is_error !== true && /(?:^|\n)\[exited with code 0\]\s*$/.test(output);
+            readTask.outputs.push({ toolUseId: block.tool_use_id, output, complete });
+            continue;
+          }
+          const acknowledgment = /^Command running in background with ID: ([a-zA-Z0-9_-]+)\. Output is being written to: ([^\r\n]+)\. You will be notified when it completes\. To check interim output, use Read on that file path\.(?:\nSession cwd remains (\/[^;\r\n]+); directory changes made by the backgrounded command do not apply to subsequent commands\.)?$/.exec(output);
           if (!acknowledgment) {
             const existing = tasks.get(block.tool_use_id);
             if (existing) {
@@ -96,6 +110,7 @@ export function claudeOutsideExecutions(transcript: unknown[]): OutsideExecution
           results.push({ command: call.command, output, succeeded: false, background });
           const existing = tasks.get(block.tool_use_id);
           if (block.is_error === true || !call.session || sessionIdentity(event) !== call.session ||
+              (acknowledgment[3] && typeof event.cwd === 'string' && acknowledgment[3] !== event.cwd) ||
               !outputFile!.endsWith(`/tasks/${taskId}.output`) || !outputFile!.startsWith('/')) {
             if (existing) existing.failed = true;
             continue;

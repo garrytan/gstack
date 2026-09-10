@@ -31,6 +31,7 @@ import { withHermeticSkillRuntime } from './hermetic-skill-runtime';
 import { createPlanCountFixture } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { nativeSeededPlanSelection } from './plan-scope-selection';
+import { readPlanFloorTarget, type PlanFloorTargetDelivery } from './plan-floor-target';
 import { findNativeAutoDecision, type NativeAutoDecision } from './native-auto-decide';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript, type NativePublicToolEvent } from './plan-count-transcript';
 import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
@@ -101,7 +102,7 @@ export interface ClaudePtyOptions {
   /** Terminal size. Default 120x40. Plan-mode UI lays out cleanly at this size. */
   cols?: number;
   rows?: number;
-  /** Opt in only when input targeting needs the actual VT viewport. */
+  /** Opt in when input targeting or completion needs the actual VT viewport. */
   observeScreen?: boolean;
   /** Count-only pending identity; the hook never approves or changes native tools. */
   observePlanReady?: boolean;
@@ -999,6 +1000,8 @@ export function classifyVisible(
      * where zero-findings → write plan → plan_ready is legitimate.
      */
     strictPlanWrites?: boolean;
+    /** Seeded observations require the complete native approval panel in this owned viewport. */
+    currentScreen?: string;
   },
 ): ClassifyResult {
   // Silent-write detection: any Write/Edit tool render that targets a path
@@ -1048,10 +1051,20 @@ export function classifyVisible(
     };
   }
   if (isPlanReadyVisible(visible)) {
-    return {
-      outcome: 'plan_ready',
-      summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
-    };
+    if (opts?.currentScreen === undefined || isCurrentPlanApprovalScreen(opts.currentScreen)) {
+      return {
+        outcome: 'plan_ready',
+        summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
+      };
+    }
+    // Historical TODO prose and stale approval menus cannot finish a seeded
+    // review. The viewport may corroborate an existing question, never add one.
+    const current = opts.currentScreen;
+    // A streaming or mismatched native approval panel is not an AUQ either.
+    if (/Claude (?:has written up a plan|wants to exit plan mode)|Exit plan mode\?/i.test(current) ||
+        !(isNumberedOptionListVisible(visible) && isNumberedOptionListVisible(current) ||
+          isProseAUQVisible(visible) && isProseAUQVisible(current))) return null;
+    visible = current;
   }
   if (isNumberedOptionListVisible(visible)) {
     // Permission dialogs render numbered lists too. Skip them — the
@@ -2248,6 +2261,38 @@ function ceoParenthesizedIssueBrief(q: NativePlanQuestionCall['questions'][numbe
     labels.some(label => label![2]!.toUpperCase() === recommendations[0]![2]!.toUpperCase());
 }
 
+/** A section-numbered option brief remains a review decision when qids are omitted. */
+function ceoSectionChoiceBrief(q: NativePlanQuestionCall['questions'][number], title: string): boolean {
+  const identity = /^([1-9]\d*)([A-Z])\s*[—–-]\s*(?:What|How|Which|Should)\b[^\n?]+\?$/i.exec(title);
+  if (!identity || /\b(?:hypothetical|example|template|report|summary|archive|routing|setup|completion|next review|completed review)\b/i.test(title)) return false;
+  const prose = q.question
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+    .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  const field = (name: string) => [...prose.matchAll(new RegExp('^' + name + ':\\s*(.+)$', 'gm'))];
+  const contexts = field('Project/branch/task'), explanations = field('ELI10');
+  const stakes = field('Stakes if we pick wrong'), recommendations = field('Recommendation');
+  if ([contexts, explanations, stakes, recommendations].some(rows => rows.length !== 1)) return false;
+  const section = /(?:^|[,;]\s*)Section ([1-9]\d*) [a-z][a-z -]*\.$/i.exec(contexts[0]![1]!);
+  const recommended = /^([A-Z])\b/i.exec(recommendations[0]![1]!);
+  if (section?.[1] !== identity[1] || recommended?.[1]?.toUpperCase() !== identity[2]!.toUpperCase() ||
+      [explanations[0]![1]!, stakes[0]![1]!].some(text => !/\w/.test(text) || /^["'‘“`]/.test(text.trim())) ||
+      /^(?:if|unless|whether|suppose|imagine|example|template|hypothetical|historical|quoted)\b/i.test(explanations[0]![1]!.trim())) return false;
+  // Neither an administrative recap nor a withdrawn assessment starts review.
+  if (/\b(?:no (?:(?:current|unresolved) )?(?:defect|gap|issue|problem)|(?:this|that|the) (?:issue|finding|gap|problem|defect)\s+(?:is|was|has been)\s+(?:(?:already|now)\s+)?(?:resolved|fixed|closed|withdrawn|retracted)|(?:I|we)\s+(?:(?:have|has)\s+)?(?:withdraw|withdrawn|retract|retracted|resolve|resolved)\s+(?:this|that|the)\s+(?:finding|issue|question))\b/i.test(prose)) return false;
+  const explanation = explanations[0]![1]!;
+  // A section/choice number is identity, not proof of a review issue. The
+  // current assessment must state a correctness gap, with a substantive
+  // offered change; administrative storage choices satisfy neither condition.
+  const currentGap = /\bno\s+(?:error handling|tests?|checks?|validation|coordination)\b|\bbut not in which order\b|\bpastes?\b[^.!?]*\bstraight into a SQL fragment\b|\bcustomer gets a second\b/i.test(explanation);
+  const amendment = q.options.some(option => /^(?:commit|rescue|bound parameter|skip email|full matrix)\b/i.test(option.label.replace(/^[A-Z][):.]\s*/i, '')));
+  if (!currentGap || !amendment) return false;
+  const labels = q.options.map(option => /^([A-Z])[):.]\s*\S/i.exec(option.label));
+  return q.options.length >= 2 && q.options.every((option, i) => Boolean(option.description?.trim()) && labels[i]) &&
+    new Set(labels.map(label => label![1]!.toUpperCase())).size === labels.length &&
+    labels.some(label => label![1]!.toUpperCase() === recommended![1]!.toUpperCase());
+}
+
 function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionId = false): boolean {
   const call = fp.nativeCall;
   // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
@@ -2267,6 +2312,7 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   if (allowQuestionId && ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
       !/<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?[a-z0-9-]+\s*>/i.test(q.question))) return false;
   const title = q.question.split('\n')[0]!.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '');
+  if (!allowQuestionId && ceoSectionChoiceBrief(q, title)) return true;
   // The issue identity is separate from the decision counter and section
   // numbering. A completed "Issue 2" choice and "Finding 2.1" choice carry
   // the same review evidence as the already-supported numbered findings.
@@ -3186,6 +3232,7 @@ export async function runPlanSkillObservation(opts: {
     env: opts.env,
     model: opts.model,
     seedSkills: true,
+    observeScreen: !!opts.initialPlanContent,
   });
 
   try {
@@ -3274,9 +3321,16 @@ export async function runPlanSkillObservation(opts: {
         };
       }
 
+      const classified = classifyVisible(visible, {
+        strictPlanWrites: !!opts.initialPlanContent,
+        currentScreen: opts.initialPlanContent ? await session.currentScreen() : undefined,
+      });
+      const pendingSeededCompletion = !!opts.initialPlanContent &&
+        isPlanReadyVisible(visible) && classified === null;
+
       // Cheap surface-tracking: did the model ever surface a prose AUQ in
       // this tick's recent buffer? Track once-true (high water).
-      if (!proseAUQEverObserved && isProseAUQVisible(visible)) {
+      if (!proseAUQEverObserved && !pendingSeededCompletion && isProseAUQVisible(visible)) {
         proseAUQEverObserved = true;
         logPtySnapshot(visible, {
           testName: opts.skillName,
@@ -3308,9 +3362,6 @@ export async function runPlanSkillObservation(opts: {
         if (!tokensObserved[t] && visible.includes(t)) tokensObserved[t] = true;
       }
 
-      const classified = classifyVisible(visible, {
-        strictPlanWrites: !!opts.initialPlanContent,
-      });
       if (classified) {
         const obs: PlanSkillObservation = {
           ...classified,
@@ -3354,7 +3405,7 @@ export async function runPlanSkillObservation(opts: {
         lastJudgeAt = Date.now();
         logPtySnapshot(visible, { testName: opts.skillName, elapsedMs: elapsed, tag: 'judge-tick' });
         lastJudgeVerdict = judgePtyState(visible, { testName: opts.skillName });
-        if (lastJudgeVerdict.state === 'waiting') {
+        if (lastJudgeVerdict.state === 'waiting' && !pendingSeededCompletion) {
           waitingEverObserved = true;
           return {
             outcome: 'asked',
@@ -3903,6 +3954,8 @@ export async function runPlanSkillCounting(opts: {
 export interface PlanSkillFloorObservation {
   /** True iff a review-phase AUQ render was observed. */
   auqObserved: boolean;
+  /** Owned native acknowledgment of the exact seeded target command. */
+  targetDelivery?: PlanFloorTargetDelivery;
   outcome:
     | 'auq_observed'
     | 'plan_ready'
@@ -3923,11 +3976,11 @@ export interface PlanSkillFloorObservation {
 export async function runPlanSkillFloorCheck(opts: {
   /** Skill name, e.g. 'plan-eng-review'. Used for diagnostic strings only. */
   skillName: string;
-  /** Slash command to send alone, e.g. '/plan-eng-review'. */
+  /** Slash command; the owned PLAN.md target is supplied in the same submission. */
   slashCommand: string;
-  /** Plan content sent as a follow-up message ~3s after the slash command. */
+  /** Complete request seeded in an isolated project before the command starts. */
   followUpPrompt: string;
-  /** Working directory. Default process.cwd(). */
+  /** Installation cwd retained for caller compatibility; review uses an owned seeded project. */
   cwd?: string;
   /** Total budget. Default 600000 (10 min). Tests exit early on AUQ. */
   timeoutMs?: number;
@@ -3939,21 +3992,40 @@ export async function runPlanSkillFloorCheck(opts: {
   const startedAt = Date.now();
   const timeoutMs = opts.timeoutMs ?? 600_000;
 
-  const session = await launchClaudePty({
-    permissionMode: 'plan',
-    cwd: opts.cwd,
-    timeoutMs: timeoutMs + 60_000,
-    env: opts.env,
-    model: opts.model,
-    seedSkills: true,
-  });
+  const fixture = createPlanCountFixture(opts.followUpPrompt);
+  const sessionId = randomUUID();
+  let session: ClaudePtySession;
+  try {
+    session = await launchClaudePty({
+      permissionMode: 'plan',
+      cwd: fixture.cwd,
+      timeoutMs: timeoutMs + 60_000,
+      env: { ...opts.env, ...fixture.env },
+      model: opts.model,
+      seedSkills: true,
+      extraArgs: ['--session-id', sessionId],
+    });
+  } catch (error) {
+    fixture.cleanup();
+    throw error;
+  }
 
   try {
     await Bun.sleep(8000); // boot grace + auto-trust handler window
     const since = session.mark();
-    session.send(`${opts.slashCommand}\r`);
-    await Bun.sleep(3000);
-    session.send(`${opts.followUpPrompt}\r`);
+    const commandStartedAt = Date.now();
+    session.send(`${opts.slashCommand} PLAN.md\r`);
+    const deliveryOptions = { seed: opts.followUpPrompt, sessionId,
+      slashCommand: opts.slashCommand, startedAt: commandStartedAt };
+    let targetDelivery = readPlanFloorTarget(session.hermeticConfigDir, fixture.cwd,
+      { ...deliveryOptions, now: Date.now() });
+    const saveSnapshot = createPlanCountSnapshotWriter();
+    const finish = (observation: PlanSkillFloorObservation): PlanSkillFloorObservation => {
+      const artifacts = saveSnapshot({ skillName: opts.skillName, cwd: fixture.cwd,
+        claudeConfigDir: session.hermeticConfigDir, raw: session.rawOutput(),
+        visible: session.visibleSince(since), observation: { ...observation, targetDelivery, commandStartedAt } });
+      return { ...observation, targetDelivery, ...artifacts };
+    };
 
     const start = Date.now();
     let lastJudgeAt = 0;
@@ -3977,22 +4049,28 @@ export async function runPlanSkillFloorCheck(opts: {
       }
 
       if (session.exited()) {
-        return {
+        return finish({
           auqObserved: false,
           outcome: 'exited',
           summary: `claude exited (code=${session.exitCode()}) before any AUQ render`,
           evidence: visible.slice(-3000),
           elapsedMs: Date.now() - startedAt,
-        };
+        });
       }
       if (visible.includes('Unknown command:')) {
-        return {
+        return finish({
           auqObserved: false,
           outcome: 'exited',
           summary: `claude rejected ${opts.slashCommand} as unknown command`,
           evidence: visible.slice(-3000),
           elapsedMs: Date.now() - startedAt,
-        };
+        });
+      }
+
+      if (targetDelivery.status !== 'ready') {
+        targetDelivery = readPlanFloorTarget(session.hermeticConfigDir, fixture.cwd,
+          { ...deliveryOptions, now: Date.now() });
+        if (targetDelivery.status !== 'ready') continue;
       }
 
       // Success: ANY non-permission numbered-option list is an AUQ render —
@@ -4029,13 +4107,13 @@ export async function runPlanSkillFloorCheck(opts: {
         !isPermissionDialogVisible(tail) &&
         !gateIsActiveRender
       ) {
-        return {
+        return finish({
           auqObserved: true,
           outcome: 'auq_observed',
           summary: 'agent rendered an AskUserQuestion (floor met)',
           evidence: visible.slice(-3000),
           elapsedMs: Date.now() - startedAt,
-        };
+        });
       }
 
       // LLM judge fallback: same shape as runPlanSkillObservation. After 60s
@@ -4054,13 +4132,13 @@ export async function runPlanSkillFloorCheck(opts: {
         // must NOT satisfy the floor — same active-render exclusion as the
         // regex path.
         if (lastJudgeVerdict.state === 'waiting' && !gateIsActiveRender) {
-          return {
+          return finish({
             auqObserved: true,
             outcome: 'auq_observed',
             summary: `LLM judge: ${lastJudgeVerdict.reasoning} (state=waiting after ${Math.round(elapsed / 1000)}s; floor met)`,
             evidence: visible.slice(-3000),
             elapsedMs: Date.now() - startedAt,
-          };
+          });
         }
       }
 
@@ -4071,13 +4149,13 @@ export async function runPlanSkillFloorCheck(opts: {
         const target = m[1] ?? '';
         const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
         if (!sanctioned && !isNumberedOptionListVisible(visible)) {
-          return {
+          return finish({
             auqObserved: false,
             outcome: 'silent_write',
             summary: `Write/Edit to ${target} fired before any AskUserQuestion`,
             evidence: visible.slice(-3000),
             elapsedMs: Date.now() - startedAt,
-          };
+          });
         }
       }
 
@@ -4089,24 +4167,26 @@ export async function runPlanSkillFloorCheck(opts: {
       // (claude's actual "Ready to execute" confirmation) is the reliable
       // terminal signal for "agent finished without asking."
       if (isPlanReadyVisible(visible)) {
-        return {
+        return finish({
           auqObserved: false,
           outcome: 'plan_ready',
           summary: 'agent reached plan_ready without firing any AskUserQuestion',
           evidence: visible.slice(-3000),
           elapsedMs: Date.now() - startedAt,
-        };
+        });
       }
     }
 
-    return {
+    return finish({
       auqObserved: false,
       outcome: 'timeout',
-      summary: `no AUQ render and no terminal outcome within ${timeoutMs}ms`,
+      summary: targetDelivery.status === 'ready'
+        ? `no AUQ render and no terminal outcome within ${timeoutMs}ms`
+        : `seeded target delivery unavailable within ${timeoutMs}ms: ${targetDelivery.reason ?? targetDelivery.status}`,
       evidence: session.visibleSince(since).slice(-3000),
       elapsedMs: Date.now() - startedAt,
-    };
+    });
   } finally {
-    await session.close();
+    try { await session.close(); } finally { fixture.cleanup(); }
   }
 }

@@ -224,6 +224,88 @@ function originalSketchStaleFillTrace(text: string): { assessment: string; summa
   };
 }
 
+/** An original-order annotation can override the safe fill in its owned amended trace. */
+function originalOrderAStaleFillTrace(text: string): { assessment: string; ttl: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ').replace(/→/g, '->')).filter(Boolean);
+  const cells = (line: string) => line.split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  const first = /^(R[1-9]\d*) \(began before (W[1-9]\d*|W)\)$/.exec(header[1] ?? '');
+  const cache = /^cache\[([A-Za-z_$][\w$]*)\]$/.exec(header[3] ?? '');
+  if (header.length !== 5 || header[0] !== 't' || !first || !cache || header[2] !== first[2]
+    || header[4] !== `inflight[${cache[1]}]`) return;
+  const rows = lines.slice(1, 9).map(cells);
+  const token = /^([A-Za-z_$][\w$]*) stale=F$/.exec(rows[0]?.[4] ?? '');
+  const write = /^DB write commits ([A-Za-z_$][\w$]*)$/.exec(rows[1]?.[2] ?? '');
+  const read = /^DB returns ([A-Za-z_$][\w$]*) \(resume queued\)$/.exec(rows[2]?.[1] ?? '');
+  const later = /^(R[1-9]\d*) begins: miss, new ([A-Za-z_$][\w$]*), DB->([A-Za-z_$][\w$]*), fill ([A-Za-z_$][\w$]*)$/.exec(rows[7]?.[1] ?? '');
+  if (!token || !write || !read || !later || token[1] === later[2] || first[1] === later[1]
+    || write[1] === read[1] || later[3] !== write[1] || later[4] !== write[1]) return;
+  const old = read[1]!, fresh = write[1]!, pending = token[1]!, writer = first[2]!;
+  const expected = [
+    ['1', 'get->undef; run(); DB read sent', '', '-', `${pending} stale=F`],
+    ['2', '', `DB write commits ${fresh}`, '-', pending],
+    ['3', `DB returns ${old} (resume queued)`, '', '-', pending],
+    ['4', '', `resume: invalidate(${pending}), delete`, '-', `- (${pending} detached)`],
+    ['5', '', `settles -> ${writer} complete`, '-', '-'],
+    ['6', `resume: ${pending}.stale -> skip fill`, '', '-', '-'],
+    ['', `return ${old} (allowed: began < 5)`, '', '', ''],
+    ['7', later[0], `${fresh} OK`, later[2]!],
+  ];
+  if (rows.length !== expected.length || rows.some((row, i) => row.length !== expected[i]!.length
+    || row.some((cell, j) => cell !== expected[i]![j]))) return;
+  if (lines[9] !== `Order B (6 before 4): ${first[1]} fills ${old}, then ${writer} deletes at 4 -> ${later[1]} misses -> ${fresh} OK`) return;
+  const joiner = /^Late joiner (R[1-9]\d*) arriving after 5: ([A-Za-z_$][\w$]*) detached -> new entry -> ([A-Za-z_$][\w$]*) OK$/.exec(lines[10] ?? '');
+  if (!joiner || [first[1], later[1]].includes(joiner[1]) || joiner[2] !== pending || joiner[3] !== fresh) return;
+  const original = /^Original sketch, order A: fill ([A-Za-z_$][\w$]*) at 6 after delete at 4 -> (R[1-9]\d*) reads ([A-Za-z_$][\w$]*) for <=([1-9]\d*) s VIOLATION$/.exec(lines[11] ?? '');
+  if (!original || original[1] !== old || original[2] !== later[1] || original[3] !== old
+    || lines[12] !== `Original sketch, ${joiner[1]} after 5: joins ${pending} -> ${old} VIOLATION`) return;
+  // The original annotation supplies the failing fill. The amended skip and
+  // the already-started reader's allowed return cannot establish that defect.
+  return { assessment: lines.slice(11).join(' '), ttl: original[4]! };
+}
+
+/** Supplement a version-bound prose sequence with its named actors and write completion. */
+function versionedOriginalSchedule(text: string, key: string, old: string, fresh: string, finding: string): { schedule: string; assessment: string } | undefined {
+  const raw = text.split('\n').filter(line => line.trim());
+  const lines = raw.map(line => line.trim().replace(/\s+/g, ' '));
+  const header = /^ *(S[1-9]\d*) late fill +(R[1-9]\d*) \(read, began before (W[1-9]\d*|W)\) +(W[1-9]\d*|W) \(write\) +(R[1-9]\d*) \(read, began after (W[1-9]\d*|W)\) +cache +gen$/.exec(raw[0] ?? '');
+  if (!header || header[2] === header[5] || header[3] !== header[4] || header[4] !== header[6]) return;
+  const operations = [
+    'get->miss, seen=0', `DB SELECT -> ${old}`, `DB UPDATE commits ${fresh}`,
+    'delete (no-op), return', `promise resolves, set(${old})`, `get -> ${old}`,
+  ];
+  const expected = [
+    `1 ${operations[0]} - 0`, `2 ${operations[1]}`, `3 ${operations[2]}`,
+    `4 sketch ${operations[3]} - 0`, `5 sketch ${operations[4]} ${old}`, `6 sketch ${operations[5]} VIOLATION`,
+  ];
+  if (expected.some((line, i) => lines[i + 1] !== line)) return;
+  // Whitespace columns identify who performs each operation. A writer's
+  // return in the original row 4 precedes the later reader's row 6 cache hit.
+  const firstColumn = raw[0]!.indexOf(`${header[2]} (read`);
+  const writerColumn = raw[0]!.indexOf(`${header[4]} (write`);
+  const laterColumn = raw[0]!.indexOf(`${header[5]} (read`);
+  const owners = [firstColumn, firstColumn, writerColumn, writerColumn, firstColumn, laterColumn];
+  if (operations.some((operation, i) => Math.abs(raw[i + 1]!.indexOf(operation) - owners[i]!) > 1)) return;
+  const guarded = new Set([
+    "4'guarded gen=1, delete, return - 1",
+    `5'guarded stamp 1 != seen 0: skip fill, metric++, return ${old} (allowed) - 1`,
+    `6'guarded miss, seen=1, flight ${key}#1 -> ${fresh}, set ${fresh}`,
+  ]);
+  const nextSchedule = lines.findIndex((line, i) => {
+    const named = /^(S[1-9]\d*)\s/.exec(line);
+    return i > 6 && named !== null && named[1] !== header[1];
+  });
+  // Only these exact separately-labelled guarded operations are an amendment,
+  // not a dismissal of S1. Unknown same-schedule assessment text is retained.
+  const sameOwner = new RegExp(`^(?:${header[1]}|${finding})\\b`);
+  const assessment = lines.slice(7, nextSchedule < 0 ? undefined : nextSchedule)
+    .filter(line => !guarded.has(line));
+  // A later different schedule does not erase a subsequent explicit
+  // assessment of this original schedule or its same finding.
+  if (nextSchedule >= 0) assessment.push(...lines.slice(nextSchedule).filter(line => sameOwner.test(line)));
+  return { schedule: header[1]!, assessment: assessment.join(' ') };
+}
+
 /** Two adjacent original-schedule rows keep each operation in its named column. */
 function continuationStaleFillTrace(text: string, schedule: string, old: string, ttl: string): { key: string; writer: string } | undefined {
   const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ').replace(/→/g, '->')).filter(Boolean);
@@ -253,6 +335,38 @@ function continuationStaleFillTrace(text: string, schedule: string, old: string,
 }
 
 /** A named finding may put its ordering evidence in a trace, not one paragraph. */
+function assertedStructuredOwner(prose: string[], index: number): boolean {
+  const owners: Array<{ level: number; title: string }> = [];
+  for (const line of prose.slice(0, index + 1)) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (!heading) continue;
+    while (owners.length && owners.at(-1)!.level >= heading[1]!.length) owners.pop();
+    owners.push({ level: heading[1]!.length, title: heading[2]! });
+  }
+  return !owners.some(owner => /\b(?:hypothetical|example|quoted|historical|template|source)\b/i.test(owner.title));
+}
+
+/** A same-ID assessment survives intervening diagrams and named assessment headings. */
+function structuredFindingAssessment(prose: string[], finding: number, traceEnd: number, ids: string[]): string[] {
+  const assessment: string[] = [];
+  const sameId = new RegExp(`^(?:${ids.join('|')})\\b`);
+  const ownsHeading = new RegExp(`\\b(?:${ids.join('|')})\\b`);
+  let followingTrace = false, namedAssessment = false;
+  for (let i = finding + 1; i < prose.length; i++) {
+    const line = prose[i]!;
+    if (i === traceEnd + 1) followingTrace = true;
+    if (/^#{1,6}\s/.test(line)) {
+      namedAssessment = ownsHeading.test(line);
+      followingTrace = false;
+    } else if (/^\||^[FSDA][1-9]\d*\b/.test(line) && !sameId.test(line)) {
+      followingTrace = false;
+      namedAssessment = false;
+    }
+    if (assertedStructuredOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) assessment.push(line);
+  }
+  return assessment;
+}
+
 function hasStructuredStaleFillFinding(report: string): boolean {
   const lines = report.split('\n');
   const prose = lines.map(() => '');
@@ -273,6 +387,74 @@ function hasStructuredStaleFillFinding(report: string): boolean {
     // Unclosed, tilde and longer fences remain source until their own real
     // closing delimiter. They cannot supply an asserted prose violation.
     if (!fence && !/^\s*>/.test(line) && !/^(?: {4}|\t)/.test(line)) prose[i] = line;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const identity = /^Async ordering schedule \((F[1-9]\d*), invariant boundary = `writeProfile` settles\):$/.exec(prose[heading] ?? '');
+    if (!identity || !assertedStructuredOwner(prose, heading)) continue;
+    const framed = (line: string) => !line || /^(?:\||#{1,6}\s)/.test(line);
+    let previous = heading - 1;
+    while (previous >= 0 && !lines[previous]!.trim()) previous--;
+    if (!framed(prose[previous] ?? '') || (!prose[previous] && previous >= 0 && !traces.some(other => other.end === previous))) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells.length === 8 && cells[0] === '' && cells[1] === identity[1] && cells[2] === 'CRITICAL');
+    if (findings.length !== 1) continue;
+    const finding = findings[0]!;
+    if (!assertedStructuredOwner(prose, finding.index)) continue;
+    let registryHeading = finding.index - 1;
+    while (registryHeading >= 0 && !/^#{1,6}\s/.test(prose[registryHeading]!)) registryHeading--;
+    if (!/^#{1,6} Findings registry$/.test(prose[registryHeading] ?? '')
+      || prose.slice(registryHeading + 1, finding.index).some(line => line.trim() && !/^\|/.test(line))) continue;
+    const prefix = prose.slice(0, registryHeading).filter(line => line.trim()).at(-1) ?? '';
+    const priorSection = prose.slice(0, registryHeading).filter(line => /^#{1,6}\s/.test(line)).at(-1) ?? '';
+    const closesDecisions = /^Lake Score: [0-9]+\/[0-9]+ coverage-scored decisions \([A-Z0-9, -]+\) chose the complete option\.$/.test(prefix)
+      && /^#{1,6} Decision registry\b/.test(priorSection);
+    if (!framed(prefix) && !closesDecisions) continue;
+    const citation = /^Lines "no additional version checks or coordination between a cache fill and a write" vs invariant "every read begun after that write completes must observe the committed version"\. Schedule in Section [1-9]\d* shows a pre-write DB snapshot filled after `cache\.delete`, served up to ([1-9]\d*) s;/.exec(finding.cells[3] ?? '');
+    const ordered = originalOrderAStaleFillTrace(trace.text);
+    if (!citation || !ordered || citation[1] !== ordered.ttl) continue;
+    const assessment = structuredFindingAssessment(prose, finding.index, trace.end, [identity[1]!]);
+    const registry = [...finding.cells];
+    // This exact residual allowance refers only to readers begun before W,
+    // matching R1 in the validated header, never to the later R2 cache hit.
+    if (registry[5] === 'Readers that began before the write may still see the old snapshot (permitted by contract)') {
+      registry[5] = 'Allowed by contract: the original reader returns its earlier value.';
+    }
+    const context = [registry.join(' | '), ordered.assessment, ...assessment].join(' ');
+    if (new RegExp(`\\b${identity[1]}\\s+(?:is|was|remains)\\s+(?:impossible|rejected|dismissed|withdrawn)\\b`, 'i').test(context)
+      || /\b(?:(?:this|that|the|original)\s+(?:trace|schedule|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(context)) continue;
+    const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${context}`;
+    if (hasProseStaleFillFinding(claim)) return true;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const shared = /^\*\*[1-9]\d*\. Async ordering schedules \(shared state: cache\[([A-Za-z_$][\w$]*)\], writeGen\[([A-Za-z_$][\w$]*)\]\)\*\*$/.exec(prose[heading] ?? '');
+    if (!shared || shared[1] !== shared[2] || !assertedStructuredOwner(prose, heading)) continue;
+    const framed = (line: string) => !line || /^(?:\||#{1,6}\s|\*\*[0-9]+[A-Z]?\b)/.test(line);
+    let previous = heading - 1;
+    while (previous >= 0 && !lines[previous]!.trim()) previous--;
+    if (!framed(prose[previous] ?? '') || (!prose[previous] && previous >= 0 && !traces.some(other => other.end === previous))) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells.length === 8 && cells[0] === '' && /^F[1-9]\d*$/.test(cells[1] ?? '') && /^P[0-3] CRITICAL$/.test(cells[2] ?? ''));
+    for (const finding of findings) {
+      if (!assertedStructuredOwner(prose, finding.index) || findings.filter(other => other.cells[1] === finding.cells[1]).length !== 1) continue;
+      let registryHeading = finding.index - 1;
+      while (registryHeading >= 0 && !/^#{1,6}\s/.test(prose[registryHeading]!)) registryHeading--;
+      if (!/^#{1,6} Findings Registry$/.test(prose[registryHeading] ?? '')
+        || !framed(prose.slice(0, registryHeading).filter(line => line.trim()).at(-1) ?? '')) continue;
+      const sequence = /^Late fill after write\. Read misses, DB returns ([A-Za-z][\w.-]*), write commits ([A-Za-z][\w.-]*) and deletes \(no-op\), read then fills ([A-Za-z][\w.-]*); every later read gets ([A-Za-z][\w.-]*) until TTL\.(?=\s|$)/.exec(finding.cells[3] ?? '');
+      if (!sequence || sequence[1] === sequence[2] || sequence[1] !== sequence[3] || sequence[1] !== sequence[4]) continue;
+      const ordered = versionedOriginalSchedule(trace.text, shared[1]!, sequence[1]!, sequence[2]!, finding.cells[1]!);
+      if (!ordered || !new RegExp(`\\bschedules?\\s+${ordered.schedule}(?=[, .]|$)`).test(finding.cells[6] ?? '')) continue;
+      const assessment = structuredFindingAssessment(prose, finding.index, trace.end, [finding.cells[1]!, ordered.schedule]);
+      const context = [finding.cells.join(' | '), ordered.assessment, ...assessment].join(' ');
+      if (new RegExp(`\\b(?:${finding.cells[1]}|${ordered.schedule})\\s+(?:is|was|remains)\\s+(?:impossible|rejected|dismissed|withdrawn)\\b`, 'i').test(context)
+        || /\b(?:(?:this|that|the|original)\s+(?:trace|schedule|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(context)) continue;
+      const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${context}`;
+      if (hasProseStaleFillFinding(claim)) return true;
+    }
   }
   for (const trace of traces) {
     let heading = trace.start - 1;

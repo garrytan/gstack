@@ -64,7 +64,80 @@ function requiredLegacyCharacterization(task: string): boolean {
     && !/\bno\s+(?:(?:regression|characterization)\s+)?(?:tests?|fixtures?)\s+(?:are\s+)?(?:needed|required)\b/i.test(text);
 }
 
+/** Required suites bind a numbered task to an untouched legacy baseline or parity oracle. */
+function declaredLegacyCharacterization(text: string): boolean {
+  const sections: Array<{ title: string; body: string[]; asserted: boolean }> = [];
+  const owners: Array<{ level: number; asserted: boolean }> = [];
+  let preamble = '', sourcePreamble = false;
+  const sourceFrame = (body: string) => /\b(?:(?:hypothetical|historical) example|unproven hypothesis|(?:source|quoted) (?:material|text) only|(?:are|is) not requirements? of this plan)\b/i.test(body.replace(/\s+/g, ' '));
+  for (const line of prose(text).split('\n')) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      while (owners.length && owners.at(-1)!.level >= heading[1]!.length) owners.pop();
+      if (/^Current reviewed plan$/i.test(heading[2]!) && owners.length === 0) sourcePreamble = false;
+      const asserted = !sourcePreamble && owners.every(owner => owner.asserted)
+        && !/\b(?:source|example|hypothetical|proposed|optional|quoted|historical|template|unproven)\b/i.test(heading[2]!);
+      owners.push({ level: heading[1]!.length, asserted });
+      sections.push({ title: heading[2]!, body: [], asserted });
+    } else if (sections.length) {
+      const section = sections.at(-1)!;
+      section.body.push(line);
+      if (sourceFrame(section.body.join(' '))) section.asserted = owners.at(-1)!.asserted = false;
+    } else {
+      preamble += ' ' + line;
+      sourcePreamble = sourceFrame(preamble);
+    }
+  }
+  const current = sections.filter(section => section.asserted);
+  const mandatory = current.filter(section => /^CRITICAL regression \(mandatory, regression rule\)$/i.test(section.title));
+  const declaration = /^legacyAuthFlow(?:\(\))? is (?:existing|current) behavior being (?:modified|refactored)\b[^!?]{0,240}\.\s+(?:A|The) characterization test suite for legacyAuthFlow(?:\(\))? is (?:added|required) as a (?:critical|mandatory) requirement:\s*(?:capture|pin|record) (?:current|existing|prior)\b[^.!?]{1,400}\.\s+This suite runs against the flag-OFF path and is the oracle the new path is compared to during rollout\./i;
+  const withdrawn = (body: string, task?: string) => new RegExp(
+    `\\b(?:${task ? `${task}|` : ''}(?:this|the|that)\\s+(?:(?:characterization|regression|contract)\\s+)?(?:suite|task|test|requirement)|(?:characterization|regression)\\s+(?:suite|tests?))\\s+(?:(?:is|was|has been)\\s+)?(?:(?:not|no longer)\\s+(?:required|needed)|cancelled|canceled|withdrawn|rejected|deferred|optional)\\b`, 'i').test(body)
+    || /\b(?:do not|never|skip|defer|cancel|withdraw)\s+(?:run(?:ning)?\s+)?(?:the|this)\s+(?:characterization\s+)?suite\b/i.test(body);
+  const declared = mandatory.some(section => {
+    const body = section.body.join(' ').replace(/\s+/g, ' ').trim();
+    const claim = declaration.exec(body)?.[0];
+    return claim && !/["“”]|\b(?:maybe|might|could|if|unless|optional|hypothetical|unproven)\b/i.test(claim)
+      && !withdrawn(body);
+  });
+  if (declared) for (const section of current.filter(s => s.title === 'Implementation Tasks')) {
+    const tasks = section.body.join('\n').split(/\n(?=-\s)/);
+    for (const task of tasks) {
+      const match = /^\s*-\s+(?:\[[ xX]\]\s*)?(T[1-9]\d*)(?:\s+\([^\n)]*\))?\s+[—–:-]\s+(?:[A-Za-z][\w-]*(?:\/[A-Za-z][\w-]*)+(?:\s+tests)?\s+[—–]\s+)?CRITICAL regression:\s+characterization suite for legacyAuthFlow(?:\(\))? prior behavior[\t ]*(?:\n|$)/i.exec(task);
+      if (!match || withdrawn(task, match[1])) continue;
+      const baseline = new RegExp(`^[1-9]\\d*\\. Run the characterization suite \\(${match[1]}\\) against the untouched legacyAuthFlow(?:\\(\\))? first and commit it green\\. This is the baseline\\.`, 'i');
+      if (current.some(s => s.title === 'Verification' && baseline.test(s.body.join(' ').replace(/\s+/g, ' ').trim())
+        && !withdrawn(s.body.join(' '), match[1]))) return true;
+    }
+  }
+  for (const section of current.filter(s => /^CRITICAL: regression contract test for legacyAuthFlow\(\) \(iron rule, no decision needed\)$/.test(s.title))) {
+    const body = section.body.join(' ').replace(/\s+/g, ' ').trim();
+    const parity = /^The rewrite modifies existing behavior with no covering test \([^)]{1,120}\)\. Add ([A-Za-z][\w/-]*\.contract\.test\.[jt]s): a fixture table of \(tenant, token, policy\) cases covering [^.!?]{1,300}\. Run each fixture through legacyAuthFlow\(\) and ([A-Za-z][\w]*)\.authenticate\(\) and assert identical ([A-Za-z][\w]*) shape on success and identical error code on failure\. This test is also the gate for flipping any tenant's flag and for TODO [1-9]\d* removal\./.exec(body);
+    if (!parity || withdrawn(body) || /["“”]|\b(?:maybe|might|could|if|unless|optional|hypothetical|unproven)\b/i.test(parity[0])) continue;
+    const unchanged = current.some(s => {
+      if (!s.title.endsWith(`: Per-tenant flag routes legacy vs ${parity[2]}`)
+        || !/^Issue [1-9]\d* \(D[1-9]\d*, chose [1-9]\d*[A-D]\): /.test(s.title)) return false;
+      const body = s.body.join('\n');
+      const release = /(?:^|\n)- A tenant-keyed flag [A-Za-z][\w.]*\[tenantId\] \(default off\) selects the path at the\s+login entry point\. legacyAuthFlow\(\) stays callable and unchanged this release\./.exec(body);
+      const prefix = release ? body.slice(0, release.index).trim().split(/\n\s*\n/).at(-1) ?? '' : '';
+      return Boolean(release) && !/^(?:if|unless|maybe|perhaps|proposed|optional)\b/i.test(prefix)
+        && !/\blegacyAuthFlow(?:\(\))?\s+(?:(?:is|was|will be|has been)\s+)?(?:changed|modified|rewritten|removed|withdrawn|not unchanged|no longer unchanged)\b/i.test(s.body.join(' '));
+    });
+    if (!unchanged) continue;
+    for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+      for (const task of tasks.body.join('\n').split(/\n(?=-\s)/)) {
+        const match = /^\s*-\s+(?:\[[ xX]\]\s*)?(T[1-9]\d*)(?:\s+\([^\n)]*\))?\s+[—–:-]\s+Tests\s+[—–]\s+CRITICAL regression contract test: same fixtures through legacyAuthFlow\(\) and ([A-Za-z][\w]*), identical ([A-Za-z][\w]*) \/ error codes[\t ]*(?:\n|$)/.exec(task);
+        if (!match || match[2] !== parity[2] || match[3] !== parity[3] || withdrawn(task, match[1])) continue;
+        const files = /^\s+- Files: ([^\n]+)$/m.exec(task);
+        if (files?.[1] === parity[1] && /^\s+- Verify: contract suite green on both paths[\t ]*$/m.test(task)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function regressionEvidence(text: string): boolean {
+  if (declaredLegacyCharacterization(text)) return true;
   return prose(text).split(/\n\s*\n|\n(?=\s*[-#])/).some(block => {
     let task = block.trim().replace(/^[-+]\s+(?:\[[ xX]\]\s*)?/, '');
     const numbered = /^T\d+(?:\s*\([^\n)]*\))?\s*[—–:-]\s*/.exec(task);

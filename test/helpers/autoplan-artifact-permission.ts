@@ -20,6 +20,30 @@ const compact = (text: string) => text.replace(/\s/g, '');
 
 /** The native header may remain above the diff; both displayed paths must bind. */
 function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string): string[] | null {
+  const headers = rows.flatMap((row, index) => /^[●⏺] Update\(/.test(row) ? [index] : []);
+  if (headers.length > 1) return null;
+  const header = headers[0] ?? 0;
+  if (header > 0) {
+    // A completed native tool's diff may remain above the active edit panel.
+    // Only its indented diff output is ignored; competing panels or prose are
+    // not evidence for the current request and cannot be used as a prefix.
+    let kind: string | undefined;
+    let numbered = 0;
+    for (const row of rows.slice(0, header)) {
+      if (!row.trim()) continue;
+      const full = /^ {6}(\d+) ([+ -])/.exec(row);
+      if (full) {
+        if (!Number.isSafeInteger(Number(full[1])) || Number(full[1]) < 1) return null;
+        numbered++; kind = full[2];
+      } else {
+        const wrap = /^ {9}([+ -])/.exec(row);
+        if (!wrap || (kind !== undefined && wrap[1] !== kind)) return null;
+        kind = wrap[1];
+      }
+    }
+    if (!numbered) return null;
+    rows = rows.slice(header);
+  }
   const update = /^[●⏺] Update\(([^\n]+)\)$/.exec(rows[0] ?? '');
   if (!update) return rows; // Existing cropped-only row guards still apply.
   if (!ownedStateRoot || rows[1]?.trim() !== '' || !/^[─╌]{8,}$/.test(rows[2] ?? '') ||

@@ -46,12 +46,20 @@ describe('native prerequisite review-now offer', () => {
     }
   });
 
-  test('the captured regression selects every existing shared fixture consumer', () => {
-    const consumers = Object.values(E2E_TOUCHFILES).filter(paths => paths.includes('test/plan-count-fixture.test.ts'));
-    expect(consumers.length).toBe(8);
-    for (const paths of consumers) {
-      expect(paths).toContain('test/plan-count-prerequisite-n.test.ts');
-      expect(paths).toContain('test/fixtures/ceo-prerequisite-n-call.json');
+  test('the captured prerequisite regression selects its exact counting and mode consumers', () => {
+    // Floor checks also seed a plan, but never pick a prerequisite answer.
+    const expected = [
+      'autoplan-chain-pty', 'plan-ceo-finding-count', 'plan-ceo-mode-routing',
+      'plan-ceo-split-overflow', 'plan-design-finding-count', 'plan-devex-finding-count',
+      'plan-eng-finding-count', 'plan-eng-multi-finding-batching',
+    ].sort();
+    for (const dependency of ['test/plan-count-prerequisite-n.test.ts', 'test/fixtures/ceo-prerequisite-n-call.json']) {
+      const consumers = Object.entries(E2E_TOUCHFILES).filter(([, paths]) => paths.includes(dependency));
+      expect(consumers.map(([name]) => name).sort()).toEqual(expected);
+      for (const [, paths] of consumers) {
+        expect(paths).toContain('test/helpers/plan-count-fixture.ts');
+        expect(paths).toContain('test/plan-count-fixture.test.ts');
+      }
     }
   });
 });

@@ -92,12 +92,57 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   return opposed.length > 0 && !!(repair || primaryRepair);
 }
 
+/** A design-system choice can name the gap without using an imperative repair verb. */
+function designSystemChoiceIssue(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call || call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      call.questions.length !== 1 || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+      !call.answeredAt || !Number.isFinite(Date.parse(call.answeredAt))) return false;
+  const q = call.questions[0]!;
+  const lines = q.question.trim().split('\n');
+  const issue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*): (.+)\?$/.exec(lines[0]!);
+  if (!issue || q.header.trim() !== `Issue ${issue[1]}` || lines.length !== 7 ||
+      !/^Project\/branch\/task: [^\n,]+ on [^\n,]+, PLAN\.md design review, Pass [1-7] [A-Za-z][A-Za-z &()-]+\.$/.test(lines[1]!) ||
+      !/^ELI10: \S/.test(lines[2]!) || !/\bDESIGN\.md\b/.test(lines[2]!) ||
+      !/^Stakes if we pick wrong: \S/.test(lines[3]!) || !/^Recommendation: \S/.test(lines[4]!) ||
+      !/^Completeness: \S/.test(lines[5]!) || !/^Net: \S/.test(lines[6]!) ||
+      /<gstack-qid:|```|^ELI10: (?:Example|Hypothetical|Quoted)\b/im.test(q.question) || q.multiSelect ||
+      q.options.length < 2 || q.options.length > 4 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      !q.options.every(o => new RegExp(`^${issue[1]}[A-Z]: \\S`).test(o.label)) ||
+      fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => o.label === call.answers?.[q.question])) return false;
+  // These are current visual/interaction choices, not reviewer participation or next-step routing.
+  const subjects = [
+    /^How should [A-Z][A-Za-z0-9 _/-]{0,79} be distinguished from [A-Z][A-Za-z0-9 ,/_-]{0,119}$/,
+    /^What does the user see while [A-Z][A-Za-z0-9 _/-]{0,79} is pending for [1-9]\d*(?:[-–][1-9]\d*)? seconds$/,
+    /^What type scale should (?:form )?labels(?: and section headings)? use$/,
+    /^What vertical spacing rhythm should the form use$/,
+    /^How should (?:the )?error message meet WCAG AA contrast$/,
+  ];
+  const subject = subjects.findIndex(pattern => pattern.test(issue[2]!));
+  if (subject < 0) return false;
+  const assessments = [/^ELI10: The header shows\b/, /^ELI10: After clicking\b/,
+    /^ELI10: Labels on the form are set\b/, /^ELI10: Gaps between sections are\b/, /^ELI10: The error message is\b/];
+  if (!assessments[subject]!.test(lines[2]!) ||
+      /(?:^|[.!?]\s+)(?:This (?:issue|finding) (?:is|has been) (?:withdrawn|resolved|closed)|We have (?:resolved|closed|withdrawn) this (?:issue|finding)|No current (?:issue|finding|gap|defect|violation) (?:remains|exists))\b/i.test(lines[2]!.slice(7))) return false;
+  const control = /^How should (.+) be distinguished from /.exec(issue[2]!)?.[1];
+  const concrete = [new RegExp(`^${control}\\b[^\\n]*\\b(?:filled|ghost|outlined|primary)\\b`, 'i'),
+    /^(?:Spinner|InlineStatus|Static indicator)\b/i, /^[1-9]\d*px\b/i, /^[1-9]\d*px\b/i, /^#[0-9a-f]{6}\b/i][subject]!;
+  const conforming = q.options.filter(o => concrete.test(o.label.replace(/^[1-9]\d*[A-Z]: /, '')) &&
+    (/^✅ Exact(?:ly)? (?:the (?:two )?)?DESIGN\.md\b/.test(o.description ?? '') ||
+      (subject === 0 && new RegExp(`^✅ ${control} is [^\\n]+\\bexactly per DESIGN\\.md\\b`).test(o.description ?? ''))));
+  return conforming.some(choice => q.options.some(o => o !== choice &&
+    /^❌ (?:Ships (?:the documented violation|a known WCAG AA failure)\b|Deviates from the DESIGN\.md\b)/m.test(o.description ?? '')));
+}
+
 /** A completed finding can start the passes when the caller already supplied the focus. */
 export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolean {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   if (isDesignCountSetup(fp)) return false;
-  if (numberedVisualHierarchyFinding(fp) || ordinaryDesignIssue(fp)) return true;
+  if (numberedVisualHierarchyFinding(fp) || ordinaryDesignIssue(fp) || designSystemChoiceIssue(fp)) return true;
   if (designFirstReviewAUQ(fp)) return true;
   return call.questions.some(q => {
     if (!call.answers?.[q.question] || q.options.length < 2) return false;

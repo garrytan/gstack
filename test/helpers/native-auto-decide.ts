@@ -10,7 +10,7 @@ export interface NativeAutoDecision {
 }
 
 const plain = (text: string) => text.replace(/\*\*([^*]+)\*\*/g, '$1').trim();
-const annotationLine = /^Auto-decided ([^\r\n→]{1,240}) → ([^\r\n→]{1,200}) \(your preference\)\. Change with \/plan-tune\.$/;
+const annotationLine = /^Auto-decided ([^\r\n→]{1,240}) → ([^\r\n→]{1,200}) \(your (?:preference|saved preference on `([a-z][a-z0-9-]*)`)\)\. Change with \/plan-tune\.$/;
 
 /** Asserted prose only; later quoted examples cannot retract a current decision. */
 function publicProse(text: string): string {
@@ -41,23 +41,34 @@ function withdrawn(text: string, option: string): boolean {
   return [...prose.matchAll(/^Review mode:\s*([^\n.]+)\.?$/gmi)].some(m => plain(m[1]!).toLowerCase() !== option.toLowerCase());
 }
 
-function assertedAnnotation(text: string): RegExpExecArray | null {
+function assertedAnnotation(text: string, skillName: string): RegExpExecArray | null {
   const paragraphs = text.replace(/^(?:[ \t]*\r?\n)+|(?:\r?\n[ \t]*)+$/g, '').split(/\r?\n\s*\r?\n/);
   let index = 0;
   // A preamble notice is independent of the immediately following current
   // mode declaration. No arbitrary source/example prefix is skipped.
-  if (/^Heads-up from gstack: this branch has unshipped work\. Run `\/review` then `\/ship` when you're ready\.$/.test(paragraphs[0] ?? '')) index++;
+  const preambleNotice = "Heads-up from the preamble: unshipped work on this branch, so `/review` then `/ship` when you're ready. Also, gstack follows the **Boil the Ocean** principle: do the complete thing when AI makes the marginal cost near zero. Read more at https://garryslist.org/posts/boil-the-ocean if you'd like.";
+  const decisionNotice = "Heads-up from gstack: there is unshipped work on this branch, so `/review` then `/ship` when you get to it.";
+  if (/^Heads-up from gstack: this branch has unshipped work\. Run `\/review` then `\/ship` when you're ready\.$/.test(paragraphs[0] ?? '') || paragraphs[0] === preambleNotice || paragraphs[0] === decisionNotice) index++;
   const mode = /^\*\*Review mode:\s*([^*\n.]+)\.\*\*$/.exec(paragraphs[index] ?? '');
-  if (mode) index++;
-  if (index && !mode) return null;
+  const decisionHeading = /^\*\*D[1-9]\d* [—–-] Review mode for the ([^*\n]+) draft\*\*$/.exec(paragraphs[index] ?? '');
+  if (decisionHeading && /\b(?:example|hypothetical|historical|previous|quoted)\b/i.test(decisionHeading[1]!)) return null;
+  if (mode || decisionHeading) index++;
+  if (index && !mode && !decisionHeading) return null;
   const paragraph = paragraphs[index];
   if (!paragraph || /^(?: {4}|\t)/.test(paragraph) || paragraph.includes('\n')) return null;
   const match = annotationLine.exec(paragraph);
   if (!match || !plain(match[1]!) || !plain(match[2]!)) return null;
+  if (decisionHeading && (!/^"Review mode:[^"]+\?"$/.test(match[1]!) ||
+      !/^(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)$/.test(plain(match[2]!)))) return null;
   // The printed skill template is not a concrete observed choice.
   if (/<[^>\r\n]+>/.test(match[1]!) || /<[^>\r\n]+>/.test(match[2]!)) return null;
+  // A named saved preference belongs to the invoked skill's mode, and its
+  // concrete choice must agree with the adjacent current mode declaration.
+  if (match[3] && (match[3] !== `${skillName}-mode` || !mode ||
+      !/^(?:HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION)$/.test(plain(match[2]!)))) return null;
   if (mode && (plain(mode[1]!).toLowerCase() !== plain(match[2]!).toLowerCase() ||
-      !/^(?:review mode|"Review mode:[^"]+\?")$/i.test(match[1]!))) return null;
+      (!/^(?:review mode|"Review mode:[^"]+\?")$/i.test(match[1]!) &&
+       !(match[3] && /^"Select review mode"$/.test(match[1]!))))) return null;
   return match;
 }
 
@@ -84,7 +95,7 @@ export function findNativeAutoDecision(
   const loadedAt = at(results[0]!.timestamp);
   for (const message of messages) {
     if (at(message.timestamp) < loadedAt) continue;
-    const match = assertedAnnotation(message.text);
+    const match = assertedAnnotation(message.text, opts.skillName);
     if (!match) continue;
     const option = plain(match[2]!);
     const current = messages.filter(m => at(m.timestamp) >= at(message.timestamp)).map(m => m.text).join('\n\n');
