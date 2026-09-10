@@ -141,9 +141,24 @@ function matchesCroppedEdit(viewport: string, file: string, before: string, remo
   const originals = before.split('\n').map(compact);
   const deletions = removed.split('\n').map(compact);
   const replacements = after.split('\n').map(compact);
-  return chunks.some(chunk => chunk.kind !== ' ' && compact(chunk.text)) &&
-    chunks.every(chunk => (chunk.kind === '+' ? replacements :
-      chunk.kind === '-' ? deletions : originals).includes(compact(chunk.text)));
+  const changed = chunks.some(chunk => chunk.kind !== ' ' && compact(chunk.text));
+  const matches = (oldRows: string[], newRows: string[]) => chunks.every(chunk =>
+    (chunk.kind === '+' ? newRows : chunk.kind === '-' ? oldRows : originals).includes(compact(chunk.text)));
+  if (changed && matches(deletions, replacements)) return true;
+  // Edit arguments can start or end inside a line while the native preview
+  // displays the whole line. Reconstruct only those unchanged edge bytes
+  // from the unique current old substring; no viewport text supplies them.
+  const at = before.indexOf(removed), end = at + removed.length;
+  if (!changed || !removed || at < 0 || at !== before.lastIndexOf(removed) || after.length > MAX_BYTES) return false;
+  const prefix = before.slice(before.slice(0, at).lastIndexOf('\n') + 1, at);
+  const newline = before.indexOf('\n', end);
+  const suffix = before.slice(end, newline < 0 ? before.length : newline);
+  if (!prefix && !suffix) return false;
+  const oldRows = (prefix + removed + suffix).split('\n').map(compact);
+  const newRows = (prefix + after + suffix).split('\n').map(compact);
+  return matches(oldRows, newRows) && chunks.some(chunk =>
+    chunk.kind === '+' ? !oldRows.includes(compact(chunk.text)) :
+    chunk.kind === '-' && !newRows.includes(compact(chunk.text)));
 }
 
 export function autoplanArtifactPermissionInput(

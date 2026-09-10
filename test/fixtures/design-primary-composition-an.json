@@ -1,0 +1,62 @@
+{
+  "provenance": {
+    "sourceHead": "9d66d6ca9ecf13d8a8209283e611d0fce652b6f4",
+    "publicCaptureSha256": "f2feab9f95ad1c66038e4149f0e0e236f7c24170185bd8e825b3acc7d3c66e68",
+    "nativeFidelityProofSha256": "b91212d0c91512d61f151ffd6dbc5af8ff2a3fa05c40a9e9c53f401655687af1",
+    "historicalClassification": "preReview",
+    "historicalOutcome": "in_progress",
+    "note": "Exact completed first Issue from the owned public native transcript. Prospective replay does not reclassify the live paid run."
+  },
+  "fingerprint": {
+    "signature": "bb3af6f8-f33e-4135-9ba2-549d12b1ad77:toolu_01TXmzDvUy3ZGJ9LMDKm2Hna",
+    "promptSnippet": "Issue 1 D3 — Issue 1: Make Save the single filled primary action in the header? Project/branch/task: Settings page redesign on main; Pass 1 (Information Architecture), the Visual Hierarchy gap listed in PLAN.md. ELI10: Right now Save, Reset",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A Save primary + ghosts (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B Save primary only"
+      },
+      {
+        "index": 3,
+        "label": "1C Decline"
+      }
+    ],
+    "observedAtMs": 262312,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "bb3af6f8-f33e-4135-9ba2-549d12b1ad77",
+      "toolUseId": "toolu_01TXmzDvUy3ZGJ9LMDKm2Hna",
+      "questions": [
+        {
+          "question": "D3 — Issue 1: Make Save the single filled primary action in the header?\nProject/branch/task: Settings page redesign on main; Pass 1 (Information Architecture), the Visual Hierarchy gap listed in PLAN.md.\nELI10: Right now Save, Reset, Cancel, and Export look identical, so a user scanning the header has to read all four labels to find the one that stores their work. Users scan, they do not read; the most important action should be the most visible one. DESIGN.md already says Save is the only filled #1d4ed8 button with white text and the other three are neutral ghost buttons. Principle: hierarchy as service; users satisfice, so make the right choice the most visible choice.\nStakes if we pick wrong: Users hesitate at the header, hit Reset or Cancel by mistake, and the destructive confirmations fire more often than they should.\nRecommendation: 1A because it applies the token DESIGN.md already prescribes, with no new visual exploration.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\n1A) Save filled primary, three ghost secondaries (recommended) (human: ~1h / CC: ~5min)\n  ✅ Save is found in the 3-second scan on every viewport, including the full-width mobile Save\n  ✅ Uses existing Button variants and the #1d4ed8 token, white-on-primary contrast is about 6.7:1\n  ❌ Ghost buttons must be verified for 44px targets and visible borders at 320px\n1B) Save primary, but keep Reset/Cancel/Export as-is (human: ~30min / CC: ~3min)\n  ✅ Smaller change, only one button style moves\n  ✅ Save still gains visual precedence over the other three\n  ❌ Leaves three equally loud secondaries competing with each other, off the DESIGN.md spec\n1C) Keep all four identical (decline) (human: 0 / CC: 0)\n  ✅ No implementation work in this pass\n  ✅ Preserves the current rendering exactly\n  ❌ Ships a header with no primary action, contradicting DESIGN.md and this pass stays at 7/10\nNet: apply the approved hierarchy now, or ship a header where nothing wins the scan.",
+          "header": "Issue 1",
+          "options": [
+            {
+              "label": "1A Save primary + ghosts (recommended)",
+              "description": "Apply DESIGN.md: Save filled #1d4ed8/white; Reset, Cancel, Export neutral ghost buttons."
+            },
+            {
+              "label": "1B Save primary only",
+              "description": "Fill Save; leave the three secondary buttons in their current style."
+            },
+            {
+              "label": "1C Decline",
+              "description": "Keep all four header buttons identical; gap stays documented."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Issue 1: Make Save the single filled primary action in the header?\nProject/branch/task: Settings page redesign on main; Pass 1 (Information Architecture), the Visual Hierarchy gap listed in PLAN.md.\nELI10: Right now Save, Reset, Cancel, and Export look identical, so a user scanning the header has to read all four labels to find the one that stores their work. Users scan, they do not read; the most important action should be the most visible one. DESIGN.md already says Save is the only filled #1d4ed8 button with white text and the other three are neutral ghost buttons. Principle: hierarchy as service; users satisfice, so make the right choice the most visible choice.\nStakes if we pick wrong: Users hesitate at the header, hit Reset or Cancel by mistake, and the destructive confirmations fire more often than they should.\nRecommendation: 1A because it applies the token DESIGN.md already prescribes, with no new visual exploration.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\n1A) Save filled primary, three ghost secondaries (recommended) (human: ~1h / CC: ~5min)\n  ✅ Save is found in the 3-second scan on every viewport, including the full-width mobile Save\n  ✅ Uses existing Button variants and the #1d4ed8 token, white-on-primary contrast is about 6.7:1\n  ❌ Ghost buttons must be verified for 44px targets and visible borders at 320px\n1B) Save primary, but keep Reset/Cancel/Export as-is (human: ~30min / CC: ~3min)\n  ✅ Smaller change, only one button style moves\n  ✅ Save still gains visual precedence over the other three\n  ❌ Leaves three equally loud secondaries competing with each other, off the DESIGN.md spec\n1C) Keep all four identical (decline) (human: 0 / CC: 0)\n  ✅ No implementation work in this pass\n  ✅ Preserves the current rendering exactly\n  ❌ Ships a header with no primary action, contradicting DESIGN.md and this pass stays at 7/10\nNet: apply the approved hierarchy now, or ship a header where nothing wins the scan.": "1A Save primary + ghosts (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T10:46:16.540Z"
+    }
+  }
+}

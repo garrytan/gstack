@@ -2197,7 +2197,8 @@ function ceoAssertionMismatchBrief(q: NativePlanQuestionCall['questions'][number
 }
 
 /** Native finding evidence when CEO mode selection is omitted or left unanswered. */
-function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number], subject: string, inspectFullAssessment = false): boolean {
+function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number], subject: string, inspectFullAssessment = false,
+  currentOption?: (option: NativePlanQuestionCall['questions'][number]['options'][number]) => boolean): boolean {
   // A numbered title may be declarative. Its current problem and proposed
   // decision still have to be present in the complete native question.
   const publicText = (text: string) => text.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
@@ -2263,6 +2264,7 @@ function ceoNumberedBriefDecision(q: NativePlanQuestionCall['questions'][number]
       (assertionGap || /\b(?:missing|unspecified|unvalidated|unhandled)\b|\b(?:(?:has|with|leaves)\s+no|without)\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)\b|\b(?:asserts?|checks?)\s+only\b|\b(?:does not|doesn't|never)\s+(?:say|says|state|define|specify|cover|handle)\b|\bpastes?\b[^.!?]*\bstraight into (?:a )?SQL\b|\b(?:gets?|sends?|delivers?|receives?)\b[^.!?]*\btwice\b|\b(?:proves?|checks?|tests?|covers?)\s+(?:the\s+)?happy path\s+and\s+nothing else\b|\binterpolates?\b[^!?]*\b(?:raw\s+)?SQL\s+(?:fragment|string)\b|\bno\s+(?:automated\s+)?tests?\s+(?:are\s+)?planned\b|\b(?:fetch(?:es)?|reads?|loads?|queries)\b[^!?]*\bN\+1\b/i.test(statement) || escapingMailFailure || embeddedMissingContract || rawSqlGap);
   });
   const amendment = q.options.some(option => {
+    if (currentOption && !currentOption(option)) return false;
     const token = label(option.label);
     const optionLabel = option.label.replace(/^([1-9]\d*)?[A-Z][):.]\s*/i, '');
     if (/^(?:keep|leave|preserve|save|archive|record|document|render|format|start|pause|resume|continue|finish|end|defer|proceed)\b/i.test(optionLabel) ||
@@ -2373,6 +2375,18 @@ function ceoSectionChoiceBrief(q: NativePlanQuestionCall['questions'][number], t
     labels.some(label => label![1]!.toUpperCase() === recommended![1]!.toUpperCase());
 }
 
+function ceoCurrentBriefProse(text: string, inspectOpening = true): boolean {
+  const prose = text
+    .replace(/(^|\n|[.)!?]\s+|\s+(?=This\b|Correction:))((?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|(?:no[- ]error[- ]handling\s+)?contract)\s+(?:is|has been)\s+)["“'](withdrawn|retracted|rejected|cancelled|canceled|resolved|closed|not current|historical|hypothetical|quoted|source|example)["”']/gim, '$1$2$3')
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+    .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  const sourceFrame = (clause: string) => /^(?:(?:the|an?)\s+)?(?:source|example|template|hypothetical|historical|quoted|earlier|previous|if|unless|whether|suppose|imagine)\b|^for\s+historical\s+context\b|^the\s+following\b[^.!?]*\b(?:source|example|template|hypothetical|historical|quoted)\b/i.test(clause.trim());
+  return (!inspectOpening || !sourceFrame(prose.trim().split(/[.;!?]\s+|\n/, 1)[0]!)) &&
+    !prose.replace(/\s+(?=This\b|Correction:)/g, '\n').split(/[.)!?]\s+|\n/).some(clause =>
+      /^(?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option|(?:no[- ]error[- ]handling\s+)?contract)\s+(?:is|has been)\s+(?:(?:only|just|an?)\s+)*(?:withdrawn|retracted|rejected|cancelled|canceled|resolved|closed|not current|historical|hypothetical|quoted|source|example)\b/i.test(clause.trim()));
+}
+
 function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionId = false): boolean {
   const call = fp.nativeCall;
   // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
@@ -2397,6 +2411,80 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   // numbering. A completed "Issue 2" choice and "Finding 2.1" choice carry
   // the same review evidence as the already-supported numbered findings.
   const normalized = title.replace(/^D\d+\s*[—–-]\s*/i, '');
+  // The affected test can identify an assertion finding without an Issue
+  // heading. Sentence punctuation and the form of the remedy question do
+  // not change the completed brief's current defect and offered amendment.
+  const testAssertion = /^Test ([1-9]\d*)(?:\s+\([^()\n]*\))?\s+(?:asserts?|checks?)\s+only\b[^\n]+\?$/i.exec(normalized);
+  if (testAssertion && !/^(?:finding|issue)\b|^f\d/i.test(q.header.trim())) {
+    if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+        typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt))) return false;
+    const headerTest = /^Test\s+([1-9]\d*)\b/i.exec(q.header.trim());
+    const prefix = q.question.slice(title.length, q.question.indexOf('\nELI10:'))
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    const ownedPrefix = prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+      /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line));
+    const framed = /(?:^|\n)\s*(?:if|unless|whether|suppose|imagine)\b|\b(?:earlier|previous|historical|hypothetical|quoted|source)\s+(?:review\s+)?(?:assessment|example|excerpt|material|text|finding)\b|\b(?:assessment|finding|issue)\s+(?:is|was|represents?)\s+(?:(?:only|just|a|an)\s+)*(?:hypothetical|historical|quoted|example|source)\b/i.test(prefix);
+    const conditionalContext = /^Project\/branch\/task:\s*(?:if|unless|whether|suppose|imagine)\b/im.test(prefix);
+    // A direct current status may quote its status word. Whole historical
+    // quotations start with their source frame and cannot revoke this brief.
+    const withdrawn = q.question.split(/[.!?]\s+|\n/).some(clause =>
+      /^(?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|remedy|assessment|explanation)\s+(?:is|has been)\s+["“']?(?:withdrawn|retracted|rejected|cancelled|canceled|resolved|closed|not current)\b/i.test(clause.trim()));
+    const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
+    const currentAssessment = /^(?:(?:today|currently|now)[,:]?\s+)?(?:the|this|current)\s+(?:plan|contract)\s+(?:states?|specifies?|defines?|requires?|says|calls for|establishes?)\b/i.test(explanation) &&
+      /(?:^|[.!?]\s+)(?:But\s+)?(?:the\s+)?(?:planned|proposed|current)\s+test\s+only\s+checks?\b/i.test(explanation);
+    const currentAmendment = q.options.some(option => {
+      const label = option.label.replace(/^([1-9]\d*)?[A-Z][):.]\s*/i, '');
+      if (!/^(?:assert|pin|verify|deep-equal)\b/i.test(label) ||
+          !/\b(?:deep[- ]equality|deep-equal|exact|exactly|full|complete|expected)\b/i.test(label)) return false;
+      const description = (option.description ?? '')
+        .replace(/(^|\n|[.!?]\s+)((?:Correction:\s*)?(?:this|that|the)\s+(?:amendment|remedy|option|decision)\s+(?:is|has been)\s+)["“](withdrawn|retracted|rejected|cancelled|canceled|not current)["”]/gim, '$1$2$3')
+        .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+      return !/^(?:source|example|template|hypothetical|historical|quoted|earlier|previous|if|unless|whether|suppose|imagine)\b/i.test(description.trim()) &&
+        !/\b(?:is|was|presents?|represents?)\s+(?:(?:only|just|an?)\s+)*(?:quoted|hypothetical|historical|example|template|source)\b/i.test(description.split(/[✅❌]/, 1)[0]!) &&
+        !description.split(/[.!?]\s+|\n/).some(clause =>
+          /^(?:Correction:\s*)?(?:this|that|the)\s+(?:amendment|remedy|option|decision)\s+(?:is|has been)\s+(?:(?:only|just|an?)\s+)*(?:withdrawn|retracted|rejected|cancelled|canceled|not current|historical|hypothetical|quoted|source|example)\b/i.test(clause.trim()));
+    });
+    if ((!headerTest || headerTest[1] === testAssertion[1]) && ownedPrefix && !framed && !conditionalContext && !withdrawn &&
+        currentAssessment && currentAmendment && ceoNumberedBriefDecision(q, normalized)) return true;
+  }
+  // Section and finding counters identify a brief; they cannot supply its
+  // current assessment or the authority of an offered amendment.
+  const sectionFinding = /^Section\s+([1-9]\d*)\s+finding(?:\s+([1-9]\d*))?\s*[—–:-]\s*([^\n]+\?)$/i.exec(normalized);
+  if (sectionFinding) {
+    if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+        typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt))) return false;
+    const headerSection = /^Section\s+([1-9]\d*)(?:\s+finding\s+([1-9]\d*))?$/i.exec(q.header.trim());
+    const headerFinding = /^(?:Finding|Issue)\s+([1-9]\d*)$/i.exec(q.header.trim());
+    if ((headerSection && (headerSection[1] !== sectionFinding[1] || (headerSection[2] && headerSection[2] !== sectionFinding[2]))) ||
+        (headerFinding && headerFinding[1] !== sectionFinding[2]) ||
+        (/^(?:Section|Finding|Issue)\b/i.test(q.header.trim()) && !headerSection && !headerFinding)) return false;
+    const prefix = q.question.slice(title.length, q.question.indexOf('\nELI10:'))
+      .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    const ownedPrefix = prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+      /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line));
+    const framed = /(?:^|\n)\s*(?:if|unless|whether|suppose|imagine)\b|\b(?:earlier|previous|historical|hypothetical|quoted|source)\s+(?:review\s+)?(?:assessment|example|excerpt|material|text|finding)\b|^Project\/branch\/task:\s*(?:if|unless|whether|suppose|imagine)\b/im.test(prefix);
+    if (!ownedPrefix || framed) return false;
+
+    const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
+    if (!ceoCurrentBriefProse(explanation) || !ceoCurrentBriefProse(q.question, false)) return false;
+    let subject = sectionFinding[3]!;
+    const boundary = /[.!?](?=\s|$)/.exec(subject)?.index ?? subject.length;
+    const declaration = subject.slice(0, boundary);
+    if (/^["'‘“`]|\b(?:if|unless|whether|hypothetical|historical|quoted|source|example|template|previously|formerly)\b|\b(?:no longer|used to)\b/i.test(declaration)) return false;
+    // These affirmative owned clauses express the same semantics already
+    // checked by the shared decision validator. Preserve literal quotes
+    // elsewhere; a quoted whole statement cannot supply either clause.
+    const sql = /^((?:the|this|current)\s+(?:lookup|(?:lookup\s+)?query|plan|handler|implementation))\s+reads?\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s+into\s+((?:a\s+)?raw SQL (?:fragment|string))$/i.exec(declaration);
+    const missing = /^((?:the|this|current)\s+(?:(?:receipt|notification)\s+)?(?:email|mail|handler|plan|implementation))\s+has\s+(["“'‘])(no error handling)(["”'’])$/i.exec(declaration);
+    if (sql) subject = `${sql[1]} interpolates ${sql[2]} into ${sql[3]}` + subject.slice(boundary);
+    if (missing && ({ '"': '"', '“': '”', "'": "'", '‘': '’' } as Record<string, string>)[missing[2]!] === missing[4])
+      subject = `${missing[1]} has ${missing[3]}` + subject.slice(boundary);
+    if (ceoNumberedBriefDecision(q, subject, true, option => ceoCurrentBriefProse(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && ceoCurrentBriefProse(option.description ?? ''))) return true;
+  }
   // A test's stated exact contract and its weaker assertion form a concrete
   // finding even when the native header uses the affected behavior's name.
   const assertionGap = /^Test [1-9]\d* asserts only [^,\n?]+, but the plan states ([^.!?\n]+)\. (?:Pin|Assert|Verify) [^\n?]+\?$/i.exec(normalized);
@@ -2443,7 +2531,27 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
     const framed = /(?:^|\n)\s*(?:if|unless|whether|suppose|imagine)\b|\b(?:earlier|previous|historical|hypothetical|quoted|source)\s+(?:review\s+)?(?:assessment|example|excerpt|material|text|finding)\b|\b(?:assessment|finding|issue)\s+(?:is|was|represents?)\s+(?:(?:only|just|a|an)\s+)*(?:hypothetical|historical|quoted|example|source)\b/i.test(prefix);
     if (ownedPrefix && !framed && ceoNumberedBriefDecision(q, parenthesized[2]!)) return true;
   }
-  if (identity && !/^[^\n?]+\?$/.test(identity[3]!) && !ceoNumberedBriefDecision(q, identity[3]!)) return false;
+  if (identity && !/^[^\n?]+\?$/.test(identity[3]!) && !ceoNumberedBriefDecision(q, identity[3]!)) {
+    if ((fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+        typeof call.answeredAt !== 'string' || !Number.isFinite(Date.parse(call.answeredAt))) return false;
+    // A later sentence can state the current plan's exact missing contract.
+    // Its asserted owner stays outside the quotation; a source quotation,
+    // conditional contract or withdrawn assessment cannot supply the gap.
+    const prefix = q.question.slice(q.question.split('\n')[0]!.length, q.question.indexOf('\nELI10:'))
+      .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+    if (!prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+      /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line)) ||
+      prefix.split('\n').filter(line => /^Project\/branch\/task:/.test(line.trim())).some(line => !ceoCurrentBriefProse(line.trim().replace(/^Project\/branch\/task:\s*/, '')))) return false;
+    const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
+    if (!ceoCurrentBriefProse(explanation) || !ceoCurrentBriefProse(q.question, false)) return false;
+    const statements = explanation.split(/[.!?]\s+/);
+    const declared = statements.map((statement, index) =>
+      statements.slice(0, index).every(prior => ceoCurrentBriefProse(prior)) &&
+      /^(?:(?:the|this)(?:\s+current)?|current)\s+plan\s+(?:says|states|specifies|requires|calls for)\s+(["“'‘]?)(no\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)(?:\s+(?:on|for|in)\s+[^"”'’\n.!?]+)?)(["”'’]?)[.!?]?$/i.exec(statement.trim()))
+      .find(match => match && ({ '': '', '"': '"', '“': '”', "'": "'", '‘': '’' } as Record<string, string>)[match[1]!] === match[3]);
+    if (!declared || !ceoNumberedBriefDecision(q, `The plan has ${declared[2]}`, false,
+      option => ceoCurrentBriefProse(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && ceoCurrentBriefProse(option.description ?? ''))) return false;
+  }
   if (numberedSubject && (numberedSubject[2]!.trim().toLowerCase() !== q.header.trim().toLowerCase() ||
       !ceoNumberedBriefDecision(q, numberedSubject[3]!))) return false;
   // A native menu may put its finding identity in the short header and ask
@@ -2692,6 +2800,41 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
       fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
       /<gstack-qid/i.test(q.question)) return false;
   const title = q.question.split('\n')[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '');
+  // A cache-ownership brief can name its actors in the current assessment
+  // instead of the headline. Bind those actors to the offered single writer.
+  const cacheOwner = /^(?:Issue|Finding) ([1-9]\d*): two services mutate (?:one|the same) shared cache with no (?:serialized writes|serialization)\. How should cache ownership work\?$/i.exec(title);
+  if (cacheOwner) {
+    if (!/^(?:Cache owner(?:ship)?|Shared cache)$/i.test(q.header.trim()) &&
+        !new RegExp(`^(?:Issue|Finding|Architecture) ${cacheOwner[1]}$`, 'i').test(q.header.trim())) return false;
+    const current = (text: string) => text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+      .replace(/["“](withdrawn|rejected|cancelled|canceled|resolved|closed|not current)["”]/gi, '$1')
+      .replace(/"[^"\n]*"|“[^”\n]*”|`[^`]*`/g, '');
+    const framing = /\b(?:source|quoted|historical|hypothetical|proposed|earlier|previous)\s+(?:review\s+)?(?:example|excerpt|assessment|finding|text)\b|(?:^|\n|:\s*)(?:if|unless|suppose|imagine)\b/i;
+    const withdrawn = new RegExp(`\\b(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|race|single-writer requirement)|Issue ${cacheOwner[1]}) (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b|\\bno current (?:gap|defect|finding) (?:remains|exists)\\b`, 'i');
+    const text = current(q.question), assessments = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    const prefix = text.slice(text.indexOf('\n') + 1, assessments[0]?.index ?? 0).trim().split('\n').filter(Boolean);
+    const actors = assessments.length === 1 && /^([A-Za-z_$][\w$]*) and ([A-Za-z_$][\w$]*) both (?:write into|mutate) the same (?:tenant-keyed )?cache, and the plan says nothing orders those writes\./.exec(assessments[0]![1]!);
+    if (!actors || actors[1] === actors[2] || !prefix.length ||
+        !prefix.every(line => /^Project\/branch\/task:/.test(line)) || framing.test(text) || withdrawn.test(text)) return false;
+    const ids = q.options.map(option => /^([A-D])\)\s+/.exec(option.label)?.[1]);
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) return false;
+    const active = (description: string) => !framing.test(description) && !withdrawn.test(description) &&
+      !/(?:^|[.!?]\s+)(?:Correction:\s*)?(?:do not|don't|never|cancel|withdraw) (?:inject|use|keep|apply)\b/i.test(description);
+    return q.options.some(remedy => {
+      const body = current(remedy.description ?? '').trim();
+      const owner = /^Constructor-inject the existing adapter into both services\. Only ([A-Za-z_$][\w$]*) writes; ([A-Za-z_$][\w$]*) returns minted material to the broker, which stores it\./.exec(body);
+      if (!owner || owner[1] === owner[2] || ![actors[1], actors[2]].includes(owner[1]) ||
+          ![actors[1], actors[2]].includes(owner[2]) || !active(body)) return false;
+      const otherWriter = new RegExp(`(?:^|[.!?]\\s+)(?:Correction:\\s*)?${owner[2]} (?:will |can |may |still )?(?:also )?write(?:s)? (?:directly )?(?:to|into) (?:the )?cache\\b`, 'i');
+      if (otherWriter.test(body)) return false;
+      return q.options.some(opposed => opposed !== remedy &&
+        /^(?:[A-D]\) )?Keep (?:the )?module-level global as planned(?: \(recommended\))?$/i.test(opposed.label) &&
+        /^Do nothing here; both services import and mutate the singleton\./.test(current(opposed.description ?? '').trim()) &&
+        /❌\s*Race stays open and tests share mutable state across the whole suite\./.test(current(opposed.description ?? '')) &&
+        active(current(opposed.description ?? '')));
+    });
+  }
   // A descriptive native header can carry the decision ordinal while the
   // current brief owns the architecture finding and its cache remedy.
   const injected = /^Module-level ([A-Za-z_$][\w$]*) singleton (?:→|->) constructor injection with a single writer\?$/i.exec(title);

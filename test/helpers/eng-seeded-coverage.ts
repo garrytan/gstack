@@ -362,6 +362,65 @@ function declaredLegacyCharacterization(text: string): boolean {
     }
   }
 
+  // A golden requirement can name its parity oracle in a test-list item,
+  // with the same task capturing current outputs on untouched legacy code.
+  for (const section of current.filter(s => s.title === 'Test requirements')) {
+    const requirements = section.body.join('\n').trim();
+    for (const block of requirements.split(/\n(?=-\s)/)) {
+      const claim = unquoted(block).replace(/\s+/g, ' ').trim();
+      const rule = /^- CRITICAL [—–-] ([A-Za-z][\w/.-]*\/legacyAuthFlow\.regression\.test\.[jt]s) \((T[1-9]\d*), REGRESSION RULE, no approval needed\): golden tests for ([^.!?]{1,300})\./.exec(claim);
+      if (!rule || suiteWithdrawn || goldenWithdrawn || !snapshotSource.includes(claim) ||
+          !/(?:^|\. )These tests are the parity oracle for the D[1-9]\d* flag-off path\./.test(claim) ||
+          extractionSourceOwner(block) || conditionalOwner(block) ||
+          extractionSourceOwner(requirements.slice(0, requirements.indexOf(block))) ||
+          conditionalOwner(requirements.slice(0, requirements.indexOf(block)))) continue;
+      const id = rule[2]!;
+      const assessment = (value: string) => value.replace(/"[^"\n]*"|“[^”\n]*”/g,
+        (quoted: string, index: number, source: string) =>
+          /^(?:withdrawn|rejected|cancelled|canceled|optional|not current|no longer required)$/i.test(quoted.slice(1, -1)) &&
+          new RegExp(`(?:^|[.!?]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?(?:${id}(?: (?:verification|baseline verification|regression tests?))? (?:is|was|has been)|(?:this|the) (?:(?:unchanged-code|baseline) )?verification (?:is|was|has been)|(?:the|this) legacy golden (?:tests|suite) (?:are|is|were|was|have been|has been)) $`, 'i').test(source.slice(0, index))
+            ? quoted.slice(1, -1) : '');
+      const inactive = (value: string) => {
+        const body = assessment(value).replace(/\b(?:these|the|this)\s+tests\s+(?:are|were|have been)\b/gi, 'this suite is')
+          .replace(/\b(?:these|the|this)\s+tests\b/gi, 'this suite')
+          .replace(/\b(?:this|the)\s+(?:(?:unchanged-code|baseline)\s+)?verification\b/gi, 'this requirement');
+        return withdrawn(body, id) || /\b(?:this|the|that) (?:requirement|suite|test) (?:is|was|has been) (?:not current|no longer current)\b/i.test(body) || new RegExp(`\\b${id}(?: (?:verification|baseline verification|regression tests?))? (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|optional|not current|no longer required)\\b`, 'i').test(body);
+      };
+      if (inactive(block)) continue;
+      const cancelled = new RegExp(`\\b${id}(?: (?:verification|baseline verification|regression tests?))? (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|optional|not current|no longer required)\\b`, 'i');
+      const changedFirst = new RegExp(`^(?:Correction:\\s*)?legacyAuthFlow(?:\\(\\))? (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored) before ${id}\\b`, 'i');
+      if (current.some(s => {
+        const body = assessment(s.body.join('\n'));
+        return cancelled.test(body) || /\b(?:the|this) legacy golden (?:tests|suite) (?:are|is|were|was|have been|has been) (?:withdrawn|rejected|cancelled|canceled|optional|not current|no longer required)\b/i.test(body) ||
+          body.split(/\n|[.!?]\s+/).some(line => changedFirst.test(line.trim()));
+      })) continue;
+      const ordering = current.some(s => {
+        if (s.title !== 'Implementation steps') return false;
+        const body = unquoted(s.body.join('\n'));
+        const step = new RegExp(`^[1-9]\\d*\\. Golden regression tests for legacyAuthFlow \\(${id}\\) [—–-] pin current outputs\\s+per input class before any other code moves\\. CRITICAL, lands first\\.`, 'm').exec(body);
+        return Boolean(step && !extractionSourceOwner(body.slice(0, step.index)) && !conditionalOwner(body.slice(0, step.index)) &&
+          !inactive(body) && snapshotSource.includes(step[0].replace(/\s+/g, ' ')));
+      });
+      if (!ordering) continue;
+      for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+        const body = tasks.body.join('\n').trim();
+        for (const task of body.split(/\n(?=-\s)/)) {
+          const match = /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–-] ([A-Za-z][\w/.-]*\/legacyAuthFlow) tests [—–-] CRITICAL golden regression tests, land first[\t ]*(?:\n|$)/.exec(task);
+          const file = /^\s+- Files: ([^\n]+)$/m.exec(task);
+          const verify = /^\s+- Verify: (one|two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) input classes pinned; suite green against unmodified legacy code before any refactor commit[\t ]*$/m.exec(task);
+          const prefix = unquoted(body.slice(0, body.indexOf(task))).trim().split('\n').at(-1) ?? '';
+          if (!match || match[1] !== id || file?.[1] !== rule[1] || !verify ||
+              !rule[1].startsWith(match[2] + '.regression.test.') ||
+              !snapshotSource.includes(task.replace(/\s+/g, ' ').trim()) ||
+              extractionSourceOwner(prefix) || conditionalOwner(prefix) ||
+              extractionSourceOwner(unquoted(task.slice(0, verify.index))) || conditionalOwner(task.slice(0, verify.index)) || inactive(task)) continue;
+          const count = /^\d+$/.test(verify[1]!) ? Number(verify[1]) : ['zero','one','two','three','four','five','six','seven','eight','nine','ten'].indexOf(verify[1]!);
+          if (count === rule[3]!.split(',').length) return true;
+        }
+      }
+    }
+  }
+
   return false;
 }
 
