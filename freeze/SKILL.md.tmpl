@@ -67,7 +67,8 @@ echo "Freeze boundary set: $FREEZE_DIR"
 
 Tell the user: "Edits are now restricted to `<path>/`. Any Edit or Write
 outside this directory will be blocked. To change the boundary, run `/freeze`
-again. To remove it, run `/unfreeze` or end the session."
+again. To remove it, run `/unfreeze`. The boundary is a state file on disk, so
+it survives the end of this session and governs the next one until cleared."
 
 ## How it works
 
@@ -84,8 +85,10 @@ but has no `file_path` (a non-file tool) is allowed. Symlinks are resolved
 through their FINAL component, so an in-boundary symlink pointing outside the
 boundary is checked against its target.
 
-The freeze boundary persists for the session via the state file. The hook
-script reads it on every Edit/Write invocation. Boundaries containing spaces
+The freeze boundary persists across sessions via the state file, which is
+machine-global (one per gstack state root, not per session or per repo). The
+hook script reads it on every Edit/Write invocation, in every session whose
+skill registered the hook, until `/unfreeze` removes the file (#2845). Boundaries containing spaces
 are supported.
 
 ## Notes
