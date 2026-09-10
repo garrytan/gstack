@@ -99,12 +99,13 @@ model reviewing itself, and nested spawns have burned 15M tokens in one
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
 
-If the output contains `MODEL_UNUSABLE`, stop — auth exists but the account
-cannot use gstack's selected model (`GSTACK_CODEX_MODEL` or the `gpt-6-astra`
-default). Relay the probe's HINT lines and
-follow the "Model not supported (HTTP 400)" recovery steps in
-`## Error Handling` below. Running the modes anyway just burns four
-invocations on the same 400 (#2477).
+If the output contains `MODEL_UNUSABLE`, stop — auth exists but the round trip
+was refused: either the account cannot use gstack's selected model
+(`GSTACK_CODEX_MODEL` or the `gpt-6-astra` default), or the CLI is too old for
+any model. Relay the probe's HINT lines, which say which of the two it is, and
+follow the matching "Model rejected" recovery steps in `## Error Handling`
+below. Running the modes anyway just burns four invocations on the same
+rejection (#2477).
 
 `MODEL_PROBE_INCONCLUSIVE` is non-blocking (timeout/transient network): pass
 the warning through and continue.
@@ -295,18 +296,33 @@ If token count is not available, display: `Tokens: unknown`
   missing or wrong. A prompt-only `codex review` defaults to uncommitted changes, so a
   clean working tree reads as an empty review even when `<base>...HEAD` is large. Confirm
   `--base <base>` is actually on the command line.
-- **Model not supported (HTTP 400):** stderr shows
-  `The '<model>' model is not supported when using Codex with a ChatGPT account`
-  (a `status: 400` / `invalid_request_error` naming a model). This is a
-  model-entitlement problem, not an auth or network failure, and the auth probe
-  cannot catch it. Recovery, in order:
-  1. Check whether `GSTACK_CODEX_MODEL` is set. If so, update it to a model the
-     account can use.
-  2. If no override is set, gstack defaults to `gpt-6-astra`. If the account cannot
-     use it yet, set `GSTACK_CODEX_MODEL=<supported-model>` or replace the default
-     flag with `-c "model=\"<supported-model>\""`.
-  3. If Codex printed `[notice.model_migrations]`, use that replacement model.
-  Never present this as a model stall or a PASS — it is a fail-closed gate result.
+- **Model rejected — read WHICH rejection before acting.** Three different
+  failures name a model, and two of them are not fixed by changing the model.
+  None is an auth or network failure, and the auth probe catches none of them.
+  - **`is not supported when using Codex with a ChatGPT account`** (`status: 400`)
+    — a model-entitlement problem. Recovery, in order:
+    1. Check whether `GSTACK_CODEX_MODEL` is set. If so, update it to a model the
+       account can use.
+    2. If no override is set, gstack defaults to `gpt-6-astra`. If the account cannot
+       use it yet, set `GSTACK_CODEX_MODEL=<supported-model>` or replace the default
+       flag with `-c "model=\"<supported-model>\""`.
+    3. If Codex printed `[notice.model_migrations]`, use that replacement model —
+       but verify it: a migration table can name a model that has since been
+       retired itself, in which case it sends you in a circle.
+  - **`requires a newer version of Codex. Please upgrade to the latest app or CLI`**
+    (`status: 400`) — the CLI is too old, and **no model selection repairs it**.
+    Run `codex doctor` and upgrade (`brew upgrade --cask codex`, or
+    `npm install -g @openai/codex`). Changing `GSTACK_CODEX_MODEL` here just
+    moves between models that are all refused.
+  - **`404 Not Found: The model '<model>' does not exist or you do not have
+    access to it`** — the model is retired or invisible to this account.
+    Note this arrives as a **404, not a 400**, and on the `/responses` URL.
+    Treat it exactly like the entitlement case above. Beware two traps: a model
+    still listed in `~/.codex/models_cache.json` as `visibility: list` /
+    `supported_in_api: true` can **still** 404 — that file is not proof of
+    entitlement — and if every model is refused, suspect the CLI version first.
+  Never present any of these as a model stall or a PASS — they are fail-closed
+  gate results.
 - **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
   "Codex returned no response. Check stderr for errors."
 - **Session resume failure:** If resume fails, delete the session file and start fresh.
