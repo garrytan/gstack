@@ -9,7 +9,8 @@ gstack now includes `/deck` for adding or seriously redesigning an interactive
 deck inside an existing site. It reads the product, prior material, router,
 visual system, host configuration, and analytics before choosing what to build.
 Then it asks only the seven decisions that change the result: audience, goal,
-source material, access, route or host, requested research, and analytics.
+source material, access, route or host (including an optional PDF companion),
+requested research, and analytics.
 
 The result is a real site surface, not a generic slide export. It follows the
 target site's own stack, supports shareable tab links and keyboard and phone
@@ -58,6 +59,10 @@ explicit confirmation.
   classes, scroll-bottom captures, and built-output route and asset checks.
 - Privacy-safe anonymous engagement analytics guidance that stays separate from
   named-recipient tracking and carries a fixed deck revision.
+- Optional pre-generated PDF companion delivery: off by default, derived from
+  the approved story, built through a compatible target-native path, and checked
+  as a real access-aware asset and every rendered page rather than a runtime
+  export button.
 
 #### Changed
 - The skill catalog, install guidance, routing instructions, and generated host

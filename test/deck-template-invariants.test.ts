@@ -93,6 +93,9 @@ describe('/deck discovery and material intake', () => {
     for (const choice of ['Audience', 'Goal / CTA', 'Source material', 'Access level', 'Route / host', 'Research', 'Analytics']) {
       expect(intake).toContain(`| ${choice} |`);
     }
+    expect(intake).toMatch(/Route \/ host[^\n]*pre-generated PDF companion[^\n]*Default: no PDF/i);
+    expect(intake).toMatch(/PDF companion is a Route \/ host delivery choice, not an eighth\s+category/i);
+    expect(intake).toMatch(/When unselected, add no deck-PDF\s+link, generator, route, build dependency, or QA work/i);
     expect(intake).toMatch(/processors\/reviewers/i);
     expect(intake).toMatch(/product-inspection environment/i);
     expect(intake).toMatch(/delivered-deck access/i);
@@ -265,6 +268,25 @@ describe('/deck interaction and release proof', () => {
     expect(TMPL).toMatch(/Never assume a\s+development-server fallback proves production\s+routing/i);
   });
 
+  test('makes a PDF companion an optional, access-aware pre-generated release artifact', () => {
+    const pdf = between(TMPL, '### Optional pre-generated PDF companion', '### Access contract');
+    const normalized = pdf.replace(/\s+/g, ' ');
+    expect(normalized).toMatch(/off by default; act on it only when selected in Route \/ host/i);
+    expect(normalized).toMatch(/pre-generated, static release asset, never a runtime .Export PDF. button, client-side print path, or on-demand server render/i);
+    expect(normalized).toMatch(/same approved story, claim ledger, heading order, and access boundary/i);
+    expect(normalized).toMatch(/never keep a silent second narrative/i);
+    expect(normalized).toMatch(/target project's existing print\/build\/render path/i);
+    expect(normalized).toMatch(/`\/make-pdf` is eligible only when its Markdown\/print contract fits a canonical source already present/i);
+    expect(normalized).toMatch(/do not create Markdown, install a renderer, or import a runtime\/framework solely to use it/i);
+    expect(normalized).toMatch(/renderer-added footer, watermark, metadata, and remote-asset behavior/i);
+    expect(normalized).toMatch(/do not substitute a runtime export; surface the build-time tool change for explicit direction/i);
+    expect(normalized).toMatch(/actual built output or production-equivalent deployment artifact/i);
+    expect(normalized).toMatch(/do not assume `\/deck\.pdf`/i);
+    expect(normalized).toMatch(/public\/limited-share PDFs must be public-safe if forwarded/i);
+    expect(normalized).toMatch(/authenticated PDFs use existing authorization/i);
+    expect(normalized).toMatch(/data-room PDFs stay behind the separately approved data-room boundary/i);
+  });
+
   test('turns every access choice into testable route and evidence behavior', () => {
     const access = between(TMPL, '### Access contract', '## Step 5: Add analytics only when requested');
     const normalized = access.replace(/\s+/g, ' ');
@@ -302,6 +324,10 @@ describe('/deck interaction and release proof', () => {
     expect(proof).toMatch(/repeat final source plus fresh\s+independent\/Copilot review/i);
     expect(proof).toMatch(/A review of a superseded diff does not count/i);
     expect(proof).toMatch(/Do not require or install a Python test\s+runner, Node, Bun, or a browser-test framework solely for this deck/i);
+    expect(proof).toMatch(/If a PDF companion was selected:[\s\S]*non-empty PDF[\s\S]*direct URL that opens\/downloads a PDF rather than a\s+fallback page; it returns `application\/pdf`/i);
+    expect(proof).toMatch(/visually\s+inspect every PDF page and page\s+boundary/i);
+    expect(proof).toMatch(/do not install a PDF QA dependency solely\s+for this/i);
+    expect(proof).toMatch(/If no PDF companion was selected:[\s\S]*no deck-PDF artifact, link, generator, or\s+build dependency was added/i);
   });
 
   test('resolves specialist checkpoints through the current host rather than assuming a command exists', () => {

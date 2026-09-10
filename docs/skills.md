@@ -15,7 +15,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
-| [`/deck`](#deck) | **Deck Builder** | Add or seriously redesign an evidence-led, interactive web deck on an existing site. Deep links, accessible tabs, mobile layouts, visual QA, and controlled rollout are release gates. |
+| [`/deck`](#deck) | **Deck Builder** | Add or seriously redesign an evidence-led, interactive web deck on an existing site. Deep links, accessible tabs, mobile layouts, visual QA, controlled rollout, and an optional pre-generated PDF companion are release gates. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/scrape`](#scrape) | **Browser Data Extractor** | Pull data from a web page. First call prototypes via `$B`; subsequent calls on a matching intent run a codified browser-skill in ~200ms. |
@@ -546,7 +546,8 @@ analytics, and evidence. It builds a sourced product-truth map before asking
 short, high-leverage questions. For investors, those questions nail the buyer,
 problem, core value, differentiation, proof, raise, and milestone without
 expanding beyond the seven material categories: audience, CTA, source material,
-access level, route or host, requested research, and analytics.
+access level, route or host (including an optional pre-generated PDF companion),
+requested research, and analytics.
 
 The result is an integrated product surface rather than an exported slide deck:
 accessible tabs, stable shareable section links, browser-history synchronization,
@@ -555,6 +556,12 @@ maintains a claim ledger, keeps sensitive proof anonymized and aggregated, and
 uses a data-room-on-request pattern when deeper evidence should not be public.
 It follows the target site's existing stack—server-rendered, static, or client
 rendered—rather than assuming a JavaScript framework or toolchain.
+
+A PDF companion is optional and off by default. When selected, it is a
+pre-generated static release artifact derived from the approved story, not a
+runtime export button. `/deck` uses the target's compatible build/print path,
+checks its real built asset and access boundary, and does not add a renderer or
+toolchain just to produce it.
 
 Every section gets desktop, tablet, phone, and short-laptop-height screenshots,
 plus the bottom state of every scrollable section, before real-browser QA. Deep
@@ -565,6 +572,10 @@ fresh Copilot feedback when supported and permitted, and `/document-release`
 are all part of the handoff. Deployment, DNS, production routing, or
 analytics-provider changes still require explicit confirmation at the point of
 change.
+
+For a selected PDF companion, its direct asset URL, access behavior, and every
+rendered page are also visually checked for readable type, sequence, clipping,
+and missing assets.
 
 ---
 

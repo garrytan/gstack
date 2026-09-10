@@ -55,6 +55,8 @@ describe('/deck template/generated sync', () => {
       expect(generated).toContain('Do not require or assume Python, JavaScript, TypeScript, React, Node');
       expect(generated).toContain('headline-only story test');
       expect(generated).toContain('`deck_revision`');
+      expect(generated).toContain('### Optional pre-generated PDF companion');
+      expect(generated).toContain('Default: no PDF.');
       expect(generated).not.toMatch(/\{\{[A-Z_]+(?::[^}]*)?\}\}/);
 
       const metadata = fs.readFileSync(

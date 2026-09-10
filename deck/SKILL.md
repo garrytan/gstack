@@ -27,7 +27,8 @@ allowed-tools:
 It starts
 with the actual site, story, design system, routing, hosting, and evidence;
 then delivers an audience-specific, deep-linkable, accessible, mobile-first
-deck with visual QA, review, and a controlled release gate.
+deck with visual QA, review, an optional pre-generated PDF companion, and a
+controlled release gate.
 
 Voice triggers (speech-to-text aliases): "build a web deck", "make an interactive pitch deck", "redesign this deck".
 
@@ -168,7 +169,7 @@ every answer already provided in the prompt or source material.
 | Goal / CTA | The decision, action, or next conversation the deck must earn. |
 | Source material | Which supplied documents, product surfaces, proof, and owners are authoritative. |
 | Access level | One policy covering permitted product-inspection environment/test identity/actions/data, working artifacts and processors/reviewers, and delivered-deck access: public, authenticated, limited-share, or data-room-on-request. |
-| Route / host | An existing-site route or a dedicated host, plus the desired canonical URL if known. |
+| Route / host | An existing-site route or a dedicated host, the desired canonical URL if known, and whether to ship a pre-generated PDF companion. Default: no PDF. |
 | Research | Exact topics and sources the user wants researched. Default: no external research. |
 | Analytics | Off, privacy-safe anonymous engagement, or a separately scoped named-recipient feature. Default: off. |
 
@@ -198,6 +199,12 @@ either is unsettled; and the highest-leverage Source-material evidence decision.
 Skip settled choices. Ask Route/host only when the inspected project leaves a
 real architectural fork. Research and Analytics keep their defaults unless the
 user requested them.
+
+A pre-generated PDF companion is a Route / host delivery choice, not an eighth
+category. It is off by default. When selected or already supplied, settle its
+artifact name/direct URL and access boundary with Route / host; do not spend a
+separate intake question on implementation. When unselected, add no deck-PDF
+link, generator, route, build dependency, or QA work.
 
 For an investor audience, sharpen three existing categories rather than adding
 new ones:
@@ -249,7 +256,8 @@ change.
 ## Step 2: Make the story and evidence earn attention
 
 Write a short execution brief before implementation: audience, goal/CTA, product
-truth map, route or host, access boundary, section order, and a claim ledger. For
+truth map, route or host and PDF decision (off/on, artifact path/URL, canonical
+source, and generator), access boundary, section order, and a claim ledger. For
 every claim, record its source, owner, public/sensitive boundary, as-of date, and
 whether the copy is verified, qualified, or omitted. For every metric, chart,
 market-size, or comparative claim, also record its definition, unit, denominator
@@ -363,9 +371,10 @@ categories.
 - Pull in other specialists only when the brief creates their job: `/cso` for new
   access or data-collection boundaries, `/benchmark` for a media- or motion-heavy
   deck, `/design-shotgun` when visual direction is genuinely unresolved,
-  `/diagram` for an editable system visual, and `/make-pdf` when the user requests
-  a leave-behind. Do not force a specialist or its output format into a project
-  where it does not fit.
+  `/diagram` for an editable system visual, and `/make-pdf` only when a selected
+  PDF companion and its canonical Markdown/print source fit that tool. Otherwise
+  use target-native generation. Do not force a specialist or its output format,
+  source format, or toolchain into a project where it does not fit.
 - After implementation, use `/design-review` for the visual audit and `/qa` for
   live behavior. Use `/review` for the final source diff and obtain a fresh
   independent second opinion: use `/codex review <deck-specific focus>` where
@@ -448,6 +457,35 @@ routing. If the user chose a dedicated host, extend the target project's existin
 IaC and routing model only, then additionally verify headers/privacy assets and
 both the normal-site and deck-host routing in the production-equivalent form.
 
+### Optional pre-generated PDF companion
+
+A PDF companion is off by default; act on it only when selected in Route / host.
+It is a pre-generated, static release asset, never a runtime “Export PDF”
+button, client-side print path, or on-demand server render. If unselected, add
+no deck-PDF link, generator, route, build dependency, or PDF QA work.
+
+Generate it from the same approved story, claim ledger, heading order, and
+access boundary as the web deck. A format-specific publication view is allowed
+only when the preservation ledger records where each substantive point,
+citation, qualifier, and required decision content appears; never keep a silent
+second narrative. Use the target project's existing print/build/render path.
+`/make-pdf` is eligible only when its Markdown/print contract fits a canonical
+source already present; do not create Markdown, install a renderer, or import a
+runtime/framework solely to use it. Review renderer-added footer, watermark,
+metadata, and remote-asset behavior so none changes claims, access, or approved
+egress. If no compatible existing path can produce an inspectable artifact, do
+not substitute a runtime export; surface the build-time tool change for explicit
+direction.
+
+Emit the final PDF into the actual built output or production-equivalent
+deployment artifact. Derive a stable direct asset URL/name from the project's
+real routing and static-asset conventions; do not assume `/deck.pdf` or let a
+development server stand in for delivery. Link or expose it only inside the
+selected Access level: public/limited-share PDFs must be public-safe if
+forwarded, authenticated PDFs use existing authorization, and data-room PDFs
+stay behind the separately approved data-room boundary. Apply the same indexing,
+cache, referrer, preview, header, and error-response checks as the deck.
+
 ### Access contract
 
 Turn the chosen Access level into route behavior and acceptance criteria; a label
@@ -468,9 +506,10 @@ in the brief is not access control.
 - **Public:** follow the site's normal discovery, referrer, and cache policy after
   the public-evidence review.
 
-Apply the same boundary to section deep links, static assets, previews, social
-metadata, and error responses. Do not leak restricted content through a public
-shell, manifest, source map, filename, or fallback response.
+Apply the same boundary to section deep links, static assets, a selected PDF
+artifact/direct URL/download link, previews, social metadata, and error
+responses. Do not leak restricted content through a public shell, manifest,
+source map, filename, or fallback response.
 
 ## Step 5: Add analytics only when requested
 
@@ -478,6 +517,11 @@ Anonymous engagement analytics are optional and must remain separate from
 named-recipient tracking. Use the existing consent/privacy architecture and the
 smallest documented event/property allowlist that answers the approved question.
 Do not copy an event schema from a reference deck.
+
+A PDF companion does not imply download tracking. If approved anonymous
+analytics deliberately includes a PDF-download event, use the same consent,
+allowlist, fixed `deck_revision`, and sanitization rules below; otherwise emit
+no event. Never use a PDF URL or download to introduce named-recipient tracking.
 
 Canonicalize before telemetry. Do not send names, emails, recipient/link tokens,
 arbitrary query strings, fragments, raw referrers, fingerprints, persistent
@@ -525,6 +569,18 @@ regress:
 6. Production-equivalent direct links, refresh, and static assets for the
    selected route or host; when a dedicated host was chosen, also test
    headers/privacy assets and both the normal-site and deck-host routing.
+7. If a PDF companion was selected: canonical-source provenance; a non-empty PDF
+   in actual built output; a direct URL that opens/downloads a PDF rather than a
+   fallback page; it returns `application/pdf`, honors the intended Access
+   behavior, and includes every required asset. Render or open and visually
+   inspect every PDF page and page boundary for headline/claim sequence,
+   hierarchy, readable type, clipping,
+   page splits, citations/footnotes, and missing or remote assets. Use available
+   target-native or local PDF proof; do not install a PDF QA dependency solely
+   for this. Test the direct asset on every declared host that is meant to serve
+   it.
+8. If no PDF companion was selected: no deck-PDF artifact, link, generator, or
+   build dependency was added.
 
 Run the deck in a real browser. Capture and inspect desktop, phone, tablet, and
 short-laptop-height screenshots for **every section**, plus the navigation states
@@ -573,6 +629,9 @@ Finish with a compact evidence report:
 - story, preservation, and claim-ledger summary, including anything deliberately
   qualified or moved to a data room;
 - implementation files and built-output checks;
+- PDF companion decision: off, or artifact path/direct URL, canonical source and
+  generator, Access behavior, built-output/direct-asset checks, and page visual
+  proof;
 - test results and desktop/phone/tablet/short-laptop screenshot locations,
   including each section's bottom-state capture or no-distinct-bottom record;
 - `/design-review`, `/qa`, `/review`, Codex, Copilot/equivalent, and
