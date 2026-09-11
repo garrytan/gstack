@@ -649,14 +649,27 @@ When a step calls for looking something up on the web (competitors, current best
 Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+# Deadline chain as a function, NOT a string held in a variable: zsh does not
+# word-split unquoted parameter expansions, so a helper-plus-seconds string run as a
+# bare word makes zsh search for a command whose name contains a space, fail, and
+# report ASIDE_NOT_RUNNING against a perfectly healthy Aside.
+_gs_bounded() {
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout 30 "$@"
+  elif command -v timeout >/dev/null 2>&1; then timeout 30 "$@"
+  elif command -v perl >/dev/null 2>&1; then perl -e 'alarm(shift); exec(@ARGV)' 30 "$@"
+  else "$@"
+  fi
+}
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _gs_out=$(_gs_bounded aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1)
+  if echo "$_gs_out" | grep -q '^ASIDE_READY'; then
+    echo "READY: aside $(aside --version 2>/dev/null)"
+  else
+    echo "ASIDE_NOT_RUNNING"
+    echo "PROBE_OUTPUT: $_gs_out"
+  fi
 fi
 ```
 

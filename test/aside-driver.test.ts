@@ -121,13 +121,23 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
     expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
-    expect(setupProbe).toContain('_T="gtimeout 30"');
-    expect(setupProbe).toContain('_T="timeout 30"');
-    expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
-    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
+    expect(setupProbe).toContain('gtimeout 30 "$@"');
+    expect(setupProbe).toContain('timeout 30 "$@"');
+    expect(setupProbe).toContain('perl -e \'alarm(shift); exec(@ARGV)\' 30 "$@"');
+    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e \'alarm'));
+    // REGRESSION GUARD: the deadline must be a function, never a string expanded as a
+    // bare word. zsh does not word-split unquoted parameter expansions, so `_T="gtimeout
+    // 30"; $_T cmd` makes zsh search for a command literally named "gtimeout 30" and
+    // print ASIDE_NOT_RUNNING against a perfectly healthy Aside.
+    expect(setupProbe).not.toMatch(/_T="(gtimeout|timeout|perl) /);
+    expect(setupProbe).not.toContain('$_T aside repl');
+    expect(setupProbe).toContain('_gs_bounded() {');
     // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('_gs_bounded aside repl \'console.log("ASIDE_READY " + pwd)\'');
     expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
+    // The failure branch surfaces WHY, so "no window / signed out" is distinguishable
+    // from "app not running" instead of collapsing into one opaque string.
+    expect(setupProbe).toContain('echo "PROBE_OUTPUT: $_gs_out"');
   });
 
   test('LOCAL host rule: .localhost and .test count, .local (mDNS) does not', () => {
