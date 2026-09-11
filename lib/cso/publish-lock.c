@@ -68,7 +68,7 @@ int wmain(int argc, wchar_t **argv) {
   if (!job || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, (DWORD)sizeof(limits))) return 69;
   STARTUPINFOW startup = {0}; PROCESS_INFORMATION child = {0}; startup.cb = (DWORD)sizeof(startup);
   if (!CreateProcessW(argv[2], command, NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &startup, &child)) {
-    fputs("gstack-cso: publication command could not start\n", stderr); return 69;
+    fwprintf(stderr, L"gstack-cso: publication command could not start (Windows error %lu)\n", (unsigned long)GetLastError()); return 69;
   }
   if (!AssignProcessToJobObject(job, child.hProcess) || ResumeThread(child.hThread) == (DWORD)-1) {
     TerminateProcess(child.hProcess, 69); CloseHandle(child.hThread); CloseHandle(child.hProcess); return 69;
@@ -80,6 +80,9 @@ int wmain(int argc, wchar_t **argv) {
   return (int)code;
 }
 #else
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <fcntl.h>

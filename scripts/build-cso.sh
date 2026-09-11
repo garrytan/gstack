@@ -283,5 +283,10 @@ cso_valid_generation "$CSO_STAGE_GENERATION"||{ echo 'Staged CSO generation mani
 "$CSO_STAGE_LAUNCHER" --version >/dev/null
 cso_checkpoint validated
 
-case "${BASH:-}" in /*) CSO_PUBLISH_SHELL=$BASH;; *) echo 'CSO publication requires an absolute Bash executable.' >&2;exit 1;;esac
+if [ -n "$CSO_EXE" ];then
+  [ -f /usr/bin/bash.exe ] || { echo 'CSO publication requires the Git Bash executable.' >&2;exit 1; }
+  CSO_PUBLISH_SHELL="$(cygpath -aw /usr/bin/bash.exe)"
+else
+  case "${BASH:-}" in /*) CSO_PUBLISH_SHELL=$BASH;; *) echo 'CSO publication requires an absolute Bash executable.' >&2;exit 1;;esac
+fi
 exec "$CSO_STAGE_LOCKER" "$CSO_BUILD_ROOT/bin" "$CSO_PUBLISH_SHELL" "$CSO_BUILD_ROOT/scripts/build-cso.sh" __publish_locked "$CSO_STAGE"

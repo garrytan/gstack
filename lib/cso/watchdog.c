@@ -1,4 +1,7 @@
 /* Independent CSO lease watchdog. It accepts only exact journaled container IDs. */
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
 #define _XOPEN_SOURCE 700
 #include <errno.h>
 #include <dirent.h>
@@ -136,7 +139,12 @@ static void marker(const char *run_dir,const char *name,const char *value){
   if(snprintf(path,sizeof path,"%s/%s",run_dir,name)>=(int)sizeof path)return;
   if(snprintf(tmp,sizeof tmp,"%s/%s.tmp.%ld",run_dir,name,(long)getpid())>=(int)sizeof tmp)return;
   int fd=open(tmp,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);if(fd<0)return;
-  (void)write(fd,value,strlen(value));(void)fsync(fd);close(fd);(void)rename(tmp,path);
+  size_t remaining=strlen(value);const char *cursor=value;int failed=0;
+  while(remaining){ssize_t written=write(fd,cursor,remaining);if(written>0){cursor+=written;remaining-=(size_t)written;continue;}if(written<0&&errno==EINTR)continue;failed=1;break;}
+  if(!failed&&fsync(fd))failed=1;
+  if(close(fd))failed=1;
+  if(!failed&&!rename(tmp,path))return;
+  (void)unlink(tmp);
 }
 static int descendant(const char *root,const char *path){size_t n=strlen(root);return n>1&&!strncmp(root,path,n)&&path[n]=='/';}
 static int remove_tree(const char *path){

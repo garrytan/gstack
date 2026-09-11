@@ -84,6 +84,7 @@ describe('CSO native Windows build contract', () => {
     expect(build).toContain('-LockOutputPath "$(cygpath -w "$CSO_STAGE_LOCKER")"');
     expect(build).toContain('-CoreSha256 "$CSO_CORE_SHA256"');
     expect(build).toContain('-GitExePath "$(cygpath -aw "$CSO_WINDOWS_GIT")"');
+    expect(build).toContain('CSO_PUBLISH_SHELL="$(cygpath -aw /usr/bin/bash.exe)"');
     expect(build).not.toContain('launcher-windows.ts');
     expect(fs.existsSync(path.join(ROOT, 'lib/cso/launcher-windows.ts'))).toBe(false);
     expect(msvc).toContain('Launch-VsDevShell.ps1');

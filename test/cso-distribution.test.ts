@@ -87,6 +87,24 @@ function reviewedInputs(): any {
 }
 
 describe('CSO build and distribution wiring', () => {
+  test('POSIX helpers expose Darwin no-follow flags before system headers', () => {
+    for (const relative of ['lib/cso/launcher.c', 'lib/cso/watchdog.c', 'lib/cso/publish-lock.c']) {
+      const source = readFileSync(join(ROOT, relative), 'utf8');
+      const darwinFeature = source.indexOf('#define _DARWIN_C_SOURCE 1');
+      const fileFlags = source.indexOf('#include <fcntl.h>');
+      expect(darwinFeature, relative).toBeGreaterThanOrEqual(0);
+      expect(fileFlags, relative).toBeGreaterThan(darwinFeature);
+      expect(source, relative).toContain('O_NOFOLLOW');
+    }
+  });
+
+  test('the cached eval image proves the static C toolchain required by direct builds', () => {
+    const dockerfile = readFileSync(join(ROOT, '.github/docker/Dockerfile.ci'), 'utf8');
+    expect(dockerfile).toMatch(/\bgcc libc6-dev\b/);
+    expect(dockerfile).toContain('cc -std=c11 -static /tmp/gstack-cso-cc-probe.c');
+    expect(dockerfile).toContain('/tmp/gstack-cso-cc-probe');
+  });
+
   test.skipIf(process.platform === 'win32')('real build script supplies all startup-hardening flags and compiles its watchdog', () => {
     const dir = buildFixture(), log = join(dir, 'compiler.log');
     const r = fakeBuild(dir);

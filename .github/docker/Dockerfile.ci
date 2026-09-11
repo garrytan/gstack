@@ -34,10 +34,17 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https:
 # poppler-utils: make-pdf's e2e gates hard-require pdftotext/pdffonts/pdfinfo in CI.
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
-        git curl unzip xz-utils ca-certificates jq bc gpg python3 file poppler-utils && break || \
+        git curl unzip xz-utils ca-certificates jq bc gpg python3 file poppler-utils gcc libc6-dev && break || \
       (echo "apt retry $i/3 after failure"; sleep 10); \
     done \
     && rm -rf /var/lib/apt/lists/*
+
+# Direct builds produce the trusted CSO launcher and watchdog. Check the exact
+# static-C capability here so the cached eval image cannot reach a slice without it.
+RUN printf 'int main(void) { return 0; }\n' > /tmp/gstack-cso-cc-probe.c \
+    && cc -std=c11 -static /tmp/gstack-cso-cc-probe.c -o /tmp/gstack-cso-cc-probe \
+    && /tmp/gstack-cso-cc-probe \
+    && rm -f /tmp/gstack-cso-cc-probe.c /tmp/gstack-cso-cc-probe
 
 # GitHub CLI
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \

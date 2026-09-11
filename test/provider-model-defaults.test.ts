@@ -127,33 +127,38 @@ describe('CSO producer provider policies', () => {
   });
 
   test('passes only selected provider auth plus safe execution inputs and strips Docker credentials', () => {
+    const fixtureRoot = join(tmpdir(), 'gstack-provider-environment-policy');
+    const state = join(fixtureRoot, 'state');
+    const source = join(fixtureRoot, 'source');
+    const helpers = join(fixtureRoot, 'helpers');
+    const work = join(fixtureRoot, 'work');
     const sourceEnv = {
       PATH: '/usr/bin', HOME: '/home/eval', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TZ: 'UTC',
-      GSTACK_HOME: '/state', GSTACK_SESSION_KIND: 'spawned', GSTACK_HEADLESS: '1',
+      GSTACK_HOME: state, GSTACK_SESSION_KIND: 'spawned', GSTACK_HEADLESS: '1',
       OPENAI_API_KEY: 'openai-auth', ANTHROPIC_API_KEY: 'anthropic-auth', CLAUDE_CODE_OAUTH_TOKEN: 'claude-auth',
       GEMINI_API_KEY: 'gemini-auth', GOOGLE_CLOUD_PROJECT: 'project',
       CSO_EVAL_PAID: '1', AWS_SECRET_ACCESS_KEY: 'unrelated',
       DOCKER_HOST: 'tcp://remote.example:2376', DOCKER_CONFIG: '/credentials', DOCKER_CERT_PATH: '/certs',
     };
-    const safe = { PATH: '/usr/bin', HOME: '/home/eval', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TZ: 'UTC', GSTACK_HOME: '/state', GSTACK_SESSION_KIND: 'spawned', GSTACK_HEADLESS: '1' };
+    const safe = { PATH: '/usr/bin', HOME: '/home/eval', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TZ: 'UTC', GSTACK_HOME: state, GSTACK_SESSION_KIND: 'spawned', GSTACK_HEADLESS: '1' };
     expect(csoProducerChildEnvironment('gpt', sourceEnv)).toEqual({ ...safe, OPENAI_API_KEY: 'openai-auth' });
     expect(csoProducerChildEnvironment('claude', sourceEnv)).toEqual({ ...safe, ANTHROPIC_API_KEY: 'anthropic-auth', CLAUDE_CODE_OAUTH_TOKEN: 'claude-auth' });
     expect(csoProducerChildEnvironment('gemini', sourceEnv)).toEqual({ ...safe, GEMINI_API_KEY: 'gemini-auth', GOOGLE_CLOUD_PROJECT: 'project' });
-    const helper = helperAt('/helpers');
-    const producer = policy('/state', '/source', helper);
-    const common = { prompt: '', workdir: '/work', timeoutMs: 1, csoProducer: producer };
-    const codexPaths = codexProducerPaths('/state');
+    const helper = helperAt(helpers);
+    const producer = policy(state, source, helper);
+    const common = { prompt: '', workdir: work, timeoutMs: 1, csoProducer: producer };
+    const codexPaths = codexProducerPaths(state);
     expect(codexExecEnvironment(common, sourceEnv)).toEqual({
-      ...safe, HOME: codexPaths.home, GSTACK_HOME: '/state/cso-home', CODEX_HOME: codexPaths.home, OPENAI_API_KEY: 'openai-auth',
+      ...safe, HOME: codexPaths.home, GSTACK_HOME: join(state, 'cso-home'), CODEX_HOME: codexPaths.home, OPENAI_API_KEY: 'openai-auth',
     });
-    const claudePaths = claudeProducerPaths('/state');
+    const claudePaths = claudeProducerPaths(state);
     expect(claudeExecEnvironment(common, sourceEnv)).toEqual({
-      ...safe, HOME: claudePaths.home, GSTACK_HOME: '/state/cso-home',
+      ...safe, HOME: claudePaths.home, GSTACK_HOME: join(state, 'cso-home'),
       ANTHROPIC_API_KEY: 'anthropic-auth', CLAUDE_CODE_OAUTH_TOKEN: 'claude-auth', CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
     });
-    const geminiPaths = geminiProducerPaths('/state');
+    const geminiPaths = geminiProducerPaths(state);
     expect(geminiExecEnvironment(common, sourceEnv)).toEqual({
-      ...safe, HOME: geminiPaths.home, GSTACK_HOME: '/state/cso-home',
+      ...safe, HOME: geminiPaths.home, GSTACK_HOME: join(state, 'cso-home'),
       GEMINI_API_KEY: 'gemini-auth', GOOGLE_API_KEY: 'gemini-auth', GOOGLE_CLOUD_PROJECT: 'project',
       GEMINI_SANDBOX: 'false', GEMINI_TELEMETRY_ENABLED: 'false', GEMINI_TELEMETRY_LOG_PROMPTS: 'false',
       GEMINI_CLI_TRUST_WORKSPACE: 'true', GEMINI_SYSTEM_MD: 'false', GEMINI_WRITE_SYSTEM_MD: 'false',
@@ -169,12 +174,17 @@ describe('CSO producer provider policies', () => {
   });
 
   test('preserves default provider environments and rejects producer escape-hatch arguments', () => {
-    const source = { PATH: '/bin', CSO_EVAL_PAID: '1', UNRELATED_SECRET: 'kept-by-default', GEMINI_API_KEY: 'key' };
-    const common = { prompt: '', workdir: '/work', timeoutMs: 1 };
-    const producer = policy('/state', '/source', helperAt('/helpers'));
-    expect(codexExecEnvironment(common, source)).toBe(source);
-    expect(claudeExecEnvironment(common, source)).toEqual({ ...source, GSTACK_HEADLESS: '1' });
-    expect(geminiExecEnvironment(common, source)).toEqual({ ...source, GOOGLE_API_KEY: 'key' });
+    const fixtureRoot = join(tmpdir(), 'gstack-provider-default-policy');
+    const state = join(fixtureRoot, 'state');
+    const source = join(fixtureRoot, 'source');
+    const helpers = join(fixtureRoot, 'helpers');
+    const work = join(fixtureRoot, 'work');
+    const sourceEnv = { PATH: '/bin', CSO_EVAL_PAID: '1', UNRELATED_SECRET: 'kept-by-default', GEMINI_API_KEY: 'key' };
+    const common = { prompt: '', workdir: work, timeoutMs: 1 };
+    const producer = policy(state, source, helperAt(helpers));
+    expect(codexExecEnvironment(common, sourceEnv)).toBe(sourceEnv);
+    expect(claudeExecEnvironment(common, sourceEnv)).toEqual({ ...sourceEnv, GSTACK_HEADLESS: '1' });
+    expect(geminiExecEnvironment(common, sourceEnv)).toEqual({ ...sourceEnv, GOOGLE_API_KEY: 'key' });
     for (const invoke of [
       () => codexExecArgs({ ...common, csoProducer: producer, extraArgs: ['--unsafe'] }, 'model'),
       () => claudeExecArgs({ ...common, csoProducer: producer, extraArgs: ['--unsafe'] }, 'model'),

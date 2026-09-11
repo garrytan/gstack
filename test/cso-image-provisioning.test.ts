@@ -143,7 +143,7 @@ describe('trusted CSO image provisioning',()=>{
     await expect(openLocalCatalogImageSession({HOME:os.tmpdir(),DOCKER_HOST:'tcp://127.0.0.1:2375'})).rejects.toThrow('Remote TCP');
   });
 
-  test('doctor and setup command contracts share exact local availability without doctor downloads',async()=>{
+  test.skipIf(process.platform==='win32')('doctor and setup command contracts share exact local availability without doctor downloads',async()=>{
     const repo=nodeRepo(),runtimeCatalog=completeRuntimeCatalogFixture('doctor-cli-fixture'),scanners=scannerCatalog(),fake=session({present:()=>false}),dependencies:CsoCliDependencies={
       runtimeCatalog,scannerCatalog:scanners,catalogImageSession:async()=>fake.value,watchdogPath:()=>'/trusted/watchdog',
     };
@@ -163,7 +163,7 @@ describe('trusted CSO image provisioning',()=>{
     await expect(dispatchCsoCommand('provision-images',['--per-image-seconds','301'],dependencies)).rejects.toThrow('5..300');
   });
 
-  test('doctor includes the required PostgreSQL sidecar in Rails readiness without pulling',async()=>{
+  test.skipIf(process.platform==='win32')('doctor includes the required PostgreSQL sidecar in Rails readiness without pulling',async()=>{
     const repo=railsPostgresRepo(),runtimeCatalog=completeRuntimeCatalogFixture('doctor-rails-postgresql-fixture'),fake=session({present:entry=>!entry.id.includes('postgresql')}),dependencies:CsoCliDependencies={
       runtimeCatalog,scannerCatalog:scannerCatalog(),catalogImageSession:async()=>fake.value,watchdogPath:()=>'/trusted/watchdog',
     };

@@ -1,6 +1,9 @@
 /* Minimal trusted CSO launcher. Linux builds are static so LD_PRELOAD cannot
  * execute before the environment is replaced. macOS builds are signed with
  * the hardened runtime by build/setup before use. */
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include <errno.h>

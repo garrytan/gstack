@@ -252,6 +252,30 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'browse/test/security-audit-r2.test.ts',
     reason: 'symlink-attack fixtures (evil-link) need Developer Mode CI runners lack; expect(toThrow) fires unhandled on Windows',
   },
+  // CSO comprehensive execution is qualified only for Linux containers behind
+  // the POSIX watchdog and Unix-domain registry broker. Keep the portable
+  // static/parser contracts in the Windows lane while leaving these exact
+  // containment suites to the Linux and macOS gates.
+  {
+    file: 'test/cso-preparation-adversarial.test.ts',
+    reason: 'exercises POSIX prepared-tree and archive-cache containment for qualified Linux Docker execution, which Windows does not admit',
+  },
+  {
+    file: 'test/cso-preparation-container.test.ts',
+    reason: 'asserts POSIX permission and symlink semantics for inert exports consumed by qualified Linux Docker execution',
+  },
+  {
+    file: 'test/cso-preparation-executor.test.ts',
+    reason: 'executes the Linux Docker acquisition path and its Unix-domain registry broker; comprehensive execution is unavailable on Windows',
+  },
+  {
+    file: 'test/cso-verification-cleanup.test.ts',
+    reason: 'spawns the POSIX detached watchdog used by contained repair verification, which Windows intentionally leaves unavailable',
+  },
+  {
+    file: 'test/cso-witness.test.ts',
+    reason: 'tests the contained repair witness with POSIX private-directory and compiled-helper assumptions; comprehensive execution is unavailable on Windows',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for

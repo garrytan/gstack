@@ -119,6 +119,21 @@ describe('test-free-shards: Windows curation', () => {
       expect(reason.length).toBeGreaterThan(0);
     }
   });
+
+  test('excludes CSO containment suites while retaining portable image provisioning coverage', () => {
+    const containmentOnly = [
+      'test/cso-preparation-adversarial.test.ts',
+      'test/cso-preparation-container.test.ts',
+      'test/cso-preparation-executor.test.ts',
+      'test/cso-verification-cleanup.test.ts',
+      'test/cso-witness.test.ts',
+    ];
+    const portable = 'test/cso-image-provisioning.test.ts';
+    const result = curateWindowsSafe([...containmentOnly, portable], ROOT);
+    expect(result.safe).toEqual([portable]);
+    expect(result.excluded.map(({ file }) => file).sort()).toEqual(containmentOnly.sort());
+    for (const { reason } of result.excluded) expect(reason).toMatch(/Linux|POSIX|Windows/);
+  });
 });
 
 describe('test-free-shards: sharding', () => {
