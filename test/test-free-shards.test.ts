@@ -23,6 +23,7 @@ import {
   TEST_ROOTS,
   TREE_MUTATING,
   WORKER_HOSTILE,
+  PROCESS_ISOLATED,
 } from '../scripts/test-free-shards';
 import {
   loadFreeTestDurations,
@@ -603,16 +604,19 @@ describe('test-free-shards: GitHub Actions log-group attribution', () => {
 
 describe('test-free-shards: curated-list census pins', () => {
   // A renamed test file must FAIL here, not silently drop its serialization
-  // (a phantom TREE_MUTATING key means the reader races regenerating shards
-  // again) or its serial-child quarantine (WORKER_HOSTILE).
-  test('every TREE_MUTATING and WORKER_HOSTILE key names a real free test file', () => {
+  // or its fresh-process quarantine.
+  test('every serialized or isolated key names a real free test file', () => {
     const census = new Set(collectFreeTestFiles(ROOT));
-    const stale = [...Object.keys(TREE_MUTATING), ...Object.keys(WORKER_HOSTILE)]
+    const stale = [
+      ...Object.keys(TREE_MUTATING),
+      ...Object.keys(WORKER_HOSTILE),
+      ...Object.keys(PROCESS_ISOLATED),
+    ]
       .filter((key) => !census.has(key));
     expect(stale).toEqual([]);
   });
 
-  test('subprocess-heavy provider recovery runs outside the contended reader shards', () => {
+  test('contention-sensitive suites run outside the reader shards', () => {
     const processIsolated = (shardRunner as unknown as {
       PROCESS_ISOLATED: Record<string, string>;
     }).PROCESS_ISOLATED;
@@ -624,14 +628,18 @@ describe('test-free-shards: curated-list census pins', () => {
       };
     }).partitionFullSuiteFiles;
     const providerRecovery = 'test/provider-direct-merge-recovery.test.ts';
+    const browserSnapshot = 'browse/test/snapshot.test.ts';
+    const timeline = 'test/timeline.test.ts';
     const ordinary = 'test/provider-access-binding.test.ts';
 
     expect(processIsolated?.[providerRecovery]).toBeTruthy();
+    expect(processIsolated?.[browserSnapshot]).toBeTruthy();
+    expect(processIsolated?.[timeline]).toBeTruthy();
     expect(TREE_MUTATING).toEqual({});
     expect(typeof partitionFullSuiteFiles).toBe('function');
-    expect(partitionFullSuiteFiles([ordinary, providerRecovery])).toEqual({
+    expect(partitionFullSuiteFiles([ordinary, browserSnapshot, timeline, providerRecovery])).toEqual({
       readers: [ordinary],
-      isolated: [providerRecovery],
+      isolated: [browserSnapshot, timeline, providerRecovery],
       mutators: [],
     });
   });

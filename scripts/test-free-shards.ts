@@ -514,6 +514,10 @@ export const WORKER_HOSTILE: Record<string, string> = {
  * parallel phase and run each in a fresh, serial process before mutators.
  */
 export const PROCESS_ISOLATED: Record<string, string> = {
+  'browse/test/snapshot.test.ts':
+    'owns long-lived Playwright and HTTP fixture state; it wedges after earlier passes inside the 668-file process but passes in a fresh single-file process',
+  'test/timeline.test.ts':
+    'its installed authority fixture stops appending inside the 668-file process but passes in a fresh single-file process, so cross-file runtime state must not leak in',
   'test/provider-direct-merge-recovery.test.ts':
     'spawns many Bun/Git/provider children and intermittently fails tool attestation or its 5s test deadline under multi-shard process contention',
 };
