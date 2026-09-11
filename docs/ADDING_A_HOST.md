@@ -64,7 +64,7 @@ That expands to the full `HostConfig` with these defaults:
 - `globalRoot` / `localSkillRoot`: `.myhost/skills/gstack`, `hostSubdir`: `.myhost`
 - `usesEnvVars: true` (false only for Claude, which uses literal `~` paths)
 - `frontmatter`: allowlist keeping `name` + `description`, no description limit
-- `generation`: no metadata file, `skipSkills: ['codex']` (codex skill is Claude-only)
+- `generation`: no metadata file, `skipSkills: []` (both outside-review skills are enabled; Claude and Codex explicitly omit their own wrapper)
 - `pathRewrites`: the standard trio derived from the resolved paths
   (`~/.claude/skills/gstack` → `~/{globalRoot}`, `.claude/skills/gstack` →
   `{localSkillRoot}`, `.claude/skills` → `{hostSubdir}/skills`)
@@ -86,8 +86,9 @@ Override any field by passing it to `defineHost()`. Two path-rewrite options:
 The two are mutually exclusive (the factory throws if you pass both).
 
 Shared constants exported from `define-host.ts` for spread-composition:
-`CROSS_MODEL_RESOLVERS` (the five Codex-invoking resolvers suppressed on
-hosts that can't invoke other models), `GBRAIN_RESOLVERS` (the default
+`CROSS_MODEL_RESOLVERS` (outside-provider review resolvers plus Review Army,
+suppressed on hosts that opt out; Codex keeps outside reviews and suppresses
+Review Army), `GBRAIN_RESOLVERS` (the default
 suppression pair), and `EXEC_STYLE_TOOL_REWRITES` (the OpenClaw-style
 lowercase-tool rewrites shared by openclaw and gbrain).
 
@@ -142,7 +143,7 @@ bun test test/host-config.test.ts
 
 The parameterized smoke tests automatically pick up the new host. Zero test
 code to write. They verify: output exists, no path leakage, valid frontmatter,
-freshness check passes, codex skill excluded.
+freshness check passes, and outside-review skills match each host's exclusions.
 
 ### 6. Update README.md
 

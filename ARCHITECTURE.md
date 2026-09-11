@@ -338,7 +338,7 @@ Templates contain the workflows, tips, and examples that require human judgment.
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
 | `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
 | `{{TEST_BOOTSTRAP}}` | `gen-skill-docs.ts` | Test framework detection, bootstrap, CI/CD setup for /qa, /ship, /design-review |
-| `{{CODEX_PLAN_REVIEW}}` | `gen-skill-docs.ts` | Optional cross-model plan review (Codex or Claude subagent fallback) for /plan-ceo-review and /plan-eng-review |
+| `{{CODEX_PLAN_REVIEW}}` | `resolvers/review.ts` | Optional outside plan review for /plan-ceo-review and /plan-eng-review: Claude Code on Codex, Codex on other supported harnesses, with the caller's native subagent fallback |
 | `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for `$D` design binary, mirrors `{{BROWSE_SETUP}}` |
 | `{{DESIGN_DETECTOR}}` | `resolvers/design.ts` | Probe block + sentinel reading for the user-installed impeccable engine (`bin/gstack-design-detect.ts`); `:phase0` renders design-review's mechanical scan, `:gate` design-html's bounded slop gate |
 | `{{DESIGN_MD_CHECK}}` | `resolvers/design.ts` | Open DESIGN.md format check through `bin/gstack-design-md.ts`, with the one-time conversion offer persisted in the file; `:calibrate` renders the tokens-as-calibration form for /design-review |

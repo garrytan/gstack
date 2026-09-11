@@ -438,7 +438,7 @@ Each host config (`hosts/*.ts`) controls:
 | Paths | `~/.claude/skills/gstack` vs `$GSTACK_ROOT` |
 | Tool names | "use the Bash tool" vs same (Factory rewrites to "run this command") |
 | Hook skills | `hooks:` frontmatter vs inline safety advisory prose |
-| Suppressed sections | None vs Codex self-invocation sections stripped |
+| Suppressed sections | GBrain blocks vs GBrain blocks and Review Army; Codex retains outside-review sections routed to Claude Code |
 | Model overlay | `claude` vs `gpt` (per-host `defaultModel`; `--model` or, at setup time, the Codex `config.toml` model overrides) |
 
 See `scripts/host-config.ts` for the full `HostConfig` interface.
