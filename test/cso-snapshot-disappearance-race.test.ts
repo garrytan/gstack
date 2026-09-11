@@ -16,6 +16,12 @@ function trustedGit():string{
 function gitEnvironment(home:string):NodeJS.ProcessEnv{
   return{...process.env,HOME:home,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null',GIT_TERMINAL_PROMPT:'0'};
 }
+type FileIdentity={dev:bigint;ino:bigint};
+function fileIdentity(file:string):FileIdentity{const stat=fs.statSync(file,{bigint:true});return{dev:stat.dev,ino:stat.ino};}
+function isFileIdentity(candidate:unknown,expected:FileIdentity):boolean{
+  if(path.basename(String(candidate)).toLowerCase()!=='tracked.txt')return false;
+  try{const current=fs.statSync(String(candidate),{bigint:true});return current.isFile()&&current.dev===expected.dev&&current.ino===expected.ino;}catch{return false;}
+}
 
 function fixture(){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'cso-snapshot-disappearance-'));roots.push(root);
@@ -23,20 +29,18 @@ function fixture(){
   fs.mkdirSync(repo);fs.mkdirSync(runDir,{mode:0o700});
   const git=(...args:string[])=>{const result=spawnSync(trustedGit(),['-C',repo,...args],{encoding:'utf8',env:gitEnvironment(root),timeout:30_000});if(result.status)throw new Error(result.stderr);return result.stdout.trim();};
   git('init','-q');git('config','user.email','fixture@example.test');git('config','user.name','Fixture');
-  // capture() binds the repository through realpath before it touches source.
-  // Use that same spelling for hook targets: Windows can surface one directory
-  // as a short path, long path, or \\?\-namespaced path, and raw string equality
-  // against the caller spelling would leave the race injection dormant.
-  const canonicalRepo=fs.realpathSync(repo),tracked=path.join(canonicalRepo,'tracked.txt');fs.writeFileSync(tracked,'security-relevant source\n');git('add','tracked.txt');git('commit','-qm','base');
-  return{repo,runDir,tracked,parked:path.join(canonicalRepo,'.tracked.txt.parked')};
+  const tracked=path.join(repo,'tracked.txt');fs.writeFileSync(tracked,'security-relevant source\n');git('add','tracked.txt');git('commit','-qm','base');
+  // Match the file itself instead of one pathname spelling. Windows may hand
+  // capture() an 8.3, long, or \\?\-namespaced spelling for this same inode.
+  return{repo,runDir,tracked,trackedIdentity:fileIdentity(tracked),parked:path.join(repo,'.tracked.txt.parked')};
 }
 
 describe('CSO snapshot source-disappearance races',()=>{
   test('rejects a tracked path that disappears at its capture lstat and is restored before final membership validation',async()=>{
-    const {repo,runDir,tracked,parked}=fixture(),lstat=fs.lstatSync;
+    const {repo,runDir,tracked,trackedIdentity,parked}=fixture(),lstat=fs.lstatSync;
     let trackedLstats=0,injected=false,failure:unknown;
     const patched=spyOn(fs,'lstatSync').mockImplementation(((candidate:any,options?:any)=>{
-      if(path.resolve(String(candidate))===tracked&&++trackedLstats===2){
+      if(isFileIdentity(candidate,trackedIdentity)&&++trackedLstats===2){
         // The first lstat is rejectSpecialFiles' directory walk. The second is
         // capture's per-entry existence check. Move the tracked file for that
         // exact syscall, then restore it before any final Git membership check.
@@ -52,9 +56,9 @@ describe('CSO snapshot source-disappearance races',()=>{
     expect(failure).toMatchObject({code:'SNAPSHOT_RACE'});
   });
   test('rejects a nonignored source file introduced during the final content validation',async()=>{
-    const {repo,runDir,tracked}=fixture(),late=path.join(path.dirname(tracked),'late-vulnerable.js'),lstat=fs.lstatSync;let injected=false,failure:unknown;
+    const {repo,runDir,tracked,trackedIdentity}=fixture(),late=path.join(path.dirname(tracked),'late-vulnerable.js'),lstat=fs.lstatSync;let injected=false,failure:unknown;
     const patched=spyOn(fs,'lstatSync').mockImplementation(((candidate:any,options?:any)=>{
-      if(!injected&&path.resolve(String(candidate))===tracked&&fs.existsSync(path.join(runDir,'history-status.json'))){injected=true;fs.writeFileSync(late,'export const vulnerable = true\n');}
+      if(!injected&&isFileIdentity(candidate,trackedIdentity)&&fs.existsSync(path.join(runDir,'history-status.json'))){injected=true;fs.writeFileSync(late,'export const vulnerable = true\n');}
       return options===undefined?lstat(candidate):lstat(candidate,options);
     }) as typeof fs.lstatSync);
     try{await capture(repo,runDir);}catch(error){failure=error;}finally{patched.mockRestore();}

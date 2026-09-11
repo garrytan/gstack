@@ -26,12 +26,14 @@ afterAll(() => { if (temporary) fs.rmSync(temporary, { recursive: true, force: t
 describe('CSO native macOS build contract', () => {
   test('macOS CI runs native signature and injection checks', () => {
     const workflow = Bun.YAML.parse(fs.readFileSync(path.join(ROOT, '.github/workflows/free-tests.yml'), 'utf8')) as any;
+    const build = fs.readFileSync(path.join(ROOT, 'scripts/build-cso.sh'), 'utf8');
     const job = workflow.jobs['cso-macos-launcher'];
     expect(job['runs-on']).toBe('macos-latest');
     expect(job.steps.some((step: any) => step.run === 'bun run build:cso')).toBe(true);
     const gate = job.steps.find((step: any) => step.run === 'bun run test:cso:macos');
     expect(gate.env.GSTACK_CSO_MACOS_TESTS).toBe('1');
     expect(gate['continue-on-error']).not.toBe(true);
+    expect(build).toContain('-Wl,-sectcreate,__RESTRICT,__restrict,/dev/null');
   });
 });
 
@@ -43,6 +45,9 @@ describe('CSO native macOS build contract', () => {
     const details = spawnSync('/usr/bin/codesign', ['-d', '--verbose=4', launcher], { encoding: 'utf8', timeout: 30_000 });
     expect(details.status).toBe(0);
     expect(details.stderr).toMatch(/flags=.*runtime/);
+    const layout = spawnSync('/usr/bin/otool', ['-l', launcher], { encoding: 'utf8', timeout: 30_000 });
+    expect(layout.status).toBe(0);
+    expect(layout.stdout).toMatch(/sectname __restrict\s+segname __RESTRICT/);
   });
 
   test('DYLD constructor injection cannot run before the launcher scrubs the environment', () => {

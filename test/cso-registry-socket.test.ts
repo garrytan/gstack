@@ -18,7 +18,7 @@ posixDescribe('short supervised CSO registry sockets', () => {
   let watchdogPath = '';
 
   beforeAll(() => {
-    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-registry-socket-'));
+    fixtureRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cso-registry-socket-')));
     watchdogPath = path.join(fixtureRoot, 'watchdog');
     const result = spawnSync('/usr/bin/cc', ['-std=c11', '-D_POSIX_C_SOURCE=200809L', '-O2', '-Wall', '-Wextra',
       path.resolve(import.meta.dir, '../lib/cso/watchdog.c'), '-o', watchdogPath], { encoding: 'utf8', timeout: 30_000 });

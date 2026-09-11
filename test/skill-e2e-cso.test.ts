@@ -55,10 +55,11 @@ function requireReport(f: Fixture): RunReportV3 {
   expect(reports).toHaveLength(1); // A mandatory assertion: absent reports used to silently pass.
   const raw = fs.readFileSync(reports[0], 'utf8');
   expect(raw).not.toContain(CANARY);
+  expect(raw).not.toContain(fs.realpathSync(f.repo));
   const report: RunReportV3 = JSON.parse(raw);
   expect(report.schemaVersion).toBe(3);
   expect(report.status).toBe('finished');
-  expect(report.source.root).toBe(fs.realpathSync(f.repo));
+  expect(report.source.root).toBe('<REDACTED-internal.user_path>');
   expect(report.policy.mode).toBe('daily');
   expect(report.policy.offline).toBe(true);
   expect(report.coverage.length).toBeGreaterThan(0);

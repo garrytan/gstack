@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { capture } from '../lib/cso/snapshot';
-import { childEnvironment, executable, runProcess } from '../lib/cso/process';
+import { childEnvironment, executable, git as readGitMetadata, runProcess } from '../lib/cso/process';
 
 const roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))fs.rmSync(root,{recursive:true,force:true});});
@@ -31,6 +31,15 @@ function replaceWithSymlinkAfterLstat(target:string,replacement:string,occurrenc
 }
 
 describe('CSO Git metadata hardening',()=>{
+  test.skipIf(process.platform==='win32')('reports a bounded operation and exit status without exposing Git argv or paths',async()=>{
+    const {root,repo}=fixture();let failure:any;
+    try{await readGitMetadata(repo,['rev-parse','--verify','secret-ref-name'],root);}catch(error){failure=error;}
+    expect(failure).toMatchObject({code:'MISSING_INPUT'});
+    expect(failure.message).toContain('rev-parse exited');
+    expect(failure.message).not.toContain(root);
+    expect(failure.message).not.toContain('secret-ref-name');
+  });
+
   test.skipIf(process.platform==='win32')('refuses trusted Git calls that are not bound to one audited worktree',async()=>{
     const {root}=fixture();
     await expect(runProcess(executable('git'),['rev-parse','--is-inside-work-tree'],{cwd:root,env:childEnvironment(root),raw:true})).rejects.toMatchObject({code:'INVALID_ARGUMENT'});

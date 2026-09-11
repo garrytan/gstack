@@ -200,6 +200,13 @@ export async function runProcess(file: string, args: string[], opts: {
 export async function git(repo: string, args: string[], home: string): Promise<string> {
   const result = await runProcess(executable('git'),['--no-optional-locks','-C',repo,...args],
     {cwd:home,env:childEnvironment(home),raw:true,timeoutMs:15_000});
-  if (result.code || result.timedOut || result.truncated) throw new CsoError('MISSING_INPUT','Could not read bounded Git metadata; source may not be a Git repository');
+  if (result.code || result.timedOut || result.truncated) {
+    // Git stderr and argv can contain repository paths, refs, and configured
+    // content. Name only the fixed helper-owned operation and bounded process
+    // outcome so native failures are actionable without exposing either.
+    const knownOperations=new Set(['rev-parse','symbolic-ref','ls-files','ls-tree','log','merge-base']),operation=args.find(value=>knownOperations.has(value))??'metadata',
+      outcome=result.timedOut?'timed out':result.truncated?'exceeded the output limit':`exited ${result.code}`;
+    throw new CsoError('MISSING_INPUT',`Could not read bounded Git metadata: ${operation} ${outcome}; source may not be a Git repository`);
+  }
   return result.stdout;
 }
