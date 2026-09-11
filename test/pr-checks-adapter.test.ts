@@ -47,7 +47,10 @@ describe('exact-PR required-check adapter', () => {
     });
   });
 
-  test('rejects repository identity before spawning the checks child', async () => {
+  // The integration fixture attests executable POSIX shell scripts and owner
+  // UIDs. Native Windows authority mutation is fail-closed and has no getuid;
+  // keep the pure parser/classifier contract above active on that platform.
+  test.skipIf(process.platform === 'win32')('rejects repository identity before spawning the checks child', async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ecpe-pr-checks-')));
     roots.push(root);
     const log = path.join(root, 'calls.log');

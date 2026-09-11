@@ -29,17 +29,24 @@ describe('Windows installed runtime attestation', () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-runtime-anchor-')); roots.push(root);
       fs.mkdirSync(path.join(root, 'bin'));
       fs.mkdirSync(path.join(root, 'dist/authority'), { recursive: true });
-      const nativePath = 'C:/Program Files/Bun/bun.exe';
       const physicalPath = fs.realpathSync(process.execPath);
-      const uname = path.join(root, 'uname');
-      const cygpath = path.join(root, 'cygpath');
-      fs.writeFileSync(uname, '#!/bin/sh\nprintf "%s\\n" MINGW64_NT-10.0\n', { mode: 0o755 });
-      fs.writeFileSync(cygpath, `#!/bin/sh\ncase "$1:$3" in\n-u:${quote(nativePath)}) printf '%s\\n' ${quote(physicalPath)} ;;\n-m:${quote(physicalPath)}) printf '%s\\n' ${quote(nativePath)} ;;\n*) exit 1 ;;\nesac\n`, { mode: 0o755 });
-      // Adapt only the unavailable Git Bash OS tools; execute the actual anchor
-      // logic, actual hash commands and pinned Bun. Native CI runs it unmodified.
+      const nativePath = process.platform === 'win32'
+        ? physicalPath.replaceAll('\\', '/')
+        : 'C:/Program Files/Bun/bun.exe';
       const anchor = path.join(root, 'bin/gstack-anchor');
-      fs.writeFileSync(anchor, fs.readFileSync(path.join(ROOT, 'bin/gstack-anchor'), 'utf8')
-        .replaceAll('/usr/bin/uname', quote(uname)).replaceAll('/usr/bin/cygpath', quote(cygpath)), { mode: 0o755 });
+      let anchorSource = fs.readFileSync(path.join(ROOT, 'bin/gstack-anchor'), 'utf8');
+      if (process.platform !== 'win32') {
+        const uname = path.join(root, 'uname');
+        const cygpath = path.join(root, 'cygpath');
+        fs.writeFileSync(uname, '#!/bin/sh\nprintf "%s\\n" MINGW64_NT-10.0\n', { mode: 0o755 });
+        fs.writeFileSync(cygpath, `#!/bin/sh\ncase "$1:$3" in\n-u:${quote(nativePath)}) printf '%s\\n' ${quote(physicalPath)} ;;\n-m:${quote(physicalPath)}) printf '%s\\n' ${quote(nativePath)} ;;\n*) exit 1 ;;\nesac\n`, { mode: 0o755 });
+        // Adapt only the unavailable Git Bash OS tools off Windows; native CI
+        // exercises the unmodified anchor and the runner's real cygpath.
+        anchorSource = anchorSource
+          .replaceAll('/usr/bin/uname', quote(uname))
+          .replaceAll('/usr/bin/cygpath', quote(cygpath));
+      }
+      fs.writeFileSync(anchor, anchorSource, { mode: 0o755 });
       const bundle = path.join(root, 'dist/authority/gstack-project-identity.mjs');
       fs.writeFileSync(bundle, 'process.stdout.write("windows-bundle-ran\\n")\n');
       fs.writeFileSync(path.join(root, 'dist/authority/manifest.json'), JSON.stringify({ commands: {
