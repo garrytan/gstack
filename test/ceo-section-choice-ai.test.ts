@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { ceoFirstReviewAUQ, ceoStep0Boundary, nativePlanCallFingerprint, planCountQuestionPhase } from './helpers/claude-pty-runner';
 import captured from './fixtures/ceo-section-choice-ai.json';
+import metadataCaptured from './fixtures/ceo-metadata-brief-ax.json';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 
 function call(index = 4): any {
@@ -101,4 +102,127 @@ test('negated gaps and administrative missing fields cannot borrow review identi
   q.options = [{label:'A) Add a notes folder',description:'Save the finished notes together.'},{label:'B) Use the existing folder',description:'No new folder.'}];
   admin.answers = {[q.question]: q.options[0].label};
   expect(ceoFirstReviewAUQ(fp(admin))).toBe(false);
+});
+
+function metadataCall(): any {
+  const c = structuredClone(metadataCaptured.call);
+  return { ...c, answered: true, failed: false, unansweredQuestionIndices: [],
+    answers: { [c.questions[0]!.question]: metadataCaptured.answer } };
+}
+
+test('AX ordinary D-number question keeps its exact completed review identity', () => {
+  const c = metadataCall(), before = JSON.stringify(c);
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+  expect(planCountQuestionPhase(fp(c), false, ceoStep0Boundary, ceoFirstReviewAUQ)).toMatchObject({ preReview: false, reviewStarted: true });
+  expect(JSON.stringify(c)).toBe(before);
+  expect(E2E_TOUCHFILES['plan-ceo-finding-count']).toContain('test/fixtures/ceo-metadata-brief-ax.json');
+});
+
+test('decision counter, review name and an alternative selection do not dictate the finding', () => {
+  const c = metadataCall(); edit(c, s => s.replace(/^D5 /, 'D17 ').replace('Section 2 (Error & Rescue Map)', 'Section 3 (Failure Handling)'));
+  c.answers[c.questions[0].question] = c.questions[0].options[1].label;
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+  edit(c, s => s + '\nHistorical quote: "This finding is withdrawn."');
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+});
+
+test('metadata cannot replace native completion, current context or a real defect', () => {
+  for (const mutate of [
+    (c: any) => { c.answered = false; },
+    (c: any) => { c.failed = true; },
+    (c: any) => { c.answeredAt = 'not a date'; },
+    (c: any) => { c.unansweredQuestionIndices = [0]; },
+    (c: any) => { c.answers = { other: metadataCaptured.answer }; },
+    (c: any) => { c.questions[0].header = 'Setup'; },
+    (c: any) => { c.questions[0].header = 'Section 9'; },
+    (c: any) => edit(c, s => s.replace('Section 2 (Error & Rescue Map)', 'Section 2 (Error & Rescue Map), Section 3 (Security)')),
+    (c: any) => edit(c, s => s.replace('of the CEO review', 'of an earlier CEO review')),
+    (c: any) => edit(c, s => s.replace(/^Project\/branch\/task: (.*)$/m, 'Project/branch/task: If approved, $1')),
+    (c: any) => edit(c, s => s.replace(/^Project\/branch\/task:.*\n/m, '')),
+    (c: any) => edit(c, s => s.replace(/^ELI10: (.*)$/m, 'ELI10: "$1"')),
+    (c: any) => edit(c, s => s.replace(/^ELI10: .+$/m, 'ELI10: The handler has no current defect and needs no amendment.')),
+    (c: any) => edit(c, s => s.replace(/^ELI10: .+$/m, 'ELI10: The handler commits before mail and already rescues every required error.')),
+    (c: any) => edit(c, s => s.replace('ELI10: After', 'ELI10: Hypothetical example: after')),
+    (c: any) => edit(c, s => s + '\nThis finding is withdrawn.'),
+    (c: any) => edit(c, s => s + '; This finding is `no longer current`.'),
+    (c: any) => edit(c, s => s + '\nThis finding is unproven.'),
+  ]) {
+    const c = metadataCall(); mutate(c); expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+  expect(ceoFirstReviewAUQ({ ...fp(metadataCall()), signature: 'foreign:call' })).toBe(false);
+});
+
+test('a missing or withdrawn offered remedy cannot borrow metadata or an old assessment', () => {
+  for (const mutate of [
+    (c: any) => { c.questions[0].options = [{ label: 'A: Keep the current handler', description: 'No code change.' }, { label: 'B: Save the review notes', description: 'Archive the current report.' }]; c.answers = { [c.questions[0].question]: c.questions[0].options[0].label }; },
+    (c: any) => { c.questions[0].options[0].description += '; This option is `withdrawn`.'; c.questions[0].options[2].description += '\nThis option is withdrawn.'; },
+    (c: any) => { c.questions[0].options.forEach((o: any) => { o.description = 'Hypothetical example. ' + o.description; }); },
+  ]) {
+    const c = metadataCall(); mutate(c); expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+});
+
+function metadataRetryCall(): any {
+  const c = structuredClone(metadataCaptured.retry.call);
+  return { ...c, answered: true, failed: false, unansweredQuestionIndices: [],
+    answers: { [c.questions[0]!.question]: metadataCaptured.retry.answer } };
+}
+
+test('the separately failed AX retry binds its Issue annotation, bare choices and named plan', () => {
+  const c = metadataRetryCall(), before = JSON.stringify(c);
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+  expect(planCountQuestionPhase(fp(c), false, ceoStep0Boundary, ceoFirstReviewAUQ))
+    .toMatchObject({ preReview: false, reviewStarted: true });
+  expect(JSON.stringify(c)).toBe(before);
+  c.answers[c.questions[0].question] = c.questions[0].options[2].label;
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+});
+
+test('a reviewed filename and section identity can be consistently renamed', () => {
+  const c = metadataRetryCall();
+  edit(c, s => s.replace(/^D4 /, 'D12 ').replace(/Issue 2\.1/, 'Issue 8.3')
+    .replace('Section 2 (Error & Rescue Map)', 'Section 8 (Notification Handling)')
+    .replace(/PLAN\.md/g, 'plans/checkout-flow.md'));
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+  edit(c, s => s + '\nHistorical quote: "This issue is withdrawn."');
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+  edit(c, s => s.replace(/\s*<gstack-qid:[^>]+>/, ''));
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(true);
+});
+
+test('retry metadata cannot borrow a foreign section, plan, source or incomplete native call', () => {
+  for (const [index, mutate] of [
+    (c: any) => { c.answered = false; },
+    (c: any) => { c.failed = true; },
+    (c: any) => { c.answeredAt = 'unknown'; },
+    (c: any) => { c.unansweredQuestionIndices = [0]; },
+    (c: any) => { c.questions[0].header = 'Issue 8.1'; },
+    (c: any) => edit(c, s => s.replace('Issue 2.1', 'Issue 3.1')),
+    (c: any) => edit(c, s => s.replace('Section 2 (Error & Rescue Map)', 'Section 3 (Security)')),
+    (c: any) => edit(c, s => s.replace('CEO review of PLAN.md,', 'CEO review of DIFFERENT.md,')),
+    (c: any) => edit(c, s => s.replace("PLAN.md says 'no error handling on the email leg'", "OTHER.md says 'no error handling on the email leg'")),
+    (c: any) => edit(c, s => s.replace('CEO review of PLAN.md,', 'Historical CEO review of PLAN.md,')),
+    (c: any) => edit(c, s => s.replace(/^Project\/branch\/task: (.+)$/m, 'Project/branch/task: If approved, $1')),
+    (c: any) => edit(c, s => s.replace(/^ELI10: (.+)$/m, 'ELI10: "$1"')),
+    (c: any) => edit(c, s => s.replace('ELI10: The handler', 'ELI10: Source excerpt: the handler')),
+    (c: any) => edit(c, s => s.replace('PLAN.md says', 'If approved, PLAN.md says')),
+    (c: any) => edit(c, s => s.replace('PLAN.md says', 'PLAN.md does not say')),
+    (c: any) => edit(c, s => s.replace('plan-ceo-review-mail-rescue', 'plan-ceo-review-setup')),
+    (c: any) => edit(c, s => s + '\n<gstack-qid:plan-ceo-review-other>'),
+  ].entries()) {
+    const c = metadataRetryCall(); mutate(c); expect(ceoFirstReviewAUQ(fp(c)), `retry mutation ${index}`).toBe(false);
+  }
+});
+
+test('current withdrawal and a withdrawn offered amendment override the retry brief', () => {
+  for (const change of [
+    (s: string) => s + '\nThis issue is withdrawn.',
+    (s: string) => s + '; This finding is `no longer current`.',
+    (s: string) => s + '\nIssue 2.1 is withdrawn.',
+    (s: string) => s.replace(/^ELI10: .+$/m, 'ELI10: The handler has no current defect and needs no amendment.'),
+  ]) {
+    const c = metadataRetryCall(); edit(c, change); expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
+  }
+  const c = metadataRetryCall(); c.questions[0].options[0].description += '; This option is `withdrawn`.';
+  expect(ceoFirstReviewAUQ(fp(c))).toBe(false);
 });

@@ -27,6 +27,56 @@ const fixture = (text = announcements[0]!) => ({
 });
 const verdict = (f = fixture(), options = opts) => nativeSeededPlanSelection(f.transcript, f.tools, options);
 
+const axAnnouncements = [
+  `I'll invoke the /plan-design-review skill to review this landing page plan.`,
+  `I'll run the plan-design-review skill on your draft landing-page plan.`,
+];
+test('AX title-derived descriptors bind the unique pasted plan before or after skill load', () => {
+  for (const text of axAnnouncements) for (const delta of [1, 6]) {
+    const f = fixture(text); f.transcript.assistantMessages[0]!.timestamp = timestamp(delta);
+    f.tools[0]!.timestamp = timestamp(4); f.tools[1]!.timestamp = timestamp(5);
+    expect(verdict(f), text).toBe(true);
+  }
+  for (const text of [
+    `I will review this MARKETING landing-page plan.`,
+    `I'll review your draft landing   page plan.`,
+    `I'll review the landing-page plan.`,
+  ]) expect(verdict(fixture(text))).toBe(true);
+  expect(verdict(fixture(axAnnouncements[0]!), { ...opts, seed: '# Plan: MARKETING landing-page\n' })).toBe(true);
+  expect(verdict(fixture(`I'll review this checkout plan.`), { ...opts, seed: '# Plan: Checkout page\n' })).toBe(true);
+});
+
+test('a descriptor must be a contiguous whole-word portion of the unique seed title', () => {
+  for (const descriptor of ['pricing page', 'Marketing page', 'land', 'landing pages', 'checkout', 'other landing page']) {
+    const text = `I'll review this ${descriptor} plan.`;
+    expect(verdict(fixture(text), { ...opts, seed: opts.seed + `\nBody mentions ${descriptor}.` }), descriptor).toBe(false);
+  }
+  expect(verdict(fixture(axAnnouncements[0]!), { ...opts, seed: opts.seed + '\n# Plan: Another landing page' })).toBe(false);
+});
+
+test('described targets retain the affirmative, Skill, timing and current-selection guards', () => {
+  for (const text of axAnnouncements) {
+    for (const invalid of [
+      `> ${text}`, `"${text}"`, `    ${text}`, `Source:\n${text}`, `\`\`\`\n${text}\n\`\`\``,
+      text.replace("I'll", 'I might'), text.replace("I'll", "I won't"), text.replace(/\.$/, '?'),
+      `If approved, ${text}`, text.replace(/\.$/, ' if approved.'),
+      text.replace('plan-design-review', 'plan-eng-review'), text.replace(/\.$/, ' or another plan.'),
+    ]) expect(verdict(fixture(invalid)), invalid).toBe(false);
+    for (const mutate of [
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.sessionId = 'foreign'; },
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.timestamp = timestamp(0); },
+      (f: ReturnType<typeof fixture>) => { f.tools[1]!.isError = true; },
+      (f: ReturnType<typeof fixture>) => { f.tools[0]!.input!.skill = 'plan-eng-review'; },
+      (f: ReturnType<typeof fixture>) => { f.tools[0]!.input!.args = 'Review the branch diff.'; },
+      (f: ReturnType<typeof fixture>) => { f.tools.push({kind:'use',name:'Read',sessionId:'owned',toolUseId:'work',timestamp:timestamp(2.5)}); },
+    ]) { const f = fixture(text); mutate(f); expect(verdict(f)).toBe(false); }
+    for (const correction of ['This selection is withdrawn.', 'The selected target is now the branch diff.', 'I will review "Another plan" plan.', 'I will review your checkout page plan.']) {
+      const f = fixture(text); f.transcript.assistantMessages.push({sessionId:'owned',timestamp:timestamp(4),text:correction});
+      expect(verdict(f), correction).toBe(false);
+    }
+  }
+});
+
 test('actual AF public selection wording needs this seed, parent and completed skill boundary', () => {
   for (const text of announcements) expect(verdict(fixture(text))).toBe(true);
   const f = fixture(); f.tools[0]!.input!.skill = 'gstack:plan-design-review'; expect(verdict(f)).toBe(true);

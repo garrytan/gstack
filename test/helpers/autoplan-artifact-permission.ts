@@ -21,6 +21,27 @@ interface ArtifactPermissionContext {
 const MAX_BYTES = 1024 * 1024;
 const compact = (text: string) => text.replace(/\s/g, '');
 
+/** A completed write distinguishes a new same-looking file confirmation. */
+export function autoplanPermissionProgressKey(viewport: string, events: readonly NativePublicToolEvent[]): string | undefined {
+  const file = /^ {0,3}Do you want to (?:create|overwrite|edit) ([^\n?]+)\? *$/m.exec(viewport)?.[1];
+  if (!file || new Set(events.map(event => event.sessionId)).size !== 1) return;
+  const menu = compact(viewport);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const result = events[i]!;
+    if (result.kind !== 'result' || result.isError !== false) continue;
+    const uses = events.slice(0, i).filter(event => event.kind === 'use' &&
+      event.sessionId === result.sessionId && event.toolUseId === result.toolUseId);
+    if (uses.length !== 1) continue;
+    const use = uses[0]!, target = use.input?.file_path;
+    if (!['Write', 'Edit'].includes(use.name ?? '') || typeof target !== 'string' ||
+        !path.isAbsolute(target) || path.basename(target) !== file ||
+        !menu.includes(`alwaysallowaccessto${compact(path.dirname(target))}forthissession`) ||
+        !Number.isFinite(Date.parse(use.timestamp)) || Date.parse(result.timestamp) < Date.parse(use.timestamp) ||
+        !Number.isFinite(Date.parse(result.timestamp))) continue;
+    return `${result.sessionId}:${result.toolUseId}`;
+  }
+}
+
 /** The native header may remain above the diff; both displayed paths must bind. */
 function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string): string[] | null {
   const header = rows.findIndex(row => /^[●⏺] Update\(/.test(row));

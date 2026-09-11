@@ -2526,6 +2526,59 @@ function ceoSequenceChoiceBrief(q: NativePlanQuestionCall['questions'][number], 
   return remedy && opposed;
 }
 
+/** Extract the current plan's missing contract without promoting quoted source material. */
+function ceoDeclaredMissingContract(explanation: string, reviewedPlan?: string): string | null {
+  const namedOwner = reviewedPlan && new RegExp('^' + reviewedPlan.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=\\s)');
+  const statements = explanation.split(/[.!?]\s+/).map(statement =>
+    namedOwner ? statement.trim().replace(namedOwner, 'The plan') : statement);
+  const declared = statements.map((statement, index) =>
+    statements.slice(0, index).every(prior => ceoCurrentBriefProse(prior)) &&
+    /^(?:(?:the|this)(?:\s+current)?|current)\s+plan\s+(?:says|states|specifies|requires|calls for)\s+(["“'‘]?)(no\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)(?:\s+(?:on|for|in)\s+[^"”'’\n.!?]+)?)(["”'’]?)[.!?]?$/i.exec(statement.trim()))
+    .find(match => match && ({ '': '', '"': '"', '“': '”', "'": "'", '‘': '’' } as Record<string, string>)[match[1]!] === match[3]);
+  return declared ? declared[2]! : null;
+}
+
+/** The decision counter and section metadata need not be repeated as "Finding N". */
+function ceoMetadataDecisionBrief(q: NativePlanQuestionCall['questions'][number], title: string): boolean {
+  const decision = /^D([1-9]\d*)(?:\s+\((?:Issue|Finding) ([1-9]\d*(?:\.[1-9]\d*)*)\))?\s*[—–-]\s*(?:What|How|Which|Should|Where|When)\b[^\n?]+\?$/i.exec(title);
+  if (!decision || /^(?:Finding|Issue|Section|Test)\b|^F\d/i.test(q.header.trim())) return false;
+  const contexts = [...q.question.matchAll(/^Project\/branch\/task:\s*(.+)$/gm)];
+  const assessments = [...q.question.matchAll(/^ELI10:\s*(.+)$/gm)];
+  if (contexts.length !== 1 || assessments.length !== 1) return false;
+  const sections = [...contexts[0]![1]!.matchAll(/\bSection\s+([1-9]\d*)\s*\(([A-Za-z][A-Za-z &/-]*)\)/gi)];
+  if (sections.length !== 1 || !/\bCEO review\b/i.test(contexts[0]![1]!) ||
+      (decision[2] && decision[2].split('.')[0] !== sections[0]![1])) return false;
+  const prefix = q.question.slice(title.length, q.question.indexOf('\nELI10:'))
+    .replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '""');
+  if (!prefix.split('\n').map(line => line.trim()).filter(Boolean).every(line =>
+    /^(?:Project\/branch\/task:|\[P[0-3]\])/.test(line) || /^[A-Za-z][A-Za-z -]*:\s*""[.!?]?$/.test(line))) return false;
+  const current = (text: string) => {
+    const normalized = text.replace(/;\s+(?=(?:Correction:\s*)?(?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option)\b)/gi, '.\n')
+      .replace(/((?:this|that|the)\s+(?:finding|issue|decision|assessment|explanation|amendment|remedy|option)\s+(?:is|has been)\s+)["“'‘`](withdrawn|resolved|hypothetical|unproven|no longer current)["”'’`]/gi, '$1$2')
+      .replace(/\b(?:is|has been)\s+(?:unproven|no longer current)\b/gi, 'is withdrawn');
+    const prose = normalized.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”|`[^`]*`/g, '');
+    return ceoCurrentBriefProse(normalized) &&
+      !/\b(?:historical|quoted|source|example|hypothetical|previous|earlier)\s+(?:CEO\s+)?(?:review|finding|assessment|excerpt)\b/i.test(prose) &&
+      !prose.split(/[.!?;]\s+|\n/).some(clause => /^(?:this|the|current) (?:handler|plan|implementation) (?:has no (?:current )?(?:defect|gap|issue|problem)\b|needs no (?:amendment|fix|change)\b)/i.test(clause.trim()));
+  };
+  if (!current(contexts[0]![1]!) || !current(assessments[0]![1]!) || !current(q.question)) return false;
+  const recommendation = /^Recommendation:\s*([1-9]\d*)?[A-Z]\b/im.exec(q.question);
+  if (recommendation?.[1] && recommendation[1] !== (decision[2]?.split('.')[0] ?? decision[1])) return false;
+  const currentOption = (option: NativePlanQuestionCall['questions'][number]['options'][number]) =>
+    current(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && current(option.description ?? '');
+  // A literal reviewed plan name is an owner, not a new defect grammar.
+  const reviewedPlan = /\bCEO review of ([A-Za-z0-9_./-]+\.md)(?=,|;|$)/i.exec(contexts[0]![1]!)?.[1];
+  // Negating the quoted missing-contract declaration cannot itself become a
+  // generic "does not say" omission. Keep the exact same statement owner.
+  if (assessments[0]![1]!.split(/[.!?]\s+/).some(statement => {
+    const affirmative = statement.replace(/\b(?:does not|doesn't|never)\s+(?:say|state|specify|require|call for)\b/i, 'says');
+    return affirmative !== statement && ceoDeclaredMissingContract(affirmative, reviewedPlan) !== null;
+  })) return false;
+  if (ceoNumberedBriefDecision(q, title, true, currentOption)) return true;
+  const declared = ceoDeclaredMissingContract(assessments[0]![1]!, reviewedPlan);
+  return declared !== null && ceoNumberedBriefDecision(q, `The plan has ${declared}`, false, currentOption);
+}
+
 function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionId = false): boolean {
   const call = fp.nativeCall;
   // QUESTION_TUNING=false omits qid injection. Accept an explicit Finding
@@ -2545,6 +2598,9 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
   if (allowQuestionId && ((q.question.match(/<gstack-qid/gi)?.length ?? 0) !== 1 ||
       !/<gstack-qid:\s*(?:plan-)?ceo-(?:review-)?[a-z0-9-]+\s*>/i.test(q.question))) return false;
   const title = q.question.split('\n')[0]!.replace(/\s*<gstack-qid:[^>]+>\s*$/i, '');
+  if ((!allowQuestionId || /^D[1-9]\d*\s+\((?:Issue|Finding) [1-9]\d*(?:\.[1-9]\d*)*\)/i.test(title)) &&
+      (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0) &&
+      Number.isFinite(Date.parse(call.answeredAt ?? '')) && ceoMetadataDecisionBrief(q, title)) return true;
   const sectionFindingIdentity = /^D([1-9]\d*)\s+\(Section ([1-9]\d*), finding ([1-9]\d*)\)\s*[—–-]\s*((?:What|How|Which|Should)\b[^\n?]+\?)$/i.exec(title);
   if (allowQuestionId && sectionFindingIdentity) {
     const section = sectionFindingIdentity[2]!, finding = sectionFindingIdentity[3]!;
@@ -2875,12 +2931,8 @@ function nativeExplicitCeoFinding(fp: AskUserQuestionFingerprint, allowQuestionI
       prefix.split('\n').filter(line => /^Project\/branch\/task:/.test(line.trim())).some(line => !ceoCurrentBriefProse(line.trim().replace(/^Project\/branch\/task:\s*/, '')))) return false;
     const explanation = /^ELI10:\s*(.+)$/m.exec(q.question)?.[1] ?? '';
     if (!ceoCurrentBriefProse(explanation) || !ceoCurrentBriefProse(q.question, false)) return false;
-    const statements = explanation.split(/[.!?]\s+/);
-    const declared = statements.map((statement, index) =>
-      statements.slice(0, index).every(prior => ceoCurrentBriefProse(prior)) &&
-      /^(?:(?:the|this)(?:\s+current)?|current)\s+plan\s+(?:says|states|specifies|requires|calls for)\s+(["“'‘]?)(no\s+(?:(?:automated|explicit|defined)\s+)?(?:error handling|tests?|checks?|validation|coordination|cap|bound|timeout)(?:\s+(?:on|for|in)\s+[^"”'’\n.!?]+)?)(["”'’]?)[.!?]?$/i.exec(statement.trim()))
-      .find(match => match && ({ '': '', '"': '"', '“': '”', "'": "'", '‘': '’' } as Record<string, string>)[match[1]!] === match[3]);
-    if (!declared || !ceoNumberedBriefDecision(q, `The plan has ${declared[2]}`, false,
+    const declared = ceoDeclaredMissingContract(explanation);
+    if (!declared || !ceoNumberedBriefDecision(q, `The plan has ${declared}`, false,
       option => ceoCurrentBriefProse(option.label.replace(/^(?:[1-9]\d*)?[A-Z][):.]\s*/i, '')) && ceoCurrentBriefProse(option.description ?? ''))) return false;
   }
   if (numberedSubject && (numberedSubject[2]!.trim().toLowerCase() !== q.header.trim().toLowerCase() ||

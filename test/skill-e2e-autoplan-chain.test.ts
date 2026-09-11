@@ -30,7 +30,7 @@ import {
   isNumberedOptionListVisible,
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
-import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, publishedAutoplanArtifactPermissionInput, autoplanArtifactMenuKey } from './helpers/autoplan-artifact-permission';
+import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, publishedAutoplanArtifactPermissionInput, autoplanArtifactMenuKey, autoplanPermissionProgressKey } from './helpers/autoplan-artifact-permission';
 import { readPendingAutoplanArtifact, autoplanArtifactRecorderStatus } from './helpers/autoplan-artifact-recorder';
 import { autoplanSetupDecision, autoplanBlockingQuestionBoundary, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
@@ -140,6 +140,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           const budgetMs = AUTOPLAN_CHAIN_BUDGET.workMs;
           const start = Date.now();
           let lastPermSig = '';
+          let lastPermissionProgress = '';
           const seenArtifactPermissions = new Set<string>();
           let lastCheckpointAt = start;
           const seenSetupQuestions = new Set<string>();
@@ -186,10 +187,14 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             // questions it owns. Classify on tail to avoid stale matches.
             const recentTail = visible.slice(-1500);
             if (isNumberedOptionListVisible(recentTail) && isPermissionDialogVisible(recentTail)) {
-              const sig = visible.slice(-500);
+              // A new acknowledged file mutation can lead to the same menu.
+              // Pending/failed/unrelated tools never reset an already sent choice.
+              const progress = transcript.status === 'ready' ? autoplanPermissionProgressKey(visible, publicTools) : undefined;
+              if (progress) lastPermissionProgress = progress;
+              const sig = JSON.stringify([visible.slice(-500), lastPermissionProgress]);
               if (sig !== lastPermSig) {
                 lastPermSig = sig;
-                session.send('1\r');
+                await selectPtyNumberedOption(session, 1);
                 await Bun.sleep(2000);
                 continue;
               }

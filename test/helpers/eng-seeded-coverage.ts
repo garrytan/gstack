@@ -155,6 +155,64 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   if (/\b(?:sequential|parallel\w*|Promise\.all(?:Settled)?)\b/i.test(title) &&
       /\b(?:IDP|identity provider)\b/i.test(prose(q.question)) &&
       action(/\b(?:parallel\w*|Promise\.all(?:Settled)?)\b/i)) ids.push('sequential-idp');
+  return ids.length ? ids : explainedSeedSubjects(q);
+}
+
+/** A decision may put its current defect in its own metadata/ELI10, not its title. */
+function explainedSeedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
+  const rawTitle = q.question.split('\n').find(line => line.trim())?.trim() ?? '';
+  const ordinal = /^D([1-9]\d*)\s*[—–:-]/.exec(rawTitle)?.[1];
+  const owner = `(?:(?:this|the|that) (?:finding|issue|gap|defect|assessment|explanation|option|action|remedy)${ordinal ? `|D${ordinal}` : ''})`;
+  const inactive = '(?:withdrawn|retracted|rejected|cancelled|canceled|resolved|fixed|superseded|optional|hypothetical|unproven|not current|no longer current)';
+  const current = (value: string) => prose(value.replace(/\*\*/g, '').replace(
+    new RegExp(`(${owner} (?:is|was|has been) )["“'‘\x60](${inactive})["”'’\x60]`, 'gi'), '$1$2'), true)
+    .replace(/"[^"]*"|“[^”]*”|(?<!\w)'[^'\n]*'(?!\w)|‘[^’]*’/g, '');
+  const framed = /(?:^|[.!?;:]\s+|\n)(?:(?:Project\/branch\/task|ELI10):\s*)?(?:source|quoted|historical|example|hypothetical|if approved|once approved|when approved|pending approval|assuming approval|provided approval)\b/i;
+  const active = (value: string) => !framed.test(value)
+    && !/\b(?:copied|quoted|historical)\s+(?:(?:source|quoted)\s+)?(?:example|excerpt|text|material)\b/i.test(value)
+    && !new RegExp(`\\b${owner} (?:is|was|has been) ${inactive}\\b`, 'i').test(value)
+    && !/\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(value)
+    && !/(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:reduce|cut|remove|keep|flatten|split|map|rethrow|parallelize|run|apply)\b/i.test(value);
+  // Inline literal sentences and a non-current title cannot own the packet.
+  if (/^[`"“>]/.test(rawTitle.replace(/^D[1-9]\d*\s*[—–:-]\s*/, ''))) return [];
+  const text = current(q.question), lines = text.split('\n').filter(line => line.trim());
+  const explanations = lines.filter(line => /^ELI10:/.test(line));
+  const metadata = lines.filter(line => /^Project\/branch\/task:/.test(line));
+  const explanationIndex = /^\[P[0-3]\] /.test(lines[2] ?? '') ? 3 : 2;
+  if (explanations.length !== 1 || metadata.length !== 1 || lines[1] !== metadata[0] || lines[explanationIndex] !== explanations[0]
+      || explanationIndex === 3 && !active(lines[2]!.replace(/^\[P[0-3]\] /, ''))
+      || !/^Project\/branch\/task: \S/.test(metadata[0]!) || !active(text)) return [];
+  const title = lines[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/, '');
+  if (!active(title)) return [];
+  const explanation = explanations[0]!, subject = metadata[0] + ' ' + explanation;
+  const options = q.options.map(o => current(`${o.label}\n${o.description ?? ''}`)).filter(active);
+  const ids: Seed[] = [];
+  // The overlapping stores, reduced component count and single backing store
+  // must be this question's finding and one option's complete repair.
+  if (/\b(?:scope|components?|pieces|classes|decomposition)\b/i.test(title)
+      && ['AuthBroker', 'SessionMint', 'AuthCache', 'TokenStore'].every(name => subject.includes(name))
+      && /\b(?:plan (?:adds|builds)|new)\b/i.test(explanation)
+      && /\b(?:all|both) store tokens\b|\b(?:overlapping|redundant|duplicate) (?:token )?(?:stores|caches|storage)\b/i.test(explanation)
+      && !/\b(?:now|already) (?:have|has) (?:independent|distinct)|\b(?:no longer|not) (?:overlapping|redundant|duplicate)\b/i.test(text)
+      && options.some(o => /^(?:[A-D][):.]\s*)?(?:reduce|cut|remove|drop|fewer|simplify)\b/i.test(o)
+        && /\b(?:keep|retain) AuthBroker\b/i.test(o) && /\bSessionMint\b/.test(o)
+        && /\binjected AuthCache\b|\binject(?:ed)? (?:the )?(?:existing |shared )?(?:cache )?adapter\b/i.test(o)
+        && /\b(?:one|single) (?:backing store|cache|storage layer)\b/i.test(o))) ids.push('complexity');
+  if (/\bvalidateAndDispatch\b/.test(title)
+      && /\bcatch(?:es)?\b[^.!?]{0,100}\bswallow\w*\b[^.!?]{0,60}\b(?:error|failure)/i.test(subject)
+      && /\b(?:quietly|silent|nothing is logged|keeps? going|carries on)\b/i.test(explanation)
+      && !/\bvalidateAndDispatch\(\) (?:now |already )?(?:rethrows every error|no longer swallows failures)\b/i.test(text)
+      && options.some(o => /\b(?:flatten|split|named helpers)\b/i.test(o)
+        && /\b(?:typed (?:error )?boundary|one (?:error )?(?:boundary|catch))\b/i.test(o)
+        && /\bmaps?\b[^.!?]{0,140}\b(?:[45]\d\d|response|outcome)/i.test(o)
+        && /\brethrows? (?:unknowns|unknown errors)|\bpropagates? (?:unknown|all) (?:errors|failures)\b/i.test(o))) ids.push('swallowed-errors');
+  if (/\b(?:IDP|identity provider) calls?\b/i.test(title)
+      && /\bsequential\b[^.!?]{0,60}\b(?:IDP|identity provider) calls?\b/i.test(metadata[0]!)
+      && /\bindependent\b/i.test(metadata[0]!)
+      && /\b(?:at once|parallel\w*|concurrent\w*)\b/i.test(explanation)
+      && !/\b(?:calls|requests) (?:are |now |already )*(?:parallel|concurrent|no longer sequential)\b/i.test(text)
+      && options.some(o => /\b(?:Promise\.all|paralleliz\w*|concurrent\w*)\b/i.test(o)
+        && /\b(?:calls|requests|siblings)\b/i.test(o))) ids.push('sequential-idp');
   return ids;
 }
 
@@ -969,9 +1027,9 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
   const owned = (s: string) => snapshot.includes(flat(s)) && !framed(s)
     && !approval.test(unquoted(s))
     && !/\b(?:do not|don\x27t|never|skip|omit|defer) (?:add|write|run|capture|record|pin|implement)\b|\b(?:maybe|might|could|optional|proposed)\b/i.test(unquoted(s));
-  const tasks = current.filter(s => /^Implementation Tasks$/i.test(s.title)).flatMap(s => {
+  const allTasks = current.flatMap(s => {
     const text = s.body.join('\n');
-    return text.split(/\n(?=- )/).map(body => ({ body,
+    return text.split(/\n(?=- )/).map(body => ({ body, section: s.title,
       preceding: text.slice(0, text.indexOf(body)).trim().split('\n').at(-1) ?? '',
       match: /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–:-] (.+)(?:\n|$)/.exec(body) }));
   });
@@ -980,21 +1038,55 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
         || /\b(?:not|never|no longer) mandatory\b/i.test(declaration.title) || approval.test(unquoted(declaration.title)) || /\b(?:if|when|once|unless) accepted\b/i.test(unquoted(declaration.title))) continue;
     const body = declaration.body.join('\n').trim(), text = flat(unquoted(body));
     const files = [...text.matchAll(/\b([A-Za-z][\w/.-]*\.test(?:\.[jt]s)?)\b/g)].map(m => m[1]!);
-    if (files.length !== 1 || !owned(body) || !/\blegacyAuthFlow\b/.test(declaration.title + ' ' + text)
-        || !/\b(?:captures?|records?|pins?)\b[^.;:]{0,180}\b(?:behavior|outcomes|outputs)\b/i.test(text)
-        || !/\bbefore (?:any |the )?(?:rewrite|refactor|change)\b/i.test(text)) continue;
+    const beforeAndAfter = /\bmust (?:pass|be green) before and after (?:this|the) (?:refactor|rewrite|change)\b/i.test(text);
+    if (!owned(body) || !/\blegacyAuthFlow\b/.test(declaration.title + ' ' + text)
+        || !beforeAndAfter && !/\bbefore (?:any |the )?(?:rewrite|refactor|change)\b/i.test(text)) continue;
+    // A unique task ID can carry the file and verification. The declaration
+    // supplies the required old-code corpus and parity; no particular heading
+    // or repeated filename/CRITICAL label is needed on the task itself.
+    const declaredIds = [...new Set([...text.matchAll(/\bT[1-9]\d*\b/g)].map(m => m[0]))];
+    const linkedId = declaredIds.length === 1 && /\bCRITICAL\b/.test(text)
+      && current.filter(s => /\bmandatory\b/i.test(s.title) && /\bCRITICAL\b/.test(unquoted(s.body.join(' ')))
+        && new RegExp(`\\b${declaredIds[0]}\\b`).test(unquoted(s.body.join(' ')))).length === 1 ? declaredIds[0] : undefined;
+    const parityTargets = [...text.matchAll(/\b(?:run|execute|replay) (?:the )?same (?:corpus|suite|fixtures) (?:against|through|on) (?:the )?([A-Za-z][\w]*)(?: path)?[.;]/gi)];
+    const linkedTarget = linkedId && parityTargets.length === 1
+      && /\b(?:write|add|create) (?:regression|characterization)(?: \(golden\))? tests? for legacyAuthFlow\(\)/i.test(text)
+      && /\bBoth must (?:produce|return|have) (?:identical|matching) (?:results|outcomes|outputs)\b/i.test(text) ? parityTargets[0]![1] : undefined;
+    const scheduled = files.length === 1 && /\b(?:captures?|capturing|records?|recording|pins?|pinning)\b[^.;:]{0,180}\b(?:behavior|outcomes|outputs)\b/i.test(text);
+    const comparisons = [...text.matchAll(/\b(?:asserts?|verifies?|checks?) ([A-Za-z][\w]*) (?:agrees with|matches) (?:it|(?:the )?(?:legacy )?(?:suite|baseline|outputs))\b/gi)];
+    const pinnedParity = scheduled && beforeAndAfter && comparisons.length === 1 && comparisons[0]![1] !== 'legacyAuthFlow'
+      && /\b(?:captures?|capturing|records?|recording|pins?|pinning) (?:the )?(?:current|prior|existing) (?:outputs|outcomes|behavior)\b/i.test(text);
+    const tasks = allTasks.filter(t => linkedTarget || pinnedParity || /^Implementation Tasks$/i.test(t.section));
     for (const task of tasks) {
       if (!task.match) continue;
       const [, id, rawTitle] = task.match, title = unquoted(rawTitle!);
+      if (linkedTarget && id !== linkedId) continue;
       if (tasks.filter(t => t.match?.[1] === id).length !== 1 || !/\blegacyAuthFlow\b/.test(title)
-          || !/\b(?:regression|characterization)\b/i.test(title) || !/\bCRITICAL\b/.test(title)) continue;
+          || !/\b(?:regression|characterization)\b/i.test(title)) continue;
       const taskFiles = [...task.body.matchAll(/^  - Files: (.+)$/gm)];
       const verifies = [...task.body.matchAll(/^  - Verify: (.+)$/gm)];
-      if (taskFiles.length !== 1 || taskFiles[0]![1] !== files[0] || verifies.length !== 1 || !owned(task.body) || framed(task.preceding)) continue;
+      if (taskFiles.length !== 1 || verifies.length !== 1 || !owned(task.body) || framed(task.preceding)) continue;
       const verify = unquoted(verifies[0]![1]!);
-      if (!/\b(?:pass(?:es)?|green)\b/i.test(verify) || !/\bbefore\b[^.;]*\bafter\b|\bbefore\b[^.;]*;[^.;]*\bafter\b/i.test(verify)) continue;
+      const runs = verify.split(/;\s*/);
+      const linkedBaseline = linkedTarget && linkedTarget !== 'legacyAuthFlow' && id === linkedId
+        && /^[A-Za-z][\w/.-]*\.test(?:\.[jt]s)?$/.test(taskFiles[0]![1]!)
+        && (files.length === 0 || files.length === 1 && files[0] === taskFiles[0]![1])
+        && /\b(?:write|add|create) (?:regression|characterization)(?: \(golden\))? tests? for legacyAuthFlow\(\) before (?:touching (?:it|legacyAuthFlow\(\))|(?:any |the )?(?:rewrite|refactor|change))\b/i.test(title)
+        && runs.length === 2 && /^(?:the )?(?:suite|tests?|corpus) (?:passes|is green) (?:against|on) (?:legacy|legacyAuthFlow(?:\(\))?)$/i.test(runs[0]!)
+        && new RegExp(`^(?:later|then) (?:passes|is green) unchanged (?:against|on) ${linkedTarget}[.]?$`, 'i').test(runs[1]!);
+      const scheduledVerification = scheduled && /\bCRITICAL\b/.test(title) && taskFiles[0]![1] === files[0]
+        && /\b(?:pass(?:es)?|green)\b/i.test(verify) && /\bbefore\b[^.;]*\bafter\b|\bbefore\b[^.;]*;[^.;]*\bafter\b/i.test(verify);
+      // A task's explicit green baseline on unchanged code before any rewrite
+      // commit is already an ordered verification; it need not be repeated in
+      // a separate Verification section. The same file pins current outputs
+      // in the declaration and supplies the comparison oracle for the new path.
+      const committedBaseline = pinnedParity && scheduledVerification
+        && tasks.filter(t => new RegExp(`^  - Files: ${files[0]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(t.body)).length === 1
+        && /\b(?:passes?|green) (?:on|against) (?:main|master|(?:the )?(?:unmodified|untouched) (?:code|legacy path)) before (?:any|the) (?:refactor|rewrite|change) commit\b/i.test(verify);
+      const scopedBaseline = linkedBaseline || committedBaseline;
+      if (!scopedBaseline && !scheduledVerification) continue;
       // An explicit ordered step provides the old-code oracle; matching a task label alone cannot.
-      const baseline = current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {
+      const baseline = scopedBaseline || current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {
         const lines = s.body.join('\n').split(/\n(?=\d+\. )/);
         return lines.some(line => {
           const statement = unquoted(line);
@@ -1017,7 +1109,8 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
           return new RegExp(`\\b${subject} (?:is|was|has been) ${inactive}\\b|^\\s*\\|\\s*${id}\\s*\\|\\s*${inactive}\\s*\\|`, 'i').test(line)
             || new RegExp(`^\\s*(?:Correction:\\s*)?(?:do not|don't|never|skip|defer|cancel|withdraw) (?:run |execute |implement )?${subject}\\b`, 'i').test(line)
             || new RegExp(`\\b(?:run|execute|record|capture) ${id} only after (?:modifying|changing|rewriting|refactoring|removing|deleting) legacyAuthFlow\\b`, 'i').test(line)
-            || new RegExp(`\\blegacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored|removed|deleted) before ${id}\\b`, 'i').test(line);
+            || new RegExp(`\\blegacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored|removed|deleted) before ${id}\\b`, 'i').test(line)
+            || Boolean(scopedBaseline && new RegExp(`\\b(?:update|change|replace|regenerate|rewrite) ${subject} (?:expectations|expected (?:results|outputs)|assertions)\\b|\\b${subject} (?:expectations|assertions) (?:are|will be) (?:changed|updated|replaced)\\b`, 'i').test(line));
         });
       });
       if (!cancelled) return true;

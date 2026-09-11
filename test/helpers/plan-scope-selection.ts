@@ -1,5 +1,14 @@
 import type { NativePublicToolEvent, PlanCountTranscript } from './plan-count-transcript';
 
+function deicticPlanSelection(text: string): RegExpExecArray | null {
+  return /^(?:I'll|I will) (?:review|(?:run|invoke) (?:the )?\/?([\w:-]+) skill (?:to review|on|against)) (?:this|your|the) (?:draft[ \t]+)?([\p{L}\p{N}]+(?:[ \t\u2010-\u2015-]+[\p{L}\p{N}]+)*[ \t]+)?plan\.$/iu.exec(text);
+}
+
+function describesTitle(descriptor: string | undefined, title: string): boolean {
+  const normalize = (value: string) => value.toLowerCase().replace(/[\u2010-\u2015-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return !descriptor || ` ${normalize(title)} `.includes(` ${normalize(descriptor)} `);
+}
+
 /** An asserted correction can retract a declaration; quoted source cannot. */
 function withdrawsPlanSelection(message: string, title: string): boolean {
   let fence: { char: string; length: number } | undefined;
@@ -28,6 +37,8 @@ function withdrawsPlanSelection(message: string, title: string): boolean {
         ? quoted.slice(1, -1) : '[quoted]');
     if (/^(?:The|This|That|My)\s+(?:(?:scope|target)\s+)?(?:selection|declaration)\s+(?:is|was|has been|remains)\s+(?:now\s+)?(?:withdrawn|retracted|cancelled|canceled|hypothetical|no longer current|superseded|rejected)\b/i.test(plain)
       || /^(?:(?:I|We)\s+(?:have\s+)?)?(?:withdrawn?|withdrew|retract(?:ed)?|cancel(?:led|ed)?|disregard(?:ed)?|ignore(?:d)?)\s+(?:this|that|the|my)\s+(?:selection|declaration)\b/i.test(plain)) return true;
+    const deictic = deicticPlanSelection(claim);
+    if (deictic && !describesTitle(deictic[2], title)) return true;
     const reviewing = /^(?:I'll|I will|I'm|I am|We will|We're|We are) (?:now )?(?:review|reviewing) (?:the )?(?:branch diff|(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`) (?:draft(?: plan)?|plan))(?: instead)?\.$/i.exec(claim);
     if (reviewing && (reviewing[1] ?? reviewing[2] ?? reviewing[3] ?? 'branch diff').toLowerCase() !== title.toLowerCase()) return true;
     const changedTarget = /^(?:The|This|My)\s+(?:selected|review)\s+target\s+is\s+(?:now\s+)?(.+?)[.!?]?$/i.exec(claim);
@@ -87,12 +98,11 @@ export function nativeSeededPlanSelection(
     const line = message.text.split(/\r?\n/).find(value => value.trim());
     if (!line || /^(?: {4}|\t)/.test(line)) continue;
     const text = line.trim();
-    // "This draft" binds to the single user-pasted plan, never arbitrary
-    // nearby source text. The anchored declaration excludes quoted/conditional
-    // introductions; currentness checks still cover its following assertions.
-    const draft = /^(?:I'll|I will) (?:review (?:this|your|the) draft plan|(?:run|invoke) (?:the )?\/?([\w:-]+) skill (?:to review|on|against) (?:this|your|the) draft plan)\.$/i.exec(text);
+    // A deictic target binds to the single pasted plan. Any descriptor must
+    // occur as contiguous whole words in its title, never merely in its body.
+    const draft = deicticPlanSelection(text);
     const names = [opts.skillName, `gstack:${opts.skillName}`, opts.skillName.replace(/^plan-/, '')];
-    if (draft && (!draft[1] || names.includes(draft[1].toLowerCase())) && remainsSelected(message.timestamp)) return true;
+    if (draft && describesTitle(draft[2], title) && (!draft[1] || names.includes(draft[1].toLowerCase())) && remainsSelected(message.timestamp)) return true;
     const automatic = /^(?:I\'ll|I will) auto[- ]select option B and review\s+(?:the\s+)?(.+?)\s+(?:draft(?:\s+plan)?|plan)\s+(?:you shared|you pasted|pasted here)(.*)$/i.exec(text);
     const automaticTarget = automatic?.[1]?.replace(/^(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)$/, (_, straight, curly, code) => straight ?? curly ?? code);
     const selectedNow = /^(?:I've|I have) selected (?:option B, )?(?:reviewing|to review)\s+(?:the\s+)?pasted\s+(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(.*)$/i.exec(text);
