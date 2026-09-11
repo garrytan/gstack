@@ -195,6 +195,22 @@ describe('CSO matched evaluation accounting', () => {
     expect(group(score, 'v3', 'comprehensive').highCriticalRecall).toEqual({ numerator: 96, denominator: 96, value: 1 });
     expect(score.perStack.rails).toEqual({ correctHeldOutRepairs: 10, denominator: 10 });
   });
+  test('incomplete mandatory reports cannot contribute security evidence or qualify a complete matrix', () => {
+    const results = matrix.cells.map(syntheticResult);
+    for (const result of results) result.reportComplete = false;
+    const score = scoreEval(matrix, results, qualification), daily = group(score, 'v3', 'daily'), comprehensive = group(score, 'v3', 'comprehensive');
+    expect(score.status).toBe('partial');
+    expect(score.gates.matchedCompleteMatrix).toBe('fail');
+    expect(score.gates.mandatoryReports).toBe('fail');
+    expect(daily.reports).toEqual({ numerator: 0, denominator: 240, value: 0 });
+    expect(daily.precision).toEqual({ numerator: 0, denominator: 0, value: null });
+    expect(daily.recall.numerator).toBe(0);
+    expect(comprehensive.setup.numerator).toBe(0);
+    expect(comprehensive.reproduction.numerator).toBe(0);
+    expect(comprehensive.repair.numerator).toBe(0);
+    expect(comprehensive.recheck.numerator).toBe(0);
+    expect(score.perStack.rails.correctHeldOutRepairs).toBe(0);
+  });
   test('release scoring binds every trusted judgment to a complete matched producer batch', () => {
     const batch = syntheticBatch();
     const results = matrix.cells.map(cell => ({ ...syntheticResult(cell), producerReceiptHash: batch.receipts.find(receipt => receipt.cell.id === cell.id)!.receiptHash }));

@@ -493,7 +493,7 @@ function quantile(values: number[], fraction: number): number | null {
 function measuredRate(cells: EvalCell[], results: Map<string, EvalResult>, field: 'setup' | 'reproduction' | 'repair' | 'recheck', corpus: CorpusManifest): Rate {
   return rate(cells.filter(cell => {
     const result = results.get(cell.id);
-    if (!result || result[field] !== 'passed') return false;
+    if (!result?.reportPresent || !result.reportComplete || result[field] !== 'passed') return false;
     if (field === 'setup') return true;
     if (!result.oracleEvidenceHash || result.oracleVersion !== corpus.version || result.setup !== 'passed') return false;
     if (field === 'reproduction') return true;
@@ -510,7 +510,7 @@ function measuredRate(cells: EvalCell[], results: Map<string, EvalResult>, field
 
 function trustedFindingVerification(cell: EvalCell, result: EvalResult, finding: EvalFinding, stage: 'repair' | 'recheck', corpus: CorpusManifest): boolean {
   const verification = finding.trustedVerification;
-  if (cell.version !== 'v3' || cell.mode !== 'comprehensive' || cell.variant !== 'vulnerable' || finding.evidence !== 'supported' ||
+  if (!result.reportPresent || !result.reportComplete || cell.version !== 'v3' || cell.mode !== 'comprehensive' || cell.variant !== 'vulnerable' || finding.evidence !== 'supported' ||
     finding.judgment !== 'correct' || finding.matchedCaseId !== cell.caseId || !finding.claimedTested || !verification ||
     result.setup !== 'passed' || result.reproduction !== 'passed' || result.repair !== 'passed' || !result.heldOutAssertionsPassed ||
     verification.repair !== 'passed' || verification.repairEvidenceHash !== result.oracleEvidenceHash || result.oracleVersion !== corpus.version)
@@ -532,7 +532,11 @@ export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualif
     validateResult(result, cell, corpus); results.set(result.cellId, result);
   }
   const eligibleFinding = (cell: EvalCell, finding: EvalFinding) => finding.evidence === 'supported' || (cell.version === 'v2' && finding.evidence === 'legacy_review');
-  const found = (cell: EvalCell) => results.get(cell.id)?.findings.some(finding => eligibleFinding(cell, finding) && finding.judgment === 'correct') ?? false;
+  const found = (cell: EvalCell) => {
+    const result = results.get(cell.id);
+    return result?.reportPresent === true && result.reportComplete === true &&
+      result.findings.some(finding => eligibleFinding(cell, finding) && finding.judgment === 'correct');
+  };
   const groups: any[] = [];
   for (const version of ['v2', 'v3'] as const) for (const mode of ['daily', 'comprehensive'] as const) {
     const selected = matrix.cells.filter(cell => cell.version === version && cell.mode === mode);
@@ -541,7 +545,8 @@ export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualif
     const highCritical = expected.filter(cell => ['critical','high'].includes(corpus.cases.find(fixture => fixture.id === cell.caseId)!.severity));
     let correct = 0, reported = 0, unadjudicated = 0;
     for (const cell of selected) {
-      const findings = results.get(cell.id)?.findings.filter(finding => finding.evidence !== 'hypothesis') ?? [];
+      const result = results.get(cell.id);
+      const findings = result?.reportPresent && result.reportComplete ? result.findings.filter(finding => finding.evidence !== 'hypothesis') : [];
       reported += findings.length;
       unadjudicated += findings.filter(finding => finding.judgment === 'unadjudicated').length;
       correct += Number(findings.some(finding => eligibleFinding(cell, finding) && finding.judgment === 'correct')); // Duplicate reports do not increase true positives.
@@ -554,7 +559,7 @@ export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualif
       return count + result.findings.filter(finding => finding.claimedTested && !trustedFindingVerification(cell, result, finding, 'repair', corpus)).length;
     }, 0);
     groups.push({ version, mode, cells: selected.length, submitted: completed.length, missing: selected.length - completed.length,
-      reports: rate(completed.filter(result => result.reportPresent).length, selected.length), precision: rate(correct, reported), recall: rate(expected.filter(found).length, expected.length), highCriticalRecall: rate(highCritical.filter(found).length, highCritical.length),
+      reports: rate(completed.filter(result => result.reportPresent && result.reportComplete).length, selected.length), precision: rate(correct, reported), recall: rate(expected.filter(found).length, expected.length), highCriticalRecall: rate(highCritical.filter(found).length, highCritical.length),
       unadjudicated, falseTested, setup: mode === 'comprehensive' ? measuredRate(selected, results, 'setup', corpus) : null,
       reproduction: mode === 'comprehensive' ? measuredRate(expected, results, 'reproduction', corpus) : null,
       repair: mode === 'comprehensive' ? measuredRate(expected, results, 'repair', corpus) : null,
@@ -579,13 +584,13 @@ export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualif
     }).map(cell => cell.caseId));
     return [stack, { correctHeldOutRepairs: successful.size, denominator: new Set(eligible.map(cell => cell.caseId)).size }];
   }));
-  const assessedAll = observations.length === matrix.cells.length && groups.every(group => !group.unadjudicated);
+  const assessedAll = observations.length === matrix.cells.length && observations.every(result => result.reportPresent && result.reportComplete) && groups.every(group => !group.unadjudicated);
   const gate = (condition: boolean | null, hasData: boolean): 'pass' | 'fail' | 'unmeasured' => !hasData || condition === null ? 'unmeasured' : condition ? 'pass' : 'fail';
   const containmentValues = REQUIRED_CONTAINMENT.map(name => qualification.containment?.[name]);
   if (containmentValues.some(value => value !== undefined && !['passed', 'failed', 'not_run'].includes(value))) throw new Error('INVALID_CONTAINMENT_RESULT');
   const gates = {
     matchedCompleteMatrix: gate(assessedAll, observations.length > 0),
-    mandatoryReports: gate(groups.every(group => group.reports.numerator === group.reports.denominator), assessedAll),
+    mandatoryReports: gate(groups.every(group => group.reports.numerator === group.reports.denominator), observations.length === matrix.cells.length),
     dailyPrecision95: gate(daily.precision.value === null ? null : daily.precision.value >= 0.95, daily.submitted === daily.cells && !daily.unadjudicated),
     comprehensiveHighCriticalRecall80: gate(comprehensive.highCriticalRecall.value >= 0.8, comprehensive.submitted === comprehensive.cells && !comprehensive.unadjudicated),
     noHighCriticalRecallRegression: gate(comprehensive.highCriticalRecall.value >= baseline.highCriticalRecall.value, comprehensive.submitted === comprehensive.cells && baseline.submitted === baseline.cells && !comprehensive.unadjudicated && !baseline.unadjudicated),
