@@ -1,0 +1,39 @@
+  No design doc was found for this branch. Per the skill workflow:
+
+● User answered Claude's questions:
+  ⎿  · No design doc found for this branch. `/office-hours` produces a structured problem statement, premise challenge,
+     and explored alternatives — it gives this review much sharper input. Takes ~10 minutes. Want to run it first? →
+     Skip — proceed with standard review
+
+● Proceeding with standard review. Now Step 0C-bis — the plan's implementation approach selection is mandatory before
+  mode selection.
+
+  The plan proposes building a StripePaymentWebhookHandler. I've analyzed three possible approaches:
+
+  Premise: The plan's Database Access section explicitly says userId goes "directly into a raw SQL fragment" — and the
+  contracts section confirms the adapter "performs no SQL-format validation" and "does not cast, escape, or SQL-sanitize
+  it." This is a deliberate architectural choice in the current plan that makes it unshippable as written.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Approach
+
+│ D1 — Which implementation approach should this plan use? <gstack-qid:plan-ceo-approach-selection>
+
+❯ 1. A) Current plan as-is        ┌────────────────────────────────────────────────────────────────────────┐
+  2. B) Parameterized queries     │ APPROACH A: Current Plan                                               │
+    + email rescue + tests +      │   Risk:    HIGH                                                        │
+    batch query (recommended)     │   Pros:    - Smallest diff                                             │
+  3. C) Approach B + async        │            - Minimal new code                                          │
+    queue for email fan-out       │   Cons:    - SQL injection (plan explicitly states no sanitization)    │
+                                  │            - Email exception after DB commit → HTTP 500                │
+                                  │              → Stripe retries → dedup blocks → email silently lost     │
+                                  │            - N+1 query on orders                                       │
+                                  │            - Zero test coverage on payment path                        │
+                                  └────────────────────────────────────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel

@@ -13,7 +13,7 @@
  * DRY: every skill writes one placeholder per enforcement point; UX/threshold
  * changes land here once. test/redact-doc-resolver.test.ts golden-pins the output.
  */
-import type { TemplateContext } from './types';
+import { toShellPath, type TemplateContext } from './types';
 
 interface SinkSpec {
   /** What is being scanned, for the prose. */
@@ -23,7 +23,7 @@ interface SinkSpec {
 }
 
 const SINKS: Record<string, SinkSpec> = {
-  'pre-codex': { noun: 'the spec body', blockVerb: 'dispatch to codex' },
+  'pre-codex': { noun: 'the spec body', blockVerb: 'dispatch to the outside reviewer' },
   'pre-issue': { noun: "the issue body you're about to file", blockVerb: 'file the issue' },
   'pre-archive': { noun: 'the body about to be archived', blockVerb: 'write the archive' },
   'pre-pr-body': { noun: 'the composed PR body', blockVerb: 'create/edit the PR' },
@@ -36,6 +36,29 @@ export function generateRedactInvocationBlock(ctx: TemplateContext, args?: strin
   const brief = args?.[1] === 'brief';
   const sink = SINKS[sinkLabel] ?? SINKS['pre-issue'];
   const bin = `${ctx.paths.binDir}/gstack-redact`;
+  const outsideGate = sinkLabel === 'pre-codex';
+  const scan = `REDACT_JSON=$(${outsideGate ? `"${toShellPath(bin)}"` : bin} --from-file "$REDACT_FILE" --repo-visibility "$REDACT_VIS" --self-email "$(git config user.email 2>/dev/null)" --json)`;
+  // This sink can dispatch a model and then publish/archive the same spec.
+  // Keep its stop decision in executable shell, even when the caller runs
+  // without errexit. MEDIUM must pause for its existing user decision.
+  const scanAndGate = outsideGate ? `if ${scan}; then REDACT_CODE=0; else REDACT_CODE=$?; fi
+case "$REDACT_CODE" in
+  0) ;; # Only a successful scan may reach an outside or downstream sink.
+  2)
+    printf '%s\\n' "$REDACT_JSON"
+    printf 'REDACT_FILE: %s\\n' "$REDACT_FILE"
+    echo 'Redaction requires the MEDIUM disposition below; outside dispatch and downstream persistence are paused.' >&2
+    exit 2 ;;
+  3)
+    printf '%s\\n' "$REDACT_JSON"
+    rm -f "$REDACT_FILE"
+    echo 'HIGH redaction finding: outside dispatch and downstream persistence blocked. Redact at source and rescan; no skip.' >&2
+    exit 3 ;;
+  *)
+    rm -f "$REDACT_FILE"
+    echo "Redaction scan failed (exit $REDACT_CODE); refusing outside dispatch and downstream persistence." >&2
+    exit 1 ;;
+esac` : `${scan}\nREDACT_CODE=$?`;
 
   // Brief variant: a compact pointer for repeat sinks, so the full ~40-line
   // procedure ships once per skill, not once per enforcement point.
@@ -55,7 +78,7 @@ Scan-at-sink on the EXACT bytes that will be sent: write to a temp file, scan th
 file, pass the SAME file downstream. Never scan a string then re-render it.
 
 \`\`\`bash
-command -v bun >/dev/null 2>&1 || echo "redaction scan skipped — bun not on PATH"
+${outsideGate ? 'command -v bun >/dev/null 2>&1 || { echo "ERROR: bun unavailable — refusing unscanned outside dispatch." >&2; exit 1; }' : 'command -v bun >/dev/null 2>&1 || echo "redaction scan skipped — bun not on PATH"'}
 # Resolve visibility once; cache + reuse. Order: local config (~/.gstack, never
 # committed) → gh → glab → unknown(=public-strict).
 REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibility 2>/dev/null)
@@ -66,11 +89,10 @@ REDACT_FILE=$(mktemp) || { echo "ERROR: mktemp failed — refusing to send ${sin
 cat > "$REDACT_FILE" <<'REDACT_BODY_EOF'
 <the exact ${sink.noun} goes here>
 REDACT_BODY_EOF
-REDACT_JSON=$(${bin} --from-file "$REDACT_FILE" --repo-visibility "$REDACT_VIS" --self-email "$(git config user.email 2>/dev/null)" --json)
-REDACT_CODE=$?
+${scanAndGate}
 \`\`\`
 
-Branch on \`$REDACT_CODE\`:
+${outsideGate ? 'The shell has already stopped on HIGH, MEDIUM, or scanner failure. On MEDIUM, keep the printed REDACT_FILE pending the decision below: edit/auto-redact and rescan, cancel and remove the file, or resume only after an explicitly permitted acknowledgement. No downstream command runs in that paused shell. Clean scans retain the same scanned file for the approved sink.\n\n' : ''}Branch on \`$REDACT_CODE\`:
 
 1. **Exit 3 (HIGH)** — print findings; do NOT ${sink.blockVerb}; tell the user to
    rotate + redact at source, then re-run. No skip flag for HIGH. Do not persist
@@ -83,7 +105,7 @@ Branch on \`$REDACT_CODE\`:
 3. **Exit 0 (clean)** — proceed; surface \`WARN\` (tool-fence degrades) + \`LOW\` as a
    one-line FYI (never blocks).
 
-\`\`\`bash
+${outsideGate ? 'After the approved sink consumes the file, or when the user cancels, clean up (never before dispatch reads the scanned bytes):\n\n' : ''}\`\`\`bash
 rm -f "$REDACT_FILE"
 \`\`\`
 

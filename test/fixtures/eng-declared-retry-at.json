@@ -1,0 +1,32 @@
+{
+  "sessionId": "a3b46ea2-bcd6-4f30-bc6c-c76b4f63b1ce",
+  "toolUseId": "toolu_014XZVm77AGKbkHT4iGQYwVe",
+  "answered": true,
+  "failed": false,
+  "answers": {
+    "D2 — Issue 1: Custom inline scheduler vs. the job library's built-in retry hooks (PLAN.md:6-8)\nProject/branch/task: main — adding a retry framework to background workers.\nELI10: The job library already knows how to retry a failed job later; you just tell it how long to wait. The plan instead rebuilds that waiting-and-rescheduling machinery by hand inside each worker. Hand-rolled schedulers are where jobs get lost (worker dies mid-sleep), retried in lockstep (no jitter, thundering herd), or retried forever (no attempt cap or dead-letter path).\nStakes if we pick wrong: a custom scheduler that holds retry state in-process loses retries on deploy/crash and can hammer a recovering dependency; users see silently dropped jobs or duplicate bursts.\nRecommendation: 1A because the library hook gives the exact curve control the plan wants in one pure function, and inherits persistence, attempt tracking, and dead-lettering for free. Maps to your 'boring by default' + 'engineered enough' preferences.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: one pure backoff function on a proven scheduler vs. owning scheduling state in five places.": "1A) Use library retry hook + custom curve fn (recommended)"
+  },
+  "unansweredQuestionIndices": [],
+  "answeredAt": "2026-09-10T19:40:07.415Z",
+  "questions": [
+    {
+      "header": "Issue 1",
+      "question": "D2 — Issue 1: Custom inline scheduler vs. the job library's built-in retry hooks (PLAN.md:6-8)\nProject/branch/task: main — adding a retry framework to background workers.\nELI10: The job library already knows how to retry a failed job later; you just tell it how long to wait. The plan instead rebuilds that waiting-and-rescheduling machinery by hand inside each worker. Hand-rolled schedulers are where jobs get lost (worker dies mid-sleep), retried in lockstep (no jitter, thundering herd), or retried forever (no attempt cap or dead-letter path).\nStakes if we pick wrong: a custom scheduler that holds retry state in-process loses retries on deploy/crash and can hammer a recovering dependency; users see silently dropped jobs or duplicate bursts.\nRecommendation: 1A because the library hook gives the exact curve control the plan wants in one pure function, and inherits persistence, attempt tracking, and dead-lettering for free. Maps to your 'boring by default' + 'engineered enough' preferences.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: one pure backoff function on a proven scheduler vs. owning scheduling state in five places.",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "1A) Use library retry hook + custom curve fn (recommended)",
+          "description": "✅ Persistence, attempt counting, max-attempts, and dead-letter come from the library; you own only delay(attempt) with full jitter (human: ~1 day / CC: ~10 min). ✅ Curve is still 100% yours: a pure function, trivially unit-tested. ❌ You inherit the library's retry semantics; if the hook truly can't express a needed behavior you must extend it, not bypass it."
+        },
+        {
+          "label": "1B) Custom scheduler, but one shared module using library primitives",
+          "description": "✅ Full ownership of curve and retry decision logic in one place (human: ~3 days / CC: ~30 min). ✅ Still uses the library's delayed-enqueue so retries survive worker restarts. ❌ Re-implements attempt tracking and dead-lettering the library already has; more surface to test and keep correct."
+        },
+        {
+          "label": "1C) Custom scheduler inline per worker, as planned",
+          "description": "✅ No library API to learn; each worker is self-contained (human: ~2 days / CC: ~20 min). ✅ Ships with zero coordination across workers. ❌ Retry state lives in-process, so a crash or deploy mid-backoff drops the retry; five copies of scheduler logic drift and none get jitter/caps/DLQ consistently."
+        }
+      ]
+    }
+  ]
+}

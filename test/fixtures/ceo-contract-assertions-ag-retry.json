@@ -1,0 +1,175 @@
+{
+  "sourceHead": "8d8537e5d341cc9f3d186822f06efb245ec7b8fd",
+  "observedOutcome": "no_review_questions",
+  "observedReviewCount": 0,
+  "calls": [
+    {
+      "sessionId": "c191a3d0-0cb5-4b6e-a843-1299e8f38bc1",
+      "toolUseId": "toolu_01FvGteHSWL6xHhZLbYEwdPm",
+      "questions": [
+        {
+          "header": "Routing",
+          "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-hy44HE on main, CEO review of the payment test-coverage plan.\nELI10: gstack skills work best when the project's CLAUDE.md tells Claude which skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship, and so on). Without it you invoke skills by hand every time. This is a one-time, per-project prompt.\nStakes if we pick wrong: pick A and you get a short routing block appended and committed to CLAUDE.md (after plan mode ends, since plan mode blocks edits right now); pick B and nothing changes and the prompt never returns.\nRecommendation: A because routing rules make later reviews and ships one command instead of a lookup.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  \u2705 Future sessions auto-route requests like 'review this diff' to the right gstack skill\n  \u2705 One small committed block; teammates get the same routing when they clone\n  \u274c Adds a chore commit to CLAUDE.md that must wait until this plan-mode review finishes\nB) No thanks, invoke skills manually\n  \u2705 CLAUDE.md stays exactly as-is with no extra commit on this fixture repo\n  \u2705 Prompt is suppressed for this project going forward via routing_declined\n  \u274c Every gstack skill has to be typed by name for the life of the project\nNet: convenience for future sessions versus keeping this repo's CLAUDE.md untouched.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add routing rules (recommended)",
+              "description": "Append the skill routing section to CLAUDE.md and commit it once plan mode ends."
+            },
+            {
+              "label": "B) No thanks, manual",
+              "description": "Set routing_declined=true; invoke gstack skills by name. Re-enable later via gstack-config."
+            }
+          ]
+        },
+        {
+          "header": "Learnings",
+          "question": "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-hy44HE on main, CEO review of the payment test-coverage plan.\nELI10: gstack records small lessons per project (pitfalls, command fixes). It can also search lessons from your other projects on this machine so a pattern learned elsewhere shows up here. Everything stays local; no data leaves the machine.\nStakes if we pick wrong: enable it on a machine holding multiple client codebases and one client's project quirks may surface in another's review; keep it scoped and you lose cross-pollination between your own repos.\nRecommendation: A because for a solo developer the extra recall is free and local.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  \u2705 Lessons from your other repos on this machine surface in this project's reviews\n  \u2705 Purely local search; nothing is uploaded or shared outside the machine\n  \u274c On a shared machine with multiple clients, unrelated project quirks can bleed across\nB) Keep learnings project-scoped\n  \u2705 Strict isolation: only this project's own learnings ever appear here\n  \u2705 Safe default when you work across client codebases that must not mix\n  \u274c Patterns you already learned in a sibling repo have to be rediscovered here\nNet: broader recall versus strict per-project isolation.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Enable cross-project (recommended)",
+              "description": "Set cross_project_learnings=true; search learnings across all local projects."
+            },
+            {
+              "label": "B) Project-scoped only",
+              "description": "Set cross_project_learnings=false; only this project's learnings are searched."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-hy44HE on main, CEO review of the payment test-coverage plan.\nELI10: gstack skills work best when the project's CLAUDE.md tells Claude which skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship, and so on). Without it you invoke skills by hand every time. This is a one-time, per-project prompt.\nStakes if we pick wrong: pick A and you get a short routing block appended and committed to CLAUDE.md (after plan mode ends, since plan mode blocks edits right now); pick B and nothing changes and the prompt never returns.\nRecommendation: A because routing rules make later reviews and ships one command instead of a lookup.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  \u2705 Future sessions auto-route requests like 'review this diff' to the right gstack skill\n  \u2705 One small committed block; teammates get the same routing when they clone\n  \u274c Adds a chore commit to CLAUDE.md that must wait until this plan-mode review finishes\nB) No thanks, invoke skills manually\n  \u2705 CLAUDE.md stays exactly as-is with no extra commit on this fixture repo\n  \u2705 Prompt is suppressed for this project going forward via routing_declined\n  \u274c Every gstack skill has to be typed by name for the life of the project\nNet: convenience for future sessions versus keeping this repo's CLAUDE.md untouched.": "A) Add routing rules (recommended)",
+        "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-hy44HE on main, CEO review of the payment test-coverage plan.\nELI10: gstack records small lessons per project (pitfalls, command fixes). It can also search lessons from your other projects on this machine so a pattern learned elsewhere shows up here. Everything stays local; no data leaves the machine.\nStakes if we pick wrong: enable it on a machine holding multiple client codebases and one client's project quirks may surface in another's review; keep it scoped and you lose cross-pollination between your own repos.\nRecommendation: A because for a solo developer the extra recall is free and local.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  \u2705 Lessons from your other repos on this machine surface in this project's reviews\n  \u2705 Purely local search; nothing is uploaded or shared outside the machine\n  \u274c On a shared machine with multiple clients, unrelated project quirks can bleed across\nB) Keep learnings project-scoped\n  \u2705 Strict isolation: only this project's own learnings ever appear here\n  \u2705 Safe default when you work across client codebases that must not mix\n  \u274c Patterns you already learned in a sibling repo have to be rediscovered here\nNet: broader recall versus strict per-project isolation.": "A) Enable cross-project (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:56:40.340Z"
+    },
+    {
+      "sessionId": "c191a3d0-0cb5-4b6e-a843-1299e8f38bc1",
+      "toolUseId": "toolu_01TnZyN2iBDdvyhRQe1FtPEq",
+      "questions": [
+        {
+          "header": "Approach",
+          "question": "D3 \u2014 Which implementation structure for the two new processPayment tests?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review of the payment test-coverage plan.\nELI10: We are adding two tests to an existing suite. The only real structural question is whether the checks live inline in each test, or whether we first add small reusable assertion helpers to the shared payment test factory. Assertion content (what each test actually checks) is decided separately, finding by finding, later in the review.\nStakes if we pick wrong: over-abstract and we touch a shared factory for two call sites; under-abstract and a future third retry test copies the attempt/backoff checks.\nRecommendation: A because two call sites do not justify a shared helper yet, and A keeps the diff to tests only, matching the plan's 'production and factory unchanged' framing (engineered enough, right-sized diff).\nCompleteness: A=9/10, B=10/10, C=4/10\nPros / cons:\nA) Inline tests in existing processPayment suite (recommended) (human: ~30 min / CC: ~3 min)\n  \u2705 Smallest diff: two `it` blocks using the factory, mock history and sleeper directly\n  \u2705 Every stated contract can be asserted inline with no new abstraction to maintain\n  \u274c A third retry-shaped test later would repeat the attempt-count and backoff checks\nB) Inline tests plus shared helpers in the factory (human: ~1 h / CC: ~6 min)\n  \u2705 expectReceipt/expectRetryExhausted give one home for 'attempts vs retries' semantics\n  \u2705 Existing 502-recovery test could adopt the same helper later for consistency\n  \u274c Changes the shared factory other suites import, widening a 'tests only' change\nC) Place the tests in the Stripe adapter suite (human: ~30 min / CC: ~3 min)\n  \u2705 Sits next to the existing 502-recovery and 429 tests for discoverability\n  \u2705 Reuses the adapter suite's mock arrangement helpers directly\n  \u274c Wrong layer: the adapter cannot observe receipt assembly or PaymentUnavailable, so the caller's contracts stay unpinned\nNet: A pins the contracts with the least surface; B buys reuse we do not need yet; C loses the caller-level coverage the plan exists to add.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Inline in processPayment suite (recommended)",
+              "description": "Two it blocks, factory/mock/sleeper used directly, assertions inline. Tests-only diff."
+            },
+            {
+              "label": "B) Inline + factory helpers",
+              "description": "Add expectReceipt and expectRetryExhausted helpers to the payment test factory; tests call them."
+            },
+            {
+              "label": "C) Stripe adapter suite",
+              "description": "Add the tests alongside adapter tests. Loses caller-level observation of receipt and PaymentUnavailable."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Which implementation structure for the two new processPayment tests?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review of the payment test-coverage plan.\nELI10: We are adding two tests to an existing suite. The only real structural question is whether the checks live inline in each test, or whether we first add small reusable assertion helpers to the shared payment test factory. Assertion content (what each test actually checks) is decided separately, finding by finding, later in the review.\nStakes if we pick wrong: over-abstract and we touch a shared factory for two call sites; under-abstract and a future third retry test copies the attempt/backoff checks.\nRecommendation: A because two call sites do not justify a shared helper yet, and A keeps the diff to tests only, matching the plan's 'production and factory unchanged' framing (engineered enough, right-sized diff).\nCompleteness: A=9/10, B=10/10, C=4/10\nPros / cons:\nA) Inline tests in existing processPayment suite (recommended) (human: ~30 min / CC: ~3 min)\n  \u2705 Smallest diff: two `it` blocks using the factory, mock history and sleeper directly\n  \u2705 Every stated contract can be asserted inline with no new abstraction to maintain\n  \u274c A third retry-shaped test later would repeat the attempt-count and backoff checks\nB) Inline tests plus shared helpers in the factory (human: ~1 h / CC: ~6 min)\n  \u2705 expectReceipt/expectRetryExhausted give one home for 'attempts vs retries' semantics\n  \u2705 Existing 502-recovery test could adopt the same helper later for consistency\n  \u274c Changes the shared factory other suites import, widening a 'tests only' change\nC) Place the tests in the Stripe adapter suite (human: ~30 min / CC: ~3 min)\n  \u2705 Sits next to the existing 502-recovery and 429 tests for discoverability\n  \u2705 Reuses the adapter suite's mock arrangement helpers directly\n  \u274c Wrong layer: the adapter cannot observe receipt assembly or PaymentUnavailable, so the caller's contracts stay unpinned\nNet: A pins the contracts with the least surface; B buys reuse we do not need yet; C loses the caller-level coverage the plan exists to add.": "A) Inline in processPayment suite (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:58:23.098Z"
+    },
+    {
+      "sessionId": "c191a3d0-0cb5-4b6e-a843-1299e8f38bc1",
+      "toolUseId": "toolu_014sQPk2u6cRqzr7L6nnZJok",
+      "questions": [
+        {
+          "header": "Finding 1",
+          "question": "D4 \u2014 Test 1 asserts only that the receipt is truthy, but the contract is an exact receipt. Fix the assertion?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review; PLAN.md lines 30-32 vs the contract on lines 18-21.\nELI10: The plan says a 1000-cent USD charge must return exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The proposed test only checks that some receipt came back. A receipt with amountCents 100000, currency \"usd\", or chargeId undefined would pass. That is a silent failure: the test is green while the customer is charged or shown the wrong amount.\nStakes if we pick wrong: a regression in receipt assembly (wrong amount, wrong currency, missing charge id) ships with a passing suite and is found by a customer or by finance reconciliation.\nRecommendation: 1A because the plan already states the exact expected value; translating it into a deep-equality assertion is the only assertion that rejects a wrong result (zero silent failures, well-tested code is non-negotiable).\nCompleteness: 1A=10/10, 1B=7/10, 1C=2/10\nPros / cons:\n1A) Deep-equal the whole receipt (recommended) (human: ~5 min / CC: <1 min)\n  \u2705 Rejects wrong amount, wrong currency, wrong or missing chargeId, and extra keys in one assertion\n  \u2705 Failure output shows the full expected-vs-actual diff, so the regression is diagnosable from CI alone\n  \u274c If the receipt legitimately gains a field later, this test must be updated (that is the point)\n1B) Assert the three fields individually, ignore extra keys (human: ~5 min / CC: <1 min)\n  \u2705 Still rejects a wrong amount, currency or chargeId\n  \u2705 Tolerates additive fields on the receipt without touching this test\n  \u274c Lets an unexpected extra key (for example a leaked raw Stripe object) pass unnoticed\n1C) Keep truthy-only as planned (human: 0 / CC: 0)\n  \u2705 Smallest possible test body\n  \u2705 Cannot flake on receipt shape changes\n  \u274c Accepts any non-null value, so it cannot detect a single receipt regression the plan claims to cover\nNet: 1A turns the plan's stated contract into the test; 1C leaves the contract stated but unenforced.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) Deep-equal receipt (recommended)",
+              "description": "expect(receipt).toEqual({ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }). Strict value match."
+            },
+            {
+              "label": "1B) Assert three fields",
+              "description": "Check chargeId, amountCents, currency individually; allow additional keys on the receipt."
+            },
+            {
+              "label": "1C) Keep truthy-only",
+              "description": "Leave the plan as written. Receipt contract stays stated but not enforced by the test."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Test 1 asserts only that the receipt is truthy, but the contract is an exact receipt. Fix the assertion?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review; PLAN.md lines 30-32 vs the contract on lines 18-21.\nELI10: The plan says a 1000-cent USD charge must return exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The proposed test only checks that some receipt came back. A receipt with amountCents 100000, currency \"usd\", or chargeId undefined would pass. That is a silent failure: the test is green while the customer is charged or shown the wrong amount.\nStakes if we pick wrong: a regression in receipt assembly (wrong amount, wrong currency, missing charge id) ships with a passing suite and is found by a customer or by finance reconciliation.\nRecommendation: 1A because the plan already states the exact expected value; translating it into a deep-equality assertion is the only assertion that rejects a wrong result (zero silent failures, well-tested code is non-negotiable).\nCompleteness: 1A=10/10, 1B=7/10, 1C=2/10\nPros / cons:\n1A) Deep-equal the whole receipt (recommended) (human: ~5 min / CC: <1 min)\n  \u2705 Rejects wrong amount, wrong currency, wrong or missing chargeId, and extra keys in one assertion\n  \u2705 Failure output shows the full expected-vs-actual diff, so the regression is diagnosable from CI alone\n  \u274c If the receipt legitimately gains a field later, this test must be updated (that is the point)\n1B) Assert the three fields individually, ignore extra keys (human: ~5 min / CC: <1 min)\n  \u2705 Still rejects a wrong amount, currency or chargeId\n  \u2705 Tolerates additive fields on the receipt without touching this test\n  \u274c Lets an unexpected extra key (for example a leaked raw Stripe object) pass unnoticed\n1C) Keep truthy-only as planned (human: 0 / CC: 0)\n  \u2705 Smallest possible test body\n  \u2705 Cannot flake on receipt shape changes\n  \u274c Accepts any non-null value, so it cannot detect a single receipt regression the plan claims to cover\nNet: 1A turns the plan's stated contract into the test; 1C leaves the contract stated but unenforced.": "1A) Deep-equal receipt (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:59:11.526Z"
+    },
+    {
+      "sessionId": "c191a3d0-0cb5-4b6e-a843-1299e8f38bc1",
+      "toolUseId": "toolu_01Pe6mNvqVGsedqVtfhdTH38",
+      "questions": [
+        {
+          "header": "Finding 2",
+          "question": "D5 \u2014 Test 2 asserts only the PaymentUnavailable rejection, but the contract is exactly two attempts and one recorded 100 ms backoff. Fix the assertion?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review; PLAN.md lines 33-36 vs the contract on lines 22-23.\nELI10: The plan says that with max_retries=1 and two 502s, processPayment must try Stripe exactly twice, wait once for 100 ms (recorded by the virtual sleeper, not actually slept), then reject with PaymentUnavailable. The proposed test only checks the rejection. Code that gives up after one attempt, or retries five times, or skips the backoff entirely, would still reject with PaymentUnavailable and the test would pass. The factory already exposes the mock call history and the sleeper record, so the checks cost one line each.\nStakes if we pick wrong: a retry regression (no retry, runaway retry hammering Stripe during an outage, or zero backoff) ships green; users see slower or spurious failures and Stripe sees a retry storm.\nRecommendation: 2A because the contract states exact counts, exact counts must not be weakened to lower bounds, and the probes already exist in the factory (zero silent failures, handle more edge cases).\nCompleteness: 2A=10/10, 2B=6/10, 2C=2/10\nPros / cons:\n2A) Assert rejection type + exactly 2 mock calls + sleeper record equals [100] (recommended) (human: ~10 min / CC: ~1 min)\n  \u2705 Rejects under-retry, over-retry and missing or wrong backoff, each with a distinct failing line\n  \u2705 Matching PaymentUnavailable by class (not message text) keeps the test stable if wording changes\n  \u274c Depends on the sleeper record shape; implementer must read the factory to spell the exact expectation\n2B) Assert rejection type + exactly 2 mock calls, skip the sleeper check (human: ~5 min / CC: <1 min)\n  \u2705 Catches under- and over-retry, the two most user-visible regressions\n  \u2705 One fewer factory detail to depend on\n  \u274c The stated 100 ms backoff stays unenforced; a zero-delay retry storm passes\n2C) Keep rejection-only as planned (human: 0 / CC: 0)\n  \u2705 Smallest test body, no dependency on mock or sleeper internals\n  \u2705 Still proves the terminal error class\n  \u274c Cannot distinguish correct retry behaviour from no retry, runaway retry or no backoff\nNet: 2A enforces the whole stated retry contract with probes the factory already exposes; 2C proves only the last line of it.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A) Type + 2 calls + [100] backoff (recommended)",
+              "description": "rejects.toBeInstanceOf(PaymentUnavailable); mock history length === 2; sleeper record deep-equals [100]."
+            },
+            {
+              "label": "2B) Type + 2 calls only",
+              "description": "Assert rejection class and exactly two Stripe attempts; leave the backoff record unchecked."
+            },
+            {
+              "label": "2C) Keep rejection-only",
+              "description": "Leave the plan as written. Attempt count and backoff stay stated but not enforced."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 Test 2 asserts only the PaymentUnavailable rejection, but the contract is exactly two attempts and one recorded 100 ms backoff. Fix the assertion?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review; PLAN.md lines 33-36 vs the contract on lines 22-23.\nELI10: The plan says that with max_retries=1 and two 502s, processPayment must try Stripe exactly twice, wait once for 100 ms (recorded by the virtual sleeper, not actually slept), then reject with PaymentUnavailable. The proposed test only checks the rejection. Code that gives up after one attempt, or retries five times, or skips the backoff entirely, would still reject with PaymentUnavailable and the test would pass. The factory already exposes the mock call history and the sleeper record, so the checks cost one line each.\nStakes if we pick wrong: a retry regression (no retry, runaway retry hammering Stripe during an outage, or zero backoff) ships green; users see slower or spurious failures and Stripe sees a retry storm.\nRecommendation: 2A because the contract states exact counts, exact counts must not be weakened to lower bounds, and the probes already exist in the factory (zero silent failures, handle more edge cases).\nCompleteness: 2A=10/10, 2B=6/10, 2C=2/10\nPros / cons:\n2A) Assert rejection type + exactly 2 mock calls + sleeper record equals [100] (recommended) (human: ~10 min / CC: ~1 min)\n  \u2705 Rejects under-retry, over-retry and missing or wrong backoff, each with a distinct failing line\n  \u2705 Matching PaymentUnavailable by class (not message text) keeps the test stable if wording changes\n  \u274c Depends on the sleeper record shape; implementer must read the factory to spell the exact expectation\n2B) Assert rejection type + exactly 2 mock calls, skip the sleeper check (human: ~5 min / CC: <1 min)\n  \u2705 Catches under- and over-retry, the two most user-visible regressions\n  \u2705 One fewer factory detail to depend on\n  \u274c The stated 100 ms backoff stays unenforced; a zero-delay retry storm passes\n2C) Keep rejection-only as planned (human: 0 / CC: 0)\n  \u2705 Smallest test body, no dependency on mock or sleeper internals\n  \u2705 Still proves the terminal error class\n  \u274c Cannot distinguish correct retry behaviour from no retry, runaway retry or no backoff\nNet: 2A enforces the whole stated retry contract with probes the factory already exposes; 2C proves only the last line of it.": "2A) Type + 2 calls + [100] backoff (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:59:33.724Z"
+    },
+    {
+      "sessionId": "c191a3d0-0cb5-4b6e-a843-1299e8f38bc1",
+      "toolUseId": "toolu_01ED2c6H4JDQq9YjezDnNzfw",
+      "questions": [
+        {
+          "header": "Finding 3",
+          "question": "D6 \u2014 Section 6 (Tests): test 1 never checks how many times Stripe was charged on the success path. Add an exactly-one-attempt check?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review; PLAN.md lines 30-32, hostile-QA pass on the success test.\nELI10: With 1A approved, test 1 proves the receipt is right. It still does not prove Stripe was charged once. If a retry-loop bug charged twice and returned the second receipt, the receipt would still equal { ch_paid, 1000, USD } and the test would pass while the customer is double-charged. The factory already exposes the mock call history and sleeper record, so the check is two lines: exactly one charge attempt, empty backoff record. This is beyond the plan's literally stated success contract, which is why it is a separate decision rather than folded into 1A.\nStakes if we pick wrong: add it and the test also guards the worst payment failure (double charge) for two lines; skip it and that failure mode relies on the adapter suite, which cannot observe processPayment's loop.\nRecommendation: 3A because a double charge is the highest-impact silent failure on a payment path and the probe is already in hand; it does not touch production code or add scope beyond the two planned tests (err toward handling more edge cases).\nCompleteness: 3A=10/10, 3B=7/10\nPros / cons:\n3A) Also assert exactly 1 Stripe call and an empty sleeper record (recommended) (human: ~5 min / CC: <1 min)\n  \u2705 Rejects a double charge and any spurious backoff on the happy path, the two worst success-path regressions\n  \u2705 Uses the same factory probes test 2 already relies on, so the two tests read symmetrically\n  \u274c Goes one step past the plan's literal success contract; the plan text should record that the success path is single-attempt\n3B) Keep test 1 to the receipt assertion only (human: 0 / CC: 0)\n  \u2705 Test 1 stays exactly the stated contract, nothing more\n  \u2705 One fewer factory detail for the success test to depend on\n  \u274c A retry-loop bug that charges twice and returns the second receipt passes this suite\nNet: two lines to close the double-charge hole versus keeping test 1 to the letter of the stated contract.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A) Assert 1 call, empty backoff (recommended)",
+              "description": "In test 1 also expect mock history length === 1 and sleeper record toEqual([]). Record single-attempt success in the plan."
+            },
+            {
+              "label": "3B) Receipt assertion only",
+              "description": "Leave test 1 at 1A. Double-charge on the success path stays unguarded at the processPayment layer."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 Section 6 (Tests): test 1 never checks how many times Stripe was charged on the success path. Add an exactly-one-attempt check?\nProject/branch/task: gstack-plan-count-hy44HE on main, HOLD SCOPE CEO review; PLAN.md lines 30-32, hostile-QA pass on the success test.\nELI10: With 1A approved, test 1 proves the receipt is right. It still does not prove Stripe was charged once. If a retry-loop bug charged twice and returned the second receipt, the receipt would still equal { ch_paid, 1000, USD } and the test would pass while the customer is double-charged. The factory already exposes the mock call history and sleeper record, so the check is two lines: exactly one charge attempt, empty backoff record. This is beyond the plan's literally stated success contract, which is why it is a separate decision rather than folded into 1A.\nStakes if we pick wrong: add it and the test also guards the worst payment failure (double charge) for two lines; skip it and that failure mode relies on the adapter suite, which cannot observe processPayment's loop.\nRecommendation: 3A because a double charge is the highest-impact silent failure on a payment path and the probe is already in hand; it does not touch production code or add scope beyond the two planned tests (err toward handling more edge cases).\nCompleteness: 3A=10/10, 3B=7/10\nPros / cons:\n3A) Also assert exactly 1 Stripe call and an empty sleeper record (recommended) (human: ~5 min / CC: <1 min)\n  \u2705 Rejects a double charge and any spurious backoff on the happy path, the two worst success-path regressions\n  \u2705 Uses the same factory probes test 2 already relies on, so the two tests read symmetrically\n  \u274c Goes one step past the plan's literal success contract; the plan text should record that the success path is single-attempt\n3B) Keep test 1 to the receipt assertion only (human: 0 / CC: 0)\n  \u2705 Test 1 stays exactly the stated contract, nothing more\n  \u2705 One fewer factory detail for the success test to depend on\n  \u274c A retry-loop bug that charges twice and returns the second receipt passes this suite\nNet: two lines to close the double-charge hole versus keeping test 1 to the letter of the stated contract.": "3A) Assert 1 call, empty backoff (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T02:00:23.704Z"
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+[
+  {
+    "sessionId": "d9bdeb45-8f66-49c5-b58c-ab4adc09e697",
+    "toolUseId": "toolu_01TwTKAQSnw7D7EUJX9EhKct",
+    "questions": [
+      {
+        "question": "D1 \u2014 EvalKit demo command: should it bypass the mandatory CI check to reach the <2 min TTHW target?\n\nELI10: The agreed onboarding target is under 2 minutes (from benchmarks.md). Today `python -m evalkit.demo` blocks for 5 minutes waiting for a CI check, giving a measured TTHW of 6 minutes \u2014 Red Flag tier vs. Competitor A's 2 minutes. The SDK already ships mock transport and offline sample data (documented as working in current-contracts.md). Using those for the demo path would bring demo TTHW to roughly 30\u201360 seconds \u2014 Champion tier \u2014 with zero new infrastructure. Real evaluations (non-demo code paths) keep the full CI gate.\n\nStakes if we pick wrong: Retaining the CI gate on the demo means the TTHW target is mathematically unreachable. An ML engineer who runs the demo in a 5-minute evaluation window hits the wait and moves on to a competitor.\n\nRecommendation: A because the mock transport already exists, the fix is confined to demo.py, and it's the only way to meet the agreed <2 min target.\n\nCompleteness: A=9/10, B=4/10\n\n<gstack-qid:devex-demo-ci-bypass>",
+        "header": "Demo CI gate",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix: demo uses mock transport (Recommended)",
+            "description": "demo.py routes through the existing mock transport so it never triggers the CI check. TTHW drops from 6 min to ~60 sec. Live evaluations keep the full gate. Engineering effort: edit demo.py to use mock transport (already ships).",
+            "preview": "# Resulting onboarding sequence:\npip install evalkit==2.0.0b1\nexport EVALKIT_API_KEY=...\npython -m evalkit.demo\n# => prints scores in ~60 seconds (no CI wait)\n# => TTHW: ~90 sec total (Champion tier)"
+          },
+          {
+            "label": "Retain CI gate, accept 6 min TTHW",
+            "description": "Keep the demo identical to a real evaluation. TTHW stays at 6 minutes \u2014 below the <2 min target. Accept that the demo experience matches a slow first real evaluation rather than a fast preview.",
+            "preview": "# Resulting onboarding sequence:\npip install evalkit==2.0.0b1\nexport EVALKIT_API_KEY=...\npython -m evalkit.demo\n# => Waiting for CI check: 30s elapsed of 300s\n# => ... (4.5 more minutes) ...\n# => prints scores\n# => TTHW: ~6 min total (Red Flag tier)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 EvalKit demo command: should it bypass the mandatory CI check to reach the <2 min TTHW target?\n\nELI10: The agreed onboarding target is under 2 minutes (from benchmarks.md). Today `python -m evalkit.demo` blocks for 5 minutes waiting for a CI check, giving a measured TTHW of 6 minutes \u2014 Red Flag tier vs. Competitor A's 2 minutes. The SDK already ships mock transport and offline sample data (documented as working in current-contracts.md). Using those for the demo path would bring demo TTHW to roughly 30\u201360 seconds \u2014 Champion tier \u2014 with zero new infrastructure. Real evaluations (non-demo code paths) keep the full CI gate.\n\nStakes if we pick wrong: Retaining the CI gate on the demo means the TTHW target is mathematically unreachable. An ML engineer who runs the demo in a 5-minute evaluation window hits the wait and moves on to a competitor.\n\nRecommendation: A because the mock transport already exists, the fix is confined to demo.py, and it's the only way to meet the agreed <2 min target.\n\nCompleteness: A=9/10, B=4/10\n\n<gstack-qid:devex-demo-ci-bypass>": "Fix: demo uses mock transport (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:03:03.304Z"
+  },
+  {
+    "sessionId": "d9bdeb45-8f66-49c5-b58c-ab4adc09e697",
+    "toolUseId": "toolu_01RH4Fwn3A3vReLZuPpjVmVm",
+    "questions": [
+      {
+        "question": "D2 \u2014 Broken README quickstart: remove the reference to examples/first_eval.py?\n\nELI10: The README tells developers to run `python examples/first_eval.py` as the quickstart. That file does not exist in the published package or the examples archive (confirmed in docs/package-contents.txt). Every developer who follows the README literally hits `No such file or directory` on their first try. The demo command (`python -m evalkit.demo`) is the real onboarding path and works correctly. The README reference to examples/first_eval.py is an orphaned pointer that should be removed.\n\nStakes if we pick wrong: Keeping the broken reference means the first thing an ML engineer does after `pip install` is hit a Python error. First impressions are irreversible \u2014 they close the tab.\n\nRecommendation: A (remove the reference) because the demo command is the settled onboarding path and there is nothing to add the missing file to.\n\nCompleteness: A=9/10, B=5/10\n\n<gstack-qid:devex-readme-quickstart-fix>",
+        "header": "Quickstart fix",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Remove broken reference (Recommended)",
+            "description": "Delete the `python examples/first_eval.py` line from README. The demo command becomes the sole onboarding entry point. No file to create or ship."
+          },
+          {
+            "label": "Bundle examples/first_eval.py in the package",
+            "description": "Create and add examples/first_eval.py to the published package so the README reference resolves. Requires authoring, testing, and packaging a new file for a path that duplicates what the demo command already covers."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Broken README quickstart: remove the reference to examples/first_eval.py?\n\nELI10: The README tells developers to run `python examples/first_eval.py` as the quickstart. That file does not exist in the published package or the examples archive (confirmed in docs/package-contents.txt). Every developer who follows the README literally hits `No such file or directory` on their first try. The demo command (`python -m evalkit.demo`) is the real onboarding path and works correctly. The README reference to examples/first_eval.py is an orphaned pointer that should be removed.\n\nStakes if we pick wrong: Keeping the broken reference means the first thing an ML engineer does after `pip install` is hit a Python error. First impressions are irreversible \u2014 they close the tab.\n\nRecommendation: A (remove the reference) because the demo command is the settled onboarding path and there is nothing to add the missing file to.\n\nCompleteness: A=9/10, B=5/10\n\n<gstack-qid:devex-readme-quickstart-fix>": "Remove broken reference (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:03:15.347Z"
+  },
+  {
+    "sessionId": "d9bdeb45-8f66-49c5-b58c-ab4adc09e697",
+    "toolUseId": "toolu_013uLGaW6EBsh3AELNhQs8Bc",
+    "questions": [
+      {
+        "question": "D3 \u2014 Inconsistent positional argument order between run_eval and run_batch: fix or require keyword args?\n\nELI10: The two core evaluation functions have their arguments in reversed order: `run_eval(dataset, evaluator)` but `run_batch(evaluator, dataset)`. A developer who learns the order from `run_eval` and then calls `run_batch` the same way silently swaps evaluator and dataset \u2014 no error, just wrong results. The reversal is described as 'intentional in the current draft' in docs/api.md, but both functions do the same logical thing (run an evaluator over a dataset), so there is no semantic reason for different ordering.\n\nStakes if we pick wrong: Silent transposition bugs are the worst kind \u2014 the code runs, the scores look plausible, and the developer ships incorrect evaluations without knowing it. ML engineers in particular expect evaluation results to be reproducible and deterministic.\n\nRecommendation: A (standardize the order) because both functions have the same semantics; inconsistency here has no upside and creates a pit of failure rather than success.\n\nCompleteness: A=9/10, B=7/10, C=6/10\n\n<gstack-qid:devex-api-arg-order>",
+        "header": "API arg order",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Standardize: (evaluator, dataset) everywhere (Recommended)",
+            "description": "Align both run_eval and run_batch to the same positional order. Evaluator first (the tool), dataset second (the input). Breaking change within beta, but fixing it now costs less than fixing after GA.",
+            "preview": "# Consistent API:\nrun_eval(evaluator, dataset)   # was: (dataset, evaluator)\nrun_batch(evaluator, dataset)  # unchanged\n\n# One mental model, no transposition bugs"
+          },
+          {
+            "label": "Require keyword-only arguments for both",
+            "description": "Add a bare * to both function signatures to forbid positional calls. Developers must write run_eval(evaluator=e, dataset=d) explicitly. Catches the confusion at the call site but requires all existing callers to update their code.",
+            "preview": "# Keyword-only API:\nrun_eval(*, evaluator, dataset)\nrun_batch(*, evaluator, dataset)\n\n# Any positional call raises TypeError immediately:\nrun_eval(my_eval, my_data)  # TypeError: takes 0 positional args"
+          },
+          {
+            "label": "Document the reversal prominently, keep as-is",
+            "description": "Add a warning box to the API reference noting that run_eval and run_batch have reversed argument order. No code change. Relies on developers reading the docs before calling the second function."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Inconsistent positional argument order between run_eval and run_batch: fix or require keyword args?\n\nELI10: The two core evaluation functions have their arguments in reversed order: `run_eval(dataset, evaluator)` but `run_batch(evaluator, dataset)`. A developer who learns the order from `run_eval` and then calls `run_batch` the same way silently swaps evaluator and dataset \u2014 no error, just wrong results. The reversal is described as 'intentional in the current draft' in docs/api.md, but both functions do the same logical thing (run an evaluator over a dataset), so there is no semantic reason for different ordering.\n\nStakes if we pick wrong: Silent transposition bugs are the worst kind \u2014 the code runs, the scores look plausible, and the developer ships incorrect evaluations without knowing it. ML engineers in particular expect evaluation results to be reproducible and deterministic.\n\nRecommendation: A (standardize the order) because both functions have the same semantics; inconsistency here has no upside and creates a pit of failure rather than success.\n\nCompleteness: A=9/10, B=7/10, C=6/10\n\n<gstack-qid:devex-api-arg-order>": "Standardize: (evaluator, dataset) everywhere (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:03:31.404Z"
+  },
+  {
+    "sessionId": "d9bdeb45-8f66-49c5-b58c-ab4adc09e697",
+    "toolUseId": "toolu_01MdArqW9eNA8om1uWfQyEvU",
+    "questions": [
+      {
+        "question": "D4 \u2014 AuthError(\"request failed\"): add cause, env var name, and key URL?\n\nELI10: When a developer passes an invalid or missing API key, the SDK raises `AuthError(\"request failed\")`. That message names the symptom (request failed) but tells the developer nothing about what went wrong or how to fix it. They don't know: is it a network issue? A bad key? A missing env var? Is the key in the right environment variable? Where do they get a new key? This is documented as the retained behavior in docs/api.md. A Stripe-quality error would name the cause and point directly to the fix.\n\nStakes if we pick wrong: Every new developer who missets the env var (very common) sees a cryptic error and has to guess or search. An ML engineer evaluating the SDK for their team during a 30-minute slot hits this wall and concludes the SDK has rough error handling \u2014 accurate, and damaging.\n\nRecommendation: A because naming the env var and linking to key retrieval reduces a multi-minute debug loop to a 5-second fix, and it's a one-line change.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:devex-autherror-message>",
+        "header": "AuthError msg",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Improve: name cause, env var, fix URL (Recommended)",
+            "description": "Change to: AuthError(\"invalid API key (EVALKIT_API_KEY not set or rejected). Get your key at app.evalkit.com/keys.\") Names what went wrong, which env var to check, and where to fix it.",
+            "preview": "# Before:\nAuthError(\"request failed\")\n\n# After:\nAuthError(\n    \"invalid API key (EVALKIT_API_KEY not set or rejected). \"\n    \"Get your key at app.evalkit.com/keys.\"\n)"
+          },
+          {
+            "label": "Keep retained message, add to docs only",
+            "description": "Leave AuthError(\"request failed\") unchanged (as documented in api.md) and add a troubleshooting section to the docs explaining what it means. Developer must leave the terminal to find the fix."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 AuthError(\"request failed\"): add cause, env var name, and key URL?\n\nELI10: When a developer passes an invalid or missing API key, the SDK raises `AuthError(\"request failed\")`. That message names the symptom (request failed) but tells the developer nothing about what went wrong or how to fix it. They don't know: is it a network issue? A bad key? A missing env var? Is the key in the right environment variable? Where do they get a new key? This is documented as the retained behavior in docs/api.md. A Stripe-quality error would name the cause and point directly to the fix.\n\nStakes if we pick wrong: Every new developer who missets the env var (very common) sees a cryptic error and has to guess or search. An ML engineer evaluating the SDK for their team during a 30-minute slot hits this wall and concludes the SDK has rough error handling \u2014 accurate, and damaging.\n\nRecommendation: A because naming the env var and linking to key retrieval reduces a multi-minute debug loop to a 5-second fix, and it's a one-line change.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\n<gstack-qid:devex-autherror-message>": "Improve: name cause, env var, fix URL (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:03:47.461Z"
+  },
+  {
+    "sessionId": "d9bdeb45-8f66-49c5-b58c-ab4adc09e697",
+    "toolUseId": "toolu_01DnamAcLJS8iVvtBFsShu5B",
+    "questions": [
+      {
+        "question": "D5 \u2014 v1\u2192v2 breaking change: add Client.evaluate compatibility alias and DeprecationWarning?\n\nELI10: Version 1 of the SDK exposes `Client.evaluate()`. Version 2 removes it immediately and replaces it with `Client.run()`. Any developer who installed the v1 beta and upgrades to v2 will hit `AttributeError: 'Client' object has no attribute 'evaluate'` the moment their code runs \u2014 with no explanation of what changed or how to fix it. No alias, no warning, no migration note. The fix is two things: (1) keep `Client.evaluate` as a deprecated alias that calls `Client.run` and prints a DeprecationWarning, so existing code doesn't break immediately; (2) add one paragraph to the changelog explaining the rename and telling developers to update their call sites.\n\nStakes if we pick wrong: Any team already using the v1 beta ships a hard AttributeError to production on upgrade. An SDK that breaks silently on upgrade loses trust permanently \u2014 especially for ML engineers who need reproducible results.\n\nRecommendation: A because the alias costs ~3 lines and gives existing callers a safe upgrade window. It's the difference between 'this SDK is polished' and 'this SDK broke my code'.\n\nCompleteness: A=9/10, B=5/10\n\n<gstack-qid:devex-v2-migration>",
+        "header": "v1\u2192v2 migration",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add alias + DeprecationWarning + changelog note (Recommended)",
+            "description": "Client.evaluate = Client.run with DeprecationWarning on call. Existing v1 code continues to work with a warning. Changelog paragraph explains the rename and instructs users to update call sites before the alias is removed in v2.1.",
+            "preview": "# In client.py:\ndef evaluate(self, *args, **kwargs):\n    import warnings\n    warnings.warn(\n        \"Client.evaluate() renamed to Client.run(). \"\n        \"Update call sites; alias removed in v2.1.\",\n        DeprecationWarning, stacklevel=2\n    )\n    return self.run(*args, **kwargs)\n\n# In CHANGELOG.md:\n## v2.0.0b1\n### Breaking changes\n- `Client.evaluate()` renamed to `Client.run()`.\n  A compatibility alias exists and will be removed in v2.1.\n  Update call sites: s/client.evaluate(/client.run(/"
+          },
+          {
+            "label": "Ship hard break as-is, document in release notes",
+            "description": "Keep the immediate removal. Add a prominent release-notes section explaining that Client.evaluate() is gone and Client.run() replaces it. Developers must read release notes before upgrading or their code breaks on import."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 v1\u2192v2 breaking change: add Client.evaluate compatibility alias and DeprecationWarning?\n\nELI10: Version 1 of the SDK exposes `Client.evaluate()`. Version 2 removes it immediately and replaces it with `Client.run()`. Any developer who installed the v1 beta and upgrades to v2 will hit `AttributeError: 'Client' object has no attribute 'evaluate'` the moment their code runs \u2014 with no explanation of what changed or how to fix it. No alias, no warning, no migration note. The fix is two things: (1) keep `Client.evaluate` as a deprecated alias that calls `Client.run` and prints a DeprecationWarning, so existing code doesn't break immediately; (2) add one paragraph to the changelog explaining the rename and telling developers to update their call sites.\n\nStakes if we pick wrong: Any team already using the v1 beta ships a hard AttributeError to production on upgrade. An SDK that breaks silently on upgrade loses trust permanently \u2014 especially for ML engineers who need reproducible results.\n\nRecommendation: A because the alias costs ~3 lines and gives existing callers a safe upgrade window. It's the difference between 'this SDK is polished' and 'this SDK broke my code'.\n\nCompleteness: A=9/10, B=5/10\n\n<gstack-qid:devex-v2-migration>": "Add alias + DeprecationWarning + changelog note (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:04:03.536Z"
+  }
+]

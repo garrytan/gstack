@@ -1,4 +1,7 @@
-import type { TemplateContext } from './types';
+import { toShellPath, type TemplateContext } from './types';
+import { outsideVoiceRuntime } from './outside-voice';
+import * as path from 'path';
+import { getHostConfig } from '../../hosts';
 
 /**
  * {{INVOKE_SKILL:skill-name}} — emits prose instructing Claude to read
@@ -45,4 +48,41 @@ Follow its instructions from top to bottom, **skipping these sections** (already
 ${allSkips.map(s => `- ${s}`).join('\n')}
 
 Execute every other section at full depth. When the loaded skill's instructions are complete, continue with the next step below.`;
+}
+
+/** Autoplan reads methodology from this host's skill registry, not its runtime assets. */
+export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]): string {
+  const skill = args?.[0];
+  if (!skill || !['plan-ceo-review', 'plan-design-review', 'plan-devex-review', 'plan-eng-review'].includes(skill)) {
+    throw new Error('AUTOPLAN_REVIEW_FILE requires an autoplan review skill');
+  }
+  const withSections = args?.[1] === 'with-sections';
+  if ((args?.length ?? 0) > 2 || (args?.[1] !== undefined && !withSections)) {
+    throw new Error('AUTOPLAN_REVIEW_FILE only accepts with-sections');
+  }
+  // Every host prepares an explicit bound artifact before create. Inline hosts
+  // supply one complete source file; Claude supplies main plus its carved section.
+  if (withSections) {
+    const phase = skill === 'plan-devex-review' ? 'dx' : skill.split('-')[1]!;
+    return `\`methodologyPath\` from \`bun "<SNAPSHOT_TOOL>" methodology ${phase} "<REVIEW_SKILL>" "<RESTORE_PATH>"\``;
+  }
+  if (ctx.host === 'claude') return `\`${ctx.paths.skillRoot}/${skill}/SKILL.md\``;
+
+  const host = getHostConfig(ctx.host);
+  const file = `gstack-${skill}/SKILL.md`;
+  const local = `${path.posix.dirname(host.localSkillRoot)}/${file}`;
+  const global = `~/${path.posix.dirname(host.globalRoot)}/${file}`;
+  // Resolve from the discovered entrypoint's directory: GSTACK_ROOT is an
+  // independently configurable runtime asset tree, not a skill registry.
+  // This also preserves custom CODEX_HOME installations without guessing HOME.
+  // Other hosts inline the review sections into this full registry file.
+  return `the sibling registry file \`../${file}\`, relative to the installed \`/autoplan\` SKILL.md directory (local: \`${local}\`; global: \`${global}\`${ctx.host === 'codex' ? ', or the corresponding skills directory under CODEX_HOME when configured' : ''})`;
+}
+
+/** Resolve once to a literal path; later phase commands run in fresh shells. */
+export function generateAutoplanSnapshotTool(ctx: TemplateContext): string {
+  return `\`\`\`bash
+${outsideVoiceRuntime(ctx)}
+bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "${toShellPath(ctx.paths.binDir)}/gstack-autoplan-snapshot.ts"
+\`\`\``;
 }

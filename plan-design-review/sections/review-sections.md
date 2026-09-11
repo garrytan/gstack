@@ -4,7 +4,31 @@
 
 **Anti-skip rule:** Never condense, abbreviate, or skip any review pass (1-7) regardless of plan type (strategy, spec, code, infra). Every pass in this skill exists for a reason. "This is a strategy doc so design passes don't apply" is always wrong — design gaps are where implementation breaks down. If a pass genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
-**Anti-shortcut clause:** The plan file is the OUTPUT of the interactive review, not a substitute for it. Writing every finding into one plan write and calling ExitPlanMode without firing AskUserQuestion is the precise failure mode of the May 2026 transcript bug — the model explored, found issues, and dumped them into a deliverable rather than walking the user through them. If you have ANY non-trivial finding in any review section, the path from finding to ExitPlanMode goes THROUGH AskUserQuestion. Zero findings in every section is the only path to ExitPlanMode that bypasses AskUserQuestion. If you find yourself wanting to write a plan with findings before asking, stop and call AskUserQuestion now — that's the bug, recognize it.
+**Context:** This section continues `plan-design-review/SKILL.md`. If its setup
+is no longer in context, Read `~/.claude/skills/gstack/plan-design-review/SKILL.md`
+for the System Audit, Design Philosophy, Step 0, Step 0.5 mockup setup (`$D`),
+and Section self-check. Use their existing results; do not restart the review.
+
+**Anti-shortcut clause:** Complete one decision cycle per unresolved finding:
+explain the gap, recommend options, obtain its individual decision, then apply
+the selected fix. Scope, focus, setup, and next-step choices approve no remedies.
+Never use the final next-step AskUserQuestion to satisfy the issue-approval loop.
+With no unresolved findings, no issue question is required.
+
+**Carry decisions across passes.** An issue is one unresolved design requirement
+or tradeoff, even when it appears in several plan locations. Before each pass,
+compare the plan, DESIGN.md, and the decisions already made:
+
+| Situation | Required action |
+|-----------|-----------------|
+| The exact fix already has an individual user decision or a preamble-authorized per-issue auto-decision. | Reuse that decision. Apply it to all affected references and matching tokens; do not ask again. |
+| An accepted requirement needs to be copied unchanged into a required artifact, such as the journey storyboard. | Create the artifact without a separate format question. This records the requirement; it approves no new remedy. |
+| The plan violates DESIGN.md or has a gap, and no individual decision has approved its fix. | Ask about that issue and wait before fixing it, even if the input names the gap or DESIGN.md prescribes the exact token. Keep the proposed remedy pending meanwhile. |
+| New evidence introduces a missing requirement, a conflict, or a new tradeoff. | Name the new issue, offer alternatives, and obtain its individual decision before changing the plan. |
+
+Writing a report, mapping a token, creating a mockup, or listing a task does not
+approve a remedy. If findings exist but only navigation was answered, the review
+is still waiting for its first issue decision.
 
 ## Prior Learnings
 
@@ -65,7 +89,7 @@ Empty states are features — specify warmth, primary action, context.
 
 ### Pass 3: User Journey & Emotional Arc
 Rate 0-10: Does the plan consider the user's emotional experience?
-FIX TO 10: Add user journey storyboard:
+FIX TO 10: Render the accepted journey as the required storyboard; do not ask whether to create it:
 ```
   STEP | USER DOES        | USER FEELS      | PLAN SPECIFIES?
   -----|------------------|-----------------|----------------
@@ -77,7 +101,10 @@ Apply time-horizon design: 5-sec visceral, 5-min behavioral, 5-year reflective.
 
 ### Pass 4: AI Slop Risk
 
-### Design Hard Rules
+**Pass 4 evaluation:** Rate 0-10: Does the plan describe specific, intentional UI, or generic patterns? Record each hard-rejection hit and litmus YES/NO with evidence. An unresolved hard rejection caps this pass below 8 (not design-complete); it does not automatically set the score to 0. Litmus answers support findings, not a separate numeric score.
+Use plan text and any available mockups as evidence for the rules below.
+
+#### Design Hard Rules
 
 **Classifier: name the mode before you judge a pixel.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
 - **PERSUADE** (MARKETING/LANDING PAGE: hero-driven, brand-forward, pricing, campaigns) → they decide and act. Design IS the product. Apply Landing Page Rules.
@@ -176,8 +203,6 @@ Judgment tells with no detector rule: gradient cta button, stock-photo hero, car
 
 Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4) (Mar 2026) + gstack design methodology.
 
-**Pass 4 evaluation:** Rate 0-10: Does the plan describe specific, intentional UI, or generic patterns? Record each hard-rejection hit and litmus YES/NO with evidence. An unresolved hard rejection caps this pass below 8 (not design-complete); it does not automatically set the score to 0. Litmus answers support findings, not a separate numeric score.
-
 FIX TO 10: Rewrite vague UI descriptions with specific alternatives:
 - "Cards with icons" → what differentiates these from every SaaS template?
 - "Hero section" → what makes this hero feel like THIS product?
@@ -188,8 +213,10 @@ If visual mockups were generated in Step 0.5, evaluate them against the AI slop 
 
 ### Pass 5: Design System Alignment
 Rate 0-10: Does the plan align with DESIGN.md?
+If DESIGN.md is absent, rate the plan's explicit token and component specifications. Missing specifications remain findings; do not skip the score or assume alignment.
 FIX TO 10: If DESIGN.md exists, annotate with specific tokens/components; when it has YAML front matter (the open DESIGN.md format), cite tokens by path (`{colors.primary}`, `{rounded.md}`) so the plan and the file share one vocabulary. If no DESIGN.md, flag the gap and recommend `/design-consultation`.
 Flag any new component — does it fit the existing vocabulary?
+Before offering a token-alignment fix, check whether an earlier pass already approved that outcome. If so, apply the established tokens and update every stale gap/reference under that decision; changing the plan location or spelling out the same fix is not a new issue. Ask again only if new evidence exposes an unresolved requirement or tradeoff, and name it. An unapproved violation still needs its first individual decision.
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 6: Responsive & Accessibility
@@ -198,7 +225,9 @@ FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but int
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 7: Unresolved Design Decisions
-Surface ambiguities that will haunt implementation:
+Preserve accepted user-facing outcomes. Choosing implementation mechanics does not
+reopen them; ask only if a concrete constraint exposes a new design requirement
+or tradeoff. Surface the remaining ambiguities that will haunt implementation:
 ```
   DECISION NEEDED              | IF DEFERRED, WHAT HAPPENS
   -----------------------------|---------------------------
@@ -211,6 +240,8 @@ Each decision = one AskUserQuestion with recommendation + WHY + alternatives. Ed
 **STOP.** Wait for each answer before editing or advancing. Record unanswered decisions as unresolved.
 
 ### Post-Pass: Update Mockups (if generated)
+
+After Pass 7: offer the mockup update below when applicable, resolve deferred TODO proposals, reconcile approvals, then synthesize tasks and the Completion Summary.
 
 If mockups were generated in Step 0.5 and review passes changed significant design decisions (information architecture restructure, new states, layout changes), offer to regenerate (one-shot, not a loop):
 
@@ -237,7 +268,11 @@ Design decisions considered and explicitly deferred, with one-line rationale eac
 Existing DESIGN.md, UI patterns, and components that the plan should reuse.
 
 ### TODOS.md updates
-After all review passes are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step.
+Put implementation and verification of approved fixes in the plan tasks. Do not
+make in-scope verification an optional follow-up. Reserve deferred TODO proposals
+for unresolved/out-of-scope debt or a new scope decision or tradeoff. After the
+passes, ask about each such TODO individually; never batch. Honor explicit user
+deferrals. If none remain, say so.
 
 For design debt: missing a11y, unresolved responsive behavior, deferred empty states. Each TODO gets:
 * **What:** One-line description of the work.
@@ -248,6 +283,11 @@ For design debt: missing a11y, unresolved responsive behavior, deferred empty st
 * **Depends on / blocked by:** Any prerequisites.
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+
+Before synthesizing tasks or the completion summary, perform the approval
+reconciliation from the Section self-check in `~/.claude/skills/gstack/plan-design-review/SKILL.md` (Read it if no longer in context). Export only agreed implementation work; retain unapproved remedies as pending findings.
+Count only individually approved new decisions in "Decisions made" and the
+review log; a proposed remedy or next-step answer contributes zero.
 
 ## Implementation Tasks
 
@@ -322,6 +362,12 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 
 
 ### Completion Summary
+
+**Overall design score:** use the lowest of the six rated pass scores (1-6),
+separately before and after approved fixes. Pass 7 is unscored. Keep Step 0's
+initial impression in its own row. An overall 8+ therefore means every rated
+pass is 8+; unresolved findings still prevent a clean review log.
+
 ```
   +====================================================================+
   |         DESIGN PLAN REVIEW — COMPLETION SUMMARY                    |
@@ -350,7 +396,7 @@ If all passes 8+: "Plan is design-complete. Run /design-review after implementat
 If any below 8: note what's unresolved and why (user chose to defer).
 
 ### Unresolved Decisions
-If any AskUserQuestion goes unanswered, note it here. Never silently default to an option.
+List every unresolved finding here, including a finding not yet asked or an unanswered AskUserQuestion. Never silently default to an option.
 
 ### Approved Mockups
 
@@ -397,11 +443,13 @@ After completing the review, read the review log and config to display the dashb
 ~/.claude/skills/gstack/bin/gstack-review-read
 ```
 
+Render each record using its recorded host, source, outside_provider, outside_status, and phase. Historical source "claude" means a native Claude subagent; source "claude-code" means the external CLI. Never infer a historical provider from the current harness. Unknown model identity remains unknown. Missing/disabled/skipped outside coverage is distinct from native completion.
+
 Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
 
 **Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via /autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
-Note: `autoplan-voices` and `design-outside-voices` entries are audit-trail-only (forensic data for cross-model consensus analysis). They do not appear in the dashboard and are not checked by any consumer.
+Read `autoplan-voices` and `design-outside-voices` for the coverage detail below the dashboard. Group by workflow run and phase, not merely skill. Show each phase’s recorded provider and outside_status; partial coverage must remain partial. These records do not change the engineering gate.
 
 Display:
 
@@ -425,13 +473,13 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
-- **Outside Voice (optional):** Independent plan review from a different AI model when Codex is available (falls back to a same-family Claude subagent otherwise — fresh context, not cross-model). Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Never gates shipping.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets a native adversarial pass and, when enabled and available, a host-selected outside challenge. Large diffs (200+ lines) additionally get a structured outside review with P1 gate.
+- **Outside Voice (default-on):** Independent plan review through the host-selected provider after /plan-ceo-review and /plan-eng-review. The codex_reviews switch disables the entire extra step. Provider failure uses the existing native fallback and reports missing outside coverage. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
-- CEO, Design, and Codex reviews are shown for context but never block shipping
+- CEO, Design, and outside reviews are shown for context but never block shipping
 - If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
 **Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
@@ -455,7 +503,9 @@ After displaying the Review Readiness Dashboard in conversation output, also upd
 ### Generate the report
 
 Read the review log output you already have from the Review Readiness Dashboard step above.
-Parse each JSONL entry. Each skill logs different fields:
+Parse each JSONL entry using recorded provenance. Historical source "claude" is a native Claude subagent; "claude-code" is the external CLI. Keep historical codex identifiers and never relabel old records from the current harness. Unknown model identity remains unknown. For new records, show host, outside_provider, outside_status, and phase. Only completed external records establish outside coverage; native fallbacks do not.
+
+Each skill logs different fields:
 
 - **plan-ceo-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`mode\`, \`scope_proposed\`, \`scope_accepted\`, \`scope_deferred\`, \`commit\`
   → Findings: "{scope_proposed} proposals, {scope_accepted} accepted, {scope_deferred} deferred"
@@ -483,17 +533,17 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
 
-Below the table, add these lines. **CODEX** and **CROSS-MODEL** are optional (omit when
+Below the table, add these lines. **OUTSIDE COVERAGE** and **CROSS-MODEL** are optional (omit when
 empty); **VERDICT** is always present:
 
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **OUTSIDE COVERAGE:** provider, phase, completion state, and findings. Include unavailable, disabled, and skipped phases; never infer completion from another phase.
+- **CROSS-MODEL:** only when native and completed external reviews exist — overlap analysis with recorded providers and known model identity. Do not infer distinct model families from harness names.
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
 
@@ -631,7 +681,9 @@ plan mode alongside reviews. If this design review found visual issues that woul
 from exploring new directions, recommend /design-shotgun. If approved mockups exist and
 need to be turned into working HTML, recommend /design-html.
 
-Use AskUserQuestion to present the next step. Include only applicable options:
+Use AskUserQuestion to present the next step. Always include the manual/stop
+option E; offer only applicable follow-on skills. If the user chooses manual,
+finish without starting another skill:
 - **A)** Run /plan-eng-review next (required gate)
 - **B)** Run /plan-ceo-review (only if fundamental product gaps found)
 - **C)** Run /design-shotgun — explore visual design variants for issues found
@@ -642,5 +694,5 @@ Use AskUserQuestion to present the next step. Include only applicable options:
 * NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
 * Label with NUMBER + LETTER (e.g., "3A", "3B").
 * One sentence max per option.
-* After each pass, pause and wait for feedback.
+* Pause for each unresolved issue. If a pass has none, say so and continue; do not manufacture a question.
 * Rate before and after each pass for scannability.

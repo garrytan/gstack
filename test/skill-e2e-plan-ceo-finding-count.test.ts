@@ -17,12 +17,15 @@
 
 import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
+import { isCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
+import { pickCeoCountQuestion } from './helpers/ceo-approach-pick';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   runPlanSkillCounting,
   ceoStep0Boundary,
+  ceoFirstReviewAUQ,
   assertReviewReportAtBottom,
   type AskUserQuestionFingerprint,
 } from './helpers/claude-pty-runner';
@@ -38,8 +41,8 @@ import {
  * The default pick (1) routes to "branch diff vs main" — the wrong target
  * for our seeded fixture (the agent would review the gstack PR itself,
  * recursively). Picking "Skip interview and plan immediately" bypasses
- * Step 0 and routes the agent to review the chat context (where our
- * follow-up plan was pasted).
+ * Step 0 and routes the agent to review the fixture request, which is
+ * already present in its initial project context.
  */
 function pickSkipInterview(fp: AskUserQuestionFingerprint): number {
   const skipOpt = fp.options.find((o) =>
@@ -64,13 +67,116 @@ const N_PAIRED = 2;
 const FLOOR_PAIRED = 2;
 const CEILING_PAIRED = 4;
 
+// Keep the five seeded defects distinct from already-satisfied surrounding
+// contracts. Live controls correctly found extra ingress, missing-user,
+// observability, and rollout gaps when those baseline facts were unspecified.
 const planCeo5Findings = (planPath: string) => [
-  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  `Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  'Proceed directly to the requested CEO review; skip the optional /office-hours prerequisite.',
+  'Finish after this CEO review; I will handle subsequent reviews manually.',
   '',
   '# Plan: Payment Processing Integration',
   '',
+  '## Existing contracts retained',
+  'The approved motivation is to move payment orchestration out of the prior',
+  'library-adapter handler into application-owned code while retaining the',
+  'existing payment and receipt product behavior. The shared dispatcher remains',
+  'available; the proposed bypass below is still an architectural choice to review.',
+  'The existing ingress middleware verifies the Stripe signature against the',
+  'raw request body and rejects invalid signatures before invoking handlers.',
+  'The existing ingress forwards only `payment_intent.succeeded` events to',
+  'this handler; other Stripe event types are acknowledged without invoking it.',
+  'The existing payload adapter exposes `event.data.object.metadata.user_id`',
+  'as `request.params.userId`. This params object is the parsed body-data map,',
+  'not URL query/path parameters; all users share one webhook URL.',
+  'The adapter acknowledges missing, nil, or empty user_id metadata with',
+  'HTTP 200 and an event-correlated warning before invoking this handler.',
+  'For every nonempty external string it performs no SQL-format validation.',
+  'The adapter forwards that external string unchanged. It does not cast,',
+  'escape, or SQL-sanitize it; a valid signature does not make it safe for SQL.',
+  'User IDs are opaque TEXT values, including punctuation and Unicode. The',
+  'lookup has no integer/UUID cast or ID-format restriction; every nonempty',
+  'string is a valid identifier representation.',
+  'An existing ingress ownership guard checks the PaymentIntent ID against',
+  'its stored opaque user-ID binding before invoking the handler. A mismatch',
+  'is acknowledged with HTTP 200 and an event-correlated warning. This is an',
+  'identity comparison, not SQL-format validation; the adapter still forwards',
+  'the original string unchanged.',
+  'The existing webhook event guard deduplicates deliveries by Stripe event ID,',
+  'and an existing per-user lock serializes payment updates.',
+  'The event guard acquires the existing per-user lock before checking the',
+  'committed completion marker, and rechecks after any lock wait. It holds',
+  'that lock through the handler and completion bookkeeping; an overlapping',
+  'completed duplicate does not invoke the handler.',
+  'The new handler runs inside those unchanged guards; this plan does not',
+  'replace signature verification, event deduplication, or update locking.',
+  'The existing user update assigns payment_status=paid and the payment intent',
+  'ID; it does not increment a balance or counter. Repeating the same payment',
+  'intent assigns the same values, independently of the event-ID guard.',
+  'The existing lookup-result guard acknowledges unknown/deleted users with',
+  'HTTP 200, logs the event, and stops before user updates or email fan-out.',
+  'The retained recipient-policy helper treats a nil or empty email address as',
+  'skipped_missing_address: payment processing continues normally, and no mail',
+  'client call is attempted. It persists an event/user/PaymentIntent-correlated',
+  'skip record, emits a structured warning, and increments the existing counter.',
+  'The existing notification runbook already covers that skip result: correct',
+  'the account address, then retry only its recorded notification using the',
+  'same PaymentIntent idempotency key. It never replays the payment for this case.',
+  'That recipient policy does not catch failures from sends to nonempty addresses;',
+  'the shared mail client still rethrows those exceptions to this handler.',
+  'Account deletion uses the same per-user lock. The handler holds it from',
+  'lookup through update and inline email, so deletion either precedes lookup',
+  '(the existing unknown/deleted-user path) or follows the handler; it cannot',
+  'remove the user between lookup and update.',
+  'The ingress wrapper already logs event IDs, outcomes, and durations, with',
+  'alerts for failed webhook processing. Those controls remain in place.',
+  'The existing DB and mail clients attach the adapter user ID and event ID',
+  'to outcome traces, including update success and email delivery success or',
+  'failure. These shared clients rethrow exceptions unchanged; tracing does',
+  'not rescue email errors or change the inline email call below.',
+  'The shared mail client also publishes its delivery failure rate to the',
+  'existing dashboard and tested on-call alert, including caught exceptions.',
+  'The existing incident runbook uses the correlated DB and mail outcomes to',
+  'distinguish committed payments from failed notifications. It directs on-call',
+  'to check provider status and retry only the failed notification through the',
+  'existing notification retry procedure, never replay the payment blindly.',
+  'DB lookup/update exceptions propagate to that ingress wrapper, which logs',
+  'the failure and returns HTTP 500 so Stripe retries the event. The existing',
+  'event-ID dedup guard records completion only after the database transaction',
+  'commits; failed or rolled-back database attempts remain retryable.',
+  'The deployment already has a handler feature flag and a documented, tested',
+  'rollback to the prior handler; this change uses that existing rollout path.',
+  'That documented manual rollout checklist already requires a staging',
+  'payment-event replay for this handler and verification of the user update,',
+  'email delivery, and correlated outcome trace before enabling it broadly.',
+  'This is manual deployment verification, not automated handler regression',
+  'coverage; no new automated tests are planned in the Tests section below.',
+  'The existing notification contract sends one payment receipt per PaymentIntent,',
+  'including a summary of the user orders. With zero orders it still sends one',
+  'receipt with an empty order summary; the order loop is data loading, never',
+  'one email or payment update per order. These product semantics are retained.',
+  'The shared mail client already derives a provider idempotency key from that',
+  'PaymentIntent ID. The provider durably suppresses duplicate successful sends',
+  'for the same key across process crashes, webhook retries, and manual retries.',
+  'Before rethrowing a failed or timed-out send, that client durably records the',
+  'notification attempt for the existing retry procedure. The dashboard and',
+  'on-call alert already monitor failed-notification age and backlog after an',
+  'outage clears, as well as failure rate; the runbook retries those records.',
+  'The existing mail-client deadline is one second, enforced by cancellation',
+  'of the provider request with no inline retries. It raises MailTimeout on',
+  'expiry. The retained DB/ingress deadlines bound their combined work to two',
+  'seconds, leaving headroom inside the existing ten-second webhook deadline.',
+  'Neither deadlines nor retry records catch the mail exception for this handler;',
+  'the shared client still rethrows it to the inline caller described below.',
+  'Every existing event-correlated outcome trace includes the active handler',
+  'identity (prior or new), so rollout attribution is already available.',
+  'If a separate handler class is retained, its already-approved name is',
+  '`Webhooks::StripePaymentWebhookHandler` in the application-owned namespace,',
+  'never the Stripe library namespace. This naming choice is settled; whether',
+  'to add a separate implementation or reuse WebhookDispatcher remains open.',
+  '',
   '## Architecture',
-  "We're adding a new `PaymentService` class that will handle Stripe webhooks.",
+  "We're adding a new `StripePaymentWebhookHandler` class that will handle Stripe webhooks.",
   'This bypasses the existing `WebhookDispatcher` module — we want a clean',
   'namespace separation.',
   '',
@@ -91,17 +197,42 @@ const planCeo5Findings = (planPath: string) => [
 ].join('\n');
 
 const planCeo2PairedFindings = (planPath: string) => [
-  `Please review this plan thoroughly. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  `Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to ${planPath} (use Edit/Write to that exact path).`,
+  'Proceed directly to the requested CEO review; skip the optional /office-hours prerequisite.',
+  'Finish after this CEO review; I will handle subsequent reviews manually.',
   '',
   '# Plan: Payment Processing — Test Coverage',
   '',
-  '## Tests',
-  'We need test coverage for `processPayment()`. Specifically:',
-  '1. The happy path (successful Stripe charge — assert correct receipt is generated).',
-  '2. The error/timeout path (Stripe returns 502 — assert retry-with-backoff fires once, then fails clean).',
+  '## Existing coverage and test infrastructure retained',
+  'This changes unit tests only; processPayment() production behavior stays as-is.',
+  'The Stripe adapter suite already covers network timeouts, card declines (402),',
+  'rate limits (429), and recovery when an initial 502 is followed by a successful',
+  'charge. Receipt-builder failure behavior has its own passing regression tests.',
+  'The payment test factory explicitly configures max_retries=1 and exposes the',
+  'Stripe mock call history. Its injected virtual sleeper records backoff without',
+  'real delays, so an exhausted 502 operation makes exactly two charge attempts.',
+  'These existing helpers and regression suites remain in use for this change.',
   '',
-  'Currently neither has a unit test. These are deliberately separate concerns:',
-  'the success path is correctness, the failure path is graceful degradation.',
+  '## Existing behavior retained',
+  'A successful charge returns a receipt with chargeId copied from Stripe,',
+  'amountCents equal to the requested integer amount, and currency equal to',
+  'the requested currency. For a 1000-cent USD charge returning id ch_paid,',
+  'the receipt is { chargeId: "ch_paid", amountCents: 1000, currency: "USD" }.',
+  'On repeated 502 responses, max_retries=1 means two total charge attempts',
+  'separated by one recorded 100 ms backoff, followed by PaymentUnavailable.',
+  'These contracts are already implemented; this plan adds their unit coverage.',
+  '',
+  '## Proposed tests',
+  'Add two tests in the existing processPayment suite using its current factory,',
+  'Stripe mock and virtual sleeper. Other tests and production code stay as-is.',
+  '',
+  '1. Successful charge: arrange the Stripe mock to return id ch_paid, call',
+  '   processPayment with amountCents=1000 and currency=USD, and assert only',
+  '   that the returned receipt is truthy. This is the complete planned assertion.',
+  '2. Repeated 502: arrange two consecutive Stripe 502 responses, call',
+  '   processPayment, and assert only that it rejects with PaymentUnavailable.',
+  '   No assertion about the mock call history or virtual sleeper record',
+  '   is planned for this test.',
 ].join('\n');
 
 describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () => {
@@ -119,12 +250,13 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           skillName: 'plan-ceo-review',
           slashCommand: '/plan-ceo-review',
           followUpPrompt: planCeo5Findings(planPath),
+          expectedPlanPath: planPath,
           isLastStep0AUQ: ceoStep0Boundary,
+          isFirstReviewAUQ: ceoFirstReviewAUQ,
+          isCompletionHandoffAUQ: isCeoCompletionHandoff,
+          pickAUQ: pickCeoCountQuestion,
           reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
           firstAUQPick: pickSkipInterview, // bypass scope-selection, route to review
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000, // 25 min
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });
@@ -150,7 +282,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
               `Likely batching regression — agent collapsed multiple findings into fewer questions.\n` +
               `Fingerprints (review-phase only):\n` +
               obs.fingerprints
-                .filter((f) => !f.preReview)
+                .filter((f) => !f.preReview && !f.administrative)
                 .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
                 .join('\n'),
           );
@@ -158,11 +290,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
         if (obs.reviewCount > CEILING_DISTINCT) {
           throw new Error(
             `BAND FAIL (above ceiling): reviewCount=${obs.reviewCount} > CEILING=${CEILING_DISTINCT}.\n` +
-              `Possible over-asking regression. Review-phase fingerprints:\n` +
-              obs.fingerprints
-                .filter((f) => !f.preReview)
-                .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
-                .join('\n'),
+              `Captured observation:\n${JSON.stringify(obs, null, 2)}`,
           );
         }
 
@@ -209,11 +337,12 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           skillName: 'plan-ceo-review',
           slashCommand: '/plan-ceo-review',
           followUpPrompt: planCeo2PairedFindings(planPath),
+          expectedPlanPath: planPath,
           isLastStep0AUQ: ceoStep0Boundary,
+          isFirstReviewAUQ: ceoFirstReviewAUQ,
+          isCompletionHandoffAUQ: isCeoCompletionHandoff,
+          pickAUQ: pickCeoCountQuestion,
           reviewCountCeiling: CEILING_PAIRED + 1,
-          // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
-          // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
-          cwd: process.cwd(),
           timeoutMs: 1_500_000,
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });
@@ -231,14 +360,15 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
               `Two deliberately related findings were batched into <2 questions — the rule failed under D12.\n` +
               `Review-phase fingerprints:\n` +
               obs.fingerprints
-                .filter((f) => !f.preReview)
+                .filter((f) => !f.preReview && !f.administrative)
                 .map((f) => `  - "${f.promptSnippet.slice(0, 80)}"`)
                 .join('\n'),
           );
         }
         if (obs.reviewCount > CEILING_PAIRED) {
           throw new Error(
-            `PAIRED CONTROL FAIL: reviewCount=${obs.reviewCount} > CEILING=${CEILING_PAIRED} (over-asking on a 2-finding fixture).`,
+            `PAIRED CONTROL FAIL: reviewCount=${obs.reviewCount} > CEILING=${CEILING_PAIRED} (over-asking on a 2-finding fixture).\n` +
+              `Captured observation:\n${JSON.stringify(obs, null, 2)}`,
           );
         }
       } finally {

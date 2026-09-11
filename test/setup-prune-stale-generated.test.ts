@@ -98,7 +98,7 @@ describe('setup: _prune_stale_generated', () => {
       '"$SOURCE_GSTACK_DIR/.factory/skills" "$FACTORY_SKILLS"',
       '"$SOURCE_GSTACK_DIR/.opencode/skills" "$OPENCODE_SKILLS"',
       '"$SOURCE_GSTACK_DIR/.cursor/skills" "$CURSOR_SKILLS"',
-      '"$AGENTS_DIR" "$KIRO_SKILLS"',
+      '"$KIRO_DIR" "$KIRO_SKILLS"',
     ]) {
       expect(SETUP_SRC).toContain(`_prune_stale_generated "$SOURCE_GSTACK_DIR" ${site}`);
     }

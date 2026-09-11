@@ -36,6 +36,28 @@ two gate-tier canaries in `test/skill-e2e-hermetic-canary.test.ts`, and the
 seeding tripwires in `test/hermetic-skills-seeding.test.ts` /
 `test/pty-skill-seeding-wiring.test.ts`.
 
+Seeded planning sessions also receive an isolated runtime home through
+`test/helpers/hermetic-skill-runtime.ts`, so absolute lazy-section paths resolve
+to the working tree under test. Explicit per-test home overrides remain intact.
+Autoplan resolves each review skill from its own installed host registry.
+
+**Interactive planning evidence.** Finding-count and autoplan-chain drivers use
+`observeScreen: true` and await `currentScreen()` before choosing an input. The
+existing xterm dependency interprets cursor moves and erases; old menus in the
+raw stream cannot establish a current prompt. Snapshots preserve
+`terminal.raw.log`, `terminal.visible.log`, and `terminal.screen.log` separately.
+Completed native transcript calls establish question counts and phase coverage.
+Report-aware count tests also require a fresh, complete report and native
+completion evidence before accepting a completion heading.
+
+The engineering and DX finding fixtures check coverage of their seeded issues
+rather than cap the total number of review questions. Each decision needs a
+distinct, completed native question with an offered answer; accepting, rejecting,
+or deferring a recommendation all count as reviewing it. Engineering's mandatory
+legacy regression tests also need affirmative plan or public-narration evidence.
+Additional useful questions are allowed within the existing time limits. Generic
+question counts remain diagnostic, and a fresh final review report is required.
+
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack/projects/<slug>/evals/` (legacy
 fallback `~/.gstack-dev/evals/`) with auto-comparison
@@ -159,6 +181,43 @@ archaeology.
 `test/helpers/eval-budgets.ts` (JUDGE/CAPTURE/CAPTURE_LONG/PTY/PTY_LONG);
 `test/eval-budgets-policy.test.ts` pins that every tier fits the shard wall
 minus overhead and ratchets raw literals. Budget above the wall is fiction.
+The sole registered exception is `AUTOPLAN_CHAIN_BUDGET` for
+`test/skill-e2e-autoplan-chain.test.ts`: 80 minutes of work (four `PTY_LONG`
+allocations), an 84-minute session watchdog, an 85-minute Bun test deadline,
+and a 172-minute supervised shard wall. The unchanged retry count of one
+permits two 85-minute attempts plus two minutes for cleanup. This is a
+**specified allocation for the stronger four-phase contract**, not a measured
+calibration or statistical upper bound. The historical 900-second failures
+remain failures. Models, fixtures, phase assertions and production review
+caller timeouts are unchanged; this explicitly changes eval latency/cost policy.
+
+The Autoplan chain explicitly enables native `PreToolUse` approval for edits to
+its owned temporary review artifacts. Approval starts with the `/autoplan`
+command and requires the exact parent session, prior successful file history,
+and a current request digest. Other recorder callers remain observational.
+A rejected artifact edit fails the test instead of falling through to terminal
+permission input. Approval itself supplies no edit success or phase credit:
+the native tool result and all four completed review phases are still required.
+
+`resolvePaidShardBudget(files, overrideMs?)` is the canonical per-job resolver.
+Only the exact Autoplan file gets the exception, in its own shard. An explicit
+CLI `--timeout`, `EVALS_SHARD_TIMEOUT_MS`, or API `timeoutMs` still wins, including
+a lower cap. Planner entries and execution results record the effective wall,
+its source and policy identifier. Custom drivers must resolve each job instead
+of passing their ordinary 1800-second default as an explicit Autoplan cap;
+their outer controller/detach wall must also cover the allocated work and cleanup.
+`eval:bg:periodic` already has a 37800-second outer cap. Legacy monolithic
+`eval:bg`/`eval:bg:all` retain their shorter 5400/7200-second caps and do not
+promise two complete Autoplan attempts; use the sharded periodic path for this policy.
+
+Periodic CI plans `--slices 7 --autoplan-slice`: six ordinary slices retain their
+existing limits, while the seventh runs only Autoplan. Its unchanged 200-minute
+job cap leaves 28 minutes around the 172-minute shard for setup and artifacts.
+Reconciliation rejects missing, duplicated or misplaced Autoplan work and absent
+budget records. This does not claim that the growing ordinary census has a
+200-minute worst-case bound. Ordinary paid tiers and their 1800-second shard
+wall remain unchanged; unregistered over-ceiling tests still fail policy checks.
+
 Session timeouts are two-phase: a silent API dies at the startup grace (90s
 local / 300s CI floor, distinct exit reason `timeout_startup`) and the work
 budget arms on the first byte — the total wall never grows

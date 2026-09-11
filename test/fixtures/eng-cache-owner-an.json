@@ -1,0 +1,61 @@
+{
+  "provenance": {
+    "sourceHead": "9d66d6ca9ecf13d8a8209283e611d0fce652b6f4",
+    "captureProofSha256": "14c8770114669c7d7e5b0058b84f4bc7a119a6ccf26f2e7d28735efca83a3876",
+    "historicalClassification": "preReview",
+    "capturedState": "in_progress",
+    "paidOutcomeReclassified": false
+  },
+  "fingerprint": {
+    "signature": "6bcd4c4d-8b17-44e5-807e-4adf4f7d9e31:toolu_01YRgsQDio1oQVDds1cNWBH8",
+    "promptSnippet": "Cache owner D4 — Issue 1: two services mutate one shared cache with no serialized writes. How should cache ownership work? Project/branch/task: gstack-plan-count-vtSmzJ on main, Multi-tenant Auth Refactor (PLAN.md:10, 19-20). ELI10: AuthBro",
+    "options": [
+      {
+        "index": 1,
+        "label": "A) Inject + single writer + invalidation epoch (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "B) Inject only, keep two writers"
+      },
+      {
+        "index": 3,
+        "label": "C) Keep module-level global as planned"
+      }
+    ],
+    "observedAtMs": 254290,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "6bcd4c4d-8b17-44e5-807e-4adf4f7d9e31",
+      "toolUseId": "toolu_01YRgsQDio1oQVDds1cNWBH8",
+      "questions": [
+        {
+          "header": "Cache owner",
+          "question": "D4 — Issue 1: two services mutate one shared cache with no serialized writes. How should cache ownership work?\nProject/branch/task: gstack-plan-count-vtSmzJ on main, Multi-tenant Auth Refactor (PLAN.md:10, 19-20).\nELI10: AuthBroker and SessionMint both write into the same tenant-keyed cache, and the plan says nothing orders those writes. Realistic production failure: a tenant gets suspended, the invalidation hook clears its entries, and a SessionMint write that started a few milliseconds earlier lands after the clear. That suspended tenant now has a live cached session until the TTL expires. Nobody sees an error; the cache just quietly re-admits them. A module-level global also means every test shares state and you cannot construct a service with a fake cache.\nStakes if we pick wrong: Silent re-admission of a suspended or revoked tenant, plus test suites that pass or fail depending on run order.\nRecommendation: A because one writer plus a version check turns a silent race into an explicit, testable rule, and injection is the standard fix for module-level mutable state [Layer 1]. Maps to explicit over clever.\nCompleteness: A=10/10, B=7/10, C=3/10",
+          "options": [
+            {
+              "label": "A) Inject + single writer + invalidation epoch (recommended)",
+              "description": "Constructor-inject the existing adapter into both services. Only AuthBroker writes; SessionMint returns minted material to the broker, which stores it. Adapter set() takes the per-tenant invalidation epoch it read from, and drops the write if the epoch moved. Tests: write-after-invalidate race, cross-tenant key isolation, both services with a fake adapter. (human: ~1.5 days / CC: ~15 min) ✅ Suspension and revocation win every race by construction, not by luck. ✅ Every test builds its own cache; no shared global to reset. ❌ SessionMint gains a return-value contract instead of writing directly; slightly more plumbing."
+            },
+            {
+              "label": "B) Inject only, keep two writers",
+              "description": "Replace the module-level export with constructor injection but let both services keep writing. Tests: isolation and fake-adapter construction; no race test. (human: ~0.5 day / CC: ~5 min) ✅ Removes the global and makes both services unit-testable in isolation. ✅ Smallest diff from the current plan wording. ❌ The write-after-invalidate race stays open; suspension can still be undone by a late mint write."
+            },
+            {
+              "label": "C) Keep module-level global as planned",
+              "description": "Do nothing here; both services import and mutate the singleton. (human: 0 / CC: 0) ✅ No plan change and no new contract between the two services. ✅ Module cache already guarantees one instance, so no double-init bug. ❌ Race stays open and tests share mutable state across the whole suite."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 1: two services mutate one shared cache with no serialized writes. How should cache ownership work?\nProject/branch/task: gstack-plan-count-vtSmzJ on main, Multi-tenant Auth Refactor (PLAN.md:10, 19-20).\nELI10: AuthBroker and SessionMint both write into the same tenant-keyed cache, and the plan says nothing orders those writes. Realistic production failure: a tenant gets suspended, the invalidation hook clears its entries, and a SessionMint write that started a few milliseconds earlier lands after the clear. That suspended tenant now has a live cached session until the TTL expires. Nobody sees an error; the cache just quietly re-admits them. A module-level global also means every test shares state and you cannot construct a service with a fake cache.\nStakes if we pick wrong: Silent re-admission of a suspended or revoked tenant, plus test suites that pass or fail depending on run order.\nRecommendation: A because one writer plus a version check turns a silent race into an explicit, testable rule, and injection is the standard fix for module-level mutable state [Layer 1]. Maps to explicit over clever.\nCompleteness: A=10/10, B=7/10, C=3/10": "A) Inject + single writer + invalidation epoch (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T10:52:40.165Z"
+    }
+  }
+}

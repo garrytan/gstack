@@ -6,6 +6,28 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 
+function expectOutsideReviewControlFlow(text: string, promptHeading: string): void {
+  const markers = ['**Disabled is a terminal branch', promptHeading, '**If `CODEX_MODE: ready`', '**Native fallback'];
+  const indices = markers.map(marker => text.indexOf(marker));
+  expect(indices.every(index => index >= 0)).toBe(true);
+  expect(indices).toEqual([...indices].sort((a, b) => a - b));
+  const disabled = text.slice(indices[0], indices[1]);
+  expect(disabled).toContain('persist `outside_status: disabled`');
+  expect(disabled.replace(/\s+/g, ' ')).toMatch(/Do not construct a (?:review prompt|challenge), invoke an outside CLI, dispatch an Agent\/Task fallback/);
+  expect(text.slice(indices[1], indices[2])).toContain('(skip only on `disabled`)');
+
+  const fallback = text.slice(indices[3]);
+  expect(fallback).toContain('The disabled branch never reaches this fallback.');
+  expect(fallback.replace(/\s+/g, ' ')).toContain('Otherwise, use this fallback for missing/broken CLI, failed authentication/model selection, a failed preflight, or a failed outside invocation.');
+  const dispatch = fallback.indexOf('Dispatch via the Agent tool');
+  expect(dispatch).toBeGreaterThan(0);
+  const recheck = fallback.slice(0, dispatch);
+  expect(recheck).toContain('Immediately before dispatching, check the preflight result again.');
+  expect(recheck).toContain('`CODEX_MODE: disabled`, finish this section with `outside_status: disabled`;');
+  expect(recheck).toContain('do not dispatch.');
+  expect(fallback).toContain('CLI availability or a native fallback does not count as outside completion.');
+}
+
 describe('workflow judge excerpts', () => {
   test('helper changes select all dependent workflow judges', () => {
     const selected = selectTests(['test/helpers/workflow-excerpt.ts'], LLM_JUDGE_TOUCHFILES, []).selected;
@@ -85,9 +107,15 @@ describe('workflow judge excerpts', () => {
   test('documentation review precedes publication and keeps changelog protection', () => {
     const text = readWorkflowExcerpt('document-release/SKILL.md', '# Document Release:', '## Important Rules');
     expect(text).toContain('DOC_DIFF_BASE=$(git merge-base origin/<base> HEAD 2>/dev/null || git merge-base <base> HEAD) || exit 1');
-    expect(text.indexOf('## Codex Documentation Review')).toBeLessThan(text.indexOf('## Step 9:'));
-    expect(text).toContain('no in-host substitute is defined here');
-    expect(text).toContain('all Claude fallback modes');
+    const reviewStart = text.indexOf('## Codex Documentation Review');
+    const commit = text.indexOf('## Step 9:');
+    expect(reviewStart).toBeGreaterThanOrEqual(0);
+    expect(commit).toBeGreaterThan(reviewStart);
+    const review = text.slice(reviewStart, commit);
+    expectOutsideReviewControlFlow(review, '**Construct the doc-review prompt**');
+    expect(review).toContain('Skip the apply gate, persist `status: unavailable`, `outside_status: unavailable`, and `source: none`');
+    expect(review).toContain('present the findings, then use AskUserQuestion ONCE:');
+    expect(review).toContain('On A or per-finding approvals, make the approved edits yourself');
     expect(text).toContain('Step 9 then commits and pushes those edits');
     expect(text).toContain('Entries scoring <2 need attention, not replacement');
     expect(text).not.toContain('Flag and rewrite');
@@ -98,8 +126,9 @@ describe('workflow judge excerpts', () => {
     const eng = readWorkflowExcerpt('plan-eng-review/SKILL.md', '## Review Sections', '## CRITICAL RULE');
     expect(eng.indexOf('## Confidence Calibration')).toBeLessThan(eng.indexOf('### 1. Architecture review'));
     expect(eng).toContain('quote the motivating plan requirement');
-    expect(eng).toContain('including all Claude fallback modes');
-    expect(eng).toContain('no in-host substitute is defined here');
+    expectOutsideReviewControlFlow(eng, '**Construct the plan review prompt**');
+    expect(eng).toContain('Do NOT auto-incorporate outside voice recommendations into the plan.');
+    expect(eng).toContain('MUST NOT apply the change without\nexplicit user approval.');
     const design = readWorkflowExcerpt('plan-design-review/SKILL.md', '## Review Sections', '## CRITICAL RULE');
     expect(design).toContain('wait for approval, then edit the plan and re-rate');
     const pass4 = design.slice(design.indexOf('### Pass 4:'), design.indexOf('### Pass 5:'));

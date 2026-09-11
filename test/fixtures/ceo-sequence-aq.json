@@ -1,0 +1,115 @@
+{
+  "sourceCommit": "3bc3495400e3d1fff0ba1ac0364bc460c4a69066",
+  "publicObservationSHA256": "57b688fa8ae42beeb8c0dc4b5d87d9cb659c36fcf6e06b547398a96343abf43c",
+  "scope": "Exact completed public first three native calls only. Original first paid failure remains no_review_questions. Offline tests confer no paid coverage.",
+  "calls": [
+    {
+      "sessionId": "1376e1f5-9ab1-4a0a-9919-d512612674d4",
+      "toolUseId": "toolu_01NvUuh549ctBpZy7EwzU61r",
+      "questions": [
+        {
+          "question": "gstack setup: gstack works best when your project's CLAUDE.md includes skill routing rules (e.g. \"Strategy/scope → /plan-ceo-review\", \"Bugs → /investigate\"). Note: plan mode forbids editing CLAUDE.md or committing right now, so choosing A records it as a post-review follow-up rather than editing immediately. Add routing rules?",
+          "header": "CLAUDE.md",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "Record a follow-up to append the gstack skill routing section to CLAUDE.md and commit it once plan mode ends."
+            },
+            {
+              "label": "No thanks",
+              "description": "Invoke skills manually. Sets routing_declined=true so this prompt never fires again for this project."
+            }
+          ]
+        },
+        {
+          "question": "gstack setup: gstack can search learnings from your other projects on this machine to find patterns that apply here. Stays local, no data leaves your machine. Recommended for solo developers; skip if you work on multiple client codebases where cross-contamination is a concern. Enable cross-project learnings?",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "Sets cross_project_learnings=true; learnings search spans all local projects."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Sets cross_project_learnings=false; learnings stay per-project."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack setup: gstack works best when your project's CLAUDE.md includes skill routing rules (e.g. \"Strategy/scope → /plan-ceo-review\", \"Bugs → /investigate\"). Note: plan mode forbids editing CLAUDE.md or committing right now, so choosing A records it as a post-review follow-up rather than editing immediately. Add routing rules?": "Add routing rules (recommended)",
+        "gstack setup: gstack can search learnings from your other projects on this machine to find patterns that apply here. Stays local, no data leaves your machine. Recommended for solo developers; skip if you work on multiple client codebases where cross-contamination is a concern. Enable cross-project learnings?": "Enable cross-project (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:13:13.835Z"
+    },
+    {
+      "sessionId": "1376e1f5-9ab1-4a0a-9919-d512612674d4",
+      "toolUseId": "toolu_01NJ989HohJuknCfsjj4RnCK",
+      "questions": [
+        {
+          "question": "D1 — How should the new handler be wired: through WebhookDispatcher, beside it, or by modifying the prior handler?\nProject/branch/task: main, PLAN.md \"Payment Processing Integration\"; the plan itself marks this open (\"whether to add a separate implementation or reuse WebhookDispatcher remains open\").\nELI10: Stripe tells your server \"this payment succeeded.\" Something routes that message to the code that marks the user paid and emails a receipt. You already have a router (WebhookDispatcher) and a set of safety checks (signature, dedup, per-user lock, ownership) that the plan says the new handler \"runs inside.\" The plan also says the new handler bypasses the router for namespace separation. Both statements only hold if every check sits upstream of the router, which the plan never establishes.\nStakes if we pick wrong: the new handler either runs without the dedup/lock guarantees the whole plan leans on, or you maintain two routing paths and two rollback paths forever.\nRecommendation: B because the approved `Webhooks::` name already delivers the namespace separation, and dispatcher registration is the only wiring where \"runs inside unchanged guards\" is true by construction rather than by re-proof.\nCompleteness: A=5/10, B=9/10, C=5/10\nPros / cons:\nA) Modify the prior handler in place, no new class (human: ~4h / CC: ~10 min)\n  ✅ Smallest possible diff: one existing file changes, no registration edit\n  ✅ Single routing path, zero chance of a second path drifting from the first\n  ❌ Breaks the retained rollback: the flag cannot switch back to \"the prior handler\" once it is rewritten; rollback becomes a code revert\n  ❌ Outcome traces lose the prior/new handler identity the plan relies on for rollout attribution\nB) New Webhooks::StripePaymentWebhookHandler registered through WebhookDispatcher (recommended) (human: ~1 day / CC: ~20 min)\n  ✅ Signature, dedup, per-user lock, ownership and unknown-user guards apply by construction; nothing to re-prove\n  ✅ Feature flag flips the dispatcher target between prior and new handler, so the documented rollback stays valid as written\n  ❌ Requires one edit to the dispatcher's registration table instead of leaving it untouched\nC) New class wired directly into ingress, bypassing WebhookDispatcher, plan as written (human: ~2 days / CC: ~40 min)\n  ✅ Dispatcher code stays untouched; the handler is fully self-contained\n  ✅ Matches the plan's literal \"clean namespace separation\" wording\n  ❌ Second routing path: every retained guard must be re-verified on the bypass route, and the flag/rollback path must be rebuilt for it\n  ❌ Plan does not say where the dispatcher sits relative to the event guard and lock, so \"runs inside unchanged guards\" is unproven on this path\nNet: one line in the dispatcher's registration table versus re-proving every retained guarantee on a second route.",
+          "header": "D1 Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B) Dispatcher-registered (Recommended)",
+              "description": "New Webhooks::StripePaymentWebhookHandler registered via WebhookDispatcher; flag toggles dispatcher target. Completeness 9/10."
+            },
+            {
+              "label": "A) Modify prior handler",
+              "description": "Rewrite the prior handler in place, no new class. Breaks flag rollback to prior handler. Completeness 5/10."
+            },
+            {
+              "label": "C) Bypass dispatcher",
+              "description": "Standalone class wired into ingress as the plan sketches; second routing path. Completeness 5/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — How should the new handler be wired: through WebhookDispatcher, beside it, or by modifying the prior handler?\nProject/branch/task: main, PLAN.md \"Payment Processing Integration\"; the plan itself marks this open (\"whether to add a separate implementation or reuse WebhookDispatcher remains open\").\nELI10: Stripe tells your server \"this payment succeeded.\" Something routes that message to the code that marks the user paid and emails a receipt. You already have a router (WebhookDispatcher) and a set of safety checks (signature, dedup, per-user lock, ownership) that the plan says the new handler \"runs inside.\" The plan also says the new handler bypasses the router for namespace separation. Both statements only hold if every check sits upstream of the router, which the plan never establishes.\nStakes if we pick wrong: the new handler either runs without the dedup/lock guarantees the whole plan leans on, or you maintain two routing paths and two rollback paths forever.\nRecommendation: B because the approved `Webhooks::` name already delivers the namespace separation, and dispatcher registration is the only wiring where \"runs inside unchanged guards\" is true by construction rather than by re-proof.\nCompleteness: A=5/10, B=9/10, C=5/10\nPros / cons:\nA) Modify the prior handler in place, no new class (human: ~4h / CC: ~10 min)\n  ✅ Smallest possible diff: one existing file changes, no registration edit\n  ✅ Single routing path, zero chance of a second path drifting from the first\n  ❌ Breaks the retained rollback: the flag cannot switch back to \"the prior handler\" once it is rewritten; rollback becomes a code revert\n  ❌ Outcome traces lose the prior/new handler identity the plan relies on for rollout attribution\nB) New Webhooks::StripePaymentWebhookHandler registered through WebhookDispatcher (recommended) (human: ~1 day / CC: ~20 min)\n  ✅ Signature, dedup, per-user lock, ownership and unknown-user guards apply by construction; nothing to re-prove\n  ✅ Feature flag flips the dispatcher target between prior and new handler, so the documented rollback stays valid as written\n  ❌ Requires one edit to the dispatcher's registration table instead of leaving it untouched\nC) New class wired directly into ingress, bypassing WebhookDispatcher, plan as written (human: ~2 days / CC: ~40 min)\n  ✅ Dispatcher code stays untouched; the handler is fully self-contained\n  ✅ Matches the plan's literal \"clean namespace separation\" wording\n  ❌ Second routing path: every retained guard must be re-verified on the bypass route, and the flag/rollback path must be rebuilt for it\n  ❌ Plan does not say where the dispatcher sits relative to the event guard and lock, so \"runs inside unchanged guards\" is unproven on this path\nNet: one line in the dispatcher's registration table versus re-proving every retained guarantee on a second route.": "B) Dispatcher-registered (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:16:53.889Z"
+    },
+    {
+      "sessionId": "1376e1f5-9ab1-4a0a-9919-d512612674d4",
+      "toolUseId": "toolu_01VfuQjGSM34qvyz6Y3mYuHR",
+      "questions": [
+        {
+          "question": "D2 — In what order does the handler run lookup, orders load, user update, and receipt send, and where does the DB transaction end?\nProject/branch/task: main, PLAN.md; the plan lists the steps (\"hits the database for the user, then fetches each order\", \"update the user record AND fire a notification email\") but never fixes the order or the commit point.\nELI10: The handler does four things. If the payment update is committed before the slow parts (loading orders, the up-to-1-second email call), a slow or failing email can never undo or delay marking the user paid. If everything sits in one transaction, an email timeout rolls back a payment Stripe already collected. If the order is left to the implementer, the orders load can eat the 2-second DB budget before the update even runs.\nStakes if we pick wrong: a user who paid stays unpaid until Stripe's retry schedule catches up, or the DB connection pool is held hostage to the mail provider's latency.\nRecommendation: A because the retained dedup guard already keys completion on the DB commit, and the runbook's \"never replay the payment blindly\" rule only works if the payment commit is independent of the notification leg. Maps to \"explicit over clever\" and \"plan for partial states.\"\nCompleteness: A=9/10, B=6/10, C=4/10\nPros / cons:\nA) lookup + update in one transaction, commit, then single orders query, then receipt; all under the per-user lock (recommended) (human: ~2h / CC: ~10 min)\n  ✅ Payment commit never waits behind the orders load or the 1s mail deadline; DB connection released before the mail call\n  ✅ If orders load or mail fails after commit, a Stripe retry re-runs an idempotent update and the mail idempotency key prevents a second receipt\n  ❌ Two DB round trips (transaction, then orders) instead of one; the orders query result is a snapshot taken after the payment commit\nB) One transaction around lookup, orders, update and email; commit after the send (human: ~1h / CC: ~5 min)\n  ✅ Single transaction, simplest mental model for the implementer\n  ✅ Receipt and payment status always agree at commit time\n  ❌ A MailTimeout rolls back a payment Stripe already succeeded on; user stays unpaid until retry, violating the runbook's separation of payment and notification\n  ❌ DB transaction and connection held for up to 1s of mail latency on every webhook, multiplying pool pressure under load\nC) Leave order as sketched (lookup, orders loop, update, email) with no explicit transaction boundary (human: ~1h / CC: ~5 min)\n  ✅ No decision to make now; matches the plan text literally\n  ✅ Zero additional design in the plan document\n  ❌ A user with many orders can exhaust the 2s DB deadline before the update runs, so the payment is never marked and every Stripe retry fails the same way\n  ❌ Implementer decides commit semantics ad hoc; the dedup guard's \"after commit\" contract has no defined commit to key on\nNet: two explicit DB round trips versus coupling the payment commit to the mail provider or leaving the commit point undefined.",
+          "header": "D2 Sequence",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Commit payment first (Recommended)",
+              "description": "Transaction: lookup + update, commit. Then one orders query, then receipt send. All under the per-user lock. Completeness 9/10."
+            },
+            {
+              "label": "B) One big transaction",
+              "description": "Lookup, orders, update, email in one transaction; commit after the send. Completeness 6/10."
+            },
+            {
+              "label": "C) Leave as sketched",
+              "description": "Lookup, orders loop, update, email; no explicit commit point. Completeness 4/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — In what order does the handler run lookup, orders load, user update, and receipt send, and where does the DB transaction end?\nProject/branch/task: main, PLAN.md; the plan lists the steps (\"hits the database for the user, then fetches each order\", \"update the user record AND fire a notification email\") but never fixes the order or the commit point.\nELI10: The handler does four things. If the payment update is committed before the slow parts (loading orders, the up-to-1-second email call), a slow or failing email can never undo or delay marking the user paid. If everything sits in one transaction, an email timeout rolls back a payment Stripe already collected. If the order is left to the implementer, the orders load can eat the 2-second DB budget before the update even runs.\nStakes if we pick wrong: a user who paid stays unpaid until Stripe's retry schedule catches up, or the DB connection pool is held hostage to the mail provider's latency.\nRecommendation: A because the retained dedup guard already keys completion on the DB commit, and the runbook's \"never replay the payment blindly\" rule only works if the payment commit is independent of the notification leg. Maps to \"explicit over clever\" and \"plan for partial states.\"\nCompleteness: A=9/10, B=6/10, C=4/10\nPros / cons:\nA) lookup + update in one transaction, commit, then single orders query, then receipt; all under the per-user lock (recommended) (human: ~2h / CC: ~10 min)\n  ✅ Payment commit never waits behind the orders load or the 1s mail deadline; DB connection released before the mail call\n  ✅ If orders load or mail fails after commit, a Stripe retry re-runs an idempotent update and the mail idempotency key prevents a second receipt\n  ❌ Two DB round trips (transaction, then orders) instead of one; the orders query result is a snapshot taken after the payment commit\nB) One transaction around lookup, orders, update and email; commit after the send (human: ~1h / CC: ~5 min)\n  ✅ Single transaction, simplest mental model for the implementer\n  ✅ Receipt and payment status always agree at commit time\n  ❌ A MailTimeout rolls back a payment Stripe already succeeded on; user stays unpaid until retry, violating the runbook's separation of payment and notification\n  ❌ DB transaction and connection held for up to 1s of mail latency on every webhook, multiplying pool pressure under load\nC) Leave order as sketched (lookup, orders loop, update, email) with no explicit transaction boundary (human: ~1h / CC: ~5 min)\n  ✅ No decision to make now; matches the plan text literally\n  ✅ Zero additional design in the plan document\n  ❌ A user with many orders can exhaust the 2s DB deadline before the update runs, so the payment is never marked and every Stripe retry fails the same way\n  ❌ Implementer decides commit semantics ad hoc; the dedup guard's \"after commit\" contract has no defined commit to key on\nNet: two explicit DB round trips versus coupling the payment commit to the mail provider or leaving the commit point undefined.": "A) Commit payment first (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:17:57.762Z"
+    }
+  ]
+}

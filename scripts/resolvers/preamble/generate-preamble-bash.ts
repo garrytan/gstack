@@ -35,7 +35,13 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
   // through $HOME instead (env-var hosts already use $GSTACK_BIN).
   const shellPath = (p: string) => p.replace(/^~\//, '$HOME/');
 
-  return `## Preamble (run first)
+  const entry = ['plan-design-review', 'plan-eng-review'].includes(ctx.skillName)
+    ? `## Preamble (after scope gate)
+
+**Before the command below:** resolve the Scope gate above. If the gate asks a question, wait for its answer.`
+    : '## Preamble (run first)';
+
+  return `${entry}
 
 \`\`\`bash
 ${runtimeRoot}_SS="${shellPath(ctx.paths.binDir)}/gstack-skill-start"

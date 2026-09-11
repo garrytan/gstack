@@ -2,7 +2,37 @@
 
 **Anti-skip rule:** Never condense, abbreviate, or skip any review section (1-11) regardless of plan type (strategy, spec, code, infra). Every section in this skill exists for a reason. "This is a strategy doc so implementation sections don't apply" is always wrong — implementation details are where strategy breaks down. If a section genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
-{{ANTI_SHORTCUT_CLAUSE}}
+**Carry decisions across sections.** Track each finding by its failure mode and
+individually approved remedy. Selecting a scope or approach alone does not approve
+every finding within it; each unresolved finding still needs its first individual
+decision, unless the user explicitly already approved those particular changes.
+Before raising a finding, check the existing contract and the
+user's earlier decisions. Present a complete remedy for that one issue, including
+the validation and failure observability needed to prove it works. Do not split
+those consequences of the same remedy into repeated approval questions. Keep
+independent issues separate, even when they affect the same component or test.
+
+When a later section encounters the same issue, verify and reference the approved
+remedy. Do not reopen it merely to restate the fix or suggest an alternative with
+no evidenced requirement. New evidence that leaves a failure mode unresolved
+still needs its own decision; explain what the earlier remedy does not cover.
+This does not approve an unraised finding or a new TODO: continue to present each
+new finding and each potential TODO individually under the rules below.
+
+**Preserve accepted requirements.** Compare the implementation with the stated
+invariants and acceptance criteria. If they conflict, report an implementation
+gap and propose a remedy that meets the requirement. In HOLD SCOPE, that work is
+in scope even when the sketch omits the necessary mechanism. A sketch describes
+what is proposed; it does not authorize weakening the required behavior.
+Do not resolve the gap by rewriting the guarantee, calling the violation
+acceptable, or changing a test to expect the prohibited result. Low frequency,
+bounded impact, and documentation do not satisfy a stricter requirement.
+Changing a requirement needs an explicit decision under the existing approval
+rules; until approved, keep that proposal pending and the original gap unresolved.
+Earlier explicitly approved requirement changes and explicit authority to change
+that scope remain valid. Routine auto-decide permission alone cannot override an
+explicit user constraint or non-goal. Preserve the distinction in findings, tasks,
+and the completion report.
 
 ### Section 1: Architecture Review
 Evaluate and diagram:
@@ -91,6 +121,21 @@ This section traces data through the system and interactions through the UI with
 ```
 For each node: what happens on each shadow path? Is it tested?
 
+**Async ordering:** For flows sharing mutable state, include a combined ASCII
+schedule with one column per operation and one for shared state. For each pair
+of overlapping awaits that can affect an invariant, show both completion orders;
+exclude an order only by naming the mechanism that prevents it. At each `await`,
+callback or job handoff: pause, let a competing operation complete, resume, then
+start a fresh consumer. Show the observed result and compare it with the exact
+caller/time boundary of the stated invariant. The invariant is a requirement,
+not proof that the implementation meets it. If safe, name the mechanism that
+prevents the violating schedule. Separate flow diagrams do not prove ordering.
+One favorable schedule is insufficient. Single-thread execution and atomic calls
+do not prevent interleaving across awaits. An accepted exception needs its exact
+contract clause; bounded damage is insufficient. Test the relevant completion
+orders with controlled pause/release points. Compare relevant pairs; exhaustive
+permutations are unnecessary.
+
 **Interaction Edge Cases:** For every new user-visible interaction, evaluate:
 ```
   INTERACTION          | EDGE CASE              | HANDLED? | HOW?
@@ -153,6 +198,23 @@ For each item in the diagram:
 * What is the happy path test?
 * What is the failure path test? (Be specific — which failure?)
 * What is the edge case test? (nil, empty, boundary values, concurrent access)
+
+For each behavior, name its observable assertion and a wrong result it rejects.
+First map it to the user's exact requirement or individually approved remedy.
+A stated outcome plus its retained caller contract can already determine the
+assertion, even without assertion syntax. Translate semantic counts, conditions
+and quantifiers exactly; selecting an existing probe or spelling out that check
+is implementation work, not another approval. Never weaken an exact count to a
+lower bound. Reuse these requirements without asking again.
+
+Ask individually only for an unresolved behavioral choice, new outcome, or
+independent uncovered failure mode. Vague success labels do not settle values;
+scope/approach approval does not resolve an individual assertion gap. Helper
+coverage alone does not prove the caller's path. Explain what the existing
+requirement or approved remedy fails to cover before calling a check missing.
+Never silently add, defer or waive a missing behavioral assertion. Keep required
+behaviors mandatory unless the user explicitly approves changing them; honor
+previously accepted risks and equivalent caller coverage.
 
 Test ambition check (all modes): For each new feature, answer:
 * What's the test that would make you confident shipping at 2am on a Friday?
@@ -270,11 +332,21 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * Describe the problem concretely, with file and line references.
 * Present 2-3 options, including "do nothing" where reasonable.
 * For each option: effort, risk, and maintenance burden in one line.
+* Before calling AskUserQuestion, draft the recommended option as a complete remedy
+  for this one issue. Its offered description must state the rescue behavior,
+  verification, and failure visibility needed for that fix. Include those details
+  in the option itself. Omit irrelevant work, and keep independent findings and
+  new TODOs in their own questions.
 * **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference.
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
 * **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each finding — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan.
 
 ## Required Outputs
+
+Write the prose sections, registries, diagrams, and Markdown Implementation Tasks
+below into the active plan file, reflecting only approved changes. Also show the
+Completion Summary in the conversation. The task JSONL artifact and approved
+TODOS.md updates use their explicit destinations below.
 
 ### "NOT in scope" section
 List work considered and explicitly deferred, with one-line rationale each.
@@ -296,6 +368,14 @@ Complete table of every method that can fail, every exception class, rescued sta
 Any row with RESCUED=N, TEST=N, USER SEES=Silent → **CRITICAL GAP**.
 
 ### TODOS.md updates
+**Keep the selected mode.** In HOLD SCOPE, a potential TODO must address an
+evidenced gap in the accepted scope or its required correctness and operability.
+Hypothetical future capacity, optional features, and alternatives to an adequate
+approved remedy are expansions even when labeled TODOs; do not surface them in
+HOLD SCOPE. Still audit observability and performance against the requirements,
+and approve each real deferred gap individually. Expansion modes retain their
+expansion scan and opt-in ceremony.
+
 Present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `~/.claude/skills/gstack/review/TODOS-format.md`.
 
 For each TODO, describe:
@@ -330,11 +410,18 @@ List every ASCII diagram in files this plan touches. Still accurate?
 {{TASKS_SECTION_EMIT:ceo-review}}
 
 ### Completion Summary
+
+Use the full mode name from Step 0F; replace spaces with underscores only in the
+review log's `MODE` field. "System Audit" summarizes repository findings from
+Step 0 and the review sections. "Lake Score" counts complete options chosen
+out of decisions that compared a complete option with a shortcut; use `N/A`
+when there were no such decisions.
+
 ```
   +====================================================================+
   |            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |
   +====================================================================+
-  | Mode selected        | EXPANSION / SELECTIVE / HOLD / REDUCTION     |
+  | Mode selected        | [full mode name from Step 0F]               |
   | System Audit         | [key findings]                              |
   | Step 0               | [mode + key decisions]                      |
   | Section 1  (Arch)    | ___ issues found                            |
@@ -357,7 +444,7 @@ List every ASCII diagram in files this plan touches. Still accurate?
   | TODOS.md updates     | ___ items proposed                          |
   | Scope proposals      | ___ proposed, ___ accepted (EXP + SEL)      |
   | CEO plan             | written / skipped (HOLD/REDUCTION)           |
-  | Outside voice        | ran (codex/claude) / skipped                 |
+  | Outside voice        | provider + completed/unavailable/disabled/skipped |
   | Lake Score           | X/Y recommendations chose complete option   |
   | Diagrams produced    | ___ (list types)                            |
   | Stale diagrams found | ___                                         |
@@ -453,40 +540,23 @@ If promoted, copy the CEO plan content to `docs/designs/{FEATURE}.md` (create th
 {{BRAIN_CACHE_REFRESH}}
 
 ## Mode Quick Reference
-```
-  ┌────────────────────────────────────────────────────────────────────────────────┐
-  │                            MODE COMPARISON                                     │
-  ├─────────────┬──────────────┬──────────────┬──────────────┬────────────────────┤
-  │             │  EXPANSION   │  SELECTIVE   │  HOLD SCOPE  │  REDUCTION         │
-  ├─────────────┼──────────────┼──────────────┼──────────────┼────────────────────┤
-  │ Scope       │ Push UP      │ Hold + offer │ Maintain     │ Push DOWN          │
-  │             │ (opt-in)     │              │              │                    │
-  │ Recommend   │ Enthusiastic │ Neutral      │ N/A          │ N/A                │
-  │ posture     │              │              │              │                    │
-  │ 10x check   │ Mandatory    │ Surface as   │ Optional     │ Skip               │
-  │             │              │ cherry-pick  │              │                    │
-  │ Platonic    │ Yes          │ No           │ No           │ No                 │
-  │ ideal       │              │              │              │                    │
-  │ Delight     │ Opt-in       │ Cherry-pick  │ Note if seen │ Skip               │
-  │ opps        │ ceremony     │ ceremony     │              │                    │
-  │ Complexity  │ "Is it big   │ "Is it right │ "Is it too   │ "Is it the bare    │
-  │ question    │  enough?"    │  + what else │  complex?"   │  minimum?"         │
-  │             │              │  is tempting"│              │                    │
-  │ Taste       │ Yes          │ Yes          │ No           │ No                 │
-  │ calibration │              │              │              │                    │
-  │ Temporal    │ Full (hr 1-6)│ Full (hr 1-6)│ Key decisions│ Skip               │
-  │ interrogate │              │              │  only        │                    │
-  │ Observ.     │ "Joy to      │ "Joy to      │ "Can we      │ "Can we see if     │
-  │ standard    │  operate"    │  operate"    │  debug it?"  │  it's broken?"     │
-  │ Deploy      │ Infra as     │ Safe deploy  │ Safe deploy  │ Simplest possible  │
-  │ standard    │ feature scope│ + cherry-pick│  + rollback  │  deploy            │
-  │             │              │  risk check  │              │                    │
-  │ Error map   │ Full + chaos │ Full + chaos │ Full         │ Critical paths     │
-  │             │  scenarios   │ for accepted │              │  only              │
-  │ CEO plan    │ Written      │ Written      │ Skipped      │ Skipped            │
-  │ Phase 2/3   │ Map accepted │ Map accepted │ Note it      │ Skip               │
-  │ planning    │              │ cherry-picks │              │                    │
-  │ Design      │ "Inevitable" │ If UI scope  │ If UI scope  │ Skip               │
-  │ (Sec 11)    │  UI review   │  detected    │  detected    │                    │
-  └─────────────┴──────────────┴──────────────┴──────────────┴────────────────────┘
-```
+
+The selected mode changes scope posture, not review coverage. Review every section
+for the accepted scope; Section 11 is skipped only when that scope has no UI.
+
+| Step | SCOPE EXPANSION | SELECTIVE EXPANSION | HOLD SCOPE | SCOPE REDUCTION |
+|------|-----------------|---------------------|------------|-----------------|
+| Scope proposals | Offer additions individually | Offer cherry-picks individually | No expansions | Offer cuts individually |
+| 10x check | Required; additions need approval | Required; additions need approval | Skip | Skip |
+| Platonic ideal | Required | Skip | Skip | Skip |
+| Delight opportunities | At least 5, each opt-in | At least 5, each opt-in | Skip | Skip |
+| Complexity | Review accepted ambition | Review baseline and accepted additions | Simplest correct accepted scope | Minimum valuable scope |
+| Temporal interrogation (0E) | Run | Run | Run | Skip |
+| Error and rescue map | Full accepted scope | Full accepted scope | Full accepted scope | Full remaining scope |
+| Observability and deployment | Review all accepted requirements | Review all accepted requirements | Review all accepted requirements | Review all remaining requirements |
+| Separate CEO archive (0D-POST) | Write | Write | Skip | Skip |
+| Future direction (Section 10) | Review accepted trajectory | Review accepted cherry-picks | Review maintainability; no expansions | Review maintainability of remaining scope |
+| Design (Section 11) | Review if UI scope | Review if UI scope | Review if UI scope | Review if UI scope |
+
+All modes persist approved findings and the required outputs in the active plan.
+The separate CEO archive is additional persistence for expansion modes.

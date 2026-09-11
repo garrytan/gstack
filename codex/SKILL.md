@@ -238,6 +238,7 @@ At session start or after compaction, recover recent project context.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:-unknown}
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -263,7 +264,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** Honor listed `ACTIVE DECISIONS` and their rationale; do not silently re-litigate them, and announce planned reversals. Use `~/.claude/skills/gstack/bin/gstack-decision-search` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for reversals). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -522,11 +523,17 @@ check the requested model, including when the frontier default is unavailable.
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
-# Running-under-Codex presence probe (#2519): a live Codex session exports
-# CODEX_THREAD_ID / CODEX_SANDBOX into every shell it spawns.
-if [ "${GSTACK_FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
-  echo "UNDER_CODEX"
-elif ! _gstack_codex_auth_probe >/dev/null; then
+# GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+if ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
   echo "AUTH_FAILED"
 else
@@ -535,12 +542,7 @@ fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking
 ```
 
-If the output contains `UNDER_CODEX`, stop with exactly one line:
-"[running under Codex — /codex would nest the same model at multiplied token
-cost; skipped. Set `GSTACK_FORCE_CODEX_REVIEW=1` to force.]" The whole value
-of this skill is a SECOND model's opinion; inside a Codex host it is the same
-model reviewing itself, and nested spawns have burned 15M tokens in one
-/review (#2519).
+If the runtime guard reports a harness mismatch, stop. Outside coverage is unavailable. Repair with `./setup --host codex`; do not silently substitute another provider or force a same-harness invocation.
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
@@ -683,7 +685,9 @@ After displaying the Review Readiness Dashboard in conversation output, also upd
 ### Generate the report
 
 Read the review log output you already have from the Review Readiness Dashboard step above.
-Parse each JSONL entry. Each skill logs different fields:
+Parse each JSONL entry using recorded provenance. Historical source "claude" is a native Claude subagent; "claude-code" is the external CLI. Keep historical codex identifiers and never relabel old records from the current harness. Unknown model identity remains unknown. For new records, show host, outside_provider, outside_status, and phase. Only completed external records establish outside coverage; native fallbacks do not.
+
+Each skill logs different fields:
 
 - **plan-ceo-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`mode\`, \`scope_proposed\`, \`scope_accepted\`, \`scope_deferred\`, \`commit\`
   → Findings: "{scope_proposed} proposals, {scope_accepted} accepted, {scope_deferred} deferred"
@@ -711,17 +715,17 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
 
-Below the table, add these lines. **CODEX** and **CROSS-MODEL** are optional (omit when
+Below the table, add these lines. **OUTSIDE COVERAGE** and **CROSS-MODEL** are optional (omit when
 empty); **VERDICT** is always present:
 
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **OUTSIDE COVERAGE:** provider, phase, completion state, and findings. Include unavailable, disabled, and skipped phases; never infer completion from another phase.
+- **CROSS-MODEL:** only when native and completed external reviews exist — overlap analysis with recorded providers and known model identity. Do not infer distinct model families from harness names.
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
 
@@ -776,16 +780,16 @@ missing work — do NOT call ExitPlanMode:
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
    `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
-   once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

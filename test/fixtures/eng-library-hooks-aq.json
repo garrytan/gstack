@@ -1,0 +1,389 @@
+{
+  "provenance": {
+    "source": "Owned AQ batching first terminal public observation; exact completed native calls only.",
+    "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+    "observationSha256": "876be78de318ac242d03428715d41819ac55a52e3aaa5688202087e40462b7b5",
+    "actualOutcome": "plan_ready",
+    "actualSetupCount": 12,
+    "actualReviewCount": 0,
+    "actualVerdict": "Review count floor failed; no hypothetical replay is paid credit."
+  },
+  "calls": [
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01SJzEB2y374mroEo3xdMXVv",
+      "questions": [
+        {
+          "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so Claude knows which skill to invoke when you say things like \"review the architecture\" or \"ship this\". Without them you invoke skills by name every time. This is a one-time onboarding prompt per project.\nStakes if we pick wrong: Skipping means manual skill invocation; adding means a small committed edit to CLAUDE.md (in plan mode the write and commit are deferred until you exit plan mode).\nRecommendation: A because routing rules make the skill suite discoverable with no downside beyond a dozen lines in CLAUDE.md.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Discoverability of the skill suite versus keeping CLAUDE.md untouched.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "✅ Requests like \"review the architecture\" auto-route to the right skill without naming it.\n✅ Teammates get the same routing since CLAUDE.md is committed with the repo.\n❌ Adds a routing section to CLAUDE.md and a commit; deferred until plan mode exits."
+            },
+            {
+              "label": "No thanks, manual invocation",
+              "description": "✅ CLAUDE.md stays exactly as-is with no extra commit on main.\n✅ You keep full control over when a skill runs by typing its slash command.\n❌ Skills stay invisible unless you remember their names; this prompt will not repeat."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so Claude knows which skill to invoke when you say things like \"review the architecture\" or \"ship this\". Without them you invoke skills by name every time. This is a one-time onboarding prompt per project.\nStakes if we pick wrong: Skipping means manual skill invocation; adding means a small committed edit to CLAUDE.md (in plan mode the write and commit are deferred until you exit plan mode).\nRecommendation: A because routing rules make the skill suite discoverable with no downside beyond a dozen lines in CLAUDE.md.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Discoverability of the skill suite versus keeping CLAUDE.md untouched.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:19:11.855Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01HzFQSCZhNCUH5fNVGh7qLx",
+      "questions": [
+        {
+          "question": "D2 — No design doc found. Run /office-hours first, or proceed with the standard review?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: A design doc captures the problem statement, the premise challenge, and the alternatives you already considered. Without one, this review has to infer why you chose a custom scheduler over the job library's built-in retries. /office-hours produces that doc in about 10 minutes and gives this review sharper input. It is per-feature, not per-product.\nStakes if we pick wrong: Skipping means the review reasons from the four-paragraph plan alone; running it costs about 10 minutes before the review starts.\nRecommendation: B because this plan is small and its issues are already visible in the text; the review can proceed without the extra step.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Ten minutes of upfront problem framing versus going straight to the review.",
+          "header": "Design doc",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip, standard review (recommended)",
+              "description": "✅ Review starts now against PLAN.md with no extra ceremony for a four-section plan.\n✅ The plan's four open questions are already explicit enough to review directly.\n❌ The review infers your reasoning for the custom scheduler instead of reading it."
+            },
+            {
+              "label": "Run /office-hours now",
+              "description": "✅ Produces a structured problem statement and explored alternatives before the review.\n✅ The design doc gets committed alongside the plan for teammates to read later.\n❌ Adds roughly 10 minutes (human) before any review finding lands."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — No design doc found. Run /office-hours first, or proceed with the standard review?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: A design doc captures the problem statement, the premise challenge, and the alternatives you already considered. Without one, this review has to infer why you chose a custom scheduler over the job library's built-in retries. /office-hours produces that doc in about 10 minutes and gives this review sharper input. It is per-feature, not per-product.\nStakes if we pick wrong: Skipping means the review reasons from the four-paragraph plan alone; running it costs about 10 minutes before the review starts.\nRecommendation: B because this plan is small and its issues are already visible in the text; the review can proceed without the extra step.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Ten minutes of upfront problem framing versus going straight to the review.": "Skip, standard review (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:19:47.932Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01RGyPCtAvCzCZhXotRddhWE",
+      "questions": [
+        {
+          "question": "D3 — Architecture issue 1: custom inline scheduler vs the job library's built-in retry hooks?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: The plan rebuilds retry scheduling by hand inside each of 5 workers because it wants \"full control over the curve\" (PLAN.md:6-8). Every mainstream job library already lets you supply your own backoff function, so you can own the curve while the library owns the hard parts: persisting attempt counts across process restarts, not double-scheduling when a worker crashes mid-dispatch, and surfacing retries in its dashboard and metrics. A hand-rolled scheduler has to re-solve all of that, and the plan does not mention any of it.\nStakes if we pick wrong: A worker crash between \"compute delay\" and \"dispatch\" either loses the job or runs it twice, and no existing tooling shows you which. That is a 3am failure with no observability.\nRecommendation: 1A because it is the boring, proven layer [Layer 1] and it collapses the Code Quality duplication issue at the same time: the shared thing becomes a policy declaration, not a copy-pasted envelope. Maps to your \"engineered enough\" and DRY preferences.\nCompleteness: A=9/10, B=6/10, C=4/10\nNet: Owning the curve is cheap either way; owning attempt persistence, crash safety, and observability is what the custom scheduler silently signs you up for.",
+          "header": "Arch 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A: Library hooks + custom backoff fn (recommended)",
+              "description": "Completeness 9/10 (human: ~1 day / CC: ~20 min). ✅ Attempt counting, crash safety, and dashboard visibility come from the library for free. ✅ The backoff curve lives in one exported function, so \"full control\" is preserved and testable in isolation. ❌ You accept the library's hook shape and its retry-scheduling granularity."
+            },
+            {
+              "label": "1B: Custom scheduler, but one shared module",
+              "description": "Completeness 6/10 (human: ~3 days / CC: ~45 min). ✅ Total control over scheduling, storage, and curve with no library coupling. ✅ One module instead of 5 copies, so at least the duplication problem is avoided. ❌ You must re-implement attempt persistence, crash-safe dispatch, and metrics; each is a new failure mode nobody has tested in production."
+            },
+            {
+              "label": "1C: Proceed as written (inline in each worker)",
+              "description": "Completeness 4/10 (human: ~2 days / CC: ~30 min). ✅ Fastest path to a first retry firing in a single worker. ✅ No new abstraction to design or agree on right now. ❌ Five copies of crash-unsafe scheduling logic, each drifting independently; every bug gets fixed five times."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Architecture issue 1: custom inline scheduler vs the job library's built-in retry hooks?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: The plan rebuilds retry scheduling by hand inside each of 5 workers because it wants \"full control over the curve\" (PLAN.md:6-8). Every mainstream job library already lets you supply your own backoff function, so you can own the curve while the library owns the hard parts: persisting attempt counts across process restarts, not double-scheduling when a worker crashes mid-dispatch, and surfacing retries in its dashboard and metrics. A hand-rolled scheduler has to re-solve all of that, and the plan does not mention any of it.\nStakes if we pick wrong: A worker crash between \"compute delay\" and \"dispatch\" either loses the job or runs it twice, and no existing tooling shows you which. That is a 3am failure with no observability.\nRecommendation: 1A because it is the boring, proven layer [Layer 1] and it collapses the Code Quality duplication issue at the same time: the shared thing becomes a policy declaration, not a copy-pasted envelope. Maps to your \"engineered enough\" and DRY preferences.\nCompleteness: A=9/10, B=6/10, C=4/10\nNet: Owning the curve is cheap either way; owning attempt persistence, crash safety, and observability is what the custom scheduler silently signs you up for.": "1A: Library hooks + custom backoff fn (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:21:37.232Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_019vjqCzrSVWqqATKwqMpZsy",
+      "questions": [
+        {
+          "question": "D4 — Architecture issue 2: retries turn processWebhookJob from at-most-once into at-least-once. What is the new delivery contract?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: Today the webhook flow promises at-most-once delivery (PLAN.md:16-18): a receiver never gets the same event twice, at the cost of sometimes getting it zero times. The moment you retry a webhook that timed out, you can no longer tell whether the receiver already processed it, so retries make delivery at-least-once. That is a contract change for every downstream receiver, not an internal detail. The plan rewrites the flow without saying which guarantee it now offers or how receivers dedupe.\nStakes if we pick wrong: A payment or provisioning webhook fires twice after a slow receiver times out; the receiver double-charges or double-creates and blames you. Silent, and only visible in a customer's data.\nRecommendation: 2A because industry practice is at-least-once plus an idempotency key, and it is the only option that lets webhooks benefit from retries safely. Maps to your \"handle more edge cases\" preference.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: Retries without an idempotency key trade lost events for duplicate events; only the key makes the trade a pure win.",
+          "header": "Arch 2",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A: At-least-once + idempotency key (recommended)",
+              "description": "Completeness 10/10 (human: ~1.5 days / CC: ~30 min). ✅ Every delivery attempt carries a stable event id header so receivers can dedupe; documented as the new contract. ✅ Webhooks finally survive transient receiver outages instead of being dropped. ❌ Receivers must be told to dedupe on the event id; a docs and changelog update ships with the code."
+            },
+            {
+              "label": "2B: Exclude webhooks from retries",
+              "description": "Completeness 7/10 (human: ~2 hours / CC: ~10 min). ✅ The at-most-once guarantee stays exactly as it is; zero contract change for receivers. ✅ Smallest diff to the webhook path, so the rewrite in PLAN.md:16 may not be needed at all. ❌ Webhook delivery stays lossy on transient failures; retries help every worker except the one users notice most."
+            },
+            {
+              "label": "2C: Retry webhooks, no idempotency key",
+              "description": "Completeness 3/10 (human: ~1 hour / CC: ~5 min). ✅ Webhooks get retries with no extra header or documentation work. ✅ Nothing to coordinate with receivers up front. ❌ Duplicate deliveries with no way for receivers to detect them; this is the double-charge scenario."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Architecture issue 2: retries turn processWebhookJob from at-most-once into at-least-once. What is the new delivery contract?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: Today the webhook flow promises at-most-once delivery (PLAN.md:16-18): a receiver never gets the same event twice, at the cost of sometimes getting it zero times. The moment you retry a webhook that timed out, you can no longer tell whether the receiver already processed it, so retries make delivery at-least-once. That is a contract change for every downstream receiver, not an internal detail. The plan rewrites the flow without saying which guarantee it now offers or how receivers dedupe.\nStakes if we pick wrong: A payment or provisioning webhook fires twice after a slow receiver times out; the receiver double-charges or double-creates and blames you. Silent, and only visible in a customer's data.\nRecommendation: 2A because industry practice is at-least-once plus an idempotency key, and it is the only option that lets webhooks benefit from retries safely. Maps to your \"handle more edge cases\" preference.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: Retries without an idempotency key trade lost events for duplicate events; only the key makes the trade a pure win.": "2A: At-least-once + idempotency key (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:22:10.837Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01JkUywLxa1MsUTmwK7yXmvH",
+      "questions": [
+        {
+          "question": "D5 — Architecture issue 3: the plan defines a backoff curve but no retry policy. What happens at the edges: max attempts, jitter, and when retries run out?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md:6-8 describes only the shape of the delay curve. A retry policy also needs three more answers: how many attempts before you give up, whether delays get randomized (jitter) so a thousand jobs that failed together do not all retry in the same second, and where a job goes when it finally fails for good (dead-letter queue with an alert, or silently discarded). Without these, \"exponential backoff\" is either infinite or undefined, and the first downstream outage becomes a synchronized retry storm against the recovering service.\nStakes if we pick wrong: A dependency comes back from an outage and your workers hit it with every queued retry at once, knocking it over again; or jobs silently vanish after the last attempt and nobody is paged.\nRecommendation: 3A because jitter, a cap, and a dead-letter path are the three things every production retry guide lists, and with the library hooks from 1A they are mostly configuration. Maps to your \"explicit over clever\" and edge-case preferences.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: The curve is the easy 20%; the cap, the jitter, and the dead-letter path are what make retries safe to turn on.",
+          "header": "Arch 3",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A: Full policy: cap + jitter + dead-letter + alert (recommended)",
+              "description": "Completeness 10/10 (human: ~1 day / CC: ~20 min). ✅ Terminal failures land in a dead-letter queue with an alert, so nothing vanishes silently at 3am. ✅ Full jitter breaks up retry storms, and a per-job-type attempt cap bounds worst-case work. ❌ One more policy object to declare per worker type and one alert route to wire up."
+            },
+            {
+              "label": "3B: Cap + jitter, no dead-letter",
+              "description": "Completeness 6/10 (human: ~3 hours / CC: ~10 min). ✅ Bounded retries and no synchronized retry storms with minimal extra code. ✅ No new queue or alert route to operate. ❌ A job that exhausts its attempts is logged and dropped; recovery means grepping logs and re-enqueuing by hand."
+            },
+            {
+              "label": "3C: Curve only, as written",
+              "description": "Completeness 2/10 (human: ~0 / CC: ~0). ✅ Nothing beyond what the plan already specifies. ✅ Ships the fastest. ❌ Deterministic delays cause retry storms, and with no cap or terminal path, failure behavior is undefined."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Architecture issue 3: the plan defines a backoff curve but no retry policy. What happens at the edges: max attempts, jitter, and when retries run out?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md:6-8 describes only the shape of the delay curve. A retry policy also needs three more answers: how many attempts before you give up, whether delays get randomized (jitter) so a thousand jobs that failed together do not all retry in the same second, and where a job goes when it finally fails for good (dead-letter queue with an alert, or silently discarded). Without these, \"exponential backoff\" is either infinite or undefined, and the first downstream outage becomes a synchronized retry storm against the recovering service.\nStakes if we pick wrong: A dependency comes back from an outage and your workers hit it with every queued retry at once, knocking it over again; or jobs silently vanish after the last attempt and nobody is paged.\nRecommendation: 3A because jitter, a cap, and a dead-letter path are the three things every production retry guide lists, and with the library hooks from 1A they are mostly configuration. Maps to your \"explicit over clever\" and edge-case preferences.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: The curve is the easy 20%; the cap, the jitter, and the dead-letter path are what make retries safe to turn on.": "3A: Full policy: cap + jitter + dead-letter + alert (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:22:40.436Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_018ZBZ2EaRYdoDCQ7MJ8shQk",
+      "questions": [
+        {
+          "question": "D6 — Code Quality issue 4: the retry envelope is copy-pasted across 5 workers and the plan says refactor \"later\". Where does the shared retry code live?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md:11-13 admits the compute-delay / log-attempt / dispatch envelope is duplicated in 5 worker files and defers the cleanup. With decision 1A the library owns dispatch, but the policy declaration, the backoff function, the attempt logging, and the dead-letter hook still need one home. \"Later\" refactors of copy-pasted bodies do not happen; the copies drift and every bug fix is applied five times, or four.\nStakes if we pick wrong: A jitter or cap fix lands in three of five workers; the other two keep storming a recovering dependency and nobody notices until the next incident.\nRecommendation: 4A because a single retry module is the smallest diff that removes the duplication, and with 1A it is mostly one policy type, one backoff function, and one logging hook. Maps directly to your DRY preference.\nCompleteness: A=10/10, B=5/10, C=2/10\nNet: One module versus five bodies to keep in sync; the refactor is cheaper now than after five divergent copies exist.",
+          "header": "Quality 4",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A: One retry module, workers declare policy (recommended)",
+              "description": "Completeness 10/10 (human: ~half day / CC: ~15 min). ✅ `retry/policy`, `retry/backoff`, and `retry/hooks` are written once and unit-tested once. ✅ Each worker shrinks to a one-line policy declaration, so adding a sixth worker is trivial. ❌ One new module directory to review and name well up front."
+            },
+            {
+              "label": "4B: Shared backoff fn only, envelopes stay per-worker",
+              "description": "Completeness 5/10 (human: ~2 hours / CC: ~5 min). ✅ The curve math is shared, so at least the jitter and cap cannot drift. ✅ Minimal touch to existing worker structure. ❌ Logging and dead-letter handling remain five copies that will diverge."
+            },
+            {
+              "label": "4C: Leave duplication, refactor later (as written)",
+              "description": "Completeness 2/10 (human: ~0 / CC: ~0). ✅ No refactor work in this change at all. ✅ Each worker can be reviewed in isolation. ❌ Five copies of retry logic from day one; \"later\" has no owner or trigger."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Code Quality issue 4: the retry envelope is copy-pasted across 5 workers and the plan says refactor \"later\". Where does the shared retry code live?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md:11-13 admits the compute-delay / log-attempt / dispatch envelope is duplicated in 5 worker files and defers the cleanup. With decision 1A the library owns dispatch, but the policy declaration, the backoff function, the attempt logging, and the dead-letter hook still need one home. \"Later\" refactors of copy-pasted bodies do not happen; the copies drift and every bug fix is applied five times, or four.\nStakes if we pick wrong: A jitter or cap fix lands in three of five workers; the other two keep storming a recovering dependency and nobody notices until the next incident.\nRecommendation: 4A because a single retry module is the smallest diff that removes the duplication, and with 1A it is mostly one policy type, one backoff function, and one logging hook. Maps directly to your DRY preference.\nCompleteness: A=10/10, B=5/10, C=2/10\nNet: One module versus five bodies to keep in sync; the refactor is cheaper now than after five divergent copies exist.": "4A: One retry module, workers declare policy (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:23:12.044Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_0191tdpQibjkx6AC5CTdRHXt",
+      "questions": [
+        {
+          "question": "D7 — Code Quality issue 5: the plan retries every failure the same way. Should errors be classified retryable vs non-retryable?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md never distinguishes kinds of failure. A webhook receiver returning 503 or timing out should be retried. A receiver returning 400, 401, 404, or 410 Gone will return it again on every attempt, so retrying it eight times over 24 hours wastes work, floods their logs, and delays the dead-letter alert that would actually get it fixed. Likewise a job that fails on a malformed payload or a missing record will never succeed on retry. A `classify(error)` step decides which path a failure takes.\nStakes if we pick wrong: Permanently broken jobs burn the full retry budget before anyone is alerted, and a deleted webhook endpoint gets hammered for a day.\nRecommendation: 5A because it is a small pure function with an explicit table of rules, and it is what makes the dead-letter alert from 3A fire promptly instead of a day late. Maps to your explicit-over-clever and edge-case preferences.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: Retrying everything is simpler to write and wrong for roughly half of real failures; the classifier is a dozen lines.",
+          "header": "Quality 5",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A: Explicit classifier per policy (recommended)",
+              "description": "Completeness 10/10 (human: ~3 hours / CC: ~10 min). ✅ Explicit table: network errors and 5xx/429 retry; 4xx (except 408/429), validation, and missing-record errors go straight to dead-letter. ✅ 429 and Retry-After are honored as an exact delay, overriding the curve. ❌ One more rule table to maintain when new error types appear."
+            },
+            {
+              "label": "5B: Retry all, but honor Retry-After only",
+              "description": "Completeness 6/10 (human: ~1 hour / CC: ~5 min). ✅ Rate-limit responses are respected, which is the most common special case. ✅ Less classification logic to argue about up front. ❌ Permanent 4xx and bad-payload failures still consume the full retry budget before alerting."
+            },
+            {
+              "label": "5C: Retry everything identically (as written)",
+              "description": "Completeness 3/10 (human: ~0 / CC: ~0). ✅ Simplest possible policy with no error taxonomy. ✅ No risk of mis-classifying a transient error as permanent. ❌ A 410 Gone endpoint is retried eight times over a day; dead-letter alerts arrive a day late."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Code Quality issue 5: the plan retries every failure the same way. Should errors be classified retryable vs non-retryable?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md never distinguishes kinds of failure. A webhook receiver returning 503 or timing out should be retried. A receiver returning 400, 401, 404, or 410 Gone will return it again on every attempt, so retrying it eight times over 24 hours wastes work, floods their logs, and delays the dead-letter alert that would actually get it fixed. Likewise a job that fails on a malformed payload or a missing record will never succeed on retry. A `classify(error)` step decides which path a failure takes.\nStakes if we pick wrong: Permanently broken jobs burn the full retry budget before anyone is alerted, and a deleted webhook endpoint gets hammered for a day.\nRecommendation: 5A because it is a small pure function with an explicit table of rules, and it is what makes the dead-letter alert from 3A fire promptly instead of a day late. Maps to your explicit-over-clever and edge-case preferences.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: Retrying everything is simpler to write and wrong for roughly half of real failures; the classifier is a dozen lines.": "5A: Explicit classifier per policy (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:23:39.654Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01LN7SWs1K8KrxrrdM2WLqzS",
+      "questions": [
+        {
+          "question": "D8 — Test issue 6: the plan has zero tests and 26 untested paths. How much of the coverage diagram goes into the plan as required work?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: The coverage diagram in the plan file shows 26 paths with no test: the backoff math, the error classifier, the reschedule/dead-letter hook, the five workers, and three end-to-end webhook flows. Two of them are regressions on the rewritten webhook flow and are already required by the review's regression rule, no vote needed. The question is everything else. With CC, unit tests for a pure backoff function and a classifier table are minutes each; the E2E webhook tests need a fake receiver but are the only tests that prove the idempotency contract actually holds on the wire.\nStakes if we pick wrong: Retry logic is exactly the code that only runs when something is already wrong; untested branches there surface during incidents, not in CI.\nRecommendation: 6A because retry code is incident-time code and the marginal cost with CC is small. Maps to your \"too many tests over too few\" preference.\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: The two regression tests are already in; the remaining 24 cost about an hour of CC time and are the difference between a retry framework you trust and one you hope works.",
+          "header": "Tests 6",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "6A: All 26 paths incl. 3 E2E + restart test (recommended)",
+              "description": "Completeness 10/10 (human: ~2.5 days / CC: ~1 hour). ✅ Every branch of backoff, classify, and hooks is unit-tested with an injectable rng and fake clock. ✅ Three E2E flows against a fake receiver prove same-event_id retries, 2xx-never-retried, and 410-goes-dead on the wire. ❌ Needs a fake HTTP receiver fixture and a worker-restart harness; the largest test investment of the three options."
+            },
+            {
+              "label": "6B: Regressions + unit tests, skip E2E",
+              "description": "Completeness 7/10 (human: ~1 day / CC: ~25 min). ✅ Backoff, classifier, and hook branches all covered at unit level. ✅ No new HTTP fixture or restart harness to build. ❌ The idempotency contract and crash-safety are asserted only via mocks, which is where integration bugs hide."
+            },
+            {
+              "label": "6C: Regressions only",
+              "description": "Completeness 4/10 (human: ~2 hours / CC: ~10 min). ✅ The two mandatory regression tests ship, guarding the webhook contract change. ✅ Fastest path to green CI. ❌ Backoff math, jitter, cap, classifier, and dead-letter paths stay untested until an incident exercises them."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Test issue 6: the plan has zero tests and 26 untested paths. How much of the coverage diagram goes into the plan as required work?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: The coverage diagram in the plan file shows 26 paths with no test: the backoff math, the error classifier, the reschedule/dead-letter hook, the five workers, and three end-to-end webhook flows. Two of them are regressions on the rewritten webhook flow and are already required by the review's regression rule, no vote needed. The question is everything else. With CC, unit tests for a pure backoff function and a classifier table are minutes each; the E2E webhook tests need a fake receiver but are the only tests that prove the idempotency contract actually holds on the wire.\nStakes if we pick wrong: Retry logic is exactly the code that only runs when something is already wrong; untested branches there surface during incidents, not in CI.\nRecommendation: 6A because retry code is incident-time code and the marginal cost with CC is small. Maps to your \"too many tests over too few\" preference.\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: The two regression tests are already in; the remaining 24 cost about an hour of CC time and are the difference between a retry framework you trust and one you hope works.": "6A: All 26 paths incl. 3 E2E + restart test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:24:39.394Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01NYoFvQLRYMrfebUHWqq56A",
+      "questions": [
+        {
+          "question": "D9 — Performance issue 7: every retry re-fetches the full payload and recomputes the dependency graph. Cache, or leave it?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md:21-23 says each attempt reloads the whole job payload from the database and walks it to rebuild the dependency graph, and marks caching as \"not planned\". With the retry policy from 3A a webhook job can run up to 8 times, so a payload that was read once is now read up to 8 times, and the graph walk repeats 8 times, all while the downstream dependency is already unhealthy. Multiply by every job caught in the same outage and the retry storm you avoided with jitter comes back as database load instead. The graph depends only on the payload, so it can be computed once and stored with the job, or memoized by payload hash.\nStakes if we pick wrong: An outage in one dependency turns into read pressure on your primary database exactly when it is also serving the recovery.\nRecommendation: 7A because storing the computed graph on the job at first attempt is explicit, cheap, and removes both the re-fetch and the recompute; it uses the library's job data field you already have from 1A. Maps to your \"engineered enough\" preference: no cache layer, just persist a derived value.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: Retries multiply every per-attempt cost by maxAttempts; computing the graph once is the difference between 1x and 8x database work per failing job.",
+          "header": "Perf 7",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "7A: Compute graph once, persist on the job (recommended)",
+              "description": "Completeness 9/10 (human: ~half day / CC: ~15 min). ✅ Attempt 1 stores the serialized dependency graph in the job's data; attempts 2..N read it instead of the DB and skip the walk. ✅ No new cache infrastructure; a staleness test asserts a payload change invalidates the stored graph via payload hash. ❌ Job records grow by the serialized graph; must confirm the library's job-data size limit."
+            },
+            {
+              "label": "7B: Re-fetch payload, memoize graph by payload hash",
+              "description": "Completeness 7/10 (human: ~3 hours / CC: ~10 min). ✅ Removes the CPU cost of the graph walk with an in-process memo keyed on payload hash. ✅ No change to what is stored on the job. ❌ The DB re-fetch per attempt remains, and the memo is per-process so a restart or a different worker recomputes anyway."
+            },
+            {
+              "label": "7C: Leave as written, not planned",
+              "description": "Completeness 3/10 (human: ~0 / CC: ~0). ✅ Zero additional design or storage decisions now. ✅ Payload is always fresh from the DB on every attempt. ❌ Up to 8x database reads and graph walks per failing job, concentrated during outages."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 — Performance issue 7: every retry re-fetches the full payload and recomputes the dependency graph. Cache, or leave it?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: PLAN.md:21-23 says each attempt reloads the whole job payload from the database and walks it to rebuild the dependency graph, and marks caching as \"not planned\". With the retry policy from 3A a webhook job can run up to 8 times, so a payload that was read once is now read up to 8 times, and the graph walk repeats 8 times, all while the downstream dependency is already unhealthy. Multiply by every job caught in the same outage and the retry storm you avoided with jitter comes back as database load instead. The graph depends only on the payload, so it can be computed once and stored with the job, or memoized by payload hash.\nStakes if we pick wrong: An outage in one dependency turns into read pressure on your primary database exactly when it is also serving the recovery.\nRecommendation: 7A because storing the computed graph on the job at first attempt is explicit, cheap, and removes both the re-fetch and the recompute; it uses the library's job data field you already have from 1A. Maps to your \"engineered enough\" preference: no cache layer, just persist a derived value.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: Retries multiply every per-attempt cost by maxAttempts; computing the graph once is the difference between 1x and 8x database work per failing job.": "7A: Compute graph once, persist on the job (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:25:21.072Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01KS45Z6i652MVNYYhTXf8uQ",
+      "questions": [
+        {
+          "question": "D10 — TODO 1 of 3: per-receiver circuit breaker for webhook retries. Add to TODOS.md, skip, or build now?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: What: when one receiver endpoint is hard-down, open a circuit for that endpoint so all of its pending webhook jobs pause instead of each independently walking its own retry curve. Why: the per-job policy from 3A is correct but does N times the work for N jobs to the same dead host. Pros: less wasted work and less log noise during a receiver outage; a single \"endpoint unhealthy\" signal for operators. Cons: needs shared state per endpoint (a store the workers agree on), a half-open probe, and its own tests; wrong thresholds pause healthy endpoints. Context: jitter plus cap already bounds the storm; the breaker is a load optimization on top. Start point: a `receiverHealth` keyed store consulted in `classify` or before dispatch. Depends on: T1 and T4 landed; enough traffic to pick thresholds.\nStakes if we pick wrong: Building it now widens this PR into shared-state territory; skipping it entirely leaves receiver outages as pure retry-budget burn.\nRecommendation: A because the idea has real value but needs production retry data to set thresholds, so it belongs in TODOS.md with this context rather than in this PR.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Capture it with its reasoning now; build it once you have a week of retry metrics.",
+          "header": "TODO 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add to TODOS.md (recommended)",
+              "description": "✅ The idea and its threshold caveat are preserved for whoever picks it up in three months. ✅ This PR stays focused on per-job correctness. ❌ Receiver outages still cost N independent retry curves until it is built."
+            },
+            {
+              "label": "B: Skip, not valuable enough",
+              "description": "✅ Nothing added to the backlog; jitter and cap are considered sufficient. ✅ Zero additional decisions now or later. ❌ The reasoning is lost; the next person to notice the wasted work starts from scratch."
+            },
+            {
+              "label": "C: Build it now in this PR",
+              "description": "✅ Receiver outages are handled with one signal from day one. ✅ Tests and state store designed alongside the retry module while context is fresh. ❌ Adds shared per-endpoint state and a half-open probe to an already sizable PR (human: ~2 days / CC: ~40 min)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 — TODO 1 of 3: per-receiver circuit breaker for webhook retries. Add to TODOS.md, skip, or build now?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: What: when one receiver endpoint is hard-down, open a circuit for that endpoint so all of its pending webhook jobs pause instead of each independently walking its own retry curve. Why: the per-job policy from 3A is correct but does N times the work for N jobs to the same dead host. Pros: less wasted work and less log noise during a receiver outage; a single \"endpoint unhealthy\" signal for operators. Cons: needs shared state per endpoint (a store the workers agree on), a half-open probe, and its own tests; wrong thresholds pause healthy endpoints. Context: jitter plus cap already bounds the storm; the breaker is a load optimization on top. Start point: a `receiverHealth` keyed store consulted in `classify` or before dispatch. Depends on: T1 and T4 landed; enough traffic to pick thresholds.\nStakes if we pick wrong: Building it now widens this PR into shared-state territory; skipping it entirely leaves receiver outages as pure retry-budget burn.\nRecommendation: A because the idea has real value but needs production retry data to set thresholds, so it belongs in TODOS.md with this context rather than in this PR.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Capture it with its reasoning now; build it once you have a week of retry metrics.": "A: Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:27:12.636Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01X2FS58b2SFGEXbGZUZEjSA",
+      "questions": [
+        {
+          "question": "D11 — TODO 2 of 3: retry metrics dashboard (retry rate, dead-letter count, attempt histogram per job type). Add to TODOS.md, skip, or build now?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: What: emit counters and a histogram from `logAttempt` and `deadLetter` (attempts per job type, delay distribution, dead-letter count) and put them on a dashboard. Why: the plan ships a structured log line and a dead-letter alert (3A, T5), which tells you when something is badly wrong but not whether the curve, cap, and jitter are tuned sensibly. Pros: you see retry storms forming, and the circuit-breaker TODO needs exactly this data to set thresholds. Cons: depends on whichever metrics stack the project uses, which the review could not see; dashboards rot without an owner. Context: with 1A the library may already expose retry and failed counts in its own UI, which might be enough. Start point: check the library dashboard first, then add two counters in `retry/hooks.ts`. Depends on: T1 landed.\nStakes if we pick wrong: Without metrics, retry tuning is guesswork and the breaker TODO stays blocked on data.\nRecommendation: A because the library UI may already cover it and the metrics stack is unknown here, so capture the intent and check the built-in view first.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Cheap to record, cheap to build later once you know what the library already shows.",
+          "header": "TODO 2",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add to TODOS.md (recommended)",
+              "description": "✅ The tuning need and the \"check the library UI first\" shortcut are recorded together. ✅ Keeps this PR free of a metrics-stack dependency the review could not verify. ❌ Retry tuning stays blind until someone picks it up."
+            },
+            {
+              "label": "B: Skip, not valuable enough",
+              "description": "✅ The library dashboard and the dead-letter alert are treated as sufficient observability. ✅ No backlog entry to maintain. ❌ Retry storms and mis-tuned caps are found by incident, not by chart."
+            },
+            {
+              "label": "C: Build it now in this PR",
+              "description": "✅ Two counters and a histogram land next to `logAttempt` while the code is open. ✅ Day-one data for tuning and for the breaker TODO. ❌ Pulls the metrics stack into this PR and adds dashboard config (human: ~half day / CC: ~15 min)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D11 — TODO 2 of 3: retry metrics dashboard (retry rate, dead-letter count, attempt histogram per job type). Add to TODOS.md, skip, or build now?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: What: emit counters and a histogram from `logAttempt` and `deadLetter` (attempts per job type, delay distribution, dead-letter count) and put them on a dashboard. Why: the plan ships a structured log line and a dead-letter alert (3A, T5), which tells you when something is badly wrong but not whether the curve, cap, and jitter are tuned sensibly. Pros: you see retry storms forming, and the circuit-breaker TODO needs exactly this data to set thresholds. Cons: depends on whichever metrics stack the project uses, which the review could not see; dashboards rot without an owner. Context: with 1A the library may already expose retry and failed counts in its own UI, which might be enough. Start point: check the library dashboard first, then add two counters in `retry/hooks.ts`. Depends on: T1 landed.\nStakes if we pick wrong: Without metrics, retry tuning is guesswork and the breaker TODO stays blocked on data.\nRecommendation: A because the library UI may already cover it and the metrics stack is unknown here, so capture the intent and check the built-in view first.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Cheap to record, cheap to build later once you know what the library already shows.": "A: Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:27:30.729Z"
+    },
+    {
+      "sessionId": "93d8bba3-ce9d-4664-91bf-0f516dd3f680",
+      "toolUseId": "toolu_01FZFe5eYQ2EycWkwvkyrsD2",
+      "questions": [
+        {
+          "question": "D12 — TODO 3 of 3: side table for oversized serialized dependency graphs. Add to TODOS.md, skip, or build now?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: What: if the serialized dependency graph from 7A turns out to exceed the job library's job-data size limit for some job types, store it in a dedicated table keyed by job id and keep only a pointer on the job. Why: T8 already makes the over-limit case safe by skipping the cache and logging it, so nothing breaks; but every skipped job pays the full re-fetch and recompute on each retry again. Pros: restores the 1x cost for large graphs. Cons: a new table, a cleanup job for orphaned rows, and a second read path to test; premature if `graph_cache=skipped` never fires. Context: T8's log line is the trigger; build this only if it shows up at a meaningful rate. Start point: count `graph_cache=skipped` per job type after two weeks in production. Depends on: T7 and T8 landed.\nStakes if we pick wrong: Building now adds a table for a case that may never occur; skipping entirely loses the trigger condition.\nRecommendation: A because T8 makes the failure safe and observable, and the side table should be built only if the log line proves the case is real.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Record the trigger, not the table; let production data decide.",
+          "header": "TODO 3",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add to TODOS.md (recommended)",
+              "description": "✅ The trigger condition (`graph_cache=skipped` rate) is written down so the decision is data-driven. ✅ No speculative table in this PR. ❌ Large-graph jobs pay the full per-attempt cost until the TODO is picked up."
+            },
+            {
+              "label": "B: Skip, not valuable enough",
+              "description": "✅ T8's degrade-and-log path is treated as the permanent answer. ✅ One fewer backlog entry. ❌ If large graphs are common, nobody is reminded to look at the skipped-cache rate."
+            },
+            {
+              "label": "C: Build it now in this PR",
+              "description": "✅ Large graphs get the 1x retry cost from day one. ✅ The side-table read path is designed together with 7A while the code is open. ❌ New table, orphan cleanup, and tests for a case with no evidence yet (human: ~1 day / CC: ~25 min)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D12 — TODO 3 of 3: side table for oversized serialized dependency graphs. Add to TODOS.md, skip, or build now?\nProject/branch/task: main branch, plan-eng-review of PLAN.md (background job retry framework).\nELI10: What: if the serialized dependency graph from 7A turns out to exceed the job library's job-data size limit for some job types, store it in a dedicated table keyed by job id and keep only a pointer on the job. Why: T8 already makes the over-limit case safe by skipping the cache and logging it, so nothing breaks; but every skipped job pays the full re-fetch and recompute on each retry again. Pros: restores the 1x cost for large graphs. Cons: a new table, a cleanup job for orphaned rows, and a second read path to test; premature if `graph_cache=skipped` never fires. Context: T8's log line is the trigger; build this only if it shows up at a meaningful rate. Start point: count `graph_cache=skipped` per job type after two weeks in production. Depends on: T7 and T8 landed.\nStakes if we pick wrong: Building now adds a table for a case that may never occur; skipping entirely loses the trigger condition.\nRecommendation: A because T8 makes the failure safe and observable, and the side table should be built only if the log line proves the case is real.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Record the trigger, not the table; let production data decide.": "A: Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:27:48.826Z"
+    }
+  ]
+}

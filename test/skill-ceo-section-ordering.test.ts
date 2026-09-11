@@ -38,6 +38,18 @@ describe('plan-ceo-review carve — static ordering', () => {
   const STOP = 'sections/review-sections.md'; // appears in the index row + STOP directive
   const GATE = 'GSTACK REVIEW REPORT';
 
+  test('the interactive anti-shortcut contract is available before audit or lazy section loading', () => {
+    const contract = '**Anti-shortcut clause:**';
+    const audit = skeleton.indexOf('## PRE-REVIEW SYSTEM AUDIT');
+    expect(skeleton.indexOf(contract)).toBeGreaterThan(-1);
+    expect(skeleton.indexOf(contract)).toBeLessThan(audit);
+    expect(skeleton.split(contract)).toHaveLength(2);
+    expect(section).not.toContain(contract);
+    // Relocate the shared instruction intact; do not weaken or duplicate it.
+    expect(skeleton).toContain('the path from finding to ExitPlanMode goes THROUGH AskUserQuestion');
+    expect(skeleton).toContain('Zero findings in every section is the only path');
+  });
+
   test('skeleton emits a STOP-Read directive pointing at the section', () => {
     expect(skeleton).toContain('> **STOP.**');
     expect(skeleton).toContain('plan-ceo-review/sections/review-sections.md');
@@ -83,6 +95,51 @@ describe('plan-ceo-review carve — static ordering', () => {
     const stop = skeleton.indexOf('> **STOP.**');
     const gate = skeleton.lastIndexOf(GATE);
     expect(gate).toBeGreaterThan(stop);
+  });
+
+  test('the loaded test-review section preserves mandatory behaviors and individual assertion decisions', () => {
+    const template = fs.readFileSync(`${SECTION}.tmpl`, 'utf-8');
+    for (const document of [template, section]) {
+      const testReview = document.split('### Section 6: Test Review')[1]?.split('### Section 7:')[0];
+      expect(testReview).toBeDefined();
+      const instructions = testReview!.replace(/\s+/g, ' ');
+      expect(instructions).toContain("First map it to the user's exact requirement or individually approved remedy.");
+      expect(instructions).toContain('A stated outcome plus its retained caller contract can already determine the assertion, even without assertion syntax.');
+      expect(instructions).toContain('Translate semantic counts, conditions and quantifiers exactly');
+      expect(instructions).toContain('Never weaken an exact count to a lower bound.');
+      expect(instructions).toContain('Reuse these requirements without asking again.');
+      expect(instructions).toContain('Ask individually only for an unresolved behavioral choice, new outcome, or independent uncovered failure mode.');
+      expect(instructions).toContain('Vague success labels do not settle values');
+      expect(instructions).toContain('scope/approach approval does not resolve an individual assertion gap.');
+      expect(instructions).toContain("Helper coverage alone does not prove the caller's path.");
+      expect(instructions).toContain('Explain what the existing requirement or approved remedy fails to cover before calling a check missing.');
+      expect(instructions).toContain('Never silently add, defer or waive a missing behavioral assertion.');
+      expect(instructions).toContain('Keep required behaviors mandatory unless the user explicitly approves changing them');
+      expect(instructions).toContain('honor previously accepted risks and equivalent caller coverage.');
+      expect(instructions).toContain('AskUserQuestion once per issue. Do NOT batch.');
+    }
+  });
+
+  test('the loaded data-flow review requires evidence across interacting operations', () => {
+    const template = fs.readFileSync(`${SECTION}.tmpl`, 'utf-8');
+    for (const document of [template, section]) {
+      const dataFlow = document.split('### Section 4: Data Flow & Interaction Edge Cases')[1]?.split('### Section 5:')[0];
+      expect(dataFlow).toBeDefined();
+      const instructions = dataFlow!.replace(/\s+/g, ' ');
+      expect(instructions).toContain('include a combined ASCII schedule with one column per operation and one for shared state.');
+      expect(instructions).toContain('pause, let a competing operation complete, resume, then start a fresh consumer.');
+      expect(instructions).toContain('compare it with the exact caller/time boundary of the stated invariant.');
+      expect(instructions).toContain('If safe, name the mechanism that prevents the violating schedule.');
+      expect(instructions).toContain('Separate flow diagrams do not prove ordering.');
+      expect(instructions).toContain('An accepted exception needs its exact contract clause; bounded damage is insufficient.');
+      expect(instructions).toContain('For each pair of overlapping awaits that can affect an invariant, show both completion orders;');
+      expect(instructions).toContain('exclude an order only by naming the mechanism that prevents it.');
+      expect(instructions).toContain('The invariant is a requirement, not proof that the implementation meets it.');
+      expect(instructions).toContain('One favorable schedule is insufficient.');
+      expect(instructions).toContain('Single-thread execution and atomic calls do not prevent interleaving across awaits.');
+      expect(instructions).toContain('Test the relevant completion orders with controlled pause/release points.');
+      expect(instructions).toContain('Compare relevant pairs; exhaustive permutations are unnecessary.');
+    }
   });
 
   test('the section is generated, not hand-edited', () => {

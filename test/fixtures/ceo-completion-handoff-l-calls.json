@@ -1,0 +1,268 @@
+{
+  "calls": [
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01Rngqu9T2bMM8kDHtYedQv6",
+      "questions": [
+        {
+          "question": "D0 \u2014 Add gstack skill routing rules to CLAUDE.md? gstack-plan-count-7Lu8Et / main branch. ELI10: gstack works best when your project's CLAUDE.md tells Claude Code which skill to invoke for common tasks (strategy \u2192 /plan-ceo-review, bugs \u2192 /investigate, etc.). Without routing rules, you have to type the skill name every time. With them, Claude Code routes automatically when the situation fits. Stakes if we pick wrong: minor \u2014 routing rules are a few lines and easy to remove. Recommendation: A because the project already uses gstack skills and routing pays off immediately. Note: options differ in kind, not coverage \u2014 no completeness score. Pros / cons: A) Add routing rules to CLAUDE.md (Recommended): \u2705 Claude Code auto-invokes the right skill based on what you're doing \u2014 no manual /skill typing needed \u2705 Skills like /ship and /autoplan benefit from downstream routing when chained \u274c Adds ~20 lines to CLAUDE.md (trivially reversible). B) Skip \u2014 invoke skills manually: \u2705 Zero change to CLAUDE.md \u2014 one less thing to manage \u2705 Full control over which skill runs and when \u274c You type /skill-name every invocation \u2014 adds friction over time. Net: routing rules are low-cost, high-frequency savings; the only real question is whether you want Claude Code opinionated about which skill fits which task. <gstack-qid:routing-injection>",
+          "header": "Routing",
+          "options": [
+            {
+              "label": "Add routing rules (Recommended)",
+              "description": "Append gstack skill routing rules to CLAUDE.md after plan mode exits."
+            },
+            {
+              "label": "Skip \u2014 manual invocation",
+              "description": "Leave CLAUDE.md as-is; invoke skills manually each time."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D0 \u2014 Add gstack skill routing rules to CLAUDE.md? gstack-plan-count-7Lu8Et / main branch. ELI10: gstack works best when your project's CLAUDE.md tells Claude Code which skill to invoke for common tasks (strategy \u2192 /plan-ceo-review, bugs \u2192 /investigate, etc.). Without routing rules, you have to type the skill name every time. With them, Claude Code routes automatically when the situation fits. Stakes if we pick wrong: minor \u2014 routing rules are a few lines and easy to remove. Recommendation: A because the project already uses gstack skills and routing pays off immediately. Note: options differ in kind, not coverage \u2014 no completeness score. Pros / cons: A) Add routing rules to CLAUDE.md (Recommended): \u2705 Claude Code auto-invokes the right skill based on what you're doing \u2014 no manual /skill typing needed \u2705 Skills like /ship and /autoplan benefit from downstream routing when chained \u274c Adds ~20 lines to CLAUDE.md (trivially reversible). B) Skip \u2014 invoke skills manually: \u2705 Zero change to CLAUDE.md \u2014 one less thing to manage \u2705 Full control over which skill runs and when \u274c You type /skill-name every invocation \u2014 adds friction over time. Net: routing rules are low-cost, high-frequency savings; the only real question is whether you want Claude Code opinionated about which skill fits which task. <gstack-qid:routing-injection>": "Add routing rules (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:20.625Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_0187NsqRf5aiDuzovFDePsuV",
+      "questions": [
+        {
+          "question": "D1 \u2014 No design doc found \u2014 run /office-hours first? Branch: main. ELI10: No design doc from /office-hours was found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives before a review. For a test coverage plan like this one, the plan is already concrete and self-contained, so the value is lower than for a greenfield feature. Stakes if we pick wrong: skipping office-hours means reviewing a plan without a structured problem statement \u2014 acceptable when the plan is already well-scoped. Recommendation: B because the plan is specific, bounded (two unit tests), and the existing infrastructure is well-described \u2014 no ambiguity that /office-hours would resolve. Note: options differ in kind, not coverage \u2014 no completeness score. A) Run /office-hours now: \u2705 Produces a structured problem statement and alternatives \u2705 Sharpens the CEO review input \u274c Adds ~10 minutes before the review begins \u274c Low marginal value for a test coverage plan with clear scope. B) Skip \u2014 proceed with standard review (Recommended): \u2705 Plan is already concrete and well-scoped \u2014 no ambiguity /office-hours would resolve \u2705 Gets to the review immediately \u274c No structured alternatives comparison. Net: /office-hours earns its 10 minutes on greenfield features; a bounded test coverage plan doesn't need it. <gstack-qid:prerequisite-office-hours>",
+          "header": "Pre-review",
+          "options": [
+            {
+              "label": "Run /office-hours first",
+              "description": "Run /office-hours to produce a design doc, then resume the CEO review."
+            },
+            {
+              "label": "Skip \u2014 standard review (Recommended)",
+              "description": "Proceed directly with the plan review \u2014 the plan is already well-scoped."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 No design doc found \u2014 run /office-hours first? Branch: main. ELI10: No design doc from /office-hours was found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives before a review. For a test coverage plan like this one, the plan is already concrete and self-contained, so the value is lower than for a greenfield feature. Stakes if we pick wrong: skipping office-hours means reviewing a plan without a structured problem statement \u2014 acceptable when the plan is already well-scoped. Recommendation: B because the plan is specific, bounded (two unit tests), and the existing infrastructure is well-described \u2014 no ambiguity that /office-hours would resolve. Note: options differ in kind, not coverage \u2014 no completeness score. A) Run /office-hours now: \u2705 Produces a structured problem statement and alternatives \u2705 Sharpens the CEO review input \u274c Adds ~10 minutes before the review begins \u274c Low marginal value for a test coverage plan with clear scope. B) Skip \u2014 proceed with standard review (Recommended): \u2705 Plan is already concrete and well-scoped \u2014 no ambiguity /office-hours would resolve \u2705 Gets to the review immediately \u274c No structured alternatives comparison. Net: /office-hours earns its 10 minutes on greenfield features; a bounded test coverage plan doesn't need it. <gstack-qid:prerequisite-office-hours>": "Skip \u2014 standard review (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:34.673Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01VD3wVb94b1s2KRKqBdBdh8",
+      "questions": [
+        {
+          "question": "D2 \u2014 Which implementation approach for the two new tests? Branch: main. ELI10: The plan specifies two tests. The question is how much precision to bake into the plan's assertion spec. Approach A locks down exactly the plan's stated scope. Approach B enriches that scope with concrete assertion contracts \u2014 what 'correct receipt' means field by field and what 'fails clean' means as an exception type. Approach B costs maybe 5 minutes extra with CC and prevents tests that pass against wrong behavior. Stakes if we pick wrong: A) a test that asserts 'receipt != nil' passes even if fields are wrong. B) slightly more spec to write, but pins the behavioral contract tightly. Recommendation: B because payment tests that don't assert the right fields are false confidence \u2014 an empty receipt still 'generates a receipt.' Completeness: A=7/10, B=10/10. A) Minimal viable \u2014 two tests as written (Completeness 7/10): \u2705 Implements exactly what the plan says, no scope creep \u2705 Leverages existing factory/mock/sleeper as-is \u274c 'Correct receipt' and 'fails clean' are underspecified \u2014 tests could pass against wrong behavior. B) Full behavioral contract \u2014 two tests + explicit assertion specs (Completeness 10/10, Recommended): \u2705 Pins specific receipt fields (charge ID, amount, currency, timestamp) in the happy path \u2705 Pins exception type + mock call count + backoff delay assertions in the 502 path \u2705 Tests reject wrong behavior, not just non-nil results \u274c ~20-30 extra lines of spec in the plan (human: 0 extra / CC: ~2 min). Net: the difference between a test that proves correctness and a test that proves execution.",
+          "header": "Approach",
+          "options": [
+            {
+              "label": "Approach A \u2014 minimal viable",
+              "description": "Two tests exactly as the plan specifies, using existing factory/mock/sleeper. No additional assertion spec."
+            },
+            {
+              "label": "Approach B \u2014 full contract (Recommended)",
+              "description": "Same two tests, but the plan specifies exact receipt fields and 502 exception type, mock call count, and backoff delay assertions."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Which implementation approach for the two new tests? Branch: main. ELI10: The plan specifies two tests. The question is how much precision to bake into the plan's assertion spec. Approach A locks down exactly the plan's stated scope. Approach B enriches that scope with concrete assertion contracts \u2014 what 'correct receipt' means field by field and what 'fails clean' means as an exception type. Approach B costs maybe 5 minutes extra with CC and prevents tests that pass against wrong behavior. Stakes if we pick wrong: A) a test that asserts 'receipt != nil' passes even if fields are wrong. B) slightly more spec to write, but pins the behavioral contract tightly. Recommendation: B because payment tests that don't assert the right fields are false confidence \u2014 an empty receipt still 'generates a receipt.' Completeness: A=7/10, B=10/10. A) Minimal viable \u2014 two tests as written (Completeness 7/10): \u2705 Implements exactly what the plan says, no scope creep \u2705 Leverages existing factory/mock/sleeper as-is \u274c 'Correct receipt' and 'fails clean' are underspecified \u2014 tests could pass against wrong behavior. B) Full behavioral contract \u2014 two tests + explicit assertion specs (Completeness 10/10, Recommended): \u2705 Pins specific receipt fields (charge ID, amount, currency, timestamp) in the happy path \u2705 Pins exception type + mock call count + backoff delay assertions in the 502 path \u2705 Tests reject wrong behavior, not just non-nil results \u274c ~20-30 extra lines of spec in the plan (human: 0 extra / CC: ~2 min). Net: the difference between a test that proves correctness and a test that proves execution.": "Approach A \u2014 minimal viable"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:14:10.790Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01Bf1FnhighHeCQRURi448Hx",
+      "questions": [
+        {
+          "question": "D3 \u2014 Which review mode? Branch: main / test coverage plan. ELI10: The review mode sets how aggressive I am about scope. This plan adds two unit tests and explicitly keeps production behavior unchanged. HOLD SCOPE means I make those two tests bulletproof without suggesting additional work. SELECTIVE EXPANSION means I also surface cherry-pick opportunities (additional test cases, idempotency tests, contract tests) that you can opt into. Recommendation: HOLD SCOPE because this is a test coverage fix \u2014 the scope is correct and deliberately narrow; adding cherry-picks risks scope creep on payment-critical code that should ship fast. Note: options differ in kind, not coverage \u2014 no completeness score. A) HOLD SCOPE \u2014 make it bulletproof (Recommended): \u2705 Maximum rigor on the two tests as specified \u2705 No scope drift on payment-critical code \u274c Won't surface additional test opportunities (idempotency, 402 via processPayment(), concurrent charge). B) SELECTIVE EXPANSION \u2014 hold scope + cherry-picks: \u2705 Same rigor PLUS individual opt-ins for additional test cases \u2705 You decide each expansion \u274c Takes longer \u274c Risk of scope creep before the core two tests even ship. C) SCOPE REDUCTION \u2014 find the bare minimum: \u2705 Useful if the plan is overbuilt \u274c This plan is already minimal \u2014 nothing to cut without losing the stated goals. Net: HOLD SCOPE is right for a bounded test coverage task. <gstack-qid:ceo-mode-selection>",
+          "header": "Review mode",
+          "options": [
+            {
+              "label": "HOLD SCOPE (Recommended)",
+              "description": "Maximum rigor on the two specified tests. No scope expansions surfaced."
+            },
+            {
+              "label": "SELECTIVE EXPANSION",
+              "description": "Same rigor, plus individual opt-ins for additional test coverage opportunities."
+            },
+            {
+              "label": "SCOPE REDUCTION",
+              "description": "Find the minimum viable version \u2014 cut anything not strictly needed."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Which review mode? Branch: main / test coverage plan. ELI10: The review mode sets how aggressive I am about scope. This plan adds two unit tests and explicitly keeps production behavior unchanged. HOLD SCOPE means I make those two tests bulletproof without suggesting additional work. SELECTIVE EXPANSION means I also surface cherry-pick opportunities (additional test cases, idempotency tests, contract tests) that you can opt into. Recommendation: HOLD SCOPE because this is a test coverage fix \u2014 the scope is correct and deliberately narrow; adding cherry-picks risks scope creep on payment-critical code that should ship fast. Note: options differ in kind, not coverage \u2014 no completeness score. A) HOLD SCOPE \u2014 make it bulletproof (Recommended): \u2705 Maximum rigor on the two tests as specified \u2705 No scope drift on payment-critical code \u274c Won't surface additional test opportunities (idempotency, 402 via processPayment(), concurrent charge). B) SELECTIVE EXPANSION \u2014 hold scope + cherry-picks: \u2705 Same rigor PLUS individual opt-ins for additional test cases \u2705 You decide each expansion \u274c Takes longer \u274c Risk of scope creep before the core two tests even ship. C) SCOPE REDUCTION \u2014 find the bare minimum: \u2705 Useful if the plan is overbuilt \u274c This plan is already minimal \u2014 nothing to cut without losing the stated goals. Net: HOLD SCOPE is right for a bounded test coverage task. <gstack-qid:ceo-mode-selection>": "HOLD SCOPE (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:14:26.833Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01LU7anW2hAu6KyWEm5BK1K5",
+      "questions": [
+        {
+          "question": "D4 \u2014 Section 2: 'fails clean' is undefined \u2014 what does the 502 test actually assert? Branch: main. ELI10: The plan says 'assert retry-with-backoff fires once, then fails clean.' 'Fails clean' is ambiguous. In payment code, it could mean: (A) a specific exception is raised (caller catches it explicitly \u2014 best for observability and correctness), (B) an error object is returned (acceptable, but caller must check it), or (C) the test just asserts no uncaught exception and the method returns \u2014 silent failure. If the implementer picks C, a test that 'fails clean' tells you nothing about whether the failure is visible to callers. Stakes if we pick wrong: a silent-failure contract in processPayment() means callers think payment succeeded when it didn't \u2014 the worst possible payment bug. Recommendation: A because payment failures must propagate explicitly; silent returns are dangerous in money code. Note: options differ in kind, not coverage \u2014 no completeness score. A) Specify the exception contract (Recommended): \u2705 Test asserts a named exception (e.g., PaymentExhaustedError) is raised \u2705 Pins the behavioral contract callers depend on \u2705 Failure is never silent \u274c Requires knowing the actual exception class name (which should already exist in the codebase). B) Specify an error return value: \u2705 Explicit failure signal without exceptions \u274c Callers can forget to check the return value \u274c Payment processing code typically uses exceptions for control flow on failures. C) Leave 'fails clean' to the implementer: \u2705 Zero change to plan scope \u274c Implementer may choose a silent-failure path and the test will still pass. Net: 'fails clean' in a payment path must mean 'visible failure' \u2014 specify which. <gstack-qid:ceo-502-failure-contract>",
+          "header": "502 contract",
+          "options": [
+            {
+              "label": "A) Specify exception type (Recommended)",
+              "description": "Add to plan: the 502 test asserts a named exception is raised after retry exhaustion. Caller must explicitly handle it."
+            },
+            {
+              "label": "B) Specify error return value",
+              "description": "Add to plan: the 502 test asserts processPayment() returns an error/failure object (no exception)."
+            },
+            {
+              "label": "C) Leave to implementer",
+              "description": "Leave 'fails clean' as written \u2014 the implementer decides what form the clean failure takes."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Section 2: 'fails clean' is undefined \u2014 what does the 502 test actually assert? Branch: main. ELI10: The plan says 'assert retry-with-backoff fires once, then fails clean.' 'Fails clean' is ambiguous. In payment code, it could mean: (A) a specific exception is raised (caller catches it explicitly \u2014 best for observability and correctness), (B) an error object is returned (acceptable, but caller must check it), or (C) the test just asserts no uncaught exception and the method returns \u2014 silent failure. If the implementer picks C, a test that 'fails clean' tells you nothing about whether the failure is visible to callers. Stakes if we pick wrong: a silent-failure contract in processPayment() means callers think payment succeeded when it didn't \u2014 the worst possible payment bug. Recommendation: A because payment failures must propagate explicitly; silent returns are dangerous in money code. Note: options differ in kind, not coverage \u2014 no completeness score. A) Specify the exception contract (Recommended): \u2705 Test asserts a named exception (e.g., PaymentExhaustedError) is raised \u2705 Pins the behavioral contract callers depend on \u2705 Failure is never silent \u274c Requires knowing the actual exception class name (which should already exist in the codebase). B) Specify an error return value: \u2705 Explicit failure signal without exceptions \u274c Callers can forget to check the return value \u274c Payment processing code typically uses exceptions for control flow on failures. C) Leave 'fails clean' to the implementer: \u2705 Zero change to plan scope \u274c Implementer may choose a silent-failure path and the test will still pass. Net: 'fails clean' in a payment path must mean 'visible failure' \u2014 specify which. <gstack-qid:ceo-502-failure-contract>": "A) Specify exception type (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:16:09.190Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01TmcCN62AvTSCUcadNYP82P",
+      "questions": [
+        {
+          "question": "D5 \u2014 Section 6: should the 502 test assert the Stripe mock was called exactly twice? Branch: main. ELI10: The plan says 'an exhausted 502 operation makes exactly two charge attempts' and that the factory 'exposes the Stripe mock call history.' This is available infrastructure for an explicit assertion, but the plan doesn't say the test USES it. Without the assertion, a buggy implementation that retries 5 times (or never retries) would still 'fail clean' and the test would pass. The mock call history is already wired \u2014 asserting on it costs zero extra infrastructure. Stakes if we pick wrong: if the test skips this assertion, the retry-with-backoff behavior is untested even though the test claims to test it. Recommendation: A because 'retry fires once' is a behavioral guarantee the plan explicitly states \u2014 testing behavior without asserting the behavior is a gap. Note: options differ in kind, not coverage \u2014 no completeness score. A) Add to plan: assert mock call count = 2 (Recommended): \u2705 Proves the retry loop ran exactly once (not 0, not 5) \u2705 Uses already-wired mock call history \u2705 Fast to add \u274c One more assertion in the test (minimal cost). B) Skip \u2014 leave call count implicit: \u2705 Plan stays minimal \u274c Retry count behavior is untested \u2014 a buggy loop is invisible to the test. Net: the mock call history is free; not using it leaves the retry behavior on faith. <gstack-qid:ceo-mock-call-count>",
+          "header": "Call count",
+          "options": [
+            {
+              "label": "A) Assert mock call count = 2 (Recommended)",
+              "description": "Add to plan: 502 test asserts the Stripe mock was called exactly twice (initial + one retry)."
+            },
+            {
+              "label": "B) Skip \u2014 leave call count implicit",
+              "description": "Leave the test as described; don't add explicit call count assertion to plan."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 Section 6: should the 502 test assert the Stripe mock was called exactly twice? Branch: main. ELI10: The plan says 'an exhausted 502 operation makes exactly two charge attempts' and that the factory 'exposes the Stripe mock call history.' This is available infrastructure for an explicit assertion, but the plan doesn't say the test USES it. Without the assertion, a buggy implementation that retries 5 times (or never retries) would still 'fail clean' and the test would pass. The mock call history is already wired \u2014 asserting on it costs zero extra infrastructure. Stakes if we pick wrong: if the test skips this assertion, the retry-with-backoff behavior is untested even though the test claims to test it. Recommendation: A because 'retry fires once' is a behavioral guarantee the plan explicitly states \u2014 testing behavior without asserting the behavior is a gap. Note: options differ in kind, not coverage \u2014 no completeness score. A) Add to plan: assert mock call count = 2 (Recommended): \u2705 Proves the retry loop ran exactly once (not 0, not 5) \u2705 Uses already-wired mock call history \u2705 Fast to add \u274c One more assertion in the test (minimal cost). B) Skip \u2014 leave call count implicit: \u2705 Plan stays minimal \u274c Retry count behavior is untested \u2014 a buggy loop is invisible to the test. Net: the mock call history is free; not using it leaves the retry behavior on faith. <gstack-qid:ceo-mock-call-count>": "A) Assert mock call count = 2 (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:16:31.273Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01AezVwkmE7AsvKGhQRLoP7J",
+      "questions": [
+        {
+          "question": "D6 \u2014 Section 6: should the 502 test assert the virtual sleeper was called with an expected backoff delay? Branch: main. ELI10: The plan says the virtual sleeper 'records backoff without real delays.' The 502 test currently says 'assert retry-with-backoff fires once' \u2014 but 'fires' is ambiguous. Without a sleeper assertion, a buggy implementation that retries with no delay (or with the wrong delay) would still pass the test. The sleeper is already wired to the factory. Asserting the delay value proves the backoff is real, not just that a retry happened. Stakes if we pick wrong: without a delay assertion, a future diff could zero-out the backoff config and no test would catch it. Recommendation: A because backoff is the 'with-backoff' in retry-with-backoff \u2014 it's the contract. Note: options differ in kind, not coverage \u2014 no completeness score. A) Add to plan: assert sleeper called with expected delay (Recommended): \u2705 Proves backoff is non-zero and correct value \u2705 Catches future regressions that remove delay config \u2705 Sleeper already wired, zero extra setup \u274c Requires knowing the configured backoff delay value. B) Skip \u2014 leave backoff timing implicit: \u2705 Plan stays minimal \u274c A future zero-backoff regression is silent \u274c 'Retry-with-backoff' is only half-tested. Net: the sleeper is wired to record the delay; not asserting on it wastes the investment. <gstack-qid:ceo-backoff-assertion>",
+          "header": "Backoff assert",
+          "options": [
+            {
+              "label": "A) Assert sleeper called with expected delay (Recommended)",
+              "description": "Add to plan: 502 test asserts the virtual sleeper was called with the expected backoff delay value."
+            },
+            {
+              "label": "B) Skip \u2014 leave backoff timing implicit",
+              "description": "Leave the test as described; don't assert on the sleeper's recorded delay."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 Section 6: should the 502 test assert the virtual sleeper was called with an expected backoff delay? Branch: main. ELI10: The plan says the virtual sleeper 'records backoff without real delays.' The 502 test currently says 'assert retry-with-backoff fires once' \u2014 but 'fires' is ambiguous. Without a sleeper assertion, a buggy implementation that retries with no delay (or with the wrong delay) would still pass the test. The sleeper is already wired to the factory. Asserting the delay value proves the backoff is real, not just that a retry happened. Stakes if we pick wrong: without a delay assertion, a future diff could zero-out the backoff config and no test would catch it. Recommendation: A because backoff is the 'with-backoff' in retry-with-backoff \u2014 it's the contract. Note: options differ in kind, not coverage \u2014 no completeness score. A) Add to plan: assert sleeper called with expected delay (Recommended): \u2705 Proves backoff is non-zero and correct value \u2705 Catches future regressions that remove delay config \u2705 Sleeper already wired, zero extra setup \u274c Requires knowing the configured backoff delay value. B) Skip \u2014 leave backoff timing implicit: \u2705 Plan stays minimal \u274c A future zero-backoff regression is silent \u274c 'Retry-with-backoff' is only half-tested. Net: the sleeper is wired to record the delay; not asserting on it wastes the investment. <gstack-qid:ceo-backoff-assertion>": "A) Assert sleeper called with expected delay (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:16:43.319Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01GjRP3uFiPpmBNt98M268yS",
+      "questions": [
+        {
+          "question": "D7 \u2014 TODO: pin field-level assertions for 'correct receipt' in the happy path test? Branch: main. What: Add explicit assertions on receipt fields (charge_id, amount, currency, timestamp) in the happy path test. Why: The plan says 'assert correct receipt is generated' but 'correct' is underspecified \u2014 a test asserting only non-nil passes even if fields are wrong. This was accepted as a known trade-off in Approach A, but it's a real gap in the happy path's behavioral contract. Pros: Receipt fields become part of the tested contract; catches a wrong-field bug that a non-nil assertion misses. Cons: Requires knowing the actual field names and expected values (already available from the Stripe mock response); minor additional spec work. Context: The payment test factory exposes the Stripe mock call history; the mock response contains the expected charge data. Asserting fields against the mock response values is straightforward. Effort: S (human: ~30 min / CC: ~5 min). Priority: P2 \u2014 should land same branch. Depends on: approved happy path test (core scope). Note: options differ in kind, not coverage \u2014 no completeness score. A) Add to TODOS.md: \u2705 Preserves the gap for the implementer to address \u2705 Documents the known limitation \u274c Still ships the test without field-level assertions initially. B) Skip \u2014 not valuable enough: \u2705 Zero extra work \u274c Silent weakness in the receipt assertion \u274c Payment receipt with wrong fields passes undetected. C) Build it now (add to accepted plan scope): \u2705 Closes the gap before implementation \u2705 Consistent with 'well-tested code is non-negotiable' \u274c Slightly expands Approach A scope. Net: field-level receipt assertions are cheap and catch real bugs \u2014 P2 at minimum. <gstack-qid:ceo-receipt-fields-todo>",
+          "header": "Receipt TODO",
+          "options": [
+            {
+              "label": "A) Add to TODOS.md",
+              "description": "Record as a P2 follow-up: pin receipt field assertions to the happy path test."
+            },
+            {
+              "label": "B) Skip \u2014 not valuable enough",
+              "description": "Accept the non-nil assertion as sufficient for now. No TODO recorded."
+            },
+            {
+              "label": "C) Build it now (Recommended)",
+              "description": "Add receipt field assertions to the accepted scope of the happy path test. No separate TODO needed."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 TODO: pin field-level assertions for 'correct receipt' in the happy path test? Branch: main. What: Add explicit assertions on receipt fields (charge_id, amount, currency, timestamp) in the happy path test. Why: The plan says 'assert correct receipt is generated' but 'correct' is underspecified \u2014 a test asserting only non-nil passes even if fields are wrong. This was accepted as a known trade-off in Approach A, but it's a real gap in the happy path's behavioral contract. Pros: Receipt fields become part of the tested contract; catches a wrong-field bug that a non-nil assertion misses. Cons: Requires knowing the actual field names and expected values (already available from the Stripe mock response); minor additional spec work. Context: The payment test factory exposes the Stripe mock call history; the mock response contains the expected charge data. Asserting fields against the mock response values is straightforward. Effort: S (human: ~30 min / CC: ~5 min). Priority: P2 \u2014 should land same branch. Depends on: approved happy path test (core scope). Note: options differ in kind, not coverage \u2014 no completeness score. A) Add to TODOS.md: \u2705 Preserves the gap for the implementer to address \u2705 Documents the known limitation \u274c Still ships the test without field-level assertions initially. B) Skip \u2014 not valuable enough: \u2705 Zero extra work \u274c Silent weakness in the receipt assertion \u274c Payment receipt with wrong fields passes undetected. C) Build it now (add to accepted plan scope): \u2705 Closes the gap before implementation \u2705 Consistent with 'well-tested code is non-negotiable' \u274c Slightly expands Approach A scope. Net: field-level receipt assertions are cheap and catch real bugs \u2014 P2 at minimum. <gstack-qid:ceo-receipt-fields-todo>": "A) Add to TODOS.md"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:17:37.555Z"
+    },
+    {
+      "sessionId": "4a0c76b6-b15b-4fed-8890-95a6524340ad",
+      "toolUseId": "toolu_01RgspWjGuRPToteFrtkk2Dq",
+      "questions": [
+        {
+          "question": "D8 \u2014 Next step: run /plan-eng-review? Branch: main. ELI10: The CEO review is complete with 0 unresolved decisions. The Eng Review is the only required shipping gate \u2014 it covers architecture, code quality, and tests at the implementation level. This plan has 0 prior eng reviews. Since this is a test-only plan, eng review is lighter than usual (no new production code), but it's still the gate. Recommendation: A because eng review is required before ship, and the three assertion additions from this CEO review (D4/D5/D6) should be verified by an independent architecture + test pass. Note: options differ in kind, not coverage \u2014 no completeness score. A) Run /plan-eng-review next (Recommended): \u2705 Clears the required shipping gate \u2705 Independently verifies the three resolved findings (exception contract, call count, backoff) \u274c Takes ~5-10 min with CC. B) Skip \u2014 handle reviews manually: \u2705 Nothing to wait for \u274c Eng Review gate not cleared \u2014 /ship will flag this. <gstack-qid:ceo-next-step-eng-review>",
+          "header": "Next step",
+          "options": [
+            {
+              "label": "A) Run /plan-eng-review next (Recommended)",
+              "description": "Run the required eng review to clear the shipping gate."
+            },
+            {
+              "label": "B) Skip \u2014 handle reviews manually",
+              "description": "No review now; eng review can be run separately before shipping."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 \u2014 Next step: run /plan-eng-review? Branch: main. ELI10: The CEO review is complete with 0 unresolved decisions. The Eng Review is the only required shipping gate \u2014 it covers architecture, code quality, and tests at the implementation level. This plan has 0 prior eng reviews. Since this is a test-only plan, eng review is lighter than usual (no new production code), but it's still the gate. Recommendation: A because eng review is required before ship, and the three assertion additions from this CEO review (D4/D5/D6) should be verified by an independent architecture + test pass. Note: options differ in kind, not coverage \u2014 no completeness score. A) Run /plan-eng-review next (Recommended): \u2705 Clears the required shipping gate \u2705 Independently verifies the three resolved findings (exception contract, call count, backoff) \u274c Takes ~5-10 min with CC. B) Skip \u2014 handle reviews manually: \u2705 Nothing to wait for \u274c Eng Review gate not cleared \u2014 /ship will flag this. <gstack-qid:ceo-next-step-eng-review>": "A) Run /plan-eng-review next (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:19:55.732Z"
+    }
+  ]
+}

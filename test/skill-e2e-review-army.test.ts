@@ -521,6 +521,7 @@ Start the file with "RED TEAM REVIEW" on the first line.`,
 
 describeIfSelected('Review Army: Consensus', ['review-army-consensus'], () => {
   let dir: string;
+  let consensusCaptureSequence = 0;
 
   beforeAll(() => {
     const repo = setupRepo('army-consensus');
@@ -569,24 +570,31 @@ Write findings to ${dir}/review-output.md`,
       maxTurns: 20,
       timeout: CAPTURE_MS,
       testName: 'review-army-consensus',
-      runId,
+      runId: `${process.env.EVALS_RUN_ID ?? runId}-review-consensus-${process.pid}-${++consensusCaptureSequence}`,
+      publicStreamDiagnostics: true,
     });
 
     logCost('/review army consensus', result);
-    recordE2E(evalCollector, '/review army consensus', 'Review Army', result);
-    expect(result.exitReason).toBe('success');
+    let passed = false;
+    try {
+      expect(result.exitReason).toBe('success');
 
-    const outputPath = path.join(dir, 'review-output.md');
-    if (fs.existsSync(outputPath)) {
-      const content = fs.readFileSync(outputPath, 'utf-8').toLowerCase();
-      // Should catch the SQL injection
-      const hasSqlFinding =
-        content.includes('sql') ||
-        content.includes('injection') ||
-        content.includes('interpolat');
-      expect(hasSqlFinding).toBe(true);
+      const outputPath = path.join(dir, 'review-output.md');
+      if (fs.existsSync(outputPath)) {
+        const content = fs.readFileSync(outputPath, 'utf-8').toLowerCase();
+        // Should catch the SQL injection
+        const hasSqlFinding =
+          content.includes('sql') ||
+          content.includes('injection') ||
+          content.includes('interpolat');
+        expect(hasSqlFinding).toBe(true);
+      }
+      passed = result.browseErrors.length === 0;
+    } finally {
+      recordE2E(evalCollector, '/review army consensus', 'Review Army', result, { passed });
     }
-  }, CAPTURE_MS);
+    // The runner can drain stderr for 5s after exit; reserve 1s for assertions/recording.
+  }, CAPTURE_MS + 6_000);
 });
 
 // --- Review Army: Simplification specialist (activation) ---

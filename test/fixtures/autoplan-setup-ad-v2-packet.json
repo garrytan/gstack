@@ -1,0 +1,50 @@
+{
+  "provenance": {
+    "kind": "Actual complete public setup packet and current visible first pane",
+    "label": "ship-source-ad-full-paid-20260909-v2",
+    "capturedAt": "2026-09-09T19:05:10.548Z",
+    "sourceHead": "7fac51e9bd8619665960657462ceab2773d142f5",
+    "observationSha256": "ef98690ff24589a177027e57b5159144d2e9269ff3b7ee706bd9f57f51f4b492",
+    "screenSha256": "8ca0a32e2e894ba5dd4fad2c10e225f847e8a64792e7f0aeea13d6183e5b4503",
+    "outcome": "live case waiting; no input/pass or retrospective coverage from fixture"
+  },
+  "pendingCall": {
+    "sessionId": "e40afe62-b71e-4372-9ff1-981ced50de14",
+    "toolUseId": "toolu_01RyKcb3VJtBWLqb3h56DPBJ",
+    "questions": [
+      {
+        "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-autoplan-chain on main, about to /autoplan the User Dashboard plan.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules. This repo has no CLAUDE.md yet. Routing rules tell the agent which skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship) so you don't have to name skills by hand. Stakes: without it, skills only run when you invoke them explicitly.\nStakes if we pick wrong: mild \u2014 either a small extra file in the repo, or slightly more manual skill invocation.\nRecommendation: A because routing rules are a one-time, low-cost file that makes every future session smoother.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: a committed CLAUDE.md section vs. manual skill invocation. Note: we are in plan mode, so the file write and commit happen after plan approval, not now.",
+        "header": "Routing",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add routing rules to CLAUDE.md (recommended)",
+            "description": "\u2705 Future requests auto-route to the right skill without you naming it. \u2705 One-time setup, committed once, shared with teammates. \u274c Adds a CLAUDE.md file to a repo that has none today (written after plan approval)."
+          },
+          {
+            "label": "No thanks, I'll invoke skills manually",
+            "description": "\u2705 Repo stays minimal, no new files added. \u2705 You keep full control over when skills run. \u274c Skills never fire proactively; you type each one yourself."
+          }
+        ]
+      },
+      {
+        "question": "D2 \u2014 Run /office-hours first for a design doc?\nProject/branch/task: same repo, no design doc found for this branch.\nELI10: No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this review much sharper input to work with. Takes about 10 minutes. The design doc is per-feature, not per-product \u2014 it captures the thinking behind this specific change. Stakes: the CEO review phase leans on a design doc to judge premises; without one it works from the plan text alone.\nStakes if we pick wrong: either 10 extra minutes up front, or a CEO review with slightly less context on why this dashboard exists.\nRecommendation: B because the plan already carries a detailed 'Existing product and application contracts' section with the problem (75s median to find next task), success metric (45s), and guardrails, which is most of what office-hours would produce.\nCompleteness: A=10/10, B=8/10\nNet: 10 minutes of upfront problem framing vs. proceeding on an already well-grounded plan.",
+        "header": "Design doc",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Run /office-hours now",
+            "description": "\u2705 Produces a formal problem statement and alternatives the CEO review can challenge directly. \u2705 Leaves a committed design doc for teammates. \u274c Adds ~10 minutes (human: ~30 min / CC: ~10 min) before the review starts, and this plan already states its problem and metric."
+          },
+          {
+            "label": "Skip \u2014 proceed with standard review (recommended)",
+            "description": "\u2705 Review starts immediately using the plan's existing problem statement and success metrics. \u2705 The plan's contracts section already covers most of what office-hours would surface. \u274c No separate design doc artifact; premise challenge works from plan text only."
+          }
+        ]
+      }
+    ],
+    "answered": false,
+    "failed": false
+  },
+  "screen": "\n\u25cf Bash(eval \"$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)\"\n      echo \"SLUG=$SLUG BRANCH=$BRANCH\"\u2026)\n  \u23bf \u00a0SLUG=gstack-autoplan-chain-f8hO0F BRANCH=main\n     --- RECENT ARTIFACTS ---\n     {\n     \u2026 +32 lines (ctrl+o to expand)\n  \u23bf \u00a0Allowed by auto mode classifier\n\n\u25cf Everything checks out \u2014 I found one plan file for a user dashboard page, but no design doc or CLAUDE.md. Two gates\n  triggered before running: the routing-rules onboarding and the office-hours offer. \u00b7\u00a0summarized\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nPlanning:\n/tmp/gstack-paid-shard-GJoH2D/tmp/gstack-hermetic-1636446-Otiddj/with-skills/.claude/plans/cheerful-moseying-robin.md\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u2190  \u2610 Routing  \u2610 Design doc  \u2714 Submit  \u2192\n\n\u2502 D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\n\u2502 Project/branch/task: gstack-autoplan-chain on main, about to /autoplan the User Dashboard plan.\n\u2502 ELI10: gstack works best when your project's CLAUDE.md includes skill routing rules. This repo has no CLAUDE.md yet.\n\u2502 Routing rules tell the agent which skill to reach for (bugs \u2192 /investigate, ship \u2192 /ship) so you don't have to name\n\u2502 skills by hand. Stakes: without it, skills only run when you invoke them explicitly.\n\u2502 Stakes if we pick wrong: mild \u2014 either a small extra file in the repo, or slightly more manual skill invocation.\n\u2502 Recommendation: A because routing rules are a one-time, low-cost file that makes every future session smoother.\n\u2502 Note: options differ in kind, not coverage \u2014 no completeness score.\n\u2502 Net: a committed CLAUDE.md section vs. manual skill invocation. Note: we are in plan mode, so the file write and\n\u2502 commit happen after plan approval, not now.\n\n\u276f 1. Add routing rules to CLAUDE.md (recommended)\n     \u2705  Future requests auto-route to the right skill without you naming it. \u2705  One-time setup, committed once, shared\n     with teammates. \u274c  Adds a CLAUDE.md file to a repo that has none today (written after plan approval).\n  2. No thanks, I'll invoke skills manually\n     \u2705  Repo stays minimal, no new files added. \u2705  You keep full control over when skills run. \u274c  Skills never fire\n     proactively; you type each one yourself.\n  3. Type something.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  4. Chat about this\n\nEnter to select \u00b7 Tab/Arrow keys to navigate \u00b7 Esc to cancel\n"
+}

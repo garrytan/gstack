@@ -1,0 +1,35 @@
+{
+  "sourceObservation": ".context/ship-source-o-full-paid-20260909-0145/devex-retry-terminal-watch-v1/observation.json",
+  "call": {
+    "sessionId": "0ce28a08-89c8-4cf6-84ad-5bbbc9c2aacd",
+    "toolUseId": "toolu_01KeyeMLYxU3SHBPLgFuu8x1",
+    "questions": [
+      {
+        "question": "D10 \u2014 Pass 4: Documentation\n\nFinding: demo output is unspecified \u2014 developer has no reference point for 'success'\n\nProject/branch: EvalKit SDK 2.0.0b1 / main\n\nELI10: The README says to run `python -m evalkit.demo` but shows no example output. After a 5-minute wait (or after adding the skip flag), the developer sees... something. But they don't know if they should see 10 scores, 100 scores, a single number, or a JSON blob. Without a reference, 'did this work?' requires guesswork. Stripe's docs show you the exact JSON you'll receive. EvalKit's README shows you nothing.\n\nStakes if we pick wrong: A developer who gets output but doesn't recognize it as success may assume it failed and re-run, open an issue, or abandon. This is especially bad for a 5-minute wait \u2014 after sitting through the CI block, they need instant confirmation that it worked.\n\nRecommendation: A \u2014 add expected output to the README. This is a one-paragraph doc change, zero code required, and it makes the first success moment unambiguous.\n\nCompleteness: A=10/10, B=7/10, C=3/10.\n\nPros / cons:\nA) Add to plan: include sample demo output in README under 'Getting Started' (recommended)\n  \u2714 Developer immediately knows what success looks like; 'it worked!' moment is unambiguous\n  \u2714 Zero code change; one paragraph in README; takes 10 minutes to write\n  \u274c Sample output may drift if demo data changes (low risk: sample_responses.json is bundled and stable)\nB) Add as a TODO for post-beta docs polish\n  \u2714 Defers the work without blocking the beta\n  \u274c The demo is THE magical moment for this release; leaving its output undocumented weakens the whole TTHW fix\nC) Skip \u2014 developer will recognize success when they see scores\n  \u2714 Zero effort\n  \u274c ML engineers expect scores to be domain-specific; without a reference, 'are these scores correct?' is unanswerable\n\nNet: The getting-started flow now ends with a demo run. If the output isn't documented, the developer's first success moment is ambiguous. A 10-second read of sample output turns ambiguity into confidence.\n\n<gstack-qid:plan-devex-review-todo-demo-output>",
+        "header": "Demo output doc",
+        "options": [
+          {
+            "label": "A) Add to plan: include sample demo output in README (Recommended)",
+            "description": "Show what success looks like. One paragraph, zero code change, takes 10 minutes."
+          },
+          {
+            "label": "B) Add as a TODO for post-beta docs polish",
+            "description": "Defer; not blocking the beta, but weakens the TTHW fix."
+          },
+          {
+            "label": "C) Skip \u2014 developer will recognize success when they see scores",
+            "description": "Zero effort. Accepts ambiguous success moment."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D10 \u2014 Pass 4: Documentation\n\nFinding: demo output is unspecified \u2014 developer has no reference point for 'success'\n\nProject/branch: EvalKit SDK 2.0.0b1 / main\n\nELI10: The README says to run `python -m evalkit.demo` but shows no example output. After a 5-minute wait (or after adding the skip flag), the developer sees... something. But they don't know if they should see 10 scores, 100 scores, a single number, or a JSON blob. Without a reference, 'did this work?' requires guesswork. Stripe's docs show you the exact JSON you'll receive. EvalKit's README shows you nothing.\n\nStakes if we pick wrong: A developer who gets output but doesn't recognize it as success may assume it failed and re-run, open an issue, or abandon. This is especially bad for a 5-minute wait \u2014 after sitting through the CI block, they need instant confirmation that it worked.\n\nRecommendation: A \u2014 add expected output to the README. This is a one-paragraph doc change, zero code required, and it makes the first success moment unambiguous.\n\nCompleteness: A=10/10, B=7/10, C=3/10.\n\nPros / cons:\nA) Add to plan: include sample demo output in README under 'Getting Started' (recommended)\n  \u2714 Developer immediately knows what success looks like; 'it worked!' moment is unambiguous\n  \u2714 Zero code change; one paragraph in README; takes 10 minutes to write\n  \u274c Sample output may drift if demo data changes (low risk: sample_responses.json is bundled and stable)\nB) Add as a TODO for post-beta docs polish\n  \u2714 Defers the work without blocking the beta\n  \u274c The demo is THE magical moment for this release; leaving its output undocumented weakens the whole TTHW fix\nC) Skip \u2014 developer will recognize success when they see scores\n  \u2714 Zero effort\n  \u274c ML engineers expect scores to be domain-specific; without a reference, 'are these scores correct?' is unanswerable\n\nNet: The getting-started flow now ends with a demo run. If the output isn't documented, the developer's first success moment is ambiguous. A 10-second read of sample output turns ambiguity into confidence.\n\n<gstack-qid:plan-devex-review-todo-demo-output>": "A) Add to plan: include sample demo output in README (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T02:05:45.958Z"
+  }
+}

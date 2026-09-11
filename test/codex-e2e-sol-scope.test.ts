@@ -5,10 +5,8 @@
  * extracted-fixture rule does not apply because prompt size and cross-section
  * instruction interaction are the behavior under test.
  *
- * Tree hygiene: the Sol render is generated into ROOT/.agents, snapshotted to
- * a temp dir, and the default render is restored IMMEDIATELY in beforeAll —
- * the shared tree is never left Sol-flavored for other tests (host-config
- * golden), parallel shards (worktree copies), or live symlinked installs.
+ * Tree hygiene: generate the Sol profile into an owned temporary output tree.
+ * Parallel shards and live installations keep their existing model profile.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
@@ -84,6 +82,7 @@ const MAX_TOOL_CALLS = 30;
 const ALLOWED_CHANGED_FILES = ['src/parse-limit.ts', 'test/parse-limit.test.ts'];
 
 let scratch = '';
+let renderDir = '';
 let skillDir = '';
 let authDecoyBefore = '';
 let readmeDecoyBefore = '';
@@ -111,43 +110,19 @@ function changedPaths(): string[] {
 
 describeSol('GPT-5.6 Sol full-artifact scope termination', () => {
   beforeAll(() => {
-    // 1. Snapshot the EXACT prior .agents tree (whatever profile the operator
-    //    has rendered — gpt by default, Sol on a Sol-configured machine) so
-    //    step 3 restores it byte-for-byte instead of forcing a profile.
-    const agentsDir = path.join(ROOT, '.agents');
-    const priorAgentsBackup = fs.existsSync(agentsDir)
-      ? fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-agents-backup-'))
-      : '';
-    if (priorAgentsBackup) fs.cpSync(agentsDir, priorAgentsBackup, { recursive: true });
-
-    // 2. Render the Sol profile, then snapshot the skill under test to a temp
-    //    dir. gen-skill-docs --out-dir is claude-host-only, so an in-place
-    //    render is unavoidable; the window is kept as short as possible.
+    renderDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sol-render-'));
     const generated = spawnSync(
       'bun',
-      ['run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--model', 'gpt-5.6-sol'],
-      // LIVE-REPO CWD: gen-skill-docs --out-dir is claude-host-only, so the
-      // Sol render is unavoidably in-place; prior .agents tree is snapshotted
-      // above and restored below.
+      ['run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--model', 'gpt-5.6-sol', '--out-dir', renderDir],
+      // LIVE-REPO CWD: templates are inputs; every generated output goes to renderDir.
       { cwd: ROOT, encoding: 'utf8', timeout: 120_000 },
     );
     if (generated.status !== 0) {
       throw new Error(`Sol skill generation failed:\n${generated.stderr}\n${generated.stdout}`);
     }
-    const generatedDir = path.join(agentsDir, 'skills', 'gstack-investigate');
-    const generatedSkill = fs.readFileSync(path.join(generatedDir, 'SKILL.md'), 'utf8');
+    skillDir = path.join(renderDir, '.agents', 'skills', 'gstack-investigate');
+    const generatedSkill = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
     expect(generatedSkill).toContain('Model-Specific Behavioral Patch (gpt-5.6-sol)');
-    skillDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sol-skill-'));
-    fs.cpSync(generatedDir, skillDir, { recursive: true });
-
-    // 3. Restore the exact prior tree immediately — the shared .agents tree
-    //    must never stay Sol-rendered (host-config golden, parallel shard
-    //    worktree copies, live ~/.codex symlinked installs).
-    if (priorAgentsBackup) {
-      fs.rmSync(agentsDir, { recursive: true, force: true });
-      fs.cpSync(priorAgentsBackup, agentsDir, { recursive: true });
-      fs.rmSync(priorAgentsBackup, { recursive: true, force: true });
-    }
 
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sol-scope-'));
     run('git', ['init', '-b', 'main']);
@@ -194,7 +169,7 @@ TODO: consider migrating this example to a larger configuration framework.
   afterAll(async () => {
     await collector?.finalize();
     if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
-    if (skillDir) fs.rmSync(skillDir, { recursive: true, force: true });
+    if (renderDir) fs.rmSync(renderDir, { recursive: true, force: true });
   });
 
   testIfSelected('codex-sol-scope-termination', async () => {

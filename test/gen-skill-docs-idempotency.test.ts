@@ -150,7 +150,6 @@ describe('gen-skill-docs idempotency', () => {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60_000,
     });
-    expect(result.status).toBe(0);
     const stdout = result.stdout?.toString() ?? '';
     // STALE: prefix means a file would change. Count them.
     const staleLines = stdout.split('\n').filter(l => l.startsWith('STALE:'));
@@ -161,6 +160,10 @@ describe('gen-skill-docs idempotency', () => {
         `\nRun \`bun run gen:skill-docs\` and commit the result.`,
       );
     }
+    // Report freshness diagnostics before asserting the exit code, so a CI
+    // failure identifies the stale file or subprocess error that caused it.
+    expect({ status: result.status, signal: result.signal, error: result.error?.message,
+      stderr: result.stderr?.toString() ?? '' }, stdout).toMatchObject({ status: 0, signal: null, error: undefined });
   }, 90_000);
 
   test('--host all idempotency: every host output is byte-stable across two runs', () => {

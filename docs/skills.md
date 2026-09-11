@@ -42,7 +42,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
 | | | |
 | **Multi-AI** | | |
-| [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
+| [`/codex`](#codex) | **Second Opinion** | OpenAI Codex review, challenge, and consultation. Available outside the Codex harness. |
+| [`/claude-code`](#claude-code) | **Second Opinion** | Claude Code review, challenge, and consultation. Available outside the Claude Code harness; used for automatic outside reviews in Codex. |
 | [`/pair-agent`](#browse) | **Remote Agent Bridge** | Pair a remote AI agent (OpenClaw, Codex, Cursor, Hermes) with gstack's own browser. Scoped tunnel, locked allowlist, session token. Fallback-browser skill; agents driving Aside open their own tabs. |
 | [`/setup-gbrain`](#setup-gbrain) | **Memory Sync** | Set up gbrain for cross-machine session memory sync. One command from zero to live. |
 | [`/sync-gbrain`](#sync-gbrain) | **Keep Brain Current** | Refresh gbrain against this repo's code; teach the agent when to use `gbrain search`/`code-def` over Grep. Idempotent; safe to re-run. |
@@ -1053,7 +1054,7 @@ Claude: Detected: Fly.io (fly.toml found)
 
 This is my **second opinion mode**.
 
-When `/review` catches bugs from Claude's perspective, `/codex` brings a completely different AI — OpenAI's Codex CLI — to review the same diff. Different training, different blind spots, different strengths. The overlap tells you what's definitely real. The unique findings from each are where you find the bugs neither would catch alone.
+`/codex` brings OpenAI Codex CLI to review the same diff independently. It is available on every harness except Codex itself. External harnesses install it as `/gstack-codex`. Compare its findings with the native review to distinguish corroborated findings from issues only one reviewer caught.
 
 gstack-owned Codex calls default to `gpt-6-astra`, including resumed consult
 sessions. Set `GSTACK_CODEX_MODEL=<model>` to change the default, or name a
@@ -1062,11 +1063,11 @@ pass the selection through `-c model=...`, overriding the CLI's configured model
 Native review also sets `-c review_model=...` to that selection, overriding any
 separate review-model pin.
 
-On Codex hosts, the Claude outside-voice skill is `gstack-claude`. Its review,
-challenge, and consult calls, including resumed sessions, use
-`--model "${GSTACK_CLAUDE_MODEL:-claude-fable-5-1}"`; a model named in your
-request takes precedence. Both defaults are known frontier pins maintained
-in gstack releases, with no automatic model discovery.
+On Codex hosts, the Claude outside-voice skill is `gstack-claude-code`. Its
+review, challenge, and consult calls preserve Claude's configured model.
+`GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
+sessions; a model named in your request takes precedence. Harness routing is
+independent of model selection.
 
 ### Three modes
 
@@ -1098,6 +1099,18 @@ Claude: Running independent Codex review...
 ```
 
 ---
+
+## `/claude-code`
+
+Claude Code provides the outside reviewer when gstack runs in Codex. Other non-Claude harnesses also expose this skill for explicit requests; Claude Code itself omits it. External harnesses install it as `/gstack-claude-code`.
+
+**Review** supplies the branch diff for a read-only pass/fail review. **Challenge** asks Claude Code to find concrete failure cases in the same diff. **Consult** supports read-only repository exploration and resumes the session saved in `.context/claude-session-id`. Review and challenge receive context from the parent workflow and run without tools; consultation can read and search files.
+
+The Claude Code CLI must be installed and authenticated. Its existing model configuration and `GSTACK_CLAUDE_BIN` / `GSTACK_CLAUDE_BIN_ARGS` executable overrides are honored. Errors, timeouts, and invalid responses report missing outside coverage instead of a clean review. Automatic reviews start fresh; consult session continuity is explicit.
+
+Outside-review routing follows the harness, independently of the configured model. Generic second-opinion requests choose `/claude-code` on Codex and `/codex` elsewhere; explicit provider requests keep that provider. The existing `codex_reviews` setting controls the selected automatic reviewer in workflows that already use that setting. Existing opt-in and skip controls still apply in office hours, design, and spec workflows.
+
+`/claude` was renamed to `/claude-code` without an alias. Run `./setup --host <name>` to migrate managed installations, including installations sharing that checkout. Setup retains a working old installation when replacement generation or installation fails.
 
 ## Safety & Guardrails
 

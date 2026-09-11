@@ -1,0 +1,171 @@
+{
+  "provenance": {
+    "sourceWtree": "6ed1202cd2a3482857ecf897aaa2a57223e8d0bd",
+    "sessionId": "13a732a7-32e3-4a03-af7b-dc18f401a02a",
+    "transcriptSha256": "8d29f01bcd57ac141fdd106963939602a74f8c609a372ca3b2d6fc652f7ee399",
+    "note": "Native AskUserQuestion inputs and successful answers only; no hidden model reasoning or terminal reconstruction."
+  },
+  "calls": [
+    {
+      "sessionId": "13a732a7-32e3-4a03-af7b-dc18f401a02a",
+      "toolUseId": "toolu_01UNKPiujREjkMsAvvJj6G24",
+      "questions": [
+        {
+          "question": "gstack can search learnings from your other projects on this machine to find patterns that might apply to this settings-page review. This stays local — no data leaves your machine. Recommended for solo developers; skip if you work on multiple client codebases where cross-contamination would be a concern. Which do you prefer? <gstack-qid:cross-project-learnings>",
+          "header": "Learnings",
+          "options": [
+            {
+              "label": "Enable cross-project learnings (Recommended)",
+              "description": "Search learnings from all gstack-tracked projects on this machine for patterns relevant to this settings-page review."
+            },
+            {
+              "label": "Keep learnings project-scoped only",
+              "description": "Only use learnings from this specific repository."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "requestedAt": "2026-09-08T21:47:32.136Z",
+      "answers": {
+        "gstack can search learnings from your other projects on this machine to find patterns that might apply to this settings-page review. This stays local — no data leaves your machine. Recommended for solo developers; skip if you work on multiple client codebases where cross-contamination would be a concern. Which do you prefer? <gstack-qid:cross-project-learnings>": "Enable cross-project learnings (Recommended)"
+      },
+      "failed": false,
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T21:47:32.932Z"
+    },
+    {
+      "sessionId": "13a732a7-32e3-4a03-af7b-dc18f401a02a",
+      "toolUseId": "toolu_01UHRFXUCYtkGa5atCaTi5LU",
+      "questions": [
+        {
+          "question": "Pass 7 surfaces one genuinely open product decision: what happens to the Export button during and after download? The plan currently specifies Export triggers a JSON download of saved preferences, but doesn't define the button state during the operation. How should Export behave? <gstack-qid:settings-export-state>",
+          "header": "Export state",
+          "options": [
+            {
+              "label": "Fire-and-forget — no pending state (Recommended)",
+              "description": "Browser handles the download dialog immediately. Export button stays enabled. No progress indicator needed — the OS download UI confirms the action. Simple, zero extra code."
+            },
+            {
+              "label": "Disable during download, re-enable after",
+              "description": "Export button disables for the duration of the JS download operation (typically <100ms for JSON). Prevents double-click. Adds ~5 lines of code."
+            },
+            {
+              "label": "Show error state if generation fails",
+              "description": "If the preferences JSON can’t be generated (e.g. data read error), show an inline error. Adds error handling + error UI. Only relevant if Export reads from server, not from in-memory form state."
+            },
+            {
+              "label": "B + C combined: disable during + error on failure",
+              "description": "Disable Export during operation AND surface an error if generation fails. Most complete, most code."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "requestedAt": "2026-09-08T21:48:02.238Z",
+      "answers": {
+        "Pass 7 surfaces one genuinely open product decision: what happens to the Export button during and after download? The plan currently specifies Export triggers a JSON download of saved preferences, but doesn't define the button state during the operation. How should Export behave? <gstack-qid:settings-export-state>": "Fire-and-forget — no pending state (Recommended)"
+      },
+      "failed": false,
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T21:48:03.021Z"
+    },
+    {
+      "sessionId": "13a732a7-32e3-4a03-af7b-dc18f401a02a",
+      "toolUseId": "toolu_01Pd2D33egiRcjtGfKEivnPZ",
+      "questions": [
+        {
+          "question": "Pass 6 found that the mobile layout’s responsive CSS (flexbox/grid reorder of the 4-button action group) could silently break keyboard tab order if not explicitly documented. Should this go into TODOS.md or get built now in this PR? <gstack-qid:settings-tab-order-todo>",
+          "header": "Tab order",
+          "options": [
+            {
+              "label": "Build it now in this PR (Recommended)",
+              "description": "Add a code comment to the action group’s responsive styles stating DOM order must match tab order. ~3 lines. Prevents future regressions. Low effort, high permanence."
+            },
+            {
+              "label": "Add to TODOS.md",
+              "description": "Defer. Risk: the next developer touching the mobile layout won’t know about the constraint and silently breaks keyboard nav."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "requestedAt": "2026-09-08T21:48:18.806Z",
+      "answers": {
+        "Pass 6 found that the mobile layout’s responsive CSS (flexbox/grid reorder of the 4-button action group) could silently break keyboard tab order if not explicitly documented. Should this go into TODOS.md or get built now in this PR? <gstack-qid:settings-tab-order-todo>": "Build it now in this PR (Recommended)"
+      },
+      "failed": false,
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T21:48:19.065Z"
+    },
+    {
+      "sessionId": "13a732a7-32e3-4a03-af7b-dc18f401a02a",
+      "toolUseId": "toolu_01UShZbE7YbjcSQckKVTyN2p",
+      "questions": [
+        {
+          "question": "Pass 6 also flagged that ErrorSummary placement is unspecified in the plan — DESIGN.md says it exists but doesn’t position it relative to the action group and InlineStatus. Without a spec, the implementer places it arbitrarily. Should this get specified now or go to TODOS.md? <gstack-qid:settings-error-summary-placement>",
+          "header": "Error summary",
+          "options": [
+            {
+              "label": "Specify it now in accepted behavior (Recommended)",
+              "description": "Add one sentence: ‘ErrorSummary appears above the fieldsets, below InlineStatus; focus moves to the first invalid field on submit attempt.’ Zero implementation cost, closes the ambiguity permanently."
+            },
+            {
+              "label": "Add to TODOS.md",
+              "description": "Defer. Risk: implementer places ErrorSummary somewhere arbitrary, requiring a visual fix after QA."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "requestedAt": "2026-09-08T21:48:26.324Z",
+      "answers": {
+        "Pass 6 also flagged that ErrorSummary placement is unspecified in the plan — DESIGN.md says it exists but doesn’t position it relative to the action group and InlineStatus. Without a spec, the implementer places it arbitrarily. Should this get specified now or go to TODOS.md? <gstack-qid:settings-error-summary-placement>": "Specify it now in accepted behavior (Recommended)"
+      },
+      "failed": false,
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T21:48:27.082Z"
+    },
+    {
+      "sessionId": "13a732a7-32e3-4a03-af7b-dc18f401a02a",
+      "toolUseId": "toolu_01VAbebUM1GZ1qF7VCAPU4oy",
+      "questions": [
+        {
+          "question": "Design review complete (5→10/10). The plan now has specific DESIGN.md tokens for each gap, a full interaction state table, a journey storyboard, and 7 implementation tasks. What’s next? <gstack-qid:plan-design-review-next-step>",
+          "header": "Next step",
+          "options": [
+            {
+              "label": "Run /plan-eng-review (Recommended)",
+              "description": "Required shipping gate. Validates architecture, component boundaries, test coverage, and edge-case handling for the 5 gap fixes. Eng review didn’t exist before this design review; run it now."
+            },
+            {
+              "label": "Skip to implementation",
+              "description": "The plan is design-complete. Skip further plan reviews and start building the 7 tasks directly."
+            },
+            {
+              "label": "Run /design-shotgun",
+              "description": "Explore visual design variants for the action group hierarchy and error state UI before implementation. Best if the exact visual treatment is still uncertain."
+            },
+            {
+              "label": "Handle next steps manually",
+              "description": "I’ll decide what to run next on my own."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "requestedAt": "2026-09-08T21:50:56.819Z",
+      "answers": {
+        "Design review complete (5→10/10). The plan now has specific DESIGN.md tokens for each gap, a full interaction state table, a journey storyboard, and 7 implementation tasks. What’s next? <gstack-qid:plan-design-review-next-step>": "Run /plan-eng-review (Recommended)"
+      },
+      "failed": false,
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T21:50:57.568Z"
+    }
+  ]
+}

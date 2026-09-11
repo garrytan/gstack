@@ -16,8 +16,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { callJudge, judge } from './helpers/llm-judge';
-import { readWorkflowExcerpt } from './helpers/workflow-excerpt';
 import type { JudgeScore } from './helpers/llm-judge';
+import { readWorkflowJudgeInput } from './helpers/workflow-judge-input';
 import { LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles';
 // Runs when EVALS=1 is set (requires ANTHROPIC_API_KEY in env) — the EVALS
 // gate lives in the shared describeIfSelected. Selection machinery is shared
@@ -587,14 +587,20 @@ async function runWorkflowJudge(opts: {
   const defaults = { clarity: 4, completeness: 3, actionability: 4 };
   const thresholds = { ...defaults, ...opts.thresholds };
 
-  const section = readWorkflowExcerpt(opts.skillPath, opts.startMarker, opts.endMarker);
+  const input = readWorkflowJudgeInput({
+    root: ROOT,
+    skillPath: opts.skillPath,
+    startMarker: opts.startMarker,
+    endMarker: opts.endMarker,
+  });
+
   const scores = await callJudge<JudgeScore>(`You are evaluating the quality of ${opts.judgeContext} for an AI coding agent.
 
-The agent reads this excerpt to learn ${opts.judgeGoal}. Shared preamble definitions and
-external tools/files are documented separately; do not penalize their absence from this excerpt.
-The test harness expands on-demand sections at their read points, so the section index and
-Read instructions refer to the original files, not duplicate work. Judge the actual instructions,
-including contradictory ordering or missing decisions within the excerpt.
+The agent reads these source files to learn ${opts.judgeGoal}. Shared preamble definitions and
+external tools/files are documented separately; do not penalize their absence from this bundle.
+On-demand sections retain their original file boundaries and Read instructions; the section
+index refers to those files, not duplicate work. The bundle order is not execution order.
+Judge the actual instructions, including contradictory ordering or missing decisions.
 
 Rate on three dimensions (1-5 scale):
 - **clarity** (1-5): Can an agent follow the instructions without ambiguity?
@@ -604,9 +610,9 @@ Rate on three dimensions (1-5 scale):
 Respond with ONLY valid JSON:
 {"clarity": N, "completeness": N, "actionability": N, "reasoning": "brief explanation"}
 
-Here is the document to evaluate:
+Here is the source-file bundle to evaluate:
 
-${section}`);
+${input.text}`);
 
   console.log(`${opts.testName} scores:`, JSON.stringify(scores, null, 2));
 
@@ -633,7 +639,7 @@ describeIfSelected('Ship & Release skill evals', ['ship/SKILL.md workflow', 'doc
       testName: 'ship/SKILL.md workflow',
       suite: 'Ship & Release skill evals',
       skillPath: 'ship/SKILL.md',
-      startMarker: '# Ship:',
+      startMarker: '## Step 0: Detect platform and base branch',
       endMarker: '## Important Rules',
       judgeContext: 'a ship/release workflow document',
       judgeGoal: 'how to create a PR: merge base branch, run tests, review diff, bump version, update changelog, push, and open PR',
@@ -674,7 +680,7 @@ describeIfSelected('Plan Review skill evals', [
       testName: 'plan-eng-review/SKILL.md sections',
       suite: 'Plan Review skill evals',
       skillPath: 'plan-eng-review/SKILL.md',
-      startMarker: '## BEFORE YOU START:',
+      startMarker: '# Plan Review Mode',
       endMarker: '## CRITICAL RULE',
       judgeContext: 'an engineering plan review framework with 4 review sections',
       judgeGoal: 'how to review a plan for architecture quality, code quality, test coverage, and performance — walking through each section interactively with AskUserQuestion',
@@ -713,7 +719,7 @@ describeIfSelected('Design skill evals', ['design-review/SKILL.md fix loop', 'de
       testName: 'design-consultation/SKILL.md research',
       suite: 'Design skill evals',
       skillPath: 'design-consultation/SKILL.md',
-      startMarker: '## Phase 1:',
+      startMarker: '## Phase 0:',
       endMarker: '## Phase 4:',
       judgeContext: 'a design consultation research and proposal workflow',
       judgeGoal: 'how to gather product context, research the competitive landscape, and produce a complete design system proposal with typography, color, spacing, and motion specifications',

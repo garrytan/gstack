@@ -73,4 +73,18 @@ describe('bun version pins', () => {
     expect(versions, `bun version drift across CI surfaces:\n${detail}`).toHaveLength(1);
     expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
   });
+
+  test('every CI surface requires Bun 1.4.0 or newer for safe extra-stdio ownership', () => {
+    // Matching pins alone would allow every lane to regress together. Older
+    // Linux Bun releases double-close extra stdio FDs during subprocess GC,
+    // which can close unrelated listeners after the OS reuses an FD number.
+    // https://github.com/oven-sh/bun/issues/34785#issuecomment-5020318035
+    for (const pin of collectPins()) {
+      expect(pin.version, `${pin.surface} must pin a stable numeric version`).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(
+        Bun.semver.satisfies(pin.version, '>=1.4.0'),
+        `${pin.surface} pins Bun ${pin.version}; Bun >=1.4.0 is required for safe extra-stdio ownership`,
+      ).toBe(true);
+    }
+  });
 });

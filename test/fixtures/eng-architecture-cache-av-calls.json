@@ -1,0 +1,56 @@
+{
+  "provenance": {
+    "sourceHead": "bcd614c152e256a3e361fce7138cd6976c706c12",
+    "attempt": "AV Eng job8 FIRST; actual no_review_questions retained",
+    "nativeCapture": {
+      "path": "/home/vercel-sandbox/gstack/.context/ship-source-av-delta-paid-20260910-v1/delta-pty-evidence/blobs/c37cf09eccd209f5e6795696a966437d492d9f6fd12986aae7ec2adf6d4133a0/current.jsonl",
+      "sha256": "83e573088c7dd99b6d3f444782df0ac990d7cc9308c8ba74eb1ec80007fd55a3",
+      "bytes": 845045,
+      "archives": [],
+      "firstSeenAt": "2026-09-10T23:00:13.696885+00:00",
+      "lastChangedAt": "2026-09-10T23:12:05.775934+00:00"
+    },
+    "publicProjection": {
+      "path": ".context/eng-architecture-av-diagnosis-root-v1/native/projects/owned/b684322f-87ad-431b-9b49-3ba41aa5cdfb.jsonl",
+      "sha256": "2f0be58ded07c69b6af0f156b86af756ea468802be74cc3a3259c3c1ea0e509d",
+      "bytes": 305074
+    },
+    "observation": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/evals/job-8/shards/skill-e2e-plan-eng-finding-count/pty-count/ship-source-av-delta-paid-20260910-v1-8/plan-eng-review-1789081234512-64LiYp/observation.json",
+      "sha256": "ea8ab74738bfa32e9dbf33b0588204b570afde984f2855bb92566d607367f2a5"
+    },
+    "projection": "Exact first cache-architecture NativePlanQuestionCall; successful native question/result identity and offered answer retained; no assistant text/thinking"
+  },
+  "call": {
+    "sessionId": "b684322f-87ad-431b-9b49-3ba41aa5cdfb",
+    "toolUseId": "toolu_0147MKgbsvnFruWMDXzQUGVv",
+    "questions": [
+      {
+        "question": "D3 — Architecture issue 1: global mutable AuthCache shared by two services with unserialized mutations\nProject/branch/task: main branch, PLAN.md \"Multi-tenant Auth Refactor\" (reduced scope: AuthBroker, SessionMint, AuthCache).\nELI10: PLAN.md:19-20 has AuthBroker and SessionMint both import one module-level AuthCache and both write to it, and PLAN.md:10 says nothing serializes those writes. Picture SessionMint invalidating tenant A on suspension at the same instant AuthBroker writes a freshly refreshed token for tenant A. Last writer wins, the suspended tenant keeps a valid session, and nothing logs it. The module-level export also means every test shares one cache, so tests pass or fail depending on run order.\nStakes if we pick wrong: a suspended or logged-out tenant stays authenticated silently, which is the one failure an auth system must never have; plus flaky tests forever.\nRecommendation: 1A because a single mutation owner with constructor injection is the boring, well-trodden fix and it maps to your explicit-over-clever preference: every caller can see which cache it holds.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one injected owner of writes vs a shared global that two services race on.",
+        "header": "Arch 1",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "1A: Inject AuthCache by constructor; AuthCache owns all writes and serializes per tenant key; every method requires tenant context (recommended)",
+            "description": "✅ Invalidation can never be overwritten by a concurrent refresh: writes for one tenant key run in order through one owner. ✅ Tests construct a fresh AuthCache per case, so no cross-test state leaks. ✅ No method accepts a call without a tenant ID, so tenant isolation is enforced at the type boundary. ❌ Adds a per-key write queue or mutex plus wiring in the two service constructors (human: ~1 day / CC: ~20 min)."
+          },
+          {
+            "label": "1B: Keep module-level export but add a per-key write lock inside AuthCache",
+            "description": "✅ Fixes the lost-invalidation race with a smaller diff to call sites (human: ~half day / CC: ~10 min). ✅ Callers keep importing the same symbol they do today. ❌ Tests still share one global instance and need manual reset hooks. ❌ Hidden dependency: nothing in a service's signature says it touches the cache."
+          },
+          {
+            "label": "1C: Do nothing; document that mutations are unserialized",
+            "description": "✅ Zero implementation cost right now. ✅ Avoids touching the two service constructors this PR. ❌ Leaves a silent security failure mode (suspended tenant stays valid) in a multi-tenant auth path. ❌ Race is timing-dependent, so it will only show up in production."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 — Architecture issue 1: global mutable AuthCache shared by two services with unserialized mutations\nProject/branch/task: main branch, PLAN.md \"Multi-tenant Auth Refactor\" (reduced scope: AuthBroker, SessionMint, AuthCache).\nELI10: PLAN.md:19-20 has AuthBroker and SessionMint both import one module-level AuthCache and both write to it, and PLAN.md:10 says nothing serializes those writes. Picture SessionMint invalidating tenant A on suspension at the same instant AuthBroker writes a freshly refreshed token for tenant A. Last writer wins, the suspended tenant keeps a valid session, and nothing logs it. The module-level export also means every test shares one cache, so tests pass or fail depending on run order.\nStakes if we pick wrong: a suspended or logged-out tenant stays authenticated silently, which is the one failure an auth system must never have; plus flaky tests forever.\nRecommendation: 1A because a single mutation owner with constructor injection is the boring, well-trodden fix and it maps to your explicit-over-clever preference: every caller can see which cache it holds.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one injected owner of writes vs a shared global that two services race on.": "1A: Inject AuthCache by constructor; AuthCache owns all writes and serializes per tenant key; every method requires tenant context (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T23:03:42.025Z"
+  }
+}

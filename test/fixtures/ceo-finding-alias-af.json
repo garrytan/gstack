@@ -1,0 +1,105 @@
+{
+  "provenance": {
+    "sourceHead": "ca16058341c2e073051340d9653bbbc900f3ca36",
+    "sourceProjection": ".context/ship-source-af-delta-paid-20260909-v1/ceo-dx-checkpoint-native-v1/plan-ceo-review-1788996831922-hVvVFP.json",
+    "sourceProjectionSHA256": "243899f9bee2988da8219ffa3f335f89bd3afa788a6371319126c79a04b9b974",
+    "sourceObservation": "/home/vercel-sandbox/gstack/.context/ship-source-af-delta-paid-20260909-v1/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-af-delta-paid-20260909-v1-4/plan-ceo-review-1788996831922-hVvVFP/observation.json",
+    "retainedObservationSHA256": "d76c4728ef0d81260c3f357fd91791466af19a3d8acdd59f8b8d027ff0e2fc2a",
+    "capture": {
+      "skill": "plan-ceo-review",
+      "runId": "ship-source-af-delta-paid-20260909-v1-4",
+      "cwd": "/tmp/gstack-paid-shard-dwNU1D/tmp/gstack-plan-count-wK9VSJ",
+      "claudeConfigDir": "/tmp/gstack-paid-shard-dwNU1D/tmp/gstack-hermetic-3453136-s0UCHD/with-skills/.claude",
+      "at": "2026-09-09T23:39:33.013Z"
+    },
+    "actualState": "in_progress",
+    "actualCounts": {
+      "step0": 4,
+      "review": 0,
+      "administrative": 0
+    },
+    "partial": true,
+    "paidCoverageCredit": false,
+    "content": "Exact two completed public native question/answer projections. No private model content or raw hook envelopes; title/header variants in tests are synthetic."
+  },
+  "rows": [
+    {
+      "call": {
+        "sessionId": "8a4dd191-a7d0-48fb-b547-b2abe4255d0a",
+        "toolUseId": "toolu_01MStyaf6aHrVkHDGqwd32u2",
+        "questions": [
+          {
+            "header": "Finding 1",
+            "question": "D4 \u2014 Issue 1: the success test asserts only that the receipt is truthy. How should it assert the receipt? <gstack-qid:plan-ceo-review-success-receipt-assertion>\nProject/branch/task: gstack-plan-count-wK9VSJ on main; PLAN.md test 1 (successful charge), lines 30-32.\nELI10: The plan says a 1000-cent USD charge with Stripe id ch_paid must return exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. But the planned test only checks that something non-empty came back. A receipt with amountCents 100000, currency \"usd\", a missing chargeId, or even an empty object {} would pass. The test cannot fail for the regression it exists to catch.\nStakes if we pick wrong: a receipt-shape regression ships green, and the first person to notice is a customer reading a wrong amount on their receipt.\nRecommendation: 1A because the plan already states the exact expected value, so the test should assert exactly that and nothing weaker (well-tested code is non-negotiable; explicit over clever).\nCompleteness: 1A=10/10, 1B=6/10, 1C=1/10\nNet: exact contract enforcement vs a test that documents intent without enforcing it.",
+            "options": [
+              {
+                "label": "1A) Deep-equal the full receipt (recommended)",
+                "description": "\u2705 Assert the receipt deep-equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" } (toEqual / deepStrictEqual). Rejects wrong id, wrong amount, wrong currency, extra or missing keys. Failure output names the mismatched field (human ~10 min / CC ~1 min).\n\u2705 Verification: temporarily change the expected amount and confirm the test goes red, then restore.\n\u274c If the receipt legitimately gains a field later, this test must be updated; that is the point of a contract test."
+              },
+              {
+                "label": "1B) Assert the three named fields individually",
+                "description": "\u2705 Three toBe checks on chargeId, amountCents, currency; readable and still catches wrong values (human ~10 min / CC ~1 min).\n\u2705 Tolerates extra receipt fields without a test change.\n\u274c Silently passes if an unexpected extra field appears, so the exact shape stated in the plan is not enforced."
+              },
+              {
+                "label": "1C) Keep truthy-only as planned",
+                "description": "\u2705 Zero additional work; the test exists and runs.\n\u2705 Never needs updating when the receipt shape changes.\n\u274c Passes for {} or any wrong amount/currency; the stated contract is unprotected and the test gives false confidence."
+              }
+            ],
+            "multiSelect": false
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 Issue 1: the success test asserts only that the receipt is truthy. How should it assert the receipt? <gstack-qid:plan-ceo-review-success-receipt-assertion>\nProject/branch/task: gstack-plan-count-wK9VSJ on main; PLAN.md test 1 (successful charge), lines 30-32.\nELI10: The plan says a 1000-cent USD charge with Stripe id ch_paid must return exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. But the planned test only checks that something non-empty came back. A receipt with amountCents 100000, currency \"usd\", a missing chargeId, or even an empty object {} would pass. The test cannot fail for the regression it exists to catch.\nStakes if we pick wrong: a receipt-shape regression ships green, and the first person to notice is a customer reading a wrong amount on their receipt.\nRecommendation: 1A because the plan already states the exact expected value, so the test should assert exactly that and nothing weaker (well-tested code is non-negotiable; explicit over clever).\nCompleteness: 1A=10/10, 1B=6/10, 1C=1/10\nNet: exact contract enforcement vs a test that documents intent without enforcing it.": "1A) Deep-equal the full receipt (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T23:37:26.793Z"
+      },
+      "fingerprintMetadata": {
+        "signature": "8a4dd191-a7d0-48fb-b547-b2abe4255d0a:toolu_01MStyaf6aHrVkHDGqwd32u2",
+        "observedAtMs": 249014,
+        "preReview": true
+      }
+    },
+    {
+      "call": {
+        "sessionId": "8a4dd191-a7d0-48fb-b547-b2abe4255d0a",
+        "toolUseId": "toolu_017gPGmZxaFBxGjYSmanZUko",
+        "questions": [
+          {
+            "header": "Finding 2",
+            "question": "D5 \u2014 Issue 2: the repeated-502 test asserts only the rejection type; attempt count and backoff go unchecked. What should it assert? <gstack-qid:plan-ceo-review-502-retry-assertions>\nProject/branch/task: gstack-plan-count-wK9VSJ on main; PLAN.md test 2 (repeated 502), lines 33-36.\nELI10: The plan states the contract: with max_retries=1, two 502s mean exactly two charge attempts, one recorded 100 ms backoff, then PaymentUnavailable. The planned test checks only the final rejection. A regression that stops retrying (one attempt), retries forever until the mock runs dry, or skips the backoff would still reject with PaymentUnavailable and pass. The factory already exposes the Stripe mock call history and the virtual sleeper record, so the missing checks are two extra assertions, not new fixtures.\nStakes if we pick wrong: a retry regression ships green; customers either get double-charged attempts under a Stripe blip or no retry at all, and the test says everything is fine.\nRecommendation: 2A because the plan names exact values (two attempts, one 100 ms sleep) and the probes already exist; never weaken an exact count to a lower bound (edge cases over speed; observability is scope).\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10\nNet: enforcing the whole retry contract vs only its last symptom.",
+            "options": [
+              {
+                "label": "2A) Rejection class + exact 2 calls + sleeper [100] (recommended)",
+                "description": "\u2705 Assert rejects with an instance of PaymentUnavailable (class match, not message text), Stripe mock call history length is exactly 2, and the sleeper record equals [100]. Each is one line against existing factory probes (human ~15 min / CC ~2 min).\n\u2705 Verification: bump max_retries to 2 locally and confirm the call-count assertion goes red; restore. A failing assertion names which of the three invariants broke.\n\u274c Test must change if the retry policy is intentionally changed; that is the contract test doing its job."
+              },
+              {
+                "label": "2B) Rejection class + call count, skip the sleeper check",
+                "description": "\u2705 Catches no-retry and over-retry regressions with one extra assertion (human ~10 min / CC ~1 min).\n\u2705 Slightly less coupling to the backoff constant.\n\u274c A dropped or wrong backoff (0 ms hot loop against Stripe) passes; the plan explicitly states the 100 ms backoff as part of the contract."
+              },
+              {
+                "label": "2C) Keep rejection-only as planned",
+                "description": "\u2705 No extra work; the test exists and exercises the exhausted path.\n\u2705 Insensitive to retry-policy tuning.\n\u274c Passes with 1, 2, or 5 attempts and with no backoff; the two stated invariants have no coverage."
+              }
+            ],
+            "multiSelect": false
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 \u2014 Issue 2: the repeated-502 test asserts only the rejection type; attempt count and backoff go unchecked. What should it assert? <gstack-qid:plan-ceo-review-502-retry-assertions>\nProject/branch/task: gstack-plan-count-wK9VSJ on main; PLAN.md test 2 (repeated 502), lines 33-36.\nELI10: The plan states the contract: with max_retries=1, two 502s mean exactly two charge attempts, one recorded 100 ms backoff, then PaymentUnavailable. The planned test checks only the final rejection. A regression that stops retrying (one attempt), retries forever until the mock runs dry, or skips the backoff would still reject with PaymentUnavailable and pass. The factory already exposes the Stripe mock call history and the virtual sleeper record, so the missing checks are two extra assertions, not new fixtures.\nStakes if we pick wrong: a retry regression ships green; customers either get double-charged attempts under a Stripe blip or no retry at all, and the test says everything is fine.\nRecommendation: 2A because the plan names exact values (two attempts, one 100 ms sleep) and the probes already exist; never weaken an exact count to a lower bound (edge cases over speed; observability is scope).\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10\nNet: enforcing the whole retry contract vs only its last symptom.": "2A) Rejection class + exact 2 calls + sleeper [100] (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T23:37:52.442Z"
+      },
+      "fingerprintMetadata": {
+        "signature": "8a4dd191-a7d0-48fb-b547-b2abe4255d0a:toolu_017gPGmZxaFBxGjYSmanZUko",
+        "observedAtMs": 274654,
+        "preReview": true
+      }
+    }
+  ]
+}

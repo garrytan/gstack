@@ -1,0 +1,133 @@
+{
+  "provenance": {
+    "source": "Owned AQ Design public observation; exact completed native call objects only.",
+    "sessionId": "dc4f6c6e-651c-4961-874e-a15ea449f7d6",
+    "observationSha256": "8b8e32f11aeffb64b7cec35b00195035f649efd0d07e9793efc25b1db445d3d8",
+    "actualState": "in_progress",
+    "actualStep0Count": 4,
+    "actualReviewCount": 0,
+    "scope": "Four-call prefix; no whole-job or hypothetical count claim."
+  },
+  "calls": [
+    {
+      "sessionId": "dc4f6c6e-651c-4961-874e-a15ea449f7d6",
+      "toolUseId": "toolu_0146U1KuQxB8b8bZ793Jg1b1",
+      "questions": [
+        {
+          "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: plan-count fixture on main, about to run /plan-design-review on PLAN.md.\nELI10: gstack skills work best when CLAUDE.md tells the assistant which skill to reach for (bugs go to /investigate, ship goes to /ship, and so on). Without those rules you invoke each skill by hand. This is a one-time prompt per project.\nStakes if we pick wrong: pick A and CLAUDE.md gains a short routing section (committed once); pick B and skills are manual until you flip the config back.\nRecommendation: A because routing makes later reviews and ship steps trigger without remembering skill names.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add routing rules to CLAUDE.md (recommended)\n  ✅ Future requests like \"review this diff\" route to the matching gstack skill automatically\n  ✅ One small, reviewable section appended to CLAUDE.md; easy to edit or remove later\n  ❌ Touches a checked-in file and adds a commit; in plan mode this is deferred until you exit plan mode\nB) No thanks, invoke skills manually\n  ✅ CLAUDE.md stays exactly as it is; nothing is committed on your behalf\n  ✅ Re-enable any time with a single gstack-config command\n  ❌ You must remember and type each /skill name yourself for every task\nNet: automatic skill routing vs. an untouched CLAUDE.md.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "Append the gstack skill routing section to CLAUDE.md and commit it (after plan mode ends)."
+            },
+            {
+              "label": "No thanks, manual skills",
+              "description": "Set routing_declined=true; invoke skills by name yourself."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: plan-count fixture on main, about to run /plan-design-review on PLAN.md.\nELI10: gstack skills work best when CLAUDE.md tells the assistant which skill to reach for (bugs go to /investigate, ship goes to /ship, and so on). Without those rules you invoke each skill by hand. This is a one-time prompt per project.\nStakes if we pick wrong: pick A and CLAUDE.md gains a short routing section (committed once); pick B and skills are manual until you flip the config back.\nRecommendation: A because routing makes later reviews and ship steps trigger without remembering skill names.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add routing rules to CLAUDE.md (recommended)\n  ✅ Future requests like \"review this diff\" route to the matching gstack skill automatically\n  ✅ One small, reviewable section appended to CLAUDE.md; easy to edit or remove later\n  ❌ Touches a checked-in file and adds a commit; in plan mode this is deferred until you exit plan mode\nB) No thanks, invoke skills manually\n  ✅ CLAUDE.md stays exactly as it is; nothing is committed on your behalf\n  ✅ Re-enable any time with a single gstack-config command\n  ❌ You must remember and type each /skill name yourself for every task\nNet: automatic skill routing vs. an untouched CLAUDE.md.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:11:36.130Z"
+    },
+    {
+      "sessionId": "dc4f6c6e-651c-4961-874e-a15ea449f7d6",
+      "toolUseId": "toolu_01AsTJ47YvmnhppimVRJCy37",
+      "questions": [
+        {
+          "question": "D2 — Enable cross-project learnings search for gstack on this machine?\nProject/branch/task: plan-count fixture on main, first learnings lookup for /plan-design-review.\nELI10: gstack keeps small notes about what it learned in each project (pitfalls, patterns). It can search notes from your other projects on this machine too. Nothing leaves your machine either way; the question is only whether notes from other repos may inform this review.\nStakes if we pick wrong: enable and a note from an unrelated client codebase could color a recommendation here; disable and you miss patterns you already learned elsewhere.\nRecommendation: A because this is a single-developer sandbox with no sign of multiple client codebases.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  ✅ Design pitfalls learned in other repos surface here with a confidence score attached\n  ✅ Stays local; a one-line config flag you can flip back at any time\n  ❌ Learnings from unrelated projects may occasionally not apply and need dismissing\nB) Keep learnings project-scoped only\n  ✅ Zero risk of cross-contamination between separate client or team codebases\n  ✅ Every surfaced learning is guaranteed to come from this repo's own history\n  ❌ This project has no learnings yet, so the search returns nothing today\nNet: broader recall vs. strict per-project isolation.",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "Set cross_project_learnings=true and search across local projects."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Set cross_project_learnings=false; search this project only."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Enable cross-project learnings search for gstack on this machine?\nProject/branch/task: plan-count fixture on main, first learnings lookup for /plan-design-review.\nELI10: gstack keeps small notes about what it learned in each project (pitfalls, patterns). It can search notes from your other projects on this machine too. Nothing leaves your machine either way; the question is only whether notes from other repos may inform this review.\nStakes if we pick wrong: enable and a note from an unrelated client codebase could color a recommendation here; disable and you miss patterns you already learned elsewhere.\nRecommendation: A because this is a single-developer sandbox with no sign of multiple client codebases.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  ✅ Design pitfalls learned in other repos surface here with a confidence score attached\n  ✅ Stays local; a one-line config flag you can flip back at any time\n  ❌ Learnings from unrelated projects may occasionally not apply and need dismissing\nB) Keep learnings project-scoped only\n  ✅ Zero risk of cross-contamination between separate client or team codebases\n  ✅ Every surfaced learning is guaranteed to come from this repo's own history\n  ❌ This project has no learnings yet, so the search returns nothing today\nNet: broader recall vs. strict per-project isolation.": "Enable cross-project (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:12:42.281Z"
+    },
+    {
+      "sessionId": "dc4f6c6e-651c-4961-874e-a15ea449f7d6",
+      "toolUseId": "toolu_019iUkb55stqJSofwRsp45w4",
+      "questions": [
+        {
+          "question": "D3 — Issue 1: make Save the only visually primary header action?\nProject/branch/task: main, /plan-design-review Pass 1 (Information Architecture) on PLAN.md.\nELI10: Right now Save, Reset, Cancel and Export look identical. A user scanning the header has to read all four labels to find the one that keeps their work. DESIGN.md already says Save is the only filled button and the other three are neutral ghosts. This decides whether the plan commits to that.\nStakes if we pick wrong: leave it and the most common action is the hardest to spot, and a destructive Reset sits at equal weight next to it. Principle: hierarchy as service, and 'make the right choice the most visible choice'.\nRecommendation: 1A because it is the documented token, zero new design work, and it fixes the header's scan order.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\n1A) Save filled #1d4ed8 white text; Reset/Cancel/Export neutral ghost (recommended) (human: ~1h / CC: ~5min)\n  ✅ Matches DESIGN.md exactly; one button variant swap, no new tokens or components\n  ✅ Primary reads first at 60mph; destructive Reset and Cancel visibly recede to secondary\n  ❌ Ghost buttons need their own visible border or text contrast check so they still look clickable\n1B) Save filled; Reset and Cancel ghost; Export keeps a secondary outlined style (human: ~2h / CC: ~10min)\n  ✅ Gives Export a little more weight as the one non-destructive secondary action\n  ✅ Still puts Save unmistakably first in the header\n  ❌ Introduces a third button tier DESIGN.md does not define; three visual levels in a four-button row is noise\n1C) Leave all four buttons identical\n  ✅ No implementation work and no risk of regressing existing styles\n  ✅ Preserves the current look users have seen\n  ❌ Documented DESIGN.md violation stays; primary action remains invisible in the header\nNet: adopt the documented one-primary rule now, or keep four equal buttons and leave the header unscannable.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A Save filled, others ghost (recommended)",
+              "description": "Apply DESIGN.md: Save #1d4ed8 filled white text; Reset, Cancel, Export neutral ghost buttons."
+            },
+            {
+              "label": "1B Add an outlined tier for Export",
+              "description": "Save filled, Reset/Cancel ghost, Export outlined secondary (new tier not in DESIGN.md)."
+            },
+            {
+              "label": "1C Keep all four identical",
+              "description": "Decline the fix; document the violation as accepted."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Issue 1: make Save the only visually primary header action?\nProject/branch/task: main, /plan-design-review Pass 1 (Information Architecture) on PLAN.md.\nELI10: Right now Save, Reset, Cancel and Export look identical. A user scanning the header has to read all four labels to find the one that keeps their work. DESIGN.md already says Save is the only filled button and the other three are neutral ghosts. This decides whether the plan commits to that.\nStakes if we pick wrong: leave it and the most common action is the hardest to spot, and a destructive Reset sits at equal weight next to it. Principle: hierarchy as service, and 'make the right choice the most visible choice'.\nRecommendation: 1A because it is the documented token, zero new design work, and it fixes the header's scan order.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\n1A) Save filled #1d4ed8 white text; Reset/Cancel/Export neutral ghost (recommended) (human: ~1h / CC: ~5min)\n  ✅ Matches DESIGN.md exactly; one button variant swap, no new tokens or components\n  ✅ Primary reads first at 60mph; destructive Reset and Cancel visibly recede to secondary\n  ❌ Ghost buttons need their own visible border or text contrast check so they still look clickable\n1B) Save filled; Reset and Cancel ghost; Export keeps a secondary outlined style (human: ~2h / CC: ~10min)\n  ✅ Gives Export a little more weight as the one non-destructive secondary action\n  ✅ Still puts Save unmistakably first in the header\n  ❌ Introduces a third button tier DESIGN.md does not define; three visual levels in a four-button row is noise\n1C) Leave all four buttons identical\n  ✅ No implementation work and no risk of regressing existing styles\n  ✅ Preserves the current look users have seen\n  ❌ Documented DESIGN.md violation stays; primary action remains invisible in the header\nNet: adopt the documented one-primary rule now, or keep four equal buttons and leave the header unscannable.": "1A Save filled, others ghost (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:14:54.161Z"
+    },
+    {
+      "sessionId": "dc4f6c6e-651c-4961-874e-a15ea449f7d6",
+      "toolUseId": "toolu_014jqNunnvrfnkdtvNPT2wp6",
+      "questions": [
+        {
+          "question": "D4 — Issue 2: how should Save show that it is working for 2–5 seconds?\nProject/branch/task: main, /plan-design-review Pass 2 (Interaction States) on PLAN.md.\nELI10: After clicking Save the page does nothing visible for up to five seconds. People click again, assume it broke, or leave. DESIGN.md already defines the pending pattern the Export button uses: a small spinner beside the word 'Saving…' inside the disabled button, with aria-busy so screen readers know, and no spin for people who turned motion off.\nStakes if we pick wrong: a skeleton hides the values the user just typed and reads like a reload; no indicator keeps the frozen-page problem. Principle: Nielsen's visibility of system status.\nRecommendation: 2A because it is the established token, keeps the form and its values visible, and matches Export exactly.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\n2A) Inline spinner + 'Saving…' inside disabled Save, aria-busy=true, reduced-motion (recommended) (human: ~1h / CC: ~5min)\n  ✅ Same component and copy pattern Export already uses, so the two header actions behave identically\n  ✅ Form stays fully visible; the user can see exactly what is being saved while waiting\n  ❌ Copy 'Saving…' widens the button slightly; the 320px equal-column row must be checked for reflow\n2B) Replace the form with the loading skeleton while Save is pending (human: ~2h / CC: ~10min)\n  ✅ Reuses the existing skeleton component with no new button state work\n  ✅ Strong, unmistakable signal that something is happening\n  ❌ Hides the user's edits mid-save and reads like a page reload; on failure the form must re-materialize with values intact, a fragile round trip\n2C) Keep no indicator; rely on the disabled button state alone\n  ✅ Zero implementation effort beyond the existing disable-while-pending rule\n  ✅ No motion to worry about for reduced-motion users\n  ❌ Disabled-only signals are color-based and invisible to many users; the 2–5 second frozen page remains\nNet: reuse the Export pending pattern for Save, or accept a frozen page.",
+          "header": "Issue 2",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A Spinner + Saving… in button (recommended)",
+              "description": "DESIGN.md pending pattern: inline spinner beside “Saving…” inside disabled Save, aria-busy=true, reduced-motion support."
+            },
+            {
+              "label": "2B Skeleton while pending",
+              "description": "Swap the form for the loading skeleton during Save; restore values on failure."
+            },
+            {
+              "label": "2C No indicator",
+              "description": "Decline; disabled state only."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 2: how should Save show that it is working for 2–5 seconds?\nProject/branch/task: main, /plan-design-review Pass 2 (Interaction States) on PLAN.md.\nELI10: After clicking Save the page does nothing visible for up to five seconds. People click again, assume it broke, or leave. DESIGN.md already defines the pending pattern the Export button uses: a small spinner beside the word 'Saving…' inside the disabled button, with aria-busy so screen readers know, and no spin for people who turned motion off.\nStakes if we pick wrong: a skeleton hides the values the user just typed and reads like a reload; no indicator keeps the frozen-page problem. Principle: Nielsen's visibility of system status.\nRecommendation: 2A because it is the established token, keeps the form and its values visible, and matches Export exactly.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\n2A) Inline spinner + 'Saving…' inside disabled Save, aria-busy=true, reduced-motion (recommended) (human: ~1h / CC: ~5min)\n  ✅ Same component and copy pattern Export already uses, so the two header actions behave identically\n  ✅ Form stays fully visible; the user can see exactly what is being saved while waiting\n  ❌ Copy 'Saving…' widens the button slightly; the 320px equal-column row must be checked for reflow\n2B) Replace the form with the loading skeleton while Save is pending (human: ~2h / CC: ~10min)\n  ✅ Reuses the existing skeleton component with no new button state work\n  ✅ Strong, unmistakable signal that something is happening\n  ❌ Hides the user's edits mid-save and reads like a page reload; on failure the form must re-materialize with values intact, a fragile round trip\n2C) Keep no indicator; rely on the disabled button state alone\n  ✅ Zero implementation effort beyond the existing disable-while-pending rule\n  ✅ No motion to worry about for reduced-motion users\n  ❌ Disabled-only signals are color-based and invisible to many users; the 2–5 second frozen page remains\nNet: reuse the Export pending pattern for Save, or accept a frozen page.": "2A Spinner + Saving… in button (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:15:27.284Z"
+    }
+  ]
+}

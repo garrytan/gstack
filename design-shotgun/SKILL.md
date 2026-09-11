@@ -256,6 +256,7 @@ At session start or after compaction, recover recent project context.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:-unknown}
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -281,7 +282,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** Honor listed `ACTIVE DECISIONS` and their rationale; do not silently re-litigate them, and announce planned reversals. Use `~/.claude/skills/gstack/bin/gstack-decision-search` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for reversals). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -581,22 +582,21 @@ if [ -f "$_TASTE_PROFILE" ]; then
   # Each dimension has approved[] and rejected[] entries with
   # { value, confidence, approved_count, rejected_count, last_seen }
   # Confidence decays 5% per week of inactivity — computed at read time.
-  cat "$_TASTE_PROFILE" 2>/dev/null | head -200
+  cat "$_TASTE_PROFILE" 2>/dev/null
   echo "TASTE_PROFILE_FOUND"
 else
   echo "NO_TASTE_PROFILE"
 fi
 ```
 
-**If TASTE_PROFILE_FOUND:** Summarize the strongest signals (top 3 approved entries
-per dimension by confidence * approved_count). Include them in the design brief:
+**If TASTE_PROFILE_FOUND:** Parse the full JSON; malformed/unreadable uses the legacy fallback. After decay, rank each dimension by confidence * approved_count (or rejected_count); take three per kind. Count retained sessions (at most 50, not lifetime). Include in the brief:
 
-"Based on \${SESSION_COUNT} prior sessions, this user's taste leans toward:
+"Based on [number of retained sessions] recorded sessions, this user's taste leans toward:
 fonts [top-3], colors [top-3], layouts [top-3], aesthetics [top-3]. Bias
 generation toward these unless the user explicitly requests a different direction.
 Also avoid their strong rejections: [top-3 rejected per dimension]."
 
-**If NO_TASTE_PROFILE:** Fall through to per-session approved.json files (legacy).
+**Legacy fallback:** Glob `~/.gstack/projects/$SLUG/designs/**/approved.json`; Read the five newest. Use explicit feedback only, never infer fonts/colors from variant letters. No usable files: continue without a taste profile.
 
 **Conflict handling:** If the current user request contradicts a strong persistent
 signal (e.g., "make it playful" when taste profile strongly prefers minimal), flag
@@ -604,9 +604,7 @@ it: "Note: your taste profile strongly prefers minimal. You're asking for playfu
 this time — I'll proceed, but want me to update the taste profile, or treat this
 as a one-off?"
 
-**Decay:** Confidence scores decay 5% per week. A font approved 6 months ago with
-10 approvals has less weight than one approved last week. The decay calculation
-happens at read time, not write time, so the file only grows on change.
+**Decay:** Multiply stored confidence by 0.95 raised to elapsed weeks since last_seen (minimum zero weeks). Skip invalid dates/confidence; do not rewrite the file while reading.
 
 **Schema migration:** If the file has no `version` field or `version: 0`, it's
 the legacy approved.json aggregate — `~/.claude/skills/gstack/bin/gstack-taste-update`
@@ -782,21 +780,13 @@ Create the comparison board and serve it over HTTP:
 $D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
-This command generates the board HTML, starts an HTTP server on a random port,
-and opens it in the user's default browser. **Run it in the background** with `&`
-because the server needs to stay running while the user interacts with the board.
+Creates HTML and opens the board. **Run it in the background** (host task, or `&` redirecting stdout/stderr to private files in `$_DESIGN_DIR`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
 
-Parse the board URL from stderr output. Default daemon path:
-`BOARD_URL: http://127.0.0.1:N/boards/<id>/` (already includes the per-board
-path; use this for the AskUserQuestion URL AND as the base for the reload
-endpoint). Legacy `--no-daemon` path emits `SERVE_STARTED: port=XXXXX` and
-serves a single board at `/`, with reload at `/api/reload` — only relevant
-when an external caller explicitly passes `--no-daemon`.
+Default stderr: `BOARD_URL: http://127.0.0.1:N/boards/<id>/`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy `--no-daemon` emits `SERVE_STARTED: port=XXXXX`, serving one board at `/` with reload at `/api/reload`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 
-After the board is serving, use AskUserQuestion to wait for the user. Include the
-board URL so they can click it if they lost the browser tab:
+Once serving, wait with AskUserQuestion including the board URL:
 
 "I've opened a comparison board with the design variants:
 <BOARD_URL> — Rate them, leave comments, remix
@@ -804,11 +794,9 @@ elements you like, and click Submit when you're done. Let me know when you've
 submitted your feedback (or paste your preferences here). If you clicked
 Regenerate or Remix on the board, tell me and I'll generate new variants."
 
-Substitute `<BOARD_URL>` with the URL parsed from stderr (the daemon path
-emits `BOARD_URL: http://127.0.0.1:N/boards/<id>/`).
+Substitute `<BOARD_URL>` from the stderr marker above.
 
-**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
-board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
+**The user chooses variants in the board; AskUserQuestion only waits.**
 
 **After the user responds to AskUserQuestion:**
 
@@ -853,7 +841,7 @@ the approved variant.
 5. Reload the board in the user's browser (same tab) — the URL is per-board
    under daemon mode, so use `<BOARD_URL>` (from the `BOARD_URL:` stderr
    line) as the base:
-   `curl -s -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
+   `jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-`
    Under `--no-daemon` the reload endpoint is `/api/reload` at the legacy
    port; this path only matters if the caller explicitly opted out of the
    daemon.
@@ -864,8 +852,8 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
-In that case, show each variant inline using the Read tool (so the user can see them),
+Exit 0 with `BOARD_URL` means the daemon is serving; use the board feedback flow above.
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
 Which do you prefer? Any feedback?"

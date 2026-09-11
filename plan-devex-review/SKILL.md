@@ -242,6 +242,7 @@ At session start or after compaction, recover recent project context.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:-unknown}
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -267,7 +268,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** Honor listed `ACTIVE DECISIONS` and their rationale; do not silently re-litigate them, and announce planned reversals. Use `~/.claude/skills/gstack/bin/gstack-decision-search` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for reversals). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -491,6 +492,8 @@ require understanding new concepts quickly, and affect more people downstream. T
 is higher because you are a chef cooking for chefs.
 
 This skill IS a developer tool. Apply its own DX principles to itself.
+
+Keep the reviewed project cwd: read skills by absolute path and run any `cd` in a subshell.
 
 ## DX First Principles
 
@@ -799,6 +802,10 @@ The core principle: **gather evidence and force decisions BEFORE scoring, not du
 scoring.** Steps 0A through 0G build the evidence base. Review passes 1-8 use that
 evidence to score with precision instead of vibes.
 
+**Decision cadence, including Step 0:** One unresolved DX issue per AskUserQuestion
+call. Never batch issues into a call's `questions` array. Wait for each answer.
+Keep persona, empathy, and mode confirmations in separate calls from issue approvals.
+
 ### 0A. Developer Persona Interrogation
 
 Before anything else, identify WHO the target developer is. Different developers have
@@ -1006,8 +1013,8 @@ For each stage (Discover, Install, Hello World, Real Usage, Debug, Upgrade):
    or tells the developer to install it. A [persona] without Docker will see [specific
    error or nothing]."
 
-3. **AskUserQuestion per friction point.** One question per friction point found.
-   Do NOT batch multiple friction points into one question.
+3. **AskUserQuestion per friction point.** One separate tool call per friction point.
+   Do NOT batch friction points into one question or into different questions in one call.
 
    > "Journey Stage: INSTALL
    >
@@ -1125,16 +1132,16 @@ missing work — do NOT call ExitPlanMode:
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
    `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
-   once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

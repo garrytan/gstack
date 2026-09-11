@@ -1,0 +1,299 @@
+{
+  "provenance": {
+    "sourceHead": "f26d569e0345cb1131d9ca52d4a43965085c3468",
+    "sourceObservationSha256": "b23910ab9f477af2028213b6877b646aab26f8a0cb64aa21c05a0d7acf107dad",
+    "publicNativeProofSha256": "faf46cf9393433cc1e01b7f3eb1c80a52ea7bc5e72cfc59ba7bb698856aed091",
+    "historicalOutcome": "no_review_questions; downstream three seed predicates and mandatory legacy regression missing",
+    "paidOutcomeReclassified": false
+  },
+  "calls": [
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_01KfPwnoysgRFbyNyYbxucvR",
+      "questions": [
+        {
+          "question": "D1 — Reduce the new-class count before we review the rest?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), 12 files, 4-5 new classes.\nELI10: The plan invents a new cache wrapper (AuthCache) and a new token store on top of a cache adapter that already does tenant keying, expiry, and invalidation. Every extra class is another place a bug can hide in the code that decides who is logged in. Fewer moving parts means fewer places for a revoked token to slip through.\nStakes if we pick wrong: Too many layers and the auth path becomes hard to reason about and test; too few and we cram policy logic into services that should stay thin.\nRecommendation: 1A because the adapter already enforces every cache rule the plan lists, so AuthCache and TokenStore add indirection without behavior. Maps to your 'engineered enough' and right-sized-diff preferences.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\n1A) Reduce: keep AuthBroker + SessionMint, inject the existing adapter, RequestPolicy as a pure function/config, drop AuthCache and TokenStore as classes (human: ~1 day less / CC: ~10 min less) (recommended)\n  ✅ Two new types instead of five; roughly 7-8 files touched instead of 12, smaller review surface\n  ✅ No new global; each service is unit-testable with a fake adapter passed in\n  ❌ If a real service-facing narrowing of the adapter API is needed later, you add the facade then\n1B) Keep all four classes but replace the module-level global with constructor injection (human: ~2 days / CC: ~20 min)\n  ✅ Preserves the plan's intended layering if AuthCache is meant to narrow the adapter API\n  ✅ Still removes the shared-mutable-global hazard, so tests stay isolated\n  ❌ Facade and TokenStore still duplicate what the adapter already guarantees\n1C) Proceed exactly as written (human: ~2 days / CC: ~20 min)\n  ✅ No re-planning; the author's structure stands untouched\n  ✅ Fastest path to starting implementation today\n  ❌ Keeps a mutable global shared by two writers in the auth path, the riskiest shape available\nNet: You are trading a thinner, more testable auth path against preserving layering the plan has not yet justified.",
+          "header": "Scope",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A Reduce (recommended)",
+              "description": "AuthBroker + SessionMint with injected adapter; RequestPolicy as pure fn; drop AuthCache/TokenStore classes."
+            },
+            {
+              "label": "1B Keep 4 classes, add DI",
+              "description": "Keep the layering but remove the module-level global in favor of constructor injection."
+            },
+            {
+              "label": "1C Proceed as-is",
+              "description": "Review the plan exactly as written, 12 files and 4 classes with the shared global."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Reduce the new-class count before we review the rest?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), 12 files, 4-5 new classes.\nELI10: The plan invents a new cache wrapper (AuthCache) and a new token store on top of a cache adapter that already does tenant keying, expiry, and invalidation. Every extra class is another place a bug can hide in the code that decides who is logged in. Fewer moving parts means fewer places for a revoked token to slip through.\nStakes if we pick wrong: Too many layers and the auth path becomes hard to reason about and test; too few and we cram policy logic into services that should stay thin.\nRecommendation: 1A because the adapter already enforces every cache rule the plan lists, so AuthCache and TokenStore add indirection without behavior. Maps to your 'engineered enough' and right-sized-diff preferences.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\n1A) Reduce: keep AuthBroker + SessionMint, inject the existing adapter, RequestPolicy as a pure function/config, drop AuthCache and TokenStore as classes (human: ~1 day less / CC: ~10 min less) (recommended)\n  ✅ Two new types instead of five; roughly 7-8 files touched instead of 12, smaller review surface\n  ✅ No new global; each service is unit-testable with a fake adapter passed in\n  ❌ If a real service-facing narrowing of the adapter API is needed later, you add the facade then\n1B) Keep all four classes but replace the module-level global with constructor injection (human: ~2 days / CC: ~20 min)\n  ✅ Preserves the plan's intended layering if AuthCache is meant to narrow the adapter API\n  ✅ Still removes the shared-mutable-global hazard, so tests stay isolated\n  ❌ Facade and TokenStore still duplicate what the adapter already guarantees\n1C) Proceed exactly as written (human: ~2 days / CC: ~20 min)\n  ✅ No re-planning; the author's structure stands untouched\n  ✅ Fastest path to starting implementation today\n  ❌ Keeps a mutable global shared by two writers in the auth path, the riskiest shape available\nNet: You are trading a thinner, more testable auth path against preserving layering the plan has not yet justified.": "1A Reduce (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:24:29.278Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_014xtoxbQBBjjSJV7QxaiS1N",
+      "questions": [
+        {
+          "question": "D2 — Who is allowed to write to the auth cache?\nProject/branch/task: main — Multi-tenant Auth Refactor, AuthBroker and SessionMint both mutating one backing cache (PLAN.md:10, 19-20).\nELI10: Two services write to the same cache and nothing orders their writes. If one service removes a revoked token while the other is mid-way through storing that same token, the store lands last and the revoked token comes back to life. Users would see a logged-out or revoked session keep working.\nStakes if we pick wrong: A revoked or suspended tenant's tokens stay valid until natural expiry, silently, with no log line to find it.\nRecommendation: 2A because one writer plus a version check makes the race structurally impossible instead of merely unlikely; explicit over clever.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\nPros / cons:\n2A) Single writer + versioned writes: only SessionMint writes; AuthBroker reads and calls the adapter's existing invalidation hooks; every write carries the policy version read at validation start and the adapter rejects writes whose version is stale (human: ~1.5 days / CC: ~25 min) (recommended)\n  ✅ Revocation racing a mint can never resurrect a token; the stale write is rejected and logged\n  ✅ Ownership is obvious from the code: one class writes, one class reads, testable with a fake adapter\n  ❌ Needs a compare-and-set or version-tag on the adapter write path, a small adapter change\n2B) Single writer only: SessionMint writes, AuthBroker reads and invalidates, no version check (human: ~1 day / CC: ~15 min)\n  ✅ Removes the two-writer coupling with no adapter change at all\n  ✅ Simpler to explain and diagram than a version scheme\n  ❌ Invalidate-then-write-back is still possible inside a single mint that started before the revocation\n2C) Keep both writers, document the race as accepted (human: ~0 / CC: ~0)\n  ✅ Zero implementation cost right now\n  ✅ Matches the plan as written\n  ❌ Ships a known fail-open path in auth; the first incident is a security incident\nNet: You are trading a small adapter change for a guarantee that revocation always wins the race.",
+          "header": "Cache writes",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A Single writer + version (recommended)",
+              "description": "SessionMint writes with policy-version tag; adapter rejects stale writes; AuthBroker reads/invalidates."
+            },
+            {
+              "label": "2B Single writer only",
+              "description": "SessionMint writes, AuthBroker reads and invalidates. No version check."
+            },
+            {
+              "label": "2C Accept the race",
+              "description": "Keep both writers as planned and document the known race."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Who is allowed to write to the auth cache?\nProject/branch/task: main — Multi-tenant Auth Refactor, AuthBroker and SessionMint both mutating one backing cache (PLAN.md:10, 19-20).\nELI10: Two services write to the same cache and nothing orders their writes. If one service removes a revoked token while the other is mid-way through storing that same token, the store lands last and the revoked token comes back to life. Users would see a logged-out or revoked session keep working.\nStakes if we pick wrong: A revoked or suspended tenant's tokens stay valid until natural expiry, silently, with no log line to find it.\nRecommendation: 2A because one writer plus a version check makes the race structurally impossible instead of merely unlikely; explicit over clever.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\nPros / cons:\n2A) Single writer + versioned writes: only SessionMint writes; AuthBroker reads and calls the adapter's existing invalidation hooks; every write carries the policy version read at validation start and the adapter rejects writes whose version is stale (human: ~1.5 days / CC: ~25 min) (recommended)\n  ✅ Revocation racing a mint can never resurrect a token; the stale write is rejected and logged\n  ✅ Ownership is obvious from the code: one class writes, one class reads, testable with a fake adapter\n  ❌ Needs a compare-and-set or version-tag on the adapter write path, a small adapter change\n2B) Single writer only: SessionMint writes, AuthBroker reads and invalidates, no version check (human: ~1 day / CC: ~15 min)\n  ✅ Removes the two-writer coupling with no adapter change at all\n  ✅ Simpler to explain and diagram than a version scheme\n  ❌ Invalidate-then-write-back is still possible inside a single mint that started before the revocation\n2C) Keep both writers, document the race as accepted (human: ~0 / CC: ~0)\n  ✅ Zero implementation cost right now\n  ✅ Matches the plan as written\n  ❌ Ships a known fail-open path in auth; the first incident is a security incident\nNet: You are trading a small adapter change for a guarantee that revocation always wins the race.": "2A Single writer + version (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:25:21.601Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_01FAK7TsSk5FC7M297kP2B6L",
+      "questions": [
+        {
+          "question": "D3 — How does the new auth flow reach production?\nProject/branch/task: main — Multi-tenant Auth Refactor; legacyAuthFlow() is rewritten in place (PLAN.md:27-28) with no rollout or fallback named.\nELI10: The plan replaces the login path in one shot. If the new path has a bug, every tenant is locked out at once and the only fix is a revert deploy. A flag that routes some tenants to the new path and the rest to the old one lets you find the bug with one tenant, not all of them.\nStakes if we pick wrong: A global auth outage across all tenants with a deploy-length recovery time instead of a flag flip.\nRecommendation: 3A because auth is the one place where the cost of being wrong is total; make that cost a flag flip. Reversibility preference, strangler fig over big bang.\nCompleteness: 3A=10/10, 3B=7/10, 3C=3/10\nPros / cons:\n3A) Per-tenant flag: legacyAuthFlow() stays callable behind a per-tenant flag, new flow rolls out tenant by tenant, legacy deleted in a follow-up once at 100% (human: ~1 day / CC: ~15 min) (recommended)\n  ✅ Rollback is a flag flip per tenant, seconds instead of a deploy\n  ✅ Lets you canary on an internal tenant with the regression suite still green on the legacy side\n  ❌ Two code paths coexist for one release; legacy removal must actually happen later\n3B) Global kill-switch flag only: new flow on for everyone, one env flag falls back to legacy (human: ~0.5 day / CC: ~10 min)\n  ✅ Still a flag flip to recover, no redeploy\n  ✅ Less flag plumbing than per-tenant routing\n  ❌ First bad tenant takes everyone with it before you flip; no canary\n3C) Big-bang rewrite as planned (human: ~0 / CC: ~0)\n  ✅ One code path, nothing to clean up later\n  ✅ Smallest diff\n  ❌ Recovery is a revert deploy while every tenant is locked out\nNet: You are trading one release of dual code paths for a recovery time measured in seconds instead of deploys.",
+          "header": "Rollout",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A Per-tenant flag (recommended)",
+              "description": "Strangler fig: route tenants to new flow incrementally, legacy stays as fallback until 100%."
+            },
+            {
+              "label": "3B Global kill-switch",
+              "description": "New flow on for all; a single flag falls back to legacy."
+            },
+            {
+              "label": "3C Big-bang as planned",
+              "description": "Rewrite legacyAuthFlow() in place, no flag."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — How does the new auth flow reach production?\nProject/branch/task: main — Multi-tenant Auth Refactor; legacyAuthFlow() is rewritten in place (PLAN.md:27-28) with no rollout or fallback named.\nELI10: The plan replaces the login path in one shot. If the new path has a bug, every tenant is locked out at once and the only fix is a revert deploy. A flag that routes some tenants to the new path and the rest to the old one lets you find the bug with one tenant, not all of them.\nStakes if we pick wrong: A global auth outage across all tenants with a deploy-length recovery time instead of a flag flip.\nRecommendation: 3A because auth is the one place where the cost of being wrong is total; make that cost a flag flip. Reversibility preference, strangler fig over big bang.\nCompleteness: 3A=10/10, 3B=7/10, 3C=3/10\nPros / cons:\n3A) Per-tenant flag: legacyAuthFlow() stays callable behind a per-tenant flag, new flow rolls out tenant by tenant, legacy deleted in a follow-up once at 100% (human: ~1 day / CC: ~15 min) (recommended)\n  ✅ Rollback is a flag flip per tenant, seconds instead of a deploy\n  ✅ Lets you canary on an internal tenant with the regression suite still green on the legacy side\n  ❌ Two code paths coexist for one release; legacy removal must actually happen later\n3B) Global kill-switch flag only: new flow on for everyone, one env flag falls back to legacy (human: ~0.5 day / CC: ~10 min)\n  ✅ Still a flag flip to recover, no redeploy\n  ✅ Less flag plumbing than per-tenant routing\n  ❌ First bad tenant takes everyone with it before you flip; no canary\n3C) Big-bang rewrite as planned (human: ~0 / CC: ~0)\n  ✅ One code path, nothing to clean up later\n  ✅ Smallest diff\n  ❌ Recovery is a revert deploy while every tenant is locked out\nNet: You are trading one release of dual code paths for a recovery time measured in seconds instead of deploys.": "3A Per-tenant flag (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:25:42.221Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_01Yat2SnnNJje3SELzDVDbAm",
+      "questions": [
+        {
+          "question": "D4 — How should validateAndDispatch() handle errors?\nProject/branch/task: main — Multi-tenant Auth Refactor; validateAndDispatch() is 60 lines, three nested try/catch blocks, each catch swallows a different error class (PLAN.md:23-24).\nELI10: Right now when something goes wrong inside validation, the code catches the problem and keeps going as if nothing happened. In a login path that means a broken check can quietly pass a request through. The fix is to make every failure land in one place that always says no and always writes a log line.\nStakes if we pick wrong: A signature check or tenant lookup that throws becomes an allowed request with no trace in the logs.\nRecommendation: 4A because a flat pipeline with typed errors and one fail-closed boundary is both the safest and the easiest to test branch by branch; explicit over clever.\nCompleteness: 4A=10/10, 4B=7/10, 4C=3/10\nPros / cons:\n4A) Flatten into a linear pipeline of small steps; define typed errors (TokenError, PolicyError, TenantError, IdpError); one catch at the boundary maps every error to an explicit deny result with a structured log and metric; unknown errors also deny (human: ~1 day / CC: ~20 min) (recommended)\n  ✅ Every failure path denies and is observable; no branch can silently pass a request\n  ✅ Each step is a pure-ish function you can unit test in isolation, and the boundary gets one test per error class\n  ❌ Callers that relied on a swallowed error to continue will now see a deny and must be updated\n4B) Keep the structure, stop swallowing: each existing catch rethrows a typed error, one outer catch denies (human: ~0.5 day / CC: ~10 min)\n  ✅ Small diff on the existing function, fail-open path is closed\n  ✅ No caller behavior change beyond receiving denies where errors were hidden\n  ❌ Still 60 lines and three nesting levels; branch coverage stays hard to reason about\n4C) Leave as-is, add logging inside each catch (human: ~0.25 day / CC: ~5 min)\n  ✅ Cheapest possible change, purely additive\n  ✅ You at least see the swallowed errors in logs\n  ❌ Still fail-open; logging a bypass is not preventing one\nNet: You are trading a one-function refactor for an auth dispatcher that cannot pass a request it failed to validate.",
+          "header": "Error handling",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A Flatten + typed errors (recommended)",
+              "description": "Linear pipeline, typed error classes, one fail-closed boundary with structured logging."
+            },
+            {
+              "label": "4B Rethrow, one outer catch",
+              "description": "Keep nesting but rethrow typed errors; outer catch denies."
+            },
+            {
+              "label": "4C Log inside each catch",
+              "description": "Leave structure, add logging to the swallowing catches."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — How should validateAndDispatch() handle errors?\nProject/branch/task: main — Multi-tenant Auth Refactor; validateAndDispatch() is 60 lines, three nested try/catch blocks, each catch swallows a different error class (PLAN.md:23-24).\nELI10: Right now when something goes wrong inside validation, the code catches the problem and keeps going as if nothing happened. In a login path that means a broken check can quietly pass a request through. The fix is to make every failure land in one place that always says no and always writes a log line.\nStakes if we pick wrong: A signature check or tenant lookup that throws becomes an allowed request with no trace in the logs.\nRecommendation: 4A because a flat pipeline with typed errors and one fail-closed boundary is both the safest and the easiest to test branch by branch; explicit over clever.\nCompleteness: 4A=10/10, 4B=7/10, 4C=3/10\nPros / cons:\n4A) Flatten into a linear pipeline of small steps; define typed errors (TokenError, PolicyError, TenantError, IdpError); one catch at the boundary maps every error to an explicit deny result with a structured log and metric; unknown errors also deny (human: ~1 day / CC: ~20 min) (recommended)\n  ✅ Every failure path denies and is observable; no branch can silently pass a request\n  ✅ Each step is a pure-ish function you can unit test in isolation, and the boundary gets one test per error class\n  ❌ Callers that relied on a swallowed error to continue will now see a deny and must be updated\n4B) Keep the structure, stop swallowing: each existing catch rethrows a typed error, one outer catch denies (human: ~0.5 day / CC: ~10 min)\n  ✅ Small diff on the existing function, fail-open path is closed\n  ✅ No caller behavior change beyond receiving denies where errors were hidden\n  ❌ Still 60 lines and three nesting levels; branch coverage stays hard to reason about\n4C) Leave as-is, add logging inside each catch (human: ~0.25 day / CC: ~5 min)\n  ✅ Cheapest possible change, purely additive\n  ✅ You at least see the swallowed errors in logs\n  ❌ Still fail-open; logging a bypass is not preventing one\nNet: You are trading a one-function refactor for an auth dispatcher that cannot pass a request it failed to validate.": "4A Flatten + typed errors (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:26:08.879Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_01KpcnLtF32eFBUhkb7LecvG",
+      "questions": [
+        {
+          "question": "D5 — One cache-key builder or one per service?\nProject/branch/task: main — Multi-tenant Auth Refactor; after D2, AuthBroker reads and SessionMint writes entries keyed by tenant ID, issuer, audience, and policy version (PLAN.md:7-8).\nELI10: Both services have to spell out the exact same cache key, in the same order, with the same policy version. If they each write their own version of that logic, one typo means the reader looks in a different drawer than the writer filled. Worst case, a key that drops the tenant part lets one tenant read another tenant's cached token.\nStakes if we pick wrong: Silent cache misses at best; a cross-tenant cache hit at worst, with no test that would notice the two builders drifted.\nRecommendation: 5A because the key is a tenant-isolation boundary and DRY matters most exactly there; one builder, one test file, one place to audit.\nCompleteness: 5A=10/10, 5B=7/10, 5C=3/10\nPros / cons:\n5A) Single cacheKeyFor(tenantId, issuer, audience, policyVersion) helper plus a readPolicyVersion() helper, exported from one module, used by both services, with a test asserting every field is present and ordered (human: ~2h / CC: ~5 min) (recommended)\n  ✅ Reader and writer cannot drift; the tenant field is structurally required by the signature\n  ✅ One property-style test proves two different tenants never produce the same key\n  ❌ One more small shared module in the diff\n5B) Shared helper for the key only; each service reads policy version itself (human: ~1h / CC: ~3 min)\n  ✅ Key drift eliminated with the smallest shared surface\n  ✅ No change to how services obtain policy version\n  ❌ Version read can drift, which is the exact input the D2 stale-write check depends on\n5C) Each service builds its own key (human: ~0 / CC: ~0)\n  ✅ No shared module, services stay fully independent\n  ✅ Nothing to coordinate between the two implementers\n  ❌ Two copies of a tenant-isolation boundary, the most expensive DRY violation available\nNet: You are trading a tiny shared module for a guarantee the reader and writer agree on what a tenant is.",
+          "header": "DRY key",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A One key + version helper (recommended)",
+              "description": "Shared cacheKeyFor() and readPolicyVersion(), used by both services, tested once."
+            },
+            {
+              "label": "5B Key helper only",
+              "description": "Shared key builder; each service reads policy version itself."
+            },
+            {
+              "label": "5C Per-service keys",
+              "description": "Each service builds its own key and version read."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — One cache-key builder or one per service?\nProject/branch/task: main — Multi-tenant Auth Refactor; after D2, AuthBroker reads and SessionMint writes entries keyed by tenant ID, issuer, audience, and policy version (PLAN.md:7-8).\nELI10: Both services have to spell out the exact same cache key, in the same order, with the same policy version. If they each write their own version of that logic, one typo means the reader looks in a different drawer than the writer filled. Worst case, a key that drops the tenant part lets one tenant read another tenant's cached token.\nStakes if we pick wrong: Silent cache misses at best; a cross-tenant cache hit at worst, with no test that would notice the two builders drifted.\nRecommendation: 5A because the key is a tenant-isolation boundary and DRY matters most exactly there; one builder, one test file, one place to audit.\nCompleteness: 5A=10/10, 5B=7/10, 5C=3/10\nPros / cons:\n5A) Single cacheKeyFor(tenantId, issuer, audience, policyVersion) helper plus a readPolicyVersion() helper, exported from one module, used by both services, with a test asserting every field is present and ordered (human: ~2h / CC: ~5 min) (recommended)\n  ✅ Reader and writer cannot drift; the tenant field is structurally required by the signature\n  ✅ One property-style test proves two different tenants never produce the same key\n  ❌ One more small shared module in the diff\n5B) Shared helper for the key only; each service reads policy version itself (human: ~1h / CC: ~3 min)\n  ✅ Key drift eliminated with the smallest shared surface\n  ✅ No change to how services obtain policy version\n  ❌ Version read can drift, which is the exact input the D2 stale-write check depends on\n5C) Each service builds its own key (human: ~0 / CC: ~0)\n  ✅ No shared module, services stay fully independent\n  ✅ Nothing to coordinate between the two implementers\n  ❌ Two copies of a tenant-isolation boundary, the most expensive DRY violation available\nNet: You are trading a tiny shared module for a guarantee the reader and writer agree on what a tenant is.": "5A One key + version helper (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:26:29.009Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_01CvcP53ZXZV83Hx2XKffiaV",
+      "questions": [
+        {
+          "question": "D6 — How deep does test coverage go for the auth flows?\nProject/branch/task: main — Multi-tenant Auth Refactor; plan promises unit and integration coverage for new components only (PLAN.md:14-16); coverage diagram shows 27 gaps, 7 of them flow-level.\nELI10: Unit tests prove each piece works alone. They cannot prove that revoking a token actually stops the next request, or that tenant A can never read tenant B's session, because those bugs live in how the pieces connect. Auth is where connection bugs become breaches.\nStakes if we pick wrong: A green unit suite and a cross-tenant leak or a revoked token that still works in production.\nRecommendation: 6A because with CC the extra flow tests cost minutes, and the paths they cover are exactly the ones a breach would use. Well-tested is non-negotiable.\nCompleteness: 6A=10/10, 6B=7/10, 6C=4/10\nPros / cons:\n6A) Everything in the diagram: unit tests for every branch, the CRITICAL regression suite, plus integration tests for the 7 [→E2E] flows (revocation racing mint, tenant isolation, flag routing, IDP partial failure) against a fake adapter and stubbed IDP (human: ~3 days / CC: ~45 min) (recommended)\n  ✅ Every fail-closed path and every tenant boundary is asserted, not assumed\n  ✅ The race from D2 gets a deterministic test using an adapter fake that delays the write\n  ❌ Largest test diff; needs a fake adapter and an IDP stub harness if none exists yet\n6B) Unit tests for every branch plus the regression suite; skip the integration flows (human: ~1.5 days / CC: ~25 min)\n  ✅ Every function branch covered, regression protection in place\n  ✅ No new integration harness to build or maintain\n  ❌ Revocation race, tenant isolation, and flag routing are only covered by inspection\n6C) Plan as written: success and error paths for new components only, plus the mandatory regression suite (human: ~1 day / CC: ~15 min)\n  ✅ Smallest test effort beyond the required regression tests\n  ✅ Matches the plan author's stated intent\n  ❌ Fail-closed boundary, stale-write rejection, and key collision go untested\nNet: You are trading about 20 extra CC minutes for tests on the exact paths an attacker or an outage would exercise.",
+          "header": "Test depth",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "6A Full diagram incl. E2E (recommended)",
+              "description": "Unit for every branch + regression suite + 7 integration flows with fake adapter and IDP stub."
+            },
+            {
+              "label": "6B Unit + regression only",
+              "description": "Every branch unit-tested plus regression suite; no integration flows."
+            },
+            {
+              "label": "6C Plan as written + regression",
+              "description": "New-component success/error paths plus the mandatory regression suite."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — How deep does test coverage go for the auth flows?\nProject/branch/task: main — Multi-tenant Auth Refactor; plan promises unit and integration coverage for new components only (PLAN.md:14-16); coverage diagram shows 27 gaps, 7 of them flow-level.\nELI10: Unit tests prove each piece works alone. They cannot prove that revoking a token actually stops the next request, or that tenant A can never read tenant B's session, because those bugs live in how the pieces connect. Auth is where connection bugs become breaches.\nStakes if we pick wrong: A green unit suite and a cross-tenant leak or a revoked token that still works in production.\nRecommendation: 6A because with CC the extra flow tests cost minutes, and the paths they cover are exactly the ones a breach would use. Well-tested is non-negotiable.\nCompleteness: 6A=10/10, 6B=7/10, 6C=4/10\nPros / cons:\n6A) Everything in the diagram: unit tests for every branch, the CRITICAL regression suite, plus integration tests for the 7 [→E2E] flows (revocation racing mint, tenant isolation, flag routing, IDP partial failure) against a fake adapter and stubbed IDP (human: ~3 days / CC: ~45 min) (recommended)\n  ✅ Every fail-closed path and every tenant boundary is asserted, not assumed\n  ✅ The race from D2 gets a deterministic test using an adapter fake that delays the write\n  ❌ Largest test diff; needs a fake adapter and an IDP stub harness if none exists yet\n6B) Unit tests for every branch plus the regression suite; skip the integration flows (human: ~1.5 days / CC: ~25 min)\n  ✅ Every function branch covered, regression protection in place\n  ✅ No new integration harness to build or maintain\n  ❌ Revocation race, tenant isolation, and flag routing are only covered by inspection\n6C) Plan as written: success and error paths for new components only, plus the mandatory regression suite (human: ~1 day / CC: ~15 min)\n  ✅ Smallest test effort beyond the required regression tests\n  ✅ Matches the plan author's stated intent\n  ❌ Fail-closed boundary, stale-write rejection, and key collision go untested\nNet: You are trading about 20 extra CC minutes for tests on the exact paths an attacker or an outage would exercise.": "6A Full diagram incl. E2E (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:27:09.786Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_01KAQW9LBcZnJQcqUNdCwVXA",
+      "questions": [
+        {
+          "question": "D7 — Parallelize the 5 IDP calls, and how?\nProject/branch/task: main — Multi-tenant Auth Refactor; token validation issues 5 sequential IDP calls the plan says are independent (PLAN.md:31-32).\nELI10: Every login waits for five round trips to the identity provider one after another. Firing them at once cuts login latency to roughly one round trip. But firing five at once per login also multiplies the load you put on the identity provider, and two of those five (discovery document, signing keys) rarely change and can be cached instead of fetched at all.\nStakes if we pick wrong: Either logins stay 5x slower than needed, or you trip the identity provider's rate limit under load and every tenant sees intermittent login failures.\nRecommendation: 7A because the fastest IDP call is the one you do not make; parallelize what remains, bound it with a timeout, and fail closed on any rejection.\nCompleteness: 7A=10/10, 7B=7/10, 7C=3/10\nPros / cons:\n7A) Cache the static IDP responses (discovery, JWKS) with TTL in the existing adapter; run the remaining calls with Promise.all wrapped in a per-call timeout; any rejection denies with all outcomes logged (human: ~1 day / CC: ~20 min) (recommended)\n  ✅ Login latency drops to one round trip and IDP request volume drops by up to 40 percent\n  ✅ A hung IDP call cannot hang the login; the timeout converts it into a clean deny\n  ❌ Needs a TTL policy and a test for stale-key rotation on the cached JWKS\n7B) Promise.all on all 5 calls, no caching, no timeout wrapper (human: ~1h / CC: ~3 min)\n  ✅ Trivial change, immediate latency win as the plan describes\n  ✅ Fail-fast on first rejection matches the required-all semantics of auth\n  ❌ 5x concurrent IDP load per login and a slow call still stalls the whole request\n7C) Leave sequential (human: ~0 / CC: ~0)\n  ✅ Zero risk of new concurrency behavior\n  ✅ IDP load pattern unchanged\n  ❌ Every login pays five serial round trips for no reason\nNet: You are trading a TTL cache and a timeout wrapper for logins that are both faster and safer under IDP degradation.",
+          "header": "Performance",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "7A Cache static + Promise.all + timeout (recommended)",
+              "description": "TTL-cache discovery/JWKS; parallelize the rest with per-call timeout; any rejection denies."
+            },
+            {
+              "label": "7B Promise.all only",
+              "description": "Parallelize all 5 calls as the plan states, no caching or timeout."
+            },
+            {
+              "label": "7C Leave sequential",
+              "description": "No change to the IDP call pattern."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Parallelize the 5 IDP calls, and how?\nProject/branch/task: main — Multi-tenant Auth Refactor; token validation issues 5 sequential IDP calls the plan says are independent (PLAN.md:31-32).\nELI10: Every login waits for five round trips to the identity provider one after another. Firing them at once cuts login latency to roughly one round trip. But firing five at once per login also multiplies the load you put on the identity provider, and two of those five (discovery document, signing keys) rarely change and can be cached instead of fetched at all.\nStakes if we pick wrong: Either logins stay 5x slower than needed, or you trip the identity provider's rate limit under load and every tenant sees intermittent login failures.\nRecommendation: 7A because the fastest IDP call is the one you do not make; parallelize what remains, bound it with a timeout, and fail closed on any rejection.\nCompleteness: 7A=10/10, 7B=7/10, 7C=3/10\nPros / cons:\n7A) Cache the static IDP responses (discovery, JWKS) with TTL in the existing adapter; run the remaining calls with Promise.all wrapped in a per-call timeout; any rejection denies with all outcomes logged (human: ~1 day / CC: ~20 min) (recommended)\n  ✅ Login latency drops to one round trip and IDP request volume drops by up to 40 percent\n  ✅ A hung IDP call cannot hang the login; the timeout converts it into a clean deny\n  ❌ Needs a TTL policy and a test for stale-key rotation on the cached JWKS\n7B) Promise.all on all 5 calls, no caching, no timeout wrapper (human: ~1h / CC: ~3 min)\n  ✅ Trivial change, immediate latency win as the plan describes\n  ✅ Fail-fast on first rejection matches the required-all semantics of auth\n  ❌ 5x concurrent IDP load per login and a slow call still stalls the whole request\n7C) Leave sequential (human: ~0 / CC: ~0)\n  ✅ Zero risk of new concurrency behavior\n  ✅ IDP load pattern unchanged\n  ❌ Every login pays five serial round trips for no reason\nNet: You are trading a TTL cache and a timeout wrapper for logins that are both faster and safer under IDP degradation.": "7A Cache static + Promise.all + timeout (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:27:50.057Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_013HN2XTYK2fZtsbSTUWzpEc",
+      "questions": [
+        {
+          "question": "D8 — TODO: remove legacyAuthFlow() and the per-tenant flag after 100 percent rollout?\nProject/branch/task: main — Multi-tenant Auth Refactor; D3 keeps legacyAuthFlow() alive behind a per-tenant flag for the rollout release.\nELI10: Once every tenant runs on the new flow, the old login code and its flag are dead weight that someone will eventually be afraid to delete. Writing the removal down now, with the exit condition, keeps the strangler fig from becoming a permanent second code path.\nStakes if we pick wrong: Two auth paths live forever, and every future auth change has to be made and tested twice.\nRecommendation: 8A because the deletion is not this PR's job but it is this PR's debt; capture it with its trigger so it actually happens.\nNote: options differ in kind, not coverage — no completeness score.\nWhat: Delete legacyAuthFlow(), the per-tenant new-flow flag, and the legacy branch of the regression suite once all tenants are on the new flow.\nWhy: Two auth code paths double the test and review cost of every future auth change.\nPros: One auth path; the regression suite collapses to the new flow only.\nCons: Must wait for 100 percent rollout plus a bake period; deleting early removes the rollback.\nContext: D3 chose a strangler-fig rollout. The regression suite from Section 3 runs against both paths during rollout. Exit condition: all tenants flagged on, no flag flips for one full release cycle.\nDepends on: 100 percent tenant rollout of the new flow.\nPros / cons:\n8A) Add to TODOS.md with the exit condition above (human: ~5 min / CC: ~1 min) (recommended)\n  ✅ The debt and its trigger are written down where /retro and /ship will surface it\n  ✅ Nobody has to remember why the flag exists six months from now\n  ❌ TODOS.md does not exist yet in this repo, so this creates it\n8B) Skip, not valuable enough (human: ~0 / CC: ~0)\n  ✅ No new file in the repo\n  ✅ Team may already track cleanup elsewhere\n  ❌ Legacy path and flag risk becoming permanent by default\n8C) Build it now: delete legacyAuthFlow() in this PR (human: ~0 / CC: ~0)\n  ✅ One code path immediately, smallest long-term surface\n  ✅ No follow-up to track\n  ❌ Reverses D3; removes the rollback path before the new flow has seen production\nNet: You are trading one TODO entry for a guaranteed end date on the dual-path release.",
+          "header": "TODO",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "8A Add to TODOS.md (recommended)",
+              "description": "Capture legacy removal with its 100 percent rollout exit condition."
+            },
+            {
+              "label": "8B Skip",
+              "description": "Do not record the follow-up."
+            },
+            {
+              "label": "8C Build it now",
+              "description": "Delete legacyAuthFlow() in this PR, reversing D3."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — TODO: remove legacyAuthFlow() and the per-tenant flag after 100 percent rollout?\nProject/branch/task: main — Multi-tenant Auth Refactor; D3 keeps legacyAuthFlow() alive behind a per-tenant flag for the rollout release.\nELI10: Once every tenant runs on the new flow, the old login code and its flag are dead weight that someone will eventually be afraid to delete. Writing the removal down now, with the exit condition, keeps the strangler fig from becoming a permanent second code path.\nStakes if we pick wrong: Two auth paths live forever, and every future auth change has to be made and tested twice.\nRecommendation: 8A because the deletion is not this PR's job but it is this PR's debt; capture it with its trigger so it actually happens.\nNote: options differ in kind, not coverage — no completeness score.\nWhat: Delete legacyAuthFlow(), the per-tenant new-flow flag, and the legacy branch of the regression suite once all tenants are on the new flow.\nWhy: Two auth code paths double the test and review cost of every future auth change.\nPros: One auth path; the regression suite collapses to the new flow only.\nCons: Must wait for 100 percent rollout plus a bake period; deleting early removes the rollback.\nContext: D3 chose a strangler-fig rollout. The regression suite from Section 3 runs against both paths during rollout. Exit condition: all tenants flagged on, no flag flips for one full release cycle.\nDepends on: 100 percent tenant rollout of the new flow.\nPros / cons:\n8A) Add to TODOS.md with the exit condition above (human: ~5 min / CC: ~1 min) (recommended)\n  ✅ The debt and its trigger are written down where /retro and /ship will surface it\n  ✅ Nobody has to remember why the flag exists six months from now\n  ❌ TODOS.md does not exist yet in this repo, so this creates it\n8B) Skip, not valuable enough (human: ~0 / CC: ~0)\n  ✅ No new file in the repo\n  ✅ Team may already track cleanup elsewhere\n  ❌ Legacy path and flag risk becoming permanent by default\n8C) Build it now: delete legacyAuthFlow() in this PR (human: ~0 / CC: ~0)\n  ✅ One code path immediately, smallest long-term surface\n  ✅ No follow-up to track\n  ❌ Reverses D3; removes the rollback path before the new flow has seen production\nNet: You are trading one TODO entry for a guaranteed end date on the dual-path release.": "8A Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:28:20.760Z"
+    },
+    {
+      "sessionId": "9e247dab-a089-4c51-ad6d-f067e2d4e5fe",
+      "toolUseId": "toolu_019cfb6mC6vMWudY5ZukLHzh",
+      "questions": [
+        {
+          "question": "D9 — Which auth path runs when the per-tenant flag store is unreachable?\nProject/branch/task: main — Multi-tenant Auth Refactor; D3 routes each tenant to the new flow or legacyAuthFlow() by a per-tenant flag.\nELI10: The flag lookup is one more thing that can fail during login. If the flag service times out, the code has to pick a path anyway. Picking the old, proven path keeps users logged in during a flag outage; denying everyone is safer against a half-configured new flow but turns a flag outage into an auth outage.\nStakes if we pick wrong: Either a flag-service blip logs every tenant out, or a tenant already migrated silently falls back to a legacy path that no longer matches its config.\nRecommendation: 9A because the legacy path is the known-good path for the whole rollout window, and the fallback is loud, bounded, and tested.\nCompleteness: 9A=10/10, 9B=7/10, 9C=3/10\nPros / cons:\n9A) Fall back to legacyAuthFlow() on flag lookup failure, with a short lookup timeout, a warn-level structured log, a metric, and an integration test that stubs the flag store as down (human: ~3h / CC: ~8 min) (recommended)\n  ✅ A flag-store outage degrades to yesterday's behavior instead of an auth outage\n  ✅ The fallback is visible in metrics so a stuck fallback cannot hide for days\n  ❌ Tenants already migrated briefly run legacy during the outage; acceptable only while legacy still exists\n9B) Fall back to legacy, no dedicated test or metric (human: ~1h / CC: ~3 min)\n  ✅ Same availability behavior with less plumbing\n  ✅ Smallest diff to the router\n  ❌ A permanently failing flag lookup would silently pin everyone to legacy\n9C) Deny on flag lookup failure (human: ~1h / CC: ~3 min)\n  ✅ Strictly fail-closed; no request ever runs a path it was not configured for\n  ✅ Simplest to reason about from a security standpoint\n  ❌ Converts a flag-service blip into a total login outage for all tenants\nNet: You are trading a few lines of timeout and metric plumbing for a flag outage that users never notice.",
+          "header": "Flag failure",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "9A Legacy fallback + metric + test (recommended)",
+              "description": "Timeout on lookup, fall back to legacyAuthFlow(), warn log, metric, stubbed-down integration test."
+            },
+            {
+              "label": "9B Legacy fallback only",
+              "description": "Fall back to legacy on lookup failure, no metric or dedicated test."
+            },
+            {
+              "label": "9C Deny on failure",
+              "description": "Fail closed: deny every request while the flag store is unreachable."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 — Which auth path runs when the per-tenant flag store is unreachable?\nProject/branch/task: main — Multi-tenant Auth Refactor; D3 routes each tenant to the new flow or legacyAuthFlow() by a per-tenant flag.\nELI10: The flag lookup is one more thing that can fail during login. If the flag service times out, the code has to pick a path anyway. Picking the old, proven path keeps users logged in during a flag outage; denying everyone is safer against a half-configured new flow but turns a flag outage into an auth outage.\nStakes if we pick wrong: Either a flag-service blip logs every tenant out, or a tenant already migrated silently falls back to a legacy path that no longer matches its config.\nRecommendation: 9A because the legacy path is the known-good path for the whole rollout window, and the fallback is loud, bounded, and tested.\nCompleteness: 9A=10/10, 9B=7/10, 9C=3/10\nPros / cons:\n9A) Fall back to legacyAuthFlow() on flag lookup failure, with a short lookup timeout, a warn-level structured log, a metric, and an integration test that stubs the flag store as down (human: ~3h / CC: ~8 min) (recommended)\n  ✅ A flag-store outage degrades to yesterday's behavior instead of an auth outage\n  ✅ The fallback is visible in metrics so a stuck fallback cannot hide for days\n  ❌ Tenants already migrated briefly run legacy during the outage; acceptable only while legacy still exists\n9B) Fall back to legacy, no dedicated test or metric (human: ~1h / CC: ~3 min)\n  ✅ Same availability behavior with less plumbing\n  ✅ Smallest diff to the router\n  ❌ A permanently failing flag lookup would silently pin everyone to legacy\n9C) Deny on flag lookup failure (human: ~1h / CC: ~3 min)\n  ✅ Strictly fail-closed; no request ever runs a path it was not configured for\n  ✅ Simplest to reason about from a security standpoint\n  ❌ Converts a flag-service blip into a total login outage for all tenants\nNet: You are trading a few lines of timeout and metric plumbing for a flag outage that users never notice.": "9A Legacy fallback + metric + test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:29:01.552Z"
+    }
+  ]
+}

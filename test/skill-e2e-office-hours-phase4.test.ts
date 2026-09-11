@@ -22,10 +22,11 @@
 import { expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
+import type { EvalTestEntry } from './helpers/eval-store';
 import {
   ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
-  logCost, assertRecommendationQuality,
+  logCost, recordE2E, assertRecommendationQuality,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { spawnSync } from 'child_process';
@@ -44,11 +45,30 @@ const evalCollector = createEvalCollector('e2e-office-hours-phase4');
 const BECAUSE_RE = /\bbecause\b/i;
 // At least 2 numbered/lettered options (A/B or 1/2). Office-hours Phase 4 says
 // "2-3 distinct alternatives," so 2+ is the minimum bar.
-const TWO_OPTIONS_RE = /\b[AB]\)|\b1\)|\b2\)/;
+function hasTwoAlternatives(text: string): boolean {
+  const options: Array<{ indent: number; label: string }> = [];
+  let fence: { char: string; length: number } | undefined;
+  for (const line of text.split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (marker && marker[1]![0] === fence.char && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined;
+      continue;
+    }
+    if (marker) { fence = { char: marker[1]![0]!, length: marker[1]!.length }; continue; }
+    const option = /^( {0,3})([A-Z]|[1-9]\d*)\)\s+\S/.exec(line);
+    if (option) options.push({ indent: option[1]!.length, label: option[2]! });
+  }
+  // Only the outer option list counts; numbered steps inside one option and
+  // Markdown source/quoted blocks do not supply another alternative.
+  const outerIndent = Math.min(...options.map(option => option.indent));
+  const labels = options.filter(option => option.indent === outerIndent).map(option => option.label);
+  return new Set(labels.filter(label => /^[A-Z]$/.test(label))).size >= 2 ||
+    new Set(labels.filter(label => /^\d+$/.test(label))).size >= 2;
+}
 // Phase-4-specific: at least one of these tokens should appear in the captured
 // question. Without this, a captured AskUserQuestion from an earlier phase
 // would false-pass.
-const PHASE4_VOCAB_RE = /approach|alternative|architecture|implementation/i;
+const PHASE4_VOCAB_RE = /approach|alternative|architectur(?:e|al)|implementation/i;
 
 function setupOfficeHoursDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-office-hours-phase4-'));
@@ -141,28 +161,50 @@ After writing the file with that ONE Phase 4 question, stop. Do not continue to 
     });
 
     logCost('/office-hours Phase 4 fork', result);
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(100);
-
-    // Format-spec compliance. judgeRecommendation below covers the
-    // Recommendation: line itself; these regexes catch cheap structural shape.
-    expect(captured).toMatch(BECAUSE_RE);
-    expect(captured).toMatch(TWO_OPTIONS_RE);
-    // Phase-4 specificity: prevents a stray earlier-phase AUQ from false-passing.
-    expect(captured).toMatch(PHASE4_VOCAB_RE);
-
-    // Recommendation-quality judge: same threshold as plan-format tests.
-    await assertRecommendationQuality({
-      captured,
-      evalCollector,
-      evalId: '/office-hours-phase4-fork',
-      evalTitle: 'Office Hours Phase 4 — Architectural fork must surface AskUserQuestion',
-      result,
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+    let passed = false;
+    let failure: string | undefined;
+    let judgedEntry: EvalTestEntry | undefined;
+    // The quality helper records before asserting. Defer that entry so its
+    // final verdict includes both structural and recommendation assertions.
+    const deferredCollector = evalCollector && Object.assign(Object.create(evalCollector), {
+      addTest(entry: EvalTestEntry) { judgedEntry = entry; },
     });
+    try {
+      expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+      expect(fs.existsSync(outFile)).toBe(true);
+      const captured = fs.readFileSync(outFile, 'utf-8');
+      expect(captured.length).toBeGreaterThan(100);
+
+      // Format-spec compliance. judgeRecommendation below covers the
+      // Recommendation: line itself; these regexes catch cheap structural shape.
+      expect(captured).toMatch(BECAUSE_RE);
+      expect(hasTwoAlternatives(captured)).toBe(true);
+      // Phase-4 specificity: prevents a stray earlier-phase AUQ from false-passing.
+      expect(captured).toMatch(PHASE4_VOCAB_RE);
+
+      // Recommendation-quality judge: same threshold as plan-format tests.
+      await assertRecommendationQuality({
+        captured,
+        evalCollector: deferredCollector,
+        evalId: '/office-hours-phase4-fork',
+        evalTitle: 'Office Hours Phase 4 — Architectural fork must surface AskUserQuestion',
+        result,
+        passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      });
+      passed = true;
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      if (judgedEntry) {
+        evalCollector?.addTest({ ...judgedEntry, passed, ...(failure ? { error: failure } : {}) });
+      } else {
+        recordE2E(evalCollector, '/office-hours-phase4-fork',
+          'Office Hours Phase 4 — Architectural fork must surface AskUserQuestion', result,
+          { passed: false, error: failure ?? 'Recommendation assessment did not complete' });
+      }
+    }
   }, CAPTURE_LONG_MS);
 });
 

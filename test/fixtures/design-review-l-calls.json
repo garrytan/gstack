@@ -1,0 +1,119 @@
+{
+  "sourceHead": "02e6d4db578657f62fc802eeb7e488c4b24801bc",
+  "capturedAt": "2026-09-08T23:15:52.251Z",
+  "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+  "calls": [
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01WShSEgWPsL8qaapH66Yquh",
+      "questions": [
+        {
+          "question": "D1 \u2014 Cross-project learnings: enable cross-project search? <gstack-qid:cross-project-learnings>",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (Recommended)",
+              "description": "gstack searches learnings from all your projects on this machine to find patterns that apply here. Stays fully local \u2014 no data leaves your machine. Best for solo developers."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Learnings search stays limited to this project. Choose if you work on multiple client codebases where cross-contamination would be a concern."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Cross-project learnings: enable cross-project search? <gstack-qid:cross-project-learnings>": "Enable cross-project (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:07.866Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01GXrVhnMz2H74r5gCd7fWMH",
+      "questions": [
+        {
+          "question": "D2 \u2014 Pass 1 (Information Architecture): specify Save button visual prominence in the plan? <gstack-qid:plan-design-pass1-save-prominence>",
+          "header": "Info Arch",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add DESIGN.md spec to plan (Recommended)",
+              "description": "Adds explicit wording: Save uses filled primary Button (#1d4ed8 bg, white text); Reset/Cancel/Export use ghost neutral. Implementer has an authoritative spec and cannot ship all-same-weight buttons."
+            },
+            {
+              "label": "Leave as gap description only",
+              "description": "The gap is named in the plan but no token-level fix is written in. Risk: implementer defaults to framework defaults or guesses, and the visual hierarchy problem ships as-is."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Pass 1 (Information Architecture): specify Save button visual prominence in the plan? <gstack-qid:plan-design-pass1-save-prominence>": "Add DESIGN.md spec to plan (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:27.915Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_013rVqxKYoYVvrpWF1emSUTx",
+      "questions": [
+        {
+          "question": "D3 \u2014 Pass 2 (Interaction States): add the DESIGN.md save-pending pattern to the plan? <gstack-qid:plan-design-pass2-save-pending>",
+          "header": "States",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add pending-state spec to plan (Recommended)",
+              "description": "Writes the inline spinner + aria-busy=true + reduced-motion fallback into the plan explicitly. Reuses the existing DESIGN.md pattern \u2014 no new components. Implementer has a clear spec for all three cases: spinning, reduced-motion, and error recovery."
+            },
+            {
+              "label": "Leave as gap only",
+              "description": "The gap is named but the fix is not written in. Risk: implementer adds a custom spinner or defers the loading state, and users continue to see a frozen page during 2-5 second saves."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Pass 2 (Interaction States): add the DESIGN.md save-pending pattern to the plan? <gstack-qid:plan-design-pass2-save-pending>": "Add pending-state spec to plan (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:55.475Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01WacHy5LF6fr6kNRX1AXmhZ",
+      "questions": [
+        {
+          "question": "D4 \u2014 Pass 3 (User Journey): add a journey storyboard and InlineStatus confidence rationale to the plan? <gstack-qid:plan-design-pass3-journey>",
+          "header": "Journey",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add storyboard + rationale (Recommended)",
+              "description": "Adds the 6-step journey table and a one-line note that 'Saved at HH:mm' is the primary confidence anchor (not optional polish). Prevents implementers from treating InlineStatus as decorative or deferring it."
+            },
+            {
+              "label": "Skip \u2014 functional description is sufficient",
+              "description": "Leave the journey as prose. Risk: implementer deprioritizes InlineStatus or ships a generic 'Saved!' toast instead of the timestamp, breaking the confidence mechanism."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Pass 3 (User Journey): add a journey storyboard and InlineStatus confidence rationale to the plan? <gstack-qid:plan-design-pass3-journey>": "Add storyboard + rationale (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:14:40.578Z"
+    }
+  ]
+}

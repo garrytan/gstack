@@ -1,0 +1,62 @@
+{
+  "provenance": {
+    "sourceHead": "7fac51e9bd8619665960657462ceab2773d142f5",
+    "label": "ship-source-ad-full-paid-20260909-v2",
+    "observationSha256": "be4c5fa632f628b7b9d37ecd3c17e6c13268f041beecc160b08da7e62593539f",
+    "kind": "Exact completed public native calls; pending states and visible panes in unit tests are explicit projections",
+    "outcome": "First attempt timed out; parent shard later timed out. No retrospective passing credit.",
+    "scope": "The original prompt did not decline outside voices or follow-on reviews; those user choices are explicit prospectively. This fixture supplies only the completed first design finding."
+  },
+  "firstFinding": {
+    "signature": "420ee23b-d826-4dd2-bffd-6b6ac7870fe4:toolu_01RyjkeyEHbqPSVudqMmcsc6",
+    "promptSnippet": "Issue 1 D4 — Issue 1 (G1, Visual Hierarchy): how should the plan fix the four identical header buttons? Project/branch/task: main branch; account-settings form plan, action group Save | Reset | Cancel | Export. ELI10: Right now Save, Reset,",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A) Filled primary Save, ghost secondaries per DESIGN.md (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B) Filled Save only; leave the other three as they are"
+      },
+      {
+        "index": 3,
+        "label": "1C) Defer; keep four equal buttons for this update"
+      }
+    ],
+    "observedAtMs": 522337,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "420ee23b-d826-4dd2-bffd-6b6ac7870fe4",
+      "toolUseId": "toolu_01RyjkeyEHbqPSVudqMmcsc6",
+      "questions": [
+        {
+          "question": "D4 — Issue 1 (G1, Visual Hierarchy): how should the plan fix the four identical header buttons?\nProject/branch/task: main branch; account-settings form plan, action group Save | Reset | Cancel | Export.\nELI10: Right now Save, Reset, Cancel and Export all look the same, so nothing tells the user which button is the one they came for, and the destructive Reset looks as safe as Save. DESIGN.md already says Save is the only filled blue button and the other three are quiet ghost buttons. This is a documented gap; it still needs your approval before it becomes a task.\nStakes if we pick wrong: users hesitate at every visit, and some hit Reset or Cancel when they meant Save.\nRecommendation: 1A because it applies the exact approved token and removes the guesswork with zero new design.\nCompleteness: 1A=10/10, 1B=7/10, 1C=3/10\nPrinciple: Hierarchy as service. What should the user see first? Save.\nNet: a one-token fix that resolves the biggest first-impression problem versus deferring it.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) Filled primary Save, ghost secondaries per DESIGN.md (recommended)",
+              "description": "✅ Save becomes the sole filled #1d4ed8 button with white text; Reset, Cancel, Export become neutral ghost buttons, order and 44px targets unchanged (human: ~1h / CC: ~5min). ✅ Gives the page its one visual anchor, closing litmus check 2. ❌ Ghost secondaries must still meet 4.5:1 text contrast and show the shared focus ring, so add that to verification."
+            },
+            {
+              "label": "1B) Filled Save only; leave the other three as they are",
+              "description": "✅ Save stands out with the approved token (human: ~30min / CC: ~3min). ✅ Smallest possible diff to the existing header. ❌ Reset, Cancel, Export keep their current equal weight, which does not match DESIGN.md and leaves three competing mid-weight buttons."
+            },
+            {
+              "label": "1C) Defer; keep four equal buttons for this update",
+              "description": "✅ No header work in this change. ✅ Nothing new to verify. ❌ Ships a documented DESIGN.md violation and the plan keeps a hierarchy score below 8."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 1 (G1, Visual Hierarchy): how should the plan fix the four identical header buttons?\nProject/branch/task: main branch; account-settings form plan, action group Save | Reset | Cancel | Export.\nELI10: Right now Save, Reset, Cancel and Export all look the same, so nothing tells the user which button is the one they came for, and the destructive Reset looks as safe as Save. DESIGN.md already says Save is the only filled blue button and the other three are quiet ghost buttons. This is a documented gap; it still needs your approval before it becomes a task.\nStakes if we pick wrong: users hesitate at every visit, and some hit Reset or Cancel when they meant Save.\nRecommendation: 1A because it applies the exact approved token and removes the guesswork with zero new design.\nCompleteness: 1A=10/10, 1B=7/10, 1C=3/10\nPrinciple: Hierarchy as service. What should the user see first? Save.\nNet: a one-token fix that resolves the biggest first-impression problem versus deferring it.": "1A) Filled primary Save, ghost secondaries per DESIGN.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T19:10:44.705Z"
+    }
+  }
+}

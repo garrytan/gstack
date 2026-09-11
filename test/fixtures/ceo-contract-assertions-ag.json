@@ -1,0 +1,131 @@
+{
+  "sourceHead": "8d8537e5d341cc9f3d186822f06efb245ec7b8fd",
+  "observedOutcome": "no_review_questions",
+  "observedReviewCount": 0,
+  "calls": [
+    {
+      "sessionId": "5311fa3e-a775-4865-840f-d11a8e890a23",
+      "toolUseId": "toolu_01NHQXhqHqGcPXE6LpoFSqDi",
+      "questions": [
+        {
+          "question": "gstack works best when your project's CLAUDE.md includes skill routing rules. Add them? (Note: plan mode is active, so the CLAUDE.md edit and commit would happen after this review exits plan mode.)",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules to CLAUDE.md (recommended)",
+              "description": "Appends a '## Skill routing' section mapping request types to gstack skills, then commits it. One-time per project."
+            },
+            {
+              "label": "No thanks, I'll invoke skills manually",
+              "description": "Sets routing_declined=true in gstack config. Re-enable later via gstack-config set routing_declined false."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack works best when your project's CLAUDE.md includes skill routing rules. Add them? (Note: plan mode is active, so the CLAUDE.md edit and commit would happen after this review exits plan mode.)": "Add routing rules to CLAUDE.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:48:03.927Z"
+    },
+    {
+      "sessionId": "5311fa3e-a775-4865-840f-d11a8e890a23",
+      "toolUseId": "toolu_011uiqpgBypMdzfSv8sRdqtz",
+      "questions": [
+        {
+          "question": "D1 \u2014 How should the two new processPayment tests be structured?\nProject/branch/task: main branch, adding two unit tests to the existing processPayment suite.\nELI10: We are adding two tests that pin down what processPayment already does. The only structural choice is where the tests live and whether we build any shared scaffolding for them. All options reuse the existing factory, Stripe mock and virtual sleeper; none touch production code. Assertion strength is reviewed separately in later sections, one finding at a time.\nStakes if we pick wrong: over-building scaffolding for two tests adds maintenance with no coverage gain; under-building is not a risk here since the factory already exists.\nRecommendation: A because it is the smallest diff that cleanly expresses the change and reuses the suite's existing setup (right-sized diff, DRY).\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: two inline tests versus premature shared fixtures for a two-test change.",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Two inline tests in existing suite (recommended)",
+              "description": "Add two `it` blocks to the current processPayment suite, each arranging the Stripe mock via the existing factory. Effort: S (human ~1h / CC ~5min). Risk: Low. Reuses factory, mock, sleeper as-is. \u2705 Smallest diff, sits beside related tests, zero new abstractions. \u2705 Implementer needs no new helpers or files. \u274c Expected contract values are literals in the test rather than shared constants."
+            },
+            {
+              "label": "B) Shared contract fixture + two tests",
+              "description": "Extract a `chargeContract` fixture (expected receipt, expected attempts, expected backoff) reused by the processPayment suite and the Stripe adapter suite, then write the two tests against it. Effort: M (human ~3h / CC ~15min). Risk: Low-Med. \u2705 Contract values live once across suites. \u2705 Future contract tests slot in. \u274c Premature abstraction for two tests; touches the adapter suite the plan says stays as-is."
+            },
+            {
+              "label": "C) New dedicated contract spec file",
+              "description": "Create a separate processPayment.contract spec file with its own setup for the two tests. Effort: S-M (human ~2h / CC ~10min). Risk: Low. \u2705 Isolates contract tests from behavior tests. \u2705 Clear place for future contract cases. \u274c Duplicates the suite's factory setup and splits processPayment coverage across two files."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 How should the two new processPayment tests be structured?\nProject/branch/task: main branch, adding two unit tests to the existing processPayment suite.\nELI10: We are adding two tests that pin down what processPayment already does. The only structural choice is where the tests live and whether we build any shared scaffolding for them. All options reuse the existing factory, Stripe mock and virtual sleeper; none touch production code. Assertion strength is reviewed separately in later sections, one finding at a time.\nStakes if we pick wrong: over-building scaffolding for two tests adds maintenance with no coverage gain; under-building is not a risk here since the factory already exists.\nRecommendation: A because it is the smallest diff that cleanly expresses the change and reuses the suite's existing setup (right-sized diff, DRY).\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: two inline tests versus premature shared fixtures for a two-test change.": "A) Two inline tests in existing suite (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:51:02.100Z"
+    },
+    {
+      "sessionId": "5311fa3e-a775-4865-840f-d11a8e890a23",
+      "toolUseId": "toolu_01M1ghsiVvKqEPyoBgXq7fhK",
+      "questions": [
+        {
+          "question": "D2 \u2014 Issue 1: test 2 (repeated 502) cannot detect retry or backoff regressions\nProject/branch/task: main branch, processPayment unit coverage, the repeated-502 test.\nELI10: The contract says: on two 502s, processPayment tries Stripe exactly twice, waits one recorded 100 ms between tries, then fails with PaymentUnavailable. The planned test only checks the final failure. A change that retries zero times, retries five times, or sleeps for 5 seconds still fails with PaymentUnavailable, so the test stays green while the contract is broken. The factory already exposes the mock call history and the sleeper record, so the missing checks are cheap.\nStakes if we pick wrong: a retry-budget or backoff regression on the payment path ships undetected; users see slower or double-charged-looking failures and the test suite says nothing.\nRecommendation: 1A because the plan states an exact count and an exact delay, and a test that cannot reject a wrong count is not coverage of that contract (well-tested code is non-negotiable; explicit over clever).\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: pin the whole stated contract now for a few extra lines, or keep a test that only proves the error class.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) Assert error, exact 2 attempts, sleeper record [100] (recommended)",
+              "description": "Arrange two 502s with the mock configured to fail loudly on any third call; assert rejection is PaymentUnavailable; assert Stripe mock call history length is exactly 2; assert the virtual sleeper record is exactly one entry of 100 ms. Failure output names which of the three broke. Effort: human ~20min / CC ~2min. \u2705 Rejects zero-retry, over-retry and wrong-backoff regressions. \u2705 Uses only existing factory probes; no new helpers. \u274c A deliberate future change to the retry budget must update this test too."
+            },
+            {
+              "label": "1B) Assert error and exact 2 attempts only",
+              "description": "Add the call-history length check but leave the backoff delay unasserted. Effort: human ~10min / CC ~1min. \u2705 Catches retry-count regressions. \u2705 Slightly smaller test. \u274c A regression to 0 ms or 5000 ms backoff still passes; the stated 100 ms contract stays unguarded."
+            },
+            {
+              "label": "1C) Keep as planned: error class only",
+              "description": "Assert only that processPayment rejects with PaymentUnavailable. Effort: none. \u2705 Smallest possible test. \u2705 Still proves the terminal error class. \u274c Any retry or backoff regression passes; the plan's own stated contract for attempts and backoff has no coverage."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Issue 1: test 2 (repeated 502) cannot detect retry or backoff regressions\nProject/branch/task: main branch, processPayment unit coverage, the repeated-502 test.\nELI10: The contract says: on two 502s, processPayment tries Stripe exactly twice, waits one recorded 100 ms between tries, then fails with PaymentUnavailable. The planned test only checks the final failure. A change that retries zero times, retries five times, or sleeps for 5 seconds still fails with PaymentUnavailable, so the test stays green while the contract is broken. The factory already exposes the mock call history and the sleeper record, so the missing checks are cheap.\nStakes if we pick wrong: a retry-budget or backoff regression on the payment path ships undetected; users see slower or double-charged-looking failures and the test suite says nothing.\nRecommendation: 1A because the plan states an exact count and an exact delay, and a test that cannot reject a wrong count is not coverage of that contract (well-tested code is non-negotiable; explicit over clever).\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: pin the whole stated contract now for a few extra lines, or keep a test that only proves the error class.": "1A) Assert error, exact 2 attempts, sleeper record [100] (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:51:45.799Z"
+    },
+    {
+      "sessionId": "5311fa3e-a775-4865-840f-d11a8e890a23",
+      "toolUseId": "toolu_01PAebxxghdR9Thch3JtW4bu",
+      "questions": [
+        {
+          "question": "D3 \u2014 Issue 2: test 1 (successful charge) accepts any truthy value as a correct receipt\nProject/branch/task: main branch, processPayment unit coverage, the successful-charge test.\nELI10: The contract says a 1000-cent USD charge with Stripe id ch_paid returns exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned test only checks that the result is truthy. An empty object, a receipt with chargeId undefined, amountCents 10.00, or currency \"usd\" all pass. The test would be green while every field in the stated contract is wrong.\nStakes if we pick wrong: a receipt-shape regression (wrong id, wrong amount, wrong currency) reaches customers and downstream accounting while the suite reports success.\nRecommendation: 2A because the plan already states the exact expected receipt, and a deep-equality assertion is the direct translation of that contract (well-tested code is non-negotiable; explicit over clever).\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: one deep-equality line that pins the whole receipt, versus a smoke check that proves almost nothing.",
+          "header": "Issue 2",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A) Deep-equal the full receipt (recommended)",
+              "description": "Assert the returned receipt deep-equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. Rejects missing, extra, or wrong-typed fields and prints a field-level diff on failure. Effort: human ~10min / CC ~1min. \u2705 Every stated field and type is pinned in one assertion. \u2705 Extra unexpected fields are caught too. \u274c Adding a field to the receipt later requires updating this expectation."
+            },
+            {
+              "label": "2B) Assert the three fields individually",
+              "description": "Assert chargeId, amountCents and currency each equal the expected value; ignore any other fields. Effort: human ~10min / CC ~1min. \u2705 Pins all three stated values. \u2705 Tolerates additive receipt fields without test changes. \u274c An unexpected extra or renamed field on the receipt passes silently."
+            },
+            {
+              "label": "2C) Keep as planned: truthy only",
+              "description": "Assert only that the receipt is truthy. Effort: none. \u2705 Smallest possible test. \u2705 Proves the call resolves. \u274c Any wrong chargeId, amount, or currency passes; the plan's stated receipt contract has no coverage."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Issue 2: test 1 (successful charge) accepts any truthy value as a correct receipt\nProject/branch/task: main branch, processPayment unit coverage, the successful-charge test.\nELI10: The contract says a 1000-cent USD charge with Stripe id ch_paid returns exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned test only checks that the result is truthy. An empty object, a receipt with chargeId undefined, amountCents 10.00, or currency \"usd\" all pass. The test would be green while every field in the stated contract is wrong.\nStakes if we pick wrong: a receipt-shape regression (wrong id, wrong amount, wrong currency) reaches customers and downstream accounting while the suite reports success.\nRecommendation: 2A because the plan already states the exact expected receipt, and a deep-equality assertion is the direct translation of that contract (well-tested code is non-negotiable; explicit over clever).\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: one deep-equality line that pins the whole receipt, versus a smoke check that proves almost nothing.": "2A) Deep-equal the full receipt (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T01:52:17.451Z"
+    }
+  ]
+}

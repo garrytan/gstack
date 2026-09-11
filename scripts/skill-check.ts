@@ -66,6 +66,8 @@ console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
 
 for (const { tmpl, output } of TEMPLATES) {
+  // Source-root outputs are Claude Code renders; own-harness wrappers are absent.
+  if ((getHostConfig('claude').generation.skipSkills ?? []).includes(path.basename(path.dirname(tmpl)))) continue;
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {
@@ -90,7 +92,7 @@ for (const file of SKILL_FILES) {
 
 // ─── External Host Skills (config-driven) ───────────────────
 
-import { getExternalHosts } from '../hosts/index';
+import { getExternalHosts, getHostConfig } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');

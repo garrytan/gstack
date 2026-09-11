@@ -64,6 +64,7 @@ import {
 } from './test-strict-output';
 import { PAID_TEST_GLOBS, isPaidTestFile } from '../test/helpers/paid-test-set';
 import { PERIODIC_CI_EXCLUDE } from '../test/helpers/periodic-exclude-data';
+import { AUTOPLAN_CHAIN_BUDGET } from '../test/helpers/eval-budgets';
 import { getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile } from '../test/helpers/eval-store';
 import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
 import {
@@ -348,8 +349,43 @@ export function planPaidShards(
   const size = Math.max(1, options.maxFilesPerShard ?? DEFAULT_MAX_FILES_PER_SHARD);
   const unique = [...new Set(files.map(normalizeRelativePath))].sort();
   const shards: string[][] = [];
-  for (let index = 0; index < unique.length; index += size) shards.push(unique.slice(index, index + size));
+  let pending: string[] = [];
+  for (const file of unique) {
+    if (file === AUTOPLAN_CHAIN_BUDGET.file) {
+      if (pending.length) shards.push(pending);
+      pending = [];
+      shards.push([file]);
+    } else {
+      pending.push(file);
+      if (pending.length === size) { shards.push(pending); pending = []; }
+    }
+  }
+  if (pending.length) shards.push(pending);
   return shards;
+}
+
+export interface PaidShardBudget {
+  timeoutMs: number;
+  source: 'explicit' | 'registered' | 'default';
+  policyId: string | null;
+}
+
+/** Explicit caller limits win, including a lower limit; only Autoplan gets a default exception. */
+export function resolvePaidShardBudget(files: string[], overrideMs?: number): PaidShardBudget {
+  const autoplan = files.map(normalizeRelativePath).includes(AUTOPLAN_CHAIN_BUDGET.file);
+  if (autoplan && files.length !== 1) throw new Error('Autoplan budget requires its own shard');
+  if (overrideMs !== undefined && (!Number.isSafeInteger(overrideMs) || overrideMs <= 0 || overrideMs > 2_147_483_647)) {
+    throw new Error('Shard timeout must be a finite positive timer-safe integer');
+  }
+  return {
+    timeoutMs: overrideMs ?? (autoplan ? AUTOPLAN_CHAIN_BUDGET.shardMs : DEFAULT_SHARD_TIMEOUT_MS),
+    source: overrideMs !== undefined ? 'explicit' : autoplan ? 'registered' : 'default',
+    policyId: autoplan ? AUTOPLAN_CHAIN_BUDGET.id : null,
+  };
+}
+
+function sameBudget(actual: PaidShardBudget | undefined, expected: PaidShardBudget): boolean {
+  return actual?.timeoutMs === expected.timeoutMs && actual.source === expected.source && actual.policyId === expected.policyId;
 }
 
 export function buildPaidShardArgs(
@@ -404,6 +440,8 @@ export interface ShardOutcome {
    *  codex/gemini files green-by-skip on every CI runner (no binary) and the
    *  weekly census read them as covered. */
   skippedTests: number | null;
+  /** Effective supervised wall; absent only for unstarted or legacy outcomes. */
+  budget?: PaidShardBudget;
 }
 
 /**
@@ -425,6 +463,8 @@ export interface ShardCommand {
 
 export interface RunShardsOptions {
   timeoutMs?: number;
+  /** Frozen planner allocation for the one registered long workflow. */
+  autoplanBudget?: PaidShardBudget;
   jobs?: number;
   /** bun --max-concurrency inside each shard (EVALS_CONCURRENCY). */
   withinShardConcurrency?: number;
@@ -477,7 +517,10 @@ export async function runPaidShard(
 ): Promise<ShardOutcome> {
   if (files.length === 0) throw new Error('Cannot run an empty paid-test shard.');
   const rootDir = options.rootDir ?? ROOT;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_SHARD_TIMEOUT_MS;
+  const planned = files.map(normalizeRelativePath).includes(AUTOPLAN_CHAIN_BUDGET.file) ? options.autoplanBudget : undefined;
+  const budget = resolvePaidShardBudget(files, options.timeoutMs ??
+    (planned?.source === 'explicit' ? planned.timeoutMs : undefined));
+  const timeoutMs = budget.timeoutMs;
   const streamLive = (options.jobs ?? DEFAULT_JOBS) === 1;
   const log = options.log ?? ((line: string) => console.log(line));
   const label = `[test:paid] shard ${shardNumber}/${totalShards}`;
@@ -522,7 +565,7 @@ export async function runPaidShard(
   env.CHROMIUM_PROFILE = path.join(stateDir, 'chromium-profile');
 
   const startedAt = Date.now();
-  log(`${label} START ${files.join(' ')} (timeout ${Math.round(timeoutMs / 1000)}s)`);
+  log(`${label} START ${files.join(' ')} (timeout ${Math.round(timeoutMs / 1000)}s, ${budget.source}${budget.policyId ? `: ${budget.policyId}` : ''})`);
 
   // Full-stream spool: EVERY child byte lands on disk (the free runner's
   // model), never in a whole-run Buffer[] — non-live shards used to hold
@@ -618,7 +661,7 @@ export async function runPaidShard(
     ? summary.terminalTestCounts.reduce((a, b) => a + b, 0)
     : null;
   const skippedTests = summary.terminalTestCounts.length > 0 ? summary.skippedTests : null;
-  return { shard: shardNumber, files, status, exitCode, elapsedMs, groupPid, executedTests, skippedTests };
+  return { shard: shardNumber, files, status, exitCode, elapsedMs, groupPid, executedTests, skippedTests, budget };
 }
 
 export interface RunSummary {
@@ -764,6 +807,8 @@ export interface ManifestEntry {
   slice: number;
   status: 'planned' | 'skipped-by-diff' | 'excluded';
   reason?: string;
+  /** Required when the registered Autoplan workflow is planned. */
+  budget?: PaidShardBudget;
 }
 
 export interface PaidRunManifest {
@@ -772,6 +817,8 @@ export interface PaidRunManifest {
   evalsAll: boolean;
   sliceCount: number;
   selectionReason: string;
+  /** Dedicated last slice; preceding slices retain ordinary round-robin work. */
+  autoplanSlice?: number;
   entries: ManifestEntry[];
 }
 
@@ -796,12 +843,17 @@ export function buildRunManifest(opts: {
   tier: PaidTier;
   sliceCount: number;
   evalsAll: boolean;
+  dedicatedAutoplanSlice?: boolean;
+  timeoutMs?: number;
   discovered?: string[];
   env?: NodeJS.ProcessEnv;
   rootDir?: string;
 }): PaidRunManifest {
   if (!Number.isInteger(opts.sliceCount) || opts.sliceCount <= 0) {
     throw new Error(`--slices needs a positive integer. Received: ${opts.sliceCount}`);
+  }
+  if (opts.dedicatedAutoplanSlice && (opts.tier !== 'periodic' || opts.sliceCount < 2)) {
+    throw new Error('Dedicated Autoplan slice requires periodic tier and at least two total slices');
   }
   const rootDir = opts.rootDir ?? ROOT;
   const discovered = opts.discovered ?? collectPaidTestFiles(rootDir);
@@ -811,21 +863,28 @@ export function buildRunManifest(opts: {
   const { runnable, skipped } = partitionShardsByDiffSelection(shards, diffSelection.selectedNames);
 
   const entries: ManifestEntry[] = [];
-  runnable.forEach((files, index) => {
-    entries.push({ file: files[0], slice: (index % opts.sliceCount) + 1, status: 'planned' });
+  let ordinaryIndex = 0;
+  runnable.forEach((files) => {
+    const autoplan = files[0] === AUTOPLAN_CHAIN_BUDGET.file;
+    const slice = opts.dedicatedAutoplanSlice && autoplan ? opts.sliceCount
+      : (ordinaryIndex++ % (opts.sliceCount - (opts.dedicatedAutoplanSlice ? 1 : 0))) + 1;
+    entries.push({ file: files[0], slice, status: 'planned',
+      ...(autoplan ? { budget: resolvePaidShardBudget(files, opts.timeoutMs) } : {}) });
   });
   for (const s of skipped) entries.push({ file: s.files[0], slice: 0, status: 'skipped-by-diff', reason: s.reason });
   for (const e of excluded) entries.push({ file: e.file, slice: 0, status: 'excluded', reason: e.reason });
   entries.sort((a, b) => (a.file < b.file ? -1 : 1));
 
-  return {
+  const manifest: PaidRunManifest = {
     version: 1,
     tier: opts.tier,
     evalsAll: opts.evalsAll,
     sliceCount: opts.sliceCount,
     selectionReason: diffSelection.reason,
+    ...(opts.dedicatedAutoplanSlice ? { autoplanSlice: opts.sliceCount } : {}),
     entries,
   };
+  return parseRunManifest(JSON.stringify(manifest));
 }
 
 export function parseRunManifest(raw: string): PaidRunManifest {
@@ -841,6 +900,23 @@ export function parseRunManifest(raw: string): PaidRunManifest {
       throw new Error(`planned entry ${entry.file} has out-of-range slice ${entry.slice}`);
     }
   }
+  const autoplan = parsed.entries.filter(entry => normalizeRelativePath(entry.file) === AUTOPLAN_CHAIN_BUDGET.file);
+  if (autoplan.length > 1) throw new Error('Duplicate Autoplan manifest entry');
+  if (parsed.autoplanSlice !== undefined) {
+    if (parsed.tier !== 'periodic' || parsed.autoplanSlice !== parsed.sliceCount || parsed.sliceCount < 2 || autoplan.length !== 1 || autoplan[0].status !== 'planned') {
+      throw new Error('Dedicated Autoplan slice is missing or malformed');
+    }
+    for (const entry of parsed.entries.filter(entry => entry.status === 'planned')) {
+      if ((entry.file === AUTOPLAN_CHAIN_BUDGET.file) !== (entry.slice === parsed.autoplanSlice)) {
+        throw new Error('Dedicated Autoplan slice contains missing or unrelated work');
+      }
+    }
+  }
+  for (const entry of autoplan.filter(entry => entry.status === 'planned')) {
+    if (!entry.budget) throw new Error('Autoplan manifest needs an explicit budget record; emit a fresh plan');
+    const expected = resolvePaidShardBudget([entry.file], entry.budget.source === 'explicit' ? entry.budget.timeoutMs : undefined);
+    if (!sameBudget(entry.budget, expected)) throw new Error('Autoplan manifest budget differs from declared policy');
+  }
   return parsed;
 }
 
@@ -849,7 +925,8 @@ export interface SliceResult {
   tier: PaidTier;
   sliceIndex: number;
   sliceCount: number;
-  outcomes: Array<Pick<ShardOutcome, 'files' | 'status' | 'exitCode' | 'elapsedMs' | 'executedTests' | 'skippedTests'>>;
+  timeoutOverrideMs?: number;
+  outcomes: Array<Pick<ShardOutcome, 'files' | 'status' | 'exitCode' | 'elapsedMs' | 'executedTests' | 'skippedTests' | 'budget'>>;
 }
 
 /**
@@ -864,6 +941,8 @@ export function verifySliceResults(
   results: SliceResult[],
 ): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
+  try { parseRunManifest(JSON.stringify(manifest)); }
+  catch (error) { problems.push(`Invalid run manifest: ${error instanceof Error ? error.message : String(error)}`); }
   const byIndex = new Map<number, SliceResult>();
   for (const result of results) {
     if (result.version !== 1) { problems.push(`slice result with unsupported version: ${String(result.version)}`); continue; }
@@ -878,9 +957,23 @@ export function verifySliceResults(
   const reported = new Map<string, { slice: number; status: ShardStatus }>();
   for (const result of results) {
     for (const outcome of result.outcomes) {
+      if (outcome.files.map(normalizeRelativePath).includes(AUTOPLAN_CHAIN_BUDGET.file) && outcome.files.length !== 1) {
+        problems.push('Autoplan result must report its own shard');
+      }
       const file = normalizeRelativePath(outcome.files[0] ?? '');
       if (reported.has(file)) problems.push(`${file} reported by two slices`);
       reported.set(file, { slice: result.sliceIndex, status: outcome.status });
+      if (file === AUTOPLAN_CHAIN_BUDGET.file) {
+        if (outcome.exitCode !== 0 || outcome.executedTests !== 1 || outcome.skippedTests !== 0) {
+          problems.push('Autoplan must execute exactly one unskipped case with exit zero');
+        }
+        try {
+          const planned = manifest.entries.find(entry => entry.file === file)?.budget;
+          const expected = resolvePaidShardBudget([file], result.timeoutOverrideMs ??
+            (planned?.source === 'explicit' ? planned.timeoutMs : undefined));
+          if (!sameBudget(outcome.budget, expected)) problems.push('Autoplan effective result budget differs from its planned/explicit allocation');
+        } catch { problems.push('Invalid Autoplan effective result budget'); }
+      }
     }
   }
   for (const entry of manifest.entries) {
@@ -900,6 +993,8 @@ type CliOptions = {
   tier: PaidTier;
   listOnly: boolean;
   timeoutMs: number;
+  timeoutExplicit: boolean;
+  dedicatedAutoplanSlice: boolean;
   jobs: number;
   withinShardConcurrency: number;
   maxFilesPerShard: number;
@@ -937,6 +1032,8 @@ export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process
   const options: CliOptions = {
     tier: validatedTier(env.EVALS_TIER, 'EVALS_TIER'),
     listOnly: false,
+    timeoutExplicit: !!env.EVALS_SHARD_TIMEOUT_MS,
+    dedicatedAutoplanSlice: false,
     timeoutMs: env.EVALS_SHARD_TIMEOUT_MS
       ? parsePositiveInt(env.EVALS_SHARD_TIMEOUT_MS, 'EVALS_SHARD_TIMEOUT_MS')
       : DEFAULT_SHARD_TIMEOUT_MS,
@@ -965,7 +1062,8 @@ export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process
       options.tier = value;
       continue;
     }
-    if (arg === '--timeout') { options.timeoutMs = parsePositiveInt(argv[index += 1], '--timeout') * 1000; continue; }
+    if (arg === '--timeout') { options.timeoutMs = parsePositiveInt(argv[index += 1], '--timeout') * 1000; options.timeoutExplicit = true; continue; }
+    if (arg === '--autoplan-slice') { options.dedicatedAutoplanSlice = true; continue; }
     if (arg === '--jobs') { options.jobs = parsePositiveInt(argv[index += 1], '--jobs'); continue; }
     if (arg === '--files-per-shard') { options.maxFilesPerShard = parsePositiveInt(argv[index += 1], '--files-per-shard'); continue; }
     if (arg === '--emit-plan') {
@@ -987,6 +1085,7 @@ export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process
     }
     throw new Error(`Unknown argument: ${arg}`);
   }
+  if (options.dedicatedAutoplanSlice && !options.emitPlanPath) throw new Error('--autoplan-slice requires --emit-plan');
   return options;
 }
 
@@ -998,6 +1097,8 @@ async function main(): Promise<number> {
     const manifest = buildRunManifest({
       tier: options.tier,
       sliceCount: options.slices,
+      dedicatedAutoplanSlice: options.dedicatedAutoplanSlice,
+      timeoutMs: options.timeoutExplicit ? options.timeoutMs : undefined,
       evalsAll: process.env.EVALS_ALL === '1',
     });
     fs.mkdirSync(path.dirname(path.resolve(options.emitPlanPath)), { recursive: true });
@@ -1092,9 +1193,10 @@ async function main(): Promise<number> {
     } else {
       preflightAnthropicApi(process.env);
       summary = await runPaidShards(shards, {
-        timeoutMs: options.timeoutMs,
+        timeoutMs: options.timeoutExplicit ? options.timeoutMs : undefined,
         jobs: options.jobs,
         withinShardConcurrency: options.withinShardConcurrency,
+        autoplanBudget: mine.find(entry => entry.file === AUTOPLAN_CHAIN_BUDGET.file)?.budget,
         env: {
           ...process.env,
           EVALS: '1',
@@ -1115,8 +1217,9 @@ async function main(): Promise<number> {
       tier: manifest.tier,
       sliceIndex: options.sliceIndex,
       sliceCount: manifest.sliceCount,
-      outcomes: guarded.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests }) =>
-        ({ files, status, exitCode, elapsedMs, executedTests, skippedTests })),
+      ...(options.timeoutExplicit ? { timeoutOverrideMs: options.timeoutMs } : {}),
+      outcomes: guarded.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests, budget }) =>
+        ({ files, status, exitCode, elapsedMs, executedTests, skippedTests, ...(budget ? { budget } : {}) })),
     };
     fs.mkdirSync(evalDirBase, { recursive: true });
     const sliceResultPath = path.join(evalDirBase, `slice-${options.sliceIndex}.json`);
@@ -1143,7 +1246,7 @@ async function main(): Promise<number> {
   );
   console.log(
     `[test:paid] tier=${options.tier}: ${selected.length}/${discovered.length} files, `
-    + `${shards.length} shards, jobs=${options.jobs}, timeout=${Math.round(options.timeoutMs / 1000)}s`,
+    + `${shards.length} shards, jobs=${options.jobs}, ${options.timeoutExplicit ? 'explicit' : 'ordinary default'} wall=${Math.round(options.timeoutMs / 1000)}s; per-shard policies below`,
   );
 
   if (options.listOnly) {
@@ -1151,7 +1254,8 @@ async function main(): Promise<number> {
     for (let index = 0; index < shards.length; index += 1) {
       const key = shards[index].join(' ');
       const note = skipReasons.has(key) ? `  [would skip: ${skipReasons.get(key)}]` : '';
-      console.log(`  shard ${index + 1}/${shards.length}: ${key}${note}`);
+      const budget = resolvePaidShardBudget(shards[index], options.timeoutExplicit ? options.timeoutMs : undefined);
+      console.log(`  shard ${index + 1}/${shards.length}: ${key} wall=${budget.timeoutMs}ms source=${budget.source} policy=${budget.policyId ?? 'none'}${note}`);
     }
     if (excluded.length > 0) {
       console.log(`\nExcluded (${excluded.length}):`);
@@ -1170,7 +1274,7 @@ async function main(): Promise<number> {
   const runSummary = await runPaidShards(runnable, {
     // Tier reaches the children only via EVALS_TIER below; the runtime
     // E2E_TIERS filter inside each child is the real selection mechanism.
-    timeoutMs: options.timeoutMs,
+    timeoutMs: options.timeoutExplicit ? options.timeoutMs : undefined,
     jobs: options.jobs,
     withinShardConcurrency: options.withinShardConcurrency,
     env: {

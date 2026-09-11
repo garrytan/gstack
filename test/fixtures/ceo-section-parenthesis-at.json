@@ -1,0 +1,256 @@
+{
+  "calls": [
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_013eVyXPYjXu7T6MeQsRhL5Y",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-YNFu5w on main, one-time gstack onboarding prompt.\nELI10: gstack works best when the project's CLAUDE.md tells the agent which skill to invoke for which kind of request (bugs → /investigate, ship → /ship, and so on). Without it you invoke skills by name every time. Plan mode is active, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode.\nStakes if we pick wrong: mild either way; this is a convenience setting you can flip later.\nRecommendation: A because routing rules make later reviews and ships one-word invocations.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  ✅ Future requests auto-route to the right gstack skill without remembering names\n  ✅ Rules are a plain appended CLAUDE.md section, easy to edit or delete\n  ❌ Adds ~15 lines to this fixture repo's CLAUDE.md and a commit, applied only after plan mode ends\nB) No thanks\n  ✅ Keeps the fixture repo untouched; no extra commit\n  ✅ Recorded once via gstack-config so this prompt never reappears here\n  ❌ You invoke every gstack skill manually by slash command\nNet: convenience of auto-routing vs. keeping this repo's CLAUDE.md pristine.": "Add routing rules (recommended)",
+        "D2 — Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-YNFu5w on main, first-time gstack config choice.\nELI10: gstack saves small lessons from each session (a project quirk, a pitfall). It can search lessons saved from your other projects on this machine when reviewing this one. Nothing leaves the machine. Recommended for solo developers; skip if you work on separate client codebases that should never inform each other.\nStakes if we pick wrong: low; the setting is one config flag and can be changed any time.\nRecommendation: A because a single developer benefits from patterns carrying across their own repos.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  ✅ Past pitfalls from your other repos surface here when relevant\n  ✅ Stays local; only the learnings JSONL under ~/.gstack is read\n  ❌ A lesson from one codebase could be mildly misleading in another\nB) Keep project-scoped only\n  ✅ Strict separation between codebases; nothing cross-contaminates\n  ✅ Still records and reuses learnings from this project\n  ❌ Loses compounding benefit across your own repos\nNet: compounding memory across repos vs. strict per-repo isolation.": "Enable cross-project (recommended)",
+        "D3 — How should the new payment handler be wired in? <gstack-qid:plan-ceo-review-approach>\nProject/branch/task: Payment Processing Integration plan on main; moving Stripe payment orchestration into app-owned code.\nELI10: Today one dispatcher receives verified Stripe events and hands them to a handler. The plan proposes a new handler class that skips that dispatcher to get a clean namespace. But the namespace is already settled by the class name (Webhooks::StripePaymentWebhookHandler), so skipping the dispatcher only creates a second routing path whose guard wiring you must prove all over again. The alternative is to register the new class with the existing dispatcher and let the feature flag pick prior vs new.\nStakes if we pick wrong: a second dispatch path can silently miss a guard (dedup, lock, ownership) and double-process a payment; or the dispatcher becomes a dumping ground for business logic.\nRecommendation: B because it keeps one routing path and one guard stack with the smallest diff (explicit over clever, right-sized diff).\nCompleteness: A=5/10, B=9/10, C=6/10\nPros / cons:\nA) Separate class, own route bypassing WebhookDispatcher (human ~1 day / CC ~20 min)\n  ✅ Handler is fully isolated from dispatcher code; zero edits to the dispatcher\n  ✅ Matches the plan as written, so no re-litigation of the sketch\n  ❌ Two routing paths for Stripe events; the new path must re-prove every guard and will drift over time\nB) Separate class registered with WebhookDispatcher, flag selects handler (recommended) (human ~1.5 days / CC ~30 min)\n  ✅ Guards (signature, dedup, per-user lock, ownership) are inherited by construction\n  ✅ Feature flag flips handler selection in one registration line; rollback is trivial\n  ❌ Small edit to WebhookDispatcher registration; prior and new handler coexist until cleanup\nC) No new class; orchestration inline in WebhookDispatcher (human ~0.5 day / CC ~15 min)\n  ✅ Smallest possible diff, no new file\n  ✅ Everything reused, including current traces and flag\n  ❌ Mixes routing with payment business logic, hard to unit-test, undercuts the app-owned-orchestration motivation\nNet: isolation from the dispatcher (A) vs. one proven guard path (B) vs. minimal diff at the cost of cohesion (C).": "B: Register with dispatcher (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:42:23.799Z",
+      "questions": [
+        {
+          "header": "Routing",
+          "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-YNFu5w on main, one-time gstack onboarding prompt.\nELI10: gstack works best when the project's CLAUDE.md tells the agent which skill to invoke for which kind of request (bugs → /investigate, ship → /ship, and so on). Without it you invoke skills by name every time. Plan mode is active, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode.\nStakes if we pick wrong: mild either way; this is a convenience setting you can flip later.\nRecommendation: A because routing rules make later reviews and ships one-word invocations.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  ✅ Future requests auto-route to the right gstack skill without remembering names\n  ✅ Rules are a plain appended CLAUDE.md section, easy to edit or delete\n  ❌ Adds ~15 lines to this fixture repo's CLAUDE.md and a commit, applied only after plan mode ends\nB) No thanks\n  ✅ Keeps the fixture repo untouched; no extra commit\n  ✅ Recorded once via gstack-config so this prompt never reappears here\n  ❌ You invoke every gstack skill manually by slash command\nNet: convenience of auto-routing vs. keeping this repo's CLAUDE.md pristine.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "Append the skill-routing section to CLAUDE.md and commit it after this review exits plan mode."
+            },
+            {
+              "label": "No thanks",
+              "description": "Record routing_declined=true; invoke skills manually. Re-enable later with gstack-config."
+            }
+          ]
+        },
+        {
+          "header": "Learnings",
+          "question": "D2 — Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-YNFu5w on main, first-time gstack config choice.\nELI10: gstack saves small lessons from each session (a project quirk, a pitfall). It can search lessons saved from your other projects on this machine when reviewing this one. Nothing leaves the machine. Recommended for solo developers; skip if you work on separate client codebases that should never inform each other.\nStakes if we pick wrong: low; the setting is one config flag and can be changed any time.\nRecommendation: A because a single developer benefits from patterns carrying across their own repos.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  ✅ Past pitfalls from your other repos surface here when relevant\n  ✅ Stays local; only the learnings JSONL under ~/.gstack is read\n  ❌ A lesson from one codebase could be mildly misleading in another\nB) Keep project-scoped only\n  ✅ Strict separation between codebases; nothing cross-contaminates\n  ✅ Still records and reuses learnings from this project\n  ❌ Loses compounding benefit across your own repos\nNet: compounding memory across repos vs. strict per-repo isolation.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "gstack-config set cross_project_learnings true, then re-run the learnings search."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "gstack-config set cross_project_learnings false."
+            }
+          ]
+        },
+        {
+          "header": "Approach",
+          "question": "D3 — How should the new payment handler be wired in? <gstack-qid:plan-ceo-review-approach>\nProject/branch/task: Payment Processing Integration plan on main; moving Stripe payment orchestration into app-owned code.\nELI10: Today one dispatcher receives verified Stripe events and hands them to a handler. The plan proposes a new handler class that skips that dispatcher to get a clean namespace. But the namespace is already settled by the class name (Webhooks::StripePaymentWebhookHandler), so skipping the dispatcher only creates a second routing path whose guard wiring you must prove all over again. The alternative is to register the new class with the existing dispatcher and let the feature flag pick prior vs new.\nStakes if we pick wrong: a second dispatch path can silently miss a guard (dedup, lock, ownership) and double-process a payment; or the dispatcher becomes a dumping ground for business logic.\nRecommendation: B because it keeps one routing path and one guard stack with the smallest diff (explicit over clever, right-sized diff).\nCompleteness: A=5/10, B=9/10, C=6/10\nPros / cons:\nA) Separate class, own route bypassing WebhookDispatcher (human ~1 day / CC ~20 min)\n  ✅ Handler is fully isolated from dispatcher code; zero edits to the dispatcher\n  ✅ Matches the plan as written, so no re-litigation of the sketch\n  ❌ Two routing paths for Stripe events; the new path must re-prove every guard and will drift over time\nB) Separate class registered with WebhookDispatcher, flag selects handler (recommended) (human ~1.5 days / CC ~30 min)\n  ✅ Guards (signature, dedup, per-user lock, ownership) are inherited by construction\n  ✅ Feature flag flips handler selection in one registration line; rollback is trivial\n  ❌ Small edit to WebhookDispatcher registration; prior and new handler coexist until cleanup\nC) No new class; orchestration inline in WebhookDispatcher (human ~0.5 day / CC ~15 min)\n  ✅ Smallest possible diff, no new file\n  ✅ Everything reused, including current traces and flag\n  ❌ Mixes routing with payment business logic, hard to unit-test, undercuts the app-owned-orchestration motivation\nNet: isolation from the dispatcher (A) vs. one proven guard path (B) vs. minimal diff at the cost of cohesion (C).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B: Register with dispatcher (recommended)",
+              "description": "New Webhooks::StripePaymentWebhookHandler registered in WebhookDispatcher for payment_intent.succeeded; feature flag selects prior vs new. Completeness 9/10."
+            },
+            {
+              "label": "A: Bypass dispatcher",
+              "description": "New class on its own route as the plan sketches; guard wiring re-proven for the new path. Completeness 5/10."
+            },
+            {
+              "label": "C: Inline in dispatcher",
+              "description": "No new class; orchestration as a branch inside WebhookDispatcher. Completeness 6/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_01UwthQrv8dmJamJMfuwPEoZ",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 (Section 1, finding 1) — What should the handler do when the receipt send fails? <gstack-qid:plan-ceo-review-s1-email-leg>\nProject/branch/task: Payment Processing Integration on main; the plan says update the user and fire the email inline with no error handling on the email leg.\nELI10: The mail client gives up after one second and throws (MailTimeout, or its delivery-failure error). The plan lets that throw escape. The ingress then answers Stripe with a 500 and Stripe retries the same event for up to three days, re-running a handler whose payment write may already be committed. Every retry fires the failed-webhook alert. Meanwhile the mail client has already durably recorded the failed send for the existing notification retry procedure, so the throw buys nothing. The plan also never says whether the email happens inside or after the DB transaction; inside means a mail outage rolls back payments.\nStakes if we pick wrong: a 20-minute mail-provider blip becomes hours of paging on committed payments, or worse, users who paid are not marked paid until the mail provider recovers.\nRecommendation: 1A because a notification failure is not a payment failure; the retained mail client, dashboard, and runbook already own receipt retries (zero silent failures, every error has a name).\nCompleteness: A=10/10, B=4/10, C=3/10\nPros / cons:\n1A) Commit first, then send; rescue only the named mail exceptions (recommended) (human ~3h / CC ~15 min)\n  ✅ All DB work (lookup, orders load, update) in one transaction, committed before any network send; DB errors still propagate to the 500/retry path\n  ✅ Rescue exactly MailTimeout plus the client's named delivery-failure class (read from its source); emit a structured warning with event, user, PI, and handler identity and outcome receipt_deferred; let completion be recorded and return 200 so Stripe stops; the durable retry record and existing runbook deliver the receipt\n  ✅ Tests: mail timeout after commit asserts paid persisted, completion recorded, warning emitted, no 500; DB failure asserts 500, no completion marker, no send attempted\n  ❌ Receipt delivery now depends on the notification retry procedure instead of Stripe's automatic retry\n1B) Leave the email leg unrescued (plan as written)\n  ✅ No rescue code to write; Stripe's own retries eventually resend the receipt\n  ✅ Provider idempotency key prevents duplicate receipts across those retries\n  ❌ Committed payments return 500 and page on-call on every retry; behavior depends on whether completion is recorded when the handler raises after commit, which nobody has specified\n1C) Send the email inside the DB transaction so a failure rolls back the payment update\n  ✅ Payment and receipt succeed or fail together, easy to reason about\n  ✅ No partial state to explain in the runbook\n  ❌ A mail outage blocks marking users paid, and a network call inside a transaction holds DB locks for the 1s mail deadline\nNet: decoupling receipt failures from the payment write (1A) vs. leaning on Stripe retries at the cost of paging and undefined post-commit semantics (1B) vs. coupling them outright (1C).": "1A: Commit, then rescue named mail errors (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:44:36.956Z",
+      "questions": [
+        {
+          "header": "Email leg",
+          "question": "D4 (Section 1, finding 1) — What should the handler do when the receipt send fails? <gstack-qid:plan-ceo-review-s1-email-leg>\nProject/branch/task: Payment Processing Integration on main; the plan says update the user and fire the email inline with no error handling on the email leg.\nELI10: The mail client gives up after one second and throws (MailTimeout, or its delivery-failure error). The plan lets that throw escape. The ingress then answers Stripe with a 500 and Stripe retries the same event for up to three days, re-running a handler whose payment write may already be committed. Every retry fires the failed-webhook alert. Meanwhile the mail client has already durably recorded the failed send for the existing notification retry procedure, so the throw buys nothing. The plan also never says whether the email happens inside or after the DB transaction; inside means a mail outage rolls back payments.\nStakes if we pick wrong: a 20-minute mail-provider blip becomes hours of paging on committed payments, or worse, users who paid are not marked paid until the mail provider recovers.\nRecommendation: 1A because a notification failure is not a payment failure; the retained mail client, dashboard, and runbook already own receipt retries (zero silent failures, every error has a name).\nCompleteness: A=10/10, B=4/10, C=3/10\nPros / cons:\n1A) Commit first, then send; rescue only the named mail exceptions (recommended) (human ~3h / CC ~15 min)\n  ✅ All DB work (lookup, orders load, update) in one transaction, committed before any network send; DB errors still propagate to the 500/retry path\n  ✅ Rescue exactly MailTimeout plus the client's named delivery-failure class (read from its source); emit a structured warning with event, user, PI, and handler identity and outcome receipt_deferred; let completion be recorded and return 200 so Stripe stops; the durable retry record and existing runbook deliver the receipt\n  ✅ Tests: mail timeout after commit asserts paid persisted, completion recorded, warning emitted, no 500; DB failure asserts 500, no completion marker, no send attempted\n  ❌ Receipt delivery now depends on the notification retry procedure instead of Stripe's automatic retry\n1B) Leave the email leg unrescued (plan as written)\n  ✅ No rescue code to write; Stripe's own retries eventually resend the receipt\n  ✅ Provider idempotency key prevents duplicate receipts across those retries\n  ❌ Committed payments return 500 and page on-call on every retry; behavior depends on whether completion is recorded when the handler raises after commit, which nobody has specified\n1C) Send the email inside the DB transaction so a failure rolls back the payment update\n  ✅ Payment and receipt succeed or fail together, easy to reason about\n  ✅ No partial state to explain in the runbook\n  ❌ A mail outage blocks marking users paid, and a network call inside a transaction holds DB locks for the 1s mail deadline\nNet: decoupling receipt failures from the payment write (1A) vs. leaning on Stripe retries at the cost of paging and undefined post-commit semantics (1B) vs. coupling them outright (1C).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A: Commit, then rescue named mail errors (recommended)",
+              "description": "One DB transaction, commit, then send; rescue MailTimeout + named delivery error only; structured receipt_deferred warning; 200. Completeness 10/10."
+            },
+            {
+              "label": "1B: Leave unrescued",
+              "description": "Plan as written; mail failure propagates to a 500 and Stripe retries. Completeness 4/10."
+            },
+            {
+              "label": "1C: Email inside transaction",
+              "description": "Mail failure rolls back the payment update. Completeness 3/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_01Avmfeuq7Bg7ZA1G9R8L2Dw",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 (Section 3, finding 1) — How should the handler look up the user from params.userId? <gstack-qid:plan-ceo-review-s3-sql-lookup>\nProject/branch/task: Payment Processing Integration on main; the plan reads params.userId directly into a raw SQL fragment for the lookup query.\nELI10: The user ID arrives as a plain text string that the adapter forwards unchanged. Your own contract says IDs are opaque text with punctuation and Unicode, and that a valid Stripe signature does not make the string SQL-safe. Pasting that string into a SQL fragment means a legitimate ID with an apostrophe breaks the lookup (payment never marked paid, endless 500 retries), and a hostile ID placed in PaymentIntent metadata runs as SQL against the payments database. Bound parameters make the string data, never code.\nStakes if we pick wrong: a database compromise via the payment webhook, or a class of real users whose payments never land because their ID contains punctuation.\nRecommendation: 2A because parameterized queries are the standard-library rung of the reuse ladder and eliminate the whole class instead of filtering it (security is not optional).\nCompleteness: A=10/10, B=5/10, C=1/10\nPros / cons:\n2A) Parameterized lookup via the ORM finder or a bound parameter (recommended) (human ~1h / CC ~5 min)\n  ✅ The ID can never change the query shape; punctuation and Unicode IDs look up correctly, matching the opaque-TEXT contract\n  ✅ Tests feed adversarial IDs (single quote, semicolon plus DROP, double-dash comment, Unicode, 1000 chars) and assert the correct row or the unknown-user path, never a SQL error\n  ❌ None of substance; a raw SQL fragment must be rewritten as a finder or bound query\n2B) Keep raw SQL but add an allowlist regex on the ID format\n  ✅ Small change to the fragment as sketched\n  ✅ Blocks the obvious injection payloads\n  ❌ Contradicts the contract that every nonempty string is a valid ID; legitimate punctuation IDs get rejected, and allowlists are bypassable\n2C) Keep raw SQL interpolation as written\n  ✅ No change from the plan\n  ✅ Fastest to type\n  ❌ SQL injection into the payments database via webhook metadata; breakage on any ID containing a quote\nNet: eliminating the injection class (2A) vs. filtering it and breaking legitimate IDs (2B) vs. shipping the vulnerability (2C).": "2A: Parameterized lookup (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:45:32.974Z",
+      "questions": [
+        {
+          "header": "SQL lookup",
+          "question": "D5 (Section 3, finding 1) — How should the handler look up the user from params.userId? <gstack-qid:plan-ceo-review-s3-sql-lookup>\nProject/branch/task: Payment Processing Integration on main; the plan reads params.userId directly into a raw SQL fragment for the lookup query.\nELI10: The user ID arrives as a plain text string that the adapter forwards unchanged. Your own contract says IDs are opaque text with punctuation and Unicode, and that a valid Stripe signature does not make the string SQL-safe. Pasting that string into a SQL fragment means a legitimate ID with an apostrophe breaks the lookup (payment never marked paid, endless 500 retries), and a hostile ID placed in PaymentIntent metadata runs as SQL against the payments database. Bound parameters make the string data, never code.\nStakes if we pick wrong: a database compromise via the payment webhook, or a class of real users whose payments never land because their ID contains punctuation.\nRecommendation: 2A because parameterized queries are the standard-library rung of the reuse ladder and eliminate the whole class instead of filtering it (security is not optional).\nCompleteness: A=10/10, B=5/10, C=1/10\nPros / cons:\n2A) Parameterized lookup via the ORM finder or a bound parameter (recommended) (human ~1h / CC ~5 min)\n  ✅ The ID can never change the query shape; punctuation and Unicode IDs look up correctly, matching the opaque-TEXT contract\n  ✅ Tests feed adversarial IDs (single quote, semicolon plus DROP, double-dash comment, Unicode, 1000 chars) and assert the correct row or the unknown-user path, never a SQL error\n  ❌ None of substance; a raw SQL fragment must be rewritten as a finder or bound query\n2B) Keep raw SQL but add an allowlist regex on the ID format\n  ✅ Small change to the fragment as sketched\n  ✅ Blocks the obvious injection payloads\n  ❌ Contradicts the contract that every nonempty string is a valid ID; legitimate punctuation IDs get rejected, and allowlists are bypassable\n2C) Keep raw SQL interpolation as written\n  ✅ No change from the plan\n  ✅ Fastest to type\n  ❌ SQL injection into the payments database via webhook metadata; breakage on any ID containing a quote\nNet: eliminating the injection class (2A) vs. filtering it and breaking legitimate IDs (2B) vs. shipping the vulnerability (2C).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A: Parameterized lookup (recommended)",
+              "description": "ORM finder or bound parameter; adversarial-ID tests assert correct lookup or unknown-user path. Completeness 10/10."
+            },
+            {
+              "label": "2B: Raw SQL + allowlist regex",
+              "description": "Keep the fragment, reject IDs not matching a pattern. Contradicts the opaque-TEXT contract. Completeness 5/10."
+            },
+            {
+              "label": "2C: Raw SQL as written",
+              "description": "Ship the plan's raw fragment unchanged. Completeness 1/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_013HjEZX1sW7UyLTCbksgEnB",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 (Section 6, finding 1) — What automated tests ship with the new handler? <gstack-qid:plan-ceo-review-s6-tests>\nProject/branch/task: Payment Processing Integration on main; the plan says no tests, rely on the existing integration suite.\nELI10: The new handler only runs when the feature flag is on. The existing integration suite runs with the flag at its default, so it never executes the new code; a green suite proves nothing about it. Every remedy you approved so far (commit-then-rescue, parameterized lookup) and every retained contract (zero orders still gets one receipt, unknown user stops, empty email skips) is a behavior a test can pin. The staging replay in the rollout checklist is manual, one-shot, and not regression coverage.\nStakes if we pick wrong: a regression in the payment path reaches production with no signal until a customer says they paid and were not marked paid.\nRecommendation: 3A because well-tested code is non-negotiable and the delta between happy-path-only and full coverage is minutes with CC.\nCompleteness: A=10/10, B=6/10, C=1/10\nPros / cons:\n3A) Full coverage: unit tests for every row of the Section 6 table plus two dispatcher integration tests (recommended) (human ~1 day / CC ~30 min)\n  ✅ Pins every approved remedy: adversarial IDs never raise SQL errors; MailTimeout after commit leaves paid persisted, emits the receipt_deferred warning, returns 200; DB failure yields 500 with no completion marker and no send\n  ✅ Pins every retained contract: zero orders sends one receipt with empty summary; unknown user stops before update; empty email skips with a record; exactly one orders query for N=0/1/50; no email address in logs\n  ✅ Flag ON/OFF integration tests through the real dispatcher prove routing and rollback wiring\n  ❌ One new test file of roughly 15 cases to maintain; needs a fake mail client and fake clock\n3B) Happy path only: one flag-ON integration test through the dispatcher (human ~2h / CC ~10 min)\n  ✅ Proves the new handler is wired and marks a user paid end to end\n  ✅ Small and fast\n  ❌ Leaves every failure path (mail rescue, DB rollback, adversarial IDs, zero orders) unverified until production\n3C) No automated tests (plan as written)\n  ✅ Zero test code to write\n  ✅ Manual staging replay still happens per the rollout checklist\n  ❌ The existing suite never runs the flagged handler, so regressions are invisible; contradicts the non-negotiable testing preference\nNet: pinning all approved behavior (3A) vs. proving wiring only (3B) vs. shipping blind (3C).": "3A: Full unit + integration coverage (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:46:39.596Z",
+      "questions": [
+        {
+          "header": "Tests",
+          "question": "D6 (Section 6, finding 1) — What automated tests ship with the new handler? <gstack-qid:plan-ceo-review-s6-tests>\nProject/branch/task: Payment Processing Integration on main; the plan says no tests, rely on the existing integration suite.\nELI10: The new handler only runs when the feature flag is on. The existing integration suite runs with the flag at its default, so it never executes the new code; a green suite proves nothing about it. Every remedy you approved so far (commit-then-rescue, parameterized lookup) and every retained contract (zero orders still gets one receipt, unknown user stops, empty email skips) is a behavior a test can pin. The staging replay in the rollout checklist is manual, one-shot, and not regression coverage.\nStakes if we pick wrong: a regression in the payment path reaches production with no signal until a customer says they paid and were not marked paid.\nRecommendation: 3A because well-tested code is non-negotiable and the delta between happy-path-only and full coverage is minutes with CC.\nCompleteness: A=10/10, B=6/10, C=1/10\nPros / cons:\n3A) Full coverage: unit tests for every row of the Section 6 table plus two dispatcher integration tests (recommended) (human ~1 day / CC ~30 min)\n  ✅ Pins every approved remedy: adversarial IDs never raise SQL errors; MailTimeout after commit leaves paid persisted, emits the receipt_deferred warning, returns 200; DB failure yields 500 with no completion marker and no send\n  ✅ Pins every retained contract: zero orders sends one receipt with empty summary; unknown user stops before update; empty email skips with a record; exactly one orders query for N=0/1/50; no email address in logs\n  ✅ Flag ON/OFF integration tests through the real dispatcher prove routing and rollback wiring\n  ❌ One new test file of roughly 15 cases to maintain; needs a fake mail client and fake clock\n3B) Happy path only: one flag-ON integration test through the dispatcher (human ~2h / CC ~10 min)\n  ✅ Proves the new handler is wired and marks a user paid end to end\n  ✅ Small and fast\n  ❌ Leaves every failure path (mail rescue, DB rollback, adversarial IDs, zero orders) unverified until production\n3C) No automated tests (plan as written)\n  ✅ Zero test code to write\n  ✅ Manual staging replay still happens per the rollout checklist\n  ❌ The existing suite never runs the flagged handler, so regressions are invisible; contradicts the non-negotiable testing preference\nNet: pinning all approved behavior (3A) vs. proving wiring only (3B) vs. shipping blind (3C).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A: Full unit + integration coverage (recommended)",
+              "description": "Every Section 6 table row: adversarial IDs, mail rescue after commit, DB rollback, zero orders, unknown user, empty email, query count, log hygiene, flag ON/OFF routing. Completeness 10/10."
+            },
+            {
+              "label": "3B: Happy-path integration only",
+              "description": "One flag-ON test through the dispatcher marking a user paid. Completeness 6/10."
+            },
+            {
+              "label": "3C: No automated tests",
+              "description": "Plan as written; manual staging replay only. Completeness 1/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_019DfaTdR8uhuAryxVXWyCLk",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 (Section 7, finding 1) — How should the handler load the orders for the receipt summary? <gstack-qid:plan-ceo-review-s7-orders-n-plus-1>\nProject/branch/task: Payment Processing Integration on main; the plan fetches each order in a loop after the user lookup.\nELI10: One query per order means a customer with 300 orders costs 301 database round trips inside a two-second budget. When the budget runs out the database call throws, the payment update rolls back, Stripe gets a 500 and retries into the same wall for three days. Your best customers are exactly the ones whose payments would never land. One query that fetches all of a user's orders at once costs the same for 0 or 300 orders.\nStakes if we pick wrong: high-order-count users are silently never marked paid, and the failure looks like a flaky database rather than a design bug.\nRecommendation: 4A because a single indexed query is the native database rung of the reuse ladder and removes the deadline risk entirely (engineered enough, not clever).\nCompleteness: A=10/10, B=5/10, C=1/10\nPros / cons:\n4A) Single query for all orders by user_id inside the transaction, with a query-count test (recommended) (human ~1h / CC ~5 min)\n  ✅ Exactly one orders query regardless of N, selecting only the columns the receipt summary uses; runs inside the same transaction as the update so DB failures roll back cleanly\n  ✅ Test asserts the orders query count is exactly 1 for N=0, 1, and 50, and that N=0 still yields one receipt with an empty summary; pre-merge check that orders.user_id is indexed\n  ❌ Requires confirming the orders.user_id index exists; if absent, a small migration is needed first\n4B) Keep the loop but cap it at a fixed number of orders\n  ✅ Bounds the worst case without restructuring the query\n  ✅ Small edit to the sketch\n  ❌ Still N queries up to the cap, and silently truncates the receipt summary, which changes the retained product semantics\n4C) Keep the per-order loop as written\n  ✅ No change from the plan\n  ✅ Reads naturally in code\n  ❌ Deadline trips for large N, rolling back payments and retrying forever\nNet: one indexed query with a count assertion (4A) vs. a capped loop that alters the receipt (4B) vs. shipping the N+1 (4C).": "4A: Single query + count test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:47:15.413Z",
+      "questions": [
+        {
+          "header": "Orders query",
+          "question": "D7 (Section 7, finding 1) — How should the handler load the orders for the receipt summary? <gstack-qid:plan-ceo-review-s7-orders-n-plus-1>\nProject/branch/task: Payment Processing Integration on main; the plan fetches each order in a loop after the user lookup.\nELI10: One query per order means a customer with 300 orders costs 301 database round trips inside a two-second budget. When the budget runs out the database call throws, the payment update rolls back, Stripe gets a 500 and retries into the same wall for three days. Your best customers are exactly the ones whose payments would never land. One query that fetches all of a user's orders at once costs the same for 0 or 300 orders.\nStakes if we pick wrong: high-order-count users are silently never marked paid, and the failure looks like a flaky database rather than a design bug.\nRecommendation: 4A because a single indexed query is the native database rung of the reuse ladder and removes the deadline risk entirely (engineered enough, not clever).\nCompleteness: A=10/10, B=5/10, C=1/10\nPros / cons:\n4A) Single query for all orders by user_id inside the transaction, with a query-count test (recommended) (human ~1h / CC ~5 min)\n  ✅ Exactly one orders query regardless of N, selecting only the columns the receipt summary uses; runs inside the same transaction as the update so DB failures roll back cleanly\n  ✅ Test asserts the orders query count is exactly 1 for N=0, 1, and 50, and that N=0 still yields one receipt with an empty summary; pre-merge check that orders.user_id is indexed\n  ❌ Requires confirming the orders.user_id index exists; if absent, a small migration is needed first\n4B) Keep the loop but cap it at a fixed number of orders\n  ✅ Bounds the worst case without restructuring the query\n  ✅ Small edit to the sketch\n  ❌ Still N queries up to the cap, and silently truncates the receipt summary, which changes the retained product semantics\n4C) Keep the per-order loop as written\n  ✅ No change from the plan\n  ✅ Reads naturally in code\n  ❌ Deadline trips for large N, rolling back payments and retrying forever\nNet: one indexed query with a count assertion (4A) vs. a capped loop that alters the receipt (4B) vs. shipping the N+1 (4C).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A: Single query + count test (recommended)",
+              "description": "One orders query by user_id inside the transaction; assert query count = 1 for N=0/1/50; confirm index. Completeness 10/10."
+            },
+            {
+              "label": "4B: Capped loop",
+              "description": "Keep the loop, stop after a fixed number of orders; truncates the receipt summary. Completeness 5/10."
+            },
+            {
+              "label": "4C: Loop as written",
+              "description": "One query per order. Completeness 1/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_017oPPW2Gbh2P5pdiixvAwWB",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 (Section 9, finding 1) — Should the manual staging replay checklist cover the failure paths this review added? <gstack-qid:plan-ceo-review-s9-staging-checklist>\nProject/branch/task: Payment Processing Integration on main; the rollout checklist replays one payment event and verifies update, email, and trace before broad enable.\nELI10: The checklist today proves the happy path works in staging. The remedies you approved (commit-then-rescue on mail failure, parameterized lookup, single orders query) each have a failure path that the automated tests pin in CI but that nobody exercises against the real staging stack, where the real mail client, real dispatcher, and real flag are wired. Three extra replays in staging catch wiring mistakes CI cannot see.\nStakes if we pick wrong: a wiring mistake (wrong exception class name, flag read in the wrong place) passes CI with fakes and surfaces only in production.\nRecommendation: 5A because deployments are not atomic and the checklist is the only place the real mail client meets the new rescue code before customers do.\nCompleteness: A=10/10, B=6/10\nPros / cons:\n5A) Add three staging replays to the checklist (recommended) (human ~1h to document, ~20 min per rollout / CC ~5 min to document)\n  ✅ Replay a payment event for a user ID containing a quote and Unicode and confirm the user is marked paid\n  ✅ Replay with the staging mail provider forced to time out and confirm paid persisted, one receipt_deferred warning with handler=new, HTTP 200, and a notification retry record; replay for a zero-order user and confirm one receipt with an empty summary\n  ❌ Adds roughly twenty minutes to each rollout of this handler\n5B) Keep the checklist as is\n  ✅ No documentation change; rollout stays as fast as today\n  ✅ CI tests from D6 still cover the paths with fakes\n  ❌ The real mail client and flag wiring for the rescue path are never exercised before production\nNet: twenty minutes of staging verification per rollout (5A) vs. trusting fakes for the wiring (5B).": "5A: Add three failure replays (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:48:05.897Z",
+      "questions": [
+        {
+          "header": "Staging replay",
+          "question": "D8 (Section 9, finding 1) — Should the manual staging replay checklist cover the failure paths this review added? <gstack-qid:plan-ceo-review-s9-staging-checklist>\nProject/branch/task: Payment Processing Integration on main; the rollout checklist replays one payment event and verifies update, email, and trace before broad enable.\nELI10: The checklist today proves the happy path works in staging. The remedies you approved (commit-then-rescue on mail failure, parameterized lookup, single orders query) each have a failure path that the automated tests pin in CI but that nobody exercises against the real staging stack, where the real mail client, real dispatcher, and real flag are wired. Three extra replays in staging catch wiring mistakes CI cannot see.\nStakes if we pick wrong: a wiring mistake (wrong exception class name, flag read in the wrong place) passes CI with fakes and surfaces only in production.\nRecommendation: 5A because deployments are not atomic and the checklist is the only place the real mail client meets the new rescue code before customers do.\nCompleteness: A=10/10, B=6/10\nPros / cons:\n5A) Add three staging replays to the checklist (recommended) (human ~1h to document, ~20 min per rollout / CC ~5 min to document)\n  ✅ Replay a payment event for a user ID containing a quote and Unicode and confirm the user is marked paid\n  ✅ Replay with the staging mail provider forced to time out and confirm paid persisted, one receipt_deferred warning with handler=new, HTTP 200, and a notification retry record; replay for a zero-order user and confirm one receipt with an empty summary\n  ❌ Adds roughly twenty minutes to each rollout of this handler\n5B) Keep the checklist as is\n  ✅ No documentation change; rollout stays as fast as today\n  ✅ CI tests from D6 still cover the paths with fakes\n  ❌ The real mail client and flag wiring for the rescue path are never exercised before production\nNet: twenty minutes of staging verification per rollout (5A) vs. trusting fakes for the wiring (5B).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A: Add three failure replays (recommended)",
+              "description": "Quote/Unicode user ID; forced mail timeout expecting paid + receipt_deferred + 200; zero-order user. Completeness 10/10."
+            },
+            {
+              "label": "5B: Keep checklist as is",
+              "description": "Happy-path replay only; rely on CI fakes. Completeness 6/10."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sessionId": "063fcf3e-294e-4231-ac13-acb6a15df142",
+      "toolUseId": "toolu_01BR1cDVQJhnAjwa1GRKT33k",
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 (TODOS.md candidate 1) — Track removal of the prior library-adapter handler after rollout? <gstack-qid:plan-ceo-review-todo-remove-prior-handler>\nProject/branch/task: Payment Processing Integration on main; approach B leaves the prior handler and the new one coexisting behind the feature flag.\nELI10: Once the new handler has run broadly for a while, the prior library-adapter handler and its flag branch become dead code that still compiles, still has tests, and still confuses the next engineer about which path is live. Deleting it is a small, separate change that should wait until rollback is no longer plausible. Writing it down now means it does not get forgotten.\nWhat: delete the prior library-adapter handler, its dispatcher registration branch, and the flag once the new handler has been broadly enabled without rollback for an agreed window. Why: two live handlers are the operational debt this plan introduces. Pros: one code path, simpler dispatcher, no stale flag. Cons: removes the tested rollback path, so timing matters. Context: flag and rollback are documented in the existing rollout checklist; deletion should also drop the handler-identity attribute from traces only if nothing else reads it. Effort: S (human) → S (CC). Priority: P3. Depends on: broad enable of the new handler plus a stabilization window.\nStakes if we pick wrong: mild; dead code lingers, or rollback is removed too early.\nRecommendation: A because everything deferred must be written down; a vague intention to clean up later is not a plan.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Cleanup has an owner-visible record with its trigger condition spelled out\n  ✅ Keeps the tested rollback path intact until the window passes\n  ❌ TODOS.md does not exist in this repo yet; the file is created by this item\nB) Skip, not valuable enough\n  ✅ No new file in the repo\n  ✅ Someone may remember anyway during a later refactor\n  ❌ The dead handler and flag branch likely persist indefinitely\nC) Build it now in this PR\n  ✅ Ships with one code path from day one\n  ✅ No follow-up work\n  ❌ Deletes the documented, tested rollback before the new handler has run in production; contradicts the retained rollout contract\nNet: recorded follow-up (A) vs. relying on memory (B) vs. removing rollback prematurely (C).": "A: Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T19:48:43.782Z",
+      "questions": [
+        {
+          "header": "TODO",
+          "question": "D9 (TODOS.md candidate 1) — Track removal of the prior library-adapter handler after rollout? <gstack-qid:plan-ceo-review-todo-remove-prior-handler>\nProject/branch/task: Payment Processing Integration on main; approach B leaves the prior handler and the new one coexisting behind the feature flag.\nELI10: Once the new handler has run broadly for a while, the prior library-adapter handler and its flag branch become dead code that still compiles, still has tests, and still confuses the next engineer about which path is live. Deleting it is a small, separate change that should wait until rollback is no longer plausible. Writing it down now means it does not get forgotten.\nWhat: delete the prior library-adapter handler, its dispatcher registration branch, and the flag once the new handler has been broadly enabled without rollback for an agreed window. Why: two live handlers are the operational debt this plan introduces. Pros: one code path, simpler dispatcher, no stale flag. Cons: removes the tested rollback path, so timing matters. Context: flag and rollback are documented in the existing rollout checklist; deletion should also drop the handler-identity attribute from traces only if nothing else reads it. Effort: S (human) → S (CC). Priority: P3. Depends on: broad enable of the new handler plus a stabilization window.\nStakes if we pick wrong: mild; dead code lingers, or rollback is removed too early.\nRecommendation: A because everything deferred must be written down; a vague intention to clean up later is not a plan.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Cleanup has an owner-visible record with its trigger condition spelled out\n  ✅ Keeps the tested rollback path intact until the window passes\n  ❌ TODOS.md does not exist in this repo yet; the file is created by this item\nB) Skip, not valuable enough\n  ✅ No new file in the repo\n  ✅ Someone may remember anyway during a later refactor\n  ❌ The dead handler and flag branch likely persist indefinitely\nC) Build it now in this PR\n  ✅ Ships with one code path from day one\n  ✅ No follow-up work\n  ❌ Deletes the documented, tested rollback before the new handler has run in production; contradicts the retained rollout contract\nNet: recorded follow-up (A) vs. relying on memory (B) vs. removing rollback prematurely (C).",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add to TODOS.md (recommended)",
+              "description": "P3, effort S; remove prior handler + flag after a stabilization window post broad enable."
+            },
+            {
+              "label": "B: Skip",
+              "description": "Do not record the cleanup."
+            },
+            {
+              "label": "C: Build it now",
+              "description": "Delete the prior handler in this PR; removes the tested rollback path."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

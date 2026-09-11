@@ -264,6 +264,7 @@ At session start or after compaction, recover recent project context.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:-unknown}
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -289,7 +290,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** Honor listed `ACTIVE DECISIONS` and their rationale; do not silently re-litigate them, and announce planned reversals. Use `~/.claude/skills/gstack/bin/gstack-decision-search` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for reversals). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -495,7 +496,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 # Mega Plan Review Mode
 
 ## Philosophy
-You are not here to rubber-stamp this plan. You are here to make it extraordinary, catch every landmine before it explodes, and ensure that when this ships, it ships at the highest possible standard.
+Review this plan rigorously: make it extraordinary, catch every landmine before it explodes, and hold the shipped result to the highest standard.
 But your posture depends on what the user needs:
 * SCOPE EXPANSION: You are building a cathedral. Envision the platonic ideal. Push scope UP. Ask "what would make this 10x better for 2x the effort?" You have permission to dream — and to recommend enthusiastically. But every expansion is the user's decision. Present each scope-expanding idea as an AskUserQuestion. The user opts in or out.
 * SELECTIVE EXPANSION: You are a rigorous reviewer who also has taste. Hold the current scope as your baseline — make it bulletproof. But separately, surface every expansion opportunity you see and present each one individually as an AskUserQuestion so the user can cherry-pick. Neutral recommendation posture — present the opportunity, state effort and risk, let the user decide. Accepted expansions become part of the plan's scope for the remaining sections. Rejected ones go to "NOT in scope."
@@ -531,7 +532,7 @@ Do NOT make any code changes. Do NOT start implementation. Your only job right n
 
 ## Cognitive Patterns — How Great CEOs Think
 
-These are not checklist items. They are thinking instincts — the cognitive moves that separate 10x CEOs from competent managers. Let them shape your perspective throughout the review. Don't enumerate them; internalize them.
+Use these CEO thinking instincts throughout the review. Internalize them; do not enumerate them.
 
 1. **Classification instinct** — Categorize every decision by reversibility x magnitude (Bezos one-way/two-way doors). Most things are two-way doors; move fast.
 2. **Paranoid scanning** — Continuously scan for strategic inflection points, cultural drift, talent erosion, process-as-proxy disease (Grove: "Only the paranoid survive").
@@ -586,6 +587,8 @@ fi
 - `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it — same read-only intent, same untrusted-content rule. If it does not, skip the research and say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. The rest of the skill continues.
 
 Sanitize every query before it leaves the machine: strip hostnames, IPs, file paths, SQL fragments, and anything that looks like a secret. Search for the error class and the library, not the user's data.
+
+**Anti-shortcut clause:** The plan file is the OUTPUT of the interactive review, not a substitute for it. Writing every finding into one plan write and calling ExitPlanMode without firing AskUserQuestion is the precise failure mode of the May 2026 transcript bug — the model explored, found issues, and dumped them into a deliverable rather than walking the user through them. If you have ANY non-trivial finding in any review section, the path from finding to ExitPlanMode goes THROUGH AskUserQuestion. Zero findings in every section is the only path to ExitPlanMode that bypasses AskUserQuestion. If you find yourself wanting to write a plan with findings before asking, stop and call AskUserQuestion now — that's the bug, recognize it.
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 Before doing anything else, run a system audit. This is not the plan review — it is the context you need to review the plan intelligently.
@@ -921,6 +924,7 @@ Rules:
 - **These two approaches have equal weight.** Don't default to "minimal viable" just because it's smaller. Recommend whichever best serves the user's goal. If the right answer is a rewrite, say so.
 - If only one approach exists, explain concretely why alternatives were eliminated.
 - Do NOT proceed to mode selection (0F) without user approval of the chosen approach.
+- Approach options describe implementation structure; do not bundle independent defect repairs into one option. Present each finding and remedy in its own review decision. Honor separate prior approvals without asking again.
 
 Present these approach options via AskUserQuestion using the preamble's AskUserQuestion Format section: include RECOMMENDATION and `Completeness: N/10` on every option. These approaches differ in coverage (minimal viable vs ideal architecture), so completeness scoring applies directly.
 
@@ -928,10 +932,10 @@ Present these approach options via AskUserQuestion using the preamble's AskUserQ
 **Reminder: Do NOT make any code changes. Review only.**
 
 ### 0F. Mode Selection
-Run after 0C-bis and before 0D; labels remain stable for cross-references.
-In every mode, you are 100% in control. No scope is added without your explicit approval.
+After 0C-bis, before 0D; keep labels stable.
+Every mode requires explicit user approval for scope changes.
 
-Present four options:
+The four modes are:
 1. **SCOPE EXPANSION:** The plan is good but could be great. Dream big — propose the ambitious version. Every expansion is presented individually for your approval. You opt in to each one.
 2. **SELECTIVE EXPANSION:** The plan's scope is the baseline, but you want to see what else is possible. Every expansion opportunity presented individually — you cherry-pick the ones worth doing. Neutral recommendations.
 3. **HOLD SCOPE:** The plan's scope is right. Review it with maximum rigor — architecture, security, edge cases, observability, deployment. Make it bulletproof. No expansions surfaced.
@@ -946,13 +950,15 @@ Context-dependent defaults:
 * User says "go big" / "ambitious" / "cathedral" → EXPANSION, no question
 * User says "hold scope but tempt me" / "show me options" / "cherry-pick" → SELECTIVE EXPANSION, no question
 
-After mode is selected, confirm which implementation approach (from 0C-bis) applies under the chosen mode. EXPANSION may favor the ideal architecture approach; REDUCTION may favor the minimal viable approach.
+For this mode, use `question_id=plan-ceo-review-mode` for the preamble's Question Tuning check, marker and log (`auto_decided: true` when automatic).
 
-Once selected, commit fully. Do not silently drift.
+Keep the approved 0C-bis approach; explain and obtain approval for any mode-required change.
 
-Present these mode options via AskUserQuestion using the preamble's AskUserQuestion Format section: include RECOMMENDATION. These options differ in kind (review posture), not coverage — do NOT emit `Completeness: N/10` per option. Include the one-line note from step 4 of the preamble format rule instead: `Note: options differ in kind, not coverage — no completeness score.`
+Keep the selected mode.
 
-**STOP.** Unless the user already explicitly selected a mode, ask via AskUserQuestion and wait for their choice. Then continue to 0D-prelude, 0D, 0D-POST, and 0E as applicable.
+When asking, offer all four modes in one AskUserQuestion; use preamble format and context defaults for RECOMMENDATION. Do NOT emit `Completeness: N/10` per option; include `Note: options differ in kind, not coverage — no completeness score.`
+
+**STOP.** Ask and wait unless the user explicitly selected a mode or tuning is enabled and the actual mode check exits 0 with `AUTO_DECIDE`. This settles only the mode, not approach or scope approval. Then continue to 0D-prelude, 0D, 0D-POST, and 0E as applicable.
 **Reminder: Do NOT make any code changes. Review only.**
 
 ### 0D-prelude. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)
@@ -986,10 +992,11 @@ Both are outcome-framed. Only one makes the user feel the cathedral. Lead with t
 **For HOLD SCOPE** — run this:
 1. Complexity check: If the plan touches more than 8 files or introduces more than 2 new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
 2. What is the minimum set of changes that achieves the stated goal? Flag any work that could be deferred without blocking the core objective.
+3. Keep stated invariants and acceptance criteria; repairs needed to meet them are in scope.
 
 **For SCOPE REDUCTION** — run this:
-1. Ruthless cut: What is the absolute minimum that ships value to a user? Everything else is deferred. No exceptions.
-2. What can be a follow-up PR? Separate "must ship together" from "nice to ship together."
+1. Propose minimum scope for the core goal and work to defer.
+2. Explain each cut via AskUserQuestion; **STOP** for approval. Put approved cuts in "NOT in scope" and retain the rest.
 
 ### 0D-POST. Persist CEO Plan (EXPANSION and SELECTIVE EXPANSION only)
 
@@ -1044,7 +1051,8 @@ After writing the CEO plan, run the spec review loop on it:
 
 ## Spec Review Loop
 
-Before presenting the document to the user for approval, run an adversarial review.
+Run an adversarial review before presenting the final document to the user.
+Follow the calling workflow's approval steps.
 
 **Step 1: Dispatch reviewer subagent**
 
@@ -1121,23 +1129,29 @@ both scales when discussing effort.
 
 Surface these as questions for the user NOW, not as "figure it out later."
 
+**STOP.** AskUserQuestion: one tool_use per issue, no batching, even obvious fixes. Recommend + WHY; wait for approval before changing the plan. Zero findings: state "No issues, moving on" and proceed. No code changes; review only.
+
 > **STOP.** Before running the 11-section deep review, required outputs, and review report (only after Step 0 scope and mode are agreed), Read `~/.claude/skills/gstack/plan-ceo-review/sections/review-sections.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Section self-check (before you finish)
 
-You ran a carved skill. The Section index above named `sections/review-sections.md`
-as the source of truth for the 11-section deep review, the required outputs, and the
-review report. Confirm you issued a Read for it and executed every section from the
-file, not from memory. If you produced the Completion Summary or wrote the review
-report without Reading that section, STOP, Read it now, and redo the review from the
-source of truth.
+Read and execute every section and output in `sections/review-sections.md`.
+If summaries/reports came first, STOP, Read it and redo the review.
 
+Before summaries, review logs or next-step menus, run approval check 0 below.
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 
 Before calling ExitPlanMode, run this self-check. If any item fails, do the
 missing work — do NOT call ExitPlanMode:
+
+0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+   Never group distinct issues. Setup, mode, approach and navigation are not approval.
+   Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
+   record why. Deferrals remain unresolved.
+   If missing, reset drafts to pending, ask and wait. After answers or resets,
+   refresh the plan, report and review log; rerun this gate.
 
 1. Read the plan file with the Read tool (after your most recent write to it).
 2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.
@@ -1145,16 +1159,16 @@ missing work — do NOT call ExitPlanMode:
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
    `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
-   once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

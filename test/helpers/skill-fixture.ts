@@ -13,7 +13,8 @@
  *       order given. For tests that exercise specific workflow steps.
  *   - extractSkillBody(skillDir)
  *       frontmatter + intro + everything AFTER the shared generated preamble
- *       ("## Preamble (run first)" .. end of "## Plan Status Footer").
+ *       ("## Preamble (run first)" or "## Preamble (after scope gate)"
+ *       .. end of "## Plan Status Footer").
  *       For tests that exercise the skill's ENTIRE specific flow but never
  *       touch the ~780-line shared preamble.
  *   - extractSkillHead(skillDir, bodyLineCount)
@@ -101,7 +102,7 @@ export const CODEX_REVIEW_E2E_SECTIONS = [
 
 /** First/last H2 headings of the shared preamble block that gen-skill-docs
  *  emits into every tier >= 2 skill. extractSkillBody drops this range. */
-const SHARED_PREAMBLE_FIRST = 'Preamble (run first)';
+const SHARED_PREAMBLE_FIRST = ['Preamble (run first)', 'Preamble (after scope gate)'];
 const SHARED_PREAMBLE_LAST = 'Plan Status Footer';
 
 interface H2Section {
@@ -220,15 +221,25 @@ export function extractSkillSections(skillDir: string, sections: string[]): stri
 }
 
 /**
- * Frontmatter + intro (everything before "## Preamble (run first)") + the
+ * Frontmatter + intro/scope gate (everything before either exact preamble heading) + the
  * full skill-specific body (everything after the "## Plan Status Footer"
  * section). Use when a test exercises the whole skill flow: this drops the
  * ~780-line shared generated preamble and nothing else.
  */
 export function extractSkillBody(skillDir: string): string {
   const { file, frontmatter, bodyLines, sections: all } = loadSkill(skillDir);
-  const first = findSection(all, SHARED_PREAMBLE_FIRST, file);
-  const last = findSection(all, SHARED_PREAMBLE_LAST, file);
+  const boundary = (names: string[]): H2Section => {
+    const matches = all.filter(section => names.includes(section.heading));
+    const label = names.map(name => `"## ${name}"`).join(' or ');
+    if (!matches.length) throw new Error(`skill-fixture: section ${label} not found in ${file}.`);
+    if (matches.length !== 1) throw new Error(`skill-fixture: ambiguous section ${label} in ${file}.`);
+    return matches[0];
+  };
+  const first = boundary(SHARED_PREAMBLE_FIRST);
+  const last = boundary([SHARED_PREAMBLE_LAST]);
+  if (first.start >= last.start) {
+    throw new Error(`skill-fixture: "## ${SHARED_PREAMBLE_LAST}" precedes the preamble in ${file}.`);
+  }
   const intro = bodyLines.slice(0, first.start).join('\n').trimEnd();
   const tail = bodyLines.slice(last.end).join('\n').trimEnd();
   if (!tail) {

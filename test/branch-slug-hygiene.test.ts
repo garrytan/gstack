@@ -19,7 +19,7 @@
  * Reader-side fix folded from community PR #1851 by @harjothkhara.
  */
 import { describe, test, expect } from 'bun:test';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -34,15 +34,61 @@ const PATH_ADJACENT = /\/\$\{?_BRANCH|\$\{_BRANCH\}\/|\$_BRANCH\//;
 // Raw $_BRANCH as a filename prefix (…-reviews.jsonl and friends).
 const FILENAME_PREFIX = /\$\{?_BRANCH\}?[A-Za-z0-9._-]*\.(?:jsonl|json|md|txt|log)/;
 
-function renderedSkillFiles(): string[] {
-  const out = execSync(
-    `find "${ROOT}" -name 'SKILL.md' -not -path '*/node_modules/*' -not -path '*/.claude/*' ; find "${ROOT}" -path '*/sections/*.md' -not -path '*/node_modules/*' -not -path '*/.claude/*'`,
-    { encoding: 'utf-8', timeout: 30_000 },
-  );
-  return out.split('\n').filter(Boolean);
+function renderedSkillFiles(root = ROOT): string[] {
+  // Enumerate managed render trees without buffering a shell's file census.
+  // .context holds archived/experimental copies, not shipped skill output.
+  const excluded = new Set(['node_modules', '.claude', '.context', '.git']);
+  const files: string[] = [];
+  function visit(dir: string, inSections = false) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!excluded.has(entry.name)) visit(file, inSections || entry.name === 'sections');
+      } else if (entry.name === 'SKILL.md' || (inSections && entry.name.endsWith('.md'))) {
+        files.push(file);
+      }
+    }
+  }
+  visit(root);
+  return files;
 }
 
 describe('branch slug hygiene (#2550, #1851)', () => {
+  test('render discovery excludes scratch copies and retains every managed host without a pipe-size limit', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-render-census-'));
+    const add = (relative: string) => {
+      const file = path.join(root, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '# Render fixture\n');
+      return file;
+    };
+    try {
+      const expected = [
+        add('review/SKILL.md'), add('review/sections/analysis.md'),
+        add('.agents/skills/gstack-review/SKILL.md'),
+        add('.kiro/skills/gstack-review/sections/nested/analysis.md'),
+        add('skill with $quotes/sections/line\nbreak.md'),
+      ];
+      for (const excluded of ['.context', '.claude', '.git', 'node_modules']) {
+        add(`${excluded}/old-render/review/SKILL.md`);
+        add(`${excluded}/old-render/review/sections/analysis.md`);
+      }
+      // The old execSync census failed at its 1 MiB stdout default once
+      // enough isolated host renders existed in a workspace.
+      for (let i = 0; i < 4500; i++) {
+        expected.push(add(`host-output/skill-${i}-${'x'.repeat(210)}/SKILL.md`));
+      }
+      expect(Buffer.byteLength(expected.join('\n'))).toBeGreaterThan(1024 * 1024);
+      const actual = renderedSkillFiles(root);
+      const expectedSet = new Set(expected);
+      expect(actual).toHaveLength(expected.length);
+      expect(new Set(actual).size).toBe(expected.length);
+      expect(actual.every(file => expectedSet.has(file))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('no generated SKILL.md or section interpolates raw $_BRANCH in a path position', () => {
     const offenders: string[] = [];
     for (const file of renderedSkillFiles()) {
@@ -84,7 +130,7 @@ describe('branch slug hygiene (#2550, #1851)', () => {
     );
   });
 
-  test('live round-trip: gstack-review-log writes, Context Recovery probe finds it (slash branch)', () => {
+  test('live round-trip: Context Recovery finds slugged reviews and raw timeline branches in a fresh shell', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-home-'));
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-repo-'));
     try {
@@ -110,22 +156,56 @@ describe('branch slug hygiene (#2550, #1851)', () => {
       const proj = path.join(home, 'projects', slug);
       expect(fs.existsSync(path.join(proj, 'feat-slug-hygiene-reviews.jsonl'))).toBe(true);
 
-      // Reader: execute the rendered probe line with $BRANCH from gstack-slug.
+      // Reader: execute the complete rendered block without inheriting the
+      // external skill-start process's private shell variables.
       const ctx: TemplateContext = {
         skillName: 'test-skill', tmplPath: 'test.tmpl', host: 'claude',
-        paths: HOST_PATHS.claude, preambleTier: 2,
+        paths: { ...HOST_PATHS.claude, binDir: '"$TEST_BIN"' }, preambleTier: 2,
       };
-      const probeLine = generateContextRecovery(ctx)
-        .split('\n')
-        .find((l) => l.includes('-reviews.jsonl'))!;
-      const script = `_PROJ="${proj}"\nBRANCH="${branch}"\n${probeLine.trim()}`;
-      const out = execSync(`bash -c '${script.replace(/'/g, `'\\''`)}'`, {
-        cwd: repo, encoding: 'utf-8', timeout: 30_000,
-      });
-      expect(out).toContain('REVIEWS: 1 entries');
+      const script = generateContextRecovery(ctx).match(/```bash\n([\s\S]*?)\n```/)![1];
+      fs.writeFileSync(path.join(proj, 'timeline.jsonl'), [
+        { branch: 'feat/slug-hygiene', event: 'completed', skill: 'review' },
+        { branch: 'feat/slug-hygiene', event: 'started', skill: 'unfinished' },
+        { branch, event: 'completed', skill: 'slugged-decoy' },
+        { branch: 'stale/parent-branch', event: 'completed', skill: 'inherited-decoy' },
+        { branch: 'unknown', event: 'completed', skill: 'fallback' },
+        { branch: 'feat/slug-hygiene', event: 'completed', skill: 'ship' },
+      ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+      const recover = (cwd: string, inheritedBranch?: string) => {
+        const result = spawnSync('bash', ['-c', script], {
+          cwd, encoding: 'utf8', timeout: 30_000,
+          env: { ...env, GSTACK_PROJECT_SLUG: slug, TEST_BIN: path.join(ROOT, 'bin'), _BRANCH: inheritedBranch },
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stderr).not.toContain('not a git repository');
+        return result.stdout;
+      };
+      for (const inheritedBranch of [undefined, 'stale/parent-branch']) {
+        const out = recover(repo, inheritedBranch);
+        expect(out).toContain('REVIEWS: 1 entries');
+        expect(out.split('\n').filter(line => line.startsWith('LAST_SESSION:'))).toEqual([
+          'LAST_SESSION: {"branch":"feat/slug-hygiene","event":"completed","skill":"ship"}',
+        ]);
+        expect(out.split('\n').filter(line => line.startsWith('RECENT_PATTERN:'))).toEqual([
+          'RECENT_PATTERN: review,ship,',
+        ]);
+      }
 
       // Negative control: the raw-branch probe (the pre-fix shape) misses.
       expect(fs.existsSync(path.join(proj, 'feat/slug-hygiene-reviews.jsonl'))).toBe(false);
+
+      // Both an unnamed checkout and a non-repository use the same unknown
+      // timeline identity as skill-start/end, never an inherited branch.
+      execSync('git checkout -q --detach', { cwd: repo, timeout: 30_000 });
+      for (const cwd of [repo, home]) {
+        const out = recover(cwd, 'stale/parent-branch');
+        expect(out.split('\n').filter(line => line.startsWith('LAST_SESSION:'))).toEqual([
+          'LAST_SESSION: {"branch":"unknown","event":"completed","skill":"fallback"}',
+        ]);
+        expect(out.split('\n').filter(line => line.startsWith('RECENT_PATTERN:'))).toEqual([
+          'RECENT_PATTERN: fallback,',
+        ]);
+      }
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
       fs.rmSync(repo, { recursive: true, force: true });

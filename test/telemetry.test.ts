@@ -7,13 +7,27 @@ import * as os from 'os';
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
 
-// Each test gets a fresh temp directory for GSTACK_STATE_DIR
+// Each test owns its state and HTTP transport. The real logger backgrounds
+// sync while retaining stdout, so execSync also waits for that transport.
+// Letting it reach the configured backend made a slow curl exceed our 10s
+// command timeout before the local marker assertions could run.
 let tmpDir: string;
+const FIXTURE_SUPABASE_URL = 'https://telemetry.fixture.invalid';
 
 function run(cmd: string, env: Record<string, string> = {}): string {
   return execSync(cmd, {
     cwd: ROOT,
-    env: { ...process.env, GSTACK_STATE_DIR: tmpDir, GSTACK_DIR: ROOT, ...env },
+    env: {
+      ...process.env,
+      HOME: path.join(tmpDir, 'home'),
+      GSTACK_STATE_DIR: tmpDir, GSTACK_STATE_ROOT: tmpDir, GSTACK_HOME: tmpDir,
+      GSTACK_DIR: ROOT, GSTACK_SUPABASE_URL: FIXTURE_SUPABASE_URL,
+      GSTACK_SUPABASE_ANON_KEY: 'fixture-anon-key',
+      GSTACK_TEST_CURL_ARGS: path.join(tmpDir, 'curl-args'),
+      ...env,
+      // Preserve per-case bun stubs while keeping curl isolated in every case.
+      PATH: `${path.join(tmpDir, 'bin')}:${env.PATH ?? process.env.PATH ?? ''}`,
+    },
     encoding: 'utf-8',
     timeout: 10000,
   }).trim();
@@ -33,8 +47,38 @@ function parseJsonl(): any[] {
   return readJsonl().map(line => JSON.parse(line));
 }
 
+function curlRequests(): string[][] {
+  const file = path.join(tmpDir, 'curl-args');
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8').split('\0\0').filter(Boolean).map(call => call.split('\0'));
+}
+
+function unconfiguredRoot(): string {
+  const fixture = path.join(tmpDir, 'unconfigured');
+  fs.mkdirSync(path.join(fixture, 'bin'), { recursive: true });
+  fs.copyFileSync(path.join(BIN, 'gstack-egress-lib.sh'), path.join(fixture, 'bin', 'gstack-egress-lib.sh'));
+  return fixture;
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-tel-'));
+  fs.mkdirSync(path.join(tmpDir, 'home'));
+  fs.mkdirSync(path.join(tmpDir, 'bin'));
+  fs.writeFileSync(path.join(tmpDir, 'bin', 'curl'), `#!/bin/sh
+printf '%s\\0' "$@" >> "$GSTACK_TEST_CURL_ARGS"
+printf '\\0' >> "$GSTACK_TEST_CURL_ARGS"
+fixture_output=''
+fixture_body='{"inserted":1}'
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) shift; fixture_output="$1" ;;
+    */functions/v1/community-pulse) fixture_body='{"status":"ok","weekly_active":7,"change_pct":0,"top_skills":[],"crashes":[],"versions":[]}' ;;
+  esac
+  shift
+done
+[ -z "$fixture_output" ] || printf '%s' "$fixture_body" > "$fixture_output"
+printf '200'
+`, { mode: 0o755 });
 });
 
 afterEach(() => {
@@ -56,6 +100,11 @@ describe('gstack-telemetry-log', () => {
     expect(events[0].event_type).toBe('skill_run');
     expect(events[0].os).toBeTruthy();
     expect(events[0].gstack_version).toBeTruthy();
+    const requests = curlRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain(`${FIXTURE_SUPABASE_URL}/functions/v1/telemetry-ingest`);
+    expect(requests[0]).toContain('apikey: fixture-anon-key');
+    expect(requests[0][requests[0].indexOf('-X') + 1]).toBe('POST');
   });
 
   test('produces no output when tier=off', () => {
@@ -452,9 +501,11 @@ describe('gstack-analytics', () => {
 
 describe('gstack-telemetry-sync', () => {
   test('exits silently with no Supabase URL configured', () => {
-    // Default: GSTACK_SUPABASE_URL is not set → exit 0
-    const result = run(`${BIN}/gstack-telemetry-sync`);
+    const result = run(`${BIN}/gstack-telemetry-sync`, {
+      GSTACK_DIR: unconfiguredRoot(), GSTACK_SUPABASE_URL: '', GSTACK_SUPABASE_ANON_KEY: '',
+    });
     expect(result).toBe('');
+    expect(curlRequests()).toEqual([]);
   });
 
   test('exits silently with no JSONL file', () => {
@@ -483,7 +534,7 @@ describe('gstack-community-dashboard', () => {
   test('shows unconfigured message when no Supabase config available', () => {
     // Use a fake GSTACK_DIR with no supabase/config.sh
     const output = run(`${BIN}/gstack-community-dashboard`, {
-      GSTACK_DIR: tmpDir,
+      GSTACK_DIR: unconfiguredRoot(),
       GSTACK_SUPABASE_URL: '',
       GSTACK_SUPABASE_ANON_KEY: '',
     });
@@ -491,12 +542,15 @@ describe('gstack-community-dashboard', () => {
     expect(output).toContain('gstack-analytics');
   });
 
-  test('connects to Supabase when config exists', () => {
-    // Use the real GSTACK_DIR which has supabase/config.sh
+  test('requests configured community stats through the isolated transport', () => {
     const output = run(`${BIN}/gstack-community-dashboard`);
     expect(output).toContain('gstack community dashboard');
-    // Should not show "not configured" since config.sh exists
     expect(output).not.toContain('Supabase not configured');
+    expect(output).toContain('Weekly active installs: 7');
+    const requests = curlRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain(`${FIXTURE_SUPABASE_URL}/functions/v1/community-pulse`);
+    expect(requests[0]).toContain('apikey: fixture-anon-key');
   });
 });
 

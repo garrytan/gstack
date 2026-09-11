@@ -79,22 +79,32 @@ Write Q3 output — the forcing question you would ask this founder — to ${wor
     });
 
     logCost('/office-hours (FORCING)', result);
-    recordE2E(evalCollector, '/office-hours-forcing-energy', 'Office Hours Forcing Energy E2E', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    let passed = false;
+    let scores: Awaited<ReturnType<typeof judgePosture>> | undefined;
+    try {
+      expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
-    const q3Path = path.join(workDir, 'q3.md');
-    if (!fs.existsSync(q3Path)) {
-      throw new Error('Agent did not emit q3.md — forcing energy eval requires Q3 output');
+      const q3Path = path.join(workDir, 'q3.md');
+      if (!fs.existsSync(q3Path)) {
+        throw new Error('Agent did not emit q3.md — forcing energy eval requires Q3 output');
+      }
+      const q3Text = fs.readFileSync(q3Path, 'utf-8');
+      expect(q3Text.length).toBeGreaterThan(80);
+
+      scores = await judgePosture('forcing', q3Text);
+      console.log('Forcing energy scores:', JSON.stringify(scores, null, 2));
+      expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // stacking_preserved
+      expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // domain_matched_consequence
+      passed = true;
+    } finally {
+      recordE2E(evalCollector, '/office-hours-forcing-energy', 'Office Hours Forcing Energy E2E', result, {
+        passed,
+        ...(scores ? {
+          judge_scores: { axis_a: scores.axis_a, axis_b: scores.axis_b },
+          judge_reasoning: scores.reasoning,
+        } : {}),
+      });
     }
-    const q3Text = fs.readFileSync(q3Path, 'utf-8');
-    expect(q3Text.length).toBeGreaterThan(80);
-
-    const scores = await judgePosture('forcing', q3Text);
-    console.log('Forcing energy scores:', JSON.stringify(scores, null, 2));
-    expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // stacking_preserved
-    expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // domain_matched_consequence
   }, CAPTURE_LONG_MS);
 });
 
@@ -151,22 +161,32 @@ Write your response — the three adjacent unlocks — to ${workDir}/unlocks.md.
     });
 
     logCost('/office-hours (BUILDER)', result);
-    recordE2E(evalCollector, '/office-hours-builder-wildness', 'Office Hours Builder Wildness E2E', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    let passed = false;
+    let scores: Awaited<ReturnType<typeof judgePosture>> | undefined;
+    try {
+      expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
-    const unlocksPath = path.join(workDir, 'unlocks.md');
-    if (!fs.existsSync(unlocksPath)) {
-      throw new Error('Agent did not emit unlocks.md — builder wildness eval requires output');
+      const unlocksPath = path.join(workDir, 'unlocks.md');
+      if (!fs.existsSync(unlocksPath)) {
+        throw new Error('Agent did not emit unlocks.md — builder wildness eval requires output');
+      }
+      const unlocksText = fs.readFileSync(unlocksPath, 'utf-8');
+      expect(unlocksText.length).toBeGreaterThan(200);
+
+      scores = await judgePosture('builder', unlocksText);
+      console.log('Builder wildness scores:', JSON.stringify(scores, null, 2));
+      expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // unexpected_combinations
+      expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // excitement_over_optimization
+      passed = true;
+    } finally {
+      recordE2E(evalCollector, '/office-hours-builder-wildness', 'Office Hours Builder Wildness E2E', result, {
+        passed,
+        ...(scores ? {
+          judge_scores: { axis_a: scores.axis_a, axis_b: scores.axis_b },
+          judge_reasoning: scores.reasoning,
+        } : {}),
+      });
     }
-    const unlocksText = fs.readFileSync(unlocksPath, 'utf-8');
-    expect(unlocksText.length).toBeGreaterThan(200);
-
-    const scores = await judgePosture('builder', unlocksText);
-    console.log('Builder wildness scores:', JSON.stringify(scores, null, 2));
-    expect(scores.axis_a).toBeGreaterThanOrEqual(4);  // unexpected_combinations
-    expect(scores.axis_b).toBeGreaterThanOrEqual(4);  // excitement_over_optimization
   }, CAPTURE_LONG_MS);
 });
 

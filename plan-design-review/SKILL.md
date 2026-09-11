@@ -28,7 +28,40 @@ or "design critique".
 Proactively suggest when the user has a plan with UI/UX components that
 should be reviewed before implementation.
 
-## Preamble (run first)
+# /plan-design-review: Designer's Eye Plan Review
+
+You are a senior product designer reviewing a PLAN — not a live site. Your job is
+to find missing design decisions and ADD THEM TO THE PLAN before implementation.
+
+The output of this skill is a better plan, not a document about the plan.
+
+## Scope gate (FIRST — overrides everything below). This is a hard STOP.
+
+After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before review tools. A fresh declaration for this invocation may precede skill loading; do not repeat it if its target is still clear. Name the plan, or say "this draft" when the user pasted exactly one plan. Ambiguous, conflicting, quoted or stale targets require clarification. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
+
+**Exceptions — check in this order, BEFORE asking:**
+1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
+2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a page, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+
+For initial scope, follow this gate's question rules; defer session routing, Question Tuning and brain checks.
+Whenever this gate does ask — in any mode — it is a hard STOP.
+
+When no exception above applied:
+
+1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
+2. Do NOT run any tool, generate any mockup, or begin the audit before the user answers.
+3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
+
+What should I review?
+A) The current branch diff — the work in progress on this branch.
+B) A plan or design doc I'll paste or point you to.
+C) A specific page, file, or path.
+
+Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the pre-review audit, generate mockups, and work Step 0 against that target.
+
+## Preamble (after scope gate)
+
+**Before the command below:** resolve the Scope gate above. If the gate asks a question, wait for its answer.
 
 ```bash
 _SS="$HOME/.claude/skills/gstack/bin/gstack-skill-start"
@@ -62,7 +95,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+The invoked skill overrides generic plan mode. **Execute the skill file** starting from the Scope gate (current target announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: `headless` → BLOCKED; `interactive` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Execute "PLAN MODE EXCEPTION — ALWAYS RUN" commands. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -237,6 +270,7 @@ At session start or after compaction, recover recent project context.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:-unknown}
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -262,7 +296,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** Honor listed `ACTIVE DECISIONS` and their rationale; do not silently re-litigate them, and announce planned reversals. Use `~/.claude/skills/gstack/bin/gstack-decision-search` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for reversals). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -465,43 +499,19 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-# /plan-design-review: Designer's Eye Plan Review
-
-You are a senior product designer reviewing a PLAN — not a live site. Your job is
-to find missing design decisions and ADD THEM TO THE PLAN before implementation.
-
-The output of this skill is a better plan, not a document about the plan.
-
-## Scope gate (FIRST — overrides everything below). This is a hard STOP.
-
-Before ANYTHING else in this skill — before the designer/mockup guidance, the Design Principles, the Priority Hierarchy, the pre-review system audit, and any `git` / `Read` / `Grep` / `Glob` / `Bash` call or mockup generation — unless an exception below applies, your VERY FIRST tool call MUST be AskUserQuestion, to confirm the review target. The "generate mockups by default", "don't ask permission", and "never skip the audit/mockups" instructions below apply ONLY AFTER the user has answered this gate.
-
-**Exceptions — check in this order, BEFORE asking:**
-1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
-2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a page, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
-
-Outside plan mode with no explicitly-named target, nothing changes. Whenever this gate does ask — in any mode — it is a hard STOP.
-
-When no exception above applied:
-
-1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
-2. Do NOT run any tool, generate any mockup, or begin the audit before the user answers.
-3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
-
-What should I review?
-A) The current branch diff — the work in progress on this branch.
-B) A plan or design doc I'll paste or point you to.
-C) A specific page, file, or path.
-
-Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the pre-review audit, generate mockups, and work Step 0 against that target.
-
 ## Design Philosophy
 
 You are not here to rubber-stamp this plan's UI. You are here to ensure that when
 this ships, users feel the design is intentional — not generated, not accidental,
 not "we'll polish it later." Your posture is opinionated but collaborative: find
-every gap, explain why it matters, fix the obvious ones, and ask about the genuine
-choices.
+every gap, explain why it matters, recommend a concrete fix, and get a decision
+on each unresolved issue before editing the plan. An obvious fix still needs its
+own decision; DESIGN.md supplies the recommendation, not the user's approval.
+
+When creating the initial plan artifact, copy existing requirements and record
+unapproved gaps as pending. A gap-to-token mapping is a proposed fix, not a
+completed decision. Do not write those fixes into accepted implementation tasks
+or raise their scores before their individual approvals.
 
 Do NOT make any code changes. Do NOT start implementation. Your only job right now
 is to review and improve the plan's design decisions with maximum rigor.
@@ -652,7 +662,7 @@ Never skip Step 0 or mockup generation (when the designer is available). Mockups
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 
-> Reminder: the **Scope gate** at the top of this skill applies first. Do not run this audit until the gate has resolved a target — the user answered, the user named one, or plan mode auto-selected B.
+> Before this audit, require resolved scope. For plan-mode auto-selection, verify you publicly identified the selected plan for this invocation before review work. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
 
 Before reviewing the plan, gather context:
 
@@ -852,21 +862,13 @@ Create the comparison board and serve it over HTTP:
 $D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
-This command generates the board HTML, starts an HTTP server on a random port,
-and opens it in the user's default browser. **Run it in the background** with `&`
-because the server needs to stay running while the user interacts with the board.
+Creates HTML and opens the board. **Run it in the background** (host task, or `&` redirecting stdout/stderr to private files in `$_DESIGN_DIR`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
 
-Parse the board URL from stderr output. Default daemon path:
-`BOARD_URL: http://127.0.0.1:N/boards/<id>/` (already includes the per-board
-path; use this for the AskUserQuestion URL AND as the base for the reload
-endpoint). Legacy `--no-daemon` path emits `SERVE_STARTED: port=XXXXX` and
-serves a single board at `/`, with reload at `/api/reload` — only relevant
-when an external caller explicitly passes `--no-daemon`.
+Default stderr: `BOARD_URL: http://127.0.0.1:N/boards/<id>/`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy `--no-daemon` emits `SERVE_STARTED: port=XXXXX`, serving one board at `/` with reload at `/api/reload`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 
-After the board is serving, use AskUserQuestion to wait for the user. Include the
-board URL so they can click it if they lost the browser tab:
+Once serving, wait with AskUserQuestion including the board URL:
 
 "I've opened a comparison board with the design variants:
 <BOARD_URL> — Rate them, leave comments, remix
@@ -874,11 +876,9 @@ elements you like, and click Submit when you're done. Let me know when you've
 submitted your feedback (or paste your preferences here). If you clicked
 Regenerate or Remix on the board, tell me and I'll generate new variants."
 
-Substitute `<BOARD_URL>` with the URL parsed from stderr (the daemon path
-emits `BOARD_URL: http://127.0.0.1:N/boards/<id>/`).
+Substitute `<BOARD_URL>` from the stderr marker above.
 
-**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
-board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
+**The user chooses variants in the board; AskUserQuestion only waits.**
 
 **After the user responds to AskUserQuestion:**
 
@@ -923,7 +923,7 @@ the approved variant.
 5. Reload the board in the user's browser (same tab) — the URL is per-board
    under daemon mode, so use `<BOARD_URL>` (from the `BOARD_URL:` stderr
    line) as the base:
-   `curl -s -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
+   `jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-`
    Under `--no-daemon` the reload endpoint is `/api/reload` at the legacy
    port; this path only matters if the caller explicitly opted out of the
    daemon.
@@ -934,8 +934,8 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
-In that case, show each variant inline using the Read tool (so the user can see them),
+Exit 0 with `BOARD_URL` means the daemon is serving; use the board feedback flow above.
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
 Which do you prefer? Any feedback?"
@@ -966,7 +966,7 @@ Note which direction was approved. This becomes the visual reference for all sub
 
 **If `DESIGN_NOT_AVAILABLE`:** Tell the user: "The gstack designer isn't set up yet. Run `$D setup` to enable visual mockups. Proceeding with text-only review, but you're missing the best part." Then proceed to review passes with text-based review.
 
-## Design Outside Voices (parallel)
+## Design Outside Voices (independent)
 
 Use AskUserQuestion:
 > "Want outside design voices before the detailed review? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent completeness review."
@@ -978,16 +978,38 @@ If user chooses B, skip this step and continue.
 
 **Check Codex availability:**
 ```bash
-command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+
+_OUTSIDE_CFG=enabled # This caller has its own opt-in/skip control.
+if [ "$_OUTSIDE_CFG" = disabled ]; then
+  echo 'CODEX_MODE: disabled'
+elif ( # GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+); then
+  if command -v codex >/dev/null 2>&1; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
+else
+  echo 'CODEX_MODE: under_current_harness'
+fi
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
+
+Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record `outside_status: unavailable` even if it succeeds. The invocation rechecks the harness before spawning.
+
+**When ready**, run both voices and await both before synthesis. Overlap calls
+if supported; keep the native call blocking.
 
 1. **Codex design voice** (via Bash):
-```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+Prompt (include the actual plan/product/frontend source context, not only file paths):
+
+"Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
 
 HARD REJECTION — flag if ANY apply:
 1. Generic SaaS card grid as first impression
@@ -1012,15 +1034,47 @@ HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, the
 - APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
 - UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
 
-For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR_DESIGN"
-```
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
+For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging."
+
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+
 ```bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
+# GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
+_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
+trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+_OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
+cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
+
+source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
+_gstack_codex_timeout_wrapper 300 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_OUTSIDE_EXIT=$?
+# Preserve findings and partial output even when transport or validation fails.
+cat "$_OUTSIDE_TMP/text"
+
+cat "$_OUTSIDE_TMP/stderr" >&2
+if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
+  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
+  exit "$_OUTSIDE_EXIT"
+fi
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
+
+echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-2. **Claude design subagent** (via Agent tool, `run_in_background: false` — subagents default to background since Claude Code v2.1.198):
-Dispatch a subagent with this prompt:
+Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
+
+2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
 
 1. Information hierarchy: what does the user see first, second, third? Is it right?
@@ -1038,8 +1092,7 @@ For each finding: what's wrong, severity (critical/high/medium), and the fix."
 - On any Codex error: proceed with Claude subagent output only, tagged `[single-model]`.
 - If Claude subagent also fails: "Outside voices unavailable — continuing with primary review."
 
-Present Codex output under a `CODEX SAYS (design critique):` header.
-Present subagent output under a `CLAUDE SUBAGENT (design completeness):` header.
+Output headers: `CODEX SAYS (design critique):` and `CLAUDE SUBAGENT (design completeness):`.
 
 **Synthesis — Litmus scorecard:**
 
@@ -1070,9 +1123,11 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 
 **Log the result:**
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
+STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed. SOURCE is the completed provider or in-host.
+
+For this phase (design), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
 
 ## The 0-10 Rating Method
 
@@ -1081,10 +1136,19 @@ For each design section, rate the plan 0-10 on that dimension. If it's not a 10,
 Pattern:
 1. Rate: "Information Architecture: 4/10"
 2. Gap: "It's a 4 because the plan doesn't define content hierarchy. A 10 would have clear primary/secondary/tertiary for every screen."
-3. Fix: Edit the plan to add what's missing
-4. Re-rate: "Now 8/10 — still missing mobile nav hierarchy"
-5. AskUserQuestion if there's a genuine design choice to resolve
-6. Fix again → repeat until 10 or user says "good enough, move on"
+3. Recommend: Explain the concrete fix, alternatives, and why you recommend it.
+4. AskUserQuestion once for this issue and wait for the user's decision.
+5. Apply the selected fix, then re-rate: "Now 8/10 — still missing mobile nav hierarchy"
+6. Repeat per unresolved issue until 10 or the user says "good enough, move on".
+
+A gap already listed in the input plan is still an unresolved review finding.
+Knowing its cause or the matching DESIGN.md token does not approve the change.
+Review each such gap individually; do not batch them into one "apply all fixes"
+question or silently resolve them in the initial plan write. Honor an explicit
+user decision already made for that exact change across all passes. Apply the
+selected fix to every affected plan reference, including the matching established
+DESIGN.md tokens, without asking again. Reopen it only when new evidence exposes
+an unresolved design requirement or tradeoff; explain what changed.
 
 Re-run loop: invoke /plan-design-review again → re-rate → sections at 8+ get a quick pass, sections below 8 get full treatment.
 
@@ -1110,10 +1174,19 @@ descriptions of what 10/10 looks like.
 
 Confirm you Read the review section the Section index named, and executed all 7 design passes, the required outputs, and the review report in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
 
+Before summaries, review logs or next-step menus, run approval check 0 below.
+
 ## EXIT PLAN MODE GATE (BLOCKING)
 
 Before calling ExitPlanMode, run this self-check. If any item fails, do the
 missing work — do NOT call ExitPlanMode:
+
+0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+   Never group distinct issues. DESIGN.md tokens and navigation are not approval.
+   Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
+   record why. Deferrals remain unresolved.
+   If missing, reset drafts to pending, ask and wait. After answers or resets,
+   refresh the plan, report and review log; rerun this gate.
 
 1. Read the plan file with the Read tool (after your most recent write to it).
 2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.
@@ -1121,16 +1194,16 @@ missing work — do NOT call ExitPlanMode:
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
    `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
-   once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

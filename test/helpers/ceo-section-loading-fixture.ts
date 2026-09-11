@@ -1,0 +1,815 @@
+/**
+ * Section loading needs a complete, bounded plan, not a finding-count fixture.
+ * The former two-bullet plan made a successful review invent key isolation,
+ * error, concurrency, observability, rollout, and test contracts in a 38 KB
+ * report. Those surrounding contracts are explicit here; the read/write sketch
+ * still permits an old in-flight read to refill a key after write invalidation.
+ */
+export const CACHE_READ_WRITE_SKETCH = `async function readProfile(key) {
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  const value = await repository.read(key);
+  cache.set(key, value);
+  return value;
+}
+
+async function writeProfile(key, update) {
+  const saved = await repository.write(key, update);
+  cache.delete(key);
+  return saved;
+}`;
+
+export const CEO_SECTION_CACHE_PLAN = `# Plan: cache profile summaries in one process
+
+## Measured problem and accepted scope
+The existing profile-summary service has one active process. A one-week trace
+shows repeated reads of about 900 hot keys: DB CPU is 70%, with read p95 120 ms.
+Add a process-local LRU wrapper to the existing repository. Acceptance targets
+are at least 60% cache hits, DB CPU below 50%, and read p95 below 60 ms, with the
+existing error-rate and correctness SLOs unchanged. This is an internal backend
+change with no UI, API, schema, pricing, or developer onboarding change.
+
+## Existing contracts retained
+- All reads and writes use this repository in the same process; there are no
+  external DB writers. Multi-process operation remains unsupported and startup
+  rejects that configuration while caching is enabled.
+- Authentication and authorization run before repository access. Keys encode
+  the authenticated tenant ID and validated profile ID without ambiguity.
+  Values are immutable profile-summary DTOs; secrets and cache keys are never
+  logged. Cached results cannot bypass authorization.
+- The existing LRU adapter supports 1000 entries, a 16 MiB byte cap, and a
+  30-second TTL. Recorded hot data fits those limits. Absent records use a
+  distinct sentinel with a 10-second TTL; undefined means a cache miss.
+- Cache operations are synchronous and atomic in the single JS event loop.
+  On any cache failure the existing adapter bypasses the cache until an empty
+  cache is reinitialized; repository errors keep the current typed API error
+  mapping. The existing per-key
+  single-flight wrapper coalesces simultaneous misses and releases on failure.
+- A read already in progress when a write commits may return its earlier DB
+  snapshot to that caller. Every read begun after that write completes must
+  observe the committed version. TTL expiry is not a substitute for this rule.
+
+## Proposed wrapper integration
+Keep the current read-through repository interface and shared adapters. These
+are the complete new read/write ordering rules; no additional version checks or
+coordination between a cache fill and a write are proposed:
+
+\`\`\`javascript
+${CACHE_READ_WRITE_SKETCH}
+\`\`\`
+
+## Verification and rollout
+Existing repository contract tests cover tenant isolation, key validation,
+absence, DB failures, and authorization. New wrapper tests cover hit/miss,
+eviction and byte limits, TTL, adapter-failure fallback, successful-write
+invalidation, failed-write preservation, and concurrent-miss coalescing.
+The rollout uses the existing runtime feature flag: enable for 10% of keys,
+then 50%, then all keys after one healthy hour at each stage. Monitor hit/miss,
+eviction, cache bytes, fallback errors, DB CPU, and read p95 without raw IDs.
+On error-rate or latency regression, disable the flag immediately; both reads
+and writes bypass the cache while disabled, and enabling creates an empty cache.
+Cold starts remain within the existing DB capacity. The service owner monitors
+the rollout and records the results against the acceptance targets.
+
+## Out of scope
+Distributed caching, cross-process coherence, prewarming, changing consistency
+semantics, or adding new product surfaces. The repository interface preserves a
+future replacement path without introducing a general cache framework now.
+`;
+
+/** All six events must form one ordered, same-key, post-write reader trace. */
+function hasNumberedStaleFillTrace(text: string): boolean {
+  const events = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  if (events.length !== 6) return false;
+  const arrow = String.raw`\s*(?:→|->)\s*`;
+  const backArrow = String.raw`\s*(?:←|<-)\s*`;
+  const identifier = String.raw`([A-Za-z_$][\w$]*)`;
+  const read = String.raw`readProfile\(\s*${identifier}\s*\)`;
+  const write = String.raw`writeProfile\(\s*${identifier}\s*\)`;
+  const first = new RegExp(String.raw`^t1:\s*${read}${arrow}cache miss${arrow}(?:single-flight${arrow})?await DB read(?: \(suspends\))?$`, 'i').exec(events[0]!);
+  if (!first) return false;
+  // Prose keywords are case-insensitive; identifiers remain case-sensitive.
+  const sameKey = (event: string, pattern: string) => new RegExp(pattern, 'i').exec(event)?.[1] === first[1];
+  return sameKey(events[1]!, String.raw`^t2:\s*${write}${arrow}await DB write(?: \(suspends\))?$`)
+    && sameKey(events[2]!, String.raw`^t3:\s*DB write completes${arrow}cache\.delete\(\s*${identifier}\s*\)${arrow}writeProfile returns$`)
+    && new RegExp(String.raw`^t4:\s*DB read \(from t1\) completes${arrow}returns (?:old|stale) (?:snapshot|value)$`, 'i').test(events[3]!)
+    && sameKey(events[4]!, String.raw`^t5:\s*cache\.set\(\s*${identifier}\s*,\s*(?:(?:OLD|STALE)_VALUE|(?:old|stale) (?:snapshot|value))\s*\)${backArrow}(?:old|stale) (?:value|snapshot) (?:re-inserted|refilled) after invalidation!?$`)
+    && sameKey(events[5]!, String.raw`^t6:\s*(?:next|new|subsequent) ${read}${arrow}cache HIT${arrow}returns (?:old|stale) (?:value|snapshot)${backArrow}(?:INVARIANT|CONTRACT) (?:VIOLATED|VIOLATION)!?$`);
+}
+
+/** Bind each column of an explicit execution to its reader, writer, key and version. */
+function columnarStaleFillTrace(text: string): { tail: string; reader: string; old: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const cells = (line: string) => line.replace(/^\|\s*|\s*\|$/g, '').split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 6 || header[0]!.toLowerCase() !== 't') return;
+  const reader = /^(R[1-9]\d*) read \(begins before (W[1-9]\d*|W)\)$/i.exec(header[1]!);
+  const later = /^(R[1-9]\d*) read \(begins after (W[1-9]\d*|W)\)$/i.exec(header[3]!);
+  const cache = /^cache\[([A-Za-z_$][\w$]*)\]$/.exec(header[4]!);
+  const db = /^DB\[([A-Za-z_$][\w$]*)\]$/.exec(header[5]!);
+  if (!reader || !later || !cache || !db || reader[1] === later[1] ||
+      reader[2] !== later[2] || header[2] !== `${reader[2]} write` || cache[1] !== db[1]) return;
+  const events = lines.slice(1, 8).map(cells);
+  if (events.length !== 7 || events.some((row, i) => row.length !== 6 || row[0] !== String(i + 1))) return;
+  const old = events[0]![5]!, fresh = events[2]![5]!;
+  if (!/^[A-Za-z][\w.-]*$/.test(old) || !/^[A-Za-z][\w.-]*$/.test(fresh) || old === fresh) return;
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const key = escape(cache[1]!), before = escape(old), after = escape(fresh);
+  const arrow = String.raw`\s*(?:->|→)\s*`;
+  const matches = (value: string, pattern: string) => new RegExp(`^(?:${pattern})$`).test(value);
+  const empty = (value: string) => value === '-' || value === 'empty';
+  if (!matches(events[0]![1]!, String.raw`get\(${key}\)${arrow}undefined`) ||
+      !matches(events[1]![1]!, String.raw`await repository\.read(?:\(${key}\))?${arrow}${before}`) ||
+      !matches(events[2]![2]!, String.raw`await write commits ${after}`) ||
+      !matches(events[3]![2]!, String.raw`delete\(${key}\) \(no entry\)`) || events[4]![2] !== 'returns' ||
+      !matches(events[5]![1]!, String.raw`resume: set\(${key},\s*${before}\); return ${before}`) ||
+      !matches(events[6]![3]!, String.raw`get\(${key}\)${arrow}${before}; return ${before}`)) return;
+  for (let i = 0; i < 7; i++) {
+    const row = events[i]!;
+    if (row[5] !== (i < 2 ? old : fresh) ||
+        (i < 5 ? !empty(row[4]!) : row[4] !== (i === 5 ? `${old} STALE` : old)) ||
+        (i < 6 && row[3] !== '') ||
+        ([0, 1, 5, 6].includes(i) && row[2] !== '') ||
+        ([2, 3, 4].includes(i) && row[1] !== 'paused') || (i === 6 && row[1] !== '')) return;
+  }
+  const violation = String.raw`VIOLATION t7: ${escape(later[1]!)} began after ${escape(reader[2]!)} completed \(t5\), observes ${before}(?: for up to [1-9]\d* (?:s|seconds))?\.`;
+  if (!matches(lines[8] ?? '', violation)) return;
+  const tail = lines.slice(8).join(' ');
+  if (/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(tail)) return;
+  return { tail, reader: reader[1]!, old };
+}
+
+/** An explicitly named alternate order can supply the later cache-hit reader. */
+function alternateOrderStaleFillTrace(text: string): string | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const cells = (line: string) => line.replace(/^\|\s*|\s*\|$/g, '').split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 6 || header[0] !== 't') return;
+  const identifier = String.raw`([A-Za-z_$][\w$]*)`;
+  const read = new RegExp(String.raw`^(R[1-9]\d*) readProfile\(${identifier}\)$`);
+  const first = read.exec(header[1]!);
+  const writer = new RegExp(String.raw`^(W[1-9]\d*|W) writeProfile\(${identifier},\s*${identifier}\)$`).exec(header[2]!);
+  const later = read.exec(header[3]!);
+  if (!first || !writer || !later || first[1] === later[1] || first[2] !== writer[2] || first[2] !== later[2]
+    || header[4] !== `cache[${first[2]}]` || header[5] !== `inflight[${first[2]}]`) return;
+  const rows = lines.slice(1, 6).map(cells);
+  if (rows.length !== 5 || rows.some((row, i) => row.length !== 6 || row[0] !== String(i + 1))) return;
+  const flight = new RegExp(String.raw`^miss; flight ${identifier}; await read$`).exec(rows[0]![1]!);
+  const fill = new RegExp(String.raw`^read resolves ${identifier}; set\(${identifier},\s*${identifier}\)$`).exec(rows[4]![1]!);
+  if (!flight || !fill || fill[2] !== first[2] || fill[1] !== fill[3] || fill[1] === writer[3]) return;
+  const old = fill[1]!, fresh = writer[3]!, key = first[2]!;
+  const expected = [
+    [rows[0]![1]!, '', '', '-', flight[1]!],
+    ['', `await write ... commit ${fresh}`, '', '-', flight[1]!],
+    ['', `delete(${key}) no-op; return`, '', '-', flight[1]!],
+    ['', '', `begins; miss; joins ${flight[1]}`, '-', flight[1]!],
+    [rows[4]![1]!, '', `receives ${old} VIOLATION`, `${old} BAD`, '-'],
+  ];
+  if (rows.some((row, i) => row.slice(1).some((cell, j) => cell !== expected[i]![j]))) return;
+  // The ordinary row 4 joins an old flight. It is not a later cache hit.
+  // Order B explicitly moves that same reader after the stale fill at row 5.
+  const order = `Order B: ${later[1]} begins after t5 -> cache hit ${old} VIOLATION (until TTL or next write)`;
+  const contract = `Contract: ${later[1]} began after ${writer[1]} completed, so ${later[1]} must observe ${fresh}. Sketch has no preventing mechanism.`;
+  if (lines[6]?.replace(/→/g, '->') !== order || lines[7] !== contract) return;
+  // The separately labelled amended execution cannot supply original evidence.
+  // Keep original assessment text, including any later dismissal, authoritative.
+  const amended = lines.findIndex((line, i) => i > 7 && /^AMENDED \(D[1-9]\d*\):$/.test(line));
+  const assessment = lines.slice(6, amended < 0 ? undefined : amended).join(' ');
+  if (lines.slice(amended < 0 ? lines.length : amended + 1).some(line =>
+    /\b(?:original|this|the)\s+(?:trace|schedule|scenario|race)\s+(?:is|was)\s+(?:impossible|not\s+(?:a\s+)?(?:bug|defect|violation))\b/i.test(line))) return;
+  return assessment;
+}
+
+/** Read an explicit original-sketch override without crediting the amended fill. */
+function originalSketchStaleFillTrace(text: string): { assessment: string; summary: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ').replace(/→/g, '->')).filter(Boolean);
+  const cells = (line: string) => line.split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 5 || header[0] !== 'step' || header[4] !== 'cache / pending') return;
+  const first = /^(R[1-9]\d*) read \(began before commit\)$/.exec(header[1]!);
+  const writer = /^(W[1-9]\d*|W) write$/.exec(header[2]!);
+  const later = /^(R[1-9]\d*) read \(began after (W[1-9]\d*|W) resolves\)$/.exec(header[3]!);
+  if (!first || !writer || !later || first[1] === later[1] || writer[1] !== later[2]) return;
+  const rows = lines.slice(1, 9).map(cells);
+  const steps = ['1', '2', '3', '4', "4'", '5', '6', '7'];
+  if (rows.length !== 8 || rows.some((row, i) => row.length !== 5 || row[0] !== steps[i])) return;
+  const token = /^get->miss; token ([A-Za-z_$][\w$]*)$/.exec(rows[0]![1]!);
+  const next = /^get->miss; token ([A-Za-z_$][\w$]*); fresh DB read$/.exec(rows[5]![3]!);
+  const write = /^await repo\.write -> ([A-Za-z_$][\w$]*) committed$/.exec(rows[2]![2]!);
+  const read = /^read resolves ([A-Za-z_$][\w$]*); ([A-Za-z_$][\w$]*)✗ -> no fill$/.exec(rows[6]![1]!);
+  if (!token || !next || !write || !read || token[1] === next[1] || read[2] !== token[1] || read[1] === write[1]) return;
+  const old = read[1]!, fresh = write[1]!, pending = token[1]!, newPending = next[1]!;
+  // One cache/pending column owns this execution. The writer cancels the
+  // original reader's exact token; no other key, token or actor may borrow it.
+  const expected = [
+    [`get->miss; token ${pending}`, '', '', `∅ / {${pending}}`],
+    ['await singleFlight(repo.read)', '', '', ''],
+    ['', `await repo.write -> ${fresh} committed`, '', ''],
+    ['', `invalidate: cancel ${pending}, detach, delete`, '', `∅ / {${pending}✗}`],
+    ['', 'writeProfile resolves (write "complete")', '', ''],
+    ['', '', `get->miss; token ${newPending}; fresh DB read`, `∅ / {${pending}✗,${newPending}}`],
+    [`read resolves ${old}; ${pending}✗ -> no fill`, '', '', `∅ / {${newPending}}`],
+    ['', '', `resolves ${fresh}; fill; return ${fresh}`, `${fresh} / ∅`],
+  ];
+  if (rows.some((row, i) => row.slice(1).some((cell, j) => cell !== expected[i]![j]))) return;
+  const alternate = `Alternate order (6 before 4): ${first[1]} fills ${old}, then step 4 deletes it; ${later[1]} misses and reads ${fresh}. Safe.`;
+  if (lines[9] !== alternate) return;
+  const original = /^Original sketch: step 6 fills ([A-Za-z_$][\w$]*) after step 4 -> (R[1-9]\d*) hits ([A-Za-z_$][\w$]*) -> VIOLATION \((S[1-9]\d*)\)\.$/.exec(lines[10] ?? '');
+  if (!original || original[1] !== old || original[3] !== old || original[2] !== later[1]) return;
+  const assessment = lines.slice(10).join(' ');
+  if (/\b(?:(?:this|that|the|original)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(assessment)) return;
+  return {
+    assessment,
+    summary: `Schedule ${original[4]}: ${first[1]} misses, ${writer[1]} commits and deletes, ${first[1]} fills stale ${old}, ${later[1]} hits ${old}.`,
+  };
+}
+
+/** An original-order annotation can override the safe fill in its owned amended trace. */
+function originalOrderAStaleFillTrace(text: string): { assessment: string; ttl: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ').replace(/→/g, '->')).filter(Boolean);
+  const cells = (line: string) => line.split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  const first = /^(R[1-9]\d*) \(began before (W[1-9]\d*|W)\)$/.exec(header[1] ?? '');
+  const cache = /^cache\[([A-Za-z_$][\w$]*)\]$/.exec(header[3] ?? '');
+  if (header.length !== 5 || header[0] !== 't' || !first || !cache || header[2] !== first[2]
+    || header[4] !== `inflight[${cache[1]}]`) return;
+  const rows = lines.slice(1, 9).map(cells);
+  const token = /^([A-Za-z_$][\w$]*) stale=F$/.exec(rows[0]?.[4] ?? '');
+  const write = /^DB write commits ([A-Za-z_$][\w$]*)$/.exec(rows[1]?.[2] ?? '');
+  const read = /^DB returns ([A-Za-z_$][\w$]*) \(resume queued\)$/.exec(rows[2]?.[1] ?? '');
+  const later = /^(R[1-9]\d*) begins: miss, new ([A-Za-z_$][\w$]*), DB->([A-Za-z_$][\w$]*), fill ([A-Za-z_$][\w$]*)$/.exec(rows[7]?.[1] ?? '');
+  if (!token || !write || !read || !later || token[1] === later[2] || first[1] === later[1]
+    || write[1] === read[1] || later[3] !== write[1] || later[4] !== write[1]) return;
+  const old = read[1]!, fresh = write[1]!, pending = token[1]!, writer = first[2]!;
+  const expected = [
+    ['1', 'get->undef; run(); DB read sent', '', '-', `${pending} stale=F`],
+    ['2', '', `DB write commits ${fresh}`, '-', pending],
+    ['3', `DB returns ${old} (resume queued)`, '', '-', pending],
+    ['4', '', `resume: invalidate(${pending}), delete`, '-', `- (${pending} detached)`],
+    ['5', '', `settles -> ${writer} complete`, '-', '-'],
+    ['6', `resume: ${pending}.stale -> skip fill`, '', '-', '-'],
+    ['', `return ${old} (allowed: began < 5)`, '', '', ''],
+    ['7', later[0], `${fresh} OK`, later[2]!],
+  ];
+  if (rows.length !== expected.length || rows.some((row, i) => row.length !== expected[i]!.length
+    || row.some((cell, j) => cell !== expected[i]![j]))) return;
+  if (lines[9] !== `Order B (6 before 4): ${first[1]} fills ${old}, then ${writer} deletes at 4 -> ${later[1]} misses -> ${fresh} OK`) return;
+  const joiner = /^Late joiner (R[1-9]\d*) arriving after 5: ([A-Za-z_$][\w$]*) detached -> new entry -> ([A-Za-z_$][\w$]*) OK$/.exec(lines[10] ?? '');
+  if (!joiner || [first[1], later[1]].includes(joiner[1]) || joiner[2] !== pending || joiner[3] !== fresh) return;
+  const original = /^Original sketch, order A: fill ([A-Za-z_$][\w$]*) at 6 after delete at 4 -> (R[1-9]\d*) reads ([A-Za-z_$][\w$]*) for <=([1-9]\d*) s VIOLATION$/.exec(lines[11] ?? '');
+  if (!original || original[1] !== old || original[2] !== later[1] || original[3] !== old
+    || lines[12] !== `Original sketch, ${joiner[1]} after 5: joins ${pending} -> ${old} VIOLATION`) return;
+  // The original annotation supplies the failing fill. The amended skip and
+  // the already-started reader's allowed return cannot establish that defect.
+  return { assessment: lines.slice(11).join(' '), ttl: original[4]! };
+}
+
+/** Supplement a version-bound prose sequence with its named actors and write completion. */
+function versionedOriginalSchedule(text: string, key: string, old: string, fresh: string, finding: string): { schedule: string; assessment: string } | undefined {
+  const raw = text.split('\n').filter(line => line.trim());
+  const lines = raw.map(line => line.trim().replace(/\s+/g, ' '));
+  const header = /^ *(S[1-9]\d*) late fill +(R[1-9]\d*) \(read, began before (W[1-9]\d*|W)\) +(W[1-9]\d*|W) \(write\) +(R[1-9]\d*) \(read, began after (W[1-9]\d*|W)\) +cache +gen$/.exec(raw[0] ?? '');
+  if (!header || header[2] === header[5] || header[3] !== header[4] || header[4] !== header[6]) return;
+  const operations = [
+    'get->miss, seen=0', `DB SELECT -> ${old}`, `DB UPDATE commits ${fresh}`,
+    'delete (no-op), return', `promise resolves, set(${old})`, `get -> ${old}`,
+  ];
+  const expected = [
+    `1 ${operations[0]} - 0`, `2 ${operations[1]}`, `3 ${operations[2]}`,
+    `4 sketch ${operations[3]} - 0`, `5 sketch ${operations[4]} ${old}`, `6 sketch ${operations[5]} VIOLATION`,
+  ];
+  if (expected.some((line, i) => lines[i + 1] !== line)) return;
+  // Whitespace columns identify who performs each operation. A writer's
+  // return in the original row 4 precedes the later reader's row 6 cache hit.
+  const firstColumn = raw[0]!.indexOf(`${header[2]} (read`);
+  const writerColumn = raw[0]!.indexOf(`${header[4]} (write`);
+  const laterColumn = raw[0]!.indexOf(`${header[5]} (read`);
+  const owners = [firstColumn, firstColumn, writerColumn, writerColumn, firstColumn, laterColumn];
+  if (operations.some((operation, i) => Math.abs(raw[i + 1]!.indexOf(operation) - owners[i]!) > 1)) return;
+  const guarded = new Set([
+    "4'guarded gen=1, delete, return - 1",
+    `5'guarded stamp 1 != seen 0: skip fill, metric++, return ${old} (allowed) - 1`,
+    `6'guarded miss, seen=1, flight ${key}#1 -> ${fresh}, set ${fresh}`,
+  ]);
+  const nextSchedule = lines.findIndex((line, i) => {
+    const named = /^(S[1-9]\d*)\s/.exec(line);
+    return i > 6 && named !== null && named[1] !== header[1];
+  });
+  // Only these exact separately-labelled guarded operations are an amendment,
+  // not a dismissal of S1. Unknown same-schedule assessment text is retained.
+  const sameOwner = new RegExp(`^(?:${header[1]}|${finding})\\b`);
+  const assessment = lines.slice(7, nextSchedule < 0 ? undefined : nextSchedule)
+    .filter(line => !guarded.has(line));
+  // A later different schedule does not erase a subsequent explicit
+  // assessment of this original schedule or its same finding.
+  if (nextSchedule >= 0) assessment.push(...lines.slice(nextSchedule).filter(line => sameOwner.test(line)));
+  return { schedule: header[1]!, assessment: assessment.join(' ') };
+}
+
+/** Two adjacent original-schedule rows keep each operation in its named column. */
+function continuationStaleFillTrace(text: string, schedule: string, old: string, ttl: string): { key: string; writer: string } | undefined {
+  const lines = text.split('\n').map(line => line.trim().replace(/\s+/g, ' ').replace(/→/g, '->')).filter(Boolean);
+  const cells = (line: string) => line.split('|').map(cell => cell.trim());
+  const header = cells(lines[0] ?? '');
+  if (header.length !== 6 || header[0] !== 'Sched' || header[5] !== 'Result') return;
+  const first = /^(R[1-9]\d*) \(miss, reads ([A-Za-z_$][\w$]*)\)$/.exec(header[1]!);
+  const writer = /^(W[1-9]\d*|W) \(commits ([A-Za-z_$][\w$]*)\)$/.exec(header[2]!);
+  const later = /^(R[1-9]\d*) \(begins after (W[1-9]\d*|W)\)$/.exec(header[3]!);
+  const cache = /^cache\[([A-Za-z_$][\w$]*)\]$/.exec(header[4]!);
+  if (!first || !writer || !later || !cache || first[1] === later[1] || writer[1] !== later[2]
+    || first[2] !== old || writer[2] === old) return;
+  const rows = lines.slice(2).map(cells);
+  if (cells(lines[1] ?? '').length !== 6 || !/^[-| ]+$/.test(lines[1] ?? '') || rows.some(row => row.length !== 6)) return;
+  const matches = rows.flatMap((row, i) => row[0] === `${schedule}*` ? [i] : []);
+  if (matches.length !== 1 || rows.some(row => row[0] === schedule)) return;
+  const i = matches[0]!;
+  const expected = [
+    [`${schedule}*`, 'await read ...', 'write commits, delete(noop)', '', '-', ''],
+    ['', `resolves ${old} -> set ${old}`, '', `hit -> ${old}`, `${old} (${ttl} s)`, 'VIOLATION'],
+  ];
+  if (expected.some((row, n) => row.some((cell, c) => rows[i + n]?.[c] !== cell))) return;
+  // A third unlabeled row would still belong to this schedule and could
+  // contradict the claimed late fill or later cache hit.
+  if (rows[i + 2]?.[0] === '') return;
+  return { key: cache[1]!, writer: writer[1]! };
+}
+
+/** A named finding may put its ordering evidence in a trace, not one paragraph. */
+function assertedStructuredOwner(prose: string[], index: number): boolean {
+  const owners: Array<{ level: number; title: string }> = [];
+  for (const line of prose.slice(0, index + 1)) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (!heading) continue;
+    while (owners.length && owners.at(-1)!.level >= heading[1]!.length) owners.pop();
+    owners.push({ level: heading[1]!.length, title: heading[2]! });
+  }
+  return !owners.some(owner => /\b(?:hypothetical|example|quoted|historical|template|source)\b/i.test(owner.title));
+}
+
+/** A same-ID assessment survives intervening diagrams and named assessment headings. */
+function structuredFindingAssessment(prose: string[], finding: number, traceEnd: number, ids: string[], assertedOwner = assertedStructuredOwner): string[] {
+  const assessment: string[] = [];
+  const sameId = new RegExp(`^(?:(?:${ids.join('|')})\\b|\\|\\s*(?:${ids.join('|')})\\s*\\|)`);
+  const ownsHeading = new RegExp(`\\b(?:${ids.join('|')})\\b`);
+  let followingTrace = false, namedAssessment = false;
+  for (let i = finding + 1; i < prose.length; i++) {
+    const line = prose[i]!;
+    if (i === traceEnd + 1) followingTrace = true;
+    if (/^#{1,6}\s/.test(line)) {
+      namedAssessment = ownsHeading.test(line);
+      followingTrace = false;
+    } else if (/^\||^[FSDA][1-9]\d*\b/.test(line) && !sameId.test(line)) {
+      followingTrace = false;
+      namedAssessment = false;
+    }
+    if (assertedOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) {
+      // A current table can put a scalar verdict in the cited finding's row.
+      // Normalize that owned status only, never borrow a neighboring row.
+      const status = /^\|\s*(F[1-9]\d*)\s*\|\s*["“']?(withdrawn|rejected|dismissed)\b/i.exec(line);
+      assessment.push(status && ids.includes(status[1]!) ? `${status[1]} is ${status[2]}. ${line}` : line);
+    }
+  }
+  return assessment;
+}
+
+function hasStructuredStaleFillFinding(report: string): boolean {
+  const lines = report.split('\n');
+  const prose = lines.map(() => '');
+  const traces: Array<{ start: number; end: number; text: string }> = [];
+  let fence: { char: string; length: number; start: number; info: string } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (!fence) fence = { char: run[0]!, length: run.length, start: i, info: delimiter[2]!.trim() };
+      else if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) {
+        if (!fence.info || fence.info === 'text') traces.push({ start: fence.start, end: i, text: lines.slice(fence.start + 1, i).join('\n') });
+        fence = null;
+      }
+      continue;
+    }
+    // Unclosed, tilde and longer fences remain source until their own real
+    // closing delimiter. They cannot supply an asserted prose violation.
+    if (!fence && !/^\s*>/.test(line) && !/^(?: {4}|\t)/.test(line)) prose[i] = line;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const identity = /^Async ordering schedule \((F[1-9]\d*), invariant boundary = `writeProfile` settles\):$/.exec(prose[heading] ?? '');
+    if (!identity || !assertedStructuredOwner(prose, heading)) continue;
+    const framed = (line: string) => !line || /^(?:\||#{1,6}\s)/.test(line);
+    let previous = heading - 1;
+    while (previous >= 0 && !lines[previous]!.trim()) previous--;
+    if (!framed(prose[previous] ?? '') || (!prose[previous] && previous >= 0 && !traces.some(other => other.end === previous))) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells.length === 8 && cells[0] === '' && cells[1] === identity[1] && cells[2] === 'CRITICAL');
+    if (findings.length !== 1) continue;
+    const finding = findings[0]!;
+    if (!assertedStructuredOwner(prose, finding.index)) continue;
+    let registryHeading = finding.index - 1;
+    while (registryHeading >= 0 && !/^#{1,6}\s/.test(prose[registryHeading]!)) registryHeading--;
+    if (!/^#{1,6} Findings registry$/.test(prose[registryHeading] ?? '')
+      || prose.slice(registryHeading + 1, finding.index).some(line => line.trim() && !/^\|/.test(line))) continue;
+    const prefix = prose.slice(0, registryHeading).filter(line => line.trim()).at(-1) ?? '';
+    const priorSection = prose.slice(0, registryHeading).filter(line => /^#{1,6}\s/.test(line)).at(-1) ?? '';
+    const closesDecisions = /^Lake Score: [0-9]+\/[0-9]+ coverage-scored decisions \([A-Z0-9, -]+\) chose the complete option\.$/.test(prefix)
+      && /^#{1,6} Decision registry\b/.test(priorSection);
+    if (!framed(prefix) && !closesDecisions) continue;
+    const citation = /^Lines "no additional version checks or coordination between a cache fill and a write" vs invariant "every read begun after that write completes must observe the committed version"\. Schedule in Section [1-9]\d* shows a pre-write DB snapshot filled after `cache\.delete`, served up to ([1-9]\d*) s;/.exec(finding.cells[3] ?? '');
+    const ordered = originalOrderAStaleFillTrace(trace.text);
+    if (!citation || !ordered || citation[1] !== ordered.ttl) continue;
+    const assessment = structuredFindingAssessment(prose, finding.index, trace.end, [identity[1]!]);
+    const registry = [...finding.cells];
+    // This exact residual allowance refers only to readers begun before W,
+    // matching R1 in the validated header, never to the later R2 cache hit.
+    if (registry[5] === 'Readers that began before the write may still see the old snapshot (permitted by contract)') {
+      registry[5] = 'Allowed by contract: the original reader returns its earlier value.';
+    }
+    const context = [registry.join(' | '), ordered.assessment, ...assessment].join(' ');
+    if (new RegExp(`\\b${identity[1]}\\s+(?:is|was|remains)\\s+(?:impossible|rejected|dismissed|withdrawn)\\b`, 'i').test(context)
+      || /\b(?:(?:this|that|the|original)\s+(?:trace|schedule|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(context)) continue;
+    const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${context}`;
+    if (hasProseStaleFillFinding(claim)) return true;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const shared = /^\*\*[1-9]\d*\. Async ordering schedules \(shared state: cache\[([A-Za-z_$][\w$]*)\], writeGen\[([A-Za-z_$][\w$]*)\]\)\*\*$/.exec(prose[heading] ?? '');
+    if (!shared || shared[1] !== shared[2] || !assertedStructuredOwner(prose, heading)) continue;
+    const framed = (line: string) => !line || /^(?:\||#{1,6}\s|\*\*[0-9]+[A-Z]?\b)/.test(line);
+    let previous = heading - 1;
+    while (previous >= 0 && !lines[previous]!.trim()) previous--;
+    if (!framed(prose[previous] ?? '') || (!prose[previous] && previous >= 0 && !traces.some(other => other.end === previous))) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells.length === 8 && cells[0] === '' && /^F[1-9]\d*$/.test(cells[1] ?? '') && /^P[0-3] CRITICAL$/.test(cells[2] ?? ''));
+    for (const finding of findings) {
+      if (!assertedStructuredOwner(prose, finding.index) || findings.filter(other => other.cells[1] === finding.cells[1]).length !== 1) continue;
+      let registryHeading = finding.index - 1;
+      while (registryHeading >= 0 && !/^#{1,6}\s/.test(prose[registryHeading]!)) registryHeading--;
+      if (!/^#{1,6} Findings Registry$/.test(prose[registryHeading] ?? '')
+        || !framed(prose.slice(0, registryHeading).filter(line => line.trim()).at(-1) ?? '')) continue;
+      const sequence = /^Late fill after write\. Read misses, DB returns ([A-Za-z][\w.-]*), write commits ([A-Za-z][\w.-]*) and deletes \(no-op\), read then fills ([A-Za-z][\w.-]*); every later read gets ([A-Za-z][\w.-]*) until TTL\.(?=\s|$)/.exec(finding.cells[3] ?? '');
+      if (!sequence || sequence[1] === sequence[2] || sequence[1] !== sequence[3] || sequence[1] !== sequence[4]) continue;
+      const ordered = versionedOriginalSchedule(trace.text, shared[1]!, sequence[1]!, sequence[2]!, finding.cells[1]!);
+      if (!ordered || !new RegExp(`\\bschedules?\\s+${ordered.schedule}(?=[, .]|$)`).test(finding.cells[6] ?? '')) continue;
+      const assessment = structuredFindingAssessment(prose, finding.index, trace.end, [finding.cells[1]!, ordered.schedule]);
+      const context = [finding.cells.join(' | '), ordered.assessment, ...assessment].join(' ');
+      if (new RegExp(`\\b(?:${finding.cells[1]}|${ordered.schedule})\\s+(?:is|was|remains)\\s+(?:impossible|rejected|dismissed|withdrawn)\\b`, 'i').test(context)
+        || /\b(?:(?:this|that|the|original)\s+(?:trace|schedule|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(context)) continue;
+      const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${context}`;
+      if (hasProseStaleFillFinding(claim)) return true;
+    }
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !/^#{1,6}\s/.test(prose[heading]!)) heading--;
+    const section = /^#{1,6} Async Ordering Record \(Section ([1-9]\d*)\)$/.exec(prose[heading] ?? '');
+    if (!section) continue;
+    const framed = (prefix: string) => !prefix || /^(?:\||#{1,6}\s)/.test(prefix);
+    if (!framed(prose.slice(0, heading).filter(line => line.trim()).at(-1) ?? '')) continue;
+    const ownership = prose.slice(heading + 1, trace.start).join(' ').replace(/\s+/g, ' ').trim();
+    const shared = /^Shared state: `cache\[([A-Za-z_$][\w$]*)\]`, `inflight\[([A-Za-z_$][\w$]*)\]`\. Invariant boundary: a read that \*begins\* after `writeProfile` resolves must return the committed version\.$/.exec(ownership);
+    if (!shared || shared[1] !== shared[2]) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells[0] === '' && /^F[1-9]\d*$/.test(cells[1] ?? '') && cells[2] === 'CRITICAL GAP');
+    for (const finding of findings) {
+      let registryHeading = finding.index - 1;
+      while (registryHeading >= 0 && !/^#{1,6}\s/.test(prose[registryHeading]!)) registryHeading--;
+      const prefix = prose.slice(0, registryHeading).filter(line => line.trim()).at(-1) ?? '';
+      const previousSection = prose.slice(0, registryHeading).filter(line => /^#{1,6}\s/.test(line)).at(-1) ?? '';
+      // A completed decision registry's score closes that earlier section;
+      // an unheaded example/hypothesis cannot introduce the current finding.
+      const closesDecisions = /^Lake Score: [0-9]+\/[0-9]+ recommendations chose the complete option\.$/.test(prefix)
+        && /^#{1,6} Decision Registry(?: \(all auto-resolved to recommended option\))?$/.test(previousSection);
+      if (!/^#{1,6} Findings Registry$/.test(prose[registryHeading] ?? '')
+        || (!framed(prefix) && !closesDecisions)
+        || prose.slice(registryHeading + 1, finding.index).some(line => line.trim() && !/^\|/.test(line))) continue;
+      if (!finding.cells[3]?.split(/,\s*/).includes(section[1]!)) continue;
+      if (!framed(prose.slice(0, finding.index).filter(line => line.trim()).at(-1) ?? '')) continue;
+      const evidence = (finding.cells[4] ?? '').replace(/`/g, '');
+      const citation = /^Original sketch: fill after await repository\.read has no guard; plan text says no fill\/write coordination\. Schedule (S[1-9]\d*) makes a post-write reader see ([A-Za-z_$][\w$]*) for ([1-9]\d*) s[;.]/.exec(evidence);
+      if (!citation || !/(?:^|[.;]\s+)Violates retained invariant\.$/.test(evidence)) continue;
+      if (findings.filter(other => other.cells[1] === finding.cells[1]).length !== 1) continue;
+      const ordered = continuationStaleFillTrace(trace.text, citation[1]!, citation[2]!, citation[3]!);
+      if (!ordered || ordered.key !== shared[1]) continue;
+      const assessment: string[] = [];
+      for (let i = trace.end + 1; i < prose.length; i++) {
+        const named = /^([FSDA][1-9]\d*)\b/.exec(prose[i]!);
+        if (/^(?:#{1,6}\s|\|)/.test(prose[i]!) || (named && named[1] !== citation[1] && named[1] !== finding.cells[1])) break;
+        assessment.push(prose[i]!);
+      }
+      const tail = assessment.join(' ').replace(/\s+/g, ' ').trim();
+      if (!/^`\*` = original sketch\.(?:\s|$)/.test(tail)) continue;
+      const withdrawn = new RegExp(`\\b(?:${citation[1]}|${finding.cells[1]})\\s+(?:is|was|remains)\\s+(?:impossible|rejected|dismissed|withdrawn)\\b`, 'i');
+      if (withdrawn.test(tail)) continue;
+      if (/\b(?:(?:this|that|the|original)\s+(?:trace|schedule|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(tail)) continue;
+      // Only the validated original rows establish the race. The registry and
+      // following assessment still govern whether the report dismisses it.
+      const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${finding.cells.join(' | ')} ${tail}`;
+      if (hasProseStaleFillFinding(claim)) return true;
+    }
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const identity = /^(?:#{1,6}\s+)?(?:\*\*)?[1-9]\d*\. Async schedule \((F[1-9]\d*)\)(?: with one column per operation and shared state)?(?:\*\*)?$/.exec(prose[heading] ?? '');
+    if (!identity) continue;
+    // Unheaded prose immediately introducing this finding or schedule owns
+    // its assertion status, regardless of whether it ends in ':' or '.'.
+    // Require a fresh structural boundary instead of dropping that context.
+    const framed = (prefix: string) => !prefix || /^(?:\||#{1,6}\s|\*\*\d+\.\s)/.test(prefix);
+    const prefix = prose.slice(0, heading).filter(line => line.trim()).at(-1) ?? '';
+    if (!framed(prefix)) continue;
+    const findings = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells[0] === '' && cells[1] === identity[1] && /^CRITICAL(?: GAP(?: \(fixed by D[1-9]\d*\))?)?$/.test(cells[3] ?? ''));
+    if (findings.length !== 1) continue;
+    const findingPrefix = prose.slice(0, findings[0]!.index).filter(line => line.trim()).at(-1) ?? '';
+    if (!framed(findingPrefix)) continue;
+    const alternate = alternateOrderStaleFillTrace(trace.text);
+    const original = originalSketchStaleFillTrace(trace.text);
+    const evidence = findings[0]!.cells[4] ?? '';
+    const ordered = alternate && /(?:^|[.;]\s+)Schedule below shows\b/.test(evidence) ? alternate
+      : original && evidence.split(/(?<=\.)\s+/).includes(original.summary) ? original.assessment : undefined;
+    if (!ordered) continue;
+    const assessment: string[] = [];
+    for (let i = trace.end + 1; i < prose.length; i++) {
+      if (/^(?:#{1,6}\s|\*\*\d+\.|[DSF][1-9]\d*\b|\|)/.test(prose[i]!)) break;
+      assessment.push(prose[i]!);
+    }
+    if (/\b(?:(?:this|that|the|original)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test([ordered, ...assessment].join(' '))) continue;
+    // A selected repair's invalidated-fill rule describes the amendment. It
+    // does not assert that the original late fill was already impossible.
+    const registry = [...findings[0]!.cells];
+    const repair = /\(fixed by (D[1-9]\d*)\)$/.exec(registry[3] ?? '')?.[1];
+    if (repair && registry[5]?.startsWith(`${repair}: `)) {
+      registry[5] = registry[5].replace(/\binvalidated fills never `?set`?\b/g, 'discard invalidated fills');
+    }
+    const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${registry.join(' | ')} ${ordered} ${assessment.join(' ')}`;
+    if (hasProseStaleFillFinding(claim)) return true;
+  }
+  for (const trace of traces) {
+    let heading = trace.start - 1;
+    while (heading >= 0 && !prose[heading]!.trim()) heading--;
+    const identity = /^(S[1-9]\d*) Async ordering schedule \((F[1-9]\d*) evidence\):$/.exec(prose[heading] ?? '');
+    if (!identity) continue;
+    const previous = prose.slice(0, heading).filter(line => line.trim()).at(-1) ?? '';
+    if (/^(?!\||#{1,6}\s).*:\s*$/.test(previous)) continue;
+    const finding = prose.slice(0, heading).map((line, index) => ({ index, cells: line.split('|').map(cell => cell.trim()) }))
+      .filter(({ cells }) => cells[0] === '' && cells[1] === identity[2] && cells[2] === 'CRITICAL GAP');
+    if (finding.length !== 1 || !finding[0]!.cells[4]?.includes(`Schedule ${identity[1]} below`)) continue;
+    const findingPrefix = prose.slice(0, finding[0]!.index).filter(line => line.trim()).at(-1) ?? '';
+    if (/^(?!\||#{1,6}\s).*:\s*$/.test(findingPrefix)) continue;
+    const ordered = columnarStaleFillTrace(trace.text);
+    if (!ordered) continue;
+    // The verified columns establish this claim. Keep the real finding and
+    // trace assessment in the existing dismissal checks; an allowance for
+    // R1's own pre-write return cannot authorize a stale cache or later reader.
+    const allowance = `Allowed by contract: ${ordered.reader} itself returns ${ordered.old} (read in progress when write committed).`;
+    const tail = ordered.tail.replace(allowance, 'Allowed by contract: the original reader returns its earlier value.');
+    const assessment: string[] = [];
+    for (let i = trace.end + 1; i < prose.length; i++) {
+      if (/^(?:#{1,6}\s|[DSF][1-9]\d*\b|\|)/.test(prose[i]!)) break;
+      assessment.push(prose[i]!);
+    }
+    // A scored, unselected alternative in an accepted decision is not the
+    // verdict. Other quotes remain in the assessment, including a directly
+    // quoted rejection of the finding itself.
+    const registry = finding[0]!.cells.map(cell => /^Accepted\b/.test(cell)
+      ? cell.replace(/\bvs\s+\d+(?:\.\d+)?\/10\s+for\s+(?:"(?:[^"\\]|\\.)*"|“[^”]*”)/g, 'unselected alternative')
+      : cell).join(' | ');
+    const claim = `Concurrent cache read fills an old value after the write committed and invalidated the same key. A new reader receives that stale value, which violates the read-after-write contract. ${registry} ${tail} ${assessment.join(' ')}`;
+    if (hasProseStaleFillFinding(claim)) return true;
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const legacy = /^\*\*CRITICAL FINDING\s*[—–:-].*\*\*\s*$/.test(prose[i]!);
+    let previousIndex = i - 1;
+    while (previousIndex >= 0 && !prose[previousIndex]!.trim()) previousIndex--;
+    const numbered = /^\*\*CRITICAL GAP\*\*\s*[—–:-]/.test(prose[i]!)
+      && /^#{1,6}\s+Critical Finding:\s+\S.*$/i.test(prose[previousIndex] ?? '');
+    if (!legacy && !numbered) continue;
+    const previous = prose.slice(0, numbered ? previousIndex : i).filter(value => value.trim()).at(-1) ?? '';
+    if (/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(previous)) continue;
+    let end = i + 1;
+    while (end < lines.length && !/^(?:#{1,6}\s|\*\*(?:(?:CRITICAL|HIGH|MEDIUM|LOW)\s+)?(?:FINDING|GAP)\b)/i.test(prose[end]!)) end++;
+    const claim = prose.slice(numbered ? i : i + 1, end).join('\n');
+    if (numbered) {
+      // A quoted requirement alone is insufficient: the same finding must
+      // independently assert that the current wrapper violates it.
+      if (!/^\*\*CRITICAL GAP\*\*\s*[—–:-]\s*The plan states: "Every read begun after that write completes must observe the committed version\.(?: TTL expiry is not a substitute for this rule\.)?" The proposed wrapper violates this invariant\.\s*$/m.test(claim)) continue;
+      for (const trace of traces.filter(trace => trace.start > i && trace.end < end)) {
+        if (!hasNumberedStaleFillTrace(trace.text)) continue;
+        // Only this validated same-finding trace becomes prose evidence.
+        // Reuse all existing dismissal/accepted-staleness checks unchanged;
+        // this recognizes a finding, not the correctness of its proposed fix.
+        if (hasProseStaleFillFinding((claim + '\n' + trace.text).replace(/\s+/g, ' '))) return true;
+      }
+      continue;
+    }
+    if (!/^This\s+violates\s+the\s+stated\s+(?:invariant|contract):/m.test(claim) ||
+        !/Every read begun after that write\s+completes must observe the committed version/.test(claim)) continue;
+    if (/\b(?:not\s+(?:a\s+)?(?:gap|bug|defect|issue)|no\s+(?:fix|change|guard)\s+(?:is\s+)?(?:needed|required))\b/i.test(claim)) continue;
+    for (const trace of traces.filter(trace => trace.start > i && trace.end < end)) {
+      // All four ordered events and the post-write new reader must be shown.
+      // A copied wrapper has neither this execution trace nor an independent
+      // asserted violation in the same finding.
+      if (/await\s+repository\.read[\s\S]*repository\.write[\s\S]*cache\.delete[\s\S]*cache\.set\([^\n]*(?:old|stale)[^\n]*\)[\s\S]*readProfile\([^\n]*started after[^\n]*[\s\S]*cache\.get[^\n]*(?:old|stale)/i.test(trace.text)) return true;
+    }
+  }
+  return false;
+}
+
+/** Require an unresolved late-fill defect, not a keyword-bearing dismissal. */
+export function hasStaleFillRaceFinding(report: string): boolean {
+  return hasStructuredStaleFillFinding(report) || hasProseStaleFillFinding(report);
+}
+
+/** An ordered execution can establish overlap without naming it "in-flight". */
+function hasOrderedStaleFillOperations(text: string, sourceText = text): boolean {
+  const separator = String.raw`\s*[,;.]\s*(?:then\s+)?`;
+  const subject = String.raw`(?:(?:a|the)\s+)?`;
+  const sameObject = String.raw`(?:\s+(?:(?:the\s+)?same\s+)?(?:cache\s+)?(?:key|entry))?`;
+  const read = String.raw`${subject}read\s+(?:misses|gets\s+a\s+cache\s+miss)`;
+  const write = String.raw`${subject}write\s+commits\s+(?:and|then)\s+(?:deletes|invalidates|evicts)${sameObject}(?:\s*\(no-op\))?`;
+  const fill = String.raw`${subject}(?:(?:original|same)\s+)?reader\s+(?:(?:then|later)\s+)?(?:fills|refills|repopulates)\s+(?:the\s+)?(?:old|stale|pre[- ](?:write|commit))\s+(?:snapshot|value|data)`;
+  const later = String.raw`(?:(?:every|all|the)\s+)?(?:later|next|new|subsequent)\s+readers?\s+(?:sees?|gets?|observes?|receives?)\s+(?:the\s+)?(?:stale|old|outdated)\s+(?:data|value|snapshot)`;
+  const findingPrefix = String.raw`(?:(?:F[1-9]\d*|(?:Finding|Issue)\s+[1-9]\d*)\s*[—–:-]\s*)?(?:P[0-3]\s*[—–:-]\s*)?`;
+  const sequence = new RegExp(String.raw`^${findingPrefix}${read}${separator}${write}${separator}${fill}${separator}${later}(?=[\s.!?;]|$)`, 'i');
+  // An asserted schedule can name the read's resolution and store separately.
+  // All four operations must remain in one cell and in their causal order;
+  // quoted requirements may follow, but inline code cannot supply operations.
+  const resolvedRead = String.raw`${subject}(?:(?:original|same)\s+)?read(?:er)?\s+resolves\s+and\s+stores\s+(?:the\s+)?(?:old|stale|pre[- ](?:write|commit))\s+(?:snapshot|value|data)`;
+  const staleHit = String.raw`(?:(?:a|the)\s+)?(?:later|next|new|subsequent)\s+read\s+hits\s+(?:the\s+)?(?:stale|old)\s+(?:value|data|snapshot)`;
+  const assertedSchedule = new RegExp(String.raw`^Original (?:plan|sketch|wrapper)\b[^.?]*\.\s+Schedule:\s*${read}${separator}${write}${separator}${resolvedRead}\.\s+${staleHit}(?=[\s.!?;]|$)`, 'i');
+  const scheduleCells = sourceText.replace(/`[^`]*`/g, '[literal]').replace(/[*_]/g, '')
+    .replace(/\s+/g, ' ').trim().split(/\s*\|\s*/);
+  if (scheduleCells.some(cell => {
+    const unquoted = cell.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[quotation]');
+    return assertedSchedule.test(unquoted)
+      && !/\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|hypothetical|historical|quoted|copied|source|earlier\s+review)\b/i.test(unquoted)
+      && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(unquoted)
+      && !/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(unquoted);
+  })) return true;
+  // Table cells cannot lend operation order to each other. Bare "reader"
+  // refers back to the missed read; explicit foreign cache/key references,
+  // quoted examples and conditional/negated executions cannot establish it.
+  return text.split(/\s*\|\s*/).some(cell => {
+    // A finding may describe a fill's lifetime instead of naming the first
+    // cache miss. Its original-plan sequence must still place the same old
+    // version in the cache after commit/delete and deliver it to a later read.
+    // Quoted requirements can accompany that assertion, but quoted operations
+    // cannot supply it; never join fragments across a quoted span or table cell.
+    const unquoted = cell.replace(/"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[quoted]');
+    const compact = /^Original (?:plan|sketch|wrapper)\b[^.!?]*\.\s+(?:Schedule(?: Diagram)? [A-Za-z0-9][\w.-]*:\s*)?fill starts,\s*write commits,\s*write deletes(?:\s*\(no-op\))?,\s*fill sets pre-commit ([A-Za-z0-9][\w.-]*),\s*later read hits ([A-Za-z0-9][\w.-]*)\.(?=\s|$)/i.exec(unquoted);
+    if (compact && compact[1] === compact[2]
+      && !/\b(?:if|unless|whether|might|may|could|never|no\s+longer|example|template|hypothetical|historical)\b/i.test(unquoted)
+      && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(unquoted)
+      && !/\b(?:trace|scenario|execution|sequence)\s+(?:is|was|remains)\s+impossible\b/i.test(unquoted)) return true;
+    return !/["“”?]|\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|quoted)\b/i.test(cell)
+    && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|reader|read|request)\b/i.test(cell)
+    && !/\b(?:(?:this|that|the)\s+(?:trace|scenario|execution|sequence)|this|that|it)\s+(?:is|was|remains)\s+impossible\b/i.test(cell)
+    && sequence.test(cell);
+  });
+}
+
+/** Explicit copied/example framing owns its section and descendant headings. */
+function assertedProseOwner(prose: string[], index: number): boolean {
+  const owners = [{ level: 0, source: false }];
+  for (const line of prose.slice(0, index + 1)) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      while (owners.length > 1 && owners.at(-1)!.level >= heading[1]!.length) owners.pop();
+      // An explicit fresh review ends an unheaded introductory source block.
+      if (/^(?:Current|Actual)\s+(?:review|findings|assessment)\b/i.test(heading[2]!)) owners[0]!.source = false;
+      owners.push({ level: heading[1]!.length, source: /\b(?:hypothetical|examples?|quoted|copied|historical|template|source)\b/i.test(heading[2]!) });
+    } else if (/^(?:Source|Earlier review):\s*$/i.test(line.trim())
+      || /^Hypothetical scenario[.:](?:\s|$)/i.test(line.trim())
+      || /\b(?:unproven\s+hypothesis|(?:hypothetical|historical)\s+example|quoted\s+source)\b/i.test(line)
+      || /^(?:The\s+following\b|Below\b|This\s+(?:section|material|example)\b)[^.!?]*\b(?:copied|quoted|source|examples?|hypothetical|historical|template)\b/i.test(line.trim())) {
+      owners.at(-1)!.source = true;
+    }
+  }
+  return !owners.some(owner => owner.source);
+}
+
+function hasProseStaleFillFinding(report: string): boolean {
+  // Copied source, diagrams and quoted examples cannot supply a finding.
+  let fence: { char: string; length: number } | null = null;
+  const prose = report.split('\n').map(line => {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      const run = delimiter[1]!;
+      if (!fence) fence = { char: run[0]!, length: run.length };
+      else if (run[0] === fence.char && run.length >= fence.length && !delimiter[2]!.trim()) fence = null;
+      return '';
+    }
+    return fence || /^\s*>/.test(line) || /^(?: {4}|\t)/.test(line) ? '' : line;
+  }).join('\n');
+  // Independent list items and table rows cannot borrow each other's words.
+  const blocks = prose.split(/\n\s*\n|\n(?=\s*(?:#{1,6}\s|\||\d+\.\s|[-*]\s))/).map(block => block.trim());
+  const lines = blocks.flatMap(block => block.split('\n'));
+  const normalize = (text: string) => text.replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+  return blocks.some((block, index) => {
+    const text = normalize(block);
+    const owners = blocks.slice(0, index + 1).flatMap(part => part.split('\n'));
+    if (!assertedProseOwner(owners, owners.length - 1)) return false;
+    const stale = /\b(?:stale|outdated)\b|\b(?:old(?:er)?|pre[- ]write)\s+(?:value|data|result|version|snapshot)\b/i.test(text);
+    const inFlight = /\b(?:race|racing|concurrent|concurrency|in[- ]flight|pending)\b/i.test(text)
+      || hasOrderedStaleFillOperations(text, block);
+    const read = /\b(?:read|fetch)\w*\b/i.test(text);
+    const fillPattern = /\b(?:fill|refill|repopulat|populat|insert|stor|restor)\w*\b|\bcache\.set\b|\bcache(?:s|d)?\s+(?:the|an?|old|stale|same)\s+(?:\w+\s+){0,2}(?:value|data|result|snapshot)\b/i;
+    const fill = fillPattern.test(text);
+    const invalidation = /\b(?:invalidat|evict|write|commit|delet)\w*\b/i.test(text);
+    const ordering = /\b(?:after|later|resum\w*)\b|out[- ]of[- ]order/i.test(text);
+    // A review may identify the ordering defect directly as missing coordination
+    // between cache fills and writes that violates read-after-write freshness.
+    // That is independent evidence even when the old-value trace is a diagram.
+    // Inline source cannot supply the assertion; the amendment label is metadata.
+    const coordinationText = normalize(block.replace(/`([^`]*)`/g, (_span, body: string) =>
+      /^\[Amended:[^\]]+\]$/.test(body) ? body : '[literal]'));
+    const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(sketch|wrapper|implementation)\s+(?:(?:had|has|proposed)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b|stated\s+that\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\s+was\s+proposed\b)/i.exec(coordinationText);
+    const citedConclusion = /(?:^|[.;]\s+)Review\s+(?:showed|shows)\s+that\s+(sketch|wrapper|implementation)\s+(?:violates|breaks)\s+the\s+(?:retained\s+)?read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)\s+\(see\s+(F[1-9]\d*)\)(?:[.!](?=\s|$)|$)/i.exec(coordinationText);
+    // The reviewer can assert the original coordination violation directly,
+    // immediately after its premise, without naming the old version 'stale'.
+    const reportedViolation = /(?:^|[.;]\s+)(?:the\s+)?review\s+found\s+that\s+this\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:\s+above)?\s+\((F[1-9]\d*)\)(?=\s+and\s+omits\b|[.!](?:\s|$)|$)/i.exec(coordinationText);
+    const conclusion = /(?:^|[.;]\s+)(?:finding\s+[\w.-]+\s+(?:showed|shows)\s+)?(?:this|that|it)\s+(?:violates|breaks)\s+the\s+read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)(?:[.!](?=\s|$)|$)/i.exec(coordinationText) ?? citedConclusion ?? reportedViolation;
+    const coordinationGap = premise !== null && conclusion !== null && premise.index < conclusion.index
+      && (conclusion !== citedConclusion || premise[1]!.toLowerCase() === citedConclusion![1]!.toLowerCase())
+      && (conclusion !== reportedViolation || /^\s*$/.test(coordinationText.slice(premise.index + premise[0].length, conclusion.index)))
+      && !coordinationText.slice(premise.index, conclusion.index).includes('|')
+      && !/["“”]|\b(?:if|example|template|quoted)\b/i.test(text)
+      && !/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(blocks[index - 1] ?? '');
+    if ((!stale || !inFlight || !read || !fill || !invalidation || !ordering) && !coordinationGap) return false;
+
+    // A neighboring explanation/remedy belongs to this paragraph only until
+    // another named finding/section/table row begins. In particular, a
+    // following dismissal cannot turn a traced race into positive coverage.
+    const next = blocks[index + 1] ?? '';
+    const independent = /^(?:#{1,6}(?:\s|\d)|\d+\.\s|[-*]\s|\||(?:[*_]+)?(?:Finding\b|Section\s|P[0-3]\b))/i.test(next);
+    const explicitId = /^\|\s*(F[1-9]\d*)\s*\|/.exec(text)?.[1]
+      ?? (coordinationGap && conclusion === citedConclusion ? citedConclusion?.[2] : undefined)
+      ?? (coordinationGap && conclusion === reportedViolation ? reportedViolation?.[1] : undefined);
+    const assessment = explicitId
+      ? structuredFindingAssessment(lines, owners.length - 1, owners.length - 1, [explicitId], assertedProseOwner).join(' ')
+      : '';
+    const context = text + (independent ? '' : ' ' + normalize(next)) + ' ' + normalize(assessment);
+    const findingId = explicitId ?? 'F[1-9]\\d*';
+    if (new RegExp(`\\b(?:(?:this|that|the)\\s+(?:finding|issue|gap|race)|${findingId})\\s+(?:is|was|remains)\\s+["“'‘]?(?:withdrawn|rejected|dismissed)\\b`, 'i').test(context)) return false;
+
+    const finding = /\b(?:P[0-3]|missing|gap|bug|defect|violat\w*|unsafe|incorrect)\b|\bno\s+mention\s+of\s+(?:this|the)\s+race\b/i.test(context);
+    const subsequentRead = /\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(context);
+    const remedy = context.split(/[.!?]\s+/).some(sentence =>
+      (/\b(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\w*\b/i.test(sentence) &&
+        /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(sentence)) ||
+      /\bper[- ]key\s+(?:epoch|generation|version)\b/i.test(sentence));
+    // Table cells and semicolon-separated statements have separate owners;
+    // retain an explicit "that return" continuation with the return it names.
+    const claims = context.split(/\s*\|\s*/).flatMap(cell =>
+      cell.split(/(?:[.!?]\s+|;\s+(?!that\s+return\b)|\b(?:but|however|nevertheless|yet)\s*[:,]?\s+)/i));
+    const violation = claims.some(claim => /\b(?:violat\w*|break\w*)\b[^.!?]*\b(?:contract|guarantee|consistency|rule)\b/i.test(claim)
+      && !/\b(?:not|no|never)\b/i.test(claim));
+    for (const [claimIndex, claim] of claims.entries()) {
+      // "Not permitted" is a violation assertion, not permission. Scope a
+      // permitted old result to its original caller; it cannot justify a
+      // cache fill or a later reader observing that same old version.
+      const allowanceText = claim.replace(/\b(?:not|never)\s+(?:an?\s+)?(?:permitted|allowed|acceptable|accepted)\b/gi, 'forbidden');
+      // An imperative's purpose clause describes the proposed guard's goal,
+      // not a claim that the current implementation already prevents the race.
+      const proposedPrevention = /^(?:guard|serialize|serialise|coordinate|prevent|reject|skip)\b/i.test(claim.trim())
+        && /\b(?:cache|fill|refill|write|mutation|invalidation)\w*\b/i.test(claim)
+        && /\b(?:so(?:\s+that)?|to\s+ensure)\b/i.test(claim);
+      // The model declaration must accept the stale consequence itself.
+      // A normative freshness requirement called an accepted model is not a
+      // dismissal. Bare "This" can refer only to the preceding stale claim.
+      const modelDeclaration = /^(.+?)\s+(?:is|remains)\s+(?:(?:the|an?)\s+)?(?:accepted|expected|intentional|documented)\s+consistency\s+(?:model|contract|policy|semantics)\b/i.exec(allowanceText.trim())
+        ?? /^(.+?)\s+(?:is|remains)\s+(?:accepted|expected|intentional|documented)[.!?]?$/i.exec(allowanceText.trim());
+      const subject = modelDeclaration?.[1] ?? '';
+      const previousClaim = claims[claimIndex - 1] ?? '';
+      const explicitStaleSubject = /^(?:this|the|an?)\s+(?:bounded\s+)?(?:inconsistency|staleness|stale[- ](?:read|fill)|stale\s+(?:read|fill|refill))(?:\s+(?:window|behavior|behaviour|race|consequence))?$/i.test(subject);
+      const impliedStaleSubject = /^this$/i.test(subject)
+        && /\b(?:stale|outdated|old(?:er)?\s+(?:value|snapshot|data)|pre[- ]write\s+(?:value|data|result|version|snapshot))\b/i.test(previousClaim)
+        && /\b(?:read|fetch|fill|refill|repopulat)\w*\b/i.test(previousClaim)
+        && !/\b(?:must|shall|requires?|violat\w*|not|cannot|can't)\b/i.test(previousClaim);
+      const acceptedStaleModel = Boolean(modelDeclaration) && (explicitStaleSubject || impliedStaleSubject);
+      const dismissal = /\b(?:not|isn't)\s+(?:a\s+|an\s+)?(?:(?:stale|late)[- ]fill\s+)?(?:gap|bug|defect|issue|violation|problem|race)\b|\bno\s+(?:(?:stale|late)[- ]fill\s+)?(?:gap|bug|defect|issue|violation|race)\b/i.test(claim)
+        || /\b(?:accepted|expected|intentional|documented)\s+(?:invariant|behavior|trade[- ]off|stale[- ]read\s+window)\b|\b(?:allowed|permitted|acceptable)\b/i.test(allowanceText)
+        || acceptedStaleModel
+        || (!proposedPrevention && /\b(?:cannot|can't|never|does not|will not)\s+(?:\w+\s+){0,3}(?:refill|repopulate|populate|insert|store|cache|set|violate)\b/i.test(claim))
+        || (!proposedPrevention && /\b(?:cannot|can't|never|does not|doesn't|will not|won't|did not|didn't|is not|isn't|was not|wasn't|has not|hasn't|had not|hadn't)\s+(?:\w+\s+){0,3}restor\w*\b/i.test(claim))
+        || /\bno\s+(?:fix|change|coordination|guard)\s+(?:is\s+)?(?:needed|required)\b/i.test(claim);
+      if (!dismissal) continue;
+      const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);
+      // A finding can name versions instead of calling them "old". Explicit
+      // start-before-commit and return-to-own-caller evidence scopes this
+      // allowance to that already-started call, never to cache/later readers.
+      const explicitlyEarlierCall = originalCaller && /\bto\s+its\s+own\s+caller\b/i.test(claim)
+        && !/\b(?:if|unless|whether|might|may|could)\b/i.test(claim)
+        && /\b(?:it|(?:the\s+)?(?:original\s+)?(?:read|request|call))\s+(?:began|started)\s+before\s+(?:(?:the|that)\s+)?(?:write\s+)?commit\b/i.test(claim);
+      const onlyEarlierReturn = originalCaller && /\b(?:return|receiv|observ)\w*\b/i.test(claim)
+        && (/\b(?:old|earlier|previous|pre[- ]write)\s+(?:snapshot|value|result|version)\b/i.test(claim) || explicitlyEarlierCall)
+        && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
+      if (!(onlyEarlierReturn && subsequentRead && (violation || remedy || explicitlyEarlierCall))) return false;
+    }
+    return finding || subsequentRead || remedy;
+  });
+}

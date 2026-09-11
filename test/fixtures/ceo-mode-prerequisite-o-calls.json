@@ -1,0 +1,165 @@
+[
+  {
+    "case": "hold-control",
+    "nativeSourceSha256": "175ddd9b387d5d45dd49952a6822ed2eab92a4a66b3b2872e93492b304414009",
+    "requestLine": 71,
+    "resultLine": 72,
+    "call": {
+      "sessionId": "fb129c7f-0801-4e9f-8b63-f44f719b8dec",
+      "toolUseId": "toolu_01DWZHwQ6kuttZAmi2g94NAN",
+      "requestedAt": "2026-09-09T01:52:51.586Z",
+      "answered": true,
+      "answeredAt": "2026-09-09T01:53:04.476Z",
+      "questions": [
+        {
+          "question": "Add gstack skill routing rules to this project's CLAUDE.md?",
+          "header": "Skill routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (Recommended)",
+              "description": "Append skill routing rules to CLAUDE.md so Claude automatically invokes the right gstack skill for common requests (strategy, architecture, QA, shipping). One-time setup, committed to the repo."
+            },
+            {
+              "label": "No thanks",
+              "description": "Skip \u2014 I'll invoke skills manually. (This prompt won't reappear once declined.)"
+            }
+          ]
+        },
+        {
+          "question": "Enable cross-project learnings? gstack can apply patterns it learned from your other local projects to this review.",
+          "header": "Learnings scope",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (Recommended)",
+              "description": "Learnings from all your local projects inform this review. Stays fully local \u2014 nothing leaves your machine. Best for solo devs."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Only learnings from this specific project apply. Better if you work across multiple client codebases where cross-contamination would be a concern."
+            }
+          ]
+        },
+        {
+          "question": "No design doc found for this branch. Run /office-hours first to produce a structured problem statement and explored alternatives \u2014 that gives this CEO review sharper input. (~10 min)",
+          "header": "Prereq skill",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip \u2014 review PLAN.md as-is (Recommended)",
+              "description": "Proceed directly with the plan as written. I'll surface gaps and missing context during the review itself."
+            },
+            {
+              "label": "Run /office-hours first",
+              "description": "Produces a design doc with problem statement, alternatives explored, and constraints. Gives the CEO review stronger grounding \u2014 worth it for high-stakes features."
+            }
+          ]
+        }
+      ],
+      "answers": {
+        "Add gstack skill routing rules to this project's CLAUDE.md?": "Add routing rules (Recommended)",
+        "Enable cross-project learnings? gstack can apply patterns it learned from your other local projects to this review.": "Enable cross-project (Recommended)",
+        "No design doc found for this branch. Run /office-hours first to produce a structured problem statement and explored alternatives \u2014 that gives this CEO review sharper input. (~10 min)": "Skip \u2014 review PLAN.md as-is (Recommended)"
+      }
+    }
+  },
+  {
+    "case": "expansion-first",
+    "nativeSourceSha256": "3a810ccebf1241b0639bd613b7d0e2445d1184a565df21c08cc253e4a48b4e8a",
+    "requestLine": 67,
+    "resultLine": 68,
+    "call": {
+      "sessionId": "0b5caec7-417b-415d-9ede-8cdffc960a3f",
+      "toolUseId": "toolu_01UukKj3xcwtCLg5CJBn8C7s",
+      "requestedAt": "2026-09-09T01:53:37.436Z",
+      "answered": true,
+      "answeredAt": "2026-09-09T01:53:50.605Z",
+      "questions": [
+        {
+          "question": "gstack works best when your project's CLAUDE.md includes skill routing rules (e.g. 'strategy \u2192 /plan-ceo-review'). This adds ~10 lines that auto-suggest skills in future sessions. Note: we're in plan mode so the edit + commit will run after plan mode exits.",
+          "header": "Skill routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "Append gstack routing rules to CLAUDE.md and commit after plan mode exits. One-time setup, no ongoing cost."
+            },
+            {
+              "label": "Skip",
+              "description": "Keep invoking skills manually. No change to CLAUDE.md."
+            }
+          ]
+        },
+        {
+          "question": "gstack can search learnings from your other projects on this machine to find patterns that may apply here. Stays local \u2014 no data leaves your machine. Good for solo devs; skip if you work across client codebases where cross-pollination would be a problem.",
+          "header": "Learnings scope",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "Search learnings across all local projects. Useful for solo developers or teams on a shared machine."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Only surface learnings from this project."
+            }
+          ]
+        },
+        {
+          "question": "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this CEO review sharper input. Takes about 10 minutes. The design doc is per-feature, not per-product.",
+          "header": "Design doc",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /office-hours first (recommended)",
+              "description": "Generate a design doc now, then the CEO review picks up right after with much richer context."
+            },
+            {
+              "label": "Skip \u2014 standard review",
+              "description": "Proceed without a design doc. Review will still be thorough but works from the plan alone."
+            }
+          ]
+        }
+      ],
+      "answers": {
+        "gstack works best when your project's CLAUDE.md includes skill routing rules (e.g. 'strategy \u2192 /plan-ceo-review'). This adds ~10 lines that auto-suggest skills in future sessions. Note: we're in plan mode so the edit + commit will run after plan mode exits.": "Add routing rules (recommended)",
+        "gstack can search learnings from your other projects on this machine to find patterns that may apply here. Stays local \u2014 no data leaves your machine. Good for solo devs; skip if you work across client codebases where cross-pollination would be a problem.": "Enable cross-project (recommended)",
+        "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this CEO review sharper input. Takes about 10 minutes. The design doc is per-feature, not per-product.": "Run /office-hours first (recommended)"
+      }
+    }
+  },
+  {
+    "case": "expansion-retry",
+    "nativeSourceSha256": "c7b1b01f934321a5744f0443603df9bccd694419d3346c99178a1732d56133b1",
+    "requestLine": 62,
+    "resultLine": 63,
+    "call": {
+      "sessionId": "428232f1-d55d-42ac-8062-ec615d2923f9",
+      "toolUseId": "toolu_01FLL8tiDfw9uJRTGTpQaWgv",
+      "requestedAt": "2026-09-09T01:59:14.794Z",
+      "answered": true,
+      "answeredAt": "2026-09-09T01:59:15.628Z",
+      "questions": [
+        {
+          "question": "No design doc found for this branch. `/office-hours` produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this review much sharper input. Want to run it first?",
+          "header": "Design doc",
+          "options": [
+            {
+              "label": "Run /office-hours first (Recommended)",
+              "description": "Takes ~10 minutes. Produces a structured design doc with problem framing, alternatives considered, and key decisions \u2014 makes every finding in this CEO review sharper and better grounded."
+            },
+            {
+              "label": "Skip \u2014 proceed with standard review",
+              "description": "Proceed directly to the CEO review with the plan text as-is. The review will still be rigorous but without a design doc some premise questions will need to be answered inline."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answers": {
+        "No design doc found for this branch. `/office-hours` produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this review much sharper input. Want to run it first?": "Run /office-hours first (Recommended)"
+      }
+    }
+  }
+]

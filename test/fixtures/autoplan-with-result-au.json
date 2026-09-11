@@ -1,0 +1,11 @@
+{
+  "sessionId": "78ce9c42-e5f7-4595-81ea-7d9bb8b4345c",
+  "text": "Phase 2.5 wrapped up with DX improved to 8/10 and TTHW down to under 5 min; the Claude subagent review found 22 issues (6 high-severity), all accepted, while Codex remained disabled. Moving to Phase 3 (Eng Review), starting by loading the eng phase section and its methodology pointer.\n\n",
+  "timestamp": "2026-09-10T21:35:46.209Z",
+  "provenance": {
+    "kind": "Claude Code public narration summary",
+    "cliVersion": "2.1.263",
+    "publicTerminalSHA256": "79b01906d51fbf87451004e2fb10a191ab46442ecfb877c8ceba626556ea9314",
+    "originalPaidOutcome": "failed: missing DX phase marker"
+  }
+}

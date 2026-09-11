@@ -1,0 +1,252 @@
+{
+  "provenance": {
+    "observation": ".context/ship-source-w-full-paid-20260909-0928/native-observer-closure-v1/attempt-final/plan-ceo-review-1788946756315-4sRoMx/observation.json",
+    "observationSha256": "946bb1cf1694c28cbb5bec96e7004247933b7f61f5fab39de84460243eeb45ed",
+    "reportProof": ".context/ship-source-w-full-paid-20260909-0928/ceo-retry-report-versions-v1/proof.json",
+    "reportProofSha256": "150520848c0d938fbd5b3f635ac4282e4a20efd10a0c3ebdc1b3a4e13261d8c6",
+    "reportSha256": "811397e1ae81671e0a32f08013f79e436a303d675f7e6c0924fdeff5a59d4c61",
+    "reportBytes": 21351,
+    "reportMtimeMs": null,
+    "rawCounts": {
+      "step0Count": 4,
+      "reviewCount": 3,
+      "administrativeCount": 0
+    },
+    "rawState": "in_progress",
+    "limits": "Original report mtime was not retained. Snapshot timestamps are not substituted for it. Unit freshness checks use an explicitly synthetic timestamp; W remains globally timed out."
+  },
+  "calls": [
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01DouqUfSF7pXo6AT4kdSq6S",
+      "questions": [
+        {
+          "question": "gstack works best when your project's CLAUDE.md includes skill routing rules \u2014 so the right skill gets invoked automatically. Add them to this project's CLAUDE.md?",
+          "header": "Routing rules",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "Appends a ## Skill routing section to CLAUDE.md. Note: this is a plan-review fixture repo, so you may prefer to skip."
+            },
+            {
+              "label": "No thanks, manual only",
+              "description": "Skips the update. You can re-enable with gstack-config set routing_declined true."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack works best when your project's CLAUDE.md includes skill routing rules \u2014 so the right skill gets invoked automatically. Add them to this project's CLAUDE.md?": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:40:40.622Z"
+    },
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01QM8FC4oqXEg3hKTFTBsTnf",
+      "questions": [
+        {
+          "question": "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this review much sharper input. Want to run it first?",
+          "header": "Office hours?",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip \u2014 proceed with standard review (recommended)",
+              "description": "The plan is concise and well-scoped (two unit tests for processPayment). Standard review is sufficient here."
+            },
+            {
+              "label": "Run /office-hours first",
+              "description": "Takes ~10 min to produce a structured design doc, then we pick up the CEO review right after."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives \u2014 it gives this review much sharper input. Want to run it first?": "Skip \u2014 proceed with standard review (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:41:02.700Z"
+    },
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01TS918a5t4AZH9vHhUUPXDh",
+      "questions": [
+        {
+          "question": "Which implementation approach should guide this review?",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Minimal \u2014 exactly as specified (recommended)",
+              "description": "Two unit tests only: happy path + 502. Reuses factory/sleeper/mock. Completeness 7/10. Smallest diff, matches plan's stated 'deliberately separate concerns' framing.",
+              "preview": "APPROACH A: Minimal viable\n  Tests:  2 (happy path + 502 retry)\n  Effort: S \u2014 human ~1h / CC ~5 min\n  LOC:    ~60\n  Score:  Completeness 7/10\n  Reuses: factory, sleeper, Stripe mock"
+            },
+            {
+              "label": "B: Full processPayment() coverage",
+              "description": "The 2 specified tests + 402, 429, receipt-builder failure, idempotency under retry. Completeness 9/10. Catches more real bugs but wider diff.",
+              "preview": "APPROACH B: Full coverage\n  Tests:  6-8 (happy + 502 + 402 + 429\n          + builder failure + idempotency)\n  Effort: M \u2014 human ~3-4h / CC ~15 min\n  LOC:    ~150-200\n  Score:  Completeness 9/10"
+            },
+            {
+              "label": "C: Table-driven / parametric",
+              "description": "Same breadth as B but expressed as a parametric test structure. Fewer LOC, easy to extend, but mixes correctness + degradation (contradicts plan's 'separate concerns' call).",
+              "preview": "APPROACH C: Table-driven\n  Tests:  1 parametric covering 5+ cases\n  Effort: S-M \u2014 human ~2h / CC ~10 min\n  LOC:    ~100\n  Score:  Completeness 9/10\n  Risk:   contradicts 'separate concerns' design"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Which implementation approach should guide this review?": "A: Minimal \u2014 exactly as specified (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:42:19.517Z"
+    },
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01W2gJwyumADmyKD1cdjoRUh",
+      "questions": [
+        {
+          "question": "Which review mode should I run? (You chose Approach A: 2 unit tests, minimal scope.)",
+          "header": "Review mode",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "HOLD SCOPE \u2014 make the 2 tests bulletproof (recommended)",
+              "description": "Accept the plan's scope. Review with maximum rigor: assertion quality, edge cases within the 2 tests, observability, failure modes, mock setup correctness. No expansions surfaced."
+            },
+            {
+              "label": "SELECTIVE EXPANSION \u2014 baseline + cherry-pick extras",
+              "description": "Review the 2 tests with rigor, then surface individual expansion opportunities (e.g. idempotency test, receipt-builder failure) for you to opt in or skip. Neutral recommendations."
+            },
+            {
+              "label": "SCOPE EXPANSION \u2014 dream bigger",
+              "description": "Envision the ambitious version: mutation testing, full processPayment() contract, integration test layer. Each proposal presented individually for your approval."
+            },
+            {
+              "label": "SCOPE REDUCTION \u2014 find the minimum",
+              "description": "Already minimal (2 tests) \u2014 only choose this if you think even fewer tests would suffice."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Which review mode should I run? (You chose Approach A: 2 unit tests, minimal scope.)": "HOLD SCOPE \u2014 make the 2 tests bulletproof (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:42:35.584Z"
+    },
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_015MLgtzrhpX8nh5hMiVPtAG",
+      "questions": [
+        {
+          "question": "D5 \u2014 What does processPayment() do when the 502 retry is exhausted? The plan says 'fails clean' but that's not a testable assertion. The 502 test must assert something specific.",
+          "header": "502 error contract",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Check production code \u2014 add exact exception to plan (recommended)",
+              "description": "Look at what processPayment() raises when Stripe retries exhaust. Add the specific class (e.g. PaymentGatewayError, Stripe::BadGateway) to the plan so the test asserts it precisely. Completeness: 10/10."
+            },
+            {
+              "label": "Raises an exception \u2014 document it in the plan",
+              "description": "The 502 test will assert `raise_error(SpecificErrorClass)`. Add the class name to the plan now. Completeness: 10/10."
+            },
+            {
+              "label": "Returns a sentinel (nil or Result.failure)",
+              "description": "The 502 test will assert nil return or Result.failure pattern. Add the expected return shape to the plan now. Completeness: 10/10."
+            },
+            {
+              "label": "Keep 'fails clean' \u2014 leave assertion to implementer",
+              "description": "Accepts the ambiguity. Developer figures out the contract from the code. Risk: test may only assert `raise_error` (catches any exception, including bugs). Completeness: 6/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 What does processPayment() do when the 502 retry is exhausted? The plan says 'fails clean' but that's not a testable assertion. The 502 test must assert something specific.": "Check production code \u2014 add exact exception to plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:49:03.078Z"
+    },
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01WxzEVe9SLn16nwFDYgRHBZ",
+      "questions": [
+        {
+          "question": "D6 \u2014 What makes a receipt 'correct' in the happy-path test? The plan says 'assert correct receipt is generated' but doesn't say which fields to verify.",
+          "header": "Receipt assertion",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Assert receipt fields bound to mock charge data (recommended)",
+              "description": "Assert receipt.charge_id matches the Stripe mock's returned charge ID, receipt.amount matches, etc. Ties assertions to the factory's mock output \u2014 catches any mis-routing or wrong-charge bugs. Completeness: 10/10."
+            },
+            {
+              "label": "Assert receipt is non-nil only",
+              "description": "Simpler but weak \u2014 passes even if receipt has wrong charge_id or wrong amount. Completeness: 5/10."
+            },
+            {
+              "label": "Leave assertion definition to the implementer",
+              "description": "Developer decides what 'correct' means from the production code. Risk: test may only assert presence. Completeness: 6/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 What makes a receipt 'correct' in the happy-path test? The plan says 'assert correct receipt is generated' but doesn't say which fields to verify.": "Assert receipt fields bound to mock charge data (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:49:13.122Z"
+    },
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01GHHxQzpHdBGoFtGqMRhFGt",
+      "questions": [
+        {
+          "question": "CEO review is CLEAR. Eng review is the required shipping gate \u2014 run it next?",
+          "header": "Next review",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /plan-eng-review (recommended)",
+              "description": "Architecture, code quality, tests, performance review. Required gate before shipping. This CEO review held scope and resolved 2 assertion gaps \u2014 eng review verifies the test structure is sound."
+            },
+            {
+              "label": "Skip \u2014 I'll handle reviews manually",
+              "description": "You manage the review pipeline yourself. Note: eng review is required to CLEAR for /ship."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "CEO review is CLEAR. Eng review is the required shipping gate \u2014 run it next?": "Run /plan-eng-review (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T09:52:10.256Z"
+    }
+  ],
+  "planReadyRequests": [
+    {
+      "sessionId": "2bafbd5b-abe8-4b41-9872-3d8126188b94",
+      "toolUseId": "toolu_01Smj246aCYcFRF8wQvHwz9a",
+      "timestamp": "2026-09-09T09:52:16.599Z",
+      "failed": false
+    }
+  ],
+  "reportContent": "# CEO Review: Payment Processing \u2014 Test Coverage\n\n**Skill:** /plan-ceo-review | **Mode:** HOLD SCOPE | **Approach:** A (minimal, exactly as specified)\n**Branch:** main | **Date:** 2026-09-09\n\n---\n\n## Context\n\n`processPayment()` has zero unit tests. The existing test infrastructure (test factory, Stripe mock, virtual sleeper) is already in place. This plan adds two unit tests that cover the orchestration layer \u2014 not duplicating the adapter-level Stripe suite, but testing how `processPayment()` wires charge + receipt together.\n\n## Step 0 Summary\n\n**Premise:** Valid. `processPayment()` is a payment-critical path with no unit-level safety net.\n**Approach A selected:** 2 unit tests \u2014 happy path (charge \u2192 receipt) and 502 retry path.\n**Mode:** HOLD SCOPE \u2014 make these 2 tests bulletproof. No expansions surfaced.\n\n### 0A. Premise Challenge\nThe problem is real: `processPayment()` has no unit tests. The adapter suite covers Stripe responses in isolation; the receipt-builder failure tests cover one component; neither covers the orchestration. If `processPayment()` mis-routes a receipt after a charge, or silently succeeds on a 502, neither existing suite catches it.\n\nDoing nothing: next payment bug surfaces in production or is caught only if both the adapter and receipt-builder tests happen to cover the exact interaction \u2014 fragile.\n\n### 0B. Existing Code Leverage\nAll infrastructure is in place. The test factory injects:\n- Stripe mock (call history exposed)\n- Virtual sleeper (records backoff without real delays)\n- `max_retries=1` configuration (exhausted 502 = exactly 2 charge attempts)\n\nNo rebuilding needed. The plan correctly reuses all of it.\n\n### 0C. Dream State\n```\nCURRENT STATE                THIS PLAN                    12-MONTH IDEAL\nprocessPayment() has 0       Add happy-path test +        Full processPayment()\nunit tests. Adapter suite    Add 502 retry test.          contract: happy, 4xx,\ncovers Stripe isolation.     Reuse factory/sleeper/       502, idempotency,\nReceipt-builder tests        mock. ~2 tests, ~60 LOC.     receipt-builder\nexist separately.                                         failure propagation.\n```\n\n---\n\n## Section 1: Architecture Review\n\n**No issues.** This is a test-only change \u2014 no new production components, no new coupling, no rollback required.\n\nTest architecture:\n```\n  [Payment Test Factory]\n    \u251c\u2500\u2500 max_retries=1\n    \u251c\u2500\u2500 Virtual Sleeper\n    \u2514\u2500\u2500 Stripe Mock (call history)\n          \u2502\n          \u25bc\n    processPayment()\n          \u2502\n    \u250c\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n    \u2502 (happy path)    (502 path)     \u2502\n    \u25bc                 \u25bc             \u2502\n  Stripe OK        Stripe 502       \u2502\n    \u2502               \u2502               \u2502\n    \u25bc               \u25bc               \u2502\n  Receipt        retry (\u00d71)        \u2502\n  Builder           \u2502               \u2502\n    \u2502             Stripe 502        \u2502\n    \u25bc               \u2502               \u2502\n  receipt         fails             \u2502\n                  clean             \u2502\n    \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500-\u2500\u2518\n```\n\nData flows for the 4 shadow paths are exercised within the 2 proposed tests:\n- Happy path: full success chain tested\n- Nil path: not tested (out of scope per Approach A \u2014 input validation is a separate concern)\n- Empty path: not tested (same)\n- Error path: 502 exhaustion tested\n\nNo security architecture changes. No new endpoints. No deployment risk.\n\n---\n\n## Section 2: Error & Rescue Map\n\n**FINDING [S2-1]:** \"fails clean\" is unspecified.\n\nThe 502 test plan says: _\"assert retry-with-backoff fires once, then fails clean.\"_\n\n`fails clean` is not a testable assertion without knowing processPayment()'s error contract:\n- Does it raise a specific exception? (e.g., `Stripe::BadGateway`, `PaymentGatewayError`)\n- Does it return a sentinel value? (nil, `Result.failure(...)`, an error struct)\n- Does the error carry context? (charge attempt count, last error code)\n\n**Why this matters:** A developer writing this test must assert something specific. Without knowing the expected error type/return value, the test can be written trivially and still \"pass\" the plan:\n```\n# Too weak \u2014 this just checks \"something was raised\":\nexpect { processPayment(payment) }.to raise_error\n```\nvs.\n```\n# Correct \u2014 this checks the exact error contract:\nexpect { processPayment(payment) }.to raise_error(PaymentGatewayError, /502/)\n```\n\nError & Rescue Map (incomplete \u2014 gap marked):\n\n```\nMETHOD/CODEPATH      | WHAT CAN GO WRONG          | EXCEPTION CLASS\n---------------------|----------------------------|------------------\nprocessPayment()     | Stripe returns 502         | UNKNOWN \u2190 GAP\n                     | Retry exhausted (max=1)    | UNKNOWN \u2190 GAP\n                     | Receipt builder fails      | (separate test coverage)\n                     | Stripe returns success     | \u2014\n\nEXCEPTION CLASS      | RESCUED? | RESCUE ACTION           | USER SEES\n---------------------|----------|-------------------------|------------------\nStripe 502           | Y        | Retry \u00d71 with backoff   | (buffered)\n502 exhausted        | ?        | fails clean \u2192 ???       | UNKNOWN \u2190 GAP\n```\n\n**RESOLVED (S2-1):** Implementer must check production `processPayment()` to find the specific exception class raised when Stripe retry is exhausted. The 502 test assertion must use that class: `expect { processPayment(payment) }.to raise_error(SpecificErrorClass)` \u2014 not bare `raise_error`. Add the class name to the test and to this plan before merging.\n\n---\n\n## Section 3: Security & Threat Model\n\n**No issues.** Test-only change. No new endpoints, no new params, no new secrets. The test factory uses mocked payment data (not real PII). No audit trail requirements for unit tests.\n\n---\n\n## Section 4: Data Flow & Interaction Edge Cases\n\n**No issues for test-only scope.** No user-facing interactions. The data flow shadow paths are evaluated in Section 6 (test coverage). No async ordering concerns \u2014 the virtual sleeper is synchronous.\n\n---\n\n## Section 5: Code Quality\n\n**No issues at plan level.** The plan correctly calls for reusing all existing helpers (factory, sleeper, mock). The \"deliberately separate concerns\" framing (success = correctness, failure = graceful degradation) is sound \u2014 avoids conflating two different failure modes into one test. Naming should follow this framing: `test_happy_path_generates_correct_receipt` and `test_502_retry_exhaustion_fails_clean`.\n\nOne quality note (not a blocker): since `max_retries=1` means exactly 2 charge attempts on 502 exhaustion, the 502 test should assert Stripe mock was called **exactly twice** (not \"at least once\") to verify the retry count contract precisely.\n\n---\n\n## Section 6: Test Review (PENDING \u2014 partial)\n\n### New codepaths\n\n```\nNEW UX FLOWS:       none (test-only)\nNEW DATA FLOWS:     none (test-only)\nNEW CODEPATHS:      unit test: processPayment() happy path\n                    unit test: processPayment() 502 retry + exhaustion\nNEW BACKGROUND JOBS: none\nNEW INTEGRATIONS:   none (Stripe mock only)\nNEW ERROR PATHS:    processPayment() 502 exhaustion observable behavior (GAP: see S2-1)\n```\n\n**Test 1: Happy path**\n- Type: Unit\n- In plan? Yes\n- Happy path test: Stripe mock returns success \u2192 receipt returned \u2192 *assert receipt is \"correct\"*\n- **RESOLVED [S6-1]:** Assert receipt fields bound to mock charge data. The happy-path test must assert `receipt.charge_id == stripe_mock.last_charge.id` (and equivalent for amount, currency, or whatever fields the receipt captures from the charge response). Never assert only `expect(receipt).not_to be_nil` \u2014 that catches nothing.\n- Edge case: Use factory-returned mock charge metadata in assertions \u2014 not hardcoded values \u2014 so the test fails if processPayment() mis-routes the receipt to the wrong charge.\n\n**Test 2: 502 retry path**\n- Type: Unit\n- In plan? Yes\n- The plan specifies 3 sub-assertions:\n  1. Retry-with-backoff fires \u2014 **testable**: virtual sleeper records exactly 1 backoff event\n  2. Exactly 2 charge attempts \u2014 **testable**: Stripe mock call history count == 2\n  3. \"Fails clean\" \u2014 **blocked by S2-1**: requires knowing processPayment()'s error contract\n- Failure path: what wrong result this test should reject:\n  - Only 1 Stripe call (no retry fired)\n  - 0 backoff records (retry without backoff)\n  - A receipt being returned despite 502 (silent success)\n  - Exception type wrong or missing\n\n**Test ambition check (HOLD SCOPE):**\n- 2am Friday confidence: requires both tests to assert specific values, not just \"something non-nil\"\n- Hostile QA: would attempt `processPayment()` with a 502 and check whether a receipt leaks through \u2014 this is caught by the 502 test only if we assert no receipt was generated\n- Chaos: virtual sleeper eliminates time-dependency flakiness \u2713\n\n**Flakiness risk:** None \u2014 virtual sleeper, deterministic mock, no external calls. \u2713\n\n**Both gaps resolved.** See S2-1 and S6-1 decisions above.\n\n---\n\n## Section 7: Performance Review\n\n**No issues.** Test-only change. Virtual sleeper eliminates wait time. No DB, no network, no caching concerns.\n\n---\n\n## Section 8: Observability & Debuggability Review\n\n**No issues for HOLD SCOPE.** The virtual sleeper records backoff, and mock call history records charge attempts \u2014 these are the observability hooks the test already uses. Adding production-side log assertions is out of scope for HOLD SCOPE (no evidenced gap in the accepted scope's correctness).\n\n---\n\n## Section 9: Deployment & Rollout Review\n\n**No issues.** Test-only change. No migration, no feature flag, no deployment sequence. Ship by merging \u2014 zero downtime risk.\n\n---\n\n## Section 10: Long-Term Trajectory\n\n**No issues.** These tests reduce technical debt. Reversibility: 5/5 (tests are trivially removable). Path dependency: none. The tests serve as executable documentation of `processPayment()`'s contract \u2014 a future engineer reading them learns what the function guarantees.\n\nOne note: the 12-month ideal (full contract coverage) requires these 2 tests to be internally consistent so future tests extend them rather than duplicate them. The factory-based setup and clear concern separation help here.\n\n---\n\n## Section 11: Design & UX Review\n\n**SKIPPED.** No UI scope detected.\n\n---\n\n## Codex / Outside Voice\n\nCodex review skipped (`codex_reviews` disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\nOutside voice: disabled \u2014 no independent pass ran.\n\n---\n\n## NOT in scope\n\n- processPayment() behavior under nil/empty payment input (approach A, test-only)\n- Card decline (402) at processPayment() level (adapter-level coverage exists)\n- Rate limit (429) at processPayment() level (adapter-level coverage exists)\n- Receipt-builder failure path in processPayment() tests (own passing regression tests exist)\n- Idempotency under retry (deferred \u2014 not in approach A)\n- Log emission assertions (no evidenced correctness gap)\n- Integration test layer (approach A = unit tests only)\n\n---\n\n## What Already Exists\n\n| Existing item | Relevance | Reused? |\n|---|---|---|\n| Payment test factory (max_retries=1, call history) | Core infrastructure for both tests | YES |\n| Virtual sleeper (injected) | Backoff recording without real delay | YES |\n| Stripe mock (call history) | Deterministic charge simulation | YES |\n| Stripe adapter suite (402, 429, 502 recovery) | Covers adapter level \u2014 not duplicated | Referenced |\n| Receipt-builder failure regression tests | Covers builder level | Referenced |\n\n---\n\n## Dream State Delta\n\nThis plan moves processPayment() from 0% to ~30% unit coverage (happy path + primary error path). Remaining gap to 12-month ideal: 402/429 at orchestration level, idempotency under retry, receipt-builder failure propagation.\n\n---\n\n## Diagrams\n\n**System architecture (test layer):**\n```\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n  \u2502              TEST SUITE                      \u2502\n  \u2502                                             \u2502\n  \u2502  Test 1: happy_path_generates_correct_receipt\u2502\n  \u2502  Test 2: 502_retry_exhaustion_fails_clean    \u2502\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                   \u2502 uses\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25bc\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n  \u2502           PAYMENT TEST FACTORY               \u2502\n  \u2502  - max_retries=1                            \u2502\n  \u2502  - Virtual Sleeper (records backoff)        \u2502\n  \u2502  - Stripe Mock (exposes call history)       \u2502\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                   \u2502 injects into\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25bc\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n  \u2502           processPayment()                   \u2502\n  \u2502  (production code, unchanged by this plan)  \u2502\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n             \u2502\n    \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n    \u25bc                 \u25bc\n  Stripe Mock    Receipt Builder\n  (in test)      (real, or stubbed?)\n```\n\n**Data flow \u2014 happy path test:**\n```\n  factory.payment \u2500\u2500\u25b6 processPayment()\n                           \u2502\n                     Stripe mock: 200 OK\n                           \u2502\n                     receipt = build_receipt(charge)\n                           \u2502\n                     return receipt\n                           \u2502\n                     ASSERT: receipt.charge_id == mock.last_charge.id\n                     ASSERT: receipt.amount == mock.last_charge.amount\n                             (S6-1 resolved: bind to mock charge metadata)\n```\n\n**Data flow \u2014 502 retry path:**\n```\n  factory.payment \u2500\u2500\u25b6 processPayment()\n                           \u2502\n                     Stripe mock: 502\n                           \u2502\n                     sleeper.sleep(backoff_1)  \u2190 assert: 1 backoff recorded\n                           \u2502\n                     Stripe mock: 502 (attempt 2)\n                           \u2502\n                     retry exhausted (max_retries=1 \u2192 2 attempts)\n                           \u2502\n                     ASSERT: mock.call_history.count == 2\n                     ASSERT: sleeper.backoffs.count == 1\n                     ASSERT: raise_error(ProductionErrorClass)\n                             \u2190 check processPayment() source for class name (S2-1 resolved)\n```\n\n**Error flow:**\n```\n  processPayment() 502 path\n        \u2502\n        \u251c\u2500 Stripe returns 502 (attempt 1)\n        \u2502       \u2502\n        \u2502       \u2514\u2500\u2500 backoff + retry\n        \u2502\n        \u251c\u2500 Stripe returns 502 (attempt 2, max_retries=1 exhausted)\n        \u2502\n        \u2514\u2500 fails clean \u2192 ??? [S2-1 GAP]\n              \u2502\n              \u251c\u2500 A) raises PaymentGatewayError (or Stripe::BadGateway)\n              \u251c\u2500 B) returns nil\n              \u2514\u2500 C) returns Result.failure(...)\n         \u2192 RESOLVED: check production code; add class to plan + test\n```\n\n---\n\n## Error & Rescue Registry\n\n```\nMETHOD/CODEPATH      | WHAT CAN GO WRONG       | EXCEPTION CLASS   | RESCUED? | ACTION           | USER SEES\n---------------------|-------------------------|-------------------|----------|------------------|----------\nprocessPayment()     | Stripe returns 502      | (Stripe error)    | Y        | retry \u00d71 w/sleep | buffered\nprocessPayment()     | Retry exhausted         | [UNKNOWN \u2014 S2-1]  | ?        | fails clean      | UNKNOWN\nprocessPayment()     | Stripe returns success  | \u2014                 | n/a      | build receipt    | receipt\nReceipt builder fail | (own regression tests)  | (own tests)       | Y        | (own tests)      | (own tests)\n```\n\n---\n\n## Failure Modes Registry\n\n```\nCODEPATH             | FAILURE MODE      | RESCUED? | TEST? | USER SEES | LOGGED?\n---------------------|-------------------|----------|-------|-----------|--------\nprocessPayment()     | Stripe 502 \u2192 retry| Y        | YES   | none      | ?\nprocessPayment()     | 502 exhausted     | ?        | YES*  | UNKNOWN   | ?\nprocessPayment()     | 502 \u2192 no receipt  | implicit | YES   | no leak   | ?\nprocessPayment()     | Happy path        | n/a      | YES   | receipt   | ?\n\n* Test planned but assertion incomplete without S2-1 resolution\n```\n\nCRITICAL GAPs: S2-1 (502 exhaustion error contract), S6-1 (correct receipt definition)\n\n---\n\n## TODOS.md Updates\n\nNone proposed. Both open findings (S2-1, S6-1) must be resolved in the plan before implementation \u2014 they are not deferrals, they are blockers.\n\n---\n\n## Implementation Tasks\n\nSynthesized from this review's findings. Run with Claude Code; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~30min / CC: ~5min)** \u2014 processPayment() test \u2014 Specify \"fails clean\" error contract (S2-1)\n  - Surfaced by: Section 2 \u2014 502 exhaustion raises unknown exception/returns unknown value\n  - Files: payment_test.rb (or equivalent test file)\n  - Verify: 502 test asserts exact exception class AND message (not bare `raise_error`)\n- [ ] **T2 (P1, human: ~30min / CC: ~5min)** \u2014 processPayment() test \u2014 Specify \"correct receipt\" assertion (S6-1)\n  - Surfaced by: Section 6 \u2014 receipt correctness is undefined (any non-nil passes)\n  - Files: payment_test.rb (or equivalent test file)\n  - Verify: happy-path test asserts receipt.charge_id, receipt.amount (or equivalent bound fields), not just presence\n\n_No new tasks from Sections 3, 5, 7, 8, 9, 10, 11._\n\n---\n\n## Completion Summary\n\n```\n  +====================================================================+\n  |            MEGA PLAN REVIEW \u2014 COMPLETION SUMMARY                   |\n  +====================================================================+\n  | Mode selected        | HOLD SCOPE                                   |\n  | System Audit         | Fixture repo, 1 commit, clean                |\n  | Step 0               | HOLD SCOPE, Approach A (minimal, 2 tests)   |\n  | Section 1  (Arch)    | 0 issues \u2014 test-only, clear diagram         |\n  | Section 2  (Errors)  | 2 error paths mapped, 1 GAP (S2-1)         |\n  | Section 3  (Security)| 0 issues                                     |\n  | Section 4  (Data/UX) | 0 edge cases unhandled (no UI)              |\n  | Section 5  (Quality) | 0 issues                                     |\n  | Section 6  (Tests)   | Diagram produced, 1 gap (S6-1)              |\n  | Section 7  (Perf)    | 0 issues                                     |\n  | Section 8  (Observ)  | 0 gaps (HOLD SCOPE standard)                |\n  | Section 9  (Deploy)  | 0 risks \u2014 test-only                         |\n  | Section 10 (Future)  | Reversibility: 5/5, debt items: 0           |\n  | Section 11 (Design)  | SKIPPED (no UI scope)                       |\n  +--------------------------------------------------------------------+\n  | NOT in scope         | written (8 items)                            |\n  | What already exists  | written (5 items)                            |\n  | Dream state delta    | written                                      |\n  | Error/rescue registry| 4 entries, 1 CRITICAL GAP (S2-1)           |\n  | Failure modes        | 4 total, 2 CRITICAL GAPS (S2-1, S6-1)      |\n  | TODOS.md updates     | 0 items (gaps are blockers, not deferrals)  |\n  | Scope proposals      | 0 proposed, 0 accepted (HOLD SCOPE)         |\n  | CEO plan             | skipped (HOLD SCOPE)                         |\n  | Outside voice        | skipped (codex_reviews disabled)             |\n  | Diagrams produced    | 4 (architecture, happy path, 502, error flow)|\n  | Stale diagrams found | 0 (no existing diagrams in codebase)        |\n  | Unresolved decisions | 0 (S2-1 + S6-1 both resolved)               |\n  +====================================================================+\n```\n\n### Unresolved Decisions\n\nBoth resolved during review session.\n\n- **S2-1 RESOLVED:** Check production `processPayment()` for specific exception class on 502 exhaustion; use it in 502 test assertion.\n- **S6-1 RESOLVED:** Assert receipt fields (charge_id, amount) bound to Stripe mock's returned charge metadata.\n\n---\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | clean | mode: HOLD_SCOPE, 0 unresolved (2 gaps resolved) |\n| Outside Review | disabled | Independent 2nd opinion | 0 | disabled | codex_reviews=disabled |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | not run |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | not applicable (no UI scope) |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | not run |\n\n**OUTSIDE COVERAGE:** disabled (codex_reviews=disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n**VERDICT:** CEO review CLEAR. Eng review required before shipping.\n\nNO UNRESOLVED DECISIONS\n"
+}

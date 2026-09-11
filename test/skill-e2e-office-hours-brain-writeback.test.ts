@@ -7,14 +7,12 @@
  * `gbrain put office-hours/<slug>` with valid frontmatter.
  *
  * Approach:
- *   1. Regenerate office-hours/SKILL.md with --respect-detection against
- *      a temp GSTACK_HOME that has detected:true. Snapshot the rendered
- *      content (which now contains the compressed SAVE_RESULTS block),
- *      then restore the canonical no-gbrain version so the working tree
- *      stays clean.
- *   2. Write the snapshot into a temp workdir's office-hours/SKILL.md.
- *      Also write docs/gbrain-write-surfaces.md so the agent can read the
- *      template on demand (the compact block points to it).
+ *   1. Render brain-aware skills into isolated staging with --respect-detection
+ *      against a temp GSTACK_HOME and --link-root pointing at the workdir.
+ *      Shared repository outputs remain untouched throughout generation.
+ *   2. Copy the office-hours skeleton and all lazy sections into the workdir,
+ *      then discard staging. Also copy docs/gbrain-write-surfaces.md so the
+ *      agent can read the template on demand.
  *   3. Write a fake `gbrain` shell script into workdir/bin/ with robust
  *      argv quoting (printf %q) so heredoc payloads in --content survive
  *      shell-to-shell. The fake logs every invocation + writes payloads
@@ -91,9 +89,8 @@ describeIfSelected(
       );
       copyFileSync(briefSrc, join(workDir, 'pitch.md'));
 
-      // Generate a brain-aware office-hours/SKILL.md (with --respect-detection
-      // against a temp GSTACK_HOME). Snapshot the content, restore the
-      // canonical version, write the snapshot into the workdir.
+      // Render outside ROOT. Lazy section links must point at workDir, where
+      // the selected brain-aware copies survive staging cleanup.
       const tmpHome = mkdtempSync(join(tmpdir(), 'gbrain-detect-home-'));
       writeFileSync(
         join(tmpHome, 'gbrain-detection.json'),
@@ -103,15 +100,9 @@ describeIfSelected(
           gbrain_version: 'test-0.41.0',
         }),
       );
-      const skillPath = join(ROOT, 'office-hours', 'SKILL.md');
-      const originalSkill = readFileSync(skillPath, 'utf-8');
-      // office-hours is carved (v2 plan T9): GBRAIN_SAVE_RESULTS moved into
-      // sections/design-and-handoff.md. Regen rewrites BOTH the skeleton and the
-      // section, so we snapshot + restore + ship both, and check the UNION for
-      // the gbrain put block.
-      const sectionPath = join(ROOT, 'office-hours', 'sections', 'design-and-handoff.md');
-      const hasSection = existsSync(sectionPath);
-      const originalSection = hasSection ? readFileSync(sectionPath, 'utf-8') : null;
+      const outDir = join(tmpHome, 'rendered');
+      const skillPath = join(outDir, 'office-hours', 'SKILL.md');
+      const sectionPath = join(outDir, 'office-hours', 'sections', 'design-and-handoff.md');
       try {
         execFileSync(
           'bun',
@@ -121,16 +112,18 @@ describeIfSelected(
             '--host',
             'claude',
             '--respect-detection',
+            '--out-dir', outDir,
+            '--link-root', workDir,
           ],
           {
-            // LIVE-REPO CWD: gen-skill-docs regenerates the in-repo
-            // office-hours SKILL.md + section (snapshotted/restored in finally).
+            // LIVE-REPO CWD: ROOT supplies templates; --out-dir owns all writes.
             cwd: ROOT,
             env: { ...process.env, GSTACK_HOME: tmpHome },
             stdio: ['ignore', 'pipe', 'pipe'],
             timeout: 60_000,
           },
         );
+        const hasSection = existsSync(sectionPath);
         const brainAwareSkill = readFileSync(skillPath, 'utf-8');
         const brainAwareSection = hasSection ? readFileSync(sectionPath, 'utf-8') : '';
         if (!(brainAwareSkill + brainAwareSection).includes('gbrain put "office-hours/')) {
@@ -142,13 +135,17 @@ describeIfSelected(
         mkdirSync(join(workDir, 'office-hours'), { recursive: true });
         writeFileSync(join(workDir, 'office-hours', 'SKILL.md'), brainAwareSkill);
         if (hasSection) {
-          mkdirSync(join(workDir, 'office-hours', 'sections'), { recursive: true });
-          writeFileSync(join(workDir, 'office-hours', 'sections', 'design-and-handoff.md'), brainAwareSection);
+          const sectionDir = join(outDir, 'office-hours', 'sections');
+          const localSectionDir = join(workDir, 'office-hours', 'sections');
+          mkdirSync(localSectionDir, { recursive: true });
+          for (const entry of readdirSync(sectionDir, { withFileTypes: true })) {
+            if (entry.isFile() && entry.name.endsWith('.md')) {
+              copyFileSync(join(sectionDir, entry.name), join(localSectionDir, entry.name));
+            }
+          }
         }
       } finally {
-        // Always restore the canonical skeleton + section so the working tree stays clean.
-        writeFileSync(skillPath, originalSkill);
-        if (hasSection && originalSection !== null) writeFileSync(sectionPath, originalSection);
+        // The copied skeleton points to workDir, never this removed staging tree.
         rmSync(tmpHome, { recursive: true, force: true });
       }
 

@@ -1,0 +1,50 @@
+{
+  "provenance": "Three public native questions from AX Eng first attempt; excerpt replay never changes the failed paid outcome.",
+  "questions": [
+    {
+      "header": "Scope",
+      "question": "D1 \u2014 Reduce the Multi-tenant Auth Refactor scope, or proceed with all five components?\nProject/branch/task: main, reviewing PLAN.md (Multi-tenant Auth Refactor).\nELI10: The plan adds five new pieces to the auth layer, and three of them (the existing cache adapter, AuthCache, TokenStore) all store tokens. More pieces means more places for a tenant's token to end up in the wrong bucket or survive a revocation. The goal (AuthBroker + SessionMint over one shared cache) does not need all five.\nStakes if we pick wrong: too big and you ship three overlapping caches with two invalidation surfaces; too small and you rebuild TokenStore/RequestPolicy in the next PR anyway.\nRecommendation: A because it reaches the same goal with fewer moving parts and holds (not cuts) the two unjustified classes.\nCompleteness: A=9/10, B=7/10\nNet: fewer storage layers and one invalidation surface vs. shipping the plan exactly as written. <gstack-qid:plan-eng-review-scope-reduction>",
+      "options": [
+        {
+          "label": "A) Reduce (recommended)",
+          "description": "\u2705 Keep AuthBroker, SessionMint, injected AuthCache; one backing store, one invalidation surface. \u2705 Diff shrinks from 12 files and TokenStore/RequestPolicy return only with a one-line justification (T9). \u274c If TokenStore turns out to carry real behavior, it lands in a follow-up PR instead of this one. (human: saves ~2 days / CC: saves ~30 min)"
+        },
+        {
+          "label": "B) Proceed as-is",
+          "description": "\u2705 Nothing is deferred; every class in the original plan ships in this PR. \u2705 No follow-up PR needed if TokenStore and RequestPolicy do carry real behavior. \u274c Three storage-shaped components and a 12-file diff; revocation must be proven against each store separately. (human: ~2 days extra / CC: ~30 min extra)"
+        }
+      ],
+      "multiSelect": false
+    },
+    {
+      "header": "Errors",
+      "question": "D5 \u2014 How should validateAndDispatch() handle its three error classes?\nProject/branch/task: main, PLAN.md:23-24 (60 lines, three nested try/catch, each catch swallows a different error class).\nELI10: Today each catch quietly eats its error and the function carries on. A swallowed validation error means a request can reach dispatch without a verified identity, and nothing is logged. Flattening into three named steps with one error boundary that recognizes each error type by instanceof makes every failure visible and mapped to a response.\nStakes if we pick wrong: silent auth bypass paths stay in the code, and the next debugging session starts with no log line.\nRecommendation: A because one explicit boundary is both DRYer and safer than three silent catches, and it costs minutes with CC.\nCompleteness: A=10/10, B=5/10\nNet: one typed error boundary that never swallows, versus keeping the nesting and adding logging. <gstack-qid:plan-eng-review-flatten-dispatch>",
+      "options": [
+        {
+          "label": "A) Flatten + typed boundary (recommended)",
+          "description": "\u2705 validate(), dispatch(), commit() as named helpers; one catch maps ValidationError/DispatchError/PolicyError to 401/502/403 and rethrows unknowns. \u2705 Each branch gets a test that asserts both the response and a log line (T5). \u274c Touches the whole 60-line function; needs the T1 corpus green before and after. (human: ~half day / CC: ~15 min)"
+        },
+        {
+          "label": "B) Keep nesting, add logging",
+          "description": "\u2705 Minimal diff; the three catches stay where they are. \u2705 Failures become visible in logs. \u274c Swallowed errors still let the request continue past a failed step; the behavior bug remains. (human: ~1 h / CC: ~5 min)"
+        }
+      ],
+      "multiSelect": false
+    },
+    {
+      "header": "IDP calls",
+      "question": "D7 \u2014 How to speed up the five IDP calls in token validation?\nProject/branch/task: main, PLAN.md:31-32 (five sequential independent IDP calls, Promise.all proposed).\nELI10: Running the five calls at once cuts login latency to the slowest call. But when one fails fast, the other four keep running unless you abort them, and five concurrent calls per login multiplies pressure on the identity provider's rate limits. Some of the five (key sets, discovery document) may be cacheable and could disappear entirely.\nStakes if we pick wrong: orphaned in-flight requests, rate-limit errors at peak, or leaving easy latency wins on the table.\nRecommendation: A because Promise.all is right for all-must-succeed, and the abort plus audit are small additions with real payoff.\nCompleteness: A=10/10, B=7/10\nNet: parallel with cancellation and a call-count audit, versus bare parallelism. <gstack-qid:plan-eng-review-idp-parallel>",
+      "options": [
+        {
+          "label": "A) Promise.all + abort + audit (recommended)",
+          "description": "\u2705 Shared AbortController cancels siblings on first failure; per-call timeout gives a clear 504 instead of a hang. \u2705 T8 audit lists which of the five calls a TTL cache can serve, so calls are removed, not just parallelized. \u274c Slightly more code than a one-line Promise.all, and the audit needs IDP response headers to confirm cacheability. (human: ~4 h / CC: ~20 min)"
+        },
+        {
+          "label": "B) Bare Promise.all",
+          "description": "\u2705 One-line change, exactly what the plan proposes. \u2705 Latency drops to the slowest call immediately. \u274c Sibling calls keep running after a failure and rate-limit pressure rises with no plan to reduce call count. (human: ~30 min / CC: ~5 min)"
+        }
+      ],
+      "multiSelect": false
+    }
+  ]
+}

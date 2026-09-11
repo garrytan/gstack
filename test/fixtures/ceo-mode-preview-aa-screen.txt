@@ -1,0 +1,39 @@
+  saved view"). The existing filter UI is the hook point. The DB, auth middleware, and project-scoped permission model
+  are pre-existing leverage. No need to rebuild any of these.
+
+  Step 0C — Dream State Mapping:
+  CURRENT STATE           THIS PLAN                   12-MONTH IDEAL
+  Users recreate    --->  Personal named views    --->  Team-shared views + pinned
+  filters every           per project/member,           project defaults + cross-
+  session by hand         CRUD API, view picker         project view templates
+                          beside filter bar
+
+  The plan moves solidly toward the ideal but stops at personal views. Team-shared views and defaults are one level up.
+
+  Now: implementation alternatives before mode selection.
+
+● User answered Claude's questions:
+  ⎿  · Which implementation approach should this plan take? → Approach A: Server-side personal views (as planned)
+     (Recommended)
+
+● Approach A confirmed. Now: mode selection for the review.
+  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Review mode
+
+Which review mode should I use for this plan?
+
+❯ 1. SELECTIVE EXPANSION —        ┌─────────────────────────────────────────────────┐
+    baseline + cherry-pick        │ SELECTIVE EXPANSION                             │
+    (Recommended)                 │   Hold scope. Bullet-proof it.                  │
+  2. HOLD SCOPE — maximum         │   Then surface expansions one at a time.        │
+    rigor, no expansions          │   You opt in or out of each. No surprises.      │
+  3. SCOPE EXPANSION — dream      └─────────────────────────────────────────────────┘
+    big
+  4. SCOPE REDUCTION — strip      Notes: press n to add notes
+    to essentials
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel

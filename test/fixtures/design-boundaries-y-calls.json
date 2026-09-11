@@ -1,0 +1,234 @@
+[
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_019cY79qXJh8SJhw7qkppXFv",
+    "questions": [
+      {
+        "question": "Pass 1 (Information Architecture) \u2014 Finding 1: The action group has no visual hierarchy. Save, Reset, Cancel, and Export are all styled the same. Users must pause to identify the primary action \u2014 a hierarchy failure at the most critical part of the page. DESIGN.MD already specifies the fix. Apply it to the plan? <gstack-qid:plan-design-review-save-button-primary>",
+        "header": "Action group",
+        "options": [
+          {
+            "label": "Apply DESIGN.MD tokens (Recommended)",
+            "description": "Save = filled #1d4ed8 with white text; Reset/Cancel/Export = neutral ghost buttons. Destructive intent communicated via confirmation dialog, not button color. Spec goes into the plan with exact tokens."
+          },
+          {
+            "label": "Add spec without tokens",
+            "description": "Note that Save should be visually primary but leave exact colors to implementation. Less rigid; risks inconsistency with DESIGN.MD when implemented."
+          },
+          {
+            "label": "Defer \u2014 handle in implementation",
+            "description": "Leave the gap as-is. The implementer decides at build time. Risk: ships with flat hierarchy because the gap is already the status quo."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 1 (Information Architecture) \u2014 Finding 1: The action group has no visual hierarchy. Save, Reset, Cancel, and Export are all styled the same. Users must pause to identify the primary action \u2014 a hierarchy failure at the most critical part of the page. DESIGN.MD already specifies the fix. Apply it to the plan? <gstack-qid:plan-design-review-save-button-primary>": "Apply DESIGN.MD tokens (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:19:06.151Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_01JWj4Wpnz8GNGJfB86KKHF2",
+    "questions": [
+      {
+        "question": "Pass 2 (Interaction States) \u2014 Finding 2: The plan references 'the existing form skeleton' for initial loading but gives no visual spec. Which fields are skeleton shapes, how wide, how tall? Without this every implementer ships a different skeleton. Add a brief spec to the plan? <gstack-qid:plan-design-review-skeleton-spec>",
+        "header": "Skeleton spec",
+        "options": [
+          {
+            "label": "Add skeleton spec to plan (Recommended)",
+            "description": "Specify: two text-field skeleton rects (Display name, Email) + two switch-row skeleton rects (Weekly digest, Product tips), matching 640px max-width, using existing skeleton animation and color tokens. Enough detail that any implementer ships the same shape."
+          },
+          {
+            "label": "Leave as 'existing form skeleton'",
+            "description": "Trust the existing component to handle it. Risk: existing skeleton may not match the current form structure, and no one catches it until visual QA."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 2 (Interaction States) \u2014 Finding 2: The plan references 'the existing form skeleton' for initial loading but gives no visual spec. Which fields are skeleton shapes, how wide, how tall? Without this every implementer ships a different skeleton. Add a brief spec to the plan? <gstack-qid:plan-design-review-skeleton-spec>": "Add skeleton spec to plan (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:19:40.779Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_011uLPurT75gPkAiTEemoox8",
+    "questions": [
+      {
+        "question": "Pass 5 (Design System) \u2014 Finding 3: Spacing is inconsistent \u2014 24px between some areas, 32px between others, 16px in a third. DESIGN.MD specifies an 8px base: sections 32px, field groups 24px, label-to-input 8px. Apply the consistent scale to the plan? <gstack-qid:plan-design-review-spacing-scale>",
+        "header": "Spacing scale",
+        "options": [
+          {
+            "label": "Apply DESIGN.MD spacing scale (Recommended)",
+            "description": "Section gaps = 32px, field group gaps = 24px, label-to-input = 8px. Removes the ad-hoc 16px section gap. Spec written into plan with exact values so implementer has no choices to make."
+          },
+          {
+            "label": "Defer to implementation",
+            "description": "Let the implementer reconcile spacing at build time. Risk: inconsistent rhythm ships, and QA cycles are needed to catch it post-implementation."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 5 (Design System) \u2014 Finding 3: Spacing is inconsistent \u2014 24px between some areas, 32px between others, 16px in a third. DESIGN.MD specifies an 8px base: sections 32px, field groups 24px, label-to-input 8px. Apply the consistent scale to the plan? <gstack-qid:plan-design-review-spacing-scale>": "Apply DESIGN.MD spacing scale (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:20:05.875Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_01P1d2BhRam8mSsx32x7vmED",
+    "questions": [
+      {
+        "question": "Pass 4+5 (AI Slop / Design System) \u2014 Finding 4: The form currently uses three font sizes: 14px, 16px, and 18px. This is two problems: (1) 14px violates the Universal Rule \u2014 body text below 16px is never allowed; (2) DESIGN.MD specifies exactly two roles: 16px for body/labels, 20px for section headings. Collapse to the DESIGN.MD two-size scale? <gstack-qid:plan-design-review-typography-scale>",
+        "header": "Typography scale",
+        "options": [
+          {
+            "label": "Apply DESIGN.MD two-size scale (Recommended)",
+            "description": "Body/form labels/helper text = 16px. Section headings (Profile, Notifications) = 20px. Eliminates 14px (Universal Rule violation) and 18px (DESIGN.MD misalignment). Two sizes instead of three creates stronger, scannable hierarchy."
+          },
+          {
+            "label": "Keep 16px and 18px, just fix 14px",
+            "description": "Raises 14px to 16px but keeps 18px headings instead of 20px. Fixes the hard rule but stays misaligned with DESIGN.MD typography spec. Three-size scale persists."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 4+5 (AI Slop / Design System) \u2014 Finding 4: The form currently uses three font sizes: 14px, 16px, and 18px. This is two problems: (1) 14px violates the Universal Rule \u2014 body text below 16px is never allowed; (2) DESIGN.MD specifies exactly two roles: 16px for body/labels, 20px for section headings. Collapse to the DESIGN.MD two-size scale? <gstack-qid:plan-design-review-typography-scale>": "Apply DESIGN.MD two-size scale (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:20:30.979Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_01Fu3RwRPev6XxSQE9Nfap6B",
+    "questions": [
+      {
+        "question": "Pass 5 (Design System) \u2014 Finding 5: Error text currently has ~3:1 contrast (red on light pink) \u2014 below WCAG AA minimum of 4.5:1. Users with low vision cannot reliably read error messages. DESIGN.MD specifies error.text #991b1b on error.surface #fef2f2 (approximately 5.5:1 contrast, passing AA). Apply the DESIGN.MD error color tokens? <gstack-qid:plan-design-review-error-contrast>",
+        "header": "Error contrast",
+        "options": [
+          {
+            "label": "Apply DESIGN.MD error tokens (Recommended)",
+            "description": "error.text: #991b1b on error.surface: #fef2f2. Achieves ~5.5:1 contrast \u2014 passes WCAG AA (4.5:1). Also requires an icon and explicit text per DESIGN.MD (never color alone to communicate status). All three together go in the plan."
+          },
+          {
+            "label": "Defer to implementation",
+            "description": "Leave the contrast gap noted but unresolved. Risk: a WCAG AA violation ships. Downstream: legal exposure and/or failing audit."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 5 (Design System) \u2014 Finding 5: Error text currently has ~3:1 contrast (red on light pink) \u2014 below WCAG AA minimum of 4.5:1. Users with low vision cannot reliably read error messages. DESIGN.MD specifies error.text #991b1b on error.surface #fef2f2 (approximately 5.5:1 contrast, passing AA). Apply the DESIGN.MD error color tokens? <gstack-qid:plan-design-review-error-contrast>": "Apply DESIGN.MD error tokens (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:21:03.636Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_01D8xGiK8saLKFZwAAKqTZHx",
+    "questions": [
+      {
+        "question": "Pass 5 (Design System) \u2014 Finding 6: Save takes 2\u20135 seconds with no feedback. The page appears frozen. This is the trust-critical moment: the user just committed their preferences. DESIGN.MD specifies an inline spinner beside 'Saving\u2026' inside the disabled Save button, with aria-busy=true and reduced-motion support. Apply this pattern to the plan? <gstack-qid:plan-design-review-save-spinner>",
+        "header": "Save spinner",
+        "options": [
+          {
+            "label": "Apply DESIGN.MD pending-action pattern (Recommended)",
+            "description": "Inline spinner inside disabled Save button. Button text changes to 'Saving\u2026'. aria-busy=true on the button. @media (prefers-reduced-motion): spinner hidden, text-only 'Saving\u2026' shown. Resolves the frozen-page trust erosion at step 6 of the user journey."
+          },
+          {
+            "label": "Add a page-level loading overlay instead",
+            "description": "Blur or disable the entire form while saving. Covers the full wait period but is heavier UX \u2014 user loses context of what they just edited. DESIGN.MD specifies inline pattern; this diverges."
+          },
+          {
+            "label": "Defer to implementation",
+            "description": "Leave the 2\u20135s frozen page as-is. Risk: users double-click Save, submit twice, or navigate away mid-save."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 5 (Design System) \u2014 Finding 6: Save takes 2\u20135 seconds with no feedback. The page appears frozen. This is the trust-critical moment: the user just committed their preferences. DESIGN.MD specifies an inline spinner beside 'Saving\u2026' inside the disabled Save button, with aria-busy=true and reduced-motion support. Apply this pattern to the plan? <gstack-qid:plan-design-review-save-spinner>": "Apply DESIGN.MD pending-action pattern (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:21:32.773Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_01Pfjp1TX1ms3SEbqZR6VWD6",
+    "questions": [
+      {
+        "question": "Pass 6 (Responsive & Accessibility) \u2014 Finding 7: The plan specifies Weekly digest and Product tips as switches, but never names the keyboard interaction. ARIA switch role requires Space to toggle and aria-checked to announce state. Without this spec, an implementer may ship a custom element with no keyboard support \u2014 an accessibility regression. Add the switch keyboard pattern to the plan? <gstack-qid:plan-design-review-switch-keyboard>",
+        "header": "Switch keyboard",
+        "options": [
+          {
+            "label": "Add switch keyboard spec to plan (Recommended)",
+            "description": "Weekly digest and Product tips use input[type=checkbox][role=switch] or equivalent. Space toggles the switch. aria-checked reflects current state. State change announces immediately via the existing aria-live region. This is the ARIA switch pattern; costs nothing to specify now."
+          },
+          {
+            "label": "Trust existing switch component",
+            "description": "If an existing switch/toggle component already handles this, no spec change is needed. Risk: if the component is custom or third-party, keyboard support may not be guaranteed. Requires knowing the existing component's a11y coverage."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Pass 6 (Responsive & Accessibility) \u2014 Finding 7: The plan specifies Weekly digest and Product tips as switches, but never names the keyboard interaction. ARIA switch role requires Space to toggle and aria-checked to announce state. Without this spec, an implementer may ship a custom element with no keyboard support \u2014 an accessibility regression. Add the switch keyboard pattern to the plan? <gstack-qid:plan-design-review-switch-keyboard>": "Add switch keyboard spec to plan (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:21:57.883Z"
+  },
+  {
+    "sessionId": "a1ef2828-2d3d-4ad8-a826-48918d812142",
+    "toolUseId": "toolu_01Bdht9T8YS5rpM4m6m9MJGi",
+    "questions": [
+      {
+        "question": "Design review complete \u2014 6/10 \u2192 9/10. All 7 decisions resolved. The plan is design-complete; next is the required shipping gate. What\u2019s next?",
+        "header": "Next review",
+        "options": [
+          {
+            "label": "Run /plan-eng-review (Recommended)",
+            "description": "Eng review is the required shipping gate. It validates architecture, component wiring, tests, and accessibility implementation against the 7 approved design decisions. This design review added interaction specs (spinner, skeleton, switch keyboard), so eng review needs to validate their architectural fit."
+          },
+          {
+            "label": "Skip \u2014 I\u2019ll handle next steps manually",
+            "description": "End the review workflow here. The improved plan is at the e2e output path; implementation can begin. Run /plan-eng-review later before shipping."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "Design review complete \u2014 6/10 \u2192 9/10. All 7 decisions resolved. The plan is design-complete; next is the required shipping gate. What\u2019s next?": "Run /plan-eng-review (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:24:30.829Z"
+  }
+]

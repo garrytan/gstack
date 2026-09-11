@@ -1,0 +1,276 @@
+import { describe, expect, test } from 'bun:test';
+import captured from './fixtures/eng-count-ad-v2.json';
+import af from './fixtures/eng-first-category-af.json';
+import type { NativePlanQuestionCall, PlanCountTranscript } from './helpers/plan-count-transcript';
+import { ENG_DECISION_SEEDS, evaluateEngSeedCoverage, isEngBatchingIssueAUQ } from './helpers/eng-seeded-coverage';
+import { nativePlanCallFingerprint } from './helpers/claude-pty-runner';
+import { E2E_TOUCHFILES, matchGlob } from './helpers/touchfiles';
+
+// Exact public decisions reused from the existing fixture. The report below is
+// a synthetic assembly of its retained task catalog, not a claim that the old run passed.
+const calls = captured.cases.first.calls as NativePlanQuestionCall[];
+const indices = [2, 4, 6, 8];
+const start = Date.parse('2026-09-09T19:00:00Z'), end = Date.parse('2026-09-09T19:30:00Z');
+const report = '# Reviewed plan\n\n' + captured.reviewedTasks.lines.join('\n') + '\n\n## GSTACK REVIEW REPORT\nEng review complete.\n';
+const transcript = (): PlanCountTranscript => ({ status: 'ready', calls: structuredClone(calls), assistantMessages: [] });
+const evaluate = (t = transcript(), p = report) => evaluateEngSeedCoverage(t, p, start, end);
+function question(call: NativePlanQuestionCall, text: string) {
+  const answer = call.answers![call.questions[0]!.question]!;
+  call.questions[0]!.question = text; call.answers = { [text]: answer };
+}
+
+describe('Eng seeded coverage from completed native decisions', () => {
+  test('four separate decisions plus the auto-added regression cover all five seeds regardless of total count', () => {
+    const result = evaluate();
+    expect(result.ok).toBe(true);
+    expect(Object.keys(result.decisions)).toEqual([...ENG_DECISION_SEEDS]);
+    expect(new Set(Object.values(result.decisions)).size).toBe(4);
+    expect(result.regression).toBe('plan');
+    // Historical evidence remains a failure, never a retroactive live pass.
+    expect(captured.cases.first.actual.outcome).toBe('ceiling_reached');
+    expect(captured.cases.first.actual.reviewCount).toBeGreaterThan(7);
+    const t = transcript();
+    for (let i = 0; i < 12; i++) {
+      const extra = structuredClone(calls[7]!); extra.toolUseId += `-extra-${i}`; t.calls.push(extra);
+    }
+    expect(evaluate(t).ok).toBe(true);
+  });
+
+  test('every offered choice is coverage, including rejecting or deferring the recommended change', () => {
+    for (const index of indices) for (const option of calls[index]!.questions[0]!.options) {
+      const t = transcript(), call = t.calls[index]!;
+      call.questions[0]!.options.reverse();
+      call.answers = { [call.questions[0]!.question]: option.label };
+      expect(evaluate(t).ok).toBe(true);
+    }
+    const t = transcript(), c = t.calls[4]!;
+    c.questions[0]!.options.push({ label: 'Defer the cache change', description: 'Accept the stated risk for this release.' });
+    c.answers = { [c.questions[0]!.question]: 'Defer the cache change' };
+    expect(evaluate(t).ok).toBe(true);
+  });
+
+  test('presentation numbers and headings do not establish or remove seed identity', () => {
+    const t = transcript();
+    for (const index of indices) {
+      const c = t.calls[index]!; c.questions[0]!.header = 'Decision';
+      question(c, c.questions[0]!.question.replace(/^D\d+ — Issue \d+(?: \([^)]+\))?[: ]*/, 'Decision: '));
+    }
+    expect(evaluate(t).ok).toBe(true);
+  });
+
+  test('a direct seeded action question can use terse Yes/No choices', () => {
+    const titles = [
+      'Should we reduce the four new classes spread across twelve files?',
+      'Should we inject the shared global AuthCache?',
+      'Should we split validateAndDispatch to remove its nested swallowing catches?',
+      'Should we parallelize the five sequential IDP calls?',
+    ];
+    for (const answer of ['Yes', 'No']) {
+      const t = transcript();
+      indices.forEach((index, n) => {
+        const c = t.calls[index]!; question(c, titles[n]!);
+        c.questions[0]!.options = [{ label: 'Yes' }, { label: 'No' }];
+        c.answers = { [c.questions[0]!.question]: answer };
+      });
+      expect(evaluate(t).ok).toBe(true);
+      indices.forEach((index, n) => {
+        const administrative = structuredClone(t);
+        const c = administrative.calls[index]!;
+        question(c, titles[n]!.replace('Should we ', 'Should we document how to '));
+        expect(evaluate(administrative).missing).toContain(ENG_DECISION_SEEDS[n]!);
+      });
+    }
+  });
+
+  test('omitting each seed remains missing even when unrelated completed decisions are plentiful', () => {
+    for (let n = 0; n < indices.length; n++) {
+      const t = transcript(); t.calls.splice(indices[n]!, 1);
+      expect(evaluate(t).missing).toContain(ENG_DECISION_SEEDS[n]!);
+      expect(evaluate(t).ok).toBe(false);
+    }
+  });
+
+  test('batched questions or one combined approval cannot supply four distinct decisions', () => {
+    const t = transcript(), combined = structuredClone(calls[2]!);
+    combined.questions = indices.map(i => structuredClone(calls[i]!.questions[0]!));
+    combined.answers = Object.fromEntries(indices.map(i => Object.entries(calls[i]!.answers!)[0]!));
+    t.calls = [combined]; expect(evaluate(t).missing).toHaveLength(4);
+    combined.questions = [structuredClone(calls[2]!.questions[0]!)];
+    question(combined, indices.map(i => calls[i]!.questions[0]!.question.split('\n')[0]).join(' '));
+    combined.questions[0]!.options = [
+      { label: 'Reduce classes, inject cache, split errors and parallelize IDP', description: 'Approve all four changes.' },
+      { label: 'Keep all four unchanged', description: 'Reject every change.' },
+    ];
+    combined.answers = { [combined.questions[0]!.question]: combined.questions[0]!.options[0]!.label };
+    expect(evaluate(t).missing).toHaveLength(4);
+  });
+
+  test('pending, failed, stale, foreign, malformed or unoffered replies provide no decision credit', () => {
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.answered = false; },
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { delete c.failed; },
+      (c: NativePlanQuestionCall) => { c.answers = {}; },
+      (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'not offered' }; },
+      (c: NativePlanQuestionCall) => { c.answers!.foreign = 'Yes'; },
+      (c: NativePlanQuestionCall) => { c.answeredAt = 'invalid'; },
+      (c: NativePlanQuestionCall) => { c.answeredAt = new Date(start - 1).toISOString(); },
+      (c: NativePlanQuestionCall) => { c.answeredAt = new Date(end + 1).toISOString(); },
+      (c: NativePlanQuestionCall) => { c.sessionId = 'foreign'; },
+      (c: NativePlanQuestionCall) => { c.toolUseId = ''; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.options[1]!.label = c.questions[0]!.options[0]!.label; },
+    ]) {
+      const t = transcript(); mutate(t.calls[4]!); expect(evaluate(t).ok).toBe(false);
+    }
+    const duplicate = transcript(); duplicate.calls.push(structuredClone(duplicate.calls[4]!));
+    expect(evaluate(duplicate).ok).toBe(false);
+    const missing = transcript(); missing.status = 'missing'; expect(evaluate(missing).ok).toBe(false);
+  });
+
+  test('quoted examples, resolved defects and option-only references cannot impersonate a seeded issue', () => {
+    for (const prefix of ['> ', 'Example: ', '```text\n', 'Hypothetical: ', 'No defect remains: ']) {
+      const t = transcript(); question(t.calls[4]!, prefix + t.calls[4]!.questions[0]!.question);
+      expect(evaluate(t).missing).toContain('shared-cache');
+    }
+    const t = transcript(); question(t.calls[4]!, 'Which format should the final report use?');
+    expect(evaluate(t).missing).toContain('shared-cache');
+  });
+
+  test('mandatory regression evidence requires an affirmative legacy task or scoped public narration', () => {
+    const base = '## GSTACK REVIEW REPORT\nEng complete.\n';
+    for (const text of [
+      'legacyAuthFlow will be rewritten; no regression test for prior behavior is planned.',
+      'Do not add legacyAuthFlow regression characterization fixtures.',
+      'Defer adding legacyAuthFlow regression characterization fixtures.',
+      'Maybe add legacyAuthFlow regression characterization fixtures.',
+      '"Add legacyAuthFlow regression characterization fixtures before changes."',
+      'Example: Add legacyAuthFlow regression characterization fixtures before changes.',
+      'It is unclear whether to add legacyAuthFlow regression characterization fixtures before changes.',
+      'We would add legacyAuthFlow regression characterization fixtures before changes.',
+      'Add a report paragraph describing legacyAuthFlow regression characterization fixtures before changes.',
+      'Record a note about legacyAuthFlow regression characterization fixtures before changes.',
+      'Add regression characterization tests for newAuthFlow before changes; legacyAuthFlow is only mentioned in release notes.',
+      'Record regression characterization fixtures for newAuthFlow before changes. The legacyAuthFlow documentation was updated.',
+      'Add tests for legacyAuthFlow before changes; newAuthFlow gets regression characterization fixtures.',
+      'legacyAuthFlow — Add regression characterization tests for newAuthFlow before changes.',
+      '> Add legacyAuthFlow regression characterization fixtures before changes.',
+      '```\nAdd legacyAuthFlow regression characterization fixtures before changes.\n```',
+    ]) expect(evaluate(transcript(), text + '\n\n' + base).ok).toBe(false);
+    expect(evaluate(transcript(), 'Add regression characterization tests for legacyAuthFlow before changes.\n\n' + base).regression).toBe('plan');
+    const t = transcript(); t.assistantMessages.push({ sessionId: calls[0]!.sessionId, timestamp: new Date(end - 1).toISOString(),
+      text: 'Added legacyAuthFlow regression characterization fixtures before the rewrite.' });
+    expect(evaluate(t, base).regression).toBe('public-narration');
+    t.assistantMessages[0]!.sessionId = 'foreign'; expect(evaluate(t, base).ok).toBe(false);
+    t.assistantMessages[0]!.sessionId = calls[0]!.sessionId;
+    t.assistantMessages[0]!.timestamp = new Date(start - 1).toISOString(); expect(evaluate(t, base).ok).toBe(false);
+    expect(evaluate(transcript(), captured.reviewedTasks.lines.join('\n')).ok).toBe(false);
+    expect(evaluate(transcript(), report.replace('Eng review complete.', '')).ok).toBe(false);
+  });
+
+  test('local evidence dependencies select both Eng consumers', () => {
+    for (const file of ['test/helpers/eng-seeded-coverage.ts', 'test/eng-seeded-coverage.test.ts']) {
+      expect(Object.entries(E2E_TOUCHFILES).filter(([, patterns]) => patterns.some(p => matchGlob(file, p))).map(([key]) => key))
+        .toEqual(['plan-eng-finding-count', 'plan-eng-multi-finding-batching']);
+    }
+  });
+
+  test('AF numbered regression task accepts its component-path metadata', () => {
+    const context = af.regressionTask.lines.join('\n');
+    const result = evaluate(transcript(), context + '\n\n## GSTACK REVIEW REPORT\nEng complete.\n');
+    expect(result.regression).toBe('plan');
+    expect(result.ok).toBe(true);
+    expect(af.regressionTask.provenance.retrospectivePass).toBe(false);
+  });
+
+  test('component metadata cannot remove prose, uncertainty or a different test target', () => {
+    const task = af.regressionTask.lines[0]!;
+    const evaluateTask = (text: string) => evaluate(transcript(), text + '\n\n## GSTACK REVIEW REPORT\nEng complete.\n');
+    for (const path of ['src/auth/legacy', 'auth_core/legacy-v2']) {
+      expect(evaluateTask(task.replace('auth/legacy', path)).regression).toBe('plan');
+    }
+    for (const text of [
+      task.replace('auth/legacy', 'skip the tests'),
+      task.replace('auth/legacy', 'maybe'),
+      task.replace('auth/legacy', '../auth/legacy'),
+      task.replace('auth/legacy', 'auth/legacy — unrelated prose'),
+      task.replace(/^.*? — auth\/legacy/, 'auth/legacy'),
+      task.replace('Write characterization', 'Do not write characterization'),
+      task.replace('Write characterization', 'Maybe write characterization'),
+      task.replace('Write characterization', 'If approved, write characterization'),
+      task.replace('Write characterization', 'Write a report describing characterization'),
+      task.replace('`legacyAuthFlow()`', '`newAuthFlow()`') + '; legacyAuthFlow is documented elsewhere.',
+      task.replace('before any rewrite', 'only if the rewrite requires it'),
+      'Example: ' + task, '> ' + task, '"' + task + '"',
+      '```text\n' + task + '\n```',
+    ]) expect(evaluateTask(text).regression, text).toBeUndefined();
+  });
+});
+
+describe('batching caller counts completed issue decisions across setup boundaries', () => {
+  const issue = (number: number, header = 'Architecture'): NativePlanQuestionCall => {
+    const question = `D${number + 2} — Issue ${number}: Choose the component contract\nELI10: The current contract leaves behavior unspecified.`;
+    return { sessionId: 'owned-session', toolUseId: `toolu_issue_${number}`, answered: true, failed: false,
+      answeredAt: '2026-01-01T00:00:00.000Z', unansweredQuestionIndices: [],
+      questions: [{ header, question, multiSelect: false, options: [
+        { label: `${number}A: Define the contract`, description: 'Specify the behavior.' },
+        { label: `${number}B: Retain the current contract`, description: 'Keep the documented risk.' },
+      ] }], answers: { [question]: `${number}A: Define the contract` } };
+  };
+  const check = (call: NativePlanQuestionCall, prior: readonly NativePlanQuestionCall[] = []) =>
+    isEngBatchingIssueAUQ(nativePlanCallFingerprint(call, 0, true), prior);
+
+  test('six completed calls count six; unrelated wording and either offered choice do not change identity', () => {
+    const history: NativePlanQuestionCall[] = [];
+    for (const [i, header] of ['Architecture', 'Architecture', 'Architecture', 'Code quality', 'Tests', 'Performance'].entries()) {
+      const call = issue(i + 1, header);
+      if (i % 2) call.answers![call.questions[0]!.question] = call.questions[0]!.options[1]!.label;
+      expect(check(call, history)).toBe(true); history.push(call);
+    }
+    expect(history).toHaveLength(6);
+    expect(check(history[0]!, history)).toBe(false);
+    const repeated = structuredClone(history[0]!); repeated.toolUseId = 'toolu_repeated';
+    expect(check(repeated, history)).toBe(false);
+    const scope = issue(1, 'Scope');
+    expect(check(repeated, [scope])).toBe(true);
+    const batch = issue(1), second = issue(2);
+    batch.questions.push(...second.questions); Object.assign(batch.answers!, second.answers);
+    expect(check(repeated, [batch])).toBe(true);
+  });
+
+  test('one batched native call cannot satisfy a three-call floor', () => {
+    const batch = issue(1);
+    for (const number of [2, 3, 4]) {
+      const next = issue(number); batch.questions.push(...next.questions); Object.assign(batch.answers!, next.answers);
+    }
+    const count = [batch].filter(call => check(call)).length;
+    expect(count).toBeLessThanOrEqual(1); expect(count).toBeLessThan(3);
+  });
+
+  test('incomplete, foreign, inconsistent or non-issue packets cannot inflate the counter', () => {
+    const variants: Array<(call: NativePlanQuestionCall) => void> = [
+      c => { c.answered = false; }, c => { c.failed = true; }, c => { c.unansweredQuestionIndices = [0]; },
+      c => { delete c.answeredAt; }, c => { c.answers = {}; }, c => { c.questions[0]!.multiSelect = true; },
+      c => { c.answers![c.questions[0]!.question] = 'Not offered'; },
+      c => { c.questions[0]!.options[1]!.label = '2B: Foreign issue'; },
+      c => { c.questions[0]!.options[1]!.label = '1A: Duplicate option ID'; },
+      c => { c.questions[0]!.header = 'Scope'; }, c => { c.questions[0]!.header = 'Next steps'; },
+      c => { c.questions[0]!.header = 'TODO'; }, c => { c.questions[0]!.header = 'Design'; },
+      c => { question(c, c.questions[0]!.question.replace('Issue 1:', 'TODO 1:')); },
+      c => { question(c, '> ' + c.questions[0]!.question); },
+      c => { question(c, 'Historical note:\n' + c.questions[0]!.question); },
+      c => { question(c, c.questions[0]!.question + '\nThis decision is "withdrawn".'); },
+      c => { question(c, c.questions[0]!.question + '\nIssue 1 is no longer current.'); },
+      c => { question(c, c.questions[0]!.question + '\nThis decision is `no longer current`.'); },
+    ];
+    for (const change of variants) { const call = issue(1); change(call); expect(check(call)).toBe(false); }
+    const fp = nativePlanCallFingerprint(issue(1), 0, true); fp.signature = 'foreign:identity';
+    expect(isEngBatchingIssueAUQ(fp)).toBe(false);
+    expect(check(issue(2), [{ ...issue(1), sessionId: 'foreign-session' }])).toBe(false);
+    const call = issue(1); question(call, call.questions[0]!.question + '\n> This decision is withdrawn.');
+    expect(check(call)).toBe(true);
+    const quoted = issue(1); question(quoted, quoted.questions[0]!.question + '\n`This decision is withdrawn.`');
+    expect(check(quoted)).toBe(true);
+  });
+});

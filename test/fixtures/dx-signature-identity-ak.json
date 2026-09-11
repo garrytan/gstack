@@ -1,0 +1,43 @@
+{
+  "sourceHead": "04c62ac678bb7bc1a22090f72f7ed51c451c22b9",
+  "sourceProof": ".context/ship-source-ak-delta-paid-20260910-v1/dx-first-evidence-ledger-v1/proof.json",
+  "sourceProofSha256": "65ecd20f1192f93db35bb029cbf15a3a413d1a458e9ab94a52e254cd693f416d",
+  "nativeUseLine": 117,
+  "nativeResultLine": 118,
+  "call": {
+    "sessionId": "b13879bb-972e-423e-8eb7-39e3e1d34afc",
+    "toolUseId": "toolu_01BNM2BvRUKbmDJprW1thfBr",
+    "questions": [
+      {
+        "question": "D5 — Journey stage REAL USAGE: the two public functions take the same two arguments in opposite positional order. How should the plan fix the signatures?\nProject/branch/task: EvalKit 2.0.0b1 on `main`; reviewing the public function signatures in docs/api.md.\nELI10: docs/api.md lines 5-9 define `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Same two concepts, reversed order, and the reversal is called intentional. A developer who learns one function will call the other wrong, and since both arguments are objects, the failure surfaces somewhere inside the evaluator instead of at the call site. Consistency across a small API is what lets a developer stop reading docs, which is the whole point of an SDK.\nStakes if we pick wrong: Every developer who uses both functions hits one swapped call with a confusing deep failure; some will assume the SDK is buggy.\nRecommendation: A because 2.0.0b1 is a major-version beta, the one moment a positional reorder is cheap, and adding a clear call-site error covers anyone who still swaps them.\nCompleteness: A=10/10, B=8/10, C=6/10, D=1/10\nNet: fix the shape of the API once at the major boundary vs bolting guards onto an inconsistent shape forever.",
+        "header": "Signatures",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Same order + swap guard (recommended)",
+            "description": "✅ Both become `(dataset, evaluator)`, accept keywords, and raise a call-site `TypeError` naming the swapped argument and the fix if types are reversed. (human: ~1 day / CC: ~15 min)\n✅ Learn one function, know both; docs and examples show a single shape.\n❌ Breaking change for any v1 `run_batch` positional caller; must be listed in the 2.0 changelog and migration guide from D7."
+          },
+          {
+            "label": "Keyword-only for both",
+            "description": "✅ A bare `*` makes positional calls impossible, so order can never be confused.\n✅ No reorder needed; existing keyword callers unaffected. (human: ~half day / CC: ~10 min)\n❌ Forces `run_eval(dataset=ds, evaluator=ev)` on every call, which is verbose for a two-argument function and still breaks every positional caller."
+          },
+          {
+            "label": "Keep order, add swap detection",
+            "description": "✅ No signature change; a runtime check raises a clear error when types are reversed. (human: ~half day / CC: ~10 min)\n✅ Zero breakage for current callers.\n❌ The inconsistency stays in the docs and in muscle memory; the error fires on every mistake instead of preventing it."
+          },
+          {
+            "label": "Retain as drafted",
+            "description": "✅ No engineering change for this beta.\n✅ Existing positional callers of both functions keep working unchanged.\n❌ An intentional inconsistency in a two-function API is the kind of thing developers screenshot and post."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — Journey stage REAL USAGE: the two public functions take the same two arguments in opposite positional order. How should the plan fix the signatures?\nProject/branch/task: EvalKit 2.0.0b1 on `main`; reviewing the public function signatures in docs/api.md.\nELI10: docs/api.md lines 5-9 define `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Same two concepts, reversed order, and the reversal is called intentional. A developer who learns one function will call the other wrong, and since both arguments are objects, the failure surfaces somewhere inside the evaluator instead of at the call site. Consistency across a small API is what lets a developer stop reading docs, which is the whole point of an SDK.\nStakes if we pick wrong: Every developer who uses both functions hits one swapped call with a confusing deep failure; some will assume the SDK is buggy.\nRecommendation: A because 2.0.0b1 is a major-version beta, the one moment a positional reorder is cheap, and adding a clear call-site error covers anyone who still swaps them.\nCompleteness: A=10/10, B=8/10, C=6/10, D=1/10\nNet: fix the shape of the API once at the major boundary vs bolting guards onto an inconsistent shape forever.": "Same order + swap guard (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T06:43:10.229Z"
+  }
+}

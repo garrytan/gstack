@@ -31,7 +31,37 @@ start coding — to catch architecture issues before implementation.
 
 Voice triggers (speech-to-text aliases): "tech review", "technical review", "plan engineering review".
 
-## Preamble (run first)
+# Plan Review Mode
+
+Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
+
+## Scope gate (FIRST — overrides everything below). This is a hard STOP.
+
+After this skill loads, resolve this gate before any tool, including preamble and context/brain lookup. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before review tools. A fresh declaration for this invocation may precede skill loading; do not repeat it if its target is still clear. Name the plan, or say "this draft" when the user pasted exactly one plan. Ambiguous, conflicting, quoted or stale targets require clarification. After resolution: preamble → brain context → Design Doc Check → Step 0. Preamble “run first” is subordinate to this gate.
+
+**Exceptions — check in this order, BEFORE asking:**
+1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the Design Doc Check and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
+2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+
+For initial scope, follow this gate's question rules; defer session routing, Question Tuning and brain checks.
+Whenever this gate does ask — in any mode — it is a hard STOP.
+
+When no exception above applied:
+
+1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
+2. Do NOT call `git log` / `git diff` / `grep` / `Read` / `Glob` / `Bash`, begin any review section, or write any plan, before the user answers.
+3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
+
+What should I review?
+A) The current branch diff — the work in progress on this branch.
+B) A plan or design doc I'll paste or point you to.
+C) A specific file, directory, or path.
+
+Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the Design Doc Check and Step 0 against that target.
+
+## Preamble (after scope gate)
+
+**Before the command below:** resolve the Scope gate above. If the gate asks a question, wait for its answer.
 
 ```bash
 _SS="$HOME/.claude/skills/gstack/bin/gstack-skill-start"
@@ -65,7 +95,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+The invoked skill overrides generic plan mode. **Execute the skill file** starting from the Scope gate (current target announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: `headless` → BLOCKED; `interactive` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Execute "PLAN MODE EXCEPTION — ALWAYS RUN" commands. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -240,6 +270,7 @@ At session start or after compaction, recover recent project context.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:-unknown}
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -265,7 +296,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** Honor listed `ACTIVE DECISIONS` and their rationale; do not silently re-litigate them, and announce planned reversals. Use `~/.claude/skills/gstack/bin/gstack-decision-search` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for reversals). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -430,33 +461,6 @@ telemetry — it never blocks the workflow.
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 
-
-# Plan Review Mode
-
-Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
-
-## Scope gate (FIRST — overrides everything below). This is a hard STOP.
-
-Before ANYTHING else in this skill — before the Design Doc Check, the office-hours prerequisite offer, Step 0, and any `git` / `Read` / `Grep` / `Glob` / `Bash` call — unless an exception below applies, your VERY FIRST tool call MUST be AskUserQuestion, to confirm the review target. Do not run the Design Doc Check bash or explore the repo before the user answers.
-
-**Exceptions — check in this order, BEFORE asking:**
-1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the Design Doc Check and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
-2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
-
-Outside plan mode with no explicitly-named target, nothing changes. Whenever this gate does ask — in any mode — it is a hard STOP.
-
-When no exception above applied:
-
-1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
-2. Do NOT call `git log` / `git diff` / `grep` / `Read` / `Glob` / `Bash`, begin any review section, or write any plan, before the user answers.
-3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
-
-What should I review?
-A) The current branch diff — the work in progress on this branch.
-B) A plan or design doc I'll paste or point you to.
-C) A specific file, directory, or path.
-
-Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the Design Doc Check and Step 0 against that target.
 
 ## Priority hierarchy
 If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.
@@ -666,7 +670,7 @@ If none was produced (user may have cancelled), proceed with standard review.
 
 ### Step 0: Scope Challenge
 
-> Reminder: the **Scope gate** at the top of this skill applies first. Do not run Step 0 until the gate has resolved a target — the user answered, the user named one, or plan mode auto-selected B — and run it against that target.
+> Before Step 0, require resolved scope. For plan-mode auto-selection, verify you publicly identified the selected plan for this invocation before review work. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
 
 Before reviewing anything, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
@@ -712,10 +716,21 @@ Always work through the full interactive review: one section at a time (Architec
 
 Confirm you Read the review section the Section index named, and executed every review section (Architecture, Code Quality, Tests, Performance), the outside voice, and the required outputs in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
 
+Before summaries, review logs or next-step menus, run approval check 0 below.
+
 ## EXIT PLAN MODE GATE (BLOCKING)
 
 Before calling ExitPlanMode, run this self-check. If any item fails, do the
 missing work — do NOT call ExitPlanMode:
+
+0. Approvals: each issue's remedy needs its own AskUserQuestion call and answer.
+   Never group distinct issues. Setup, mode, approach and navigation are not approval.
+   Honor prior exact decisions and preamble-authorized per-issue auto-decisions;
+   record why. Deferrals remain unresolved.
+   The coverage-audit REGRESSION test is already authorized; cite that rule.
+   This exception covers only the regression test, not other findings.
+   If missing, reset drafts to pending, ask and wait. After answers or resets,
+   refresh the plan, report and review log; rerun this gate.
 
 1. Read the plan file with the Read tool (after your most recent write to it).
 2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.
@@ -723,16 +738,16 @@ missing work — do NOT call ExitPlanMode:
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
    `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
-   once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

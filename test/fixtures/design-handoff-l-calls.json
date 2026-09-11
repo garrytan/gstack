@@ -1,0 +1,361 @@
+{
+  "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+  "calls": [
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01WShSEgWPsL8qaapH66Yquh",
+      "questions": [
+        {
+          "question": "D1 \u2014 Cross-project learnings: enable cross-project search? <gstack-qid:cross-project-learnings>",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (Recommended)",
+              "description": "gstack searches learnings from all your projects on this machine to find patterns that apply here. Stays fully local \u2014 no data leaves your machine. Best for solo developers."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "Learnings search stays limited to this project. Choose if you work on multiple client codebases where cross-contamination would be a concern."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Cross-project learnings: enable cross-project search? <gstack-qid:cross-project-learnings>": "Enable cross-project (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:07.866Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01GXrVhnMz2H74r5gCd7fWMH",
+      "questions": [
+        {
+          "question": "D2 \u2014 Pass 1 (Information Architecture): specify Save button visual prominence in the plan? <gstack-qid:plan-design-pass1-save-prominence>",
+          "header": "Info Arch",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add DESIGN.md spec to plan (Recommended)",
+              "description": "Adds explicit wording: Save uses filled primary Button (#1d4ed8 bg, white text); Reset/Cancel/Export use ghost neutral. Implementer has an authoritative spec and cannot ship all-same-weight buttons."
+            },
+            {
+              "label": "Leave as gap description only",
+              "description": "The gap is named in the plan but no token-level fix is written in. Risk: implementer defaults to framework defaults or guesses, and the visual hierarchy problem ships as-is."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Pass 1 (Information Architecture): specify Save button visual prominence in the plan? <gstack-qid:plan-design-pass1-save-prominence>": "Add DESIGN.md spec to plan (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:27.915Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_013rVqxKYoYVvrpWF1emSUTx",
+      "questions": [
+        {
+          "question": "D3 \u2014 Pass 2 (Interaction States): add the DESIGN.md save-pending pattern to the plan? <gstack-qid:plan-design-pass2-save-pending>",
+          "header": "States",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add pending-state spec to plan (Recommended)",
+              "description": "Writes the inline spinner + aria-busy=true + reduced-motion fallback into the plan explicitly. Reuses the existing DESIGN.md pattern \u2014 no new components. Implementer has a clear spec for all three cases: spinning, reduced-motion, and error recovery."
+            },
+            {
+              "label": "Leave as gap only",
+              "description": "The gap is named but the fix is not written in. Risk: implementer adds a custom spinner or defers the loading state, and users continue to see a frozen page during 2-5 second saves."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Pass 2 (Interaction States): add the DESIGN.md save-pending pattern to the plan? <gstack-qid:plan-design-pass2-save-pending>": "Add pending-state spec to plan (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:13:55.475Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01WacHy5LF6fr6kNRX1AXmhZ",
+      "questions": [
+        {
+          "question": "D4 \u2014 Pass 3 (User Journey): add a journey storyboard and InlineStatus confidence rationale to the plan? <gstack-qid:plan-design-pass3-journey>",
+          "header": "Journey",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add storyboard + rationale (Recommended)",
+              "description": "Adds the 6-step journey table and a one-line note that 'Saved at HH:mm' is the primary confidence anchor (not optional polish). Prevents implementers from treating InlineStatus as decorative or deferring it."
+            },
+            {
+              "label": "Skip \u2014 functional description is sufficient",
+              "description": "Leave the journey as prose. Risk: implementer deprioritizes InlineStatus or ships a generic 'Saved!' toast instead of the timestamp, breaking the confidence mechanism."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Pass 3 (User Journey): add a journey storyboard and InlineStatus confidence rationale to the plan? <gstack-qid:plan-design-pass3-journey>": "Add storyboard + rationale (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:14:40.578Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_011ypsWJjNNLoQzcRef7LPuR",
+      "questions": [
+        {
+          "question": "D5 \u2014 Pass 5A (Spacing): add the DESIGN.md 8px grid spec to the plan? <gstack-qid:plan-design-pass5a-spacing>",
+          "header": "Spacing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add 8px grid spec (Recommended)",
+              "description": "Writes 'sections 32px, field groups 24px, label-to-input 8px' as the authoritative spec. Implementer has a three-value contract to audit against before shipping. Deviations become verifiable bugs, not taste calls."
+            },
+            {
+              "label": "Leave as gap description only",
+              "description": "The inconsistency is named but no target values are written in. Risk: implementer uses CSS framework defaults or eyeballs it, and the three-way inconsistency ships or gets 'fixed' to a fourth value."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 Pass 5A (Spacing): add the DESIGN.md 8px grid spec to the plan? <gstack-qid:plan-design-pass5a-spacing>": "Add 8px grid spec (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:15:46.251Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_016zDVUddTzEwCAqpusRKppx",
+      "questions": [
+        {
+          "question": "D6 \u2014 Pass 5B (Color / Error Contrast): specify DESIGN.md error tokens as the fix for the ~3:1 contrast gap? <gstack-qid:plan-design-pass5b-error-color>",
+          "header": "Color",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Lock error tokens to DESIGN.md (#991b1b on #fef2f2) (Recommended)",
+              "description": "Writes the explicit hex values into the plan as the compliant spec (~7.6:1, WCAG AAA). Eliminates ambiguity about which red/pink combination to use. Any other combination is explicitly a bug."
+            },
+            {
+              "label": "Leave as contrast gap without specifying the fix",
+              "description": "Risk: implementer picks a different red-on-pink combination that is WCAG AA compliant but doesn't match DESIGN.md, creating a new design system divergence."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 Pass 5B (Color / Error Contrast): specify DESIGN.md error tokens as the fix for the ~3:1 contrast gap? <gstack-qid:plan-design-pass5b-error-color>": "Lock error tokens to DESIGN.md (#991b1b on #fef2f2) (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:15:52.266Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01Av9hr46JuFtQWTnG4ydo6j",
+      "questions": [
+        {
+          "question": "D7 \u2014 Pass 5C (Typography): enforce DESIGN.md two-size scale (16px body, 20px headings) in the plan? <gstack-qid:plan-design-pass5c-typography>",
+          "header": "Typography",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enforce two-size scale per DESIGN.md (Recommended)",
+              "description": "Writes 'exactly 16px body/labels and 20px section headings' as the spec. Eliminates 14px and 18px as unauthorized sizes. Creates a verifiable typography contract the implementer can lint against."
+            },
+            {
+              "label": "Leave as gap description only",
+              "description": "Risk: implementer keeps 14px for helper text (common framework default) and the three-size drift ships as-is, weakening the visual hierarchy DESIGN.md was designed to establish."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 Pass 5C (Typography): enforce DESIGN.md two-size scale (16px body, 20px headings) in the plan? <gstack-qid:plan-design-pass5c-typography>": "Enforce two-size scale per DESIGN.md (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:15:58.277Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_014yXhFvgZZvK8srj2fac4B8",
+      "questions": [
+        {
+          "question": "D8 \u2014 Pass 7A (Unresolved Decision): Reset button state when the form has no unsaved changes? <gstack-qid:plan-design-pass7a-reset-state>",
+          "header": "Reset State",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Disable Reset when form is clean (Recommended)",
+              "description": "Reset is disabled (visually muted, aria-disabled=true) when there are no unsaved changes. Eliminates the misleading 'Discard unsaved changes?' dialog on a clean form. Consistent with 'the button tells you what you can do right now'."
+            },
+            {
+              "label": "Keep Reset always enabled",
+              "description": "Reset always opens the confirmation dialog. When clean, the dialog can say 'Your saved values will be reloaded.' Slightly more complex dialog copy but avoids needing to track button enabled state separately from dirty state."
+            },
+            {
+              "label": "Leave unspecified in plan",
+              "description": "Implementer decides. Risk: different engineers make different calls at different points, or the misleading dialog ships. This is the highest-risk option."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 \u2014 Pass 7A (Unresolved Decision): Reset button state when the form has no unsaved changes? <gstack-qid:plan-design-pass7a-reset-state>": "Disable Reset when form is clean (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:16:57.934Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_015zWtpvUqFh4TbA4eNZ4F9a",
+      "questions": [
+        {
+          "question": "D9 \u2014 Pass 7B (Unresolved Decision): what is the Cancel button navigation target? <gstack-qid:plan-design-pass7b-cancel-nav>",
+          "header": "Cancel Nav",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "browser history.back() (Recommended)",
+              "description": "Cancel navigates to the previous page in browser history. Simple, conventional, works for traditional web apps. May not be reliable in SPA contexts if history stack is synthetic."
+            },
+            {
+              "label": "Hardcoded route (e.g., /account or /dashboard)",
+              "description": "Cancel navigates to a specific named route. Reliable in SPAs and server-rendered apps. Requires knowing the product's navigation structure and can break if routes change."
+            },
+            {
+              "label": "Leave unspecified",
+              "description": "Implementer decides. Risk: SPA implementers use router.back() which may navigate to an unexpected location (e.g., back into the settings page itself after a redirect)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 \u2014 Pass 7B (Unresolved Decision): what is the Cancel button navigation target? <gstack-qid:plan-design-pass7b-cancel-nav>": "browser history.back() (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:17:03.945Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01Ec8vuJPoyXHTfoudjPd125",
+      "questions": [
+        {
+          "question": "D10 \u2014 TODO: add a task to verify the error contrast fix with a contrast checker before shipping? <gstack-qid:plan-design-todo-contrast-verify>",
+          "header": "TODO: Contrast",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add to TODOS.md (Recommended)",
+              "description": "What: Run a contrast checker (e.g., APCA or WebAIM) on the live rendered error state to confirm #991b1b on #fef2f2 achieves 4.5:1+ in the implemented output. Why: calculated ratios can differ from rendered output due to anti-aliasing, sub-pixel rendering, and component overrides. A quick manual check before ship saves a WCAG audit finding."
+            },
+            {
+              "label": "Skip \u2014 calculation is sufficient",
+              "description": "Trust the ~7.6:1 calculation and DESIGN.md token enforcement. No additional verification step."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 \u2014 TODO: add a task to verify the error contrast fix with a contrast checker before shipping? <gstack-qid:plan-design-todo-contrast-verify>": "Add to TODOS.md (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:17:29.518Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01F9u26ZMSJxaGjfBPEjBmHJ",
+      "questions": [
+        {
+          "question": "D11 \u2014 TODO: add a task to test the Cancel history.back() behavior in the SPA router? <gstack-qid:plan-design-todo-cancel-nav>",
+          "header": "TODO: Cancel",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add to TODOS.md (Recommended)",
+              "description": "What: Manually test Cancel navigation from at least two entry points (direct URL, nav link from dashboard) to confirm history.back() lands the user somewhere meaningful. Why: SPA routers sometimes push synthetic history entries; history.back() from a settings page opened via redirect may not go where the user expects."
+            },
+            {
+              "label": "Skip \u2014 history.back() is standard, no test needed",
+              "description": "Trust that history.back() works as expected across all navigation paths. No additional verification."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D11 \u2014 TODO: add a task to test the Cancel history.back() behavior in the SPA router? <gstack-qid:plan-design-todo-cancel-nav>": "Add to TODOS.md (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:17:35.531Z"
+    },
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01JSZyHEGFZSzKbE4fRHGfXJ",
+      "questions": [
+        {
+          "question": "D12 \u2014 Next steps: design review complete (6/10 \u2192 9/10, 7 decisions made). What's next? <gstack-qid:plan-design-next-steps>",
+          "header": "Next Steps",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Run /plan-eng-review (Recommended)",
+              "description": "Architecture and tests review \u2014 the required gate before shipping. This design review added interaction specs (Reset state, Cancel nav, pending pattern) that eng review should validate for implementation approach."
+            },
+            {
+              "label": "Skip to implementation",
+              "description": "Start implementing the 7 tasks directly. Skip /plan-eng-review for now. Note: eng review is the required shipping gate and would need to run before the PR lands."
+            },
+            {
+              "label": "Run /plan-ceo-review first",
+              "description": "Product/scope review before eng. Useful if there are open questions about whether Reset-when-disabled or Cancel-nav decisions align with broader product goals. Not flagged as a critical gap by this review."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D12 \u2014 Next steps: design review complete (6/10 \u2192 9/10, 7 decisions made). What's next? <gstack-qid:plan-design-next-steps>": "Run /plan-eng-review (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-08T23:20:17.109Z"
+    }
+  ],
+  "planReadyRequests": [
+    {
+      "sessionId": "ad94ee0b-9951-401e-ba69-e78a4ead9424",
+      "toolUseId": "toolu_01PyebCrv7DApLZp9RL8zdef",
+      "timestamp": "2026-09-08T23:20:25.168Z",
+      "failed": false
+    }
+  ]
+}

@@ -1,0 +1,190 @@
+[
+  {
+    "sessionId": "7b6785b1-1548-4f03-9fab-54328db9502d",
+    "toolUseId": "toolu_01JnxC1rSGBPjA11DC1brqEi",
+    "questions": [
+      {
+        "question": "D1 \u2014 Empathy narrative: does this match the EvalKit getting-started reality?\n\nHere's what I traced from README.md and the docs. The persona: Python ML engineer who just heard about EvalKit and wants to verify it works locally before integrating it into their team's CI pipeline.\n\n> T+0:00 \u2014 I open the README. \"Install with python -m pip install evalkit==2.0.0b1, set EVALKIT_API_KEY, then follow the quickstart's command: python examples/first_eval.py.\" Three steps. Looks easy.\n>\n> T+1:00 \u2014 pip install succeeds. I set the key. I run the README's quickstart command: python examples/first_eval.py. I get an error. The file doesn't exist \u2014 it's not in the installed package and there's no examples/ directory anywhere.\n>\n> T+2:00 \u2014 I dig into the README more carefully and find python -m evalkit.demo mentioned as an alternative. I try that.\n>\n> T+2:30 \u2014 The demo starts. It prints: \"Waiting for CI check: 0s elapsed of 300s\". 300 seconds. Five minutes. I'm on my laptop doing a local trial. No one told me a remote CI check was part of the deal.\n>\n> T+7:30 \u2014 The CI check finishes. I see the demo scores. The output looks good. But I've just spent seven and a half minutes on a \"quick start\" that started with a missing-file error and a five-minute surprise wait.\n\nDoes this match reality? Where am I wrong? <gstack-qid:devex-review-empathy-narrative>",
+        "header": "Empathy narrative",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Accurate \u2014 proceed",
+            "description": "The narrative is correct. Proceed with this understanding for the full DX review. (recommended)"
+          },
+          {
+            "label": "Partly wrong \u2014 let me correct it",
+            "description": "Some details are off; I'll clarify before we continue."
+          },
+          {
+            "label": "Wrong path \u2014 the actual flow is different",
+            "description": "The real getting-started path differs significantly from what was traced."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Empathy narrative: does this match the EvalKit getting-started reality?\n\nHere's what I traced from README.md and the docs. The persona: Python ML engineer who just heard about EvalKit and wants to verify it works locally before integrating it into their team's CI pipeline.\n\n> T+0:00 \u2014 I open the README. \"Install with python -m pip install evalkit==2.0.0b1, set EVALKIT_API_KEY, then follow the quickstart's command: python examples/first_eval.py.\" Three steps. Looks easy.\n>\n> T+1:00 \u2014 pip install succeeds. I set the key. I run the README's quickstart command: python examples/first_eval.py. I get an error. The file doesn't exist \u2014 it's not in the installed package and there's no examples/ directory anywhere.\n>\n> T+2:00 \u2014 I dig into the README more carefully and find python -m evalkit.demo mentioned as an alternative. I try that.\n>\n> T+2:30 \u2014 The demo starts. It prints: \"Waiting for CI check: 0s elapsed of 300s\". 300 seconds. Five minutes. I'm on my laptop doing a local trial. No one told me a remote CI check was part of the deal.\n>\n> T+7:30 \u2014 The CI check finishes. I see the demo scores. The output looks good. But I've just spent seven and a half minutes on a \"quick start\" that started with a missing-file error and a five-minute surprise wait.\n\nDoes this match reality? Where am I wrong? <gstack-qid:devex-review-empathy-narrative>": "Accurate \u2014 proceed"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:47:18.023Z"
+  },
+  {
+    "sessionId": "7b6785b1-1548-4f03-9fab-54328db9502d",
+    "toolUseId": "toolu_01Gmf9CxoFcxNkVP8E1KTo3z",
+    "questions": [
+      {
+        "question": "D2 \u2014 Journey stage INSTALL: the quickstart file in the README doesn't exist in the package\n\nREADME.md says: \"follow the quickstart's command: python examples/first_eval.py\". docs/package-contents.txt confirms that `examples/first_eval.py` is absent from both the published package and the release examples archive. The Python ML engineer hits a file-not-found error as their very first action after install.\n\nThis violates DX First Principle #1 (Zero friction at T0): the README-documented command fails immediately.\n\nStakes if we skip: every developer who follows the README's own quickstart instruction hits an error before they ever see a real evaluation result. This is the definition of a broken first impression.\n\nRecommendation: A \u2014 update the README to use `python -m evalkit.demo` as the primary quickstart command, because the demo module is the one that actually works and ships with the package.\n\nCompleteness: A=9/10, B=6/10, C=5/10\n\nPros / cons:\n\nA) Update README to use `python -m evalkit.demo` (recommended)\n  \u2705 Removes the broken command from the documented happy path; works out of the box\n  \u2705 Aligns README with the terminal demo delivery vehicle that was already chosen\n  \u274c Loses the examples/first_eval.py pattern if some users prefer a file they can edit\n\nB) Add examples/first_eval.py to the published package\n  \u2705 Preserves the quickstart file as an editable starting point for users\n  \u274c Requires building and shipping the file; doesn't fix the TTHW problem independently\n\nC) Keep both paths, note in README that the examples archive is optional\n  \u2705 Gives users two entry points\n  \u274c Two paths creates \"choose your own adventure\" confusion at the worst possible moment\n\nNet: A is a one-line README fix that removes a broken command. B and C require more work and don't deliver a cleaner first experience. <gstack-qid:devex-review-missing-quickstart-file>",
+        "header": "Missing file",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A \u2014 Update README to use python -m evalkit.demo (recommended)",
+            "description": "Remove the broken examples/first_eval.py command from the README; make python -m evalkit.demo the documented quickstart."
+          },
+          {
+            "label": "B \u2014 Add examples/first_eval.py to the package",
+            "description": "Ship the quickstart file so the README command works."
+          },
+          {
+            "label": "C \u2014 Keep both, add a note",
+            "description": "Document that examples archive is optional and python -m evalkit.demo is the fallback."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Journey stage INSTALL: the quickstart file in the README doesn't exist in the package\n\nREADME.md says: \"follow the quickstart's command: python examples/first_eval.py\". docs/package-contents.txt confirms that `examples/first_eval.py` is absent from both the published package and the release examples archive. The Python ML engineer hits a file-not-found error as their very first action after install.\n\nThis violates DX First Principle #1 (Zero friction at T0): the README-documented command fails immediately.\n\nStakes if we skip: every developer who follows the README's own quickstart instruction hits an error before they ever see a real evaluation result. This is the definition of a broken first impression.\n\nRecommendation: A \u2014 update the README to use `python -m evalkit.demo` as the primary quickstart command, because the demo module is the one that actually works and ships with the package.\n\nCompleteness: A=9/10, B=6/10, C=5/10\n\nPros / cons:\n\nA) Update README to use `python -m evalkit.demo` (recommended)\n  \u2705 Removes the broken command from the documented happy path; works out of the box\n  \u2705 Aligns README with the terminal demo delivery vehicle that was already chosen\n  \u274c Loses the examples/first_eval.py pattern if some users prefer a file they can edit\n\nB) Add examples/first_eval.py to the published package\n  \u2705 Preserves the quickstart file as an editable starting point for users\n  \u274c Requires building and shipping the file; doesn't fix the TTHW problem independently\n\nC) Keep both paths, note in README that the examples archive is optional\n  \u2705 Gives users two entry points\n  \u274c Two paths creates \"choose your own adventure\" confusion at the worst possible moment\n\nNet: A is a one-line README fix that removes a broken command. B and C require more work and don't deliver a cleaner first experience. <gstack-qid:devex-review-missing-quickstart-file>": "A \u2014 Update README to use python -m evalkit.demo (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:47:36.065Z"
+  },
+  {
+    "sessionId": "7b6785b1-1548-4f03-9fab-54328db9502d",
+    "toolUseId": "toolu_01EuBhqX9BL3eUHWuB3zPp8U",
+    "questions": [
+      {
+        "question": "D3 \u2014 Journey stage HELLO WORLD: the mandatory 5-minute CI gate makes the <2-minute TTHW target unreachable\n\ndocs/benchmarks.md sets the agreed target at under 2 minutes. docs/current-contracts.md says the beta plan retains a mandatory 5-minute remote CI wait on every developer's first local evaluation, with no skip flag and no offline path. Those two things cannot both be true.\n\nWith the CI gate: pip install (~60s) + set key (~10s) + run demo + 300s wait = ~6 minutes. This is where the benchmark's 6-minute measurement came from.\nWithout the CI gate: pip install + set key + run demo + see scores = roughly 90 seconds. Under 2 minutes. Target achieved.\n\nThis violates DX First Principle #1 (Zero friction at T0) and the Incremental Steps principle: the developer cannot get ANY local result before a 5-minute mandatory remote round-trip. The empathy narrative shows they don't expect this and aren't warned before it starts.\n\nStakes if we skip: the plan ships with a stated TTHW target it is architecturally incapable of hitting. The benchmark study becomes misleading. The Python ML engineer who wanted a local result before CI finds that even the local demo requires CI.\n\nRecommendation: A \u2014 add a skip flag (e.g., EVALKIT_SKIP_CI_CHECK=1 or --skip-ci-check) for local/demo runs, because this preserves the production safety gate for real CI while enabling the <2-minute demo path.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Add a local-run skip flag (EVALKIT_SKIP_CI_CHECK or --no-ci-check) (recommended)\n  \u2705 Unlocks the <2-minute demo path; the production CI gate still runs in real pipelines\n  \u2705 Aligns with DX principle #4 (Decide for me, let me override): gate ON by default in prod, OFF for local trial\n  \u274c Requires documenting the flag clearly so developers know when to use it safely\n\nB) Retain gate, update TTHW target to be 6 minutes and document the CI wait upfront\n  \u2705 No code change; the existing behavior is fully documented\n  \u274c Abandons the agreed under-2-minute target; places EvalKit in the \"Needs Work\" TTHW tier with measurably lower adoption\n\nC) Keep gate, add a progress bar and estimated time to the wait message\n  \u2705 Developer knows what is happening and how long it will take; reduces abandonment from surprise\n  \u274c Does not change the TTHW \u2014 the wait is still 5 minutes; TTHW target still unreachable\n\nNet: A is the only option that makes both the target AND the production gate achievable. B and C accept a broken TTHW target. <gstack-qid:devex-review-ci-gate-tthw>",
+        "header": "CI gate vs TTHW",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A \u2014 Add a local skip flag for demo/local runs (recommended)",
+            "description": "Add EVALKIT_SKIP_CI_CHECK=1 or --no-ci-check so the <2-minute target is reachable while the production gate is preserved."
+          },
+          {
+            "label": "B \u2014 Retain gate, update the TTHW target to 6 minutes",
+            "description": "Accept the 5-minute gate as a hard requirement and document it prominently; drop the under-2-minute target."
+          },
+          {
+            "label": "C \u2014 Retain gate, improve the wait UX with better messaging",
+            "description": "Add a progress bar and explicit estimated time to the CI wait output; TTHW target is still unachievable."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Journey stage HELLO WORLD: the mandatory 5-minute CI gate makes the <2-minute TTHW target unreachable\n\ndocs/benchmarks.md sets the agreed target at under 2 minutes. docs/current-contracts.md says the beta plan retains a mandatory 5-minute remote CI wait on every developer's first local evaluation, with no skip flag and no offline path. Those two things cannot both be true.\n\nWith the CI gate: pip install (~60s) + set key (~10s) + run demo + 300s wait = ~6 minutes. This is where the benchmark's 6-minute measurement came from.\nWithout the CI gate: pip install + set key + run demo + see scores = roughly 90 seconds. Under 2 minutes. Target achieved.\n\nThis violates DX First Principle #1 (Zero friction at T0) and the Incremental Steps principle: the developer cannot get ANY local result before a 5-minute mandatory remote round-trip. The empathy narrative shows they don't expect this and aren't warned before it starts.\n\nStakes if we skip: the plan ships with a stated TTHW target it is architecturally incapable of hitting. The benchmark study becomes misleading. The Python ML engineer who wanted a local result before CI finds that even the local demo requires CI.\n\nRecommendation: A \u2014 add a skip flag (e.g., EVALKIT_SKIP_CI_CHECK=1 or --skip-ci-check) for local/demo runs, because this preserves the production safety gate for real CI while enabling the <2-minute demo path.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Add a local-run skip flag (EVALKIT_SKIP_CI_CHECK or --no-ci-check) (recommended)\n  \u2705 Unlocks the <2-minute demo path; the production CI gate still runs in real pipelines\n  \u2705 Aligns with DX principle #4 (Decide for me, let me override): gate ON by default in prod, OFF for local trial\n  \u274c Requires documenting the flag clearly so developers know when to use it safely\n\nB) Retain gate, update TTHW target to be 6 minutes and document the CI wait upfront\n  \u2705 No code change; the existing behavior is fully documented\n  \u274c Abandons the agreed under-2-minute target; places EvalKit in the \"Needs Work\" TTHW tier with measurably lower adoption\n\nC) Keep gate, add a progress bar and estimated time to the wait message\n  \u2705 Developer knows what is happening and how long it will take; reduces abandonment from surprise\n  \u274c Does not change the TTHW \u2014 the wait is still 5 minutes; TTHW target still unreachable\n\nNet: A is the only option that makes both the target AND the production gate achievable. B and C accept a broken TTHW target. <gstack-qid:devex-review-ci-gate-tthw>": "A \u2014 Add a local skip flag for demo/local runs (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:48:00.122Z"
+  },
+  {
+    "sessionId": "7b6785b1-1548-4f03-9fab-54328db9502d",
+    "toolUseId": "toolu_01CHXDuT2cvL6KJ3EiPPoR1o",
+    "questions": [
+      {
+        "question": "D4 \u2014 Pass 3 (Error Messages): AuthError(\"request failed\") is a dead end\n\ndocs/api.md documents: \"For an invalid API key, the SDK raises AuthError('request failed'). There is no authentication error code, explanation of the cause, or instruction for replacing the key. The plan retains this message.\"\n\nWhat the Python ML engineer sees when they set the wrong key or forget to export it:\n  AuthError: request failed\n\nWhat they need:\n  AuthError: Authentication failed \u2014 your EVALKIT_API_KEY is invalid or expired.\n  Set a valid key: export EVALKIT_API_KEY=<your-key>\n  Get your key at: https://evalkit.example.com/dashboard/api-keys\n\nThe Hall of Fame formula: problem + cause + fix + where to learn more. The current message scores 1/4: it names the error class but omits cause, fix, and docs link. A developer hitting this for the first time will search their shell, re-read the README, and wonder if the SDK is broken.\n\nThis violates DX First Principle #5 (Fight uncertainty): every error must identify problem, cause, and fix. Auth errors are the most common first-run failure for any API SDK.\n\nStakes if we skip: developers who mistype their key or use a test key abandon the SDK in minute 3 with no path forward. Support tickets spike on \"why does it say request failed?\"\n\nRecommendation: A \u2014 update the error message to include cause + fix + link, because the cost is one string change and the impact is turning a dead end into a resolved issue.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Update AuthError message: cause + fix instruction + API key URL (recommended)\n  \u2705 Developer knows exactly what went wrong and what to do next; no support ticket needed\n  \u2705 One-line change to the SDK; consistent with how all other errors already work per current-contracts.md\n  \u274c Requires publishing a new SDK version if the message is in compiled code\n\nB) Retain current message, add a troubleshooting section to the docs\n  \u2705 No SDK code change required\n  \u274c Developer must leave the terminal, find the docs, and navigate to troubleshooting \u2014 context-switch cost of 10-20 minutes\n\nNet: A costs one string edit. B costs the developer 10 minutes of confusion every time. <gstack-qid:devex-review-auth-error-message>",
+        "header": "Auth error message",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A \u2014 Fix the error message: cause + fix + link (recommended)",
+            "description": "Update AuthError to include what failed, why, and how to fix it (set a valid key, link to dashboard)."
+          },
+          {
+            "label": "B \u2014 Keep message, add troubleshooting docs",
+            "description": "Document the auth error in a separate troubleshooting page; don't change the SDK error text."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Pass 3 (Error Messages): AuthError(\"request failed\") is a dead end\n\ndocs/api.md documents: \"For an invalid API key, the SDK raises AuthError('request failed'). There is no authentication error code, explanation of the cause, or instruction for replacing the key. The plan retains this message.\"\n\nWhat the Python ML engineer sees when they set the wrong key or forget to export it:\n  AuthError: request failed\n\nWhat they need:\n  AuthError: Authentication failed \u2014 your EVALKIT_API_KEY is invalid or expired.\n  Set a valid key: export EVALKIT_API_KEY=<your-key>\n  Get your key at: https://evalkit.example.com/dashboard/api-keys\n\nThe Hall of Fame formula: problem + cause + fix + where to learn more. The current message scores 1/4: it names the error class but omits cause, fix, and docs link. A developer hitting this for the first time will search their shell, re-read the README, and wonder if the SDK is broken.\n\nThis violates DX First Principle #5 (Fight uncertainty): every error must identify problem, cause, and fix. Auth errors are the most common first-run failure for any API SDK.\n\nStakes if we skip: developers who mistype their key or use a test key abandon the SDK in minute 3 with no path forward. Support tickets spike on \"why does it say request failed?\"\n\nRecommendation: A \u2014 update the error message to include cause + fix + link, because the cost is one string change and the impact is turning a dead end into a resolved issue.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Update AuthError message: cause + fix instruction + API key URL (recommended)\n  \u2705 Developer knows exactly what went wrong and what to do next; no support ticket needed\n  \u2705 One-line change to the SDK; consistent with how all other errors already work per current-contracts.md\n  \u274c Requires publishing a new SDK version if the message is in compiled code\n\nB) Retain current message, add a troubleshooting section to the docs\n  \u2705 No SDK code change required\n  \u274c Developer must leave the terminal, find the docs, and navigate to troubleshooting \u2014 context-switch cost of 10-20 minutes\n\nNet: A costs one string edit. B costs the developer 10 minutes of confusion every time. <gstack-qid:devex-review-auth-error-message>": "A \u2014 Fix the error message: cause + fix + link (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:48:18.156Z"
+  },
+  {
+    "sessionId": "7b6785b1-1548-4f03-9fab-54328db9502d",
+    "toolUseId": "toolu_01M5ZDfykARvFKmYD8inotgx",
+    "questions": [
+      {
+        "question": "D5 \u2014 Pass 2 (API Design): run_eval and run_batch take the same arguments in reversed order\n\ndocs/api.md documents:\n  run_eval(dataset, evaluator)\n  run_batch(evaluator, dataset)\n\nBoth argument names describe the same concepts. The reversed positional order is documented as \"intentional\" and neither function requires keyword arguments.\n\nA Python ML engineer who learns run_eval(dataset, evaluator) and then picks up run_batch will silently pass the arguments in the wrong order. There is no TypeError \u2014 both arguments are valid Python objects. The call succeeds, the results are wrong, and the developer spends 30 minutes debugging why their batch evaluations are nonsense.\n\nThis violates DX First Principle #4 (Decide for me) and the Hall of Fame anti-pattern \"God endpoint / inconsistent naming\": identical concepts should follow identical calling conventions. The Stripe API is the gold standard for consistency \u2014 you never have to wonder if it's customer, charge or charge, customer.\n\nStakes if we skip: silent bugs in production. Developers who use both functions will be bitten exactly once, file a confusing bug report, and lose trust in the SDK.\n\nRecommendation: A \u2014 standardize to (dataset, evaluator) order in both functions, because dataset is the primary noun in evaluation and should always come first.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Standardize to run_eval(dataset, evaluator) / run_batch(dataset, evaluator) (recommended)\n  \u2705 Consistent calling convention; developers who learn one API use the other correctly by muscle memory\n  \u2705 Eliminates the silent-wrong-order bug before it hits any user\n  \u274c Breaking change to run_batch \u2014 requires changelog entry and migration note\n\nB) Require keyword arguments on both functions\n  \u2705 Positional ambiguity is gone; callers must name their args\n  \u274c Adding keyword-only enforcement is also a breaking change; heavier than swapping order\n\nC) Keep current order, add a type annotation or runtime check that warns on likely-wrong-order calls\n  \u2705 No API change\n  \u274c Heuristic check is fragile; if both args are the same type, it can't detect the swap\n\nNet: A is a surgical fix that costs one v2 changelog line. The alternative is leaving a silent bug that will confuse every developer who uses both functions. <gstack-qid:devex-review-api-arg-order>",
+        "header": "API argument order",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A \u2014 Standardize both functions to (dataset, evaluator) (recommended)",
+            "description": "Align run_batch to match run_eval's argument order; add a migration note to the changelog."
+          },
+          {
+            "label": "B \u2014 Require keyword arguments on both functions",
+            "description": "Make both functions keyword-only so callers must explicitly name dataset= and evaluator=."
+          },
+          {
+            "label": "C \u2014 Keep current order, add a runtime order-check hint",
+            "description": "Leave the order as-is; add a best-effort runtime warning if arguments appear to be swapped."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 Pass 2 (API Design): run_eval and run_batch take the same arguments in reversed order\n\ndocs/api.md documents:\n  run_eval(dataset, evaluator)\n  run_batch(evaluator, dataset)\n\nBoth argument names describe the same concepts. The reversed positional order is documented as \"intentional\" and neither function requires keyword arguments.\n\nA Python ML engineer who learns run_eval(dataset, evaluator) and then picks up run_batch will silently pass the arguments in the wrong order. There is no TypeError \u2014 both arguments are valid Python objects. The call succeeds, the results are wrong, and the developer spends 30 minutes debugging why their batch evaluations are nonsense.\n\nThis violates DX First Principle #4 (Decide for me) and the Hall of Fame anti-pattern \"God endpoint / inconsistent naming\": identical concepts should follow identical calling conventions. The Stripe API is the gold standard for consistency \u2014 you never have to wonder if it's customer, charge or charge, customer.\n\nStakes if we skip: silent bugs in production. Developers who use both functions will be bitten exactly once, file a confusing bug report, and lose trust in the SDK.\n\nRecommendation: A \u2014 standardize to (dataset, evaluator) order in both functions, because dataset is the primary noun in evaluation and should always come first.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Standardize to run_eval(dataset, evaluator) / run_batch(dataset, evaluator) (recommended)\n  \u2705 Consistent calling convention; developers who learn one API use the other correctly by muscle memory\n  \u2705 Eliminates the silent-wrong-order bug before it hits any user\n  \u274c Breaking change to run_batch \u2014 requires changelog entry and migration note\n\nB) Require keyword arguments on both functions\n  \u2705 Positional ambiguity is gone; callers must name their args\n  \u274c Adding keyword-only enforcement is also a breaking change; heavier than swapping order\n\nC) Keep current order, add a type annotation or runtime check that warns on likely-wrong-order calls\n  \u2705 No API change\n  \u274c Heuristic check is fragile; if both args are the same type, it can't detect the swap\n\nNet: A is a surgical fix that costs one v2 changelog line. The alternative is leaving a silent bug that will confuse every developer who uses both functions. <gstack-qid:devex-review-api-arg-order>": "A \u2014 Standardize both functions to (dataset, evaluator) (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:48:38.205Z"
+  },
+  {
+    "sessionId": "7b6785b1-1548-4f03-9fab-54328db9502d",
+    "toolUseId": "toolu_01SSgCUdRxsxooMpvM5yrsvg",
+    "questions": [
+      {
+        "question": "D6 \u2014 Pass 5 (Upgrade Path): v1\u2192v2 removes Client.evaluate() with no warning, no guide, no codemod\n\ndocs/api.md documents: \"Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided.\"\n\nThe Python ML engineer who is already using EvalKit v1 in their team's pipeline runs pip install --upgrade evalkit and gets:\n  AttributeError: 'Client' object has no attribute 'evaluate'\n\nNo warning before the upgrade. No changelog entry pointing to the rename. No migration guide. Their production pipeline breaks. They have to grep their entire codebase for .evaluate( and manually replace each call with .run( \u2014 while a broken CI job waits.\n\nThis violates DX First Principle #7 (Speed is a feature) and DX Characteristic #2 (Credible): developers need to trust that upgrades won't silently break their work. TypeScript's gold standard is \"never breaks JS\" \u2014 or if it must break, a codemod does the migration automatically.\n\nStakes if we skip: every v1 user has their pipeline broken on upgrade with no recovery path except reading the source code. This is the kind of experience that causes teams to pin SDK versions forever and never upgrade again.\n\nRecommendation: A \u2014 add a compatibility alias with a DeprecationWarning and a migration note in the changelog, because it costs one alias and one warning line and prevents every v1 user from hitting a production crash.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Add Client.evaluate() as a DeprecationWarning alias + changelog migration note (recommended)\n  \u2705 v1 code continues to work with a clear console warning; upgrade is non-breaking\n  \u2705 Changelog note + warning together tell the developer exactly what to change and where\n  \u274c Old name stays in the codebase until the next major version; minor code debt\n\nB) Add a migration guide to docs with find-replace instructions\n  \u2705 No SDK code change\n  \u274c Developers must find the guide AFTER their pipeline breaks; no warning before or during the failure\n\nC) Keep hard break, add an informative error message when evaluate() is called\n  \u2705 Developer gets an error that names the replacement method instead of \"has no attribute\"\n  \u274c Still a breaking change that crashes the pipeline; just slightly less confusing\n\nNet: A keeps every v1 user unbroken while they migrate. B and C still break production pipelines on upgrade. <gstack-qid:devex-review-v1-v2-migration>",
+        "header": "v1\u2192v2 upgrade",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A \u2014 Compatibility alias + DeprecationWarning + changelog note (recommended)",
+            "description": "Keep Client.evaluate() working with a deprecation warning that names Client.run() as the replacement."
+          },
+          {
+            "label": "B \u2014 Keep hard break, add a migration guide to docs",
+            "description": "Document the rename in a migration guide; accept that v1 code breaks on upgrade."
+          },
+          {
+            "label": "C \u2014 Keep hard break, add an informative AttributeError message",
+            "description": "Raise a helpful error naming Client.run() when Client.evaluate() is called on v2."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 Pass 5 (Upgrade Path): v1\u2192v2 removes Client.evaluate() with no warning, no guide, no codemod\n\ndocs/api.md documents: \"Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided.\"\n\nThe Python ML engineer who is already using EvalKit v1 in their team's pipeline runs pip install --upgrade evalkit and gets:\n  AttributeError: 'Client' object has no attribute 'evaluate'\n\nNo warning before the upgrade. No changelog entry pointing to the rename. No migration guide. Their production pipeline breaks. They have to grep their entire codebase for .evaluate( and manually replace each call with .run( \u2014 while a broken CI job waits.\n\nThis violates DX First Principle #7 (Speed is a feature) and DX Characteristic #2 (Credible): developers need to trust that upgrades won't silently break their work. TypeScript's gold standard is \"never breaks JS\" \u2014 or if it must break, a codemod does the migration automatically.\n\nStakes if we skip: every v1 user has their pipeline broken on upgrade with no recovery path except reading the source code. This is the kind of experience that causes teams to pin SDK versions forever and never upgrade again.\n\nRecommendation: A \u2014 add a compatibility alias with a DeprecationWarning and a migration note in the changelog, because it costs one alias and one warning line and prevents every v1 user from hitting a production crash.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.\n\nPros / cons:\n\nA) Add Client.evaluate() as a DeprecationWarning alias + changelog migration note (recommended)\n  \u2705 v1 code continues to work with a clear console warning; upgrade is non-breaking\n  \u2705 Changelog note + warning together tell the developer exactly what to change and where\n  \u274c Old name stays in the codebase until the next major version; minor code debt\n\nB) Add a migration guide to docs with find-replace instructions\n  \u2705 No SDK code change\n  \u274c Developers must find the guide AFTER their pipeline breaks; no warning before or during the failure\n\nC) Keep hard break, add an informative error message when evaluate() is called\n  \u2705 Developer gets an error that names the replacement method instead of \"has no attribute\"\n  \u274c Still a breaking change that crashes the pipeline; just slightly less confusing\n\nNet: A keeps every v1 user unbroken while they migrate. B and C still break production pipelines on upgrade. <gstack-qid:devex-review-v1-v2-migration>": "A \u2014 Compatibility alias + DeprecationWarning + changelog note (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T08:49:00.269Z"
+  }
+]

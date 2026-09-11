@@ -1,0 +1,534 @@
+{
+  "calls": [
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_01RLY62gnoEWnQcvsFEe3C9J",
+      "questions": [
+        {
+          "header": "Routing",
+          "question": "D1 — Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md tells the agent which skill to invoke for which request (bugs → /investigate, ship → /ship). Without it you invoke skills by hand each time. Plan mode forbids editing CLAUDE.md now, so option A would be applied after this review exits plan mode.\nStakes if we pick wrong: mild; you lose auto-routing or gain a section you did not want in a fixture repo.\nRecommendation: A because routing is free once written and removable in one edit.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience later vs a tidier CLAUDE.md now.",
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "✅ Future requests auto-route to the matching skill without typing slash commands. ✅ One committed section, easy to delete. ❌ Adds ~20 lines to a fixture CLAUDE.md; applied only after plan mode ends."
+            },
+            {
+              "label": "No thanks, manual",
+              "description": "✅ CLAUDE.md stays minimal for this fixture repo. ✅ Sets routing_declined so this is never asked again here. ❌ You keep typing skill names by hand."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "header": "Learnings",
+          "question": "D2 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: gstack stores small lessons per project. With this on, reviews can also read lessons from your other projects on this machine. Nothing leaves your machine. Good for solo developers; skip if you work across client codebases where mixing is a concern.\nStakes if we pick wrong: on for a multi-client machine could surface one client's patterns in another's review; off means slower compounding.\nRecommendation: A because this is a local, single-user sandbox with no client separation concern.\nNote: options differ in kind, not coverage — no completeness score.\nNet: faster compounding vs strict per-project isolation.",
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "✅ Patterns learned elsewhere surface here automatically. ✅ Local only; no data leaves the machine. ❌ Could mix context if you later work on multiple client codebases."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "✅ Strict isolation between codebases on this machine. ✅ Nothing to audit later for cross-contamination. ❌ Every project starts learning from zero."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "header": "Focus",
+          "question": "D3 — Review all 7 design dimensions or focus on specific ones?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: I rated the plan 7/10. The biggest gaps are the five listed DESIGN.md violations: Save has no primary styling, section spacing is inconsistent, the error color fails WCAG AA, labels use three sizes, and Save shows no pending indicator. Mockups are skipped per your request. Your message already asked for all seven dimensions; confirming so I do not narrow scope.\nStakes if we pick wrong: narrowing skips passes where the plan could still hide gaps.\nRecommendation: A because you explicitly asked for all seven and the plan's remaining gaps span five of them.\nCompleteness: A=10/10, B=6/10.\nNet: full coverage vs a shorter session.",
+          "options": [
+            {
+              "label": "All 7 dimensions (recommended)",
+              "description": "✅ Every pass evaluated, each finding gets its own decision. ✅ Matches your request for all seven dimensions. ❌ More questions to answer: at least five remedy decisions."
+            },
+            {
+              "label": "Focus on the 5 listed gaps only",
+              "description": "✅ Shorter session centered on known violations. ✅ Still resolves each gap individually. ❌ Skips journey, AI-slop, and responsive passes where unlisted gaps may hide."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md tells the agent which skill to invoke for which request (bugs → /investigate, ship → /ship). Without it you invoke skills by hand each time. Plan mode forbids editing CLAUDE.md now, so option A would be applied after this review exits plan mode.\nStakes if we pick wrong: mild; you lose auto-routing or gain a section you did not want in a fixture repo.\nRecommendation: A because routing is free once written and removable in one edit.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience later vs a tidier CLAUDE.md now.": "Add routing rules (recommended)",
+        "D2 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: gstack stores small lessons per project. With this on, reviews can also read lessons from your other projects on this machine. Nothing leaves your machine. Good for solo developers; skip if you work across client codebases where mixing is a concern.\nStakes if we pick wrong: on for a multi-client machine could surface one client's patterns in another's review; off means slower compounding.\nRecommendation: A because this is a local, single-user sandbox with no client separation concern.\nNote: options differ in kind, not coverage — no completeness score.\nNet: faster compounding vs strict per-project isolation.": "Enable cross-project (recommended)",
+        "D3 — Review all 7 design dimensions or focus on specific ones?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: I rated the plan 7/10. The biggest gaps are the five listed DESIGN.md violations: Save has no primary styling, section spacing is inconsistent, the error color fails WCAG AA, labels use three sizes, and Save shows no pending indicator. Mockups are skipped per your request. Your message already asked for all seven dimensions; confirming so I do not narrow scope.\nStakes if we pick wrong: narrowing skips passes where the plan could still hide gaps.\nRecommendation: A because you explicitly asked for all seven and the plan's remaining gaps span five of them.\nCompleteness: A=10/10, B=6/10.\nNet: full coverage vs a shorter session.": "All 7 dimensions (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:04:39.305Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_01CstVkfwsmYknA3Cy12g8nA",
+      "questions": [
+        {
+          "header": "Issue 1: Save",
+          "question": "D4 — Issue 1 (F1): How should the header action group establish the primary action?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: Save, Reset, Cancel and Export currently look the same. Users scan, they do not read, so when four buttons shout equally the one they came for (Save) gets no priority. Hierarchy as service: what should they see first? DESIGN.md already answers it: Save is the only filled primary button, the other three are neutral ghost buttons.\nStakes if we pick wrong: users hesitate at the action row, or hit Reset/Export by mistake because nothing signals which is the commit action.\nRecommendation: 1A because it applies the existing DESIGN.md token with zero new visual exploration, which the plan forbids.\nCompleteness: 1A=10/10, 1B=9/10, 1C=2/10.\nNet: reuse the approved token vs invent extra separation vs leave the scan failure in place.",
+          "options": [
+            {
+              "label": "1A: DESIGN.md token (recommended)",
+              "description": "✅ Save becomes the only filled #1d4ed8 button with white text; Reset, Cancel, Export become neutral ghost buttons, exactly as DESIGN.md states. ✅ No new tokens, 44px geometry and DOM order unchanged. ❌ Export sits visually equal to Reset and Cancel even though it is not destructive. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "1B: Token plus Export gap",
+              "description": "✅ Same as 1A, and adds a spacer between Cancel and Export so the non-destructive action is visually grouped apart. ✅ Slightly clearer mental model of discard vs download. ❌ Introduces a layout token DESIGN.md does not define, contradicting the no-visual-exploration constraint. (human: ~2h / CC: ~10min)"
+            },
+            {
+              "label": "1C: Keep all four identical",
+              "description": "✅ Zero implementation change in this PR. ✅ No risk of styling regressions in Button. ❌ Ships a known DESIGN.md violation; the review score stays capped and users keep scanning a flat row."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 1 (F1): How should the header action group establish the primary action?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: Save, Reset, Cancel and Export currently look the same. Users scan, they do not read, so when four buttons shout equally the one they came for (Save) gets no priority. Hierarchy as service: what should they see first? DESIGN.md already answers it: Save is the only filled primary button, the other three are neutral ghost buttons.\nStakes if we pick wrong: users hesitate at the action row, or hit Reset/Export by mistake because nothing signals which is the commit action.\nRecommendation: 1A because it applies the existing DESIGN.md token with zero new visual exploration, which the plan forbids.\nCompleteness: 1A=10/10, 1B=9/10, 1C=2/10.\nNet: reuse the approved token vs invent extra separation vs leave the scan failure in place.": "1A: DESIGN.md token (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:05:15.941Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_01Sd6pzYGUVvycDqnHpdyeZd",
+      "questions": [
+        {
+          "header": "Issue 2: Save",
+          "question": "D5 — Issue 2 (F5): What does the user see during the 2-5 second Save request?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: After clicking Save nothing changes for several seconds, so users wonder if the click registered and may click again or leave. The plan already says pending feedback lives in the button and the status text must not repeat Saving. DESIGN.md defines the established pattern: an inline spinner beside the text Saving… inside the disabled Save button, aria-busy=true, honoring reduced motion. Export already uses this exact pattern.\nStakes if we pick wrong: duplicate submits, abandoned saves, or a skeleton that hides the values the user just typed.\nRecommendation: 2A because it is the existing pattern, matches Export, and keeps the user's typed values visible.\nCompleteness: 2A=10/10, 2B=5/10, 2C=1/10.\nNet: reuse the proven button-level pending pattern vs a page-level skeleton that hides edits vs a frozen page.",
+          "options": [
+            {
+              "label": "2A: Spinner + Saving… in Save (recommended)",
+              "description": "✅ Existing inline spinner beside Saving… inside Save, aria-disabled=true with activation guard, aria-busy=true, reduced-motion swaps spinner for static text. ✅ Identical to the Export pending pattern, so one component path. ❌ Button text width changes from Save to Saving…; reserve min-width so the row does not reflow. (human: ~2h / CC: ~10min)"
+            },
+            {
+              "label": "2B: Skeleton overlay on the form",
+              "description": "✅ Very visible page-level feedback that something is happening. ✅ Reuses the existing loading skeleton component. ❌ Hides the values the user just typed and conflicts with the accepted rule that unsaved values stay visible and focus never moves. (human: ~3h / CC: ~15min)"
+            },
+            {
+              "label": "2C: Leave as is",
+              "description": "✅ No change to Save in this PR. ✅ No risk of touching Button internals. ❌ Users see a frozen page for 2-5s and the plan keeps a documented DESIGN.md violation."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Issue 2 (F5): What does the user see during the 2-5 second Save request?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: After clicking Save nothing changes for several seconds, so users wonder if the click registered and may click again or leave. The plan already says pending feedback lives in the button and the status text must not repeat Saving. DESIGN.md defines the established pattern: an inline spinner beside the text Saving… inside the disabled Save button, aria-busy=true, honoring reduced motion. Export already uses this exact pattern.\nStakes if we pick wrong: duplicate submits, abandoned saves, or a skeleton that hides the values the user just typed.\nRecommendation: 2A because it is the existing pattern, matches Export, and keeps the user's typed values visible.\nCompleteness: 2A=10/10, 2B=5/10, 2C=1/10.\nNet: reuse the proven button-level pending pattern vs a page-level skeleton that hides edits vs a frozen page.": "2A: Spinner + Saving… in Save (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:06:13.146Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_01LL2GZSrpDiP41VeZm9uC6n",
+      "questions": [
+        {
+          "header": "Issue 3: Space",
+          "question": "D6 — Issue 3 (F2): Which vertical spacing rhythm should the form use?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: Right now the gaps between sections are 24px in some places, 32px in others, 16px in a third. Gestalt proximity says spacing tells users what belongs together; random gaps make the grouping feel accidental. DESIGN.md defines an 8px base scale: 32px between sections, 24px between field groups, 8px from label to input.\nStakes if we pick wrong: the form reads as assembled rather than designed, and Profile vs Notifications grouping is visually ambiguous.\nRecommendation: 3A because it applies the existing DESIGN.md scale with no new tokens.\nCompleteness: 3A=10/10, 3B=7/10, 3C=2/10.\nNet: adopt the approved scale vs a tighter one-off scale vs keep the inconsistency.",
+          "options": [
+            {
+              "label": "3A: DESIGN.md 8px scale (recommended)",
+              "description": "✅ Sections 32px, field groups 24px, label-to-input 8px, applied to header, status, Profile and Notifications alike. ✅ More space above each h2 than below it, so headings attach to their fieldset. ❌ Slightly taller page at 320px; still no horizontal scroll. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "3B: Compact 24/16/8 scale",
+              "description": "✅ Denser form, less scrolling on small screens. ✅ Still a consistent 8px-based rhythm. ❌ Contradicts the checked-in DESIGN.md section token, creating two spacing systems in one app. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "3C: Leave as is",
+              "description": "✅ No layout change in this PR. ✅ Zero regression risk in shared spacing utilities. ❌ Keeps a documented DESIGN.md violation and an inconsistent rhythm users can feel."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Issue 3 (F2): Which vertical spacing rhythm should the form use?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: Right now the gaps between sections are 24px in some places, 32px in others, 16px in a third. Gestalt proximity says spacing tells users what belongs together; random gaps make the grouping feel accidental. DESIGN.md defines an 8px base scale: 32px between sections, 24px between field groups, 8px from label to input.\nStakes if we pick wrong: the form reads as assembled rather than designed, and Profile vs Notifications grouping is visually ambiguous.\nRecommendation: 3A because it applies the existing DESIGN.md scale with no new tokens.\nCompleteness: 3A=10/10, 3B=7/10, 3C=2/10.\nNet: adopt the approved scale vs a tighter one-off scale vs keep the inconsistency.": "3A: DESIGN.md 8px scale (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:07:54.092Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_0183dhn4woP6Do6yCmBrYkCj",
+      "questions": [
+        {
+          "header": "Issue 4: Type",
+          "question": "D7 — Issue 4 (F4): Which type scale should form labels and headings use?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: Labels currently appear at 14px, 16px and 18px with no rule for which is which. Three sizes for one role flattens hierarchy and makes 14px labels the smallest text on the page, which also fails the never-below-16px body rule. DESIGN.md defines two roles: 16px for body, form labels and helper text; 20px for the Profile and Notifications headings.\nStakes if we pick wrong: labels compete with headings, 14px text is hard to read on mobile, and the page reads as three different forms stitched together.\nRecommendation: 4A because it applies the two DESIGN.md roles directly and removes the sub-16px text.\nCompleteness: 4A=10/10, 4B=6/10, 4C=2/10.\nNet: two clear roles vs keep a small helper size vs three arbitrary sizes.",
+          "options": [
+            {
+              "label": "4A: Two roles, 16px / 20px (recommended)",
+              "description": "✅ All labels, helper text, status text, button text and body at 16px; h2 section headings at 20px; h1 keeps its existing app size. ✅ Eliminates 14px text so nothing on the page falls below the 16px floor. ❌ Helper text loses its smaller visual distinction; rely on color-agnostic wording and spacing instead. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "4B: 16/20 plus 14px helper text",
+              "description": "✅ Labels and headings match DESIGN.md roles. ✅ Helper text stays visually subordinate to labels. ❌ Keeps sub-16px body text, violating both DESIGN.md's two-role rule and the universal small-type rule. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "4C: Leave as is",
+              "description": "✅ No CSS change in this PR. ✅ No risk in shared Field styles. ❌ Three label sizes persist, hierarchy stays flat, and 14px text remains on mobile."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Issue 4 (F4): Which type scale should form labels and headings use?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: Labels currently appear at 14px, 16px and 18px with no rule for which is which. Three sizes for one role flattens hierarchy and makes 14px labels the smallest text on the page, which also fails the never-below-16px body rule. DESIGN.md defines two roles: 16px for body, form labels and helper text; 20px for the Profile and Notifications headings.\nStakes if we pick wrong: labels compete with headings, 14px text is hard to read on mobile, and the page reads as three different forms stitched together.\nRecommendation: 4A because it applies the two DESIGN.md roles directly and removes the sub-16px text.\nCompleteness: 4A=10/10, 4B=6/10, 4C=2/10.\nNet: two clear roles vs keep a small helper size vs three arbitrary sizes.": "4A: Two roles, 16px / 20px (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:08:29.247Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_011zzhbj36f5yXSkqTLYTfw7",
+      "questions": [
+        {
+          "header": "Issue 5: Error",
+          "question": "D8 — Issue 5 (F3): Which error color treatment should the plan specify?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: WCAG AA (the Web Content Accessibility Guidelines level most products target) requires normal text to contrast at least 4.5:1 against its background. The current red-on-light-pink error text sits near 3:1, so people with low vision or a dim screen struggle to read exactly the message that tells them what went wrong. DESIGN.md defines the fix: error text #991b1b on error surface #fef2f2, which measures about 7.6:1, always paired with an icon and explicit text so color is never the only signal.\nStakes if we pick wrong: an unreadable error at the most stressful step, plus a legal-exposure accessibility failure.\nRecommendation: 5A because it applies the existing DESIGN.md tokens, clears AA with margin, and already includes the icon plus text requirement.\nCompleteness: 5A=10/10, 5B=6/10, 5C=1/10.\nNet: approved tokens with icon vs a darker one-off red vs keep the AA failure.",
+          "options": [
+            {
+              "label": "5A: DESIGN.md error tokens (recommended)",
+              "description": "✅ error.text #991b1b on error.surface #fef2f2 (~7.6:1), with the existing error icon and explicit text, applied to field errors, ErrorSummary, and the network/Export error area. ✅ Status never communicated by color alone, matching the inherited rule. ❌ Retry button beside the error must also be checked against #fef2f2 for its own 4.5:1 and 3:1 focus-ring contrast. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "5B: Darken current red only",
+              "description": "✅ Minimal CSS change: pick a red that reaches 4.5:1 on the current pink. ✅ Keeps the current look mostly intact. ❌ Creates a third red in the app and leaves the surface off-token; DESIGN.md already names the pair. (human: ~30min / CC: ~5min)"
+            },
+            {
+              "label": "5C: Leave as is",
+              "description": "✅ No change in this PR. ✅ No shared token edits. ❌ Ships a WCAG AA failure on the error message and keeps a documented DESIGN.md violation."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Issue 5 (F3): Which error color treatment should the plan specify?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: WCAG AA (the Web Content Accessibility Guidelines level most products target) requires normal text to contrast at least 4.5:1 against its background. The current red-on-light-pink error text sits near 3:1, so people with low vision or a dim screen struggle to read exactly the message that tells them what went wrong. DESIGN.md defines the fix: error text #991b1b on error surface #fef2f2, which measures about 7.6:1, always paired with an icon and explicit text so color is never the only signal.\nStakes if we pick wrong: an unreadable error at the most stressful step, plus a legal-exposure accessibility failure.\nRecommendation: 5A because it applies the existing DESIGN.md tokens, clears AA with margin, and already includes the icon plus text requirement.\nCompleteness: 5A=10/10, 5B=6/10, 5C=1/10.\nNet: approved tokens with icon vs a darker one-off red vs keep the AA failure.": "5A: DESIGN.md error tokens (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:09:15.978Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_019GjHri3qXZtWZH8VJhAr2n",
+      "questions": [
+        {
+          "header": "Issue 6: 320px",
+          "question": "D9 — Issue 6: How do the status text and its Retry button lay out when they do not fit on one line at 320px?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: The plan says Retry sits beside the status text. On a 320px phone an error sentence plus a 44px button will not fit on one line, and the plan does not say what happens. Left undecided, an engineer picks one of three behaviors at random: the text truncates, the row overflows and causes horizontal scroll, or the button wraps somewhere. Only the last keeps the accepted no-horizontal-scroll rule.\nStakes if we pick wrong: a truncated error message the user cannot read, or a horizontal scrollbar on the one page that promised none.\nRecommendation: 6A because wrapping keeps the full message readable, preserves the 44px target, and needs no new component.\nCompleteness: 6A=10/10, 6B=7/10, 6C=3/10.\nNet: full message and full-width button vs a fixed side column vs one-line truncation.",
+          "options": [
+            {
+              "label": "6A: Wrap Retry below the text (recommended)",
+              "description": "✅ Status text wraps to as many lines as needed; when the row cannot fit, Retry drops to its own line below, left-aligned, 44px tall, 8px gap, DOM order unchanged. ✅ No truncation and no horizontal scroll at 320px; identical behavior for save, export and load errors. ❌ The status area grows taller during errors, pushing fields down slightly. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "6B: Fixed-width Retry column",
+              "description": "✅ Retry always visible at the right edge, same position at every width. ✅ Status area height stays predictable. ❌ Leaves roughly 220px for text at 320px, so longer messages wrap heavily beside a tall button and layout looks lopsided. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "6C: Single line, truncate text",
+              "description": "✅ Simplest CSS; the row never changes height. ✅ Retry stays beside the text always. ❌ Users cannot read the full error at 320px, and truncating a live-region message also cuts what screen readers announce visually vs audibly. (human: ~30min / CC: ~5min)"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 — Issue 6: How do the status text and its Retry button lay out when they do not fit on one line at 320px?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: The plan says Retry sits beside the status text. On a 320px phone an error sentence plus a 44px button will not fit on one line, and the plan does not say what happens. Left undecided, an engineer picks one of three behaviors at random: the text truncates, the row overflows and causes horizontal scroll, or the button wraps somewhere. Only the last keeps the accepted no-horizontal-scroll rule.\nStakes if we pick wrong: a truncated error message the user cannot read, or a horizontal scrollbar on the one page that promised none.\nRecommendation: 6A because wrapping keeps the full message readable, preserves the 44px target, and needs no new component.\nCompleteness: 6A=10/10, 6B=7/10, 6C=3/10.\nNet: full message and full-width button vs a fixed side column vs one-line truncation.": "6A: Wrap Retry below the text (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:10:27.866Z"
+    },
+    {
+      "sessionId": "22820c07-b1f9-4c7c-a7b8-ba7acb607f01",
+      "toolUseId": "toolu_01ETdnJuZB7ZunqCk5e3GRht",
+      "questions": [
+        {
+          "header": "TODO: Font",
+          "question": "D10 — TODO proposal: track an app-wide typeface decision as deferred design debt?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: The plan keeps system-ui as the app font, which is the right call for this form update because changing a font is an app-wide decision, not a settings-page one. But system-ui is the single strongest tell that nobody chose typography. This is not a change to this plan; it is whether to write the debt down so someone revisits it deliberately.\nWhat: Choose a real body/UI typeface app-wide and update DESIGN.md. Why: system-ui reads as unfinished and belongs to no design system. Pros: one decision lifts every screen. Cons: font loading cost, cross-platform QA, a DESIGN.md revision. Context: surfaced by /plan-design-review Pass 4 on 2026-09-10; the settings plan explicitly forbids visual exploration so it was not changed here. Depends on: a /design-consultation or brand decision.\nStakes if we pick wrong: the debt is forgotten, or this PR grows into a font migration.\nRecommendation: A because writing it down costs nothing and keeps this PR scoped.\nNote: options differ in kind, not coverage — no completeness score.\nNet: remember the debt vs drop it vs expand this PR.",
+          "options": [
+            {
+              "label": "A: Add to TODOS.md (recommended)",
+              "description": "✅ The debt is recorded with context so a future session can act deliberately. ✅ This PR stays scoped to the settings form as the plan requires. ❌ TODOS.md does not exist yet in this repo; the file is created after plan mode ends. (human: ~5min / CC: ~1min)"
+            },
+            {
+              "label": "B: Skip, not valuable enough",
+              "description": "✅ No new file or backlog item for a fixture repo. ✅ Zero follow-up noise. ❌ The typography tell is forgotten until someone notices it again."
+            },
+            {
+              "label": "C: Build it now in this PR",
+              "description": "✅ Fixes the strongest AI-slop tell immediately. ✅ One less future migration. ❌ Contradicts the plan's explicit constraint to retain system-ui and avoid visual exploration; touches every screen in the app. (human: ~2 days / CC: ~1h)"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 — TODO proposal: track an app-wide typeface decision as deferred design debt?\nProject/branch/task: gstack-plan-count-xG5e2f on main, reviewing PLAN.md.\nELI10: The plan keeps system-ui as the app font, which is the right call for this form update because changing a font is an app-wide decision, not a settings-page one. But system-ui is the single strongest tell that nobody chose typography. This is not a change to this plan; it is whether to write the debt down so someone revisits it deliberately.\nWhat: Choose a real body/UI typeface app-wide and update DESIGN.md. Why: system-ui reads as unfinished and belongs to no design system. Pros: one decision lifts every screen. Cons: font loading cost, cross-platform QA, a DESIGN.md revision. Context: surfaced by /plan-design-review Pass 4 on 2026-09-10; the settings plan explicitly forbids visual exploration so it was not changed here. Depends on: a /design-consultation or brand decision.\nStakes if we pick wrong: the debt is forgotten, or this PR grows into a font migration.\nRecommendation: A because writing it down costs nothing and keeps this PR scoped.\nNote: options differ in kind, not coverage — no completeness score.\nNet: remember the debt vs drop it vs expand this PR.": "A: Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:11:09.095Z"
+    }
+  ],
+  "retryCalls": [
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_01WYKYudReox1LyBVhwazCvp",
+      "questions": [
+        {
+          "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch, plan-design-review of PLAN.md (Settings Page UI redesign).\nELI10: gstack works best when the project's CLAUDE.md includes skill routing rules, so future requests like \"review this design\" or \"ship it\" get routed to the matching skill automatically. This is a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit happen after the review finishes and plan mode exits, not now.\nStakes if we pick wrong: Picking A on a throwaway fixture repo adds a commit you may not want; picking B means you invoke skills manually here (re-enable anytime via gstack-config).\nRecommendation: A because routing rules make later skill invocations automatic, and the append is small and reversible.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small convenience commit versus keeping this repo untouched beyond the plan review.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "✅ Future requests auto-route to the right gstack skill without typing slash commands. ✅ Append is a short section at the end of CLAUDE.md, easy to revert. ❌ Adds a commit to this repo after plan mode exits, which may be unwanted on a fixture."
+            },
+            {
+              "label": "No thanks, manual invocation",
+              "description": "✅ Repo stays untouched apart from the plan file you asked for. ✅ You can re-enable later with gstack-config set routing_declined false. ❌ You must type /skill-name yourself for each gstack workflow in this project."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch, plan-design-review of PLAN.md (Settings Page UI redesign).\nELI10: gstack works best when the project's CLAUDE.md includes skill routing rules, so future requests like \"review this design\" or \"ship it\" get routed to the matching skill automatically. This is a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit happen after the review finishes and plan mode exits, not now.\nStakes if we pick wrong: Picking A on a throwaway fixture repo adds a commit you may not want; picking B means you invoke skills manually here (re-enable anytime via gstack-config).\nRecommendation: A because routing rules make later skill invocations automatic, and the append is small and reversible.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small convenience commit versus keeping this repo untouched beyond the plan review.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:16:40.262Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_01FNEUWRFeLzxoFCnWp7BQAT",
+      "questions": [
+        {
+          "question": "D2 — Review all seven design dimensions, or focus on specific ones?\nProject/branch/task: main, plan-design-review of PLAN.md (Account settings form update).\nELI10: I rated the plan 6/10 on design completeness. The biggest gaps are the undifferentiated Save button, the frozen 2-5 second save with no feedback, and the error styling below WCAG AA. You asked for all seven dimensions and text-only; this confirms scope before I start the passes.\nStakes if we pick wrong: Narrowing skips passes where the listed gaps live (spacing and typography sit in Design System, error contrast in Accessibility), leaving them unreviewed.\nRecommendation: A because you asked for all seven and the five gaps spread across five different passes.\nCompleteness: A=10/10, B=6/10\nNet: full coverage in one sitting versus a faster pass that leaves some listed gaps undecided.",
+          "header": "Focus",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "All seven dimensions (recommended)",
+              "description": "✅ Every listed gap gets its own decision in the pass where it belongs. ✅ State table, storyboard, and decision register all land in the plan. ❌ Around eight decision prompts before the review closes."
+            },
+            {
+              "label": "Focus on the five listed gaps only",
+              "description": "✅ Fewer prompts; skips journey storyboard and AI-slop evaluation. ✅ Still resolves the five documented deviations from DESIGN.md. ❌ Passes 3 and 4 go unevaluated, so the completion summary cannot call the plan design-complete."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Review all seven design dimensions, or focus on specific ones?\nProject/branch/task: main, plan-design-review of PLAN.md (Account settings form update).\nELI10: I rated the plan 6/10 on design completeness. The biggest gaps are the undifferentiated Save button, the frozen 2-5 second save with no feedback, and the error styling below WCAG AA. You asked for all seven dimensions and text-only; this confirms scope before I start the passes.\nStakes if we pick wrong: Narrowing skips passes where the listed gaps live (spacing and typography sit in Design System, error contrast in Accessibility), leaving them unreviewed.\nRecommendation: A because you asked for all seven and the five gaps spread across five different passes.\nCompleteness: A=10/10, B=6/10\nNet: full coverage in one sitting versus a faster pass that leaves some listed gaps undecided.": "All seven dimensions (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:19:26.796Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_018VpEseShcTk9u1jb13wN9P",
+      "questions": [
+        {
+          "question": "D3 — Let gstack search learnings from your other local projects?\nProject/branch/task: main, plan-design-review of PLAN.md.\nELI10: gstack records small lessons per project (pitfalls, patterns). It can also search lessons from your other projects on this machine to spot patterns that apply here. Everything stays local; nothing leaves your machine. This is a one-time setting.\nStakes if we pick wrong: Enabling on a machine with multiple client codebases could surface one client's conventions while working on another; disabling means each project learns from scratch.\nRecommendation: A because this is a local-only lookup and most solo setups benefit from shared lessons.\nNote: options differ in kind, not coverage — no completeness score.\nNet: shared local lessons versus strict per-project isolation.",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "✅ Past lessons from other local projects inform this review and future ones. ✅ Stays on this machine; no network, no upload. ❌ Could surface conventions from an unrelated client codebase if you work across several."
+            },
+            {
+              "label": "Keep project-scoped only",
+              "description": "✅ Strict isolation between projects; nothing crosses over. ✅ Safe default for multi-client machines. ❌ This project starts with zero prior learnings and builds them alone."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Let gstack search learnings from your other local projects?\nProject/branch/task: main, plan-design-review of PLAN.md.\nELI10: gstack records small lessons per project (pitfalls, patterns). It can also search lessons from your other projects on this machine to spot patterns that apply here. Everything stays local; nothing leaves your machine. This is a one-time setting.\nStakes if we pick wrong: Enabling on a machine with multiple client codebases could surface one client's conventions while working on another; disabling means each project learns from scratch.\nRecommendation: A because this is a local-only lookup and most solo setups benefit from shared lessons.\nNote: options differ in kind, not coverage — no completeness score.\nNet: shared local lessons versus strict per-project isolation.": "Enable cross-project (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:19:42.903Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_01Vn8BRWP4G281vP2iVaXngy",
+      "questions": [
+        {
+          "question": "D4 — Issue 1 (Pass 1): how should the plan make Save the visible primary action?\nProject/branch/task: main, PLAN.md gap \"Visual Hierarchy\": Save renders identical to Reset, Cancel, Export.\nELI10: Users scan, they don't read. Four same-looking buttons force a pause at the exact moment they want to commit their edits. DESIGN.md already names the answer: Save is the only filled button (#1d4ed8 with white text, 6.7:1 contrast), the other three are neutral ghost buttons. Principle: hierarchy as service, make the right choice the most visible choice.\nStakes if we pick wrong: Mis-clicks on Reset or Cancel next to Save trigger discard dialogs mid-task; users lose confidence that their edit will stick.\nRecommendation: 1A because it is the approved token, touches only Button variants, and keeps the 44px geometry and focus ring unchanged.\nCompleteness: 1A=10/10, 1B=7/10, 1C=3/10\nNet: apply the approved primary token now, or leave the implementer to invent emphasis.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A Filled Save, ghost secondaries (recommended)",
+              "description": "✅ Uses the DESIGN.md primary token; Save reads as primary at a glance on every viewport. ✅ Focus ring stays visible: 2px offset leaves a white gap between ring and fill. (human: ~1h / CC: ~5min) ❌ Reset, Cancel and Export now look alike, so their labels carry the distinction alone."
+            },
+            {
+              "label": "1B Filled Save plus visually separate Export",
+              "description": "✅ Save is primary and Export gets extra spacing or a divider so utility is separated from form actions. ✅ Reduces the chance of hitting Export while aiming for Cancel. (human: ~2h / CC: ~10min) ❌ Adds layout change to the header beyond the approved structure and complicates the 640px equal-column row."
+            },
+            {
+              "label": "1C Keep four equal buttons",
+              "description": "✅ Zero styling work; relies on Save being first in order. ✅ No risk of token mismatch. ❌ Leaves the documented gap open; position alone fails the scan test, so the pass stays at 6/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 1 (Pass 1): how should the plan make Save the visible primary action?\nProject/branch/task: main, PLAN.md gap \"Visual Hierarchy\": Save renders identical to Reset, Cancel, Export.\nELI10: Users scan, they don't read. Four same-looking buttons force a pause at the exact moment they want to commit their edits. DESIGN.md already names the answer: Save is the only filled button (#1d4ed8 with white text, 6.7:1 contrast), the other three are neutral ghost buttons. Principle: hierarchy as service, make the right choice the most visible choice.\nStakes if we pick wrong: Mis-clicks on Reset or Cancel next to Save trigger discard dialogs mid-task; users lose confidence that their edit will stick.\nRecommendation: 1A because it is the approved token, touches only Button variants, and keeps the 44px geometry and focus ring unchanged.\nCompleteness: 1A=10/10, 1B=7/10, 1C=3/10\nNet: apply the approved primary token now, or leave the implementer to invent emphasis.": "1A Filled Save, ghost secondaries (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:20:13.115Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_019Gzp7QySwkcA2zDNGLGy8c",
+      "questions": [
+        {
+          "question": "D5 — Issue 2 (Pass 2): what does the user see while Save is pending for 2-5 seconds?\nProject/branch/task: main, PLAN.md gap \"Motion\": Save has no loading indicator; page looks frozen.\nELI10: The plan already blocks repeat submits, but nothing tells the user the click landed. DESIGN.md has an established pending pattern: an inline spinner beside the text \"Saving…\" inside the Save button, aria-busy=true, reduced-motion support, while InlineStatus keeps its current text. The PLAN.md gap mentions \"spinner or skeleton\"; a skeleton would hide the user's own edits during save, which conflicts with preserving unsaved values. Principle: visibility of system status (Nielsen), feedback within one second.\nStakes if we pick wrong: Users double-click, assume a hang, or navigate away mid-save; the atomic-save guarantee is invisible so trust erodes at the exact moment it should build.\nRecommendation: 2A because it is the approved pattern, Export already uses the identical mechanics, and it keeps the live region quiet.\nCompleteness: 2A=10/10, 2B=5/10, 2C=6/10\nNet: reuse the approved button-level pending pattern, or invent a page-level one that fights the accepted state rules.",
+          "header": "Issue 2",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A Spinner + \"Saving…\" in the Save button (recommended)",
+              "description": "✅ Matches DESIGN.md and mirrors the existing Export pending pattern exactly, one implementation for both. ✅ Feedback is at the point of action; aria-busy announces it without repeating text in the status live region. (human: ~2h / CC: ~10min) ❌ Button width shifts slightly as text changes unless min-width is reserved; note it in the task."
+            },
+            {
+              "label": "2B Skeleton or overlay over the form while saving",
+              "description": "✅ Very obvious that the page is busy. ✅ No per-button work. ❌ Hides the user's unsaved values and the InlineStatus during save, contradicting the accepted rule that fields and status stay visible and unchanged while pending."
+            },
+            {
+              "label": "2C Spinner in button plus \"Saving…\" in InlineStatus",
+              "description": "✅ Redundant feedback for users who don't look at the button. ✅ Still keeps fields visible. ❌ Directly violates the accepted rule: pending feedback belongs to the button, do not repeat Saving… in the status live region; also double-announces to screen readers."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Issue 2 (Pass 2): what does the user see while Save is pending for 2-5 seconds?\nProject/branch/task: main, PLAN.md gap \"Motion\": Save has no loading indicator; page looks frozen.\nELI10: The plan already blocks repeat submits, but nothing tells the user the click landed. DESIGN.md has an established pending pattern: an inline spinner beside the text \"Saving…\" inside the Save button, aria-busy=true, reduced-motion support, while InlineStatus keeps its current text. The PLAN.md gap mentions \"spinner or skeleton\"; a skeleton would hide the user's own edits during save, which conflicts with preserving unsaved values. Principle: visibility of system status (Nielsen), feedback within one second.\nStakes if we pick wrong: Users double-click, assume a hang, or navigate away mid-save; the atomic-save guarantee is invisible so trust erodes at the exact moment it should build.\nRecommendation: 2A because it is the approved pattern, Export already uses the identical mechanics, and it keeps the live region quiet.\nCompleteness: 2A=10/10, 2B=5/10, 2C=6/10\nNet: reuse the approved button-level pending pattern, or invent a page-level one that fights the accepted state rules.": "2A Spinner + \"Saving…\" in the Save button (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:20:54.388Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_01L8FvX7AVMVEevwV8HJ5w4w",
+      "questions": [
+        {
+          "question": "D6 — Issue 3 (Pass 5): how should the plan fix the 24/32/16px section spacing?\nProject/branch/task: main, PLAN.md gap \"Spacing\": no consistent vertical rhythm between sections.\nELI10: DESIGN.md already defines an 8px base with three levels: 32px between sections (Profile to Notifications, header to form), 24px between field groups inside a section, 8px from a label to its input. The current form uses 24 and 32 interchangeably at the section level and 16 once, which reads as accidental. Principle: Gestalt proximity, spacing tells the user what belongs together.\nStakes if we pick wrong: Sections blur into each other at 320px where whitespace is the only separator besides the h2, and the form reads as assembled rather than designed.\nRecommendation: 3A because it maps each gap to the approved level with no new tokens and is a stylesheet-only change.\nCompleteness: 3A=10/10, 3B=6/10, 3C=3/10\nNet: adopt the approved three-level rhythm, or pick one flat value that erases the section versus field distinction.",
+          "header": "Issue 3",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A Apply the 8px scale: 32 / 24 / 8 (recommended)",
+              "description": "✅ Sections 32px, field groups 24px, label-to-input 8px, exactly the DESIGN.md tokens; the 16px outlier is removed. ✅ Rhythm survives the 640px stack because the same tokens apply at every width. (human: ~1h / CC: ~5min) ❌ Requires auditing every margin on the page, including header-to-actions and actions-to-status."
+            },
+            {
+              "label": "3B Single 24px gap everywhere",
+              "description": "✅ Trivially consistent; one value to check. ✅ Fits 320px with slightly less scroll. ❌ Flattens the hierarchy: a field group and a new section look equally spaced, so the h2 does all the separation work."
+            },
+            {
+              "label": "3C Leave spacing as is",
+              "description": "✅ No work now. ✅ No regression risk in existing snapshots. ❌ Documented deviation stays open; Pass 5 cannot rise above 6/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Issue 3 (Pass 5): how should the plan fix the 24/32/16px section spacing?\nProject/branch/task: main, PLAN.md gap \"Spacing\": no consistent vertical rhythm between sections.\nELI10: DESIGN.md already defines an 8px base with three levels: 32px between sections (Profile to Notifications, header to form), 24px between field groups inside a section, 8px from a label to its input. The current form uses 24 and 32 interchangeably at the section level and 16 once, which reads as accidental. Principle: Gestalt proximity, spacing tells the user what belongs together.\nStakes if we pick wrong: Sections blur into each other at 320px where whitespace is the only separator besides the h2, and the form reads as assembled rather than designed.\nRecommendation: 3A because it maps each gap to the approved level with no new tokens and is a stylesheet-only change.\nCompleteness: 3A=10/10, 3B=6/10, 3C=3/10\nNet: adopt the approved three-level rhythm, or pick one flat value that erases the section versus field distinction.": "3A Apply the 8px scale: 32 / 24 / 8 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:22:24.176Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_0141v4THyS2kQGE37ANroPHS",
+      "questions": [
+        {
+          "question": "D7 — Issue 4 (Pass 5): how should the plan collapse the 14/16/18px label sizes?\nProject/branch/task: main, PLAN.md gap \"Typography\": three label sizes across the form; two would create stronger hierarchy.\nELI10: DESIGN.md defines exactly two type roles: 16px for body, form labels and helper text, and 20px for the Profile and Notifications h2 headings. The current 14/16/18 mix has two problems: 14px labels sit below the 16px body-text floor for readability, and 18px labels compete with the headings so the section structure blurs. Principle: hierarchy as service, and the universal rule against body text under 16px.\nStakes if we pick wrong: Small labels hurt legibility for anyone over 40 or on a phone in sunlight; near-equal sizes make Profile and Notifications look like one long list.\nRecommendation: 4A because it is the approved two-role scale, removes the sub-16px labels, and lets the h2 headings carry structure alone.\nCompleteness: 4A=10/10, 4B=7/10, 4C=3/10\nNet: adopt the approved two-role scale, or keep a middle size that reintroduces the competition the gap describes.",
+          "header": "Issue 4",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A Two roles: 16px labels/helper, 20px h2 (recommended)",
+              "description": "✅ Exactly the DESIGN.md scale; no label falls below 16px, so the sub-AA readability risk disappears. ✅ Clears the flat-type-hierarchy finding in Pass 4 and the Pass 1 remainder in one change. (human: ~1h / CC: ~5min) ❌ Helper text and labels share a size, so helper text must be distinguished by color token and position rather than size."
+            },
+            {
+              "label": "4B Three roles: 16px labels, 14px helper, 20px h2",
+              "description": "✅ Helper text visibly subordinate to its label. ✅ Common convention users recognize. ❌ Reintroduces sub-16px text and a third role DESIGN.md does not define, so it needs a new token and a contrast check."
+            },
+            {
+              "label": "4C Keep 14/16/18",
+              "description": "✅ No stylesheet change. ✅ No visual regression on existing screenshots. ❌ Documented deviation stays open; Pass 4 and Pass 5 stay capped and the 14px labels remain below the readability floor."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Issue 4 (Pass 5): how should the plan collapse the 14/16/18px label sizes?\nProject/branch/task: main, PLAN.md gap \"Typography\": three label sizes across the form; two would create stronger hierarchy.\nELI10: DESIGN.md defines exactly two type roles: 16px for body, form labels and helper text, and 20px for the Profile and Notifications h2 headings. The current 14/16/18 mix has two problems: 14px labels sit below the 16px body-text floor for readability, and 18px labels compete with the headings so the section structure blurs. Principle: hierarchy as service, and the universal rule against body text under 16px.\nStakes if we pick wrong: Small labels hurt legibility for anyone over 40 or on a phone in sunlight; near-equal sizes make Profile and Notifications look like one long list.\nRecommendation: 4A because it is the approved two-role scale, removes the sub-16px labels, and lets the h2 headings carry structure alone.\nCompleteness: 4A=10/10, 4B=7/10, 4C=3/10\nNet: adopt the approved two-role scale, or keep a middle size that reintroduces the competition the gap describes.": "4A Two roles: 16px labels/helper, 20px h2 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:22:53.893Z"
+    },
+    {
+      "sessionId": "d5bc63d3-0857-480c-9e8d-176a00bf4fdf",
+      "toolUseId": "toolu_0124HzFi6vVFGUxkf37wCp2w",
+      "questions": [
+        {
+          "question": "D8 — Issue 5 (Pass 6): how should the plan fix the error message contrast?\nProject/branch/task: main, PLAN.md gap \"Color\": red text on light pink at roughly 3:1, below WCAG AA (4.5:1 for text).\nELI10: The moment a save fails is when the user most needs to read the message, and right now it is the least legible text on the page. DESIGN.md already specifies the fix: error text #991b1b on error surface #fef2f2, which measures 7.6:1 (passes AA and AAA), paired with an icon and explicit text so the state never depends on color alone. Principle: accessibility is not optional; trust is earned at the pixel level.\nStakes if we pick wrong: Low-vision users and anyone on a dim or glare-hit screen cannot read why their save failed, so they retry blindly or abandon with edits unsaved.\nRecommendation: 5A because it is the approved token pair with measured headroom, and applies to field errors, the ErrorSummary, and the network/export error area in one change.\nCompleteness: 5A=10/10, 5B=7/10, 5C=2/10\nNet: adopt the approved 7.6:1 pair everywhere errors render, or patch text color alone and leave the surface undefined.",
+          "header": "Issue 5",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A #991b1b on #fef2f2 + icon + explicit text (recommended)",
+              "description": "✅ 7.6:1 contrast clears AA and AAA; icon is decorative (aria-hidden) with the text carrying meaning, so it works for colorblind users and screen readers. ✅ One token pair applied to field errors, ErrorSummary, and the network/export error area. (human: ~1h / CC: ~5min) ❌ Every error surface on the page needs a contrast re-measure after the change to confirm no override slips through."
+            },
+            {
+              "label": "5B Darken text only, keep current pink surface",
+              "description": "✅ Smaller diff; only the text token changes. ✅ Likely reaches 4.5:1 depending on the existing pink. ❌ Surface stays an undocumented color outside DESIGN.md, and the contrast must be measured per instance rather than known from the token pair."
+            },
+            {
+              "label": "5C Leave as is",
+              "description": "✅ No work. ✅ No visual change to existing screenshots. ❌ Ships a known WCAG AA failure on the most important text in the flow; Pass 6 stays at 7/10 and Pass 3 stays at 8/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Issue 5 (Pass 6): how should the plan fix the error message contrast?\nProject/branch/task: main, PLAN.md gap \"Color\": red text on light pink at roughly 3:1, below WCAG AA (4.5:1 for text).\nELI10: The moment a save fails is when the user most needs to read the message, and right now it is the least legible text on the page. DESIGN.md already specifies the fix: error text #991b1b on error surface #fef2f2, which measures 7.6:1 (passes AA and AAA), paired with an icon and explicit text so the state never depends on color alone. Principle: accessibility is not optional; trust is earned at the pixel level.\nStakes if we pick wrong: Low-vision users and anyone on a dim or glare-hit screen cannot read why their save failed, so they retry blindly or abandon with edits unsaved.\nRecommendation: 5A because it is the approved token pair with measured headroom, and applies to field errors, the ErrorSummary, and the network/export error area in one change.\nCompleteness: 5A=10/10, 5B=7/10, 5C=2/10\nNet: adopt the approved 7.6:1 pair everywhere errors render, or patch text color alone and leave the surface undefined.": "5A #991b1b on #fef2f2 + icon + explicit text (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T18:23:48.882Z"
+    }
+  ]
+}

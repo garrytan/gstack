@@ -1,0 +1,538 @@
+{
+  "distinct": {
+    "artifact": ".context/ship-source-ac-full-paid-20260909-1635/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-ac-full-paid-20260909-1635-4/plan-ceo-review-1788971689504-KX5ghs",
+    "nativeCalls": [
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_01TumGq45PQ1envL38A7FaGv",
+        "questions": [
+          {
+            "question": "gstack works best when your project's CLAUDE.md includes skill routing rules (e.g. strategy/scope \u2192 /plan-ceo-review, bugs \u2192 /investigate, ship \u2192 /ship). Add them to this project's CLAUDE.md? Note: plan mode is active, so if you choose A the edit and commit will be queued until plan mode exits.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules to CLAUDE.md (recommended)",
+                "description": "Appends a '## Skill routing' section mapping request types to gstack skills, then commits it (after plan mode exits)."
+              },
+              {
+                "label": "No thanks, I'll invoke skills manually",
+                "description": "Sets routing_declined=true for this project. Re-enable later with gstack-config set routing_declined false."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "gstack works best when your project's CLAUDE.md includes skill routing rules (e.g. strategy/scope \u2192 /plan-ceo-review, bugs \u2192 /investigate, ship \u2192 /ship). Add them to this project's CLAUDE.md? Note: plan mode is active, so if you choose A the edit and commit will be queued until plan mode exits.": "Add routing rules to CLAUDE.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:34:51.522Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_01GNhfWeG1x5MxjL9dZ1uwxi",
+        "questions": [
+          {
+            "question": "gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern. Enable cross-project learnings?",
+            "header": "Learnings",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Enable cross-project learnings (recommended)",
+                "description": "Sets cross_project_learnings=true. Learnings search will include other local projects."
+              },
+              {
+                "label": "Keep learnings project-scoped only",
+                "description": "Sets cross_project_learnings=false. Only this project's learnings are searched."
+              }
+            ]
+          },
+          {
+            "question": "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives. It gives this review much sharper input to work with and takes about 10 minutes. The design doc is per-feature, not per-product. Run it first?",
+            "header": "Design doc",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Skip \u2014 proceed with standard review (recommended)",
+                "description": "You asked for HOLD SCOPE with maximum rigor. The plan states its contracts in detail, so the review can proceed directly."
+              },
+              {
+                "label": "Run /office-hours now",
+                "description": "Runs office-hours inline to produce a design doc, then picks up the CEO review right after."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern. Enable cross-project learnings?": "Enable cross-project learnings (recommended)",
+          "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives. It gives this review much sharper input to work with and takes about 10 minutes. The design doc is per-feature, not per-product. Run it first?": "Skip \u2014 proceed with standard review (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:36:03.725Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_01Lo1AkiZbKJW4iGv7NjBUtD",
+        "questions": [
+          {
+            "question": "D1 \u2014 Which implementation approach should the review hold the plan to?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan sketches the simplest possible handler. The review can either hold it to that sketch, or hold it to a version that actually meets the contracts the plan promises (no SQL injection, no silent or retry-storm email failures, tested). The third option also routes through the existing dispatcher instead of building a second front door. Stakes if we pick wrong: pick A and a forged user_id string reaches SQL, and every email outage makes Stripe replay committed payments for 72 hours.\nRecommendation: C because it uses the existing routing path (reuse ladder rung 1) and makes the plan's own \"runs inside unchanged guards\" claim true by construction; B is the fallback if the dispatcher turns out to carry none of the retained guards.\nCompleteness: A=3/10, B=8/10, C=10/10\nNet: A trades correctness for a smaller diff; B fixes the internals but keeps two routing paths; C fixes internals and routing at the cost of depending on a dispatcher API we cannot inspect from this repo.",
+            "header": "Approach",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "C) Hardened, via WebhookDispatcher (recommended)",
+                "description": "\u2705 Single routing path; event-type filter and guards are not duplicated or bypassed\n\u2705 Parameterized lookup, post-commit email with named rescue, batched orders, full shadow-path tests\n\u274c Requires the dispatcher registration API to support a namespaced handler; verify at build time\nEffort: human ~3 days / CC ~1 hour"
+              },
+              {
+                "label": "B) Hardened standalone handler",
+                "description": "\u2705 Keeps the clean namespace the plan asks for, no dispatcher changes needed\n\u2705 Same hardening as C: parameterized SQL, post-commit email rescue, batched orders, tests\n\u274c Second routing path; the payment_intent.succeeded filter may need re-implementing\nEffort: human ~3 days / CC ~45 min"
+              },
+              {
+                "label": "A) As sketched",
+                "description": "\u2705 Smallest possible diff, matches PLAN.md literally\n\u2705 Fastest to ship behind the existing feature flag\n\u274c Raw SQL from an external string; email failure returns 500 and replays committed payments; no tests\nEffort: human ~1 day / CC ~10 min"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 \u2014 Which implementation approach should the review hold the plan to?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan sketches the simplest possible handler. The review can either hold it to that sketch, or hold it to a version that actually meets the contracts the plan promises (no SQL injection, no silent or retry-storm email failures, tested). The third option also routes through the existing dispatcher instead of building a second front door. Stakes if we pick wrong: pick A and a forged user_id string reaches SQL, and every email outage makes Stripe replay committed payments for 72 hours.\nRecommendation: C because it uses the existing routing path (reuse ladder rung 1) and makes the plan's own \"runs inside unchanged guards\" claim true by construction; B is the fallback if the dispatcher turns out to carry none of the retained guards.\nCompleteness: A=3/10, B=8/10, C=10/10\nNet: A trades correctness for a smaller diff; B fixes the internals but keeps two routing paths; C fixes internals and routing at the cost of depending on a dispatcher API we cannot inspect from this repo.": "C) Hardened, via WebhookDispatcher (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:37:43.144Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_01RSubJqGmdExhTxzPkQaNgy",
+        "questions": [
+          {
+            "question": "D2 \u2014 What does the per-order fetch in the Performance section exist for?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan says each webhook fetches the user and then each of their orders in a loop, but never says why. If the orders feed the confirmation email or need to be marked paid, the handler needs one query shaped for that purpose. If nothing uses them, the loop is dead weight that adds latency inside Stripe's 10-second window. Stakes if we pick wrong: we either design tests and a batched query around data nobody uses, or drop a fetch the email actually depends on.\nRecommendation: A because a payment confirmation almost always lists what was bought, and the plan mentions no other consumer; a single query keyed by user and payment intent replaces the loop.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: this is a requirements fact, not a design taste call; whichever is true, the loop becomes one query.",
+            "header": "Orders loop",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Orders feed the email (recommended)",
+                "description": "\u2705 Confirmation email lists the paid orders; one SELECT by user_id + payment_intent_id\n\u2705 Tests can assert the email body against a fixture order set including zero orders\n\u274c Requires deciding which orders belong to this payment intent (see Section 4)"
+              },
+              {
+                "label": "B) Orders must be marked paid too",
+                "description": "\u2705 One UPDATE ... WHERE payment_intent_id = ? inside the same transaction as the user update\n\u2705 Idempotent: repeat assigns the same values\n\u274c Adds a second table to the per-user lock's protected write set"
+              },
+              {
+                "label": "C) Nothing uses the orders",
+                "description": "\u2705 Drop the fetch; the handler is user lookup, update, email\n\u2705 Fastest handler; least test surface\n\u274c If a later consumer appears, this was a hidden requirement the plan failed to state"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 \u2014 What does the per-order fetch in the Performance section exist for?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan says each webhook fetches the user and then each of their orders in a loop, but never says why. If the orders feed the confirmation email or need to be marked paid, the handler needs one query shaped for that purpose. If nothing uses them, the loop is dead weight that adds latency inside Stripe's 10-second window. Stakes if we pick wrong: we either design tests and a batched query around data nobody uses, or drop a fetch the email actually depends on.\nRecommendation: A because a payment confirmation almost always lists what was bought, and the plan mentions no other consumer; a single query keyed by user and payment intent replaces the loop.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: this is a requirements fact, not a design taste call; whichever is true, the loop becomes one query.": "A) Orders feed the email (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:38:53.003Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_01Gup7nVRmM9KJ1sKFu2Q2qc",
+        "questions": [
+          {
+            "question": "D3 (issue 1.1) \u2014 Fix the handler sequence so the email leg runs after the payment commit?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan says the user update and the email \"both happen inline\" but never says which comes first or whether the email sits inside the database transaction. If it does, an email provider outage rolls back the payment update, Stripe retries the same event for up to 72 hours, and nobody gets marked paid until email recovers. Stakes if we pick wrong: a mail outage becomes a payment outage, and the per-user lock is held across a network call.\nRecommendation: 1A because the plan's own contracts (dedup recorded after commit; runbook retries only the notification) assume the payment is committed independently of the email.\nCompleteness: 1A=10/10, 1B=4/10\nNet: 1A costs one ordering rule and one test; 1B leaves a retained contract impossible to honor.",
+            "header": "Issue 1.1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A) Fix sequence: commit, release lock, then orders + email (recommended)",
+                "description": "\u2705 Payment commit is independent of mail provider health; dedup records completion right after commit as retained\n\u2705 Per-user lock is released before any network call, so a slow mailer cannot serialize other events for that user\n\u2705 Verified by an integration test that injects a failing mail client and asserts payment_status=paid is committed\n\u274c One more explicit ordering rule for the implementer to hold; documented in a code-comment pipeline diagram\nEffort: human ~2h / CC ~10 min"
+              },
+              {
+                "label": "1B) Leave \"inline\" unspecified, as sketched",
+                "description": "\u2705 No change to the plan text\n\u2705 Implementer picks whatever order is natural in the framework\n\u274c A mail outage can block or roll back payment commits and hold the per-user lock across a network call\n\u274c Contradicts the retained runbook contract that separates committed payments from failed notifications"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 (issue 1.1) \u2014 Fix the handler sequence so the email leg runs after the payment commit?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan says the user update and the email \"both happen inline\" but never says which comes first or whether the email sits inside the database transaction. If it does, an email provider outage rolls back the payment update, Stripe retries the same event for up to 72 hours, and nobody gets marked paid until email recovers. Stakes if we pick wrong: a mail outage becomes a payment outage, and the per-user lock is held across a network call.\nRecommendation: 1A because the plan's own contracts (dedup recorded after commit; runbook retries only the notification) assume the payment is committed independently of the email.\nCompleteness: 1A=10/10, 1B=4/10\nNet: 1A costs one ordering rule and one test; 1B leaves a retained contract impossible to honor.": "1A) Fix sequence: commit, release lock, then orders + email (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:39:56.855Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_01H8u6cP9ZauKmphUU84t7o3",
+        "questions": [
+          {
+            "question": "D4 (issue 2.1) \u2014 Rescue the post-commit notification leg with named exceptions and return 200?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: Once the payment is committed, anything that fails afterwards (orders query, mail provider timeout or 5xx, rate limit, user has no email address, template error) currently blows up as a 500. Stripe then retries a payment that is already done, the dedup guard swallows the retry, the email is never re-sent, and the webhook-failed alert pages on-call for something that is not a webhook failure. Stakes if we pick wrong: every mail provider blip becomes a false payment incident and 72 hours of retry noise.\nRecommendation: 2A because the plan's retained mail failure-rate alert and runbook already own notification failures; the handler just has to stop turning them into fake webhook failures. Named rescues only, no catch-all (Prime Directive 2).\nCompleteness: 2A=10/10, 2B=2/10, 2C=5/10\nNet: 2A makes the ingress alert mean what it says; 2B/2C keep paging on committed payments.",
+            "header": "Issue 2.1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A) Rescue named mail/DB classes post-commit, log correlated, return 200 (recommended)",
+                "description": "\u2705 Rescues MailClient::TimeoutError/DeliveryError/RateLimited/InvalidRecipient, TemplateRenderError, DBClient::* on the orders query; nothing broader\n\u2705 Error-level log with event_id, user_id, payment_intent_id, exception class; mail call bounded to 3s so the handler stays inside Stripe's 10s window; blank recipient skipped with a warn log\n\u2705 Failure stays visible via the retained mail failure-rate dashboard and alert; runbook retries the notification\n\u274c On-call must rely on the mail alert, not the ingress alert, for email problems (already what the runbook says)\nEffort: human ~3h / CC ~15 min"
+              },
+              {
+                "label": "2B) Keep \"no error handling on the email leg\" as sketched",
+                "description": "\u2705 Zero rescue code in the handler\n\u2705 Every failure is loud somewhere\n\u274c Committed payments produce 500s, false webhook-failed alerts, and 72h of pointless Stripe retries\n\u274c Email is still never re-sent because dedup short-circuits the retry"
+              },
+              {
+                "label": "2C) Rescue, add context, re-raise (still 500)",
+                "description": "\u2705 Better log context than 2B\n\u2705 No behavior change for the ingress wrapper\n\u274c Same false alert and retry storm as 2B; only the log line improves\n\u274c Adds code without fixing the failure mode"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 (issue 2.1) \u2014 Rescue the post-commit notification leg with named exceptions and return 200?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: Once the payment is committed, anything that fails afterwards (orders query, mail provider timeout or 5xx, rate limit, user has no email address, template error) currently blows up as a 500. Stripe then retries a payment that is already done, the dedup guard swallows the retry, the email is never re-sent, and the webhook-failed alert pages on-call for something that is not a webhook failure. Stakes if we pick wrong: every mail provider blip becomes a false payment incident and 72 hours of retry noise.\nRecommendation: 2A because the plan's retained mail failure-rate alert and runbook already own notification failures; the handler just has to stop turning them into fake webhook failures. Named rescues only, no catch-all (Prime Directive 2).\nCompleteness: 2A=10/10, 2B=2/10, 2C=5/10\nNet: 2A makes the ingress alert mean what it says; 2B/2C keep paging on committed payments.": "2A) Rescue named mail/DB classes post-commit, log correlated, return 200 (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:40:54.698Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_013yuWNENcNvLuirVSSkVivE",
+        "questions": [
+          {
+            "question": "D5 (issue 3.1) \u2014 Replace the raw SQL fragment with a parameterized lookup?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan reads the user_id string out of the Stripe payload and pastes it into SQL. The signature only proves Stripe sent the bytes; it does not prove the string is a safe id. Anyone who can influence PaymentIntent metadata (a checkout bug, a dashboard user, a leaked API key) can run arbitrary SQL against the users table. Stakes if we pick wrong: full read or write of the database from a webhook.\nRecommendation: 3A because bind parameters are the standard-library answer (reuse ladder rung 2), cost nothing, and the plan already concedes the string is not SQL-safe.\nCompleteness: 3A=10/10, 3B=0/10\nNet: 3A is a one-line change plus one test; 3B is a known injection hole.",
+            "header": "Issue 3.1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3A) Parameterized lookup via the DB client's bind API (recommended)",
+                "description": "\u2705 The id travels as a bound value, never as SQL text; injection is structurally impossible\n\u2705 Test feeds `' OR 1=1 --` and asserts not-found with no exception; a lint or grep rule forbids string interpolation in the handler\n\u2705 Retained traced DB client still attaches event_id and user_id to the outcome trace\n\u274c None beyond writing the test\nEffort: human ~1h / CC ~5 min"
+              },
+              {
+                "label": "3B) Keep the raw SQL fragment as sketched",
+                "description": "\u2705 Matches the plan text\n\u2705 No new test\n\u274c Arbitrary SQL from any party who can set PaymentIntent metadata\n\u274c Contradicts the plan's own retained-contract note that the string is not SQL-safe"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 (issue 3.1) \u2014 Replace the raw SQL fragment with a parameterized lookup?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: The plan reads the user_id string out of the Stripe payload and pastes it into SQL. The signature only proves Stripe sent the bytes; it does not prove the string is a safe id. Anyone who can influence PaymentIntent metadata (a checkout bug, a dashboard user, a leaked API key) can run arbitrary SQL against the users table. Stakes if we pick wrong: full read or write of the database from a webhook.\nRecommendation: 3A because bind parameters are the standard-library answer (reuse ladder rung 2), cost nothing, and the plan already concedes the string is not SQL-safe.\nCompleteness: 3A=10/10, 3B=0/10\nNet: 3A is a one-line change plus one test; 3B is a known injection hole.": "3A) Parameterized lookup via the DB client's bind API (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:41:42.523Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_018K1mmigYn7YCjUsBoy1pVk",
+        "questions": [
+          {
+            "question": "D6 (issue 3.2) \u2014 Validate the user_id shape before the query and acknowledge malformed ids with 200?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: Even with bind parameters, a user_id that is the wrong type (letters where the column is an integer), too long, or odd unicode makes the database raise. The plan's retained contract turns any DB exception into a 500, so Stripe retries that same broken event for 72 hours and pages on each attempt. A malformed id means our checkout wrote bad metadata; retrying cannot fix it. Stakes if we pick wrong: one bad metadata write produces three days of pointless retries and alerts, and the real bug hides in the noise.\nRecommendation: 3C because it is the same posture the retained adapter already takes for empty ids (200 plus a correlated warning), applied one step later with an error-level log and a counter so the checkout bug is found.\nCompleteness: 3C=10/10, 3D=3/10\nNet: 3C costs a regex and four tests; 3D lets a permanent bad input masquerade as a transient DB failure.",
+            "header": "Issue 3.2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3C) Shape-validate; InvalidUserIdError -> error log + metric + 200 (recommended)",
+                "description": "\u2705 Validates against the users.id format (integer or UUID per schema) and max length before touching the DB\n\u2705 Rescued in the handler: error-level log with event_id, payment_intent_id and value length (not the value), counter metric `webhook.invalid_user_id`, HTTP 200 so Stripe stops retrying\n\u2705 Tests: wrong type, over-long, unicode, valid id; each asserts no DB call and the exact status\n\u274c A genuine checkout bug now surfaces via a metric and log rather than a page; add an alert on the counter if that is too quiet\nEffort: human ~2h / CC ~10 min"
+              },
+              {
+                "label": "3D) No shape check; let the DB reject it (500, retries)",
+                "description": "\u2705 Less code in the handler\n\u2705 Failure is loud via the ingress alert\n\u274c 72 hours of retries and alerts for an event that can never succeed\n\u274c Ingress alert cannot distinguish this from a real DB outage"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 (issue 3.2) \u2014 Validate the user_id shape before the query and acknowledge malformed ids with 200?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: Even with bind parameters, a user_id that is the wrong type (letters where the column is an integer), too long, or odd unicode makes the database raise. The plan's retained contract turns any DB exception into a 500, so Stripe retries that same broken event for 72 hours and pages on each attempt. A malformed id means our checkout wrote bad metadata; retrying cannot fix it. Stakes if we pick wrong: one bad metadata write produces three days of pointless retries and alerts, and the real bug hides in the noise.\nRecommendation: 3C because it is the same posture the retained adapter already takes for empty ids (200 plus a correlated warning), applied one step later with an error-level log and a counter so the checkout bug is found.\nCompleteness: 3C=10/10, 3D=3/10\nNet: 3C costs a regex and four tests; 3D lets a permanent bad input masquerade as a transient DB failure.": "3C) Shape-validate; InvalidUserIdError -> error log + metric + 200 (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:42:04.125Z"
+      },
+      {
+        "sessionId": "f7acf843-5678-470c-a366-58ca93b78558",
+        "toolUseId": "toolu_0136oN3WUsyrRe4Gtbg8mni4",
+        "questions": [
+          {
+            "question": "D7 (issue 4.1) \u2014 Add an already-processed check under the per-user lock to stop duplicate emails?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: Stripe can deliver the same event twice at once. Both copies pass the dedup check before either has committed, the lock lets them run one after the other, and the second copy re-sends the confirmation email. The user update is safe to repeat; the email is not. Stakes if we pick wrong: users get two or more payment confirmations whenever Stripe retries or double-delivers, which reads as a double charge and generates support tickets.\nRecommendation: 4A because the users row already carries the payment intent id, so the check is one comparison under a lock the plan already holds; it also covers a crash between commit and dedup record.\nCompleteness: 4A=10/10, 4B=2/10\nNet: 4A is one branch and one interleaving test; 4B keeps the retained \"exactly once\" intent true for the DB and false for the inbox.",
+            "header": "Issue 4.1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A) Already-processed check under the lock: same intent -> 200, no email (recommended)",
+                "description": "\u2705 Under the retained per-user lock, if payment_status=paid and payment_intent_id equals this event's intent, skip update and email; info log with event_id, counter `webhook.already_processed`, HTTP 200\n\u2705 Closes the dedup check-then-record window and the crash-between-commit-and-record case with one mechanism\n\u2705 Interleaving test with pause/release points asserts exactly one email and one status write across two concurrent deliveries\n\u274c Relies on payment_intent_id being persisted on the users row, which the retained update already does\nEffort: human ~2h / CC ~10 min"
+              },
+              {
+                "label": "4B) Rely on the event-ID dedup guard alone, as sketched",
+                "description": "\u2705 No handler change\n\u2705 Correct for sequential retries that arrive after the dedup record lands\n\u274c Concurrent duplicates and crash-after-commit both send a second email\n\u274c Not testable as \"exactly one email\" because the schedule is not excluded"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 (issue 4.1) \u2014 Add an already-processed check under the per-user lock to stop duplicate emails?\nProject/branch/task: main, Stripe payment webhook handler plan review in HOLD SCOPE.\nELI10: Stripe can deliver the same event twice at once. Both copies pass the dedup check before either has committed, the lock lets them run one after the other, and the second copy re-sends the confirmation email. The user update is safe to repeat; the email is not. Stakes if we pick wrong: users get two or more payment confirmations whenever Stripe retries or double-delivers, which reads as a double charge and generates support tickets.\nRecommendation: 4A because the users row already carries the payment intent id, so the check is one comparison under a lock the plan already holds; it also covers a crash between commit and dedup record.\nCompleteness: 4A=10/10, 4B=2/10\nNet: 4A is one branch and one interleaving test; 4B keeps the retained \"exactly once\" intent true for the DB and false for the inbox.": "4A) Already-processed check under the lock: same intent -> 200, no email (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:42:59.995Z"
+      }
+    ],
+    "observedOutcome": "timeout"
+  },
+  "pairedRetry": {
+    "artifact": ".context/ship-source-ac-full-paid-20260909-1635/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-ac-full-paid-20260909-1635-4/plan-ceo-review-1788972231179-brHnP9",
+    "nativeCalls": [
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01T5zvN49EgABjTnMJQoHJh4",
+        "questions": [
+          {
+            "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-yfyOvh on main, reviewing PLAN.md (payment test coverage) in HOLD SCOPE.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so that requests like 'review this diff' or 'ship it' automatically route to the matching skill. This is a one-time setup prompt per project. Note: we are in plan mode right now, so if you choose A the CLAUDE.md edit and commit happen after plan mode ends, not now.\nStakes if we pick wrong: Without routing, you invoke each skill by name manually; with routing, future requests auto-route. Either way this review proceeds unchanged.\nRecommendation: A because routing rules make the skill suite discoverable in future sessions at zero ongoing cost.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience for future sessions vs. one extra committed section in CLAUDE.md.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Add routing rules (recommended)",
+                "description": "\u2705 Future requests like 'ship this' or 'review the diff' auto-route to the right gstack skill.\n\u2705 One-time append to CLAUDE.md plus a chore commit; nothing else in the repo changes.\n\u274c Adds a committed section to CLAUDE.md that teammates will see and may need to agree on."
+              },
+              {
+                "label": "B) No thanks, invoke manually",
+                "description": "\u2705 CLAUDE.md stays exactly as it is; no commit is created on this branch.\n\u2705 Sets routing_declined so this prompt never appears again for this project.\n\u274c You must type each /skill name yourself; nothing routes automatically."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-yfyOvh on main, reviewing PLAN.md (payment test coverage) in HOLD SCOPE.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so that requests like 'review this diff' or 'ship it' automatically route to the matching skill. This is a one-time setup prompt per project. Note: we are in plan mode right now, so if you choose A the CLAUDE.md edit and commit happen after plan mode ends, not now.\nStakes if we pick wrong: Without routing, you invoke each skill by name manually; with routing, future requests auto-route. Either way this review proceeds unchanged.\nRecommendation: A because routing rules make the skill suite discoverable in future sessions at zero ongoing cost.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience for future sessions vs. one extra committed section in CLAUDE.md.": "A) Add routing rules (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:44:41.541Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01SF1ri7h8o7ZNVcAyURK7H1",
+        "questions": [
+          {
+            "question": "D2 \u2014 Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-yfyOvh on main, reviewing PLAN.md in HOLD SCOPE.\nELI10: gstack can search learnings recorded from your other projects on this machine to find patterns that might apply here. Everything stays local; no data leaves your machine. It is recommended for solo developers. Skip it if you work across multiple client codebases where cross-contamination would be a concern. This is a one-time setting.\nStakes if we pick wrong: Enabling on a multi-client machine could surface one client's patterns while working on another's code. Disabling on a solo machine just means fewer prior learnings surface.\nRecommendation: A because this looks like a solo development machine and local-only search has no privacy cost.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: broader recall of your own past lessons vs. strict per-project isolation.",
+            "header": "Learnings",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Enable cross-project (recommended)",
+                "description": "\u2705 Learnings logged in any of your projects can inform reviews here, so patterns compound.\n\u2705 Stays entirely on this machine; nothing is uploaded or shared anywhere.\n\u274c If you work on several clients' codebases, patterns from one could surface while on another."
+              },
+              {
+                "label": "B) Keep project-scoped only",
+                "description": "\u2705 Strict isolation: only learnings logged in this repo ever appear in this repo's reviews.\n\u2705 Safe default for consultants and multi-client machines.\n\u274c Lessons learned elsewhere on this machine never help here; slower compounding."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 \u2014 Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-yfyOvh on main, reviewing PLAN.md in HOLD SCOPE.\nELI10: gstack can search learnings recorded from your other projects on this machine to find patterns that might apply here. Everything stays local; no data leaves your machine. It is recommended for solo developers. Skip it if you work across multiple client codebases where cross-contamination would be a concern. This is a one-time setting.\nStakes if we pick wrong: Enabling on a multi-client machine could surface one client's patterns while working on another's code. Disabling on a solo machine just means fewer prior learnings surface.\nRecommendation: A because this looks like a solo development machine and local-only search has no privacy cost.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: broader recall of your own past lessons vs. strict per-project isolation.": "A) Enable cross-project (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:45:09.718Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01WscPDFzKT47QkXKi8eXaAd",
+        "questions": [
+          {
+            "question": "D3 \u2014 No design doc found for this branch. Run /office-hours first, or proceed with the standard review?\nProject/branch/task: gstack-plan-count-yfyOvh on main, reviewing PLAN.md (two new processPayment unit tests) in HOLD SCOPE.\nELI10: /office-hours produces a structured problem statement, a premise challenge, and explored alternatives. That gives this review sharper input to work with and takes about 10 minutes. The design doc is per-feature, not per-product; it captures the thinking behind this specific change. This plan is small and well-specified (two unit tests against existing, documented contracts), so the marginal value of a design doc is lower than for a greenfield feature.\nStakes if we pick wrong: Skipping on a vague plan means the review argues with an unclear premise. Running it on a crisp two-test plan costs 10 minutes for little new information.\nRecommendation: B because the plan already states its contracts, factory, and exact expected values; the premise is clear enough to review directly.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: 10 minutes of upstream framing vs. going straight into rigor on a plan whose premise is already legible.",
+            "header": "Prereq",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "B) Skip, standard review (recommended)",
+                "description": "\u2705 Goes straight into the HOLD SCOPE review you asked for; the plan's contracts are already explicit.\n\u2705 No extra 10-minute detour for a two-test change against documented behavior.\n\u274c If the plan's premise turns out to be wrong, we discover it mid-review instead of upfront."
+              },
+              {
+                "label": "A) Run /office-hours now",
+                "description": "\u2705 Produces a design doc with problem statement and alternatives that this review then uses as source of truth.\n\u2705 Catches a wrong premise before any rigor is spent on details.\n\u274c About 10 minutes (human) of framing for a plan that is two unit tests against stated contracts."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 \u2014 No design doc found for this branch. Run /office-hours first, or proceed with the standard review?\nProject/branch/task: gstack-plan-count-yfyOvh on main, reviewing PLAN.md (two new processPayment unit tests) in HOLD SCOPE.\nELI10: /office-hours produces a structured problem statement, a premise challenge, and explored alternatives. That gives this review sharper input to work with and takes about 10 minutes. The design doc is per-feature, not per-product; it captures the thinking behind this specific change. This plan is small and well-specified (two unit tests against existing, documented contracts), so the marginal value of a design doc is lower than for a greenfield feature.\nStakes if we pick wrong: Skipping on a vague plan means the review argues with an unclear premise. Running it on a crisp two-test plan costs 10 minutes for little new information.\nRecommendation: B because the plan already states its contracts, factory, and exact expected values; the premise is clear enough to review directly.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: 10 minutes of upstream framing vs. going straight into rigor on a plan whose premise is already legible.": "B) Skip, standard review (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:45:35.920Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01GNFKHSQdojtu9gmrat1vCe",
+        "questions": [
+          {
+            "question": "D4 \u2014 Which implementation approach for the two processPayment tests?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md adds two unit tests to the processPayment suite; HOLD SCOPE.\nELI10: The plan spells out exact contracts (receipt equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }; exactly two Stripe attempts with one 100 ms backoff before PaymentUnavailable) but the proposed tests assert only 'receipt is truthy' and 'it rejects'. The question is how tightly the tests should pin those contracts. This approves a direction only; each individual assertion gap still gets its own decision in the review sections.\nStakes if we pick wrong: Too loose and a refactor that double-charges, mis-copies the amount, or drops the retry passes CI. Too elaborate and we add a parameterized harness nobody needs for two cases.\nRecommendation: B because it is the smallest diff that verifies the plan's own stated invariants using probes the factory already exposes (explicit over clever, well-tested is non-negotiable).\nCompleteness: A=3/10, B=9/10, C=9/10\nNet: A trades correctness for brevity; C trades clarity for future flexibility; B pins the contracts with no new abstraction.",
+            "header": "Approach",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "B) Contract-exact assertions (recommended)",
+                "description": "Completeness 9/10. Same two tests and factory; success test deep-equals the stated receipt; 502 test asserts PaymentUnavailable plus exact call count and sleeper record. Effort: human ~1h / CC ~5min.\n\u2705 Every clause of the stated contracts is pinned and a failure names the broken field.\n\u2705 Uses the mock call history and sleeper record the factory already exposes for this purpose.\n\u274c Implementer must read the factory to confirm the exact shape of the sleeper record before asserting."
+              },
+              {
+                "label": "A) As written (smoke-level)",
+                "description": "Completeness 3/10. Assert receipt truthy and rejection type only. Effort: human ~30min / CC ~3min.\n\u2705 Smallest possible diff; nothing cosmetic can break it.\n\u2705 Zero risk of mismatching the sleeper record shape.\n\u274c Passes when amountCents is wrong, when zero retries happen, or when backoff is 0 ms or 10 s; does not test what the plan says it tests."
+              },
+              {
+                "label": "C) Table-driven scenario matrix",
+                "description": "Completeness 9/10. One parameterized test over rows of (responses, expected calls, sleeps, outcome). Effort: human ~half day / CC ~15min.\n\u2705 Future Stripe scenarios become one table row; attempts vs retries stays explicit.\n\u2705 Same exact assertions as B once the rows are filled in.\n\u274c Premature abstraction for two rows; less direct failure output; diverges from the suite's existing style."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 Which implementation approach for the two processPayment tests?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md adds two unit tests to the processPayment suite; HOLD SCOPE.\nELI10: The plan spells out exact contracts (receipt equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }; exactly two Stripe attempts with one 100 ms backoff before PaymentUnavailable) but the proposed tests assert only 'receipt is truthy' and 'it rejects'. The question is how tightly the tests should pin those contracts. This approves a direction only; each individual assertion gap still gets its own decision in the review sections.\nStakes if we pick wrong: Too loose and a refactor that double-charges, mis-copies the amount, or drops the retry passes CI. Too elaborate and we add a parameterized harness nobody needs for two cases.\nRecommendation: B because it is the smallest diff that verifies the plan's own stated invariants using probes the factory already exposes (explicit over clever, well-tested is non-negotiable).\nCompleteness: A=3/10, B=9/10, C=9/10\nNet: A trades correctness for brevity; C trades clarity for future flexibility; B pins the contracts with no new abstraction.": "B) Contract-exact assertions (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:48:06.530Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01RztXMTceUCT9p7UW2vanZN",
+        "questions": [
+          {
+            "question": "D5 \u2014 Finding 1 (Section 2): the repeated-502 test does not verify the attempt count. Assert exactly two Stripe charge calls?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 2 (repeated 502 -> PaymentUnavailable); HOLD SCOPE, Approach B.\nELI10: The plan states the contract as 'max_retries=1 means two total charge attempts', and the factory exposes the Stripe mock call history for exactly this purpose. The planned test asserts only that the call rejects with PaymentUnavailable. That passes if the code gives up after one attempt (customers lose a sale that one retry would have saved) or keeps hammering Stripe for five attempts. The remedy is one exact-count assertion on the mock's call history, plus arranging the mock so any un-scripted third call fails loudly instead of returning undefined.\nStakes if we pick wrong: A retry regression in either direction ships green. In a payment path 'too many attempts' can also mean duplicate charges when Stripe actually succeeded on a late attempt.\nRecommendation: 1A because the contract states an exact count, the probe already exists, and a lower bound or no check would let both regressions through (edge cases over speed; explicit over clever).\nCompleteness: A=10/10, B=5/10, C=3/10\nNet: one line of assertion vs. a test that cannot tell one attempt from five.",
+            "header": "Finding 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A) Assert exactly 2 calls (recommended)",
+                "description": "Completeness 10/10. After the rejection, assert stripeMock call history length === 2 (exact), and arrange the mock so a third call throws an 'unexpected call' error. Failure output: the count diff or the unexpected-call error. Effort: human ~10min / CC ~1min.\n\u2705 Rejects both regressions: giving up after one attempt and retrying past max_retries.\n\u2705 Uses the call history the factory already exposes; no new test infrastructure.\n\u274c Test must be updated if max_retries in the factory ever changes (which is the point)."
+              },
+              {
+                "label": "1B) Assert at least 2 calls",
+                "description": "Completeness 5/10. Assert call history length >= 2. Effort: human ~5min / CC ~1min.\n\u2705 Catches the 'gave up after one attempt' regression.\n\u2705 Never fails if retries are later increased.\n\u274c Passes when the code retries past max_retries, which is the double-charge risk; contradicts the plan's stated exact count."
+              },
+              {
+                "label": "1C) Do nothing (keep rejects-only)",
+                "description": "Completeness 3/10. Keep the test as planned. Effort: none.\n\u2705 Smallest test body; matches the plan text literally.\n\u2705 No dependency on the mock's call-history shape.\n\u274c The retry contract the plan itself states remains untested; zero or five attempts both pass."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 \u2014 Finding 1 (Section 2): the repeated-502 test does not verify the attempt count. Assert exactly two Stripe charge calls?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 2 (repeated 502 -> PaymentUnavailable); HOLD SCOPE, Approach B.\nELI10: The plan states the contract as 'max_retries=1 means two total charge attempts', and the factory exposes the Stripe mock call history for exactly this purpose. The planned test asserts only that the call rejects with PaymentUnavailable. That passes if the code gives up after one attempt (customers lose a sale that one retry would have saved) or keeps hammering Stripe for five attempts. The remedy is one exact-count assertion on the mock's call history, plus arranging the mock so any un-scripted third call fails loudly instead of returning undefined.\nStakes if we pick wrong: A retry regression in either direction ships green. In a payment path 'too many attempts' can also mean duplicate charges when Stripe actually succeeded on a late attempt.\nRecommendation: 1A because the contract states an exact count, the probe already exists, and a lower bound or no check would let both regressions through (edge cases over speed; explicit over clever).\nCompleteness: A=10/10, B=5/10, C=3/10\nNet: one line of assertion vs. a test that cannot tell one attempt from five.": "1A) Assert exactly 2 calls (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:48:56.432Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_015FnhxkUbGvQDENsy2kygyX",
+        "questions": [
+          {
+            "question": "D6 \u2014 Finding 2 (Section 2): the repeated-502 test does not verify the backoff. Assert the virtual sleeper recorded exactly one 100 ms sleep?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 2 (repeated 502 -> PaymentUnavailable); HOLD SCOPE, Approach B.\nELI10: The plan states 'two total charge attempts separated by one recorded 100 ms backoff', and the factory injects a virtual sleeper that records every backoff without real delays, so this assertion is free of timing flakiness. The planned test never reads that record. As written it passes if the code retries instantly (hammering a struggling Stripe), sleeps 10 seconds (the customer stares at a spinner), or sleeps after the final attempt for no reason. This is independent of Finding 1: the attempt count can be right while the backoff is wrong, and vice versa.\nStakes if we pick wrong: A backoff regression is invisible to every existing suite the plan lists; it surfaces in production as either a 502 storm or a slow checkout.\nRecommendation: 2A because the contract states the exact count and duration, the sleeper exists precisely to make this deterministic, and a looser check misses the 'zero backoff' and 'extra sleep' cases (thoughtfulness over speed).\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: one deep-equal on a recorded array vs. a retry test that never looks at the retry delay.",
+            "header": "Finding 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A) Assert sleeper record equals [100] (recommended)",
+                "description": "Completeness 10/10. After the rejection, deep-equal the sleeper's recorded backoffs to exactly one entry of 100 ms (adapt to the factory's record shape, e.g. [100] or [{ms:100}]). Failure output: array diff. Effort: human ~10min / CC ~1min.\n\u2705 Rejects zero backoff, wrong duration, and a stray sleep after the last attempt.\n\u2705 Deterministic: the virtual sleeper records without waiting, so no fake-timer races.\n\u274c Implementer must read the factory to match the record's exact shape before asserting."
+              },
+              {
+                "label": "2B) Assert the sleeper was called once",
+                "description": "Completeness 6/10. Assert exactly one recorded sleep, ignore its duration. Effort: human ~5min / CC ~1min.\n\u2705 Catches instant-retry and extra-sleep regressions.\n\u2705 Not coupled to the 100 ms constant.\n\u274c A backoff of 0 ms or 10 s passes; the plan's stated 100 ms is left untested."
+              },
+              {
+                "label": "2C) Do nothing (keep rejects-only)",
+                "description": "Completeness 3/10. Do not read the sleeper record. Effort: none.\n\u2705 Matches the plan text literally; shortest test.\n\u2705 No coupling to the sleeper's record shape.\n\u274c The backoff clause of the stated contract is untested; instant retry or a 10 s stall both pass."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 \u2014 Finding 2 (Section 2): the repeated-502 test does not verify the backoff. Assert the virtual sleeper recorded exactly one 100 ms sleep?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 2 (repeated 502 -> PaymentUnavailable); HOLD SCOPE, Approach B.\nELI10: The plan states 'two total charge attempts separated by one recorded 100 ms backoff', and the factory injects a virtual sleeper that records every backoff without real delays, so this assertion is free of timing flakiness. The planned test never reads that record. As written it passes if the code retries instantly (hammering a struggling Stripe), sleeps 10 seconds (the customer stares at a spinner), or sleeps after the final attempt for no reason. This is independent of Finding 1: the attempt count can be right while the backoff is wrong, and vice versa.\nStakes if we pick wrong: A backoff regression is invisible to every existing suite the plan lists; it surfaces in production as either a 502 storm or a slow checkout.\nRecommendation: 2A because the contract states the exact count and duration, the sleeper exists precisely to make this deterministic, and a looser check misses the 'zero backoff' and 'extra sleep' cases (thoughtfulness over speed).\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: one deep-equal on a recorded array vs. a retry test that never looks at the retry delay.": "2A) Assert sleeper record equals [100] (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:49:18.609Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01LRTDoL73213kTD5ERzJ4Ag",
+        "questions": [
+          {
+            "question": "D7 \u2014 Finding 3 (Section 4): the success test asserts only that the receipt is truthy. Deep-equal the receipt to the stated contract?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 1 (successful 1000-cent USD charge); HOLD SCOPE, Approach B.\nELI10: The plan states the exact receipt for this input: { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned assertion is 'receipt is truthy', which any non-null object satisfies, including { chargeId: undefined, amountCents: 100000, currency: \"EUR\" } or an error object. The remedy is one deep-equality assertion against the stated literal, which also fails loudly if extra fields appear.\nStakes if we pick wrong: A receipt that mis-copies the amount or drops chargeId ships green; downstream reconciliation and refunds break on a field the caller-level test never looked at.\nRecommendation: 3A because the plan already states the exact expected value, so the assertion is a transcription, and truthy-only tests are the classic false-confidence smell (well-tested is non-negotiable).\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: three known fields checked exactly vs. a test that passes for any object at all.",
+            "header": "Finding 3",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3A) Deep-equal the full receipt (recommended)",
+                "description": "Completeness 10/10. Assert the receipt deep-equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. Failure output: field-level diff. Effort: human ~5min / CC ~1min.\n\u2705 Pins chargeId copy, amount integrity, and currency in one assertion that names the broken field.\n\u2705 Fails if unexpected fields leak into the receipt, which strict equality catches for free.\n\u274c If the receipt legitimately gains a field later, this test must be updated alongside."
+              },
+              {
+                "label": "3B) Assert the three fields individually",
+                "description": "Completeness 7/10. Three separate equality checks on chargeId, amountCents, currency. Effort: human ~5min / CC ~1min.\n\u2705 Each stated field is pinned; readable one-line failures.\n\u2705 Tolerates extra receipt fields without a test change.\n\u274c Extra or renamed fields go unnoticed; three lines where one strict deep-equal does the job."
+              },
+              {
+                "label": "3C) Do nothing (keep truthy)",
+                "description": "Completeness 2/10. Keep 'receipt is truthy'. Effort: none.\n\u2705 Matches the plan text literally.\n\u2705 Never breaks on receipt shape changes.\n\u274c Any object passes, including wrong amount or missing chargeId; the stated contract stays untested."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 \u2014 Finding 3 (Section 4): the success test asserts only that the receipt is truthy. Deep-equal the receipt to the stated contract?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 1 (successful 1000-cent USD charge); HOLD SCOPE, Approach B.\nELI10: The plan states the exact receipt for this input: { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned assertion is 'receipt is truthy', which any non-null object satisfies, including { chargeId: undefined, amountCents: 100000, currency: \"EUR\" } or an error object. The remedy is one deep-equality assertion against the stated literal, which also fails loudly if extra fields appear.\nStakes if we pick wrong: A receipt that mis-copies the amount or drops chargeId ships green; downstream reconciliation and refunds break on a field the caller-level test never looked at.\nRecommendation: 3A because the plan already states the exact expected value, so the assertion is a transcription, and truthy-only tests are the classic false-confidence smell (well-tested is non-negotiable).\nCompleteness: A=10/10, B=7/10, C=2/10\nNet: three known fields checked exactly vs. a test that passes for any object at all.": "3A) Deep-equal the full receipt (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:49:50.342Z"
+      },
+      {
+        "sessionId": "692e8fbb-26fe-4563-8270-f9738bbd61e4",
+        "toolUseId": "toolu_01AMsw3VXQ8LMvNWacXyWboT",
+        "questions": [
+          {
+            "question": "D8 \u2014 Finding 4 (Section 4): the success test never looks at the outbound Stripe call. Assert exactly one charge call, made with amountCents 1000 and currency USD?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 1 (successful charge); HOLD SCOPE, Approach B.\nELI10: Honest framing first: the plan's stated success contract covers only the returned receipt, so this check is not a transcription of stated text the way findings 1-3 are. It is the hostile-QA question for the same test: did processPayment call Stripe once, with the amount and currency the caller asked for? A code path that charges twice on success, or sends 100000 instead of 1000, still returns a perfect-looking receipt and passes finding 3. The mock's call history already exposes both facts, so the remedy is two assertions on data the test already has in hand. Skipping is a legitimate HOLD SCOPE call because it adds an outcome the plan did not state.\nStakes if we pick wrong: Include: two extra lines. Skip: the single highest-stakes payment bug (double charge or wrong amount sent to Stripe) has no caller-level test.\nRecommendation: 4A because the receipt is what the caller sees but the Stripe call is what the customer pays, the probe exists, and the cost is two assertion lines (I err toward more edge cases, not fewer).\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: observing the side effect vs. observing only the return value of a function whose whole job is the side effect.",
+            "header": "Finding 4",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A) Assert 1 call with 1000/USD (recommended)",
+                "description": "Completeness 10/10. Assert Stripe mock call history length === 1 and that the single call's arguments carry amountCents 1000 and currency USD. Failure output: count diff or argument diff. Effort: human ~10min / CC ~1min.\n\u2705 Rejects double-charge-on-success and wrong-amount-sent, the two money-losing regressions no listed suite covers at the caller level.\n\u2705 Reuses the same call-history probe finding 1 already relies on; no new infrastructure.\n\u274c Goes beyond the plan's stated success contract; couples the test to the mock's argument shape."
+              },
+              {
+                "label": "4B) Assert exactly 1 call only",
+                "description": "Completeness 7/10. Assert call history length === 1; do not inspect arguments. Effort: human ~5min / CC ~1min.\n\u2705 Catches double charge on success with one line.\n\u2705 No coupling to the mock's argument shape.\n\u274c Sending the wrong amount or currency to Stripe still passes."
+              },
+              {
+                "label": "4C) Skip, stay within stated contract",
+                "description": "Completeness 4/10. Do not inspect the Stripe call in the success test. Effort: none.\n\u2705 Strictly honors the plan's stated success contract; no scope movement at all.\n\u2705 Shortest test body.\n\u274c Double charge and wrong-amount-sent remain untested at the caller level; the receipt can look right while the charge is wrong."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D8 \u2014 Finding 4 (Section 4): the success test never looks at the outbound Stripe call. Assert exactly one charge call, made with amountCents 1000 and currency USD?\nProject/branch/task: gstack-plan-count-yfyOvh on main, PLAN.md test 1 (successful charge); HOLD SCOPE, Approach B.\nELI10: Honest framing first: the plan's stated success contract covers only the returned receipt, so this check is not a transcription of stated text the way findings 1-3 are. It is the hostile-QA question for the same test: did processPayment call Stripe once, with the amount and currency the caller asked for? A code path that charges twice on success, or sends 100000 instead of 1000, still returns a perfect-looking receipt and passes finding 3. The mock's call history already exposes both facts, so the remedy is two assertions on data the test already has in hand. Skipping is a legitimate HOLD SCOPE call because it adds an outcome the plan did not state.\nStakes if we pick wrong: Include: two extra lines. Skip: the single highest-stakes payment bug (double charge or wrong amount sent to Stripe) has no caller-level test.\nRecommendation: 4A because the receipt is what the caller sees but the Stripe call is what the customer pays, the probe exists, and the cost is two assertion lines (I err toward more edge cases, not fewer).\nCompleteness: A=10/10, B=7/10, C=4/10\nNet: observing the side effect vs. observing only the return value of a function whose whole job is the side effect.": "4A) Assert 1 call with 1000/USD (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T16:50:12.533Z"
+      }
+    ],
+    "observedOutcome": "running"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "case": "hold-prerequisite-q",
+  "nativeSourceSha256": "572f4d37176faa79f5eb44524cd5cd838c0e7b84a648c2b5092b9effe4e2a185",
+  "requestLine": 56,
+  "resultLine": 57,
+  "call": {
+    "sessionId": "ce0d0a04-8358-47fe-97c7-fae5207e3980",
+    "toolUseId": "toolu_01UGxtFGAXCKRLwP6RErA4km",
+    "requestedAt": "2026-09-09T03:30:34.803Z",
+    "answered": true,
+    "answeredAt": "2026-09-09T03:30:34.847Z",
+    "questions": [
+      {
+        "question": "No design doc found for this branch. Run /office-hours first for sharper review input, or proceed directly with the CEO review?",
+        "header": "Design doc",
+        "options": [
+          {
+            "label": "Run /office-hours first",
+            "description": "Produces a structured problem statement, premise challenge, and explored alternatives \u2014 gives this review much sharper input. Takes ~10 minutes."
+          },
+          {
+            "label": "Proceed with standard review",
+            "description": "Skip /office-hours and review the plan as-is. Recommended when the problem statement is already clear and the plan is ready to interrogate. (recommended)"
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answers": {
+      "No design doc found for this branch. Run /office-hours first for sharper review input, or proceed directly with the CEO review?": "Run /office-hours first"
+    }
+  }
+}

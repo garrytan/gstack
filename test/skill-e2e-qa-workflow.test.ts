@@ -174,11 +174,8 @@ Write your report to ${qaOnlyDir}/qa-reports/qa-only-report.md`,
 // --- QA Fix Loop E2E ---
 
 describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
-  let qaFixDir: string;
-  let qaFixServer: ReturnType<typeof Bun.serve> | null = null;
-
-  beforeAll(() => {
-    qaFixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-fix-'));
+  function createQaFixFixture() {
+    const qaFixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-qa-fix-'));
     setupBrowseShims(qaFixDir);
 
     // Copy qa skill files
@@ -216,7 +213,7 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
     run('git', ['commit', '-m', 'initial commit']);
 
     // Start a local server serving from the working directory so fixes are reflected on refresh
-    qaFixServer = Bun.serve({
+    const qaFixServer = Bun.serve({
       port: 0,
       hostname: '127.0.0.1',
       fetch(req) {
@@ -233,14 +230,21 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
         });
       },
     });
-  });
-
-  afterAll(() => {
-    qaFixServer?.stop();
-    try { fs.rmSync(qaFixDir, { recursive: true, force: true }); } catch {}
-  });
+    const initial = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd: qaFixDir, stdio: 'pipe', timeout: 5000,
+    });
+    if (initial.status !== 0) {
+      qaFixServer.stop();
+      fs.rmSync(qaFixDir, { recursive: true, force: true });
+      throw new Error('QA fixture initial commit failed');
+    }
+    return { qaFixDir, qaFixServer, initialCommit: initial.stdout.toString().trim() };
+  }
 
   testConcurrentIfSelected('qa-fix-loop', async () => {
+    // A retry must receive the seeded defects again, not the first attempt's fixes.
+    const { qaFixDir, qaFixServer, initialCommit } = createQaFixFixture();
+    try {
     const qaFixUrl = `http://127.0.0.1:${qaFixServer!.port}`;
 
     const result = await runSkillTest({
@@ -265,10 +269,8 @@ This is a test+fix loop: find bugs, fix them in the source code, commit each fix
     });
 
     logCost('/qa fix loop', result);
-    recordE2E(evalCollector, '/qa fix loop', 'QA Fix Loop E2E', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-
+    let passed = false;
+    try {
     // Accept error_max_turns — fix loop may use many turns
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
@@ -280,9 +282,21 @@ This is a test+fix loop: find bugs, fix them in the source code, commit each fix
     console.log(`/qa fix loop: ${commits.length} commits total (1 initial + ${commits.length - 1} fixes)`);
     expect(commits.length).toBeGreaterThan(1);
 
-    // Verify Edit tool was used (agent actually modified source code)
-    const editCalls = result.toolCalls.filter(tc => tc.tool === 'Edit');
-    expect(editCalls.length).toBeGreaterThan(0);
+    // Verify a committed change to the seeded source, regardless of mutation tool.
+    // A report-only commit or an uncommitted edit cannot satisfy this contract.
+    const sourceDiff = spawnSync('git', ['diff', '--exit-code', initialCommit, 'HEAD', '--', 'index.html'], {
+      cwd: qaFixDir, stdio: 'pipe', timeout: 30_000,
+    });
+    expect(sourceDiff.status).toBe(1);
+    expect(sourceDiff.stdout.toString().trim().length).toBeGreaterThan(0);
+    passed = true;
+    } finally {
+      recordE2E(evalCollector, '/qa fix loop', 'QA Fix Loop E2E', result, { passed });
+    }
+    } finally {
+      qaFixServer.stop();
+      try { fs.rmSync(qaFixDir, { recursive: true, force: true }); } catch {}
+    }
   }, CAPTURE_LONG_MS);
 }, browserSelected);
 

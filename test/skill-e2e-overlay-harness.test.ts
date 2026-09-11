@@ -16,12 +16,14 @@
  * inheritance (settingSources: []). This is the TRUE bare comparison —
  * the only variable is the overlay text.
  *
- * Budget ~$20 per run at 40 trials (2 fixtures × 2 arms × 10 trials).
+ * The two registered periodic fixtures select 40 trials (2 fixtures × 2 arms
+ * × 10 trials). Other registry experiments require their own registration.
  * Gated by EVALS=1 AND EVALS_TIER=periodic. Never runs under test:gate.
  */
 
 import { test, expect, afterAll } from 'bun:test';
 import { describeE2ETier, e2eTierEnabled } from './helpers/e2e-gate';
+import { selectedTests } from './helpers/e2e-helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -240,6 +242,8 @@ describeE2E('overlay efficacy harness (SDK)', () => {
   }
 
   for (const fixture of OVERLAY_FIXTURES) {
+    const testName = `overlay-harness-${fixture.id}`;
+    if (selectedTests !== null && !selectedTests.includes(testName)) continue;
     test(
       `${fixture.id}: overlay-ON vs overlay-OFF, N=${fixture.trials} per arm`,
       async () => {

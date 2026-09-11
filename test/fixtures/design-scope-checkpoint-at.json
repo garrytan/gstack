@@ -1,0 +1,178 @@
+[
+  {
+    "attempt": 1,
+    "observation": {
+      "path": ".context/ship-source-at-delta-paid-20260910-v1/evals/job-19/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-at-delta-paid-20260910-v1-19/plan-design-review-1789070167941-FXkUaH/observation.json",
+      "sha256": "c4c5b5d07ac05fb375f213618c32c54cdebfb93c5f62a29d8b585b4ce1516c95"
+    },
+    "observed": {
+      "state": "plan_skill_observation_terminal",
+      "scopeGateQuestionObserved": false,
+      "scopeGateAutoSelectObserved": false,
+      "nativeScope": "Latest owned native poll, refreshed while observing; not an exhaustive terminal journal.",
+      "nativePolledAt": 1789070167941
+    },
+    "opts": {
+      "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+      "skillName": "plan-design-review",
+      "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+      "commandStartedAt": 1789070054491
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "05addfcd-cf52-4f31-814d-8cceceb5a49c",
+          "text": "Scope gate: plan mode is active but no plan file exists yet and nothing has been drafted in this conversation, so I need to confirm the review target before running anything.",
+          "timestamp": "2026-09-10T19:54:22.029Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "I'll run the /plan-design-review skill against this draft plan.",
+          "timestamp": "2026-09-10T19:54:20.796Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "Now reading DESIGN.md and TODOS.md for design-related conventions.",
+          "timestamp": "2026-09-10T19:55:09.551Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "Pre-review audit complete: DESIGN.md is detailed and the gstack designer plus Codex are both available. Now writing the initial plan artifact with the draft's requirements copied verbatim and gaps flagged as pending, then rating it.",
+          "timestamp": "2026-09-10T19:55:25.027Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "**Pre-review audit findings**\n\n- **UI scope:** two pages, six sections (hero, features grid, testimonials carousel, footer, pricing tiers, nav implied). Design review applies.\n- **DESIGN.md exists** and is specific: Industrial/Utilitarian direction, dark mode default, amber-500 accent on zinc, Satoshi display, DM Sans body, JetBrains Mono as the personality font, 4px spacing scale, 12-col grid, one authored motion moment. The draft contradicts it in several places (\"clean modern look\", center-aligned everything, generic card grids).\n- **Prior design reviews:** none logged for this branch. No design TODOs touch a landing page.\n- **Existing leverage:** DESIGN.md tokens, the grain texture rule, and the Sept 8 decision that the live-feed pulse is the one authored motion moment (a hero motion would need to reconcile with that).\n\n**Step 0A: Initial design rating: 2/10**\n\nIt is a 2 because the plan names sections but makes no design decisions. The only two concrete numbers it gives (8px h1-to-subhead gap, CTA equal weight to a text link) are both wrong by DESIGN.md's own scale and by hierarchy principles. Everything else is a vibe: \"clean modern look\", \"stacks on mobile\", \"happy path only\". It also picks three of the seven hard-rejection patterns outright: generic 3-column features grid as first impression, purposeless carousel, and pricing made of stacked cards.\n\nA 10 for THIS plan: hero specified as one composition (Satoshi hero at clamp(40px, 6vw, 72px), left-aligned editorial layout per DESIGN.md, amber CTA dominant, `lg` 24px gap to subhead, one authored motion moment). Each section named with one job and its content hierarchy. Pricing with a recommended tier anchor and monospace numbers. Every state covered: font loading fallback, form submit/error/success, pricing fetch, reduced-motion. Per-viewport spec at 375 / 768 / 1200 with 44px touch targets. Contrast, focus, keyboard, and nav wayfinding specified.\n\n**Step 0B:** DESIGN.md exists. All design decisions will be calibrated against your stated design system.\n\n**Step 0C:** Reuse DESIGN.md tokens wholesale. Do not invent a second palette or type scale for marketing.",
+          "timestamp": "2026-09-10T19:55:53.783Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+        "timestamp": "2026-09-10T19:54:21.207Z",
+        "toolUseId": "toolu_01DWy6hp7CYVw9aGRUvQNLjJ",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-design-review"
+        },
+        "messageId": "msg_011CevLxuR2JMt5KUGXQstiz",
+        "requestId": "req_011CevLxsWB7i5qao2rojyCq"
+      },
+      {
+        "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+        "timestamp": "2026-09-10T19:54:23.693Z",
+        "toolUseId": "toolu_01DWy6hp7CYVw9aGRUvQNLjJ",
+        "kind": "result",
+        "content": "Launching skill: plan-design-review",
+        "isError": false
+      }
+    ]
+  },
+  {
+    "attempt": 2,
+    "observation": {
+      "path": ".context/ship-source-at-delta-paid-20260910-v1/evals/job-19/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-at-delta-paid-20260910-v1-19/plan-design-review-1789070310129-HaFAXh/observation.json",
+      "sha256": "e26744b329f787fac6eb4cc3ce61e6df1f4002ba151330cf73501fc68a0172bd"
+    },
+    "observed": {
+      "state": "plan_skill_observation_terminal",
+      "scopeGateQuestionObserved": false,
+      "scopeGateAutoSelectObserved": false,
+      "nativeScope": "Latest owned native poll, refreshed while observing; not an exhaustive terminal journal.",
+      "nativePolledAt": 1789070310129
+    },
+    "opts": {
+      "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+      "skillName": "plan-design-review",
+      "sessionId": "1b39171b-a08f-4ecc-b4c4-cbd9c26759fa",
+      "commandStartedAt": 1789070179256
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "05addfcd-cf52-4f31-814d-8cceceb5a49c",
+          "text": "Scope gate: plan mode is active but no plan file exists yet and nothing has been drafted in this conversation, so I need to confirm the review target before running anything.",
+          "timestamp": "2026-09-10T19:54:22.029Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "I'll run the /plan-design-review skill against this draft plan.",
+          "timestamp": "2026-09-10T19:54:20.796Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "Now reading DESIGN.md and TODOS.md for design-related conventions.",
+          "timestamp": "2026-09-10T19:55:09.551Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "Pre-review audit complete: DESIGN.md is detailed and the gstack designer plus Codex are both available. Now writing the initial plan artifact with the draft's requirements copied verbatim and gaps flagged as pending, then rating it.",
+          "timestamp": "2026-09-10T19:55:25.027Z"
+        },
+        {
+          "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+          "text": "**Pre-review audit findings**\n\n- **UI scope:** two pages, six sections (hero, features grid, testimonials carousel, footer, pricing tiers, nav implied). Design review applies.\n- **DESIGN.md exists** and is specific: Industrial/Utilitarian direction, dark mode default, amber-500 accent on zinc, Satoshi display, DM Sans body, JetBrains Mono as the personality font, 4px spacing scale, 12-col grid, one authored motion moment. The draft contradicts it in several places (\"clean modern look\", center-aligned everything, generic card grids).\n- **Prior design reviews:** none logged for this branch. No design TODOs touch a landing page.\n- **Existing leverage:** DESIGN.md tokens, the grain texture rule, and the Sept 8 decision that the live-feed pulse is the one authored motion moment (a hero motion would need to reconcile with that).\n\n**Step 0A: Initial design rating: 2/10**\n\nIt is a 2 because the plan names sections but makes no design decisions. The only two concrete numbers it gives (8px h1-to-subhead gap, CTA equal weight to a text link) are both wrong by DESIGN.md's own scale and by hierarchy principles. Everything else is a vibe: \"clean modern look\", \"stacks on mobile\", \"happy path only\". It also picks three of the seven hard-rejection patterns outright: generic 3-column features grid as first impression, purposeless carousel, and pricing made of stacked cards.\n\nA 10 for THIS plan: hero specified as one composition (Satoshi hero at clamp(40px, 6vw, 72px), left-aligned editorial layout per DESIGN.md, amber CTA dominant, `lg` 24px gap to subhead, one authored motion moment). Each section named with one job and its content hierarchy. Pricing with a recommended tier anchor and monospace numbers. Every state covered: font loading fallback, form submit/error/success, pricing fetch, reduced-motion. Per-viewport spec at 375 / 768 / 1200 with 44px touch targets. Contrast, focus, keyboard, and nav wayfinding specified.\n\n**Step 0B:** DESIGN.md exists. All design decisions will be calibrated against your stated design system.\n\n**Step 0C:** Reuse DESIGN.md tokens wholesale. Do not invent a second palette or type scale for marketing.",
+          "timestamp": "2026-09-10T19:55:53.783Z"
+        },
+        {
+          "sessionId": "1b39171b-a08f-4ecc-b4c4-cbd9c26759fa",
+          "text": "I'll run the plan-design-review skill on your draft plan.",
+          "timestamp": "2026-09-10T19:56:33.063Z"
+        },
+        {
+          "sessionId": "1b39171b-a08f-4ecc-b4c4-cbd9c26759fa",
+          "text": "Design binary ready, Codex present. Reading DESIGN.md, TODOS.md for design items, and the review section this skill requires.",
+          "timestamp": "2026-09-10T19:57:13.495Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+        "timestamp": "2026-09-10T19:54:21.207Z",
+        "toolUseId": "toolu_01DWy6hp7CYVw9aGRUvQNLjJ",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-design-review"
+        },
+        "messageId": "msg_011CevLxuR2JMt5KUGXQstiz",
+        "requestId": "req_011CevLxsWB7i5qao2rojyCq"
+      },
+      {
+        "sessionId": "f0f35985-473e-4433-bee1-dcbd190e1243",
+        "timestamp": "2026-09-10T19:54:23.693Z",
+        "toolUseId": "toolu_01DWy6hp7CYVw9aGRUvQNLjJ",
+        "kind": "result",
+        "content": "Launching skill: plan-design-review",
+        "isError": false
+      },
+      {
+        "sessionId": "1b39171b-a08f-4ecc-b4c4-cbd9c26759fa",
+        "timestamp": "2026-09-10T19:56:33.106Z",
+        "toolUseId": "toolu_01YYV2trizhmHbR9msESEDpX",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-design-review"
+        },
+        "messageId": "msg_011CevM85xYADsDhoAybpvMD",
+        "requestId": "req_011CevM84vmFTrEX52iVfdJp"
+      },
+      {
+        "sessionId": "1b39171b-a08f-4ecc-b4c4-cbd9c26759fa",
+        "timestamp": "2026-09-10T19:56:34.542Z",
+        "toolUseId": "toolu_01YYV2trizhmHbR9msESEDpX",
+        "kind": "result",
+        "content": "Launching skill: plan-design-review",
+        "isError": false
+      }
+    ]
+  }
+]

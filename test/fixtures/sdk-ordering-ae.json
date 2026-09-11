@@ -1,0 +1,10 @@
+{
+  "provenance": {
+    "kind": "exact public completed report row",
+    "sourceHead": "e8470a7e447f7850f75214383bb1a41d3f1debd8",
+    "session": "c35117a5-3ca0-4ec3-8aa7-6515419b0a9d",
+    "sourceReportSha256": "041d1d9adf556dc44659710d2c96efefa80cf898b75ad31992e204bb68e5b97b",
+    "historicalOutcome": "timeout480032ms; successful report Write, no SDK completion"
+  },
+  "f1": "| F1 | CRITICAL GAP, P1 | Sketch lines 37-49; \"no additional version checks or coordination\" (33-34) vs contract lines 27-29 | Read misses, write commits and deletes (no-op), reader then fills the pre-commit snapshot; every later reader sees stale data for up to 30 s. Same for a create after an ABSENT fill. | A1 | Spurious fill skips during write bursts lower hit rate; visible via `fill_skipped` | Interleaving test: pause DB read, commit write, resume, fresh reader observes committed value; ABSENT variant; both completion orders |"
+}

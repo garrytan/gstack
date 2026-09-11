@@ -207,29 +207,47 @@ describe('tunnel against a live daemon (HTTP only, no browser)', () => {
   test('pair → connect → revoke: verified gone, token 401s; agents lists pending keys', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-tunnel-live-'));
     const stateFile = path.join(tmpDir, 'browse.json');
-    const port = 20000 + Math.floor(Math.random() * 20000);
     const daemon = Bun.spawn(['bun', 'run', SERVER_ENTRY], {
       cwd: ROOT,
       env: {
         ...process.env,
         BROWSE_HEADLESS_SKIP: '1',
-        BROWSE_PORT: String(port),
+        BROWSE_PORT: '0', // Use the daemon's checked allocator, then discover its actual port below.
         BROWSE_STATE_FILE: stateFile,
         BROWSE_PARENT_PID: '0',
         BROWSE_IDLE_TIMEOUT: '600000',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const baseUrl = `http://127.0.0.1:${port}`;
+    let stdout = ''; let stderr = '';
+    const stdoutDrained = new Response(daemon.stdout).text().then(text => { stdout = text; });
+    const stderrDrained = new Response(daemon.stderr).text().then(text => { stderr = text; });
+    let baseUrl = '';
+    let lastReadinessError = '';
     try {
       const deadline = Date.now() + 15_000;
       let ready = false;
       while (Date.now() < deadline && !ready) {
+        if (daemon.exitCode !== null) break;
         try {
+          // State is written after the listener binds. A random guessed port
+          // can collide with another test, or probe an unrelated live daemon.
+          const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+          if (state.pid !== daemon.pid || !Number.isInteger(state.port) || state.port < 1 || state.port > 65535) {
+            throw new Error('State does not identify this test daemon');
+          }
+          baseUrl = `http://127.0.0.1:${state.port}`;
           const resp = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(1000) });
           ready = resp.ok;
-        } catch { /* not ready yet */ }
+          await resp.arrayBuffer();
+        } catch (error) { lastReadinessError = String(error); }
         if (!ready) await new Promise(r => setTimeout(r, 200));
+      }
+      if (!ready) {
+        const startupErrorPath = path.join(tmpDir, 'browse-startup-error.log');
+        const startupError = fs.existsSync(startupErrorPath) ? fs.readFileSync(startupErrorPath, 'utf-8') : '';
+        if (daemon.exitCode !== null) await Promise.all([stdoutDrained, stderrDrained]);
+        expect(ready, `Daemon readiness failed (exit=${daemon.exitCode}): ${lastReadinessError}\n${startupError}\n${stderr}\n${stdout}`).toBe(true);
       }
       expect(ready).toBe(true);
       const rootToken = (JSON.parse(fs.readFileSync(stateFile, 'utf-8')) as { token: string }).token;
@@ -294,6 +312,8 @@ describe('tunnel against a live daemon (HTTP only, no browser)', () => {
       expect(padRevoke.stdout).toContain('Verified: not in the active agent list.');
     } finally {
       try { daemon.kill('SIGKILL'); } catch { /* already gone */ }
+      await daemon.exited;
+      await Promise.all([stdoutDrained, stderrDrained]);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   }, 60_000);

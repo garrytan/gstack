@@ -15,6 +15,7 @@
  */
 
 import type { TemplateContext, ResolverFn } from './types';
+import { outsideVoiceFor, outsideVoiceGuard, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance, generateOutsideVoiceRouting } from './outside-voice';
 
 // Domain modules
 import { generatePreamble } from './preamble';
@@ -25,7 +26,7 @@ import { generateReviewDashboard, generatePlanFileReviewReport, generateExitPlan
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow, generateCodexWebSearchFlag, generateCodexModelConfigFlag, generateCodexReviewModelConfigFlag, generateClaudeModelFlag, generateSetupCommand } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
-import { generateInvokeSkill } from './composition';
+import { generateInvokeSkill, generateAutoplanReviewFile, generateAutoplanSnapshotTool } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
 import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPreflight, generateBrainCacheRefresh, generateBrainWriteBack } from './gbrain';
@@ -39,6 +40,15 @@ import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, g
 import { generateDesignDocDiscovery } from './design-doc-discovery';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
+  OUTSIDE_SELF_GUARD: (ctx, args) => outsideVoiceGuard({ ...ctx, host: args?.[0] === 'claude-code' ? 'codex' : 'claude' }),
+  OUTSIDE_VOICE_ROUTING: generateOutsideVoiceRouting,
+  OUTSIDE_LABEL: (ctx) => outsideVoiceFor(ctx).label,
+  NATIVE_LABEL: (ctx) => outsideVoiceFor(ctx).nativeLabel,
+  OUTSIDE_PROVIDER: (ctx) => outsideVoiceFor(ctx).id,
+  HOST_ID: (ctx) => ctx.host,
+  OUTSIDE_PREFLIGHT: (ctx, args) => outsideVoicePreflight(ctx, { disabledBehavior: args?.[0] === 'opt-in' ? 'opt-in' : 'codex-only' }),
+  OUTSIDE_INVOCATION: (ctx, args) => outsideVoiceInvocation(ctx, { timeoutMs: args?.[0] === 'spec' ? 120000 : 600000, gate: args?.[0] === 'spec' ? 'spec' : 'review', reasoningEffort: args?.[0] === 'spec' ? 'medium' : 'high' }),
+  OUTSIDE_PROVENANCE: (ctx, args) => outsideVoiceProvenance(ctx, args?.[0] ?? ctx.skillName),
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
   CODEX_WEB_SEARCH_FLAG: generateCodexWebSearchFlag,
@@ -100,6 +110,8 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   LEARNINGS_LOG: generateLearningsLog,
   CONFIDENCE_CALIBRATION: generateConfidenceCalibration,
   INVOKE_SKILL: generateInvokeSkill,
+  AUTOPLAN_REVIEW_FILE: generateAutoplanReviewFile,
+  AUTOPLAN_SNAPSHOT_TOOL: generateAutoplanSnapshotTool,
   CHANGELOG_WORKFLOW: generateChangelogWorkflow,
   REVIEW_ARMY: generateReviewArmy,
   CROSS_REVIEW_DEDUP: generateCrossReviewDedup,

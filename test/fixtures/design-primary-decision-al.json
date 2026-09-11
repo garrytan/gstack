@@ -1,0 +1,62 @@
+{
+  "provenance": {
+    "sourceHead": "c73102357cbc3466d6a3c8d3ad0ac7e3177ce62c",
+    "run": "ship-source-al-delta-paid-20260910-v1",
+    "job": 3,
+    "call": "toolu_01K7VggKijiLKU8q4npuhHQG",
+    "session": "cf23eff4-0c82-4e37-a38e-5a2475744a4c",
+    "scope": "Exact completed public question; replay does not revise the live outcome."
+  },
+  "fingerprint": {
+    "signature": "cf23eff4-0c82-4e37-a38e-5a2475744a4c:toolu_01K7VggKijiLKU8q4npuhHQG",
+    "promptSnippet": "Issue 1 D3 \u2014 Issue 1: How should the header actions establish that Save is the primary action? Project/branch/task: branch main, Settings Page UI redesign, Pass 1 Information Architecture. ELI10: Right now Save, Reset, Cancel, and Export lo",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A Primary + ghost (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B Save primary only"
+      },
+      {
+        "index": 3,
+        "label": "1C Defer"
+      }
+    ],
+    "observedAtMs": 242723,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "cf23eff4-0c82-4e37-a38e-5a2475744a4c",
+      "toolUseId": "toolu_01K7VggKijiLKU8q4npuhHQG",
+      "questions": [
+        {
+          "question": "D3 \u2014 Issue 1: How should the header actions establish that Save is the primary action?\nProject/branch/task: branch main, Settings Page UI redesign, Pass 1 Information Architecture.\nELI10: Right now Save, Reset, Cancel, and Export look identical. A user scanning the header cannot tell which button does the thing they came for, and at 640px and below Save already sits alone on its own row while looking like a secondary control. DESIGN.md already decides this: Save is the only filled primary button, the other three are neutral ghost buttons. Principle: hierarchy as service; if everything shouts, nothing wins.\nStakes if we pick wrong: users hesitate or hit Reset/Cancel by mistake, and the confirmation dialog becomes a safety net for a hierarchy problem.\nRecommendation: 1A because it applies the existing Button variants with zero new tokens and matches the approved design system exactly.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nPros / cons:\n1A) Save filled primary (#1d4ed8, white text); Reset, Cancel, Export as neutral ghost buttons (recommended) (human: ~1h / CC: ~5min)\n  \u2705 Exact DESIGN.md tokens via the existing Button component variants, nothing new to invent\n  \u2705 Primary reads first at every viewport, including the full-width Save row at 640px and below\n  \u274c Touches the button variant props on all four actions, so a small visual regression check is needed\n1B) Save filled primary; leave Reset, Cancel, Export exactly as they render today (human: ~30min / CC: ~3min)\n  \u2705 Smallest possible change, only the Save button's variant flips\n  \u2705 Still gives the header one obvious primary control for the 3-second scan\n  \u274c Three secondary buttons stay in whatever inconsistent style they have now, so the group still does not match DESIGN.md\n1C) Defer: keep all four identical for this update (human: 0 / CC: 0)\n  \u2705 No implementation work in this PR\n  \u2705 Avoids any styling change to the action group\n  \u274c Ships a documented DESIGN.md violation and leaves the page with no visible primary action\nNet: full alignment with the approved Button variants versus a partial or deferred fix that leaves the header ambiguous.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A Primary + ghost (recommended)",
+              "description": "Save filled #1d4ed8/white; Reset, Cancel, Export neutral ghost. Exact DESIGN.md."
+            },
+            {
+              "label": "1B Save primary only",
+              "description": "Flip only Save to the primary variant; leave the other three untouched."
+            },
+            {
+              "label": "1C Defer",
+              "description": "Keep all four identical; record as an open DESIGN.md violation."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Issue 1: How should the header actions establish that Save is the primary action?\nProject/branch/task: branch main, Settings Page UI redesign, Pass 1 Information Architecture.\nELI10: Right now Save, Reset, Cancel, and Export look identical. A user scanning the header cannot tell which button does the thing they came for, and at 640px and below Save already sits alone on its own row while looking like a secondary control. DESIGN.md already decides this: Save is the only filled primary button, the other three are neutral ghost buttons. Principle: hierarchy as service; if everything shouts, nothing wins.\nStakes if we pick wrong: users hesitate or hit Reset/Cancel by mistake, and the confirmation dialog becomes a safety net for a hierarchy problem.\nRecommendation: 1A because it applies the existing Button variants with zero new tokens and matches the approved design system exactly.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nPros / cons:\n1A) Save filled primary (#1d4ed8, white text); Reset, Cancel, Export as neutral ghost buttons (recommended) (human: ~1h / CC: ~5min)\n  \u2705 Exact DESIGN.md tokens via the existing Button component variants, nothing new to invent\n  \u2705 Primary reads first at every viewport, including the full-width Save row at 640px and below\n  \u274c Touches the button variant props on all four actions, so a small visual regression check is needed\n1B) Save filled primary; leave Reset, Cancel, Export exactly as they render today (human: ~30min / CC: ~3min)\n  \u2705 Smallest possible change, only the Save button's variant flips\n  \u2705 Still gives the header one obvious primary control for the 3-second scan\n  \u274c Three secondary buttons stay in whatever inconsistent style they have now, so the group still does not match DESIGN.md\n1C) Defer: keep all four identical for this update (human: 0 / CC: 0)\n  \u2705 No implementation work in this PR\n  \u2705 Avoids any styling change to the action group\n  \u274c Ships a documented DESIGN.md violation and leaves the page with no visible primary action\nNet: full alignment with the approved Button variants versus a partial or deferred fix that leaves the header ambiguous.": "1A Primary + ghost (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T07:58:51.241Z"
+    }
+  }
+}

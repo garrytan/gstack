@@ -1,0 +1,379 @@
+{
+  "fingerprints": [
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_01D9su5tRRKrDbTnUhrueEfL",
+      "promptSnippet": "Routing D1 — Add gstack skill routing rules to this project's CLAUDE.md? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan. ELI10: gstack works best when the project's CLAUDE.md tells Claud",
+      "options": [
+        {
+          "index": 1,
+          "label": "No thanks, invoke manually (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Add routing rules to CLAUDE.md"
+        },
+        {
+          "index": 1,
+          "label": "Enable cross-project learnings (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Keep learnings project-scoped"
+        }
+      ],
+      "observedAtMs": 110012,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_01D9su5tRRKrDbTnUhrueEfL",
+        "questions": [
+          {
+            "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: gstack works best when the project's CLAUDE.md tells Claude which slash skill to reach for (bugs → /investigate, ship → /ship, and so on). This is a one-time onboarding prompt. Note: plan mode is active, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode, not now.\nStakes if we pick wrong: Low either way. Without routing you invoke skills by hand; with it you get an extra section in CLAUDE.md in a fixture repo.\nRecommendation: B because this repo is a review fixture whose CLAUDE.md is purpose-built for the plan under review, and adding routing rules here adds noise without benefit.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience routing vs keeping a fixture CLAUDE.md untouched.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "No thanks, invoke manually (recommended)",
+                "description": "✅ Keeps the fixture CLAUDE.md focused on the plan under review, nothing extra committed\n✅ Records routing_declined so this prompt never fires again for this project\n❌ You type skill names yourself instead of Claude auto-routing to them"
+              },
+              {
+                "label": "Add routing rules to CLAUDE.md",
+                "description": "✅ Claude auto-selects /investigate, /ship, /plan-eng-review etc. from natural requests\n✅ Standard gstack setup, matches other projects you may have configured\n❌ Edit and commit must wait until plan mode exits; adds a section to a fixture file"
+              }
+            ]
+          },
+          {
+            "question": "D2 — Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: gstack can search learnings it saved from your other projects on this machine to spot patterns that apply here. Everything stays local; no data leaves the machine. Good for solo developers; skip if you work on multiple client codebases where mixing insights would be a concern.\nStakes if we pick wrong: Low. Either a few missed hints from other repos, or a hint from one client's project surfacing while working on another's.\nRecommendation: A because a single-developer machine gains compounding insight with no privacy cost, and it can be turned off any time with gstack-config.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader local recall vs strict per-project isolation.",
+            "header": "Learnings",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Enable cross-project learnings (recommended)",
+                "description": "✅ Findings from your other repos surface here when a pattern matches this plan\n✅ Fully local; nothing is uploaded and the setting is reversible any time\n❌ On a shared or multi-client machine, one project's insight may appear in another"
+              },
+              {
+                "label": "Keep learnings project-scoped",
+                "description": "✅ Strict isolation, right choice for consultants working across client codebases\n✅ No chance of cross-contaminating context between unrelated projects\n❌ Loses compounding recall from patterns already learned in other repos"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: gstack works best when the project's CLAUDE.md tells Claude which slash skill to reach for (bugs → /investigate, ship → /ship, and so on). This is a one-time onboarding prompt. Note: plan mode is active, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode, not now.\nStakes if we pick wrong: Low either way. Without routing you invoke skills by hand; with it you get an extra section in CLAUDE.md in a fixture repo.\nRecommendation: B because this repo is a review fixture whose CLAUDE.md is purpose-built for the plan under review, and adding routing rules here adds noise without benefit.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience routing vs keeping a fixture CLAUDE.md untouched.": "No thanks, invoke manually (recommended)",
+          "D2 — Enable cross-project learnings search on this machine?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: gstack can search learnings it saved from your other projects on this machine to spot patterns that apply here. Everything stays local; no data leaves the machine. Good for solo developers; skip if you work on multiple client codebases where mixing insights would be a concern.\nStakes if we pick wrong: Low. Either a few missed hints from other repos, or a hint from one client's project surfacing while working on another's.\nRecommendation: A because a single-developer machine gains compounding insight with no privacy cost, and it can be turned off any time with gstack-config.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader local recall vs strict per-project isolation.": "Enable cross-project learnings (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:43:50.344Z"
+      }
+    },
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_01RNArBfKVnWP1PK6Ztqt6S6",
+      "promptSnippet": "Approach D3 — Which implementation structure should the handler use? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (0C-bis approach approval). ELI10: The plan proposes a brand-new handl",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Dispatcher-registered handler (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Standalone handler bypassing dispatcher"
+        },
+        {
+          "index": 3,
+          "label": "C) Modify the prior handler in place"
+        }
+      ],
+      "observedAtMs": 294441,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_01RNArBfKVnWP1PK6Ztqt6S6",
+        "questions": [
+          {
+            "question": "D3 — Which implementation structure should the handler use?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (0C-bis approach approval).\nELI10: The plan proposes a brand-new handler class that bypasses the existing WebhookDispatcher. But the plan also promises the handler \"runs inside those unchanged guards\" (signature check, dedup, per-user lock, ownership, unknown-user). If the dispatcher is how those guards reach a handler, bypassing it means re-wiring or duplicating them, and any one missed silently weakens payment safety. The already-approved name Webhooks::StripePaymentWebhookHandler gives you namespace separation without a separate call path.\nStakes if we pick wrong: A duplicate guard chain drifts from the original and a missed guard lets a replayed or mis-owned payment through; or (approach C) you lose the tested flag rollback and every change goes to 100% of traffic.\nRecommendation: A because it is the smallest diff that satisfies the plan's own \"runs inside unchanged guards\" invariant and keeps the flag rollback intact.\nCompleteness: A=9/10, B=6/10, C=7/10\nNet: one wiring path with the guards applied by construction, versus independence you pay for with duplicated safety code or lost rollback.",
+            "header": "Approach",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Dispatcher-registered handler (recommended)",
+                "description": "Completeness 9/10. Register Webhooks::StripePaymentWebhookHandler with the existing WebhookDispatcher for payment_intent.succeeded, selected by the existing feature flag. (human ~1 day / CC ~30 min)\n✅ Every retained guard (signature, dedup, lock, ownership, unknown-user) applies by construction\n✅ Flag rollback to the prior handler is unchanged; smallest diff; single wiring path to test\n❌ Handler interface is bound by the dispatcher contract; \"separation\" is namespace-only"
+              },
+              {
+                "label": "B) Standalone handler bypassing dispatcher",
+                "description": "Completeness 6/10. New class with its own entry point, re-wiring or shimming the guard chain around it, as the plan currently says. (human ~3 days / CC ~1.5 h)\n✅ Fully independent call path that can evolve without touching WebhookDispatcher\n✅ Matches the plan text as written, no dispatcher registration change needed\n❌ Duplicates the guard chain; a missed guard is a silent payment-safety hole; two rollout paths to keep in sync"
+              },
+              {
+                "label": "C) Modify the prior handler in place",
+                "description": "Completeness 7/10. Fix lookup, notify, order load and tests inside the existing handler; no new class. (human ~1 day / CC ~30 min)\n✅ No new class and no dispatcher change; reuses everything the prior handler already uses\n✅ Fewest moving parts if the flag rollback is judged unnecessary\n❌ Destroys the flag-based rollback path; the settled class name goes unused; ships to 100% at once"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Which implementation structure should the handler use?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (0C-bis approach approval).\nELI10: The plan proposes a brand-new handler class that bypasses the existing WebhookDispatcher. But the plan also promises the handler \"runs inside those unchanged guards\" (signature check, dedup, per-user lock, ownership, unknown-user). If the dispatcher is how those guards reach a handler, bypassing it means re-wiring or duplicating them, and any one missed silently weakens payment safety. The already-approved name Webhooks::StripePaymentWebhookHandler gives you namespace separation without a separate call path.\nStakes if we pick wrong: A duplicate guard chain drifts from the original and a missed guard lets a replayed or mis-owned payment through; or (approach C) you lose the tested flag rollback and every change goes to 100% of traffic.\nRecommendation: A because it is the smallest diff that satisfies the plan's own \"runs inside unchanged guards\" invariant and keeps the flag rollback intact.\nCompleteness: A=9/10, B=6/10, C=7/10\nNet: one wiring path with the guards applied by construction, versus independence you pay for with duplicated safety code or lost rollback.": "A) Dispatcher-registered handler (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:46:54.269Z"
+      }
+    },
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_015eSQoG8ip1Zbcu6XS1Vhur",
+      "promptSnippet": "Motivation D4 — The plan never says why the prior handler is being replaced. Record the motivation and acceptance criterion? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (Step 0A premi",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Add a Context block with an open placeholder (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) I'll supply the reason now (type it in Other)"
+        },
+        {
+          "index": 3,
+          "label": "C) Leave it out"
+        }
+      ],
+      "observedAtMs": 348278,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_015eSQoG8ip1Zbcu6XS1Vhur",
+        "questions": [
+          {
+            "question": "D4 — The plan never says why the prior handler is being replaced. Record the motivation and acceptance criterion?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (Step 0A premise / 0E hour-1).\nELI10: A tested prior handler already exists behind the feature flag. The plan introduces a new one but gives no reason: no bug, no missing behavior, no deprecation. Without a stated \"why\", the implementer cannot tell when the new handler is done, and the eng reviewer cannot tell whether the new one may be turned off again. Every other retained contract is spelled out; this one is missing.\nStakes if we pick wrong: The flag gets flipped to a handler nobody can justify, and if the prior one had a defect, nobody verifies the new one actually fixes it.\nRecommendation: A because a plan with fifty lines of retained contracts and zero lines of motivation is a plan the implementer will second-guess; a two-line Context block costs nothing.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small writing task now versus an unexplained payment-path swap that the eng review has to reverse-engineer.",
+            "header": "Motivation",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Add a Context block with an open placeholder (recommended)",
+                "description": "Plan gains a Context section stating the goal (paid once, one receipt, on-call can separate payment from notification failure) and an explicit UNRESOLVED marker: \"reason the prior handler is replaced: <author fills in before eng review>\". (human ~10 min / CC ~1 min)\n✅ Makes the missing motivation visible instead of buried; eng review sees exactly what is unknown\n✅ Gives the implementer a concrete done-criterion independent of the missing reason\n❌ The reason itself still has to come from the plan author; this review cannot invent it"
+              },
+              {
+                "label": "B) I'll supply the reason now (type it in Other)",
+                "description": "You state the motivating defect or requirement and it is written into the plan verbatim as the acceptance criterion.\n✅ Closes the gap completely in this review; no placeholder survives into eng review\n✅ Lets later sections check whether the proposed changes actually address that reason\n❌ Requires context only you have; if unsure, prefer A"
+              },
+              {
+                "label": "C) Leave it out",
+                "description": "Plan ships without stating why the handler is being replaced.\n✅ Zero effort; the retained-contracts list already describes the behavior\n✅ Fine if this is a pure fixture and the motivation is irrelevant to the exercise\n❌ Implementer and eng reviewer have no acceptance criterion; the swap is unexplained"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — The plan never says why the prior handler is being replaced. Record the motivation and acceptance criterion?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (Step 0A premise / 0E hour-1).\nELI10: A tested prior handler already exists behind the feature flag. The plan introduces a new one but gives no reason: no bug, no missing behavior, no deprecation. Without a stated \"why\", the implementer cannot tell when the new handler is done, and the eng reviewer cannot tell whether the new one may be turned off again. Every other retained contract is spelled out; this one is missing.\nStakes if we pick wrong: The flag gets flipped to a handler nobody can justify, and if the prior one had a defect, nobody verifies the new one actually fixes it.\nRecommendation: A because a plan with fifty lines of retained contracts and zero lines of motivation is a plan the implementer will second-guess; a two-line Context block costs nothing.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small writing task now versus an unexplained payment-path swap that the eng review has to reverse-engineer.": "A) Add a Context block with an open placeholder (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:47:38.034Z"
+      }
+    },
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_01JT9XefYZvahB143XSMa4iE",
+      "promptSnippet": "Order scope D5 — Which orders belong in the receipt summary, and is the list bounded? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (Step 0E hour-1). ELI10: The plan says the receipt in",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Orders tied to this PaymentIntent (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) All user orders, newest first, hard cap with truncation note"
+        },
+        {
+          "index": 3,
+          "label": "C) All user orders, unbounded, as the plan implies"
+        }
+      ],
+      "observedAtMs": 352294,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_01JT9XefYZvahB143XSMa4iE",
+        "questions": [
+          {
+            "question": "D5 — Which orders belong in the receipt summary, and is the list bounded?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (Step 0E hour-1).\nELI10: The plan says the receipt includes \"a summary of the user orders\" and the Performance section fetches \"each order in a loop\". It never says which orders: the ones this PaymentIntent paid for, or every order the user has ever placed. A long-time customer with thousands of orders would blow the 2-second DB budget, fail the webhook, and get retried by Stripe into the same failure for 72 hours. The implementer will have to decide this on hour one either way.\nStakes if we pick wrong: Either receipts list unrelated old orders, or a heavy user's payment is marked failed at Stripe over and over while the DB deadline trips each time.\nRecommendation: A because a receipt is about what was just paid; scoping to this PaymentIntent is naturally bounded, needs no arbitrary cap, and matches \"one receipt per PaymentIntent\".\nCompleteness: A=10/10, B=8/10, C=4/10\nNet: a naturally bounded, semantically right list versus an unbounded query you then have to cap and explain.",
+            "header": "Order scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Orders tied to this PaymentIntent (recommended)",
+                "description": "Completeness 10/10. Summary = orders whose payment_intent_id matches the event. Zero orders still sends one receipt with an empty summary (retained). (human ~1 h / CC ~5 min)\n✅ Naturally bounded; a single indexed query; no arbitrary cap or truncation notice needed\n✅ Matches the retained \"one receipt per PaymentIntent\" contract and what a customer expects a receipt to show\n❌ If orders are not yet linked to payment_intent_id in the schema, that link must exist or be added"
+              },
+              {
+                "label": "B) All user orders, newest first, hard cap with truncation note",
+                "description": "Completeness 8/10. Summary = the user's orders ordered by created_at desc, LIMIT N (e.g. 50), with \"and M more\" in the template when truncated. (human ~2 h / CC ~10 min)\n✅ Works even if orders are not linked to a PaymentIntent in the schema\n✅ Bounded query keeps the 2-second DB deadline safe for heavy users\n❌ Receipt shows unrelated history; needs a cap value decision and a template change for truncation"
+              },
+              {
+                "label": "C) All user orders, unbounded, as the plan implies",
+                "description": "Completeness 4/10. Load every order for the user.\n✅ No schema or template change; literally what the plan text says\n✅ Correct for users with a handful of orders\n❌ Heavy users trip the 2-second DB deadline, get HTTP 500, and Stripe retries into the same failure for 72 hours"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Which orders belong in the receipt summary, and is the list bounded?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan (Step 0E hour-1).\nELI10: The plan says the receipt includes \"a summary of the user orders\" and the Performance section fetches \"each order in a loop\". It never says which orders: the ones this PaymentIntent paid for, or every order the user has ever placed. A long-time customer with thousands of orders would blow the 2-second DB budget, fail the webhook, and get retried by Stripe into the same failure for 72 hours. The implementer will have to decide this on hour one either way.\nStakes if we pick wrong: Either receipts list unrelated old orders, or a heavy user's payment is marked failed at Stripe over and over while the DB deadline trips each time.\nRecommendation: A because a receipt is about what was just paid; scoping to this PaymentIntent is naturally bounded, needs no arbitrary cap, and matches \"one receipt per PaymentIntent\".\nCompleteness: A=10/10, B=8/10, C=4/10\nNet: a naturally bounded, semantically right list versus an unbounded query you then have to cap and explain.": "A) Orders tied to this PaymentIntent (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:47:52.126Z"
+      }
+    },
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_01CoCF8WSWKxYFAHschZJq4p",
+      "promptSnippet": "SQL binding D6 — Section 2 finding 1: the lookup reads request.params.userId into a raw SQL fragment. Bind it as a parameter? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan. ELI10: User ",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Bound parameters for lookup and orders queries (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Escape the string before interpolating"
+        },
+        {
+          "index": 3,
+          "label": "C) Keep the raw fragment as planned"
+        }
+      ],
+      "observedAtMs": 448898,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_01CoCF8WSWKxYFAHschZJq4p",
+        "questions": [
+          {
+            "question": "D6 — Section 2 finding 1: the lookup reads request.params.userId into a raw SQL fragment. Bind it as a parameter?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: User IDs are opaque text that may contain quotes, semicolons or Unicode, and the adapter forwards them unchanged with no SQL escaping. Interpolated into a raw fragment, an ID like O'Brien is a SQL syntax error: the DB raises, the wrapper returns 500, Stripe retries the same event into the same error for 72 hours, and a customer who paid is never marked paid. The same fragment is an injection point if an ID ever carries attacker-shaped text, since the plan itself says a valid signature does not make the string safe for SQL. The orders query added by D5 has the identical exposure.\nStakes if we pick wrong: Paying customers with punctuation in their IDs are silently never marked paid, and the payment lookup is an injection surface in a signed but unsanitized path.\nRecommendation: A because bound parameters make the whole class of failure unreachable, need no validation rules for an opaque identifier, and the plan's own contract says no format restriction may be added.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: prepared statements eliminate the failure class; escaping or allow-listing narrows it and contradicts the opaque-ID contract.",
+            "header": "SQL binding",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Bound parameters for lookup and orders queries (recommended)",
+                "description": "Completeness 10/10. Both the user lookup and the D5 orders query use the DB client's bind-parameter / prepared-statement form; the string is never concatenated into SQL. Tests: O'Brien, '; DROP TABLE users;--, 4-byte Unicode, a 1000-char ID each resolve to the exact user or the retained unknown-user path, never an exception. Failure visibility: a syntax error in tests fails the suite; in prod the existing DB trace carries event id and user id. (human ~1 h / CC ~5 min)\n✅ Removes SQL syntax errors and injection for every possible opaque ID with no format rule\n✅ Honors the retained contract that no cast, escape, or ID restriction is added upstream\n❌ None of substance; requires using the client's parameterized API rather than string SQL"
+              },
+              {
+                "label": "B) Escape the string before interpolating",
+                "description": "Completeness 6/10. Keep the raw fragment but run the ID through the DB client's quote/escape helper. (human ~30 min / CC ~3 min)\n✅ Small change to the fragment as written; handles the quote case\n✅ No change to query shape\n❌ Escaping is per-dialect and per-encoding; historically the source of bypasses; still string SQL"
+              },
+              {
+                "label": "C) Keep the raw fragment as planned",
+                "description": "Completeness 2/10. Rely on signature verification and the ownership guard.\n✅ Zero change to the plan text\n✅ The ownership guard does limit which strings reach the handler\n❌ The plan's own contract says signature and ownership are not SQL safety; legitimate IDs with quotes break and are retried for 72 hours"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — Section 2 finding 1: the lookup reads request.params.userId into a raw SQL fragment. Bind it as a parameter?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: User IDs are opaque text that may contain quotes, semicolons or Unicode, and the adapter forwards them unchanged with no SQL escaping. Interpolated into a raw fragment, an ID like O'Brien is a SQL syntax error: the DB raises, the wrapper returns 500, Stripe retries the same event into the same error for 72 hours, and a customer who paid is never marked paid. The same fragment is an injection point if an ID ever carries attacker-shaped text, since the plan itself says a valid signature does not make the string safe for SQL. The orders query added by D5 has the identical exposure.\nStakes if we pick wrong: Paying customers with punctuation in their IDs are silently never marked paid, and the payment lookup is an injection surface in a signed but unsanitized path.\nRecommendation: A because bound parameters make the whole class of failure unreachable, need no validation rules for an opaque identifier, and the plan's own contract says no format restriction may be added.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: prepared statements eliminate the failure class; escaping or allow-listing narrows it and contradicts the opaque-ID contract.": "A) Bound parameters for lookup and orders queries (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:49:12.120Z"
+      }
+    },
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_01JVSQCPgeMZAiqg4sYPdTcq",
+      "promptSnippet": "Mail rescue D7 — Section 2 finding 2: the receipt email has \"no error handling\". When the mail client raises after the payment update committed, what should the handler do? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review o",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Commit first, then rescue only the named mail exceptions and acknowledge (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Keep rethrowing; let Stripe's retry resend the email"
+        },
+        {
+          "index": 3,
+          "label": "C) Rescue StandardError around the whole handler"
+        }
+      ],
+      "observedAtMs": 448898,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_01JVSQCPgeMZAiqg4sYPdTcq",
+        "questions": [
+          {
+            "question": "D7 — Section 2 finding 2: the receipt email has \"no error handling\". When the mail client raises after the payment update committed, what should the handler do?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: The shared mail client has a 1-second deadline and rethrows MailTimeout or its delivery-failure error to the handler, after first durably recording the attempt for the existing notification retry procedure. If the handler lets that exception escape, the ingress wrapper returns 500 and Stripe treats a payment you already committed as a failed delivery: it retries for 72 hours, the failed-webhook alert pages on-call, and the Stripe dashboard shows the endpoint failing. The runbook already says: retry only the notification, never replay the payment. A bare rethrow does the opposite. The remedy must also fix ordering: send only after the DB transaction commits, so a rolled-back payment never emails a receipt.\nStakes if we pick wrong: Either committed payments page on-call as webhook failures during every mail-provider blip, or (if swallowed too broadly) a real DB failure gets hidden behind a 200.\nRecommendation: A because it matches the retained runbook contract exactly: payment committed means acknowledge; the durable retry record and failed-notification alert already own recovery of the receipt.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: name the two mail exceptions and acknowledge, versus letting Stripe's retry loop double as your email retry at the cost of false failure signals.",
+            "header": "Mail rescue",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Commit first, then rescue only the named mail exceptions and acknowledge (recommended)",
+                "description": "Completeness 10/10. Handler order: lookup → load orders → existing update in one transaction → commit → send receipt. Rescue exactly MailTimeout and the mail client's named delivery-failure class (never StandardError). On rescue: structured warning with event id, PaymentIntent id, user id, handler identity, exception class, and a note that the durable retry record exists; return success so the dispatcher records completion and Stripe gets 200. DB exceptions keep propagating to 500. Tests: MailTimeout after commit → 200-equivalent, marker recorded, retry record asserted, warning logged; mail success → one send; DB update error → exception propagates, no send. (human ~2 h / CC ~10 min)\n✅ Committed payments are never reported to Stripe as failures; runbook's notification-only retry path is the single recovery path\n✅ Ordering rule guarantees no receipt for a rolled-back payment; DB failures remain loud\n❌ Receipt recovery depends on the retained retry procedure being run; a missed retry record would be the only silent path (mitigated by the failed-notification age alert)"
+              },
+              {
+                "label": "B) Keep rethrowing; let Stripe's retry resend the email",
+                "description": "Completeness 6/10. No rescue. Stripe retries the event; the idempotent update re-assigns the same values; the provider key suppresses a duplicate successful send. (human ~0 / CC ~0)\n✅ Zero code; Stripe's 72-hour retry acts as a free email retry\n✅ Duplicate receipts are suppressed by the provider idempotency key\n❌ Every mail blip pages on-call as a webhook failure and shows the endpoint failing at Stripe; contradicts the runbook's \"never replay the payment\""
+              },
+              {
+                "label": "C) Rescue StandardError around the whole handler",
+                "description": "Completeness 3/10. Catch everything, log, return 200.\n✅ Nothing ever 500s\n✅ Simplest possible code\n❌ Hides DB failures behind a 200 so Stripe never retries a lost payment update; catch-all is a named smell in this review's rules"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 — Section 2 finding 2: the receipt email has \"no error handling\". When the mail client raises after the payment update committed, what should the handler do?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: The shared mail client has a 1-second deadline and rethrows MailTimeout or its delivery-failure error to the handler, after first durably recording the attempt for the existing notification retry procedure. If the handler lets that exception escape, the ingress wrapper returns 500 and Stripe treats a payment you already committed as a failed delivery: it retries for 72 hours, the failed-webhook alert pages on-call, and the Stripe dashboard shows the endpoint failing. The runbook already says: retry only the notification, never replay the payment. A bare rethrow does the opposite. The remedy must also fix ordering: send only after the DB transaction commits, so a rolled-back payment never emails a receipt.\nStakes if we pick wrong: Either committed payments page on-call as webhook failures during every mail-provider blip, or (if swallowed too broadly) a real DB failure gets hidden behind a 200.\nRecommendation: A because it matches the retained runbook contract exactly: payment committed means acknowledge; the durable retry record and failed-notification alert already own recovery of the receipt.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: name the two mail exceptions and acknowledge, versus letting Stripe's retry loop double as your email retry at the cost of false failure signals.": "A) Commit first, then rescue only the named mail exceptions and acknowledge (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:49:28.228Z"
+      }
+    },
+    {
+      "signature": "a0f2c627-13be-4a64-9026-ed17f0cc17ed:toolu_01LabN1DUHy5M4QMhDFX3xMB",
+      "promptSnippet": "Orders scope D8 — Section 3 finding: scope the receipt's orders query to both the PaymentIntent and the looked-up user? Project/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan. ELI10: D5 loads or",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Scope by payment_intent_id AND user_id (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Query by payment_intent_id only, as D5 says"
+        }
+      ],
+      "observedAtMs": 531063,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "a0f2c627-13be-4a64-9026-ed17f0cc17ed",
+        "toolUseId": "toolu_01LabN1DUHy5M4QMhDFX3xMB",
+        "questions": [
+          {
+            "question": "D8 — Section 3 finding: scope the receipt's orders query to both the PaymentIntent and the looked-up user?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: D5 loads orders where payment_intent_id matches the event. The ownership guard already proves the PaymentIntent belongs to this user, so in a healthy database those orders are theirs. But the orders table is a second place the link is stored. If an order ever gets attached to the wrong PaymentIntent by a bug or a bad backfill, the receipt would list someone else's purchases in an email. Adding AND user_id = <the user we just looked up> costs one predicate and makes that leak impossible regardless of data quality.\nStakes if we pick wrong: Another customer's order details land in a receipt email; low likelihood, but it is PII leaving the system with no way to recall it.\nRecommendation: A because it is one predicate and one test, and the review's rules say security is not optional for new data access.\nCompleteness: A=10/10, B=7/10\nNet: one extra predicate and one test versus trusting that two tables never disagree.",
+            "header": "Orders scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Scope by payment_intent_id AND user_id (recommended)",
+                "description": "Completeness 10/10. Orders query binds both the event's PaymentIntent id and the looked-up user's id. Test: an order fixture with the right PaymentIntent but a different user_id is excluded from the summary. If both predicates are present, the D5 index should cover (payment_intent_id, user_id) or the existing user_id index plus the PI predicate. (human ~20 min / CC ~2 min)\n✅ A mis-linked order can never appear in another user's receipt, independent of data quality\n✅ One predicate, one bound parameter, one test; no schema change beyond the D5 link\n❌ Marginally redundant with the ownership guard when the data is healthy"
+              },
+              {
+                "label": "B) Query by payment_intent_id only, as D5 says",
+                "description": "Completeness 7/10. Trust the ownership guard's PI ↔ user binding.\n✅ Simplest query; matches the D5 text exactly\n✅ Correct whenever the orders table agrees with the binding table\n❌ A bad backfill or bug that mislinks an order sends that order's details to the wrong customer by email"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D8 — Section 3 finding: scope the receipt's orders query to both the PaymentIntent and the looked-up user?\nProject/branch/task: gstack-plan-count-tzzxss on main, CEO review of the Stripe payment webhook plan.\nELI10: D5 loads orders where payment_intent_id matches the event. The ownership guard already proves the PaymentIntent belongs to this user, so in a healthy database those orders are theirs. But the orders table is a second place the link is stored. If an order ever gets attached to the wrong PaymentIntent by a bug or a bad backfill, the receipt would list someone else's purchases in an email. Adding AND user_id = <the user we just looked up> costs one predicate and makes that leak impossible regardless of data quality.\nStakes if we pick wrong: Another customer's order details land in a receipt email; low likelihood, but it is PII leaving the system with no way to recall it.\nRecommendation: A because it is one predicate and one test, and the review's rules say security is not optional for new data access.\nCompleteness: A=10/10, B=7/10\nNet: one extra predicate and one test versus trusting that two tables never disagree.": "A) Scope by payment_intent_id AND user_id (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T10:50:50.889Z"
+      }
+    }
+  ],
+  "actualState": "in_progress",
+  "actualReviewCount": 0,
+  "actualSetupCount": 7
+}

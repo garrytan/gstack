@@ -260,6 +260,16 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
 // coverage, so auto-excluding them defeats the regression tests they carry.
 const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   {
+    file: 'test/claude-code-windows-job.test.ts',
+    reason: 'invokes Bun directly; verifies Windows job containment at the standalone CLI boundary',
+  },
+  {
+    file: 'test/claude-code-runner.test.ts',
+    // The bin/ path is launched through process.execPath (Bun), never as a
+    // shebang executable. Keep taskkill tree supervision in the Windows lane.
+    reason: 'invokes the runner via Bun argv; fake CLI and timeout descendant assertions cover native Windows taskkill',
+  },
+  {
     file: 'test/setup-windows-rerun-refresh.test.ts',
     // Trips the "spawns bin/ shebang script" pattern via path.join(..., 'bin',
     // 'tool.sh') fixture paths, but every spawn goes through test/helpers/bash-script.ts
@@ -1213,6 +1223,11 @@ export async function runFreeShard(
   env.TMPDIR = childTmp;
   env.TEMP = childTmp;
   env.TMP = childTmp;
+  // CLI renders otherwise attach to the repo's shared .gstack/browse.json,
+  // even with distinct Chromium profiles. Concurrent shards and surviving
+  // daemons from prior runs can then replace or remove each other's state.
+  // Override inherited state too; the shard owns this directory's cleanup.
+  env.BROWSE_STATE_FILE = path.join(stateDir, '.gstack', 'browse.json');
   // Per-shard Chromium profile (same isolation idea as TMPDIR): nine test
   // files launch in-process persistent contexts or daemons that default to
   // the SHARED ~/.gstack/chromium-profile, and two concurrent shards on one

@@ -115,6 +115,19 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
       //    beats transport-avoidance).
       const obs = await runPlanSkillObservation({
         skillName: 'plan-ceo-review',
+        // Keep the observed question within the single stored preference's scope.
+        // An unseeded invocation asks which plan to review, a different question.
+        initialPlanContent: `# Draft: deterministic skill-list ordering
+
+Users compare skill listings in scripts and reviews. Make the existing listing
+path sort registered skill names deterministically before rendering them.
+Keep skill membership, aliases, metadata and text/JSON output formats unchanged.
+Cover mixed-case names and differing directory enumeration order with tests.
+
+This draft is the review target, not the current branch. For this invocation,
+I want only the review-mode decision; I will handle optional Office Hours and
+setup separately, and run the substantive review later. No review mode has
+been selected.`,
         inPlanMode: true,
         extraArgs: ['--disallowedTools', 'AskUserQuestion'],
         timeoutMs: CAPTURE_LONG_MS,
