@@ -680,7 +680,7 @@ describeIfSelected('Plan Review skill evals', [
       testName: 'plan-eng-review/SKILL.md sections',
       suite: 'Plan Review skill evals',
       skillPath: 'plan-eng-review/SKILL.md',
-      startMarker: '## BEFORE YOU START:',
+      startMarker: '# Plan Review Mode',
       endMarker: '## CRITICAL RULE',
       judgeContext: 'an engineering plan review framework with 4 review sections',
       judgeGoal: 'how to review a plan for architecture quality, code quality, test coverage, and performance — walking through each section interactively with AskUserQuestion',

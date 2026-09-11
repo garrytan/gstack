@@ -187,6 +187,31 @@ describe('workflow judge file bundle', () => {
     }
   });
 
+  test('generated engineering review includes the scope choices and readiness probe its steps reference', () => {
+    const skillPath = 'plan-eng-review/SKILL.md';
+    const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
+    const markers = caller.match(/skillPath: 'plan-eng-review\/SKILL\.md',\s+startMarker: '([^']+)',\s+endMarker: '([^']+)'/);
+    expect(markers).not.toBeNull();
+    const [, startMarker, endMarker] = markers!;
+    const input = readWorkflowJudgeInput({ root: ROOT, skillPath, startMarker, endMarker });
+    const entrypoint = input.files.find(file => file.kind === 'entrypoint')!;
+    expect(entrypoint.content).toContain('B) A plan or design doc');
+    expect(entrypoint.content).toContain('## Scope gate');
+    expect(entrypoint.content.indexOf('## Scope gate')).toBeLessThan(entrypoint.content.indexOf('### Step 0: Scope Challenge'));
+    expect(entrypoint.content).toContain('## Web research runs in Aside');
+    expect(entrypoint.content).toContain('echo "READY: aside');
+    expect(entrypoint.content.indexOf('echo "READY: aside')).toBeLessThan(entrypoint.content.indexOf('4. **Search check:**'));
+    expect(occurrences(input.text, '## Scope gate')).toBe(1);
+    expect(occurrences(input.text, '### 1. Architecture review')).toBe(1);
+    const sections = input.files.filter(file => file.kind === 'section');
+    expect(sections.map(file => file.path)).toEqual(sectionPaths('plan-eng-review'));
+    for (const file of sections) {
+      const source = readFileSync(join(ROOT, file.path), 'utf8');
+      expect(file.content).toBe(source);
+      expect(occurrences(input.text, source)).toBe(1);
+    }
+  });
+
   test('generated plan-design passes retain their full section without duplicating Pass 1', () => {
     const input = readWorkflowJudgeInput({
       root: ROOT, skillPath: 'plan-design-review/SKILL.md', startMarker: '## Review Sections', endMarker: '## CRITICAL RULE',

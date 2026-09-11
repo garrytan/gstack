@@ -19,7 +19,7 @@
  * Reader-side fix folded from community PR #1851 by @harjothkhara.
  */
 import { describe, test, expect } from 'bun:test';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -130,7 +130,7 @@ describe('branch slug hygiene (#2550, #1851)', () => {
     );
   });
 
-  test('live round-trip: gstack-review-log writes, Context Recovery probe finds it (slash branch)', () => {
+  test('live round-trip: Context Recovery finds slugged reviews and raw timeline branches in a fresh shell', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-home-'));
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-repo-'));
     try {
@@ -156,22 +156,56 @@ describe('branch slug hygiene (#2550, #1851)', () => {
       const proj = path.join(home, 'projects', slug);
       expect(fs.existsSync(path.join(proj, 'feat-slug-hygiene-reviews.jsonl'))).toBe(true);
 
-      // Reader: execute the rendered probe line with $BRANCH from gstack-slug.
+      // Reader: execute the complete rendered block without inheriting the
+      // external skill-start process's private shell variables.
       const ctx: TemplateContext = {
         skillName: 'test-skill', tmplPath: 'test.tmpl', host: 'claude',
-        paths: HOST_PATHS.claude, preambleTier: 2,
+        paths: { ...HOST_PATHS.claude, binDir: '"$TEST_BIN"' }, preambleTier: 2,
       };
-      const probeLine = generateContextRecovery(ctx)
-        .split('\n')
-        .find((l) => l.includes('-reviews.jsonl'))!;
-      const script = `_PROJ="${proj}"\nBRANCH="${branch}"\n${probeLine.trim()}`;
-      const out = execSync(`bash -c '${script.replace(/'/g, `'\\''`)}'`, {
-        cwd: repo, encoding: 'utf-8', timeout: 30_000,
-      });
-      expect(out).toContain('REVIEWS: 1 entries');
+      const script = generateContextRecovery(ctx).match(/```bash\n([\s\S]*?)\n```/)![1];
+      fs.writeFileSync(path.join(proj, 'timeline.jsonl'), [
+        { branch: 'feat/slug-hygiene', event: 'completed', skill: 'review' },
+        { branch: 'feat/slug-hygiene', event: 'started', skill: 'unfinished' },
+        { branch, event: 'completed', skill: 'slugged-decoy' },
+        { branch: 'stale/parent-branch', event: 'completed', skill: 'inherited-decoy' },
+        { branch: 'unknown', event: 'completed', skill: 'fallback' },
+        { branch: 'feat/slug-hygiene', event: 'completed', skill: 'ship' },
+      ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+      const recover = (cwd: string, inheritedBranch?: string) => {
+        const result = spawnSync('bash', ['-c', script], {
+          cwd, encoding: 'utf8', timeout: 30_000,
+          env: { ...env, GSTACK_PROJECT_SLUG: slug, TEST_BIN: path.join(ROOT, 'bin'), _BRANCH: inheritedBranch },
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stderr).not.toContain('not a git repository');
+        return result.stdout;
+      };
+      for (const inheritedBranch of [undefined, 'stale/parent-branch']) {
+        const out = recover(repo, inheritedBranch);
+        expect(out).toContain('REVIEWS: 1 entries');
+        expect(out.split('\n').filter(line => line.startsWith('LAST_SESSION:'))).toEqual([
+          'LAST_SESSION: {"branch":"feat/slug-hygiene","event":"completed","skill":"ship"}',
+        ]);
+        expect(out.split('\n').filter(line => line.startsWith('RECENT_PATTERN:'))).toEqual([
+          'RECENT_PATTERN: review,ship,',
+        ]);
+      }
 
       // Negative control: the raw-branch probe (the pre-fix shape) misses.
       expect(fs.existsSync(path.join(proj, 'feat/slug-hygiene-reviews.jsonl'))).toBe(false);
+
+      // Both an unnamed checkout and a non-repository use the same unknown
+      // timeline identity as skill-start/end, never an inherited branch.
+      execSync('git checkout -q --detach', { cwd: repo, timeout: 30_000 });
+      for (const cwd of [repo, home]) {
+        const out = recover(cwd, 'stale/parent-branch');
+        expect(out.split('\n').filter(line => line.startsWith('LAST_SESSION:'))).toEqual([
+          'LAST_SESSION: {"branch":"unknown","event":"completed","skill":"fallback"}',
+        ]);
+        expect(out.split('\n').filter(line => line.startsWith('RECENT_PATTERN:'))).toEqual([
+          'RECENT_PATTERN: fallback,',
+        ]);
+      }
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
       fs.rmSync(repo, { recursive: true, force: true });

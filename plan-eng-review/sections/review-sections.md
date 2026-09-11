@@ -44,6 +44,9 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+## Retrospective learning
+Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.
+
 **Present complete remedies.** Before asking about one issue, include the
 validation and failure handling needed to make that remedy work in its options.
 Record the individually approved remedy in the plan. Later sections verify and
@@ -115,6 +118,12 @@ The FP classes the gate kills (measured against Django Sprint 2.5 #1539):
 confirms it IS a real issue, that is a calibration event. Your initial confidence was
 too low. Log the corrected pattern as a learning so future reviews catch it with
 higher confidence.
+
+## Formatting rules
+* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
+* Label with NUMBER + LETTER (e.g., "3A", "3B"). These issue IDs are separate from the preamble's `D<N>` question sequence; cite the issue ID in the question title.
+* Keep each option label to one sentence; include the preamble's full reasoning and pros/cons below it.
+* Follow the per-issue approval rule in **CRITICAL RULE — How to ask questions**: wait for each finding's answer; zero-finding sections proceed as specified there.
 
 ### 1. Architecture review
 Evaluate:
@@ -299,7 +308,7 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG  # sets SLUG and BRANCH
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 ```
@@ -591,7 +600,12 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * **Coverage vs kind:** for every per-issue AskUserQuestion you raise in this review, decide whether the options differ in coverage or in kind. If coverage (e.g., more tests vs fewer, complete error handling vs happy-path-only, full edge-case coverage vs shortcut), include `Completeness: N/10` on each option. If kind (e.g., architectural choice between two different systems, posture-over-posture, A/B/C where each is a different kind of thing), skip the score and add one line: `Note: options differ in kind, not coverage — no completeness score.` Do NOT fabricate scores on kind-differentiated questions — filler scores are worse than no score.
 * **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each finding — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan.
 
+## Unresolved decisions
+If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+
 ## Required outputs
+
+Write the narrative outputs below to the active plan file, or to the review response when no plan file is present. Display the Completion Summary to the user and write separately named artifacts to their specified paths. Update TODOS.md only through its individual approval step below.
 
 ### "NOT in scope" section
 Every plan review MUST produce a "NOT in scope" section listing work that was considered and explicitly deferred, with a one-line rationale for each item.
@@ -726,6 +740,9 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 
 ### Completion summary
 At the end of the review, fill in and display this summary so the user can see all findings at a glance:
+
+"Lake Score" counts complete options chosen out of decisions that compared a complete option with a shortcut; use `N/A` when there were no such decisions.
+
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
 - Architecture Review: ___ issues found
 - Code Quality Review: ___ issues found
@@ -738,15 +755,7 @@ At the end of the review, fill in and display this summary so the user can see a
 - Outside voice: ran (codex/claude) / skipped
 - Parallelization: ___ lanes, ___ parallel / ___ sequential
 - Lake Score: X/Y recommendations chose complete option
-
-## Retrospective learning
-Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.
-
-## Formatting rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B").
-* One sentence max per option. Pick in under 5 seconds.
-* After each review section, pause and ask for feedback before moving on.
+- Unresolved decisions: ___
 
 ## Review Log
 
@@ -1024,6 +1033,3 @@ Use AskUserQuestion with only the applicable options:
 - **A)** Run /plan-design-review (only if UI scope detected and no design review exists)
 - **B)** Run /plan-ceo-review (only if significant product change and no CEO review exists)
 - **C)** Ready to implement — run /ship when done
-
-## Unresolved decisions
-If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
