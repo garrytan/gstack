@@ -2,7 +2,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { validAutoplanEditDigest, readAutoplanDigestFile, matchesAutoplanDigestRows, createAutoplanEditDigest } from './autoplan-artifact-digest';
+import { validAutoplanEditDigest, readAutoplanDigestFile, matchesAutoplanDigestRows, createAutoplanEditDigest, autoplanEditLineHash } from './autoplan-artifact-digest';
 import type { PendingAutoplanArtifact } from './autoplan-artifact-recorder';
 import type { NativePublicToolEvent } from './plan-count-transcript';
 
@@ -49,21 +49,24 @@ function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string
     // A completed native tool's diff may remain above the active edit panel.
     // Only its indented diff output is ignored; competing panels or prose are
     // not evidence for the current request and cannot be used as a prefix.
+    const prefix = rows.slice(0, header), fullRow = /^ {6}([1-9]\d*) ([+ -])/;
+    const first = prefix.map(row => fullRow.exec(row)).find(Boolean);
+    if (!first) return null;
+    const markerColumn = 6 + first[1]!.length + 1;
     let kind: string | undefined;
-    let numbered = 0;
-    for (const row of rows.slice(0, header)) {
+    for (const row of prefix) {
       if (!row.trim()) continue;
-      const full = /^ {6}(\d+) ([+ -])/.exec(row);
+      const full = fullRow.exec(row);
       if (full) {
-        if (!Number.isSafeInteger(Number(full[1])) || Number(full[1]) < 1) return null;
-        numbered++; kind = full[2];
+        if (!Number.isSafeInteger(Number(full[1])) || 6 + full[1]!.length + 1 !== markerColumn) return null;
+        kind = full[2];
       } else {
-        const wrap = /^ {9}([+ -])/.exec(row);
-        if (!wrap || (kind !== undefined && wrap[1] !== kind)) return null;
-        kind = wrap[1];
+        const wrappedKind = row[markerColumn];
+        if (!row.startsWith(' '.repeat(markerColumn)) || !['+', ' ', '-'].includes(wrappedKind ?? '') ||
+            (kind !== undefined && wrappedKind !== kind)) return null;
+        kind = wrappedKind;
       }
     }
-    if (!numbered) return null;
     rows = rows.slice(header);
   }
   // A redraw can repeat the same native tool title above one current panel.
@@ -146,17 +149,21 @@ function matchesCroppedEdit(viewport: string, file: string, before: string, remo
   const diffRows = ownedEditDiffRows(rows,file,ownedStateRoot);
   if (!diffRows) return false;
   const chunks: Array<{ kind: string; text: string }> = [];
+  let markerColumn: number | undefined;
   for (const row of diffRows) {
-    const numbered = /^ {0,3}(\d+) ([+ -])(.*)$/.exec(row);
+    const numbered = /^( {0,3})([1-9]\d*) ([+ -])(.*)$/.exec(row);
     if (numbered) {
-      const line = Number(numbered[1]);
-      if (!Number.isSafeInteger(line) || line < 1) return false;
-      chunks.push({ kind: numbered[2]!, text: numbered[3]! });
+      const line = Number(numbered[2]), column = numbered[1]!.length + numbered[2]!.length + 1;
+      // Match the digest parser: every row owns one marker column, regardless
+      // of line-number width; continuations retain that column and diff kind.
+      if (!Number.isSafeInteger(line) || (markerColumn !== undefined && markerColumn !== column)) return false;
+      markerColumn = column;
+      chunks.push({ kind: numbered[3]!, text: numbered[4]! });
     } else {
-      const wrapped = /^ {4}([+ -])(.*)$/.exec(row);
       const last = chunks.at(-1);
-      if (!wrapped || !last || wrapped[1] !== last.kind) return false;
-      last.text += wrapped[2]!;
+      if (markerColumn === undefined || !row.startsWith(' '.repeat(markerColumn)) ||
+          !last || row[markerColumn] !== last.kind) return false;
+      last.text += row.slice(markerColumn + 1);
     }
   }
   // The crop itself cannot contain an example introduction, quote, unrelated
@@ -455,25 +462,28 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
       if (!before || createHash('sha256').update(before).digest('hex') !== p.editDigest.beforeSHA256) return null;
       if (matchesAutoplanDigestRows(diffRows,before,p.editDigest,currentViewport !== viewport)) return {input:'1\r', signature, file:p.file};
       if (currentViewport !== viewport) return null; // The new prefix path requires the exact digest, including additions.
-      // Digest authority adds insertion-only crops; existing anchored deletion
-      // authority remains available after the current-file binding succeeds.
+      // Legacy deletion crops below must still honor the recorded request digest.
     }
     const originals = fs.readFileSync(p.file, 'utf8').split('\n').map(compact);
     const chunks: Array<{kind:string; text:string; partial?:boolean}> = [];
+    const fullRow = /^( {0,3})([1-9]\d*) ([+ -])(.*)$/;
+    const first = diffRows.map(row => fullRow.exec(row)).find(Boolean);
+    if (!first) return null;
+    const markerColumn = first[1]!.length + first[2]!.length + 1;
     let numbered = 0;
     for (const row of diffRows) {
-      const full = /^ {0,3}(\d+) ([+ -])(.*)$/.exec(row);
+      const full = fullRow.exec(row);
       if (full) {
-        if (!Number.isSafeInteger(Number(full[1])) || Number(full[1]) < 1) return null;
-        numbered++; chunks.push({kind:full[2]!, text:full[3]!});
+        if (!Number.isSafeInteger(Number(full[2])) || full[1]!.length + full[2]!.length + 1 !== markerColumn) return null;
+        numbered++; chunks.push({kind:full[3]!, text:full[4]!});
       } else {
-        const wrap = /^ {4}([+ -])(.*)$/.exec(row);
-        if (!wrap) return null;
-        if (!chunks.length) chunks.push({kind:wrap[1]!, text:wrap[2]!, partial:true});
+        const kind = row[markerColumn], text = row.slice(markerColumn + 1);
+        if (!row.startsWith(' '.repeat(markerColumn)) || !['+', ' ', '-'].includes(kind ?? '')) return null;
+        if (!chunks.length) chunks.push({kind:kind!, text, partial:true});
         else {
           const previous = chunks.at(-1)!;
-          if (previous.kind !== wrap[1]) return null;
-          previous.text += wrap[2]!;
+          if (previous.kind !== kind) return null;
+          previous.text += text;
         }
       }
     }
@@ -482,6 +492,15 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
     if (numbered < 2 || !chunks.some(c => c.kind === '-' && compact(c.text)) ||
         chunks.some(c => c.kind !== '+' && !originals.some(line => c.partial
           ? line.endsWith(compact(c.text)) : line === compact(c.text)))) return null;
+    const digest = p.editDigest;
+    if (digest && chunks.some(chunk => {
+      const hash = autoplanEditLineHash(chunk.text);
+      if (chunk.kind === '+') return chunk.partial || !digest.newLineHashes.includes(hash);
+      if (chunk.kind !== '-') return false; // Current-file context was checked above.
+      return chunk.partial
+        ? !originals.some(line => line.endsWith(compact(chunk.text)) && digest.oldLineHashes.includes(autoplanEditLineHash(line)))
+        : !digest.oldLineHashes.includes(hash);
+    })) return null;
     return {input:'1\r', signature, file:p.file};
   } catch { return null; }
 }

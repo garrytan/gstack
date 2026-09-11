@@ -116,6 +116,34 @@ test('queued unrelated public tools do not confer permission or block the curren
   r.context.publicTools.at(-1)!.name='Write';expect(pick(r)).toBeNull();
 });
 
+for (const [line, numbered, next, continuation] of [
+  [7, ' 7 ', ' 8 ', '   '], [17, ' 17 ', ' 18 ', '    '],
+  [116, ' 116 ', ' 117 ', '     '], [1024, ' 1024 ', ' 1025 ', '      '],
+] as const) test(`legacy pending deletion line ${line} binds leading and wrapped fragments to its numbered column`, () => {
+  const r = replay();
+  expect(r.context.pending?.editDigest).toBeUndefined();
+  const before = Array.from({ length: line - 2 }, (_, n) => `Context ${n}`)
+    .concat('Head before crop tail', 'Old complete row', 'Context').join('\n');
+  fs.writeFileSync(r.file, before);
+  const at = new Date(Date.parse(r.context.pending!.timestamp) - 1); fs.utimesSync(r.file, at, at);
+  const menu = r.screen.slice(r.screen.indexOf(' Do you want'));
+  const rows = `${continuation}-tail\n${numbered}-Old complete\n${continuation}- row\n` +
+    `${numbered}+New complete\n${continuation}+ row\n${next} Context\n`;
+  const pane = rows + '╌'.repeat(20) + '\n' + menu;
+  r.screen = pane;
+  expect(pick(r)?.input).toBe('1\r');
+  expect(pick(r, new Set([pick(r)!.signature]))).toBeNull();
+  for (const invalid of [
+    pane.replaceAll(continuation + '-', continuation.slice(1) + '-'),
+    pane.replaceAll(continuation + '-', ' ' + continuation + '-'),
+    pane.replace(continuation + '- row', continuation + '+ row'),
+    pane.replace(next + ' Context', ' ' + next + ' Context'),
+    pane.replace('Old complete', 'Unrelated deleted'),
+    pane.replace(continuation + '-tail', continuation + '-foreign suffix'),
+    pane.replaceAll(numbered, ' 0 '),
+  ]) { r.screen = invalid; expect(pick(r), invalid).toBeNull(); }
+});
+
 test.skipIf(process.platform==='win32')('real launcher installs only opt-in owned hooks and removes records on close or early exit',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-artifact-launch-'));roots.push(root);
   const fake=path.join(root,'fake-claude');fs.writeFileSync(fake,`#!${process.execPath}\n`+String.raw`

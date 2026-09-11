@@ -62,6 +62,133 @@ function fixture() {
   return { dir, file, startedAt, transcript, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
+describe('Design manual completion binds its current exit gate to the fresh report', () => {
+  const designFixture = () => {
+    const f = fixture();
+    fs.writeFileSync(f.file, REPORT.replaceAll('DX', 'Design').replace('Design CLEARED', 'DESIGN CLEARED'));
+    const time = Date.parse('2026-09-08T17:48:30Z') / 1000; fs.utimesSync(f.file, time, time);
+    return f;
+  };
+  // AZ's final public declaration; detailed score/decision tables are omitted.
+  const done = (file: string) => 'Exit gate passed: every issue has its own recorded decision, the plan file\'s last heading is the review report, it has the table and VERDICT, and the final line is the unbolded sentinel.\n\n' +
+    ' **STATUS: DONE.** Design review of PLAN.md is complete. The reviewed plan is at `' + file + '`.';
+  test('recognizes the bound Design declaration independently of terminal layout or ExitPlanMode', () => {
+    const f = designFixture();
+    try {
+      for (const text of [
+        done(f.file), done(f.file).replace('**STATUS: DONE.** ', '').replace('Design review of PLAN.md is complete', 'The Design review has been completed')
+          .replace('The reviewed plan is at', 'The review report was written to'),
+        done(f.file) + '\n\nEng review is pending. Implementation should not start until you leave plan mode.',
+        done(f.file) + '\n\n"Design review is pending."',
+        done(f.file) + '\n\n"This report is historical."',
+      ]) {
+        f.transcript.assistantMessages[0]!.text = text;
+        expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary'), text).toBe(true);
+        expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'plan_ready')).toBe(false);
+      }
+    } finally {f.cleanup();}
+  });
+  test('rejects unbound, quoted, historical, provisional and conflicting current completion', () => {
+    const f = designFixture();
+    try {
+      const complete = done(f.file);
+      for (const text of [
+        complete.replace('Design review of PLAN.md is complete.', 'Everything is done.'),
+        complete.replaceAll('Design review', 'Eng review'),
+        complete.replace('PLAN.md', 'OTHER.md'), complete.replace(f.file, f.file + '.other'),
+        complete.replace('Exit gate passed:', 'Exit gate pending:'), complete.replace('Exit gate passed:', 'Exit gate did not pass:'),
+        complete.replace('is complete.', 'is not complete.'), complete.replace('is complete.', 'will be complete.'),
+        complete.replace('is complete.', 'is complete if approved.'),
+        complete.replace('Exit gate passed:', 'If approved, exit gate passed:'),
+        complete.replace('**STATUS:', 'Historical example:\n**STATUS:'),
+        complete.replace('The reviewed plan', '\n\nThe reviewed plan'),
+        '> ' + complete.replaceAll('\n', '\n> '), '```text\n' + complete + '\n```',
+        'An example follows:\n\n"' + complete.replaceAll('\n', ' ') + '"',
+        'Source example:\n\n' + complete,
+        complete.replace('Design review of PLAN.md is complete.', '"Design review of PLAN.md is complete."'),
+        complete + '\n\nThe reviewed plan is at `' + f.file + '.other`.',
+        complete + '\n\nDesign review is pending.',
+        complete + '\n\nDesign review is "still pending".',
+        complete + '\n\nDesign review is complete only if approved.',
+        complete + '\n\nThis review is subject to approval.',
+        complete + '\n\nThe exit gate failed.',
+        complete + '\n\nThe Design review is cancelled.',
+        complete + '\n\nThis report is historical.',
+        complete.replace('Exit gate passed:', 'This gate belongs to a different plan. Exit gate passed:'),
+        complete + '\n\nThis gate belongs to a different plan.',
+        complete + '\n\nThe exit gate has been "failed".',
+        complete + '\n\nThe exit gate did not pass.',
+        complete + '\n\nThe exit gate has not passed.',
+        complete + '\n\nThis report is ‘withdrawn’.',
+        complete + '\n\nOne design decision remains unresolved.',
+        complete + '\n\nThis review requires approval.',
+        complete + '\n\nIf approved, this review is complete.',
+        complete + '\n\nWaiting for your decision.',
+        complete + '\n\nPlease confirm?',
+      ]) {
+        f.transcript.assistantMessages[0]!.text = text;
+        expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary'), text).toBe(false);
+      }
+    } finally {f.cleanup();}
+  });
+  test('the Design route preserves native ownership, answer order and artifact readiness', () => {
+    const f = designFixture();
+    try {
+      f.transcript.assistantMessages[0]!.text = done(f.file);
+      for (const change of [
+        (t: any) => {t.status = 'missing';}, (t: any) => {t.calls = [];},
+        (t: any) => {t.calls[0].answered = false;}, (t: any) => {t.calls[0].failed = true;},
+        (t: any) => {t.calls[0].sessionId = 'foreign';}, (t: any) => {t.calls[0].answeredAt = '2026-09-08T17:50:00Z';},
+        (t: any) => {t.calls[0].answeredAt = undefined;},
+        (t: any) => {t.assistantMessages[0].timestamp = '2999-01-01T00:00:00Z';},
+        (t: any) => {t.planReadyRequests = [{sessionId: CAPTURED_CALL.sessionId, toolUseId: 'exit', timestamp: '2026-09-08T17:49:40Z', failed: true}];},
+        (t: any) => {t.assistantMessages.push({...t.assistantMessages[0], timestamp: '2026-09-08T17:50:00Z', text: 'Still reviewing.'});},
+      ]) {
+        const t = structuredClone(f.transcript); change(t);
+        expect(hasNativePlanTerminal(t, f.file, f.startedAt, 'completion_summary'), change.toString()).toBe(false);
+      }
+      for (const timestamp of ['2026-09-08T17:44:00Z', '2026-09-08T17:50:00Z']) {
+        const time = Date.parse(timestamp) / 1000; fs.utimesSync(f.file, time, time);
+        expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(false);
+      }
+      for (const report of ['# Draft\n', REPORT + '\n## Still editing\n', REPORT,
+        REPORT.replaceAll('DX', 'Design').replace('Design CLEARED', 'DESIGN CLEARED').replace('clean', 'pending'),
+        REPORT.replaceAll('DX', 'Design').replace('Design CLEARED', 'DESIGN CLEARED')
+          .replace('NO UNRESOLVED DECISIONS', 'VERDICT: NOT CLEARED\n\nNO UNRESOLVED DECISIONS'),
+      ]) {
+        fs.writeFileSync(f.file, report);
+        const time = Date.parse('2026-09-08T17:48:30Z') / 1000; fs.utimesSync(f.file, time, time);
+        expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(false);
+      }
+      fs.rmSync(f.file);
+      expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(false);
+    } finally {f.cleanup();}
+  });
+  test('a cleared prefix cannot hide a conditional, historical, cancelled or foreign report verdict', () => {
+    const f = designFixture();
+    try {
+      f.transcript.assistantMessages[0]!.text = done(f.file);
+      const report = fs.readFileSync(f.file, 'utf8');
+      for (const verdict of [
+        'DESIGN CLEARED only if approval is granted',
+        'DESIGN CLEARED is not the current verdict; review remains incomplete',
+        'DESIGN CLEARED is historical; this report has been cancelled',
+        'DESIGN CLEARED. This report is "historical".',
+        'DESIGN CLEARED. This report belongs to a different plan.',
+        'DESIGN CLEARED?', 'DESIGN CLEARED is a placeholder verdict',
+      ]) {
+        fs.writeFileSync(f.file, report.replace('DESIGN CLEARED — eng review required', verdict));
+        const time = Date.parse('2026-09-08T17:48:30Z') / 1000; fs.utimesSync(f.file, time, time);
+        expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary'), verdict).toBe(false);
+      }
+      fs.writeFileSync(f.file, report.replace('DESIGN CLEARED — eng review required',
+        'DESIGN CLEARED (2026-09-11, commit 1a3f728) — eng review required. "This report is historical."'));
+      const time = Date.parse('2026-09-08T17:48:30Z') / 1000; fs.utimesSync(f.file, time, time);
+      expect(hasNativePlanTerminal(f.transcript, f.file, f.startedAt, 'completion_summary')).toBe(true);
+    } finally {f.cleanup();}
+  });
+});
+
 describe('native plan completion and final report', () => {
   test('recognizes captured completed native DevEx prose despite a nonmatching terminal heading', () => {
     const f = fixture();

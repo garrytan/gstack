@@ -13,6 +13,122 @@ function extra(id: string, sessionId: string): NativePlanQuestionCall {
   return {sessionId,toolUseId:id,questions:[{header:'Extra',question,multiSelect:false,options:[{label:'Add command',description:'Add the command after the beta.'},{label:'Defer',description:'Defer the command.'}]}],answered:true,failed:false,answers:{[question]:'Defer'},unansweredQuestionIndices:[],answeredAt:'2026-09-09T20:23:00Z'};
 }
 
+// Minimal public AZ D6 evidence and offered correction. Keep the exact full
+// failed attempt for replay; recognizing this decision grants no paid pass.
+function evidenceTranscript(): PlanCountTranscript {
+  const t = transcript(), c = t.calls[2]!, q = c.questions[0]!;
+  q.question = [
+    'D6 — Journey stage REAL USAGE: the two public evaluation functions take the same two arguments in opposite positional order',
+    'Project/branch/task: EvalKit beta DX review, branch main.',
+    'Evidence: docs/api.md lines 5-9: `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Both arguments describe the same concepts; the reversed order is described as intentional; neither requires keywords.',
+    'ELI10: Your ML engineer learns `run_eval(dataset, evaluator)` from the demo, then scales up to `run_batch` and writes the arguments in the same order.',
+  ].join('\n');
+  q.options = [
+    { label: 'A) Align to (dataset, evaluator) (recommended)', description: 'Same order in both functions, keywords accepted, swap detected with a clear error during beta.' },
+    { label: 'B) Make both keyword-only', description: 'Force run_eval(dataset=..., evaluator=...) and same for run_batch.' },
+    { label: 'C) Keep order, distinct types', description: 'Leave positional order; rely on type annotations to flag swaps.' },
+    { label: 'D) Acceptable friction, skip', description: 'Keep the reversed order as documented.' },
+  ];
+  c.answers = { [q.question]: q.options[0]!.label };
+  return t;
+}
+
+describe('DX signature evidence within the current decision', () => {
+  test('the observed correction binds one distinct seed, including genuine alternate answers', () => {
+    const t = evidenceTranscript(), c = t.calls[2]!, q = c.questions[0]!;
+    for (const option of q.options) {
+      c.answers = { [q.question]: option.label };
+      expect(devexSeedCoverage(t).complete).toBe(true);
+      expect(devexSeedCoverage(t).decisions['reversed-arguments']).toEqual([`${c.sessionId}:${c.toolUseId}`]);
+    }
+    t.calls.splice(2, 1);
+    expect(devexSeedCoverage(t).missing).toEqual(['reversed-arguments']);
+  });
+  test('citation location, formatting and repair prose can vary without changing the evidence', () => {
+    for (const edit of [
+      (s: string) => s.replace('opposite positional order\n', 'reversed positional order.\n'),
+      (s: string) => s.replace('public evaluation functions', 'public functions').replace('docs/api.md lines 5-9', 'docs/public-api.md:12–16'),
+      (s: string) => s.replaceAll('`', '').replaceAll('(dataset, evaluator)', '( dataset , evaluator )'),
+      (s: string) => s.replace('ELI10: Your', 'Impact: Your').replace('Evidence: docs', 'ELI10: docs'),
+    ]) { const t = evidenceTranscript(); changeDeclaration(t, 2, edit); expect(devexSeedCoverage(t).complete).toBe(true); }
+    const t = evidenceTranscript(), c = t.calls[2]!, q = c.questions[0]!;
+    q.options[0] = { label: 'Unify call order to (dataset, evaluator)', description: 'Both functions use the same positional order; keywords supported; swaps are rejected with an actionable message.' };
+    c.answers = { [q.question]: q.options[0]!.label };
+    expect(devexSeedCoverage(t).complete).toBe(true);
+  });
+  test('the asserted pair cannot come from healthy, foreign, borrowed or quoted evidence', () => {
+    for (const edit of [
+      (s: string) => s.replace('opposite positional order', 'the same positional order'),
+      (s: string) => s.replace('Journey stage REAL USAGE: ', 'Journey stage REAL USAGE: If approved, '),
+      (s: string) => '> ' + s,
+      (s: string) => s.replace('`run_batch(evaluator, dataset)`', '`run_batch(dataset, evaluator)`'),
+      (s: string) => s.replace('`run_batch(evaluator, dataset)`', '`other_batch(evaluator, dataset)`'),
+      (s: string) => s.replace('`run_eval(dataset, evaluator)`', '`other_eval(dataset, evaluator)`'),
+      (s: string) => s.replace(' and `run_batch(evaluator, dataset)`', ''),
+      (s: string) => s.replace(' and `run_batch(evaluator, dataset)`', '\nEvidence: docs/api.md: `run_batch(evaluator, dataset)`'),
+      (s: string) => s.replace('Evidence: ', 'Evidence: Another issue is worth discussing. '),
+      (s: string) => s + '\nELI10: Another explanation.',
+      ...['> ', 'Source excerpt: ', 'Historical example: ', 'If approved: ', '"', '`'].map(prefix => (s: string) => s.replace('Evidence: ', 'Evidence: ' + prefix)),
+      (s: string) => s.replace(/^(Evidence:.*)$/m, '```\n$1\n```'),
+      (s: string) => s.replace(/^(Evidence:.*)\n(ELI10:.*)$/m, '$2\n$1'),
+    ]) {
+      const t = evidenceTranscript(); changeDeclaration(t, 2, edit);
+      expect(devexSeedCoverage(t).missing, edit(t.calls[2]!.questions[0]!.question)).toContain('reversed-arguments');
+    }
+  });
+  test('current withdrawals defeat the evidence while literal historical quotations do not', () => {
+    for (const status of [
+      'These functions are now aligned.', 'These signatures are historical.',
+      'This evidence is withdrawn.', 'This evidence is no longer current.', 'This evidence is cancelled.', 'This evidence is hypothetical.',
+      'This finding applies only if approved.', 'D6 is cancelled.',
+    ]) for (const quoted of [false, true]) {
+      const t = evidenceTranscript();
+      changeDeclaration(t, 2, s => s.replace(/^(Evidence:.*)$/m, '$1 ' + (quoted ? JSON.stringify(status) : status)));
+      expect(devexSeedCoverage(t).complete, `${quoted}: ${status}`).toBe(quoted);
+    }
+    const t = evidenceTranscript(); changeDeclaration(t, 2, s => s + '\nThis evidence is "withdrawn".');
+    expect(devexSeedCoverage(t).missing).toContain('reversed-arguments');
+    const scalar = evidenceTranscript(); changeDeclaration(scalar, 2, s => s + "\nThis evidence is 'withdrawn'.");
+    expect(devexSeedCoverage(scalar).missing).toContain('reversed-arguments');
+  });
+  test('one current offered action must align this pair and retain the swap correction', () => {
+    for (const edit of [
+      (s: string) => s.replace('Same order', 'Opposite order'),
+      (s: string) => s.replace('both functions', 'other functions'),
+      (s: string) => s.replace('both functions', 'both functions run_score and run_many'),
+      (s: string) => s.replace('keywords accepted, ', ''),
+      (s: string) => s.replace('swap detected', 'swap ignored'),
+      (s: string) => s.replace('clear error', 'generic failure'),
+      (s: string) => 'If approved, ' + s,
+      (s: string) => JSON.stringify(s),
+      (s: string) => s + ' Correction: this option is withdrawn.',
+      (s: string) => s + ' This option is historical.',
+      (s: string) => s + ' This correction applies to another project.',
+      (s: string) => s + ' Do not align these functions.',
+    ]) {
+      const t = evidenceTranscript(); t.calls[2]!.questions[0]!.options[0]!.description = edit(t.calls[2]!.questions[0]!.options[0]!.description!);
+      expect(devexSeedCoverage(t).missing, edit.name).toContain('reversed-arguments');
+    }
+    const t = evidenceTranscript(), c = t.calls[2]!, q = c.questions[0]!;
+    q.options[0]!.label = 'Align to (evaluator, dataset)'; c.answers = { [q.question]: q.options[0]!.label };
+    expect(devexSeedCoverage(t).missing).toContain('reversed-arguments');
+    q.options = q.options.slice(1); c.answers = { [q.question]: q.options[0]!.label };
+    expect(devexSeedCoverage(t).missing).toContain('reversed-arguments');
+  });
+  test('native completion, session ownership and batching gates still govern the new evidence', () => {
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.answered = false; },
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { c.answeredAt = 'invalid'; },
+      (c: NativePlanQuestionCall) => { c.sessionId = 'foreign'; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+      (c: NativePlanQuestionCall) => { c.answers = { 'Other question': c.questions[0]!.options[0]!.label }; },
+      (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+      (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
+    ]) { const t = evidenceTranscript(); mutate(t.calls[2]!); expect(devexSeedCoverage(t).complete).toBe(false); }
+  });
+});
+
 // Exact public AY headings and signature trace, applied to the existing native
 // completion fixture. Full public replay remains separate from paid-run credit.
 const tracedAyTitles = [

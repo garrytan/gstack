@@ -46,6 +46,9 @@ test('exact suffix, corresponding line, next line and complete crop content are 
   (s:string)=>s.replace(/^     \+t\./,'     +x.'), (s:string)=>s.replace(/^     \+t\./,'     +t!'),
   (s:string)=>s.replace(/^     \+t\./,'    +t.'),(s:string)=>s.replace(/^     \+t\./,'      +t.'),
   (s:string)=>s.replace(/^     \+t\./,'     -t.'),(s:string)=>s.replace(/^     \+t\./,'     Source: t.'),
+  // A forged deletion marker cannot make rejected digest rows use legacy authority.
+  (s:string)=>s.replace(/^     \+t\./,'     -t.').replace(/^ 139 /m,' 140 '),
+  (s:string)=>s.replace(/^     \+t\./,'     -t.').replace('Snapshot consistency','Foreign consistency'),
   (s:string)=>s.replace(/^ 139 /m,' 140 '),(s:string)=>s.replace('Snapshot consistency','Foreign consistency'),
   (s:string)=>s.replace('authoritative gate','unrequested gate'),(s:string)=>'> source\n'+s,
   (s:string)=>s.replace('3. No','3. Maybe'),(s:string)=>s.replace('❯ 1. Yes','❯ 2. Yes'),

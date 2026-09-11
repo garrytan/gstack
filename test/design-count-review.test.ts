@@ -41,6 +41,119 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
   return { ...counts, started, phases };
 }
 
+describe('a declared primary-action issue owns its native amendment and open gap', () => {
+  // Minimal AZ public question and choices; the full transcript stays local.
+  const current = (): NativePlanQuestionCall => {
+    const question = 'D2 — Issue 1 (G1): make Save the visible primary action\n' +
+      'Project/branch/task: main branch, account-settings header action group.\n' +
+      'ELI10: Four header buttons currently share one style. A user who just edited their email has to read all four labels to find the one that stores the change.';
+    const options = [
+      {label: '1A Apply DESIGN.md token (recommended)', description: 'Save filled #1d4ed8 white; Reset, Cancel, Export neutral ghost. Verify ghost text and border contrast.'},
+      {label: '1B Spacing-only separation', description: 'Keep four equal buttons, add a gap before Save. Violates DESIGN.md.'},
+      {label: '1C Defer', description: 'Leave G1 open and record it as unresolved.'},
+    ];
+    return {sessionId: 'az-design', toolUseId: 'primary', answered: true, failed: false,
+      unansweredQuestionIndices: [], answeredAt: '2026-09-11T04:04:10.000Z',
+      questions: [{header: 'Issue 1', question, options, multiSelect: false}],
+      answers: {[question]: options[0]!.label}};
+  };
+  const changed = (change: (q: NativePlanQuestionCall['questions'][number]) => void) => {
+    const c = current(), q = c.questions[0]!; change(q);
+    c.answers = {[q.question]: q.options[0]!.label}; return fingerprint(c);
+  };
+  test('the declared gap starts review for every offered answer, with optional question punctuation', () => {
+    const c = current(), q = c.questions[0]!;
+    for (const option of q.options) {
+      c.answers = {[q.question]: option.label};
+      expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);
+    }
+    expect(isDesignCountFirstReview(changed(q => {q.question = q.question.replace('action\n', 'action?\n');}))).toBe(true);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.question = q.question.replaceAll('Save', 'Publish').replace('(G1)', '(G7)').replace('Issue 1', 'Issue 3')
+        .replace('Four', '4').replace('share one style', 'look identical').replace('\nELI10:', '\n[P1]\nELI10:');
+      q.header = 'Issue 3';
+      q.options = q.options.map(o => ({label: o.label.replace(/^1/, '3'), description: o.description.replaceAll('Save', 'Publish')
+        .replace('#1d4ed8 white', '#ffee22 with black text').replace('Reset, Cancel, Export', 'Export/Reset/Cancel').replace('G1', 'G7')}));
+    }))).toBe(true);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.question = q.question.replace(' (G1)', ''); q.options[2]!.description = 'Leave Issue 1 open and record it as unresolved.';
+    }))).toBe(true);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.question = q.question.replace(' (G1)', '').replace('action\n', 'action?\n');
+      q.options[2]!.description = 'Leave Issue 1 open and record it as unresolved.';
+    }))).toBe(true);
+  });
+  test('current gap, distinct primary/peers, native authority and owned deferral are required together', () => {
+    const changes: Array<(q: NativePlanQuestionCall['questions'][number]) => void> = [
+      q => {q.question = q.question.replace('currently share', 'used to share');},
+      q => {q.question = q.question.replace('Four', 'Three');},
+      q => {q.question = q.question.replace('ELI10:', '> ELI10:');},
+      q => {q.question = q.question.replace('Four header', 'If approved, four header');},
+      q => {q.question += '\nELI10: Four header buttons currently share one style.';},
+      q => {q.question = 'Historical example:\n' + q.question;},
+      q => {q.question = q.question.replace('\nELI10:', '\nSource example:\nELI10:');},
+      q => {q.header = 'Issue 2';},
+      q => {q.options[0]!.description = q.options[0]!.description.replace('Save filled', 'Publish filled');},
+      q => {q.options[0]!.description = q.options[0]!.description.replace('Reset, Cancel, Export', 'Save, Cancel, Export');},
+      q => {q.options[0]!.description = q.options[0]!.description.replace('Reset, Cancel, Export', 'Reset, Cancel, Cancel');},
+      q => {q.options[0]!.description = q.options[0]!.description.replace('#1d4ed8', 'blue');},
+      q => {q.options[0]!.description = q.options[0]!.description.replace('neutral ghost', 'filled primary');},
+      q => {q.options[0]!.label = '2A Apply DESIGN.md token (recommended)';},
+      q => {q.options[0]!.label = '1A Prepare the review';},
+      q => {q.options[1]!.description = q.options[0]!.description; q.options[0]!.description = 'Prepare the review.';},
+      q => {q.options[2]!.label = '2C Defer';},
+      q => {q.options[2]!.description = 'Leave G2 open and record it as unresolved.';},
+      q => {q.options[2]!.description = 'Leave G1 closed and record it as resolved.';},
+      q => {q.options[2]!.description = 'Prepare the next review.';},
+      q => {q.question = q.question.replaceAll('Save', 'Fix'); q.options[0]!.description = 'This applies the next review step.';},
+      q => {q.options[0]!.description += ' This amendment keeps all four header buttons identical.';},
+      q => {q.options[2]!.description += ' Correction: do not leave G1 open.';},
+      q => {q.options[2]!.description += ' Correction: never defer Issue 1.';},
+      q => {q.question += ' G1 is historical.';},
+      q => {q.options[0]!.description += ' This amendment applies only to another project.';},
+    ];
+    for (const change of changes) expect(isDesignCountFirstReview(changed(change)), change.toString()).toBe(false);
+  });
+  test('owned withdrawals and approval conditions cannot hide in any evidence body', () => {
+    for (const suffix of [
+      ' This finding is withdrawn.', ' Issue 1 is "closed".', ' G1 is ‘resolved’.',
+      ' Assuming approval, proceed with this option.', ' G1 applies only if approved.',
+      ' This finding requires approval.', ' This token contract is withdrawn.',
+      ' G1 is "historical".',
+    ]) for (const owner of [-1, 0, 2]) {
+      expect(isDesignCountFirstReview(changed(q => {
+        if (owner === -1) q.question += suffix;
+        else q.options[owner]!.description += suffix;
+      })), owner + suffix).toBe(false);
+    }
+    for (const owner of [-1, 0, 2]) expect(isDesignCountFirstReview(changed(q => {
+      if (owner === -1) q.question += '\n"G1 is closed." G2 is closed.';
+      else q.options[owner]!.description += ' "G1 is closed." G2 is closed.';
+    }))).toBe(true);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.options[0]!.description += ' "This amendment keeps all four header buttons identical."';
+      q.options[2]!.description += ' "Correction: do not leave G1 open." Do not leave G2 open.';
+    }))).toBe(true);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.question += ' "G1 is historical." G2 is historical.';
+      q.options[0]!.description += ' "This amendment applies only to another project."';
+    }))).toBe(true);
+  });
+  test('the new declaration preserves native completion, answer and signature checks', () => {
+    for (const change of [
+      (c: NativePlanQuestionCall) => {c.answered = false;},
+      (c: NativePlanQuestionCall) => {c.failed = true;},
+      (c: NativePlanQuestionCall) => {delete c.answeredAt;},
+      (c: NativePlanQuestionCall) => {c.answers = {};},
+      (c: NativePlanQuestionCall) => {c.answers = {foreign: '1A Apply DESIGN.md token (recommended)'};},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [0];},
+      (c: NativePlanQuestionCall) => {c.questions.push(structuredClone(c.questions[0]!));},
+      (c: NativePlanQuestionCall) => {c.questions[0]!.multiSelect = true;},
+    ]) {const c = current(); change(c); expect(isDesignCountFirstReview(fingerprint(c))).toBe(false);}
+    expect(isDesignCountFirstReview({...fingerprint(current()), signature: 'foreign'})).toBe(false);
+  });
+});
+
 describe('A descriptive hierarchy header owns its primary and peer controls', () => {
   // Minimal public excerpt of AY D3: retain its question, current gap and native
   // options, without copying the full review or its repeated option prose.

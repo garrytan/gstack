@@ -9,7 +9,14 @@ export type DevexSeededGap = typeof DEVEX_SEEDED_GAPS[number];
 function explainedReversedSignatures(q: NativePlanQuestion, title: string): boolean {
   const question = /^(?:Journey stage [A-Z ]+: )?the two public functions take the same two arguments in (?:opposite|reversed) positional order\. How should (?:the plan|we) (?:fix|align|unify) the signatures\?$/i.test(title);
   const traced = /^Journey stage: REAL USAGE\. Two sibling functions take the same two arguments in (?:opposite|reversed) order\.$/i.test(title);
-  const declaration = traced || /^Journey stage(?: REAL USAGE:|: REAL USAGE\.) The two public evaluation functions take the same two arguments in (?:opposite|reversed) order\.$/i.test(title);
+  const declared = traced || /^Journey stage(?: REAL USAGE:|: REAL USAGE\.) The two public evaluation functions take the same two arguments in (?:opposite|reversed) order\.$/i.test(title);
+  // A dedicated assertion can put its named signatures in its own Evidence
+  // field. Bind subject, source identities and repair instead of menu wording.
+  const subject = title.replace(/^Journey stage(?: REAL USAGE:|: REAL USAGE\.)\s*/i, '');
+  const evidenced = !question && !declared &&
+    /^(?:the )?(?:two|both) public (?:evaluation )?functions take\b/i.test(subject) &&
+    /\bthe same two arguments\b/i.test(subject) && /\b(?:opposite|reversed) (?:positional )?order\.?$/i.test(subject);
+  const declaration = declared || evidenced;
   if (!question && !declaration) return false;
   const lines = q.question.split('\n');
   if (lines[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '') !== title) return false;
@@ -17,7 +24,7 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
   const context = lines.slice(1, explanation).filter(line => line.trim());
   const project = traced ? /^Project\/branch\/task: [^;\n]+; ([\w./-]+):\d+(?:[-–]\d+)?\.$/.exec(context[0] ?? '') : declaration && context.length === 1
     ? /^Project\/branch\/task: [^;\n]+; ([\w./-]+) lines? \d+(?: to |[-–])\d+\.$/.exec(context[0]!) : null;
-  if (explanation < 1 || (declaration && !project) || (!traced && context.some(line =>
+  if (explanation < 1 || (declared && !project) || (!traced && !evidenced && context.some(line =>
     (!declaration && !/^Project\/branch\/task: [^;\n]+; reviewing the public function signatures in [\w./-]+\.$/.test(line)) ||
     /\b(?:quoted|source excerpt|source example|hypothetical|historical|not (?:a )?current|if approved)\b/i.test(line)))) return false;
   // Inline code may name each signature; a quoted/fenced explanation, earlier
@@ -25,25 +32,47 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
   const declaredSignatures = traced
     ? /^I traced the first real integration after the demo\. ([\w./-]+) lists the two evaluation functions: (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\2 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\3\./.exec(context[1] ?? '')
     : declaration && /^ELI10: ([\w./-]+) documents (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\2 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\3\. Same two concepts, reversed positional order, and neither function requires keywords\./.exec(lines[explanation]!);
-  if (declaration ? !declaredSignatures || declaredSignatures[1] !== project?.[1]
-    : !/^ELI10: [\w./-]+(?: lines? \d+(?:\s*[-–]\s*\d+)?)? define (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2\./.test(lines[explanation]!)) return false;
+  if (!evidenced && (declaration ? !declaredSignatures || declaredSignatures[1] !== project?.[1]
+    : !/^ELI10: [\w./-]+(?: lines? \d+(?:\s*[-–]\s*\d+)?)? define (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2\./.test(lines[explanation]!))) return false;
   const currentProse = (text: string) => {
     let fence = false;
     return text.split('\n').filter(line => {
       if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; return false; }
       return !fence && !/^\s*>/.test(line);
-    }).join('\n').replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, '');
+    }).join('\n')
+      .replace(/(^|[.!?\n]\s*)((?:Correction:\s*)?(?:this|that|the) (?:evidence|trace) (?:is|was|has been) )["“'‘`](withdrawn|rejected|cancelled|canceled|superseded|historical|hypothetical|(?:not|no longer) current)["”'’`]/gi, '$1$2$3')
+      .replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, '');
   };
   // The traced declaration owns its named signatures before ELI10, so its
   // currentness must include that same source paragraph.
-  const current = currentProse(lines.slice(traced ? 1 : explanation).join('\n'));
+  const current = currentProse(lines.slice(traced || evidenced ? 1 : explanation).join('\n'));
   if ((current.match(/^ELI10:/gm)?.length ?? 0) !== 1) return false;
   if (declaration && /\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(current)) return false;
   if (declaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:these|the) (?:functions|signatures) (?:are (?:now|already)|have been) (?:aligned|consistent)\b/i.test(current)) return false;
-  if (traced && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) trace (?:is|was|has been) (?:withdrawn|rejected|historical|(?:not|no longer) current)\b/i.test(current)) return false;
+  if ((traced || evidenced) && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:trace|evidence) (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|historical|hypothetical|(?:not|no longer) current)\b/i.test(current)) return false;
   if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|explanation)|(?:(?:this|that|the) )?argument[- ]order (?:issue|defect)|these signatures)\b[^.\n]*\b(?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|(?:not|no longer) current)\b/i.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:there is|there's) no argument[- ]order (?:issue|defect)\b/i.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?run_eval and run_batch now (?:use|take) the same positional order\b/i.test(current)) return false;
+  if (evidenced) {
+    // Only an asserted citation at the start of this decision's field owns
+    // the pair; quoted examples, later borrowed prose and split fields do not.
+    const fields = lines.slice(1, explanation + 1).filter(line => /^(?:Evidence|ELI10):/.test(line));
+    const pair = /^(?:Evidence|ELI10):\s*[\w./-]+(?: lines? \d+(?:[-–]\d+)?|:\d+(?:[-–]\d+)?)?:\s*(`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2(?:[.;]|$)/;
+    if (!fields.some(line => pair.test(line)) || fields.some(line =>
+      /^(?:Evidence|ELI10):\s*(?:>|`|"|“|Source\b|Quoted\b|Historical\b|Earlier\b|Example\b|Hypothetical\b|If\b|Assuming\b|Provided\b)/i.test(line))) return false;
+    return q.options.some(option => {
+      const label = currentProse(option.label.replace(/`(\(\s*dataset\s*,\s*evaluator\s*\))`/g, '$1'));
+      const remedy = currentProse(option.description ?? '');
+      const first = remedy.split(/[.!?\n]/)[0] ?? '';
+      return /^(?:[A-D]\)\s*)?(?:Align|Unify|Standardize)\b/i.test(label) && /\(\s*dataset\s*,\s*evaluator\s*\)/.test(label) &&
+        /\bsame (?:positional )?order\b/i.test(first) && /\bboth functions\b/i.test(first) &&
+        /\bkeywords? (?:accepted|supported)\b|\baccept keywords\b/i.test(remedy) &&
+        /\bswaps? (?:is |are )?(?:detected|caught|rejected)\b/i.test(remedy) && /\b(?:clear|actionable) (?:error|message)\b/i.test(remedy) &&
+        !/\b(?:if|unless|when|once|after|pending)\b|\b(?:no|not|never|without|do not|don't)\b|\b(?:other|another|foreign|different) (?:functions?|API|pair|project|issue)\b/i.test(`${label}\n${remedy}`) &&
+        !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:historical|withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\b/i.test(remedy) &&
+        !/\brun_(?!eval\b|batch\b)\w+\b/.test(remedy);
+    });
+  }
   // A declared reversal may offer a keyword-only repair instead of a swap
   // guard. It must bind both arguments to both functions in the same option.
   if (declaration) return q.options.some(option =>

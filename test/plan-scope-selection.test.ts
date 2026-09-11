@@ -205,9 +205,10 @@ console.log(JSON.stringify(obs));
 }, 40_000);
 
 
-test('AG actual first declaration absence stays negative while the explicit retry selection binds', () => {
+test('AG spoken first declaration and explicit retry selection both bind their requested skill', () => {
   const [first, retry] = agFixture.observations;
-  expect(nativeSeededPlanSelection(first!.transcript as PlanCountTranscript, first!.tools as NativePublicToolEvent[], first!.opts)).toBe(false);
+  // The recorded failed outcome is unchanged; the first public intro names the design review skill.
+  expect(nativeSeededPlanSelection(first!.transcript as PlanCountTranscript, first!.tools as NativePublicToolEvent[], first!.opts)).toBe(true);
   expect(nativeSeededPlanSelection(retry!.transcript as PlanCountTranscript, retry!.tools as NativePublicToolEvent[], retry!.opts)).toBe(true);
 });
 
@@ -387,4 +388,40 @@ test('later current corrections defeat the draft selection while quoted history 
 test('the AW public fixture selects the existing scope helper owners without a new paid test', () => {
   expect(selectTests(['test/fixtures/plan-scope-target-aw.json'], E2E_TOUCHFILES, []).selected)
     .toEqual(selectTests(['test/helpers/plan-scope-selection.ts'], E2E_TOUCHFILES, []).selected);
+});
+
+// Exact public AZ intros; identities and timestamps use the existing synthetic fixture.
+const spokenEngIntros = [
+  "I'll run the eng review skill against your draft plan.",
+  "I'll run the eng-manager plan review skill against this draft plan.",
+];
+const spokenEngFixture = (text: string) => {
+  const f = fixture(text); f.tools[0]!.input!.skill = 'plan-eng-review';
+  f.transcript.assistantMessages[0]!.timestamp = timestamp(2);
+  f.tools[0]!.timestamp = timestamp(4); f.tools[1]!.timestamp = timestamp(5);
+  return f;
+};
+const engScope = { ...opts, skillName: 'plan-eng-review' };
+test('human-readable role names bind only the successfully requested skill', () => {
+  for (const text of [...spokenEngIntros, "I'll run the plan eng review skill against this draft plan.", "I'll run the eng  review skill against this draft plan.", "I'll run the gstack:plan-eng-review skill against this draft plan."]) {
+    expect(verdict(spokenEngFixture(text), engScope), text).toBe(true);
+  }
+  expect(verdict(fixture("I'll run the design review skill against this draft plan."))).toBe(true);
+});
+test('spoken skill names retain scope ownership, currentness and target boundaries', () => {
+  for (const text of spokenEngIntros) {
+    for (const invalid of [text.replace(/(?:eng review|eng-manager plan review)/, 'design review'), text.replace(/(?:eng review|eng-manager plan review)/, 'eng review and design review'), text.replace(/(?:eng review|eng-manager plan review)/, 'Claude reviewer'), `"${text}"`, `Source:\n${text}`, `If approved, ${text}`])
+      expect(verdict(spokenEngFixture(invalid), engScope), invalid).toBe(false);
+    for (const mutate of [
+      (f: ReturnType<typeof fixture>) => { f.tools[0]!.input!.skill = 'plan-design-review'; },
+      (f: ReturnType<typeof fixture>) => { f.tools[1]!.isError = true; },
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.sessionId = 'foreign'; },
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.timestamp = timestamp(-1); },
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages[0]!.timestamp = timestamp(0); },
+      (f: ReturnType<typeof fixture>) => { f.tools.push({kind:'use',name:'Read',sessionId:'owned',toolUseId:'work',timestamp:timestamp(1)}); },
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages.push({sessionId:'owned',timestamp:timestamp(4),text:'This selection is "withdrawn".'}); },
+      (f: ReturnType<typeof fixture>) => { f.transcript.assistantMessages.push({sessionId:'owned',timestamp:timestamp(4),text:'I will review your checkout plan.'}); },
+    ]) { const f=spokenEngFixture(text); mutate(f); expect(verdict(f,engScope)).toBe(false); }
+    expect(verdict(spokenEngFixture(text),{...engScope,seed:opts.seed+'\n# Another plan'})).toBe(false);
+  }
 });

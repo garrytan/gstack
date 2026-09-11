@@ -41,7 +41,7 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   if (explainedSeed) {
     const ordinal = /^D([1-9]\d*)\s*[—–:-]/.exec(title)?.[1];
     const status = '(?:withdrawn|rejected|cancelled|canceled|superseded|resolved|fixed|optional|hypothetical|unproven|not current|no longer current)';
-    const owner = `(?:(?:this|the|that) (?:finding|issue|gap|defect|assessment|explanation)${ordinal ? `|D${ordinal}` : ''})`;
+    const owner = `(?:(?:this|the|that) (?:finding|issue|decision|gap|defect|assessment|explanation)${ordinal ? `|D${ordinal}` : ''})`;
     const current = (value: string, option = false) => {
       const subject = option ? `(?:${owner}|(?:this|the|that) (?:option|action|remedy|correction))` : owner;
       const scalar = new RegExp(`((?:^|[.!?;]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?${subject} (?:is|was|has been) )["“'‘\x60](${status})["”'’\x60]`, 'gim');
@@ -162,7 +162,7 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
 function explainedSeedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   const rawTitle = q.question.split('\n').find(line => line.trim())?.trim() ?? '';
   const ordinal = /^D([1-9]\d*)\s*[—–:-]/.exec(rawTitle)?.[1];
-  const owner = `(?:(?:this|the|that) (?:finding|issue|gap|defect|assessment|explanation|option|action|remedy)${ordinal ? `|D${ordinal}` : ''})`;
+  const owner = `(?:(?:this|the|that) (?:finding|issue|decision|gap|defect|assessment|explanation|option|action|remedy)${ordinal ? `|D${ordinal}` : ''})`;
   const inactive = '(?:withdrawn|retracted|rejected|cancelled|canceled|resolved|fixed|superseded|optional|hypothetical|unproven|not current|no longer current)';
   const current = (value: string) => prose(value.replace(/\*\*/g, '').replace(
     new RegExp(`(${owner} (?:is|was|has been) )["“'‘\x60](${inactive})["”'’\x60]`, 'gi'), '$1$2'), true)
@@ -187,6 +187,33 @@ function explainedSeedSubjects(q: NativePlanQuestionCall['questions'][number]): 
   const explanation = explanations[0]!, subject = metadata[0] + ' ' + explanation;
   const options = q.options.map(o => current(`${o.label}\n${o.description ?? ''}`)).filter(active);
   const ids: Seed[] = [];
+  // Step 0 may name the complexity decision in its title and put the concrete
+  // inventory in its own explanation. The reduction and retained backing
+  // store must belong to one current option, opposed by that same inventory.
+  if (/^(?:Step 0 )?complexity (?:check|decision):\s*(?:reduce|simplify|trim)\b/i.test(title)) {
+    const fileCounts = [...explanation.matchAll(/\b(?:touches|changes|modifies|spans) ([1-9]\d*) files\b/gi)];
+    const inventories = [...explanation.matchAll(/\b(?:adds|introduces) ([1-9]\d*) (?:new )?(?:classes|types) \(([^)]+)\)/gi)];
+    const names = inventories[0]?.[2]?.split(/,\s*(?:and )?| and /) ?? [];
+    const conditional = /\b(?:this|the|that) (?:finding|issue|decision|option|action|remedy) (?:(?:applies|proceeds|will proceed) (?:only )?(?:if|once|when)|(?:is|was|has been) conditional on (?:user )?approval)\b|(?:^|\n|[.!?;]\s+)(?:(?:ELI10|Project\/branch\/task):\s*)?(?:if|once|when|assuming|provided) (?:the )?(?:user|owner|reviewer) (?:approves|agrees|accepts)\b/i;
+    const currentOptions = options.filter(o => !conditional.test(o));
+    if (fileCounts.length === 1 && inventories.length === 1 && names.length === Number(inventories[0]![1])
+        && new Set(names).size === names.length && (Number(fileCounts[0]![1]) >= 8 || names.length >= 2)
+        && ['TokenStore', 'SessionMint', 'AuthCache', 'RequestPolicy'].every(name => names.includes(name)) && /\bAuthBroker\b/.test(explanation)
+        && /\b(?:existing|current) (?:cache )?adapter (?:already )?keys tokens by tenant\b[^.!?]{0,40}\bevicts?\b[^.!?]{0,40}\binvalidates?\b/i.test(explanation)
+        && /\bAuthCache (?:is|remains) (?:just |only )?a facade (?:over (?:it|the (?:existing |current )?(?:cache )?adapter)|for (?:that|the) adapter)\b/i.test(explanation)
+        && /\bTokenStore (?:looks like|is|adds) (?:a |another )?(?:second|duplicate) (?:token )?store\b|\bTokenStore duplicates (?:the )?(?:existing |current )?adapter(?:'s)? token storage\b/i.test(explanation)
+        && /\bRequestPolicy\b[^.!?]{0,90}\b(?:currently )?(?:has|serves) (?:only )?(?:one|a single) consumer\b/i.test(explanation)
+        && !conditional.test(text)
+        && !/\bTokenStore (?:now |already )?has (?:a documented )?independent purpose|\bRequestPolicy (?:now |already )?has (?:two|multiple|a second) consumers?\b/i.test(text)
+        && currentOptions.some(o => /^(?:[A-D][):.]\s*)?(?:Reduce:\s*)?(?:cut|remove|drop) TokenStore\b/i.test(o)
+          && /\b(?:demote|inline|flatten) RequestPolicy\b|\b(?:make|turn) RequestPolicy (?:into )?(?:a )?(?:plain|pure) function\b/i.test(o)
+          && /\b(?:one|single|only) (?:(?:token|backing) )?(?:store|storage layer|cache)\b[^.!?\n]{0,80}\b(?:existing|current) (?:cache )?adapter\b|\b(?:existing|current) (?:cache )?adapter (?:as|is|remains|provides) (?:the )?(?:one|single|only) (?:(?:token|backing) )?(?:store|storage layer|cache)\b/i.test(o)
+          && /\bAuthCache\b/.test(o))
+        && currentOptions.some(o => /^(?:[A-D][):.]\s*)?(?:Proceed as-is|keep|retain)\b/i.test(o)
+          && new RegExp(`\\b${inventories[0]![1]} (?:new )?(?:classes|types)\\b`, 'i').test(o)
+          && new RegExp(`\\b${fileCounts[0]![1]} files\\b`, 'i').test(o)
+          && /\b(?:two|2|separate) invalidation (?:paths|stories)\b/i.test(o))) ids.push('complexity');
+  }
   // The overlapping stores, reduced component count and single backing store
   // must be this question's finding and one option's complete repair.
   if (/\b(?:scope|components?|pieces|classes|decomposition)\b/i.test(title)
@@ -1034,8 +1061,9 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
       match: /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–:-] (.+)(?:\n|$)/.exec(body) }));
   });
   for (const declaration of current) {
-    if (!/\b(?:regression|characterization)\b/i.test(declaration.title) || !/\bmandatory\b/i.test(declaration.title)
-        || /\b(?:not|never|no longer) mandatory\b/i.test(declaration.title) || approval.test(unquoted(declaration.title)) || /\b(?:if|when|once|unless) accepted\b/i.test(unquoted(declaration.title))) continue;
+    const requiredRule = /\b(?:mandatory|critical|required)\b/i.test(unquoted(declaration.title));
+    if (!/\b(?:regression|characterization)\b/i.test(declaration.title) || !requiredRule
+        || /\b(?:not|never|no longer) (?:mandatory|critical|required)\b/i.test(declaration.title) || approval.test(unquoted(declaration.title)) || /\b(?:if|when|once|unless) accepted\b/i.test(unquoted(declaration.title))) continue;
     const body = declaration.body.join('\n').trim(), text = flat(unquoted(body));
     const files = [...text.matchAll(/\b([A-Za-z][\w/.-]*\.test(?:\.[jt]s)?)\b/g)].map(m => m[1]!);
     const beforeAndAfter = /\bmust (?:pass|be green) before and after (?:this|the) (?:refactor|rewrite|change)\b/i.test(text);
@@ -1083,7 +1111,31 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
       const committedBaseline = pinnedParity && scheduledVerification
         && tasks.filter(t => new RegExp(`^  - Files: ${files[0]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(t.body)).length === 1
         && /\b(?:passes?|green) (?:on|against) (?:main|master|(?:the )?(?:unmodified|untouched) (?:code|legacy path)) before (?:any|the) (?:refactor|rewrite|change) commit\b/i.test(verify);
-      const scopedBaseline = linkedBaseline || committedBaseline;
+      // The rule, uniquely named file/task and ordered verification together
+      // establish the unchanged-code baseline without repeating CRITICAL and
+      // "before" on every line of that same requirement.
+      const green = (value: string) => /\b(?:pass(?:es)?|green)\b/i.test(value)
+        && !/\b(?:not|never|no longer|fail(?:s|ed|ing)?|red)\b/i.test(value);
+      const orderedBaseline = requiredRule && scheduled && taskFiles[0]![1] === files[0]
+        && /\b(?:write|add|create|implement|record|capture|pin)\b/i.test(title)
+        && runs.some(run => green(run) && /\b(?:current|unmodified|untouched) (?:code|implementation|legacy path)\b/i.test(run))
+        && runs.some(run => green(run) && /\bafter (?:the )?(?:rewrite|refactor|change)\b/i.test(run))
+        && /\b(?:captures?|capturing|records?|recording|pins?|pinning) (?:the )?(?:current|prior|existing) (?:outputs|outcomes|behavior)\b/i.test(text)
+        && /\bmust (?:pass|satisfy) (?:the )?same (?:suite|tests|assertions) unchanged\b|\b(?:the )?same (?:suite|tests|assertions) must (?:pass|remain green) unchanged (?:after|across) (?:the )?(?:rewrite|refactor|change)\b/i.test(text)
+        && tasks.filter(t => new RegExp(`^  - Files: ${files[0]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(t.body)).length === 1
+        && current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {
+          const steps = s.body.join('\n').trim().split(/\n(?=\d+[.)] )/);
+          const first = unquoted(steps[0] ?? '').trim();
+          return steps.length >= 2 && owned(steps[0]!) && /^1[.)] (?:run|execute|test|verify)\b/i.test(first)
+            && new RegExp(`\\b${id}\\b`).test(first) && /\b(?:unmodified|untouched) (?:code|implementation|legacy path)\b/i.test(first) && green(first)
+            && steps.slice(1).some(step => {
+              const statement = unquoted(step).trim();
+              return owned(step) && /^(?:[2-9]|[1-9]\\d+)[.)] (?:re-run|rerun|run|execute)\b/i.test(statement)
+                && new RegExp(`\\b${id}\\b`).test(statement) && /\bafter (?:the )?(?:rewrite|refactor|change)\b/i.test(statement)
+                && green(statement) && /\bunchanged\b/i.test(statement);
+            });
+        });
+      const scopedBaseline = linkedBaseline || committedBaseline || orderedBaseline;
       if (!scopedBaseline && !scheduledVerification) continue;
       // An explicit ordered step provides the old-code oracle; matching a task label alone cannot.
       const baseline = scopedBaseline || current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {

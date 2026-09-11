@@ -73,3 +73,42 @@ test.each(controls)('%s cannot provide mandatory regression coverage', (_, chang
 test('the regression evidence test selects its existing Eng workflow', () => {
   expect(Object.entries(E2E_TOUCHFILES).filter(([, paths]) => paths.includes('test/eng-scheduled-regression.test.ts')).map(([name]) => name)).toEqual(['plan-eng-finding-count']);
 });
+
+// Verbatim owned rule, T1 and ordered verification from the failed AZ report.
+const orderedRuleReport = "# Current reviewed plan\n\n### REGRESSION RULE — CRITICAL, no approval needed (skill iron rule)\n\nPLAN.md:27-28 rewrites `legacyAuthFlow()` with no regression test;\nPLAN.md:14-16 excluded it from coverage. That is modified existing behavior\nwith no covering test. **Before** the rewrite, add\n`legacyAuthFlow.characterization.test.ts` capturing current outputs for:\nvalid token, expired token, wrong tenant, wrong audience, revoked token,\nIDP unavailable. The rewrite must pass the same suite unchanged.\n\n## Implementation Tasks\n- [ ] **T1 (P1, human: ~half day / CC: ~15min)** — legacyAuthFlow — Write characterization suite for 6 prior behaviors BEFORE rewrite\n  - Surfaced by: Test review — REGRESSION RULE, PLAN.md:27-28 and 14-16\n  - Files: `legacyAuthFlow.characterization.test.ts`\n  - Verify: suite green on current code; green again after rewrite\n\n## Verification (end to end)\n1. Run T1's characterization suite on unmodified code: green.\n2. Implement T2-T6; run unit suites: green, no shared-state ordering flakes (run with shuffled order).\n3. Run T7 E2E: A/B isolation, suspend-mid-mint denial, double-submit consistency all green.\n4. Re-run T1 after the rewrite: green, unchanged.\n";
+
+test('an iron-rule declaration and ordered task verification establish the mandatory baseline',()=>{
+ expect(regression(orderedRuleReport)).toBe('plan');
+ for(const change of [(s:string)=>s.replaceAll('T1','T17'),(s:string)=>s.replaceAll('legacyAuthFlow.characterization.test.ts','spec/legacy-golden.test.ts'),(s:string)=>s.replace(/[`*]/g,''),
+  (s:string)=>s+'\n## History\nT1 is withdrawn.\n',(s:string)=>s+'\n## Current assessment\n"T1 is withdrawn."\n',(s:string)=>s+'\n## Payment regression suite\nThe regression suite is withdrawn.\n'])expect(regression(change(orderedRuleReport))).toBe('plan');
+});
+test('the ordered baseline stays owned, required, and unchanged across the rewrite',()=>{
+ for(const [before,after] of [
+  ['no approval needed','optional if approved'],['skill iron rule','hypothetical example'],['legacyAuthFlow','otherAuthFlow'],
+  ['**Before** the rewrite','After the rewrite'],['capturing current outputs','capturing expected outputs'],
+  ['The rewrite must pass the same suite unchanged.','The rewrite may update the expectations.'],
+  ['suite green on current code; green again after rewrite','suite green on changed code; green again after rewrite'],
+  ['suite green on current code','suite is not green on current code'],['green again after rewrite','not green again after rewrite'],
+  ['on unmodified code: green.','on unmodified code: not green.'],['after the rewrite: green, unchanged.','after the rewrite: failing, unchanged.'],
+  ['1. Run T1','1. Run T9'],['on unmodified code: green','on changed code: green'],['1. Run ','1. If approved, Run '],
+  ['4. Re-run T1','4. Re-run T9'],['green, unchanged.','green, with updated expectations.'],
+  ['## Implementation Tasks\n','## Implementation Tasks\nSource:\n'],['## Implementation Tasks\n','## Implementation Tasks\nOnce approved,\n'],
+  ['PLAN.md:27-28','Source:\nPLAN.md:27-28'],['Current reviewed plan','Historical reviewed plan'],
+ ]){const changed=orderedRuleReport.replaceAll(before!,after!);expect(changed).not.toBe(orderedRuleReport);expect(regression(changed)).toBeUndefined();}
+ for(const change of [(s:string)=>s.replace(/^  - Files: .*$/m,'  - Files: different.test.ts'),(s:string)=>s.replace(/^1\. .*$/m,''),
+  (s:string)=>s.replace(/^1\. .*$/m,'1. Rewrite legacyAuthFlow() before recording T1.'),(s:string)=>s.replace(/^(1\. )(.*)$/m,'$1"$2"'),
+  (s:string)=>s.replace(/^4\. .*$/m,''),(s:string)=>s.split('\n').map(l=>'> '+l).join('\n'),(s:string)=>'```\n'+s+'\n```',
+  (s:string)=>s+'\n## Current assessment\nT1 is withdrawn.\n',(s:string)=>s+'\n## Current assessment\nT1 verification is "optional".\n',
+  (s:string)=>s+'\n## Current assessment\nDo not run T1.\n',(s:string)=>s+'\n## Current assessment\nlegacyAuthFlow() is rewritten before T1.\n',
+  (s:string)=>s+'\n## Current assessment\nUpdate T1 assertions.\n']){const changed=change(orderedRuleReport);expect(changed).not.toBe(orderedRuleReport);expect(regression(changed)).toBeUndefined();}
+});
+
+test('required regression relations survive heading, task and verification paraphrases',()=>{
+ const changed=orderedRuleReport.replace('REGRESSION RULE — CRITICAL, no approval needed (skill iron rule)','Required characterization baseline')
+  .replace('The rewrite must pass the same suite unchanged.','The same suite must remain green unchanged after the rewrite.')
+  .replace('Write characterization suite for 6 prior behaviors BEFORE rewrite','Add characterization tests for existing outputs')
+  .replace('suite green on current code; green again after rewrite','current implementation passes; after the rewrite the suite passes again')
+  .replace("1. Run T1's characterization suite on unmodified code: green.",'1) Execute characterization task T1 against untouched code; it must pass.')
+  .replace('4. Re-run T1 after the rewrite: green, unchanged.','4) Execute the same T1 tests unchanged after the refactor; they must pass.');
+ expect(regression(changed)).toBe('plan');
+});

@@ -137,5 +137,17 @@ test.each([
  r.context.pending!.editDigest={...digest,beforeSHA256:'malformed'};expect(pick(r)).toBeNull();
  r.context.pending!.editDigest=digest;
  const viewport=r.viewport;r.viewport=r.viewport.replace(/^((?: {0,3}\d+ | {4})-).*$/gm,'$1Foreign unowned deletion');expect(pick(r)).toBeNull();r.viewport=viewport;
+ // The digest's request ownership remains binding through the legacy crop path.
+ r.context.pending!.editDigest={...digest,oldLineHashes:[autoplanEditLineHash('Context')]};expect(pick(r)).toBeNull();
+ r.context.pending!.editDigest=digest;
+ if(c.rows.some(row=>/^[ ]*\d+ \+/.test(row))){
+  r.viewport=viewport.replace(/^([ ]*\d+ \+).*$/gm,'$1Context');expect(pick(r)).toBeNull();r.viewport=viewport;
+ }
+ if(c.name==='leading partial deletion'){
+  r.viewport=viewport.replace('    -full line','    -Context');expect(pick(r)).toBeNull();r.viewport=viewport;
+ }
+ if(c.name==='leading partial context'){
+  r.viewport=viewport.replace('     full line','    +full line');expect(pick(r)).toBeNull();r.viewport=viewport;
+ }
  fs.unlinkSync(r.file);expect(pick(r)).toBeNull();
 });

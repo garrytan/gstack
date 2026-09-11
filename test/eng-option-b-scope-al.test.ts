@@ -4,18 +4,25 @@ import type { NativePublicToolEvent, PlanCountTranscript } from './helpers/plan-
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
 import fixture from './fixtures/eng-option-b-scope-al.json';
 
-const input = (attempt = 1) => structuredClone(fixture.attempts[attempt]!.projection);
+const actualInput = (attempt = 1) => structuredClone(fixture.attempts[attempt]!.projection);
+const input = () => {
+  const p = actualInput();
+  // Mutate the named declaration alone; the earlier spoken introduction is
+  // independently valid and remains present in the exact replays below.
+  p.transcript.assistantMessages = p.transcript.assistantMessages.filter(m => m.text !== "I'll run the eng review skill on this draft plan.");
+  return p;
+};
 type Input = ReturnType<typeof input>;
 const verdict = (p = input()) => nativeSeededPlanSelection(p.transcript as PlanCountTranscript, p.tools as NativePublicToolEvent[], p.opts);
 const declaration = (p: Input) => p.transcript.assistantMessages.find(m => m.text.startsWith("I've selected option B,"))!;
 
 test('both named retry and fresh unique-draft first introduction bind; original outcomes stay intact', () => {
   expect(fixture.attempts.map(a => a.rawScopeGateAutoSelectObserved)).toEqual([false, false]);
-  expect(verdict(input(0))).toBe(true);
-  expect(verdict(input(1))).toBe(true);
+  expect(verdict(actualInput(0))).toBe(true);
+  expect(verdict(actualInput(1))).toBe(true);
 });
 
-test('the named target is necessary; an unnamed option-B notice supplies no selection', () => {
+test('an unnamed option-B notice supplies no selection without a draft introduction', () => {
   const p = input(); p.transcript.assistantMessages = p.transcript.assistantMessages.filter(m => m !== declaration(p));
   expect(verdict(p)).toBe(false);
   for (const replacement of ['option A,', 'option C,', 'option B if approved,', 'option B, possibly']) {

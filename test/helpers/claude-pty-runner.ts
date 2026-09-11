@@ -1807,8 +1807,25 @@ export function hasNativePlanCompletion(
   return hasCompletePlanReport(expectedPlanPath, Math.max(startedAt, ...answerTimes), finishedAt);
 }
 
+// Shared only by the opt-in Design report binding and its native completion
+// route. A quoted example is inert; an owned quoted status remains evidence.
+const DESIGN_CLOSURE_PROVISIONAL = /\b(?:example|sample|template|historical|previous|earlier|quoted|hypothetical|if|unless|until|once|assuming|provided|pending|would|will|could|might|may)\b/i;
+function designClosureText(text: string, expectedPlanPath: string): string {
+  const state = /^(?:(?:still|now) )?(?:pending|failed|incomplete|unfinished|unresolved|open|withdrawn|superseded|cancelled|canceled|historical|not complete|not passed|not current)$/i;
+  return text.replace(/\*\*/g, '')
+    .replace(/`([^`\n]+)`/g, (_, value: string) =>
+      value === expectedPlanPath || state.test(value) ? value : '')
+    .replace(/"[^"\n]*"|“[^”\n]*”|(?<!\w)'[^'\n]*'(?!\w)|‘[^’\n]*’/g, value =>
+      state.test(value.slice(1, -1)) ? value.slice(1, -1) : '');
+}
+function conflictingDesignClosure(text: string): boolean {
+  const owner = '(?:(?:the )?Design review(?: of PLAN\\.md)?|DESIGN CLEARED|(?:the )?(?:Design review )?exit gate|(?:the |this )?(?:review|report|gate|verdict|reviewed plan)|(?:(?:this|the|one|a|[1-9]\\d*) )?(?:design )?(?:decision|issue|finding)s?)';
+  return new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?${owner} (?:(?:is|are|remains?|was|were|has been|have been) (?:(?:still|now) )?(?:not (?:the )?(?:complete|passed|current)|incomplete|unfinished|pending|failed|unresolved|open|withdrawn|superseded|cancelled|canceled|historical)|failed|did not pass|has not passed)\\b|${owner} (?:requires approval|applies only if approved)\\b|${owner}[^.!?\\n]*\\b(?:only if|conditional on|subject to)\\b|${owner} (?:belongs to|applies only to) (?:an? )?(?:another|different) (?:plan|project|review)\\b`, 'i').test(text) ||
+    new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:If|When|Once|Unless|Assuming|Provided)\\b[^.!?\\n]*\\b${owner}\\b`, 'i').test(text);
+}
+
 function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, maximumMtime: number,
-  allowRunHeaderForFailure = false): boolean {
+  allowRunHeaderForFailure = false, requiredReview?: 'Design'): boolean {
   if (!path.isAbsolute(expectedPlanPath)) return false;
   try {
     const stat = fs.lstatSync(expectedPlanPath);
@@ -1853,6 +1870,20 @@ function hasCompletePlanReport(expectedPlanPath: string, minimumMtime: number, m
     const trailing = rows.slice(decisions + 1).filter(line => line.trim());
     const closed = rows.filter(line => line.trim()).at(-1) === 'NO UNRESOLVED DECISIONS' ||
       (decisions >= 0 && trailing.length > 0 && trailing.every(line => /^[-*] \S|^\+ \d+ unresolved from prior reviews$/.test(line)));
+    if (requiredReview === 'Design') {
+      const cells = (row: string) => row.split('|').slice(1, -1).map(cell => cell.trim());
+      const header = cells(rows[table] ?? '');
+      const design = rows.slice(table + 2).filter(row => row.startsWith('|'))
+        .map(cells).filter(row => row[header.indexOf('Review')] === 'Design Review');
+      const verdicts = rows.filter(row => /^(?:[-*] )?(?:\*\*)?VERDICT:/i.test(row));
+      const verdict = designClosureText(verdicts[0] ?? '', expectedPlanPath).replace(/^(?:[-*] )?VERDICT:\s*/i, '');
+      if (design.length !== 1 || !/^(?:clean|clear(?: \(full\))?|complete[d]?)$/i.test(design[0]![header.indexOf('Status')] ?? '') ||
+          verdicts.length !== 1 || !/^DESIGN CLEARED\b/i.test(verdict) ||
+          /\?/.test(verdict) || /^DESIGN CLEARED\s+(?:is|was|were|has been|had been|not|never|no longer)\b/i.test(verdict) ||
+          DESIGN_CLOSURE_PROVISIONAL.test(verdict) || conflictingDesignClosure(verdict) ||
+          conflictingDesignClosure(designClosureText(report, expectedPlanPath)) ||
+          rows.filter(row => row.trim()).at(-1) !== 'NO UNRESOLVED DECISIONS') return false;
+    }
     return completeTable && /^(?:[-*] )?(?:\*\*)?VERDICT:(?:\*\*)?[ \t]*[A-Za-z]/m.test(report) && closed;
   } catch { return false; }
 }
@@ -1946,6 +1977,28 @@ export function hasNativePlanTerminal(
     if (!fence && !/^(?: {4}|\t| {0,3}>)/.test(line)) lines.push(line);
   }
   if (fence) return false;
+  // A Design review may finish at the user's manual handoff without invoking
+  // ExitPlanMode. Bind its affirmative review and passed gate to this report;
+  // the common native ownership, answered-call and fresh-file checks above
+  // still apply. Other skills retain their existing completion routes below.
+  const designText = designClosureText(lines.join('\n'), expectedPlanPath);
+  const designParagraphs = designText.split(/\n\s*\n/).map(p => p.trim());
+  const designComplete = /(?:^|[.!]\s+)(?:The )?Design review(?: of PLAN\.md)? (?:is complete|has been completed)[.!](?:\s|$)/i;
+  const designGate = /(?:^|[.!]\s+)(?:The )?(?:Design review )?exit gate (?:has )?passed[.:!](?:\s|$)/i;
+  const escapedPlanPath = expectedPlanPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const designReport = new RegExp(`(?:^|[.!]\\s+)(?:The )?(?:reviewed plan|review report) (?:is at|was written to|is saved at) ${escapedPlanPath}[.!](?:\\s|$)`, 'i');
+  const designCompleted = designParagraphs.filter(p => designComplete.test(p) && designReport.test(p));
+  const designPassed = designParagraphs.filter(p => designGate.test(p));
+  const sourcedDesign = (paragraph: string) => DESIGN_CLOSURE_PROVISIONAL.test(paragraph) ||
+    /\b(?:example|sample|template|historical|previous|earlier|quote|source|emit|print)\b.*[:：]\s*$/i
+      .test(designParagraphs[designParagraphs.indexOf(paragraph) - 1] ?? '');
+  if (designCompleted.length === 1 && designPassed.length === 1 &&
+      (designText.match(/\b(?:reviewed plan|review report) (?:is at|was written to|is saved at)\b/gi)?.length ?? 0) === 1 &&
+      ![...designCompleted, ...designPassed].some(sourcedDesign) &&
+      !conflictingDesignClosure(designText) &&
+      Date.parse(final.timestamp) <= Date.now() &&
+      hasCompletePlanReport(expectedPlanPath, Math.max(startedAt, ...modifyingAnswers),
+        Date.parse(final.timestamp), false, 'Design')) return true;
   const summary = lines.findIndex(line => /^(?:#{1,6}\s*)?(?:\*\*)?Completion\s+summary(?:\*\*)?\s*:?[ \t]*$/i.test(line.trim()));
   const preceding = lines.slice(0, summary).filter(line => line.trim()).at(-1) ?? '';
   if (summary < 0 || /\b(?:example|sample|template|quote|emit|print)\b.*[:：]\s*$/i.test(preceding)) return false;

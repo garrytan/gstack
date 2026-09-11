@@ -1,7 +1,7 @@
 import type { NativePublicToolEvent, PlanCountTranscript } from './plan-count-transcript';
 
 function deicticPlanSelection(text: string): RegExpExecArray | null {
-  return /^(?:I'll|I will) (?:review|(?:run|invoke) (?:the )?\/?([\w:-]+) skill (?:to review|on|against)) (?:this|your|the) (?:draft[ \t]+)?([\p{L}\p{N}]+(?:[ \t\u2010-\u2015-]+[\p{L}\p{N}]+)*[ \t]+)?plan\.$/iu.exec(text);
+  return /^(?:I'll|I will) (?:review|(?:run|invoke) (?:the )?\/?([\w:-]+(?:[ \t]+[\w:-]+)*) skill (?:to review|on|against)) (?:this|your|the) (?:draft[ \t]+)?([\p{L}\p{N}]+(?:[ \t\u2010-\u2015-]+[\p{L}\p{N}]+)*[ \t]+)?plan\.$/iu.exec(text);
 }
 
 function describesTitle(descriptor: string | undefined, title: string): boolean {
@@ -102,7 +102,10 @@ export function nativeSeededPlanSelection(
     // occur as contiguous whole words in its title, never merely in its body.
     const draft = deicticPlanSelection(text);
     const names = [opts.skillName, `gstack:${opts.skillName}`, opts.skillName.replace(/^plan-/, '')];
-    if (draft && describesTitle(draft[2], title) && (!draft[1] || names.includes(draft[1].toLowerCase())) && remainsSelected(message.timestamp)) return true;
+    // Human role names remain tied to this successfully loaded skill.
+    names.push(opts.skillName.replace(/-/g, ' '), opts.skillName.replace(/^plan-/, '').replace(/-/g, ' '));
+    if (opts.skillName === 'plan-eng-review') names.push('eng-manager plan review');
+    if (draft && describesTitle(draft[2], title) && (!draft[1] || names.includes(draft[1].toLowerCase().replace(/[ \t]+/g, ' '))) && remainsSelected(message.timestamp)) return true;
     const automatic = /^(?:I\'ll|I will) auto[- ]select option B and review\s+(?:the\s+)?(.+?)\s+(?:draft(?:\s+plan)?|plan)\s+(?:you shared|you pasted|pasted here)(.*)$/i.exec(text);
     const automaticTarget = automatic?.[1]?.replace(/^(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)$/, (_, straight, curly, code) => straight ?? curly ?? code);
     const selectedNow = /^(?:I've|I have) selected (?:option B, )?(?:reviewing|to review)\s+(?:the\s+)?pasted\s+(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(.*)$/i.exec(text);

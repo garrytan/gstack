@@ -165,6 +165,38 @@ describe('owned Autoplan artifact edit permission', () => {
     expect(pick(r)).toBeNull(); // Existing context is not part of the requested deletion.
   });
 
+  // AZ's public line 116 wraps at column five, not the old fixed column four.
+  // These small panes exercise the same renderer rule without a transcript corpus.
+  for (const [line, numbered, continuation] of [
+    [7, ' 7 ', '   '], [17, ' 17 ', '    '],
+    [116, ' 116 ', '     '], [1024, ' 1024 ', '      '],
+  ] as const) test(`wrapped line ${line} binds its own marker column and exact requested bytes`, () => {
+    const r = replay(), old = 'Old first portion kept together', replacement = 'New first portion kept together';
+    const before = Array.from({ length: line - 1 }, (_, n) => `Context ${n}`).concat(old, 'Context tail').join('\n');
+    fs.writeFileSync(r.file, before);
+    r.context.publicTools.filter(event => event.name === 'Write').at(-1)!.input!.content = before;
+    const edit = r.context.publicTools.at(-1)!;
+    edit.input!.old_string = old; edit.input!.new_string = replacement;
+    const menu = r.viewport.slice(r.viewport.indexOf(' Do you want'));
+    const rows = `${numbered}-Old first portion\n${continuation}- kept together\n` +
+      `${numbered}+New first portion\n${continuation}+ kept together\n`;
+    const pane = rows + '╌'.repeat(20) + '\n' + menu;
+    r.viewport = pane;
+    expect(pick(r)).toEqual({ input: '1\r', signature: `${edit.sessionId}:${edit.toolUseId}`, file: r.file });
+    expect(pick(r, new Set([pick(r)!.signature]))).toBeNull();
+    for (const invalid of [
+      pane.replaceAll(`\n${continuation}`, `\n${continuation.slice(1)}`), // left-shifted continuation
+      pane.replaceAll(`\n${continuation}`, `\n ${continuation}`), // right-shifted continuation
+      pane.replace(`${continuation}- kept`, `${continuation}+ kept`), // different kind
+      pane.replace(`${numbered}+New`, ` ${numbered}+New`), // mixed complete-row columns
+      `${continuation}- kept together\n` + pane, // no owning numbered row
+      pane.replace('New first portion', 'Foreign replacement'),
+      pane.replace(numbered, ' 0 '),
+      pane.replace(numbered, ' 01 '),
+      pane.replace(numbered, ' 9007199254740992 '),
+    ]) { r.viewport = invalid; expect(pick(r), invalid).toBeNull(); }
+  });
+
   test('an earlier unresolved mutation cannot make the latest completed Edit current', () => {
     const r = replay(); const events = r.context.publicTools; const edit = events.at(-1)!;
     events.splice(-1, 0, { ...structuredClone(edit), toolUseId: 'earlier-unresolved-edit',

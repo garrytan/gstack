@@ -35,7 +35,7 @@ test('the exact retained prior diff output does not hide the current published o
 });
 
 test('completed diff rows are ignored only before one complete current native panel', () => {
-  for (const prefix of ['      1 +Previous completed output\n\n', '         +cropped prior row\n      2 +next prior row\n         +wrapped row\n\n', '      1 -Old value\n      1 +New value\n\n']) {
+  for (const prefix of ['      1 +Previous completed output\n\n', '         +cropped prior row\n      12 +next prior row\n         +wrapped row\n\n', '      1 -Old value\n      1 +New value\n\n']) {
     const r = replay(); r.viewport = prefix + r.panel; expect(pick(r)?.input).toBe('1\r');
   }
 });
@@ -51,9 +51,28 @@ test('competing headers, previous panels, misleading prose and quotes remain rej
 });
 
 test('malformed completed-output gutters cannot become a panel delimiter', () => {
-  for (const prefix of ['     1 +wrong indent\n', '      0 +zero line\n', '      9007199254740992 +unsafe line\n', '      1 +row\n        +short wrap\n', '      1 +row\n         -wrong kind\n', '         +only a cropped fragment\n']) {
+  for (const prefix of ['     1 +wrong indent\n', '      0 +zero line\n', '      9007199254740992 +unsafe line\n', '      11 +row\n        +short wrap\n', '      11 +row\n         -wrong kind\n', '         +only a cropped fragment\n']) {
     const r = replay(); r.viewport = prefix + r.panel; expect(pick(r)).toBeNull();
   }
+});
+
+for (const [numbered, continuation] of [
+  ['      7 ', '        '], ['      17 ', '         '],
+  ['      116 ', '          '], ['      1024 ', '           '],
+] as const) test(`completed prefix ${numbered.trim()} infers one column before checking cropped and wrapped rows`, () => {
+  const r = replay();
+  const prefix = `${continuation}+leading cropped fragment\n${numbered}+Previous completed\n${continuation}+ output\n\n`;
+  r.viewport = prefix + r.panel;
+  expect(pick(r)?.input).toBe('1\r');
+  for (const invalid of [
+    prefix.replaceAll(continuation + '+', continuation.slice(1) + '+'),
+    prefix.replaceAll(continuation + '+', ' ' + continuation + '+'),
+    prefix.replace(continuation + '+ output', continuation + '- output'),
+    prefix + numbered.replace(/(\d+) /, '$10 ') + '+mixed column\n',
+    prefix.replace(numbered + '+', '     ' + numbered.trim() + ' +'),
+    prefix.replace(numbered + '+Previous completed\n', ''),
+    'Example:\n' + prefix,
+  ]) { r.viewport = invalid + r.panel; expect(pick(r), invalid).toBeNull(); }
 });
 
 test('the complete current header, exact target, menu and requested replacement remain binding', () => {
