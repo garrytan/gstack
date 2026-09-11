@@ -9,6 +9,7 @@ const DIR = mkdtempSync(path.join(tmpdir(), 'claude-windows-job-'));
 const FAKE = path.join(DIR, 'fake claude.ts');
 const DESCENDANT = path.join(DIR, 'pipe holder.ts');
 const PID_FILE = path.join(DIR, 'descendant.pid');
+const PROVIDER_PID_FILE = path.join(DIR, 'provider.pid');
 const CLI = path.join(ROOT, 'bin/gstack-claude-code');
 const FAILED_JOB = path.join(DIR, 'failed job.ts');
 
@@ -35,6 +36,7 @@ writeFileSync(FAKE, `
 import { spawn } from 'node:child_process';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 await Bun.stdin.text();
+writeFileSync(process.env.PROVIDER_PID_FILE!, String(process.pid));
 rmSync(process.env.PID_FILE!, { force: true });
 const child = spawn(process.execPath, [process.env.DESCENDANT!], {
   stdio: ['ignore', 'inherit', 'inherit'],
@@ -62,6 +64,7 @@ function environment(mode: string): NodeJS.ProcessEnv {
     GSTACK_CLAUDE_BIN_ARGS: JSON.stringify([FAKE]),
     FAKE_MODE: mode,
     PID_FILE,
+    PROVIDER_PID_FILE,
     DESCENDANT,
   };
 }
@@ -71,15 +74,18 @@ function alive(pid: number): boolean {
 }
 
 async function expectDead(pid: number) {
+  expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
   for (let i = 0; i < 40 && alive(pid); i++) await Bun.sleep(25);
   expect(alive(pid)).toBe(false);
 }
 
-function cleanupDescendant() {
-  try {
-    const pid = Number(readFileSync(PID_FILE, 'utf8'));
-    if (alive(pid)) process.kill(pid, 'SIGKILL');
-  } catch { /* No descendant was created. */ }
+function cleanupOwnedProcesses() {
+  for (const file of [PID_FILE, PROVIDER_PID_FILE]) {
+    try {
+      const pid = Number(readFileSync(file, 'utf8'));
+      if (Number.isSafeInteger(pid) && pid > 0 && alive(pid)) process.kill(pid, 'SIGKILL');
+    } catch { /* No owned process remains. */ }
+  }
 }
 
 // These exercise the actual standalone CLI boundary. A job must never be
@@ -101,7 +107,10 @@ describe('Windows Claude CLI job containment', () => {
 
   for (const [mode, expected] of [['descendant', 'output-drain'], ['timeout', 'timeout']]) {
     test.skipIf(process.platform !== 'win32')(`${mode} kills owned descendants and preserves a sibling process`, async () => {
+      rmSync(PID_FILE, { force: true });
+      rmSync(PROVIDER_PID_FILE, { force: true });
       const sibling = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+      const siblingClosed = new Promise<void>(resolve => sibling.once('close', () => resolve()));
       const started = Date.now();
       try {
         const result = spawnSync(process.execPath, [CLI, '--cwd', DIR, '--access', 'none', '--timeout-ms', '2000'], {
@@ -114,19 +123,23 @@ describe('Windows Claude CLI job containment', () => {
         expect(parsed.error.code).toBe(expected);
         expect(Date.now() - started).toBeLessThan(6000);
         await expectDead(Number(readFileSync(PID_FILE, 'utf8')));
+        await expectDead(Number(readFileSync(PROVIDER_PID_FILE, 'utf8')));
         expect(alive(sibling.pid!)).toBe(true);
       } finally {
-        cleanupDescendant();
+        cleanupOwnedProcesses();
         sibling.kill('SIGKILL');
+        await siblingClosed;
       }
     });
   }
 
   test.skipIf(process.platform !== 'win32')('abrupt runner exit closes the job and reaps its descendants', async () => {
     rmSync(PID_FILE, { force: true });
+    rmSync(PROVIDER_PID_FILE, { force: true });
     const runner = spawn(process.execPath, [CLI, '--cwd', DIR, '--access', 'none', '--timeout-ms', '10000'], {
       env: environment('timeout'), stdio: ['pipe', 'ignore', 'ignore'],
     });
+    const runnerClosed = new Promise<void>(resolve => runner.once('close', () => resolve()));
     runner.stdin!.end('review');
     try {
       let descendant = 0;
@@ -136,9 +149,14 @@ describe('Windows Claude CLI job containment', () => {
       expect(descendant).toBeGreaterThan(0);
       runner.kill('SIGKILL');
       await expectDead(descendant);
+      // The fake provider also owns the fixture cwd. Job termination starts
+      // every member's shutdown; leaf death alone does not prove it is done.
+      await expectDead(Number(readFileSync(PROVIDER_PID_FILE, 'utf8')));
     } finally {
       runner.kill('SIGKILL');
-      cleanupDescendant();
+      cleanupOwnedProcesses();
+      // Join the direct child and close its streams before fixture teardown.
+      await runnerClosed;
     }
   });
 });

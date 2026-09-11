@@ -171,6 +171,50 @@ test('line endings and Unicode survive normalization; only a missing final separ
   }
 });
 
+test('large file identities remain distinct on reuse while real hardlink aliases are rejected', () => {
+  const f = fixture();
+  const worker = join(f.dir, 'large-file-ids.ts');
+  writeFileSync(worker, `import { mock } from 'bun:test';
+const real = { ...await import('node:fs') };
+const ids = new Map();
+function observed(kind, file, options) {
+  const exact = real[kind](file, { ...options, bigint: true });
+  if (!exact) return exact;
+  const key = exact.dev + ':' + exact.ino;
+  if (!ids.has(key)) ids.set(key, 2n ** 60n + BigInt(ids.size));
+  const ino = ids.get(key);
+  const state = options?.bigint ? exact : real[kind](file, options);
+  return new Proxy(state, { get(target, key, receiver) {
+    return key === 'ino' ? (options?.bigint ? ino : Number(ino)) : Reflect.get(target, key, receiver);
+  } });
+}
+mock.module('node:fs', () => ({ ...real,
+  statSync: (file, options) => observed('statSync', file, options),
+  lstatSync: (file, options) => observed('lstatSync', file, options),
+}));
+const { initializePlan } = await import(${JSON.stringify(TOOL)});
+const [source, active, restore, alias] = process.argv.slice(2);
+const initial = initializePlan(source, active, restore);
+const reused = initializePlan(source, active, restore);
+real.linkSync(source, alias);
+let rejected = false;
+try { initializePlan(source, alias, restore + '.other'); }
+catch (error) { rejected = error.message.includes('ambiguous alias'); }
+console.log(JSON.stringify({ initial: initial.reused, reused: reused.reused, rejected,
+  roundedIds: new Set([...ids.values()].map(Number)).size, exactIds: ids.size }));
+`);
+  const result = spawnSync(process.execPath, [worker, f.source, f.active, f.restore, join(f.dir, 'hardlink.md')], {
+    encoding: 'utf8', timeout: 10_000,
+  });
+  expect(result.status, result.stderr).toBe(0);
+  const report = JSON.parse(result.stdout);
+  expect(report).toMatchObject({ initial: false, reused: true, rejected: true, roundedIds: 1 });
+  expect(report.exactIds).toBeGreaterThan(2);
+  expect(readFileSync(f.source)).toEqual(original);
+  expect(readFileSync(f.restore)).toEqual(original);
+  expect(existsSync(f.restore + '.other')).toBe(false);
+});
+
 test('staging failure cleans owned temporary files without changing source or active bytes', () => {
   const f = fixture();
   const active = join(f.dir, 'harness', 'plans', 'assigned.md');

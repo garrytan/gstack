@@ -352,12 +352,12 @@ export function amendImplementation(phase: string, activePlan: string, snapshotP
     throw new Error('Assembled accepted obligations do not match; no overwrite');
   }
   if (next !== original) {
-    const before = statSync(source);
+    const before = statSync(source, { bigint: true });
     const directory = mkdtempSync(join(dirname(source), '.autoplan-amend-'));
     try {
       const stage = join(directory, 'plan');
-      writeFileSync(stage, next, { flag: 'wx', mode: before.mode & 0o777 });
-      const current = statSync(source);
+      writeFileSync(stage, next, { flag: 'wx', mode: Number(before.mode & 0o777n) });
+      const current = statSync(source, { bigint: true });
       if (before.dev !== current.dev || before.ino !== current.ino || readFileSync(source, 'utf8') !== original) {
         throw new Error('Active plan changed during amendment; no overwrite');
       }
@@ -378,13 +378,15 @@ export function initializePlan(sourcePlan: string, activePlan: string, restorePa
       missing.unshift(basename(parent)); parent = dirname(parent);
     }
     const canonical = join(realpathSync(parent), ...missing, basename(file));
-    const state = lstatSync(canonical, { throwIfNoEntry: false });
+    const state = lstatSync(canonical, { throwIfNoEntry: false, bigint: true });
     if (state && !state.isFile()) throw new Error('Initialization destinations must be regular files, not links or directories');
     return { file: canonical, state, bytes: state ? readFileSync(canonical) : undefined };
   };
   const active = destination(activePlan);
   const restore = destination(restorePath);
-  const sourceState = statSync(source);
+  // Windows file IDs can exceed Number's exact range. Preserve their full
+  // identity for alias, concurrent-change and rollback ownership checks.
+  const sourceState = statSync(source, { bigint: true });
   if (!sourceState.isFile()) throw new Error('Initialization source must be a regular file');
   const sourceBytes = readFileSync(source);
   const sameFile = (a: typeof sourceState, b: typeof sourceState) => a.dev === b.dev && a.ino === b.ino;
@@ -423,8 +425,8 @@ export function initializePlan(sourcePlan: string, activePlan: string, restorePa
   const next = normalized(sourceBytes);
   const expectedScopeHash = sha256(extractImplementationPlan(next.toString('utf8')));
   const unchanged = () => {
-    const now = statSync(source);
-    const current = lstatSync(active.file, { throwIfNoEntry: false });
+    const now = statSync(source, { bigint: true });
+    const current = lstatSync(active.file, { throwIfNoEntry: false, bigint: true });
     if (!sameFile(now, sourceState) || !readFileSync(source).equals(sourceBytes) ||
         (active.state ? !current?.isFile() || !sameFile(current, active.state) || !readFileSync(active.file).equals(active.bytes!) : current !== undefined)) {
       throw new Error('Initialization input or destination changed; refusing to overwrite it');
@@ -454,7 +456,7 @@ export function initializePlan(sourcePlan: string, activePlan: string, restorePa
     restoreStage = mkdtempSync(join(dirname(restore.file), '.gstack-autoplan-restore-'));
     const stagedActive = join(activeStage, 'active.md');
     const stagedRestore = join(restoreStage, 'original.md');
-    writeFileSync(stagedActive, next, { flag: 'wx', mode: active.state ? active.state.mode & 0o777 : 0o600 });
+    writeFileSync(stagedActive, next, { flag: 'wx', mode: active.state ? Number(active.state.mode & 0o777n) : 0o600 });
     writeFileSync(stagedRestore, sourceBytes, { flag: 'wx', mode: 0o400 });
     unchanged();
     // Link publishes complete restore bytes exclusively; an existing backup is never replaced.
@@ -472,8 +474,8 @@ export function initializePlan(sourcePlan: string, activePlan: string, restorePa
   } finally {
     // On pre-publication failure remove only the restore inode this invocation published.
     if (backupPublished && !activePublished && restoreStage) {
-      const current = lstatSync(restore.file, { throwIfNoEntry: false });
-      if (current?.isFile() && sameFile(current, statSync(join(restoreStage, 'original.md')))) unlinkSync(restore.file);
+      const current = lstatSync(restore.file, { throwIfNoEntry: false, bigint: true });
+      if (current?.isFile() && sameFile(current, statSync(join(restoreStage, 'original.md'), { bigint: true }))) unlinkSync(restore.file);
     }
     if (activeStage) rmSync(activeStage, { recursive: true, force: true });
     if (restoreStage) rmSync(restoreStage, { recursive: true, force: true });
