@@ -3,7 +3,7 @@
 <!-- The font-selection procedure and the three-looks calibration in this section are derived from pbakaus/impeccable reference/new-work.md (Apache-2.0), rewritten and modified. See NOTICE.md. -->
 ## Phase 3: The Complete Proposal
 
-Propose the complete design system as one coherent package.
+Develop your draft with the design knowledge below. Compare completed outside proposals: explain agreements, differences, and ideas adopted with attribution. Tie the recommendation to the memorable-thing answer. Do not count agreement as a vote or invent a missing proposal. Q2 names completed, unavailable, or declined voices and presents the recommendation.
 
 **AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
 
@@ -19,6 +19,8 @@ SPACING: [base unit + density] — [rationale]
 MOTION: [approach] — [rationale]
 
 This system is coherent because [explain how choices reinforce each other].
+
+INDEPENDENT INPUT: [completed/unavailable/skipped voices; agreements, differences, ideas adopted and product-specific reasons — omit comparisons if none completed]
 
 SAFE CHOICES (category baseline — your users expect these):
   - [2-3 decisions that match category conventions, with rationale for playing safe]
@@ -38,7 +40,7 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 ### Your Design Knowledge (use to inform proposals — do NOT display as tables)
 
-**Calibration: the three looks.** Avoid defaults: (1) cream, high-contrast serif, terracotta/signal-red; (2) near-black, neon, glowing edges; (3) broadsheet hairlines, italic serif, tiny tracked mono. An explicit brief permits them. With an open brief, if the category—or its obvious opposite—predicts the look, start over. Books alone do not justify cream/serif; jackets and cloth span saturated colors.
+**Calibration: the three looks.** Avoid predictable compositions: cream/serif/terracotta; near-black/neon/glowing edges; or broadsheet hairlines/italic serif/tiny tracked mono. Use one only when the brief specifically calls for it. Otherwise choose a direction grounded in these users, rather than the category stereotype or its obvious opposite. For example, a book product can draw color from jackets and cloth instead of defaulting to cream and serif.
 
 **Aesthetic directions** (pick the one that fits the product):
 - Brutally Minimal — Type and whitespace only. No decoration. Modernist.
@@ -60,7 +62,7 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Choosing faces: a procedure, not a menu.** (1) Name the audience's world in the mode's register. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files and licenses; omit unverified faces. (5) Specify loading strategy.
+**Choosing faces: a procedure, not a menu.** (1) Name the audience and surface mode: Persuade (marketing), Operate (tasks), Read (long content), or Experience (immersive). Choose the corresponding tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files and licenses; omit unverified faces. (5) Specify loading strategy.
 
 **Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
 
@@ -247,7 +249,7 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: use the fallback below. Exit 0 with `BOARD_URL` means the daemon is serving.
 In that case, show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
@@ -410,7 +412,7 @@ components:
 
 **Strategy:** [Restrained / Committed / Full palette / Drenched] — [why]
 **Light or dark:** [decided by the use scene: who, where, under what light]
-Named rules: [interaction/emphasis tokens, neutral derivation, dark-mode surface redesign—not lightness inversion]
+[Explain which tokens signal interaction or emphasis, how neutrals derive from the palette, and how dark-mode surfaces preserve hierarchy rather than merely inverting lightness.]
 
 ## Typography
 

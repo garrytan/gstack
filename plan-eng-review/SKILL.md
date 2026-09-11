@@ -668,7 +668,7 @@ If none was produced (user may have cancelled), proceed with standard review.
 
 ### Step 0: Scope Challenge
 
-> Reminder: the **Scope gate** at the top of this skill applies first. Do not run Step 0 until the gate has resolved a target — the user answered, the user named one, or plan mode auto-selected B — and run it against that target.
+> Before Step 0, require resolved scope. For plan-mode auto-selection, verify you publicly named the selected plan after skill load. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
 
 Before reviewing anything, answer these questions:
 1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?

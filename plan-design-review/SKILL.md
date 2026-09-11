@@ -666,7 +666,7 @@ Never skip Step 0 or mockup generation (when the designer is available). Mockups
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 
-> Reminder: the **Scope gate** at the top of this skill applies first. Do not run this audit until the gate has resolved a target — the user answered, the user named one, or plan mode auto-selected B.
+> Before this audit, require resolved scope. For plan-mode auto-selection, verify you publicly named the selected plan after skill load. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
 
 Before reviewing the plan, gather context:
 
@@ -938,7 +938,7 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: use the fallback below. Exit 0 with `BOARD_URL` means the daemon is serving.
 In that case, show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.

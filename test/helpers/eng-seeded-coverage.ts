@@ -31,9 +31,13 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
   // that explanation and the same native option's concrete repair.
   const decisionTitle = title.replace(/^D[1-9]\d*\s*[—–:-]\s*/, '');
   const tenantWriters = /^Architecture issue [1-9]\d*: two services write the same tenant-keyed cache with no serialized mutations\. Who owns writes\?$/i.test(decisionTitle);
-  const explainedSeed: Seed | undefined = /^Reduce the new-class count before we review the rest\?$/.test(decisionTitle) ? 'complexity'
+  const decomposition = /^Reduce the ([2-9]\d*)-component decomposition or proceed as-is\?$/.exec(decisionTitle);
+  const rewrittenErrors = /^How should validateAndDispatch\(\) handle errors after the rewrite\?$/.test(decisionTitle);
+  const ownedRewriteChoice = Boolean(decomposition || rewrittenErrors);
+  if (ownedRewriteChoice && /^`[^`]*`[.?]?$/.test(subject.replace(/^D[1-9]\d*\s*[—–:-]\s*/, ''))) return [];
+  const explainedSeed: Seed | undefined = /^Reduce the new-class count before we review the rest\?$/.test(decisionTitle) || decomposition ? 'complexity'
     : /^Who is allowed to write to the auth cache\?$/.test(decisionTitle) || tenantWriters ? 'shared-cache'
-    : /^How should validateAndDispatch\(\) handle errors\?$/.test(decisionTitle) ? 'swallowed-errors' : undefined;
+    : /^How should validateAndDispatch\(\) handle errors\?$/.test(decisionTitle) || rewrittenErrors ? 'swallowed-errors' : undefined;
   if (explainedSeed) {
     const ordinal = /^D([1-9]\d*)\s*[—–:-]/.exec(title)?.[1];
     const status = '(?:withdrawn|rejected|cancelled|canceled|superseded|resolved|fixed|optional|hypothetical|unproven|not current|no longer current)';
@@ -41,21 +45,52 @@ function seedSubjects(q: NativePlanQuestionCall['questions'][number]): Seed[] {
     const current = (value: string, option = false) => {
       const subject = option ? `(?:${owner}|(?:this|the|that) (?:option|action|remedy|correction))` : owner;
       const scalar = new RegExp(`((?:^|[.!?;]\\s+|\\n)[\\t ]*(?:Correction:\\s*)?${subject} (?:is|was|has been) )["“'‘\x60](${status})["”'’\x60]`, 'gim');
-      return prose(value.replace(scalar, '$1$2'), true).replace(/"[^"\n]*"|“[^”\n]*”|(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’/g, '');
+      const formatted = ownedRewriteChoice ? value.replace(/\*\*/g, '') : value;
+      return prose(formatted.replace(scalar, '$1$2'), true).replace(/"[^"\n]*"|“[^”\n]*”|(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’/g, '');
     };
     const framed = /(?:^|[.!?;:]\s+|\n)(?:(?:Project\/branch\/task|ELI10):\s*)?(?:Source(?: excerpt| material)?|Quoted(?: source)?|Historical(?: assessment| example)?|If approved|Once approved|When approved|Pending approval|Assuming approval|Provided approval)[,:.]?\s/i;
     const active = (value: string, option = false) => {
       const text = current(value, option), subject = option ? `(?:${owner}|(?:this|the|that) (?:option|action|remedy|correction))` : owner;
+      if (ownedRewriteChoice && (/\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(text) ||
+        /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:this|the|that) (?:finding|issue|option|action|remedy|correction) (?:applies|proceeds|will proceed) only if\b/i.test(text))) return false;
       return !framed.test(text) && !new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?${subject} (?:is|was|has been) ${status}\\b`, 'i').test(text) &&
-        !(option && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:drop|reduce|inject|flatten|rethrow|make|apply)\b/i.test(text));
+        !(option && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:drop|reduce|inject|flatten|rethrow|make|apply)\b/i.test(text)) &&
+        !(ownedRewriteChoice && option && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:cut|remove|split|propagate)\b/i.test(text));
     };
     const text = current(q.question), explanations = [...text.matchAll(/^ELI10: (.+)$/gm)];
+    // A current correction about the named component/function overrides its
+    // earlier defect assertion; quoted history has already been removed.
+    if (decomposition && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:AuthCache (?:now |already )?has independent policy rules|TokenStore (?:now |already )?has a documented independent purpose)\b/i.test(text) ||
+        rewrittenErrors && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?validateAndDispatch\(\) (?:now |already )?(?:rethrows every error|no longer swallows failures)\b/i.test(text)) return [];
     const prefix = text.slice(text.indexOf('\n') + 1, explanations[0]?.index ?? 0).trim().split('\n').filter(Boolean);
     if (explanations.length !== 1 || (prefix.length !== 1 && !(tenantWriters && prefix.length === 2 && /^\[P[0-3]\]/.test(prefix[1]!))) ||
         !/^Project\/branch\/task: \S/.test(prefix[0]!) || !active(q.question)) return [];
     const explanation = explanations[0]![1]!;
     const options = q.options.filter(o => active(`${o.label}\n${o.description ?? ''}`, true))
       .map(o => ({ label: current(o.label).replace(/^[1-9]\d*[A-D]\s+/, ''), description: current(o.description ?? '') }));
+    // A numbered decomposition choice owns its inventory and redundant-wrapper
+    // explanation. Keep the cut and injected-adapter remedy in the same option.
+    if (decomposition) {
+      const inventory = /, ([A-Za-z][\w]*(?: \+ [A-Za-z][\w]*)+)\.$/.exec(prefix[0]!)?.[1]?.split(' + ') ?? [];
+      const pieces = /^The plan builds (five|[1-9]\d*) new pieces, but one working cache already does the storing and invalidating\./.exec(explanation);
+      return new Set(inventory).size === Number(decomposition[1]) && inventory.length === Number(decomposition[1]) &&
+        ['AuthBroker', 'SessionMint', 'AuthCache', 'TokenStore'].every(name => inventory.includes(name)) &&
+        pieces && Number(pieces[1] === 'five' ? 5 : pieces[1]) === Number(decomposition[1]) &&
+        /\bAuthCache is described as a facade over that adapter with no new rules, and TokenStore is never described at all\./.test(explanation) &&
+        options.some(o => {
+          const cut = /^(?:[A-D][):.]\s*)?(?:Cut|Drop|Remove) AuthCache \+ TokenStore, keep ([1-9]\d*)\b/.exec(o.label);
+          return cut && Number(cut[1]) === inventory.length - 2 &&
+            /^(?:✅\s*)?AuthBroker and SessionMint depend on the existing adapter through one small injected interface; no facade, no second store\./.test(o.description);
+        }) ? ['complexity'] : [];
+    }
+    // The future repair concerns a currently swallowing function, established
+    // by its own metadata; a general error-handling question is insufficient.
+    if (rewrittenErrors) return /\bvalidateAndDispatch\(\) is [1-9]\d* lines with (?:three|[1-9]\d*) nested try\/catch blocks that each swallow a different error class\b/.test(prefix[0]!) &&
+      /^When an auth function catches an error and quietly moves on, the request continues as if the check passed or never mattered\./.test(explanation) &&
+      options.some(o => /^(?:[A-D][):.]\s*)?Split into validate\(\) \+ dispatch\(\); one typed error boundary, deny-by-default\b/.test(o.label) &&
+        /^(?:✅\s*)?Each error class maps to an explicit AuthOutcome \(denied\/retryable\/misconfigured\) with a reason; nothing is swallowed, unknown errors deny\b/.test(o.description) ||
+        /^(?:[A-D][):.]\s*)?Keep one function; flatten the three catches into one that logs and rethrows$/.test(o.label) &&
+        /\bErrors are no longer silent; every failure is logged and surfaced\./.test(o.description)) ? ['swallowed-errors'] : [];
     if (tenantWriters) return /\bAuthBroker\b/.test(prefix[0]!) && /\bSessionMint\b/.test(prefix[0]!) &&
       /^Two services writing the same cache entry at the same time is a race\./.test(explanation) &&
       !/(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:the|this) (?:cache|writes|writers) (?:is|are|have been) (?:now ordered|now serialized|no longer shared)\b/i.test(text) &&
@@ -867,6 +902,54 @@ function declaredLegacyCharacterization(text: string): boolean {
               if (!withdrawn) return true;
             }
           }
+        }
+      }
+    }
+  }
+
+  // A bold inline regression rule may bind two test files through a table
+  // and one task: the recorded legacy baseline and its same-fixture parity.
+  for (const section of current.filter(s => s.title === 'Tests')) {
+    const body = section.body.join('\n');
+    const paragraphs = body.split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ').trim());
+    const rule = paragraphs.map(p => /^REGRESSION RULE \(mandatory, no decision required\): legacyAuthFlow\(\) is existing behavior being modified with no covering test(?: \([^()!?]{1,120}\))?\. A regression test is a CRITICAL requirement of this plan: (?:record|capture|pin) legacyAuthFlow\(\) outputs on a fixture set covering [^.!?]{1,300}, before any rewrite begins\. A parity test then runs the same fixtures through ([A-Za-z][\w]*) and asserts identical results\. Both live until the legacy path is deleted\.$/.exec(p)).find(Boolean);
+    if (!rule || suiteWithdrawn || !snapshotSource.includes(rule[0])) continue;
+    const conditional = /(?:^|[.!?;]\s+|\n)\s*(?:if|unless|once|when|assuming|provided|pending)\s+(?:(?:approv\w*|authoriz\w*|accept\w*|requested)\b|(?:this work|the requirement|we|you|the reviewer)\b[^.!?;\n]{0,80}\b(?:approv\w*|authoriz\w*|accept\w*)\b)/i;
+    const status = '(?:withdrawn|rejected|cancelled|canceled|superseded|deferred|optional|proposed|not current|no longer current|not required|no longer required)';
+    const assessment = (value: string, id: string) => unquoted(value.replace(new RegExp(
+      `((?:^|[.!?;]\\s+|\\n)\\s*(?:Correction:\\s*)?(?:${id}(?: baseline verification)?|(?:this|the) (?:(?:legacy|baseline) )?(?:(?:regression|parity) )?(?:suite|test|requirement|verification)) (?:is|was|has been) )["“'‘](${status})["”'’]`, 'gim'), '$1$2'))
+      .replace(/(?<!\w)'[^'\n]*'(?!\w)|‘[^’\n]*’/g, '');
+    const inactive = (value: string, id: string, global = false) => {
+      const text = assessment(value, id);
+      const subject = global ? `${id}(?: baseline verification)?|(?:this|the) legacy (?:regression|parity) (?:suite|test|requirement)`
+        : `${id}(?: baseline verification)?|(?:this|the) (?:(?:legacy|baseline) )?(?:(?:regression|parity) )?(?:suite|test|requirement|verification)`;
+      return new RegExp(`(?:^|[.!?;]\\s+|\\n)\\s*(?:Correction:\\s*)?(?:${subject}) (?:is|was|has been) ${status}\\b`, 'i').test(text)
+        || new RegExp(`(?:^|[.!?;]\\s+|\\n)\\s*(?:Correction:\\s*)?(?:do not|don't|never|skip|defer|cancel|withdraw) (?:run |execute |implement )?(?:${subject})\\b`, 'i').test(text)
+        || new RegExp(`^\\s*\\| ${id} \\| ${status} \\|`, 'im').test(text)
+        || new RegExp(`(?:^|\\n)(?:Correction:\\s*)?legacyAuthFlow\\(\\) is (?:changed|rewritten|modified) before ${id}\\b`, 'i').test(text);
+    };
+    const framed = (value: string) => extractionSourceOwner(value) || conditional.test(assessment(value, 'T[1-9]\\d*'));
+    if (framed(body) || inactive(body, 'T[1-9]\\d*')) continue;
+    for (const table of current.filter(s => s.title === 'Tests to add (every GAP above)')) {
+      const text = table.body.join('\n');
+      const baseline = /^\| ([A-Za-z][\w/.-]*\.test\.[jt]s) \| unit, CRITICAL \| recorded fixture outputs unchanged \|$/m.exec(text);
+      const parity = new RegExp(`^\\| ([A-Za-z][\\w/.-]*\\.test\\.[jt]s) \\| integration, CRITICAL \\| legacy and ${rule[1]} agree on every fixture \\|$`, 'm').exec(text);
+      if (!baseline || !parity || framed(text) || inactive(text, 'T[1-9]\\d*') ||
+          !snapshotSource.includes(baseline[0]) || !snapshotSource.includes(parity[0])) continue;
+      for (const tasks of current.filter(s => s.title === 'Implementation Tasks')) {
+        const taskBody = tasks.body.join('\n').trim(), blocks = taskBody.split(/\n(?=-\s)/);
+        const ids = blocks.map(b => /^- (?:\[[ xX]\] )?(T[1-9]\d*)\b/.exec(b)?.[1]).filter(Boolean);
+        if (ids.length !== new Set(ids).size) continue;
+        for (const task of blocks) {
+          const match = new RegExp(`^- (?:\\[[ xX]\\] )?(T[1-9]\\d*)(?: \\([^\\n)]*\\))? [—–-] tests [—–-] CRITICAL regression fixtures for legacyAuthFlow\\(\\) and parity test against ${rule[1]}[\\t ]*(?:\\n|$)`).exec(task);
+          if (!match) continue;
+          const files = [...task.matchAll(/^\s+- Files: ([^\n]+)$/gm)], verifies = [...task.matchAll(/^\s+- Verify: ([^\n]+)$/gm)];
+          const names = files[0]?.[1]?.split(', ').sort();
+          const before = taskBody.slice(0, taskBody.indexOf(task)).trim().split('\n').at(-1) ?? '';
+          if (files.length !== 1 || verifies.length !== 1 || JSON.stringify(names) !== JSON.stringify([baseline[1], parity[1]].sort()) ||
+              verifies[0]![1] !== 'both suites green before and after the rewrite' || framed(before) || framed(task) ||
+              inactive(task, match[1]!) || !snapshotSource.includes(task.replace(/\s+/g, ' ').trim())) continue;
+          if (!current.some(s => inactive(s.body.join('\n'), match[1]!, true))) return true;
         }
       }
     }

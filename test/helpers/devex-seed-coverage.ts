@@ -84,11 +84,20 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   if (nominalSubject && !nominalDefect) return [];
   const signatureDeclaration = /^run_eval\(\s*dataset\s*,\s*evaluator\s*\) and run_batch\(\s*evaluator\s*,\s*dataset\s*\) (?:take|takes)\b/i.test(assertionTitle);
   if (/^run_eval\([^)]+\) and run_batch\([^)]+\) (?:take|takes)\b/i.test(assertionTitle) && !signatureDeclaration) return [];
+  // The named tuples can establish the reversal without an adjective. Keep
+  // their identities and order together; malformed or negated comparisons
+  // cannot fall through to the broader direct-question path.
+  const tupleSubject = /^run_eval (?:takes?|does not take)\b[^\n]*\brun_batch\b/i.test(assertionTitle);
+  const tuples = /^run_eval takes\s*\(\s*(\w+)\s*,\s*(\w+)\s*\) (?:but|while) run_batch takes\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)(?:[.?]|\. Fix in plan\?)?$/i.exec(assertionTitle);
+  const reversedTuples = Boolean(tuples && tuples[1] !== tuples[2] &&
+    [tuples[1], tuples[2]].sort().join(',') === 'dataset,evaluator' &&
+    tuples[1] === tuples[4] && tuples[2] === tuples[3]);
+  if (tupleSubject && !reversedTuples) return [];
   const finiteTitle = signatureDeclaration ? assertionTitle.replace(/\([^)]*\)/g, '') : assertionTitle;
   // Negative availability asserts a missing referenced file. Bind it to that
   // object; do not erase a negation of the quickstart's own reference or gate.
   const absentReference = /\b(?:points?|references?) (?:at|to) (?:examples\/first_eval\.py|(?:a|the) (?:file|example)),? (?:which|that) (?:is not in (?:the )?(?:package|wheel)(?: or (?:the )?(?:release )?examples archive)?|does not (?:ship|exist))[.?]?$/i.test(assertionTitle);
-  const newAssertion = nominalDefect || signatureDeclaration || absentReference;
+  const newAssertion = nominalDefect || signatureDeclaration || reversedTuples || absentReference;
   const guardedDeclaration = Boolean(stage || newAssertion);
   const polarityTitle = absentReference ? title.replace(/\bdoes not (ship|exist)([.?]?)$/i, 'is absent$2') : title;
   // Punctuation cannot route a newly admitted asserted family around its
@@ -109,6 +118,9 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   let signatureOptions = q.options;
   if (declaration) {
     const currentProse = (text: string, offeredAction = false) => {
+      // In a tuple decision, a semicolon also separates current assertions.
+      // Quotations and fenced examples are still removed as whole statements.
+      if (reversedTuples) text = text.replace(/;/g, '.');
       // An option's trailing effort estimate separates its prose from an owned
       // status even without punctuation. Keep it on the same line so a quoted
       // historical sentence is still removed as one quotation below.
@@ -131,6 +143,9 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     if (/^\s*(?:```|~~~)/m.test(preface) || sourceFrame.test(currentProse(preface)) ||
         /\bnot (?:a )?current (?:finding|issue|defect)\b/i.test(currentProse(preface))) return [];
     const current = currentProse(q.question);
+    const approval = /\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i;
+    if (reversedTuples && (approval.test(current) ||
+      /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:these (?:functions|signatures)|run_eval and run_batch) (?:are (?:now|already) aligned|(?:now )?(?:use|take) the same (?:positional )?order)\b/i.test(current))) return [];
     const decision = guardedDeclaration && /^D\s*([1-9]\d*)\s*[—–:-]/i.exec(q.question);
     if (decision && new RegExp(`(?:^|[.!?\\n]\\s*)(?:Correction:\\s*)?D\\s*${decision[1]} (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\\b`, 'i').test(current)) return [];
     if (guardedDeclaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:finding|issue|gap|defect|explanation) (?:is|was|has been) (?:cancelled|canceled|superseded)\b/i.test(current)) return [];
@@ -140,6 +155,8 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     const action = (text: string) => currentProse(text.replace(/`([A-Za-z_$][\w.$/-]*(?:\([^`\n]*\))?)`/g, '$1'), true);
     signatureOptions = offered.filter(option => {
       const text = `${option.label}\n${option.description ?? ''}`, prose = currentProse(text, true);
+      if (reversedTuples && (approval.test(prose) ||
+        /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:do not|don't|never) (?:align|unify|standardize|change|make|require) (?:either|both|the|these) (?:functions?|signatures?|arguments?)\b/i.test(prose))) return false;
       if (guardedDeclaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:cancelled|canceled|superseded|withdrawn|rejected|(?:not|no longer) current)\b/i.test(prose)) return false;
       if (guardedDeclaration && /^(?:Assuming|Provided)\b/im.test(prose)) return false;
       if (decision && new RegExp(`(?:^|[.!?\\n]\\s*)(?:Correction:\\s*)?D\\s*${decision[1]} (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\\b`, 'i').test(prose)) return false;
@@ -167,8 +184,9 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
       (options.some(o => /\b(?:point|ship|add|demo is)\b/i.test(o) && /\bquickstart\b|first_eval\.py/i.test(o)) || directAction('point|ship|add|replace|fix'))) found.push('missing-quickstart');
   if (explainedReversedSignatures({ ...q, options: signatureOptions }, title) || (/\brun_eval\b/i.test(title) && /\brun_batch\b/i.test(title) &&
       /\b(?:arguments?|order|positional|reversed|opposite|consistent|align|unify|dataset|evaluator)\b/i.test(title) &&
-      (!declaration || /\b(?:reversed|opposite|swapped|inconsistent)\b/i.test(title)) &&
-      (options.some(o => /\b(?:align|unify|standardize|keyword|swap)\b/i.test(o) && /\b(?:order|dataset|arguments?|positional)\b/i.test(o)) || directAction('align|unify|standardize|enforce|make')))) found.push('reversed-arguments');
+      (!declaration || reversedTuples || /\b(?:reversed|opposite|swapped|inconsistent)\b/i.test(title)) &&
+      (options.some(o => (!reversedTuples || /\bboth functions\b|\brun_eval\b[^\n]*\brun_batch\b/i.test(o)) &&
+        /\b(?:align|unify|standardize|keyword|swap)\b/i.test(o) && /\b(?:order|dataset|arguments?|positional)\b/i.test(o)) || directAction('align|unify|standardize|enforce|make')))) found.push('reversed-arguments');
   if (/\bAuthError\b|\binvalid API key\b/i.test(title) &&
       /\b(?:error|message|code|cause|fix|guidance|opaque|explain)\b|request failed/i.test(title) &&
       (!declaration || /\b(?:no (?:cause|fix|explanation|code)|opaque)\b|request failed/i.test(title)) &&

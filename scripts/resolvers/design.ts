@@ -749,8 +749,8 @@ For each finding: what's wrong, severity (critical/high/medium), and the file:li
   } else if (isDesignConsultation) {
     codexPrompt = `Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
-- Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
-- Color system: CSS variables for background, surface, primary text, muted text, accent
+- Typography: specific font names with display/body/UI roles (no Inter/Roboto/Arial/system defaults); the parent verifies font availability before adoption
+- Color system: hex values and CSS variables for background, surface, primary text, muted text, accent
 - Layout: composition-first, not component-first. First viewport as poster, not document
 - Differentiation: 2 deliberate departures from category norms
 - Anti-slop: none of ${catalogEntries(['ai-color-palette', 'feature-grid-3col', 'centered-everything', 'decorative-blobs', 'nested-cards', 'kicker-above-heading', 'icon-tile-stack', 'dark-glow']).map(e => e.name.toLowerCase()).join(', ')}
@@ -779,7 +779,7 @@ Use AskUserQuestion:
 > A) Yes — run outside design voices
 > B) No — proceed without
 
-If user chooses B, skip this step and continue.`;
+If user chooses B, ${isDesignConsultation ? 'record one declined result as described below, skip both voices, and continue to Phase 3.' : 'skip this step and continue.'}`;
 
   // Build the synthesis section
   const synthesisSection = isPlanDesignReview ? `
@@ -810,7 +810,7 @@ Fill in each cell from the ${outsideVoiceFor(ctx).label} and subagent outputs. C
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
-**Synthesis (Phase 3):** Compare your direction with every completed proposal (two, one, or none); recommend and let the user choose. One: \`[single-model]\`. Neither: report no independent proposal; use your direction.` : `
+**Handoff:** Retain every completed proposal (two, one, or none) with its source/status. Do not choose a direction here. Read Phase 3 next; Q2 compares these proposals with your earlier draft.` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
@@ -842,19 +842,19 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort, ...(isDesign
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${outsideVoiceFor(ctx).label} authentication failed. Run \`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\` to authenticate."
 - **Timeout:** "${outsideVoiceFor(ctx).label} timed out after 5 minutes."
 - **Empty response:** "${outsideVoiceFor(ctx).label} returned no response."
-- On any ${outsideVoiceFor(ctx).label} error: proceed with ${outsideVoiceFor(ctx).nativeLabel} subagent output only, tagged \`[single-model]\`.
-- If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — continuing with primary review."
+- On any ${outsideVoiceFor(ctx).label} error: proceed with ${outsideVoiceFor(ctx).nativeLabel} subagent output only${isDesignConsultation ? '; identify it as the only completed independent proposal' : ', tagged \`[single-model]\`'}.
+- If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — ${isDesignConsultation ? 'continuing to Phase 3 with my draft direction' : 'continuing with primary review'}."
 
 Output headers: \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` and \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\`.
 ${synthesisSection}
 
-**Log the result:**
+**Log the result:**${isDesignConsultation ? ' If the user accepted, run the command twice: one record for each voice, including any unavailable voice. If the user declined, run it once with STATUS=skipped, SOURCE=none, OUTSIDE_STATUS=skipped.' : ''}
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-${isDesignConsultation ? `Record each voice: STATUS=\"clean\" for a usable proposal, \"issues_found\" for product constraints, \"unavailable\" for no completion. Taste differences are alternatives. If a voice did not complete, omit the source field; otherwise SOURCE is \"${outsideVoiceFor(ctx).id}\" or \"in-host\". OUTSIDE_STATUS: valid CLI output=completed, failed/non-ready=unavailable, declined=skipped. Native-only success keeps outside_status=\"unavailable\".` : 'STATUS=\"clean\" requires a completed review with no findings; use \"issues_found\" for findings, \"unavailable\" if neither completed. SOURCE is the completed provider or in-host.'}
+${isDesignConsultation ? `STATUS: usable proposal=clean, unresolved product constraints=issues_found, no completion=unavailable. Taste differences are alternatives. SOURCE: completed CLI=\"${outsideVoiceFor(ctx).id}\", completed native=\"in-host\", otherwise \"none\". Both records carry the actual CLI outcome: OUTSIDE_STATUS=completed only for valid CLI output, otherwise unavailable. Native success alone keeps outside_status=\"unavailable\".` : 'STATUS=\"clean\" requires a completed review with no findings; use \"issues_found\" for findings, \"unavailable\" if neither completed. SOURCE is the completed provider or in-host.'}
 
-${outsideVoiceProvenance(ctx, 'design')}`;
+${isDesignConsultation ? 'Keep the historical skill identifier. Historical source:"claude" still means a native Claude subagent. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.' : outsideVoiceProvenance(ctx, 'design')}`;
 }
 
 // ─── Design detector (impeccable engine the user installed; gstack never installs it) ───
@@ -1282,7 +1282,7 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**POLLING FALLBACK:** Only use polling if \`$D serve\` fails (no port available).
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: use the fallback below. Exit 0 with \`BOARD_URL\` means the daemon is serving.
 In that case, show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
@@ -1317,22 +1317,21 @@ if [ -f "$_TASTE_PROFILE" ]; then
   # Each dimension has approved[] and rejected[] entries with
   # { value, confidence, approved_count, rejected_count, last_seen }
   # Confidence decays 5% per week of inactivity — computed at read time.
-  cat "$_TASTE_PROFILE" 2>/dev/null | head -200
+  cat "$_TASTE_PROFILE" 2>/dev/null
   echo "TASTE_PROFILE_FOUND"
 else
   echo "NO_TASTE_PROFILE"
 fi
 \`\`\`
 
-**If TASTE_PROFILE_FOUND:** Summarize the strongest signals (top 3 approved entries
-per dimension by confidence * approved_count). Include them in the design brief:
+**If TASTE_PROFILE_FOUND:** Parse the full JSON; malformed/unreadable uses the legacy fallback. After decay, rank each dimension by confidence * approved_count (or rejected_count); take three per kind. Count retained sessions (at most 50, not lifetime). Include in the brief:
 
-"Based on ${'\\${SESSION_COUNT}'} prior sessions, this user's taste leans toward:
+"Based on [number of retained sessions] recorded sessions, this user's taste leans toward:
 fonts [top-3], colors [top-3], layouts [top-3], aesthetics [top-3]. Bias
 generation toward these unless the user explicitly requests a different direction.
 Also avoid their strong rejections: [top-3 rejected per dimension]."
 
-**If NO_TASTE_PROFILE:** Fall through to per-session approved.json files (legacy).
+**Legacy fallback:** Glob \`~/.gstack/projects/$SLUG/designs/**/approved.json\`; Read the five newest. Use explicit feedback only, never infer fonts/colors from variant letters. No usable files: continue without a taste profile.
 
 **Conflict handling:** If the current user request contradicts a strong persistent
 signal (e.g., "make it playful" when taste profile strongly prefers minimal), flag
@@ -1340,9 +1339,7 @@ it: "Note: your taste profile strongly prefers minimal. You're asking for playfu
 this time — I'll proceed, but want me to update the taste profile, or treat this
 as a one-off?"
 
-**Decay:** Confidence scores decay 5% per week. A font approved 6 months ago with
-10 approvals has less weight than one approved last week. The decay calculation
-happens at read time, not write time, so the file only grows on change.
+**Decay:** Multiply stored confidence by 0.95 raised to elapsed weeks since last_seen (minimum zero weeks). Skip invalid dates/confidence; do not rewrite the file while reading.
 
 **Schema migration:** If the file has no \`version\` field or \`version: 0\`, it's
 the legacy approved.json aggregate — \`${ctx.paths.binDir}/gstack-taste-update\`

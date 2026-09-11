@@ -625,7 +625,9 @@ Keep ONE phase active, completing these gates in order:
 2. Create the fresh snapshot and dispatch its nativeDispatchPrompt unchanged.
 3. Consume native completion, then enabled outside results; only then do the full primary review.
 4. Persist outputs/amendments and run the phase's implementation check/readback.
-5. Emit actual completion; only then load the next required phase.
+5. Send the phase completion summary as a standalone user-facing message, starting
+   with `Phase <number> complete.` Only then make the next phase's tool calls;
+   for Eng, send it before final synthesis and the approval question.
 A missing gate means the current phase remains open, even if a reviewer finished.
 Read requests/self-reports and INPUT hashes do not prove uptake or review quality.
 Never draft future-phase reviews or outputs. Headings/promises are not completion.

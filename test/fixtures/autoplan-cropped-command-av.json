@@ -1,0 +1,156 @@
+{
+  "provenance": {
+    "source": ".context/ship-source-av-delta-paid-20260910-v1/delta-autoplan-retry-edit-public-eng-ceo-v1.json",
+    "sourceSha256": "51ed0c6f347d2e7166db1ce1e2f808725cc14c647e502e89d697c4ba8e5bf04b",
+    "publicEventIndices": [
+      73,
+      75,
+      78,
+      79,
+      80,
+      81,
+      82
+    ],
+    "publicProjectionOnly": true,
+    "originalGuardResult": null,
+    "paidOutcomesReclassified": false,
+    "nativePlanQualification": "The native-plan file below is the exact queued old_string excerpt, a controlled minimal file for the same ownership guard. The separately retained full file and all 83 public events are replayed in the ignored author proof. No original full-file size is claimed for this excerpt.",
+    "fullNativePlanSha256": "fe46153c06a12b4568a8a4c690419ce01dcc143dbba97794c373002640da8a11"
+  },
+  "context": {
+    "cwd": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-autoplan-chain-ZdZS9F",
+    "ownedStateRoot": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/skill-home-EXyGdx/.gstack",
+    "ownedNativePlansRoot": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/with-skills/.claude/plans",
+    "commandStartedAt": 1789080723000,
+    "now": 1789085707748,
+    "viewportCapturedAt": 1789085707748,
+    "transcriptStatus": "ready",
+    "publicTools": [
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:10:39.104Z",
+        "toolUseId": "toolu_01LPhd1MdDShNDH51f388F3a",
+        "kind": "use",
+        "name": "Edit",
+        "input": {
+          "replace_all": false,
+          "file_path": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/skill-home-EXyGdx/.gstack/projects/gstack-autoplan-chain-ZdZS9F/ceo-plans/2026-09-10-user-dashboard.md",
+          "old_string": "Flag `dashboard_landing` gates both the `/dashboard` route and the post-login redirect. Order: deploy flag off \u2192 internal cohort \u2192 production baseline captured \u2192 staging p95 < 500ms and DB pool headroom under a login-burst test \u2192 5% \u2192 25% \u2192 100%, with completed-task rate and permission-error rate (by actionId) as guardrails.",
+          "new_string": "Flag `dashboard_landing` gates both the `/dashboard` route and the post-login redirect. Order: deploy flag off \u2192 production baseline captured from existing events (window ends before any cohort, including internal, is enabled) \u2192 internal cohort \u2192 staging p95 < 500ms and DB pool headroom under a login-burst test \u2192 5% \u2192 25% \u2192 100%, with completed-task rate and permission-error rate (by actionId) as guardrails."
+        },
+        "messageId": "msg_011CevgU1G2xXggoyXnjLNmj",
+        "requestId": "req_011CevgTzCmsp5LqVrB7YzWQ"
+      },
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:10:47.413Z",
+        "toolUseId": "toolu_01LPhd1MdDShNDH51f388F3a",
+        "kind": "result",
+        "content": "The file /tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/skill-home-EXyGdx/.gstack/projects/gstack-autoplan-chain-ZdZS9F/ceo-plans/2026-09-10-user-dashboard.md has been updated successfully. (file state is current in your context \u2014 no need to Read it back)",
+        "isError": false
+      },
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:11:06.107Z",
+        "toolUseId": "toolu_01Eni8zo13XEANZuPQzK7C4v",
+        "kind": "use",
+        "name": "Edit",
+        "input": {
+          "replace_all": false,
+          "file_path": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/with-skills/.claude/plans/distributed-discovering-truffle.md",
+          "old_string": "One reviewer point rejected: \"ship a dashboard-local toast instead of a shared provider\" \u2014 that is Taste T4, already surfaced for the gate; a live region is required by the a11y policy either way. Round 2 result recorded in the phase completion below.",
+          "new_string": "One reviewer point rejected: \"ship a dashboard-local toast instead of a shared provider\" \u2014 that is Taste T4, already surfaced for the gate; a live region is required by the a11y policy either way.\n\nRound 2: 8/10, 6 issues, all accepted as refinements (Eng phase binds them):\n- R5 **Mutation window** \u2014 while the bulk-read POST is in flight, all refetch triggers are suppressed (Refresh and panel Retry disabled, visibility refetch deferred); the sequence number bumps at mutation start *and* settle. The sequence guard alone did not cover a GET issued *during* the mutation window (higher sequence, stale server state) \u2014 a real gap the primary review missed.\n- R6 Rollout order corrected: baseline window closes before any cohort, including internal, is enabled.\n- R7 Bulk-read API: snapshot-time acceptance is existing (per contract text); server-side clamp to \u2264 now and returning `unreadCount` must be verified in Eng and are backward-compatible additions to that endpoint if absent. If `unreadCount` is not returned, the client derives it from the follow-up refetch.\n- R8 `activity.data = { items: ActivityItem[] }` reusing the existing row type.\n- R9 Event semantics: `dashboard_panel_state{panel, state \u2208 {ok,empty,error}, trigger \u2208 {initial,refresh,visible,retry,post_mutation}}` once per panel per completed fetch; `notifications_mark_all_read{result \u2208 {success,error_csrf,error_network,error_5xx,error_other}}` once per submit.\n- R10 Client per-section handling: panel Retry refetches the aggregate; the Mark-all-read button is not rendered while the notifications section is not `ok`; notifications empty-state CTA uses the top eligible quick action only when `quickActions` is `ok` and non-empty, otherwise (and always for activity) links to item creation. Toast queue drop-oldest; error-toast Retry reopens the dialog (retakes the snapshot).\nRound 3 result recorded in the phase completion below."
+        },
+        "messageId": "msg_011CevgXZnxVYQo5BN8EMcE9",
+        "requestId": "req_011CevgXZ3JmnF4MRVdag4Xn"
+      },
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:11:06.276Z",
+        "toolUseId": "toolu_01Eni8zo13XEANZuPQzK7C4v",
+        "kind": "result",
+        "content": "The file /tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/with-skills/.claude/plans/distributed-discovering-truffle.md has been updated successfully. (file state is current in your context \u2014 no need to Read it back)",
+        "isError": false
+      },
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:11:49.430Z",
+        "toolUseId": "toolu_01NV7zB6oiBCTQ4ef5RmL5is",
+        "kind": "use",
+        "name": "Edit",
+        "input": {
+          "replace_all": false,
+          "file_path": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/skill-home-EXyGdx/.gstack/projects/gstack-autoplan-chain-ZdZS9F/ceo-plans/2026-09-10-user-dashboard.md",
+          "old_string": "- Composition: the three repository calls run concurrently (`Promise.allSettled`), each with a 2s hard timeout that yields `code: \"timeout\", retryable: true`.",
+          "new_string": "- `NotificationItem` = the existing notification list row type (reuse). `QuickAction = { actionId, label, href }` from the existing action registry (reuse its type if one exists). `quickActions.data` is returned in the registry's fixed priority order; the client does not re-sort; \"top eligible action\" = index 0.\n- `fetchedAt`: ISO 8601 UTC string taken from the server clock at handler entry. `snapshotAt` is sent in whatever representation the existing bulk-read API already accepts (convert from `fetchedAt` if needed; verify in the Eng phase).\n- Composition: the three repository calls run concurrently (`Promise.allSettled`), each with a 2s hard timeout that yields `code: \"timeout\", retryable: true`. The timeout must cancel the underlying work, not merely race it: pass an AbortSignal / query timeout if the repository supports one; otherwise set a DB statement timeout \u2264 2s for these three queries so a slow query does not keep holding a pool connection."
+        },
+        "messageId": "msg_011CevgamfAE3N8N1neHgevh",
+        "requestId": "req_011CevgakwFSLiC6kzANybk1"
+      },
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:11:54.998Z",
+        "toolUseId": "toolu_016RvLK3Qctsa3ejnNkvygx4",
+        "kind": "use",
+        "name": "Edit",
+        "input": {
+          "replace_all": false,
+          "file_path": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/with-skills/.claude/plans/distributed-discovering-truffle.md",
+          "old_string": "Round 3 result recorded in the phase completion below.",
+          "new_string": "Round 3 (final, max iterations): 8/10, 4 new issues, all fixed in the doc and accepted as refinements (Eng binds):\n- R11 `NotificationItem` reuses the existing notification row type; `QuickAction = { actionId, label, href }` reusing the registry type; `quickActions.data` keeps the registry's fixed priority order, client does not re-sort, \"top\" = index 0.\n- R12 `fetchedAt` is an ISO 8601 UTC string from the server clock at handler entry; `snapshotAt` is converted to whatever representation the existing bulk-read API accepts (verify in Eng).\n- R13 The 2s timeout must cancel the underlying query (AbortSignal / query timeout, else DB statement timeout \u2264 2s), not merely race it, or the pool-headroom gate is undermined.\nLoop outcome: 3 iterations, 25 issues found, 25 fixed, 0 remaining; final score 8/10 (no round returned PASS; convergence guard not triggered \u2014 each round's issues were new). Metrics appended to `~/.gstack/analytics/spec-review.jsonl`."
+        },
+        "messageId": "msg_011CevgamfAE3N8N1neHgevh",
+        "requestId": "req_011CevgakwFSLiC6kzANybk1"
+      },
+      {
+        "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+        "timestamp": "2026-09-11T00:11:57.945Z",
+        "toolUseId": "toolu_01GWFqrP7fpQwbDivXy4qiP4",
+        "kind": "use",
+        "name": "Bash",
+        "input": {
+          "command": "mkdir -p ~/.gstack/analytics && echo '{\"skill\":\"plan-ceo-review\",\"via\":\"autoplan\",\"ts\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\",\"iterations\":3,\"issues_found\":25,\"issues_fixed\":25,\"remaining\":0,\"quality_score\":8}' >> ~/.gstack/analytics/spec-review.jsonl && echo logged",
+          "description": "Append spec-review metrics"
+        },
+        "messageId": "msg_011CevgamfAE3N8N1neHgevh",
+        "requestId": "req_011CevgakwFSLiC6kzANybk1"
+      }
+    ],
+    "pending": {
+      "source": "pre_tool_use",
+      "sessionId": "9aab502f-f4c5-4fe8-8521-f490e077931f",
+      "toolUseId": "toolu_01NV7zB6oiBCTQ4ef5RmL5is",
+      "tool": "Edit",
+      "file": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/skill-home-EXyGdx/.gstack/projects/gstack-autoplan-chain-ZdZS9F/ceo-plans/2026-09-10-user-dashboard.md",
+      "timestamp": "2026-09-11T00:11:49.490Z",
+      "editDigest": {
+        "version": 1,
+        "beforeSHA256": "fec7599ff154aa3744738c7f03e99d980399175bedd8e618f856e82f79b939c2",
+        "requestSHA256": "4bac5dbb4c65155fbfdb5ae605192ecd2faec8fce88d2e634f833a2c8dd2139f",
+        "oldLineHashes": [
+          "7a73869313c8bc5df542190cffb7939060a3b8b6c2ef5c190112351fd3f458d2"
+        ],
+        "newLineHashes": [
+          "17f439d52ef20273cec796b34e211a0bb6b2e66fa04e3d289aa701f1930701e7",
+          "d703173dc786534a919e69cce994e91a48ecb73b0ba24487909bed96917b8073",
+          "91e0805b1f82bb05a1a3707ff59c538a64c2746cd0819c4ab18f665d3144032e"
+        ]
+      },
+      "hookSeenIds": [
+        "toolu_018HmzNLe4hEpbYvunAYCbAD",
+        "toolu_01MLHzdTCaVnyywJJrfmpiKK",
+        "toolu_01LPhd1MdDShNDH51f388F3a",
+        "toolu_01NV7zB6oiBCTQ4ef5RmL5is"
+      ]
+    }
+  },
+  "viewport": "  \u23bf  $ mkdir -p ~/.gstack/analytics && echo '{\"skill\":\"plan-ceo-review\",\"via\":\"autoplan\",\"ts\":\"'$(date -u\n     +%Y-%m-%dT%H:%M:%SZ)'\",\"iterations\":3,\"issues_found\":25,\"issues_fixed\":25,\"remaining\":0,\"quality_score\":8}' >>\n     ~/.gstack/analytics/spec-review.jsonl && echo logged\n     \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n Edit file\n \u20261613300-R9sDgt/skill-home-EXyGdx/.gstack/projects/gstack-autoplan-chain-ZdZS9F/ceo-plans/2026-09-10-user-dashboard.md\n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n 33    - `notifications.data = { items: NotificationItem[], unreadCount: number }`.\n 34    - `quickActions.data = QuickAction[]` containing only actions whose server-side eligibility predicate passed; a t\n     hrowing predicate omits that action and logs a warning with `actionId`.\n 35    - A null or undefined repository result is converted to `{ status: \"error\", code: \"internal\", retryable: true }` \n     and logged at error level; it is never returned as `ok`.\n 36 -- Composition: the three repository calls run concurrently (`Promise.allSettled`), each with a 2s hard timeout that\n    - yields `code: \"timeout\", retryable: true`. The 2s timeout is the worst-case ceiling; the rollout gate (p95 < 500ms\n    -) measures typical latency. If the gate fails, fix or split the slow section; do not loosen the gate.              \n 36 +- `NotificationItem` = the existing notification list row type (reuse). `QuickAction = { actionId, label, href }` f\n    +rom the existing action registry (reuse its type if one exists). `quickActions.data` is returned in the registry's \n    +fixed priority order; the client does not re-sort; \"top eligible action\" = index 0.                                \n 37 +- `fetchedAt`: ISO 8601 UTC string taken from the server clock at handler entry. `snapshotAt` is sent in whatever r\n    +epresentation the existing bulk-read API already accepts (convert from `fetchedAt` if needed; verify in the Eng pha\n    +se).                                                                                                               \n 38 +- Composition: the three repository calls run concurrently (`Promise.allSettled`), each with a 2s hard timeout that\n    + yields `code: \"timeout\", retryable: true`. The timeout must cancel the underlying work, not merely race it: pass a\n    +n AbortSignal / query timeout if the repository supports one; otherwise set a DB statement timeout \u2264 2s for these t\n    +hree queries so a slow query does not keep holding a pool connection. The 2s timeout is the worst-case ceiling; the\n    + rollout gate (p95 < 500ms) measures typical latency. If the gate fails, fix or split the slow section; do not loos\n    +en the gate.                                                                                                       \n 39  - Item counts: each section requests the existing first page (20 items + cursor); the client renders at most 10 and\n      shows a \"View all\" link to the existing full page. The dashboard never paginates.\n 40  \n 41  - `activity.data = { items: ActivityItem[] }` where `ActivityItem` is the existing activity list row type returned \n     by the existing repository first page (reuse the type; do not define a new one).\n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n Do you want to make this edit to 2026-09-10-user-dashboard.md? \n \u276f 1. Yes                                                                       \n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)\n   3. No\n\n Esc to cancel \u00b7 Tab to amend",
+  "before": "---\nstatus: ACTIVE\n---\n# CEO Plan: User Dashboard Page\nGenerated by /plan-ceo-review (via /autoplan) on 2026-09-10\nBranch: main | Mode: SELECTIVE EXPANSION\nRepo: gstack-autoplan-chain-ZdZS9F (local, no remote)\n\n## Vision\n\n### 10x Check\nThe 10x version is not a bigger dashboard. It is a dashboard that already knows the member's next item: \"Resume: <assigned item title>\" is the first thing on the page, one click from login, with notifications and activity as supporting context below. That requires action ranking and a per-member \"next item\" query that do not exist today. It is the natural Phase 2 (deferred as TODO T-D), and this plan's per-section envelope + independent panel components leave room for it without a rewrite.\n\n## Problem and metric\nMembers visit three pages after login to find their next item (median 75s in a team walkthrough). Success measure: login-to-first-completed-task, target 45s, guardrails completed-task rate and permission-error rate.\n\nDecisions in this review:\n- The production baseline is computed from the existing `login`, `action start`, `action completion` events before any cohort opens (no new instrumentation is needed for the baseline; the new events below are needed for exposure attribution).\n- The metric is segmented by action ID. Primary target: time to \"resume assigned work\". Create and invite are reported separately.\n- The flag-off cohort is the control. The metric is compared per cohort (flag on vs flag off, same period), not only against the historical baseline.\n\n## Alternatives considered\n- A. Quick Actions strip + unread badge in the existing shell, no new page (Completeness 4/10): fastest hypothesis test, but does not deliver the stated feature and touches the shared shell.\n- B. Dashboard page + one aggregate endpoint with per-section result envelopes (9/10): chosen. Keeps the stated backend shape; partial failure is explicit.\n- C. Dashboard page + three per-panel endpoints (9/10): simplest failure semantics, three round trips. Close call with B; surfaced as Taste T2 at the /autoplan final gate. Flip trigger if B is kept: if the staging p95 gate fails because the aggregate's latency is dominated by one slow section that cannot be fixed at the source, switch to C.\n\n## Contracts fixed by this review\n\n### GET /api/dashboard\n- Auth: existing session cookie + workspace membership middleware. Member and workspace IDs come from the request context only; a `workspaceId` query parameter is ignored. Unauthenticated \u2192 401 (client redirects to login). Not a member \u2192 403 (page-level \"no access\"). Feature flag off \u2192 404 (client falls back to the current landing page).\n- 200 body: `{ fetchedAt, activity, notifications, quickActions }`.\n  - `Section<T> = { status: \"ok\", data: T } | { status: \"error\", code: \"timeout\" | \"unavailable\" | \"internal\", retryable: boolean }`.\n  - `notifications.data = { items: NotificationItem[], unreadCount: number }`.\n  - `quickActions.data = QuickAction[]` containing only actions whose server-side eligibility predicate passed; a throwing predicate omits that action and logs a warning with `actionId`.\n  - A null or undefined repository result is converted to `{ status: \"error\", code: \"internal\", retryable: true }` and logged at error level; it is never returned as `ok`.\n- Composition: the three repository calls run concurrently (`Promise.allSettled`), each with a 2s hard timeout that yields `code: \"timeout\", retryable: true`. The 2s timeout is the worst-case ceiling; the rollout gate (p95 < 500ms) measures typical latency. If the gate fails, fix or split the slow section; do not loosen the gate.\n- Item counts: each section requests the existing first page (20 items + cursor); the client renders at most 10 and shows a \"View all\" link to the existing full page. The dashboard never paginates.\n\n- `activity.data = { items: ActivityItem[] }` where `ActivityItem` is the existing activity list row type returned by the existing repository first page (reuse the type; do not define a new one).\n\n### Mark all as read\n- Uses the existing member-scoped, CSRF-protected, idempotent bulk-read API, which already accepts a snapshot time and marks only notifications at or before it (stated in the existing contracts). Request carries `snapshotAt = response.fetchedAt`.\n- Two behaviors must be verified against the existing handler in the Eng phase and are **additions to that endpoint if absent** (backward-compatible, no migration): (a) the server clamps `snapshotAt` to \u2264 now; (b) the response includes the new `unreadCount`. If (b) is absent and not added, the client derives `unreadCount` from the follow-up refetch only.\n- Client flow: confirm in `MarkAllReadDialog` (existing Dialog primitive) \u2192 snapshot the current `notifications.data` value \u2192 optimistic flip (all rows read, `unreadCount = 0`) \u2192 POST \u2192 on success apply the response `unreadCount` if present, show a success toast, then refetch once; on csrf/network/5xx failure restore the snapshot and show an error toast whose Retry reopens the dialog (the flow retakes the snapshot). Confirm button is disabled while submitting. The button stays rendered but disabled at 0 unread so focus return has a target. The button is not rendered while the notifications section is not `status: \"ok\"`.\n- Toast queue: max 3, drop-oldest.\n\n### Client fetch behavior (`useDashboard`)\n- In-flight requests are aborted on unmount (AbortController).\n- Refetch triggers: the \"Last updated \u00b7 Refresh\" control; `document.visibilityState` becoming `visible`, debounced to at most once per 30s; Retry on a page-level error or on any panel-level error (panel Retry refetches the whole aggregate; there is one endpoint); once after a bulk-read completes (success or failure).\n- Mutation window: while a bulk-read POST is in flight, all refetch triggers are suppressed (Refresh and panel Retry controls disabled; visibility refetch deferred until the mutation settles). No GET is issued during the mutation window.\n- Sequence guard: every request carries a monotonically increasing sequence number; a mutation bumps it when it starts and again when it settles; any response whose sequence is lower than the latest applied sequence is discarded. Together with the mutation window this guarantees no GET issued before or during the mutation can overwrite the post-mutation state.\n- `dashboard_viewed` fires once per page mount, never on refetch.\n- Empty-state CTAs: the notifications empty state links to the top eligible quick action if `quickActions.status === \"ok\"` and non-empty; otherwise, and always for the activity empty state, it links to item creation via the existing route.\n\n### All-sections-failed behavior\nThe page renders a page-level error (\"Dashboard unavailable\") with a Retry control and direct links to the existing Activity, Notifications, and Create pages. The post-login redirect is unchanged (the member is still on /dashboard); the flag is the rollback lever if this state persists.\n\n### Analytics events (IDs and counts only, never titles or bodies)\n- `dashboard_viewed` \u2014 once per page mount.\n- `dashboard_panel_state{panel \u2208 {activity, notifications, quickActions}, state \u2208 {ok, empty, error}, trigger \u2208 {initial, refresh, visible, retry, post_mutation}}` \u2014 once per panel per completed fetch (initial and every refetch).\n- `quick_action_clicked{actionId}` \u2014 on click.\n- `notifications_mark_all_read{result \u2208 {success, error_csrf, error_network, error_5xx, error_other}}` \u2014 once per submit.\n- Existing `login`, `action start`, `action completion`, `permission error` events are reused for the metric.\n\n### Observability\n- Logs: handler entry/exit with requestId, memberId, workspaceId, per-section status and duration; section errors at error level with class and stack.\n- Metrics: `dashboard_request_duration_seconds{section}`, `dashboard_section_error_total{section,code}`, `dashboard_all_sections_failed_total`, `notifications_mark_all_read_total{result}`.\n- Alerts: section error rate > 2% over 5m (page); p95 > 1s over 10m (warn); all-sections-failed > 0 in 5m (page).\n- Runbook: `docs/runbooks/dashboard.md`.\n\n### Rollout\nFlag `dashboard_landing` gates both the `/dashboard` route and the post-login redirect. Order: deploy flag off \u2192 production baseline captured from existing events (window ends before any cohort, including internal, is enabled) \u2192 internal cohort \u2192 staging p95 < 500ms and DB pool headroom under a login-burst test \u2192 5% \u2192 25% \u2192 100%, with completed-task rate and permission-error rate (by actionId) as guardrails. Rollback: flag off (seconds); code revert only if the flag path is broken. No migrations.\n\n## Scope Decisions\n\n| # | Proposal | Effort | Decision | Reasoning |\n|---|----------|--------|----------|-----------|\n| E1 | Relative timestamps with absolute time in `<time datetime>`/title | S | ACCEPTED | In blast radius, < 1 day; makes recency scannable (hierarchy) |\n| E2 | Optimistic mark-all-read with rollback + error toast | S | ACCEPTED | In blast radius, < 1 day; removes a wait on the one mutation |\n| E3 | Refetch when tab becomes visible (debounced 30s) + \"Last updated \u00b7 Refresh\" | S | ACCEPTED | In blast radius; a \"home\" page left open goes stale and misleads on unread state. No stale-data complaint evidence exists yet because the page does not exist; keep, and watch `dashboard_panel_state` refetch counts |\n| E4 | Empty states that name the next action | S | ACCEPTED | Empty states already in scope; copy + one link |\n| E5 | Unread badge in global nav | S | DEFERRED | Outside blast radius (shared shell) |\n| E6 | Per-item mark read | M | DEFERRED | Needs a per-item mutation API that does not exist |\n| E7 | Undo for mark-all-read | M | DEFERRED | Needs an unread mutation API |\n| E8 | Keyboard shortcuts | S | SKIPPED | Not on the metric; adds a11y surface |\n| E9 | Prefetch quick-action routes on hover | S | SKIPPED | Marginal; revisit if route transition > 300ms |\n| E10 | \"Resume: next item\" hero (10x) | L | DEFERRED | New ranking service; Phase 2 |\n\n## Accepted Scope (added to this plan)\n- Relative timestamps on activity and notification rows.\n- Optimistic mark-all-read with snapshot/rollback and toast feedback.\n- Refetch on visible (debounced) plus a visible \"Last updated \u00b7 Refresh\" control.\n- Empty states pointing at the top eligible quick action / item creation.\n\n## Shared primitives introduced\n- `PanelFrame`: loading/empty/error/ok wrapper used by all three panels.\n- `ToastProvider` + `Toast`: app-root `aria-live=\"polite\"` region outside any dialog focus trap, queue max 3, reduced-motion safe. The accessibility policy requires a live region for non-blocking feedback, so some live-region component must exist; building it once at app root (rather than dashboard-local) is Taste T4 and may be overridden at the gate. T-E tracks app-wide adoption so it does not stay a single-use primitive.\n\n## Deferred to TODOS.md\n- T-A Global nav unread badge (E5) \u2014 depends on `notifications.data.unreadCount` from this endpoint.\n- T-B Per-item mark-read (E6) \u2014 needs a member-scoped per-item mutation API.\n- T-C Undo mark-all-read (E7) \u2014 needs an unread mutation API.\n- T-D \"Resume: next item\" hero (E10) \u2014 Phase 2; needs ranking/eligibility service.\n- T-E Adopt the toast primitive app-wide so it does not remain dashboard-only.\n- T-F Per-member landing preference (dashboard vs last visited) \u2014 personalization plan.\n\n## Taste decisions surfaced at the /autoplan Final Gate\nProvisional means: the plan proceeds with the stated option through the remaining review phases; the user confirms or flips it once, at the gate.\n- T1 Ship as one release vs phase strip-first (kept as stated).\n- T2 Aggregate endpoint with envelope vs per-panel endpoints (kept; flip trigger above).\n- T3 Keep the confirmation modal for mark-all-read vs single click (kept; no bulk-unread API makes the action one-way).\n- T4 Shared toast primitive vs inline status text / dashboard-local toast (kept).\n",
+  "beforeSha256": "fec7599ff154aa3744738c7f03e99d980399175bedd8e618f856e82f79b939c2",
+  "beforeMtimeMs": 1789085447367.0732,
+  "nativePlan": {
+    "path": "/tmp/gstack-paid-shard-I0BdYJ/tmp/gstack-hermetic-1613300-R9sDgt/with-skills/.claude/plans/distributed-discovering-truffle.md",
+    "text": "Round 3 result recorded in the phase completion below.",
+    "mtimeMs": 1789085466203.074
+  }
+}

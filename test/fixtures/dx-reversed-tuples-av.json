@@ -1,0 +1,45 @@
+{
+  "provenance": {
+    "source": "AV first-attempt public AskUserQuestion and matching successful tool result",
+    "nativeUseAt": "2026-09-10T22:57:41.759Z",
+    "nativeAcknowledgedAt": "2026-09-10T22:57:42.151Z",
+    "publicProofSHA256": "6445dfdcbb6c23cded889f21661b15ab442e0ca7145fa466b2557c933b0a30f2",
+    "paidOutcomesReclassified": false
+  },
+  "call": {
+    "sessionId": "e94d80fb-4c4c-4996-9e43-473546543a1e",
+    "toolUseId": "toolu_01TpUbmSy197E5sM9WhbXiVN",
+    "questions": [
+      {
+        "question": "D7 — Journey stage REAL USAGE: run_eval takes (dataset, evaluator) but run_batch takes (evaluator, dataset). Fix in plan?\nProject/branch/task: gstack-plan-count-eTp162 on main, third friction point, Real Usage stage.\nELI10: docs/api.md lists the two public evaluation functions with the same two arguments in opposite positional order, and says neither requires keywords. A developer who learns run_eval and then calls run_batch by analogy passes a dataset where an evaluator is expected. Best case is a confusing type error deep inside the SDK; worst case is a silent wrong result if the objects happen to be duck-type compatible. Sibling functions in one SDK are expected to share argument order.\nStakes if we pick wrong: Every developer who graduates from single to batch evaluation hits this once, and the failure surfaces far from the call site.\nRecommendation: A because it removes the trap for everyone at once while keeping today's callers working through a deprecation window, which is the pit-of-success shape.\nCompleteness: A=10/10, B=8/10, C=6/10, D=1/10\nNet: consistent order plus a safety net, versus documenting a trap and hoping developers read the note.",
+        "header": "Signatures",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Align order, keyword-only, deprecate (recommended)",
+            "description": "✅ Both functions become `(dataset, evaluator)` with the two arguments accepted as keywords, so positional mistakes cannot happen once callers migrate. ✅ run_batch detects the legacy reversed positional call by type, emits a DeprecationWarning naming the fix, and still runs correctly for one minor release. ❌ Needs a type check on the legacy path and a changelog entry; touches a public signature in a beta. (human: ~1 day / CC: ~15 min)"
+          },
+          {
+            "label": "Keyword-only, no reorder",
+            "description": "✅ Making both functions keyword-only removes the positional trap without changing either order. ✅ Call sites become self-documenting. ❌ Breaks every existing positional caller of both functions at once, with no deprecation window. (human: ~half day / CC: ~10 min)"
+          },
+          {
+            "label": "Document the difference",
+            "description": "✅ No code change; docs/api.md gains a prominent note and a side-by-side example. ✅ Zero upgrade risk for current callers. ❌ Trap remains for anyone who does not read that note, which per the persona is most of them. (human: ~1 hour / CC: ~3 min)"
+          },
+          {
+            "label": "Acceptable friction, skip",
+            "description": "✅ Nothing changes in code or docs before beta. ✅ The reversed order stays intentional as the draft states. ❌ A known inconsistency ships in a release whose stated goal is DX polish."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 — Journey stage REAL USAGE: run_eval takes (dataset, evaluator) but run_batch takes (evaluator, dataset). Fix in plan?\nProject/branch/task: gstack-plan-count-eTp162 on main, third friction point, Real Usage stage.\nELI10: docs/api.md lists the two public evaluation functions with the same two arguments in opposite positional order, and says neither requires keywords. A developer who learns run_eval and then calls run_batch by analogy passes a dataset where an evaluator is expected. Best case is a confusing type error deep inside the SDK; worst case is a silent wrong result if the objects happen to be duck-type compatible. Sibling functions in one SDK are expected to share argument order.\nStakes if we pick wrong: Every developer who graduates from single to batch evaluation hits this once, and the failure surfaces far from the call site.\nRecommendation: A because it removes the trap for everyone at once while keeping today's callers working through a deprecation window, which is the pit-of-success shape.\nCompleteness: A=10/10, B=8/10, C=6/10, D=1/10\nNet: consistent order plus a safety net, versus documenting a trap and hoping developers read the note.": "Align order, keyword-only, deprecate (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T22:57:42.151Z"
+  }
+}

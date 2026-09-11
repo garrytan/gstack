@@ -154,8 +154,8 @@ in its block. Taste provisional; User Challenges keep original.
 bun "<SNAPSHOT_TOOL>" amend eng "<ACTIVE_PLAN>" "<ENG_INPUT>"
 ```
 None: reason checks unchanged. Read back fully; retention ≠ approval/completeness/correctness.
-Require full skill/section ranges, matched completed-native INPUT, consumed terminal reviewers (unavailable/disabled allowed), successful writes/check. Only then
-announce completion and proceed to final synthesis/approval:
+Require full skill/section ranges, matched completed-native INPUT, consumed terminal reviewers (unavailable/disabled allowed), successful writes/check. Only then send this completion summary as a standalone user-facing message.
+After sending it, proceed to final synthesis/approval:
 
 **Phase 3 complete.**
 Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].

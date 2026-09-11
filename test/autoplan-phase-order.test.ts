@@ -132,7 +132,9 @@ describe('autoplan phase execution checkpoints', () => {
     expect(contract).toContain('Create the fresh snapshot and dispatch its nativeDispatchPrompt unchanged');
     expect(contract).toContain('Consume native completion, then enabled outside results; only then do the full primary review');
     expect(contract).toContain("Persist outputs/amendments and run the phase's implementation check/readback");
-    expect(contract).toContain('Emit actual completion; only then load the next required phase');
+    expect(contract).toContain('Send the phase completion summary as a standalone user-facing message');
+    expect(contract).toContain("Only then make the next phase's tool calls");
+    expect(contract).toContain('for Eng, send it before final synthesis and the approval question');
     expect(contract).toContain('A missing gate means the current phase remains open');
     expect(contract).toContain('Read requests/self-reports and INPUT hashes do not prove uptake or review quality');
     expect(contract).toContain('Pending is not unavailable');
@@ -156,8 +158,8 @@ describe('autoplan phase execution checkpoints', () => {
       expect(checkpoint).toContain('(unavailable/disabled allowed)');
       expect(checkpoint).toContain('successful writes/check');
       expect(checkpoint).toContain(phase === 'eng'
-        ? 'announce completion and proceed to final synthesis/approval'
-        : 'announce completion AND load/create/dispatch the next phase');
+        ? 'After sending it, proceed to final synthesis/approval'
+        : 'After sending it, load/create/dispatch the next phase');
       expect(checkpoint).toContain('EVERY accepted requirement/condition/test');
       expect(checkpoint).toContain('in its block');
       expect(checkpoint).toContain('Reconcile full review');
@@ -167,7 +169,7 @@ describe('autoplan phase execution checkpoints', () => {
       expect(checkpoint).toContain('User Challenges keep original');
       expect(checkpoint).toContain(`amend ${phase} "<ACTIVE_PLAN>" "<${phase.toUpperCase()}_INPUT>"`);
       expect(checkpoint).toContain('None: reason checks unchanged');
-      expect(checkpoint).toContain('Only then\nannounce');
+      expect(checkpoint).toContain('Only then send this completion summary as a standalone user-facing message');
     }
   });
 

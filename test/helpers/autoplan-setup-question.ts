@@ -376,6 +376,48 @@ export function autoplanRoutingSetupInput(visible: string, seen: Set<string>, pe
   return decision.input;
 }
 
+/** A long final gate may scroll its header away. This proves a wait, never an answer. */
+function croppedFinalApprovalPanel(visible: string, call: NativePlanQuestionCall): boolean {
+  const question = call.questions[0]!;
+  if (!/^Final (?:approval )?gate$/i.test(question.header) ||
+      !/^(?:D\s*\d+\s*[—–:-]\s*)?Final approval(?: gate)?\s*:[^\n]*\?$/i.test(question.question.split('\n')[0]!) ||
+      question.options.length < 2 || question.options.length > 7) return false;
+  const lines = visible.replace(/\r+\n?/g, '\n').trimEnd().split('\n');
+  const footer = 'Enter to select · ↑/↓ to navigate · Esc to cancel';
+  if (lines.at(-1)?.trim() !== footer ||
+      /[☐□☒]|✔\s*Submit|←|(?:^|\n)[^\n]*[1-9]\.\s*\[[ ✓✔xX]\]/.test(visible)) return false;
+  const rowPattern = /^ {0,3}(❯\s*)?([1-9])\.[\t ]+(\S.*?)\s*$/;
+  const rows = lines.flatMap((line, at) => {
+    const match = rowPattern.exec(line);
+    return match ? [{ at, cursor: !!match[1], index: Number(match[2]), label: match[3]! }] : [];
+  });
+  if (rows.length !== question.options.length + 2 || rows.some((row, i) => row.index !== i + 1) ||
+      !rows[0]!.cursor || rows.slice(1).some(row => row.cursor) ||
+      rows.at(-2)!.label !== 'Type something.' || rows.at(-1)!.label !== 'Chat about this') return false;
+  const before = lines.slice(0, rows[0]!.at).filter(line => line.trim());
+  if (!before.length || before.some(line => !/^ {0,3}[│┃][\t ]/.test(line))) return false;
+  const excerptLines = before.map(line => line.replace(/^ {0,3}[│┃][\t ]?/, ''));
+  if (excerptLines.some(line => /^\s*(?:`{3,}|~{3,}|>)/.test(line))) return false;
+  const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
+  // The renderer can truncate the last displayed line as well as crop the top.
+  // Require one contiguous owned excerpt, including at least one complete native
+  // line. Never assemble disconnected words or borrow a different question.
+  const excerpt = normalize(excerptLines.join(' ')).replace(/…$/, '');
+  const native = normalize(question.question), at = native.indexOf(excerpt);
+  if (at <= 0 || native.indexOf(excerpt, at + 1) !== -1 ||
+      !question.question.split('\n').slice(1).some(line => normalize(line) && excerpt.includes(normalize(line)))) return false;
+  for (const [i, option] of question.options.entries()) {
+    if (!option.label.trim() || normalize(rows[i]!.label) !== normalize(option.label)) return false;
+    const description = lines.slice(rows[i]!.at + 1, rows[i + 1]!.at);
+    if (description.some(line => line.trim() && !/^ {4,}\S/.test(line)) ||
+        normalize(description.join(' ')) !== normalize(option.description ?? '')) return false;
+  }
+  // Only native footer decoration may follow the two utility rows.
+  const decoration = (line: string) => /^[\t ─━-]*$/.test(line);
+  return lines.slice(rows.at(-2)!.at + 1, rows.at(-1)!.at).every(decoration) &&
+    lines.slice(rows.at(-1)!.at + 1, -1).every(decoration);
+}
+
 /** Identify a remaining native human wait. The caller must treat it as failure, never phase credit. */
 export function autoplanBlockingQuestionBoundary(visible: string, context: {
   commandStartedAt: number; viewportCapturedAt: number;
@@ -420,7 +462,11 @@ export function autoplanBlockingQuestionBoundary(visible: string, context: {
   }
   const display = visible.replace(/(^|[\r\n])[\t ]*[│┃][\t ]?/g, '$1');
   const headerAt = display.search(/^ {0,3}[☐□]/m);
-  if (headerAt < 0 || /^(?:Source|Example|Quoted|Historical|Template)\b[^\n]*:/im.test(display.slice(0, headerAt)) ||
+  if (headerAt < 0) {
+    // Crop recovery is limited to an already published native use. The pending
+    // hook route still requires its original complete current panel.
+    if (source !== 'native' || !croppedFinalApprovalPanel(visible, call)) return null;
+  } else if (/^(?:Source|Example|Quoted|Historical|Template)\b[^\n]*:/im.test(display.slice(0, headerAt)) ||
       !completeSetupOptions(display, call)) return null;
   return {sessionId:call.sessionId,toolUseId:call.toolUseId,source};
 }

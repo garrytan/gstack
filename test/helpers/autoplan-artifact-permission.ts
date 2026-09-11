@@ -313,6 +313,40 @@ function queuedArtifactViewport(viewport: string, current: NativePublicToolEvent
   return lines.slice(panel).join('\n');
 }
 
+/** A cropped command caption is display only. Bind the complete wrapped command
+ * to one unstarted successor in the current published batch before discarding it. */
+function queuedCommandViewport(viewport: string, current: NativePublicToolEvent,
+  events: NativePublicToolEvent[], queued: ReadonlySet<string>, hookSeenIds: readonly string[],
+  viewportCapturedAt: number): string {
+  if (!queued.size) return viewport;
+  const text = viewport.replace(/\r\n?/g, '\n');
+  const panels = [...text.matchAll(/^[─╌]{8,}\n {0,3}Edit file[ \t]*\n/gm)];
+  if (panels.length !== 1 || panels[0]!.index === 0) return viewport;
+  const rows = text.slice(0, panels[0]!.index).split('\n');
+  while (rows.at(-1)?.trim() === '') rows.pop();
+  const parts = rows.map((row, i) =>
+    (i === 0 ? /^ {2}⎿[ \u00a0]+\$ (\S.*)$/ : /^ {5}(\S.*)$/).exec(row)?.[1]);
+  if (!parts.length || parts.some(part => part === undefined)) return viewport;
+  const currentIndex = events.indexOf(current);
+  const waiting = events.filter(e => e.kind === 'use' && e.name === 'Bash' &&
+    e.messageId === current.messageId && e.requestId === current.requestId && events.indexOf(e) > currentIndex &&
+    !events.some(result => result.kind === 'result' && result.toolUseId === e.toolUseId));
+  const command = waiting[0], input = command?.input?.command;
+  if (waiting.length !== 1 || !command || typeof input !== 'string' || !input || input.length > MAX_BYTES ||
+      /[\x00-\x1f\x7f]/.test(input) || hookSeenIds.includes(command.toolUseId) ||
+      Date.parse(command.timestamp) > viewportCapturedAt ||
+      events.some(e => e.kind === 'use' && queued.has(e.toolUseId) && events.indexOf(e) >= events.indexOf(command))) return viewport;
+  // Preserve every displayed character, including spaces inside quoted arguments.
+  // Only whitespace omitted at a renderer soft-wrap boundary may be skipped.
+  let remaining = input;
+  for (let i = 0; i < parts.length; i++) {
+    if (!remaining.startsWith(parts[i]!)) return viewport;
+    remaining = remaining.slice(parts[i]!.length);
+    if (i < parts.length - 1) remaining = remaining.replace(/^[ \t]+/, '');
+  }
+  return remaining === '' ? text.slice(panels[0]!.index) : viewport;
+}
+
 /** A native command description can remain above an unpublished Edit panel.
  * Its text supplies no command identity, completion, or approval authority.
  * Only the digest-bound pending path may discard this one display prefix. */
@@ -477,7 +511,8 @@ export function publishedAutoplanArtifactPermissionInput(viewport: string,
     if (!actual || actual.beforeSHA256!==expected.beforeSHA256 || actual.requestSHA256!==expected.requestSHA256 ||
         JSON.stringify(actual.oldLineHashes)!==JSON.stringify(expected.oldLineHashes) ||
         JSON.stringify(actual.newLineHashes)!==JSON.stringify(expected.newLineHashes)) return null;
-    const rendered = queuedArtifactViewport(viewport,current,events,queued,p.file,pendingTime,context.ownedStateRoot);
+    const commandViewport = queuedCommandViewport(viewport,current,events,queued,p.hookSeenIds,context.viewportCapturedAt);
+    const rendered = queuedArtifactViewport(commandViewport,current,events,queued,p.file,pendingTime,context.ownedStateRoot);
     return autoplanArtifactPermissionInput(queuedPlanViewport(rendered,queuedPlans,current,events),{...context,
       publicTools:events.filter(e=>!queued.has(e.toolUseId))},seen);
   } catch { return null; }
