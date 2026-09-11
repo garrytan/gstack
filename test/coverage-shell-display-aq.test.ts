@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import path from 'node:path';
+import { posix as path } from 'node:path';
 import fixture from './fixtures/coverage-shell-display-aq.json';
 import billing from './fixtures/coverage-audit-ae.json';
 import { coverageAuditReadEvidence } from './helpers/coverage-audit-evidence';

@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createFakeBunCli } from './helpers/fake-bun-cli';
 import { nativeSeededPlanSelection } from './helpers/plan-scope-selection';
 import { isScopeGateQuestionVisible } from './helpers/claude-pty-runner';
 import { readPlanCountTranscript, type NativePublicToolEvent, type PlanCountTranscript } from './helpers/plan-count-transcript';
@@ -156,8 +157,7 @@ test('seeded plan selection dependencies select the existing design and Eng mode
 
 test('real PTY observation binds its explicit session and retains public diagnostics before cleanup', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scope-pty-'));
-  const cli = path.join(dir, 'fake-claude');
-  fs.writeFileSync(cli, `#!/usr/bin/env bun
+  const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), id = args[args.indexOf('--session-id') + 1];
 fs.writeFileSync(process.env.SCOPE_TEST_ARGV, JSON.stringify(args));
@@ -176,7 +176,7 @@ process.stdin.on('data', chunk => {
   process.stdout.write('Reviewing the named draft.\\nA) Fix hierarchy\\nB) Keep hierarchy\\nRecommendation: A because the primary action needs emphasis.\\nReply with A or B.\\n');
 });
 setInterval(()=>{},1000);
-`, { mode: 0o755 });
+`);
   try {
     // The executable override belongs to a separate process: parallel free
     // tests cannot inherit it, and resolution is asserted before any spawn.

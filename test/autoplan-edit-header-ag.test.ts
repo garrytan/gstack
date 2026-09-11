@@ -13,7 +13,7 @@ function replay() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-edit-header-')); roots.push(root);
   const cwd = path.join(root,path.basename(captured.cwd));
   const ownedStateRoot = path.join(root,'home','.gstack');
-  const file = captured.pending.file.replace(captured.ownedStateRoot,ownedStateRoot);
+  const file = path.normalize(captured.pending.file.replace(captured.ownedStateRoot,ownedStateRoot));
   fs.mkdirSync(cwd,{recursive:true}); fs.mkdirSync(path.dirname(file),{recursive:true});
   fs.writeFileSync(file,captured.before);
   const beforeTime = new Date(Date.parse(captured.pending.timestamp)-1000);

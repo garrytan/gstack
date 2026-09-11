@@ -3,15 +3,16 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createFakeBunCli } from './helpers/fake-bun-cli';
 
 const fixture = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/native-auto-decide-ag.json'), 'utf8'));
 const retry = fixture.attempts[1];
 const annotation = retry.transcript.assistantMessages.find((m: any) => m.sessionId === retry.options.sessionId && m.text.includes('Auto-decided')).text;
 
 test('owned native AUTO_DECIDE survives damaged terminal and polls again after scope selection', async () => {
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'auto-decide-pty-')), cli=path.join(dir,'fake-claude');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'auto-decide-pty-'));
   const working=path.join(dir,'repo');fs.mkdirSync(working);
-  fs.writeFileSync(cli, `#!/usr/bin/env bun
+  const cli = createFakeBunCli(path.join(dir,'fake-claude'), `
 const fs=require('node:fs'),path=require('node:path');
 const args=process.argv.slice(2),id=args[args.indexOf('--session-id')+1];
 fs.writeFileSync(process.env.AUTO_TEST_ARGV,JSON.stringify(args));
@@ -26,7 +27,7 @@ process.stdin.on('data',chunk=>{
   setTimeout(()=>{fs.appendFileSync(file,record('assistant',Date.now()-base-1,[{type:'text',text:${JSON.stringify(annotation)}}])+'\\n');process.stdout.write('Auto-dcided review mode: HOLD SCOPE. DONE.\\n');},4500);
 });
 setInterval(()=>{},1000);
-`,{mode:0o755});
+`);
   try {
     const runner=pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href;
     const childFile=path.join(dir,'observe.ts');

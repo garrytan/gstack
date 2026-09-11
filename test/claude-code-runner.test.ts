@@ -8,18 +8,34 @@ import { runClaudeCode } from '../lib/claude-code';
 const ROOT = path.resolve(import.meta.dir, '..');
 const DIR = mkdtempSync(path.join(tmpdir(), 'claude-code-runner-'));
 const FAKE = path.join(DIR, 'fake claude.ts');
+const DESCENDANT = path.join(DIR, 'pipe holder.ts');
 const CAPTURE = path.join(DIR, 'capture.json');
 const PID = path.join(DIR, 'descendant.pid');
 
+// Publish readiness only after the grandchild has initialized and flushed both
+// inherited pipes; a PID returned by spawn alone does not establish that state.
+writeFileSync(DESCENDANT, `
+import { writeFileSync } from 'node:fs';
+setInterval(() => {}, 1000);
+await new Promise(resolve => process.stdout.write(' ', resolve));
+await new Promise(resolve => process.stderr.write(' ', resolve));
+writeFileSync(process.env.PID_FILE!, String(process.pid));
+`);
+
 writeFileSync(FAKE, `
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 const prompt = await Bun.stdin.text();
 writeFileSync(process.env.CAPTURE!, JSON.stringify({args:process.argv.slice(2),prompt,cwd:process.cwd(),model:process.env.ANTHROPIC_MODEL,auth:process.env.ANTHROPIC_API_KEY}));
 const mode = process.env.FAKE_MODE;
 if (mode === 'timeout' || mode === 'descendant' || mode === 'escaped') {
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio:['ignore','inherit','inherit'], detached:mode === 'escaped'});
-  writeFileSync(process.env.PID_FILE!, String(child.pid));
+  rmSync(process.env.PID_FILE!, { force: true });
+  const child = spawn(process.execPath, [process.env.DESCENDANT!], {stdio:['ignore','inherit','inherit'], detached:mode === 'escaped'});
+  const readyBy = Date.now() + 2000;
+  while (!existsSync(process.env.PID_FILE!)) {
+    if (child.exitCode !== null || Date.now() >= readyBy) throw new Error('Descendant did not initialize its inherited pipes');
+    await Bun.sleep(5);
+  }
   if (mode === 'timeout') await new Promise(() => {});
 }
 if (mode === 'auth') { process.stderr.write('Not logged in. Please run claude /login.'); process.exit(1); }
@@ -46,7 +62,7 @@ afterAll(() => rmSync(DIR, { recursive: true, force: true }));
 
 function env(mode = 'success'): NodeJS.ProcessEnv {
   return { ...process.env, GSTACK_CLAUDE_BIN: process.execPath, GSTACK_CLAUDE_BIN_ARGS: JSON.stringify([FAKE]),
-    FAKE_MODE: mode, CAPTURE, PID_FILE: PID, ANTHROPIC_MODEL: 'configured-model', ANTHROPIC_API_KEY: 'fake-test-credential' };
+    FAKE_MODE: mode, CAPTURE, PID_FILE: PID, DESCENDANT, ANTHROPIC_MODEL: 'configured-model', ANTHROPIC_API_KEY: 'fake-test-credential' };
 }
 
 function run(mode = 'success', extra: Partial<Parameters<typeof runClaudeCode>[0]> = {}) {
@@ -71,6 +87,14 @@ async function expectDescendantDead() {
     expect(running(pid)).toBe(false);
   } finally {
     if (running(pid)) process.kill(pid, 'SIGKILL');
+  }
+}
+
+function cleanupDescendant() {
+  let pid: number;
+  try { pid = Number(readFileSync(PID, 'utf8')); } catch { return; }
+  if (Number.isSafeInteger(pid) && pid > 0 && running(pid)) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* Exited after the liveness check. */ }
   }
 }
 
@@ -178,31 +202,32 @@ describe('Claude Code restricted execution', () => {
   });
 
   test('timeout kills its descendants and clears process signal listeners', async () => {
+    rmSync(PID, { force: true });
     const before = ['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name));
     const start = Date.now();
-    const result = await run('timeout', {timeoutMs:500});
-    expect(result.status).toBe('unavailable');
-    expect(result.error?.code).toBe('timeout');
-    expect(Date.now() - start).toBeLessThan(2000);
-    expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
-    await expectDescendantDead();
+    try {
+      const result = await run('timeout', {timeoutMs:500});
+      expect(result.status).toBe('unavailable');
+      expect(result.error?.code).toBe('timeout');
+      expect(Date.now() - start).toBeLessThan(2000);
+      expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
+      await expectDescendantDead();
+    } finally { cleanupDescendant(); }
   });
 
   test('a child exiting with inherited pipes is unavailable within the drain deadline', async () => {
+    rmSync(PID, { force: true });
     const start = Date.now();
-    const result = await run('descendant');
-    expect(result.status).toBe('unavailable');
-    expect(result.error?.code).toBe('output-drain');
-    expect(Date.now() - start).toBeLessThan(2000);
-    if (process.platform !== 'win32') {
-      await expectDescendantDead();
-    } else {
+    try {
+      const result = await run('descendant');
+      expect(result.status).toBe('unavailable');
+      expect(result.error?.code).toBe('output-drain');
+      expect(Date.now() - start).toBeLessThan(2000);
       // taskkill /T cannot discover an orphan after its parent has exited.
-      // Bound-return/unavailable behavior remains covered here; the timeout
-      // case above verifies descendant termination while the parent is alive.
-      const pid = Number(readFileSync(PID, 'utf8'));
-      if (running(pid)) process.kill(pid, 'SIGKILL');
-    }
+      // Windows termination is covered by the timeout case while the parent
+      // is alive; cleanup below still runs if a drain assertion fails.
+      if (process.platform !== 'win32') await expectDescendantDead();
+    } finally { cleanupDescendant(); }
   });
 
   test.skipIf(process.platform === 'win32')('an escaped pipe holder cannot wedge draining or count as coverage', async () => {

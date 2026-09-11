@@ -14,7 +14,7 @@ function replay() {
   const cwd = path.join(root, path.basename(captured.cwd)), ownedStateRoot = path.join(root, 'home', '.gstack');
   const events = structuredClone(captured.events) as NativePublicToolEvent[];
   const latest = events.find(e => e.kind === 'use' && e.toolUseId === captured.pending.toolUseId)!
-  const original = latest.input!.file_path as string, file = original.replace(captured.ownedStateRoot, ownedStateRoot);
+  const original = latest.input!.file_path as string, file = path.normalize(original.replace(captured.ownedStateRoot, ownedStateRoot));
   fs.mkdirSync(cwd, { recursive: true }); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, captured.before);
   const time = new Date(Date.parse(latest.timestamp) - 1000); fs.utimesSync(file, time, time);
   for (const event of events) if (event.input?.file_path === original) event.input.file_path = file;

@@ -161,7 +161,7 @@ test('existing foreign destinations, symlinks and path aliases cannot be overwri
 
 test('line endings and Unicode survive normalization; only a missing final separator LF is added', () => {
   for (const text of ['最後の API 要件 🧪\r\nREST must remain.\r\n', 'API and endpoint without final newline']) {
-    const f = fixture(); const restore = join(f.dir, 'restore -- quoted "名前".md');
+    const f = fixture(); const restore = join(f.dir, process.platform === 'win32' ? "restore -- quoted '名前'.md" : 'restore -- quoted "名前".md');
     writeFileSync(f.source, text);
     invoke('init', f.source, f.active, restore);
     expect(readFileSync(restore, 'utf8')).toBe(text);

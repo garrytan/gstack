@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createFakeBunCli } from './helpers/fake-bun-cli';
 import fixture from './fixtures/eng-seeded-completion-ai.json';
 import { classifyVisible, extractPlanFilePath } from './helpers/claude-pty-runner';
 import * as predicates from './helpers/claude-pty-runner';
@@ -56,9 +57,9 @@ test('real PTY waits past old TODO, stale, partial and mismatched panels but acc
   ];
   const results = await Promise.allSettled(scenarios.map(async scenario => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeded-completion-'));
-    const cli = path.join(dir, 'fake-claude'), working = path.join(dir, 'repo');
+    const working = path.join(dir, 'repo');
     fs.mkdirSync(working);
-    fs.writeFileSync(cli, `#!/usr/bin/env bun
+    const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
 const fs = require('node:fs');
 fs.writeFileSync(process.env.COMPLETION_ARGV, JSON.stringify(process.argv.slice(2)));
 let sent = false;
@@ -74,7 +75,7 @@ process.stdin.on('data', chunk => {
   }, 4500);
 });
 setInterval(() => {}, 1000);
-`, { mode: 0o755 });
+`);
     try {
       const runner = pathToFileURL(path.join(import.meta.dir, 'helpers/claude-pty-runner.ts')).href;
       const childFile = path.join(dir, 'observe.ts');

@@ -97,8 +97,8 @@ function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string
     const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
     const displayed = rows[2]?.trim() ?? '';
     if (displayed !== file && displayed !== alias) {
-      const suffix = displayed.startsWith('…') ? displayed.slice(1) : '';
-      if ((suffix !== relative && !suffix.endsWith('/' + relative)) || !file.endsWith(suffix)) return null;
+      const suffix = displayed.startsWith('…') ? displayed.slice(1).split(path.sep).join('/') : '';
+      if ((suffix !== relative && !suffix.endsWith('/' + relative)) || !file.split(path.sep).join('/').endsWith(suffix)) return null;
     }
     return rows.slice(4);
   }
@@ -111,10 +111,10 @@ function ownedEditDiffRows(rows: string[], file: string, ownedStateRoot?: string
   if (update[1] !== file && update[1] !== alias) return null;
   const displayed = rows[4]?.trim() ?? '';
   if (displayed !== file && displayed !== alias) {
-    const suffix = displayed.startsWith('…') ? displayed.slice(1) : '';
+    const suffix = displayed.startsWith('…') ? displayed.slice(1).split(path.sep).join('/') : '';
     // A truncated prefix must still retain the complete owned project/artifact
     // path. A basename or sibling-project suffix cannot bind this request.
-    if ((suffix !== relative && !suffix.endsWith('/'+relative)) || !file.endsWith(suffix)) return null;
+    if ((suffix !== relative && !suffix.endsWith('/'+relative)) || !file.split(path.sep).join('/').endsWith(suffix)) return null;
   }
   return rows.slice(6);
 }

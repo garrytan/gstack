@@ -1,3 +1,4 @@
+import { capturedPathRebaser } from './helpers/captured-paths';
 import { expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,10 +14,10 @@ function replay() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ap-command-'));
   const old = path.dirname(path.dirname(fixture.stateRoot));
   const runtime = path.join(root, path.basename(old)), cwd = path.join(root, path.basename(fixture.cwd));
-  const replace = (text: string) => text.replaceAll(old, runtime).replaceAll(fixture.cwd, cwd);
-  const hook = JSON.parse(replace(JSON.stringify(fixture.hook)));
-  const stateRoot = replace(fixture.stateRoot), config = replace(fixture.config), file = hook.pending.file;
-  const events = JSON.parse(replace(JSON.stringify(fixture.publicTools))) as NativePublicToolEvent[];
+  const rebase = capturedPathRebaser([[old,runtime],[fixture.cwd,cwd]]);
+  const hook = rebase.json(fixture.hook);
+  const stateRoot = rebase.file(fixture.stateRoot), config = rebase.file(fixture.config), file = hook.pending.file;
+  const events = rebase.json(fixture.publicTools) as NativePublicToolEvent[];
   fs.mkdirSync(cwd, { recursive: true }); fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, fixture.before, { mode: fixture.targetStat.mode });
   const mtime = Number(BigInt(fixture.targetStat.mtimeNs)) / 1e9;
@@ -34,7 +35,7 @@ function replay() {
   const pending = readPendingAutoplanArtifact(hookFile, cwd, config, stateRoot, commandStartedAt, publicTools, now, true);
   const context = { cwd, ownedStateRoot: stateRoot, ownedNativePlansRoot: path.join(config, 'plans'),
     commandStartedAt, now, viewportCapturedAt: now, transcriptStatus: transcript.status, publicTools, pending };
-  return { root, file, context, viewport: replace(fixture.viewport), dispose: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, file, context, viewport: rebase.text(fixture.viewport), dispose: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 type Replay = ReturnType<typeof replay>;
 const pick = (r: Replay, seen = new Set<string>()) => permission.pendingAutoplanArtifactPermissionInput(r.viewport, r.context, seen);

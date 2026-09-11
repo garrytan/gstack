@@ -1,3 +1,4 @@
+import { capturedPathRebaser } from './helpers/captured-paths';
 import {expect,test} from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,12 +14,12 @@ function setup(changeRecords?:(records:any[])=>void){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-ap-edges-'));
  const cwd=path.join(dir,path.basename(fixture.cwd)),config=path.join(dir,'config');
  const stateRoot=path.join(dir,'gstack-hermetic-2546450-gfwm4G/skill-home-k7zGB1/.gstack');
- const replace=(text:string)=>text.replaceAll(fixture.stateRoot,stateRoot).replaceAll(fixture.cwd,cwd).replaceAll(fixture.config,config);
- const hook=JSON.parse(replace(JSON.stringify(fixture.hook)));
+ const rebase=capturedPathRebaser([[fixture.stateRoot,stateRoot],[fixture.cwd,cwd],[fixture.config,config]]);
+ const hook=rebase.json(fixture.hook);
  const file=hook.pending.file,nativeFile=path.join(config,'projects','owned',hook.sessionId+'.jsonl');hook.pending.transcriptPath=nativeFile;
  fs.mkdirSync(cwd,{recursive:true});fs.mkdirSync(path.dirname(file),{recursive:true});fs.mkdirSync(path.dirname(nativeFile),{recursive:true});
  fs.writeFileSync(file,fixture.before);fs.utimesSync(file,new Date(fixture.now-1000000),new Date(Date.parse(hook.pending.timestamp)-1000));
- const events=JSON.parse(replace(JSON.stringify(fixture.publicTools))) as (NativePublicToolEvent & {messageId?:string;requestId?:string})[];
+ const events=rebase.json(fixture.publicTools) as (NativePublicToolEvent & {messageId?:string;requestId?:string})[];
  const records=events.map(e=>({sessionId:e.sessionId,cwd,isSidechain:false,timestamp:e.timestamp,requestId:e.requestId,message:{id:e.messageId,role:e.kind==='use'?'assistant':'user',content:e.kind==='use'?[{type:'tool_use',id:e.toolUseId,name:e.name,input:e.input}]:[{type:'tool_result',tool_use_id:e.toolUseId,content:'',is_error:e.isError}]}}));
  changeRecords?.(records);
  fs.writeFileSync(nativeFile,records.map(r=>JSON.stringify(r)).join('\n')+'\n');

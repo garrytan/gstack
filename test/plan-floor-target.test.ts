@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readPlanFloorTarget } from './helpers/plan-floor-target';
+import { createFakeBunCli } from './helpers/fake-bun-cli';
 import { selectTests, E2E_TOUCHFILES } from './helpers/touchfiles';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -86,11 +87,25 @@ test('new delivery helper and controls select all four existing floor owners', (
   }
 });
 
+test('compiled fake CLI preserves Claude arguments and stdin without a shebang launcher', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'native-floor-cli-'));
+  try {
+    const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
+process.stdin.on('data', chunk => { console.log(JSON.stringify({ argv: process.argv.slice(2), input: chunk.toString() })); process.exit(0); });
+`, true);
+    const args = ['--model', 'fixture-model', '--session-id', SID];
+    const child = Bun.spawn([cli, ...args], { stdin: new Blob(['/plan-design-review PLAN.md\r']), stdout: 'pipe', stderr: 'pipe' });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ argv: args, input: '/plan-design-review PLAN.md\r' });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('real fake CLI sees seed before command; missing acknowledgment and scope menu never satisfy floor', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'floor-delivery-pty-'));
   try {
-    const cli = path.join(dir, 'fake-claude'), worker = path.join(dir, 'worker.ts'), output = path.join(dir, 'results.json');
-    fs.writeFileSync(cli, `#!/usr/bin/env bun
+    const worker = path.join(dir, 'worker.ts'), output = path.join(dir, 'results.json');
+    const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), id = args[args.indexOf('--session-id') + 1];
 const record = value => fs.appendFileSync(process.env.FLOOR_RECORD, JSON.stringify(value)+'\\n');
@@ -108,13 +123,25 @@ process.stdin.on('data', chunk => {
  }
  process.stdout.write(mode==='scope'?'What should I review?\\n❯ 1. Current branch diff\\n  2. A plan or design doc\\n':'Finding 1: CTA hierarchy is unclear.\\n❯ 1. Emphasize the primary CTA\\n  2. Keep equal weight\\n');
 });
-process.on('SIGINT',()=>{record({type:'closed'});process.exit(0)});
+process.on('SIGINT',()=>process.exit(0));
 process.stdin.resume();
 `);
-    fs.chmodSync(cli, 0o755);
     fs.writeFileSync(worker, `
 import {runPlanSkillFloorCheck} from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/helpers/claude-pty-runner.ts')).href)};
 import fs from 'node:fs';
+// Observe actual process exit: Windows SIGINT uses TerminateProcess and cannot
+// run a child signal handler. The native PTY and its process stay unchanged.
+const spawn=Bun.spawn;
+Bun.spawn=((command,options)=>{
+  if(Array.isArray(command)&&command[0]===process.env.BROWSE_TERMINAL_BINARY){
+    const onExit=options?.onExit;
+    return spawn(command,{...options,onExit(proc,...details){
+      fs.appendFileSync(options.env.FLOOR_RECORD,JSON.stringify({type:'closed',pid:proc.pid})+'\\n');
+      onExit?.(proc,...details);
+    }});
+  }
+  return spawn(command,options);
+}) as typeof Bun.spawn;
 const modes=['ready','missing','foreign','scope'];
 const results=await Promise.all(modes.map(async mode=>({mode,observation:await runPlanSkillFloorCheck({skillName:'plan-design-review',slashCommand:'/plan-design-review',followUpPrompt:${JSON.stringify(SEED)},cwd:${JSON.stringify(ROOT)},timeoutMs:2500,model:'claude-fable-5-1',env:{FLOOR_MODE:mode,FLOOR_RECORD:${JSON.stringify(dir)}+'/'+mode+'.jsonl'}})})));
 fs.writeFileSync(${JSON.stringify(output)},JSON.stringify(results));
@@ -132,7 +159,7 @@ fs.writeFileSync(${JSON.stringify(output)},JSON.stringify(results));
         expect(startup.argv[startup.argv.indexOf('--permission-mode') + 1]).toBe('plan');
         expect(startup.argv[startup.argv.indexOf('--model') + 1]).toBe('claude-fable-5-1');
         expect(events.filter(e => e.type === 'input').map(e => e.input).join('')).toBe('/plan-design-review PLAN.md\r');
-        expect(events.at(-1).type).toBe('closed'); expect(fs.existsSync(startup.cwd)).toBe(false);
+        expect(events.at(-1)).toEqual({type:'closed',pid:startup.pid}); expect(fs.existsSync(startup.cwd)).toBe(false);
         expect(() => process.kill(startup.pid, 0)).toThrow();
         expect(result.observation.auqObserved).toBe(result.mode === 'ready');
         expect(result.observation.outcome).toBe(result.mode === 'ready' ? 'auq_observed' : 'timeout');

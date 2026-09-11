@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-office-hour
 const question = (word = 'architectural', options = 'A) Put retrieval on the server\nB) Put retrieval on the client') =>
   `Where should retrieval live?\nThis ${word} choice decides which component owns the retrieval algorithm and the cross-host API contract.\n${options}\nRecommendation: A because all hosts need a consistent algorithm with one owner.\n`;
 
-async function runCaller(captured: string | undefined, scenario: 'success' | 'timeout' | 'judge-fail' | 'judge-throws' = 'success') {
+async function runCaller(captured: string | undefined, scenario: 'success' | 'timeout' | 'judge-fail' | 'judge-throws' = 'success', fixturePath = path) {
   // Exercise the actual caller with no SDK, filesystem, git or judge dispatch.
   let executable = source;
   for (const declaration of source.matchAll(/^import[\s\S]*?;\n/gm)) executable = executable.replace(declaration[0], '');
@@ -16,11 +16,12 @@ async function runCaller(captured: string | undefined, scenario: 'success' | 'ti
   const setups: Array<() => void> = [], callbacks: Array<() => Promise<void>> = [], finalizers: Array<() => Promise<void>> = [];
   const files = new Map<string,string>(), rows: any[] = [], calls: any[] = [];
   const collector = { addTest: (row: any) => rows.push(row) };
+  const sourceRoot = fixturePath.join(fixturePath.sep, 'source');
   let judged = 0;
   const result = { exitReason: scenario === 'timeout' ? 'timeout' : 'success', browseErrors: [], durationMs: 123, costUsd: 0.1, output: 'public completion' };
   const args: Record<string,any> = {
     expect, beforeAll: (fn: () => void) => setups.push(fn), afterAll: (fn: () => Promise<void>) => finalizers.push(fn),
-    CAPTURE_MS, CAPTURE_LONG_MS, ROOT: '/source', runId: 'synthetic-run',
+    CAPTURE_MS, CAPTURE_LONG_MS, ROOT: sourceRoot, runId: 'synthetic-run',
     describeIfSelected: (_title: string, _names: string[], fn: () => void) => fn(),
     testConcurrentIfSelected: (name: string, fn: () => Promise<void>, timeout: number) => { expect(name).toBe('office-hours-phase4-fork'); expect(timeout).toBe(CAPTURE_LONG_MS); callbacks.push(fn); },
     createEvalCollector: () => collector, finalizeEvalCollector: async () => {}, logCost: () => {},
@@ -32,13 +33,13 @@ async function runCaller(captured: string | undefined, scenario: 'success' | 'ti
       if (scenario === 'judge-fail') throw new Error('synthetic judge assertion');
       return { present: true, commits: true, has_because: true, reason_substance: 5 };
     },
-    spawnSync: () => ({status:0}), path, os: {tmpdir:()=>'/tmp'},
+    spawnSync: () => ({status:0}), path: fixturePath, os: {tmpdir:()=>'/tmp'},
     fs: { mkdtempSync:(prefix:string)=>prefix+'owned', mkdirSync:()=>{}, rmSync:()=>{}, existsSync:(name:string)=>files.has(name),
-      writeFileSync:(name:string,body:string)=>files.set(name,body), readFileSync:(name:string)=>name==='/source/office-hours/SKILL.md' ? '## AskUserQuestion Format\nformat\n## Phase 4: Alternatives Generation\nworkflow\n## Phase 4.5\nnext' : files.get(name) },
+      writeFileSync:(name:string,body:string)=>files.set(name,body), readFileSync:(name:string)=>name===fixturePath.join(sourceRoot,'office-hours','SKILL.md') ? '## AskUserQuestion Format\nformat\n## Phase 4: Alternatives Generation\nworkflow\n## Phase 4.5\nnext' : files.get(name) },
     runSkillTest: async (opts: any) => {
       calls.push(opts); expect(opts.timeout).toBe(CAPTURE_MS); expect(opts.maxTurns).toBe(12); expect(opts.model).toBe('claude-opus-4-7');
       expect(opts.prompt).toContain('Do NOT call any tool to ask the user.');
-      if (captured !== undefined) files.set(path.join(opts.workingDirectory, 'phase4-capture.md'), captured);
+      if (captured !== undefined) files.set(fixturePath.join(opts.workingDirectory, 'phase4-capture.md'), captured);
       return result;
     },
   };
@@ -86,6 +87,15 @@ test('Phase4 source examples and nested implementation steps cannot supply alter
 test('Phase4 caller records every returned-result failure exactly once, including judge failures', async () => {
   for (const [capture,scenario] of [[undefined,'success'],[question(),'timeout'],[question(),'judge-fail'],[question(),'judge-throws']] as const) {
     const x=await runCaller(capture,scenario); expect(x.thrown).toBeDefined(); expect(x.rows).toHaveLength(1); expect(x.rows[0].passed).toBe(false);
+  }
+});
+
+test('Phase4 caller fixture retains fork validation under either path convention', async () => {
+  for (const fixturePath of [path.posix, path.win32]) {
+    const accepted=await runCaller(question(),'success',fixturePath);
+    expect(accepted.thrown).toBeUndefined(); expect(accepted.rows[0].passed).toBe(true);
+    const rejected=await runCaller(question('architectural','A) Only one option'),'success',fixturePath);
+    expect(rejected.thrown).toBeDefined(); expect(rejected.judged).toBe(0); expect(rejected.rows[0].passed).toBe(false);
   }
 });
 

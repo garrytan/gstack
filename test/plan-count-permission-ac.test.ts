@@ -162,10 +162,16 @@ function adEpoch(c: any, screen = c.screen, state = c.binding.state, delta: any 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'permission-crop-replay-'));
   const file = path.join(dir, 'state.json');
   try {
-    fs.writeFileSync(file, JSON.stringify(state));
-    return currentFilePermissionEpoch(file, delta.expected ?? c.binding.expected, delta.cwd ?? c.p.cwd,
-      delta.config ?? c.p.config, delta.startedAt ?? c.p.startUnix * 1000,
-      delta.transcript ?? c.observation.transcript, screen);
+    // Captures contain POSIX paths. Project their filesystem identity onto the
+    // replay host without changing the captured fixture or its menu rendering.
+    const nativeState = { ...state, cwd: path.resolve(state.cwd), expected: path.resolve(state.expected),
+      transcriptPath: path.resolve(state.transcriptPath) };
+    const replayScreen = screen.replaceAll(path.posix.dirname(c.binding.expected),
+      path.dirname(path.resolve(c.binding.expected)));
+    fs.writeFileSync(file, JSON.stringify(nativeState));
+    return currentFilePermissionEpoch(file, path.resolve(delta.expected ?? c.binding.expected), path.resolve(delta.cwd ?? c.p.cwd),
+      path.resolve(delta.config ?? c.p.config), delta.startedAt ?? c.p.startUnix * 1000,
+      delta.transcript ?? c.observation.transcript, replayScreen);
   } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 }
 for (const c of cases) {

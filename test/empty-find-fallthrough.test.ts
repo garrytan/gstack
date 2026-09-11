@@ -18,8 +18,23 @@ import * as path from 'path';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import type { TemplateContext } from '../scripts/resolvers/types';
 import { generateContextRecovery } from '../scripts/resolvers/preamble/generate-context-recovery';
+import { discoverSkillFiles } from '../scripts/discover-skills';
+import { getExternalHosts } from '../hosts';
 
 const ROOT = path.join(import.meta.dir, '..');
+
+function generatedSkillFiles(root: string): string[] {
+  // Match the generator's output locations before scanning files. Workspace
+  // evidence, dependencies, and local Claude installs can be arbitrarily large.
+  const skillRoots = [root, ...getExternalHosts().map(host => path.join(root, host.hostSubdir, 'skills')),
+    path.join(root, 'openclaw', 'skills')];
+  return skillRoots.filter(dir => fs.existsSync(dir)).flatMap(dir =>
+    discoverSkillFiles(dir).map(file => path.join(dir, file)));
+}
+
+function unguardedSkillFiles(root: string): string[] {
+  return generatedSkillFiles(root).filter(file => fs.readFileSync(file, 'utf-8').includes('xargs ls -t'));
+}
 
 function makeCtx(): TemplateContext {
   return {
@@ -78,19 +93,22 @@ describe('empty find must not fall through to cwd (#2483)', () => {
   });
 
   test('no generated SKILL.md carries the unguarded form', () => {
-    const out = execSync(
-      `grep -rln "xargs ls -t" --include=SKILL.md "${ROOT}" || true`,
-      { encoding: 'utf-8', timeout: 30_000 },
-    );
-    // node_modules and vendored trees are not generated output; nothing in
-    // the repo's generated skills may carry the unguarded form.
-    const hits = out
-      .split('\n')
-      .filter(Boolean)
-      .filter((f) => !f.includes('node_modules'))
-    // The workspace-local .claude/ install is not generated output and can
-    // carry dangling symlinks from unrelated sessions.
-    .filter((f) => !f.includes('/.claude/'));
-    expect(hits).toEqual([]);
+    expect(generatedSkillFiles(ROOT).length).toBeGreaterThan(0);
+    expect(unguardedSkillFiles(ROOT)).toEqual([]);
+  });
+
+  test('generated skill discovery checks every host and excludes non-generated trees', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill-scan-'));
+    const unsafe = ['SKILL.md', path.join('review', 'SKILL.md'),
+      ...getExternalHosts().map(host => path.join(host.hostSubdir, 'skills', 'gstack-review', 'SKILL.md')),
+      path.join('openclaw', 'skills', 'gstack-openclaw-review', 'SKILL.md')];
+    const decoys = ['.context', 'node_modules', '.claude', 'dist'].map(dir => path.join(dir, 'nested', 'SKILL.md'));
+    try {
+      for (const file of [...unsafe, ...decoys, path.join('safe', 'SKILL.md')]) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, file), file === path.join('safe', 'SKILL.md') ? 'xargs -r ls -t' : 'xargs ls -t');
+      }
+      expect(unguardedSkillFiles(root).sort()).toEqual(unsafe.map(file => path.join(root, file)).sort());
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

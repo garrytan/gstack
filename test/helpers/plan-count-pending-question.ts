@@ -11,7 +11,7 @@ const REASONS = ['invalid_event', 'input_overflow', 'stdin_timeout', 'record_err
 type RecorderReason = typeof REASONS[number];
 const identifier = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(v);
 const object = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
-const quote = (v: string) => `'${(process.platform === 'win32' ? v.replaceAll('\\', '/') : v).replaceAll("'", "'\\''")}'`;
+const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const keysOnly = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).every(k => keys.includes(k));
 
 function questions(value: unknown): value is NativePlanQuestion[] {
@@ -85,7 +85,10 @@ export function createPendingQuestionRecorder(cwd: string, configDir: string) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pending-question-'));
   const file = path.join(dir, 'state.json');
   fs.writeFileSync(file, JSON.stringify({version:1, cwd, configDir, seenIds:[], pending:null}) + '\n', {mode:0o600});
-  const command = [process.execPath, import.meta.path, '--record', file, cwd, configDir].map(quote).join(' ');
+  // Git Bash needs slash-separated command paths. Recorder arguments retain
+  // their native spelling because the owned event/state identity is exact.
+  const shellPath = (value: string) => process.platform === 'win32' ? value.replaceAll('\\', '/') : value;
+  const command = [shellPath(process.execPath), shellPath(import.meta.path), '--record', file, cwd, configDir].map(quote).join(' ');
   const hook = {matcher:'^AskUserQuestion$', hooks:[{type:'command', command, timeout:5}]};
   return {file, hooks:{PreToolUse:[hook], PostToolUse:[hook], PostToolUseFailure:[hook]},
     dispose: () => fs.rmSync(dir, {recursive:true, force:true})};

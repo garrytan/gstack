@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import { coverageAuditVerdict } from './helpers/coverage-audit-evidence';
 import fixture from './fixtures/coverage-audit-af.json';
 import { E2E_TOUCHFILES } from './helpers/touchfiles';
+import { posix, win32 } from 'node:path';
+import { coverageAuditReadEvidence } from './helpers/coverage-audit-evidence';
 
 const actual = (index: number) => structuredClone(fixture.rows[index]!);
 const files = (row: typeof fixture.rows[number]) => ({cwd:row.cwd,
@@ -22,6 +24,23 @@ function delivered(command: string, mutate?: (events: any[]) => void) {
   return coverageAuditVerdict({...row.result,transcript},files(row));
 }
 const both = 'cat -n src/billing.ts && cat -n test/billing.test.ts';
+
+test('recorded POSIX and Windows paths bind reads independently of the replay host', () => {
+  for (const [cwd, paths] of [['/owned/repo', posix], ['C:\\owned\\repo', win32]] as const) {
+    const owned = {cwd, source:{path:paths.join(cwd,'src/billing.ts'),content:fixture.files.source},
+      tests:{path:paths.join(cwd,'test/billing.test.ts'),content:fixture.files.tests}};
+    const transcript = [
+      {type:'system',subtype:'init',session_id:'owned',cwd},
+      {type:'assistant',session_id:'owned',message:{role:'assistant',content:[{type:'tool_use',id:'pair',name:'Bash',input:{command:both}}]}},
+      {type:'user',session_id:'owned',message:{role:'user',content:[{type:'tool_result',tool_use_id:'pair',is_error:false,content:fixture.files.source+'\n'+fixture.files.tests}]}},
+    ];
+    expect(coverageAuditReadEvidence(transcript,owned)).toEqual({sourceRead:true,testsRead:true});
+    expect(coverageAuditReadEvidence(transcript,{...owned,source:{...owned.source,path:paths.join(cwd,'../foreign.ts')}}))
+      .toEqual({sourceRead:false,testsRead:false});
+    expect(coverageAuditReadEvidence(transcript,{...owned,source:{...owned.source,path:cwd+paths.sep+'src'+paths.sep+'..'+paths.sep+'src'+paths.sep+'billing.ts'}}))
+      .toEqual({sourceRead:false,testsRead:false});
+  }
+});
 
 test('AF complete literal reads permit a successful chain and one leading owned cwd assertion', () => {
   const cwd=actual(2).cwd;

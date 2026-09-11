@@ -12,7 +12,7 @@ afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursiv
 function replay() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'autoplan-edit-panel-')); roots.push(root);
   const cwd = path.join(root, path.basename(captured.cwd)), ownedStateRoot = path.join(root, 'home', '.gstack');
-  const file = captured.pending.file.replace(captured.ownedStateRoot, ownedStateRoot);
+  const file = path.normalize(captured.pending.file.replace(captured.ownedStateRoot, ownedStateRoot));
   fs.mkdirSync(cwd, { recursive: true }); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, captured.before);
   const time = new Date(Date.parse(captured.pending.timestamp) - 1000); fs.utimesSync(file, time, time);
   const events = structuredClone(captured.events) as NativePublicToolEvent[];
@@ -33,7 +33,7 @@ test('the exact standalone native Edit panel binds the owned current unpublished
 
 test('complete absolute, home alias and full relative suffix paths retain ownership', () => {
   for (const displayed of ['absolute', 'alias', 'suffix'] as const) {
-    const r = replay(), relative = path.relative(r.context.ownedStateRoot, r.file);
+    const r = replay(), relative = path.relative(r.context.ownedStateRoot, r.file).split(path.sep).join('/');
     const value = displayed === 'absolute' ? r.file : displayed === 'alias' ? '~/.gstack/' + relative : '…' + relative;
     r.viewport = r.viewport.replace(/^ …[^\n]+$/m, ' ' + value); expect(pick(r)?.input).toBe('1\r');
   }
@@ -80,7 +80,7 @@ test('published edits retain exact old/new content guards with the standalone pr
   const r = replay(), events = structuredClone(published.events) as NativePublicToolEvent[];
   const edit = events.find(e => e.kind === 'use' && e.toolUseId === published.pending.toolUseId)!;
   const oldFile = edit.input!.file_path;
-  const file = (oldFile as string).replace(published.ownedStateRoot, r.context.ownedStateRoot);
+  const file = path.normalize((oldFile as string).replace(published.ownedStateRoot, r.context.ownedStateRoot));
   const cwd = path.join(r.root, path.basename(published.cwd)); fs.mkdirSync(cwd, { recursive: true });
   fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, published.before);
   for (const event of events) if (event.input?.file_path === oldFile) event.input.file_path = file;

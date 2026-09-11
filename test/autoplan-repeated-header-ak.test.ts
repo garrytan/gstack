@@ -12,7 +12,7 @@ afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, {recursive
 function replay() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'ap-repeat-ak-')); roots.push(root);
   const cwd = path.join(root,path.basename(captured.cwd)), ownedStateRoot = path.join(root,'home','.gstack');
-  const file = captured.pending.file.replace(captured.ownedStateRoot,ownedStateRoot);
+  const file = path.normalize(captured.pending.file.replace(captured.ownedStateRoot,ownedStateRoot));
   fs.mkdirSync(cwd,{recursive:true}); fs.mkdirSync(path.dirname(file),{recursive:true});
   fs.writeFileSync(file,captured.events[0]!.input!.content!);
   const old = new Date(Date.parse(captured.pending.timestamp)-1000); fs.utimesSync(file,old,old);
@@ -74,7 +74,7 @@ test('owned native epoch, content, successful predecessor and one-time keys rema
 test('published Edit still needs exact old and new bytes with repeated titles',()=>{
   const r=replay(),events=structuredClone(published.events) as NativePublicToolEvent[];
   const edit=events.find(e=>e.kind==='use'&&e.toolUseId===published.pending.toolUseId)!;
-  const originalFile=edit.input!.file_path as string, file=originalFile.replace(published.ownedStateRoot,r.context.ownedStateRoot);
+  const originalFile=edit.input!.file_path as string, file=path.normalize(originalFile.replace(published.ownedStateRoot,r.context.ownedStateRoot));
   const cwd=path.join(r.root,path.basename(published.cwd));fs.mkdirSync(cwd,{recursive:true});fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,published.before);
   for(const e of events)if(e.input?.file_path===originalFile)e.input.file_path=file;
   const header=published.viewport.lastIndexOf('\n● Update(')+1;

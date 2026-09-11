@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 const ROOT = path.resolve(import.meta.dir, '..');
 const DIR = mkdtempSync(path.join(tmpdir(), 'claude-windows-job-'));
 const FAKE = path.join(DIR, 'fake claude.ts');
+const DESCENDANT = path.join(DIR, 'pipe holder.ts');
 const PID_FILE = path.join(DIR, 'descendant.pid');
 const CLI = path.join(ROOT, 'bin/gstack-claude-code');
 const FAILED_JOB = path.join(DIR, 'failed job.ts');
@@ -20,14 +21,29 @@ Object.defineProperty(process, 'platform', { value: 'win32' });
 Object.defineProperty(process, 'pid', { value: 0 });
 `);
 
+// Publish readiness only after the grandchild has initialized and flushed both
+// inherited pipes; a PID returned by spawn alone does not establish that state.
+writeFileSync(DESCENDANT, `
+import { writeFileSync } from 'node:fs';
+setInterval(() => {}, 1000);
+await new Promise(resolve => process.stdout.write(' ', resolve));
+await new Promise(resolve => process.stderr.write(' ', resolve));
+writeFileSync(process.env.PID_FILE!, String(process.pid));
+`);
+
 writeFileSync(FAKE, `
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 await Bun.stdin.text();
-const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+rmSync(process.env.PID_FILE!, { force: true });
+const child = spawn(process.execPath, [process.env.DESCENDANT!], {
   stdio: ['ignore', 'inherit', 'inherit'],
 });
-writeFileSync(process.env.PID_FILE!, String(child.pid));
+const readyBy = Date.now() + 2000;
+while (!existsSync(process.env.PID_FILE!)) {
+  if (child.exitCode !== null || Date.now() >= readyBy) throw new Error('Descendant did not initialize its inherited pipes');
+  await Bun.sleep(5);
+}
 if (process.env.FAKE_MODE === 'timeout') await new Promise(() => {});
 await new Promise(resolve => process.stdout.write(JSON.stringify({ result: 'NO_FINDINGS' }), resolve));
 process.exit(0);
@@ -42,6 +58,7 @@ function environment(mode: string): NodeJS.ProcessEnv {
     GSTACK_CLAUDE_BIN_ARGS: JSON.stringify([FAKE]),
     FAKE_MODE: mode,
     PID_FILE,
+    DESCENDANT,
   };
 }
 

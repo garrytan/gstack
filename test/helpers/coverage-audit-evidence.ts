@@ -1,5 +1,5 @@
 /** Completed parent file delivery and seeded coverage-diagram evidence. */
-import * as path from 'node:path';
+import { posix, win32 } from 'node:path';
 import type { SkillTestResult } from './session-runner';
 
 export interface CoverageAuditFiles {
@@ -16,9 +16,13 @@ const literal = (token: string): string | undefined => {
   if (/^'[^']*'$/.test(token) || /^"[^"$`\\]*"$/.test(token)) return token.slice(1, -1);
   return /^[^\s'"$`\\;|&<>]+$/.test(token) ? token : undefined;
 };
+// Recorded transcripts may come from another OS. Resolve their paths in the
+// recorded cwd's namespace, retaining the canonical and containment checks.
+const evidencePaths = (cwd: string) => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(cwd) ? win32 : posix;
 
 /** Closed literal cat/sed forms only; no shell execution or general shell parser. */
 function readsFile(command: unknown, file: string, cwd: string, output: unknown, owned: CoverageAuditFiles): boolean {
+  const path = evidencePaths(cwd);
   if (typeof command !== 'string' || command.length > 16384 || /[\r\n]/.test(command)) return false;
   const parts: string[] = [];
   const separators: string[] = [];
@@ -173,6 +177,7 @@ function delivered(output: unknown, expected: string): boolean {
 }
 
 export function coverageAuditReadEvidence(transcript: unknown[], files: CoverageAuditFiles): { sourceRead: boolean; testsRead: boolean } {
+  const path = evidencePaths(files.cwd);
   const found = { sourceRead: false, testsRead: false };
   if (!path.isAbsolute(files.cwd) || path.resolve(files.cwd) !== files.cwd || files.source.path === files.tests.path ||
       [files.source, files.tests].some(f => {

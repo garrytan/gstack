@@ -7,7 +7,8 @@ import { redactFindingSpans } from '../lib/redact-engine';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 
 const TOKEN = 'gbrain_fake_token_for_test';
-const CREDENTIAL = 'ghp_aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5';
+// Assemble synthetic credentials at runtime, as in gate-secret-scan.test.ts.
+const CREDENTIAL = ['ghp_', 'aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5'].join('');
 const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-setup-gbrain-path4-local-pglite.test.ts'), 'utf8');
 
 async function runCaller(scenario: 'success' | 'no-auq' | 'no-path' | 'leaked-claude-md' | 'diagnostic-secret', diagnostic?: { sink: 'output' | 'tool' | 'error'; text: string }) {
@@ -107,7 +108,8 @@ test('Path4 caller controls select only their registered paid owner', () => {
 test('Path4 redacted credential URLs cannot erase success or mask a failed assertion', async () => {
   // Text redaction can consume JSON punctuation after an unspaced URL host.
   // These synthetic credentials exercise the real redactor and actual callback.
-  for (const text of ['postgres://fixture:syntheticCredential923@db.invalid', 'https://fixture:syntheticCredential923@service.invalid']) {
+  for (const [scheme, host] of [['postgres', 'db.invalid'], ['https', 'service.invalid']]) {
+    const text = `${scheme}://fixture:syntheticCredential923@${host}`;
     for (const sink of ['output', 'tool', 'error'] as const) {
       for (const scenario of ['success', 'no-auq'] as const) {
         const { row, thrown } = await runCaller(scenario, { sink, text });
@@ -129,7 +131,8 @@ test('Path4 redacted credential URLs cannot erase success or mask a failed asser
 
 test('Path4 unbounded secret diagnostics are omitted without changing the recorded verdict', async () => {
   for (const scenario of ['success', 'no-auq'] as const) {
-    const { row, thrown } = await runCaller(scenario, { sink: 'output', text: '-----BEGIN PRIVATE KEY----- synthetic incomplete private material' });
+    const text = ['-----BEGIN ', 'PRIVATE KEY----- synthetic incomplete private material'].join('');
+    const { row, thrown } = await runCaller(scenario, { sink: 'output', text });
     expect(row.passed).toBe(scenario === 'success');
     if (scenario === 'success') expect(thrown).toBeUndefined();
     else expect(thrown).toBeDefined();

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { prepareMethodology, createSnapshot } from '../bin/gstack-autoplan-snapshot';
 import { auditAutoplanMethodReads, loadAutoplanMethodologyBinding } from './helpers/autoplan-method-read-audit';
 import { readPlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
@@ -131,7 +133,35 @@ describe('actual immutable snapshot methodology binding', () => {
         ? join(f.method.methodologyPath, '..', 'methodology.json') : f.method.methodologyPath;
       chmodSync(target, 0o600);
       if (kind !== 'mutable') { writeFileSync(target, readFileSync(target, 'utf8') + 'tamper'); chmodSync(target, 0o444); }
-      expect(() => loadAutoplanMethodologyBinding(f.snapshot.nativeDispatchPrompt, [f.dir]), kind).toThrow();
+      if (kind === 'mutable') {
+        if (process.platform !== 'win32') expect(() => loadAutoplanMethodologyBinding(f.snapshot.nativeDispatchPrompt, [f.dir]), kind).toThrow();
+        // Windows does not use POSIX permission bits. Exercise that policy in
+        // an isolated process with observed modes, keeping actual artifact
+        // paths/bytes and both the immutable control and writable rejection.
+        const worker = join(f.dir, 'observed-mode.ts');
+        writeFileSync(worker, `import { mock } from 'bun:test';
+const real = { ...await import('node:fs') };
+await import('node:path');
+const input = JSON.parse(await Bun.stdin.text());
+Object.defineProperty(process, 'platform', { value: 'linux' });
+mock.module('node:fs', () => ({ ...real, lstatSync(file) {
+  const stat = real.lstatSync(file);
+  stat.mode = (stat.mode & ~0o777) | (file === input.target && input.writable ? 0o600 : 0o444);
+  return stat;
+} }));
+const { loadAutoplanMethodologyBinding } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'test/helpers/autoplan-method-read-audit.ts')).href)});
+loadAutoplanMethodologyBinding(input.prompt, input.roots);
+`);
+        for (const writable of [false, true]) {
+          const result = spawnSync(process.execPath, [worker], { encoding: 'utf8', timeout: 10_000,
+            input: JSON.stringify({ prompt: f.snapshot.nativeDispatchPrompt, roots: [f.dir], target, writable }) });
+          expect(result.error).toBeUndefined();
+          expect(result.status, result.stderr).toBe(writable ? 1 : 0);
+          if (writable) expect(result.stderr).toContain('Artifact is not immutable bounded regular data');
+        }
+      } else {
+        expect(() => loadAutoplanMethodologyBinding(f.snapshot.nativeDispatchPrompt, [f.dir]), kind).toThrow();
+      }
     }
   });
 });

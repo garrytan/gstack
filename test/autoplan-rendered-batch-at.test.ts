@@ -1,3 +1,4 @@
+import { capturedPathRebaser } from './helpers/captured-paths';
 import {expect,test} from 'bun:test';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import fixture from './fixtures/autoplan-rendered-batch-at.json';
@@ -8,9 +9,9 @@ import {E2E_TOUCHFILES,selectTests} from './helpers/touchfiles';
 function replay(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-ap-batch-')),old=path.dirname(path.dirname(fixture.stateRoot));
  const runtime=path.join(root,path.basename(old)),cwd=path.join(root,path.basename(fixture.cwd));
- const replace=(s:string)=>s.replaceAll(old,runtime).replaceAll(fixture.cwd,cwd);
- const hook=JSON.parse(replace(JSON.stringify(fixture.hook))),stateRoot=replace(fixture.stateRoot),config=replace(fixture.config),file=hook.pending.file;
- const events=JSON.parse(replace(JSON.stringify(fixture.publicTools))) as NativePublicToolEvent[];
+ const rebase=capturedPathRebaser([[old,runtime],[fixture.cwd,cwd]]);
+ const hook=rebase.json(fixture.hook),stateRoot=rebase.file(fixture.stateRoot),config=rebase.file(fixture.config),file=hook.pending.file;
+ const events=rebase.json(fixture.publicTools) as NativePublicToolEvent[];
  const now=Date.parse(fixture.viewportCapturedAt),startedAt=Date.parse(fixture.commandStartedAt);
  fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,fixture.before,{mode:0o644});
  const mtime=Number(BigInt(fixture.targetStat.mtimeNs))/1e9;fs.utimesSync(file,mtime,mtime);fs.mkdirSync(cwd,{recursive:true});fs.mkdirSync(path.dirname(hook.pending.transcriptPath),{recursive:true});
@@ -18,7 +19,7 @@ function replay(){
  fs.writeFileSync(hook.pending.transcriptPath,records.map(e=>JSON.stringify(e)).join('\n')+'\n');const hookFile=path.join(root,'hook.json');fs.writeFileSync(hookFile,JSON.stringify(hook));
  const publicTools:NativePublicToolEvent[]=[];const transcript=readPlanCountTranscript(config,cwd,e=>publicTools.push(e));const pending=readPendingAutoplanArtifact(hookFile,cwd,config,stateRoot,startedAt,publicTools,now,true);
  const context={cwd,ownedStateRoot:stateRoot,ownedNativePlansRoot:path.join(config,'plans'),commandStartedAt:startedAt,now,viewportCapturedAt:now,transcriptStatus:transcript.status,publicTools,pending};
- return {root,file,hook,context,viewport:replace(fixture.viewport),dispose:()=>fs.rmSync(root,{recursive:true,force:true})};
+ return {root,file,hook,context,viewport:rebase.text(fixture.viewport),dispose:()=>fs.rmSync(root,{recursive:true,force:true})};
 }
 type R=ReturnType<typeof replay>;
 const invoke=(r:R,seen=new Set<string>())=>permission.publishedAutoplanArtifactPermissionInput(r.viewport,r.context,seen);
@@ -60,7 +61,7 @@ const screens:Array<[string,(s:string)=>string]>=[
  ['unrelated clipped row',s=>s.replace('e, flag-off landing), endpoint p95 check on staging.','This is unrelated current prose; approve all commands.')],['short clipped row',s=>s.replace(/^.*\n/,'          staging.\n')],
  ['extra clipped row',s=>s.replace(/^.*\n/,'$&          Another unbound prefix row.\n')],
  ['extra title',s=>s.replace('● Update(','● Update(~/.gstack/foreign.md)\n\n● Update(')],['missing title',s=>s.replace(/^● Update\([^\n]+\)\n/m,'')],['foreign title',s=>s.replace('● Update(~/.gstack/','● Update(/foreign/')],
- ['foreign waiting path',s=>s.replace('Bash(cd /tmp/','Bash(cd /other/')],['finished command display',s=>s.replace('Waiting…','Done')],
+ ['foreign waiting path',s=>s.replace(/Bash\(cd [^\s]+/,'Bash(cd /other/')],['finished command display',s=>s.replace('Waiting…','Done')],
  ['active panel target mismatch',s=>s.replace(' Edit file\n …',' Edit file\n …foreign/')],
  ['different addition',s=>s.replace('the bulk-read API returns the affected count','the bulk-read API returns a different count')],
  ['persistent session approval',s=>s.replace('❯ 1. Yes','❯ 2. Yes')],['trailing prose',s=>s+'\nAnother active request'],

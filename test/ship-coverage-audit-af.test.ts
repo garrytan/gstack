@@ -16,7 +16,7 @@ async function runCaller(index: number, change?: (result: any) => void) {
   const args:Record<string,any> = { describeIfSelected:(_title:string,_names:string[],fn:Function)=>fn(),
     beforeAll:(fn:Function)=>setup.push(fn),afterAll:(fn:Function)=>cleanup.push(fn),
     testConcurrentIfSelected:(_name:string,fn:Function,timeout:number)=>{expect(timeout).toBe(CAPTURE_MS);callbacks.push(fn);},
-    fs:virtualFs,os:{tmpdir:()=>'/tmp'},path,ROOT:'/synthetic-gstack',copyDirSync:()=>{},spawnSync:()=>({status:0}),
+    fs:virtualFs,os:{tmpdir:()=>'/tmp'},path:path.posix,ROOT:'/synthetic-gstack',copyDirSync:()=>{},spawnSync:()=>({status:0}),
     runSkillTest:async (opts:any)=>{invocations.push(opts);return row.result;},runId:'synthetic-run',JUDGE_MS,CAPTURE_MS,
     coverageAuditReadEvidence:(evidence as any).coverageAuditReadEvidence,
     logCost:()=>{},recordE2E:(_collector:any,_name:string,_suite:string,_result:any,options:any)=>records.push(options),evalCollector:{},expect,console:{log:()=>{}},

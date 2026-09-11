@@ -1,3 +1,4 @@
+import { capturedPathRebaser } from './helpers/captured-paths';
 import {expect,test} from 'bun:test';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import fixture from './fixtures/autoplan-artifact-stall-as.json';
@@ -6,13 +7,31 @@ import {readPendingAutoplanArtifact,autoplanArtifactRecorderStatus} from './help
 import {readPlanCountTranscript,type NativePublicToolEvent} from './helpers/plan-count-transcript';
 import {E2E_TOUCHFILES,selectTests} from './helpers/touchfiles';
 
+test('captured path rebasing preserves JSON strings and emits canonical native file paths',()=>{
+  const destination=String.raw`C:\a\repo`,source={file:'/captured/plans/plan.md',content:'First\n/captured/notes\nLast'};
+  const rebase=capturedPathRebaser([['/captured',destination]]);
+  const display=destination.split(path.sep).join('/');
+  expect(rebase.json(source)).toEqual({file:path.normalize(display+'/plans/plan.md'),content:'First\n'+display+'/notes\nLast'});
+  expect(source.file).toBe('/captured/plans/plan.md');
+});
+
+test('captured path rebasing preserves malformed and foreign ownership inputs',()=>{
+  const destination=path.join(path.parse(process.cwd()).root,'replayed');
+  const rebase=capturedPathRebaser([['/captured',destination]]);
+  for(const suffix of ['../foreign.md','plans/../plan.md','plans//plan.md','plans/./plan.md']){
+    expect(rebase.json({file:'/captured/'+suffix}).file).toBe(destination+path.sep+suffix.split('/').join(path.sep));
+  }
+  expect(rebase.json({file:'../foreign.md'}).file).toBe('..'+path.sep+'foreign.md');
+  expect(rebase.json({file:'/foreign/plans/../plan.md'}).file).toBe(path.sep+'foreign'+path.sep+'plans'+path.sep+'..'+path.sep+'plan.md');
+});
+
 function replay() {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-ap-stall-'));
   const runtimeBefore=path.dirname(path.dirname(fixture.stateRoot));
   const runtime=path.join(root,path.basename(runtimeBefore)),cwd=path.join(root,path.basename(fixture.cwd));
-  const replace=(value:string)=>value.replaceAll(runtimeBefore,runtime).replaceAll(fixture.cwd,cwd);
-  const hook=JSON.parse(replace(JSON.stringify(fixture.hook))),stateRoot=replace(fixture.stateRoot),config=replace(fixture.config);
-  const events=JSON.parse(replace(JSON.stringify(fixture.publicTools))) as NativePublicToolEvent[];
+  const rebase=capturedPathRebaser([[runtimeBefore,runtime],[fixture.cwd,cwd]]);
+  const hook=rebase.json(fixture.hook),stateRoot=rebase.file(fixture.stateRoot),config=rebase.file(fixture.config);
+  const events=rebase.json(fixture.publicTools) as NativePublicToolEvent[];
   const now=Date.parse(fixture.viewportCapturedAt),startedAt=Date.parse(fixture.commandStartedAt);
   const file=hook.pending.file,nativePlan=events.filter(e=>e.kind==='use'&&e.name==='Edit').at(-1)!.input!.file_path as string;
   for(const [target,content] of [[file,fixture.before],[nativePlan,fixture.nativePlanBefore]]) {
@@ -28,7 +47,7 @@ function replay() {
   const pending=readPendingAutoplanArtifact(hookFile,cwd,config,stateRoot,startedAt,publicTools,now,true);
   const context={cwd,ownedStateRoot:stateRoot,ownedNativePlansRoot:path.join(config,'plans'),commandStartedAt:startedAt,
     now,viewportCapturedAt:now,transcriptStatus:transcript.status,publicTools,pending};
-  const viewport=replace(fixture.viewport);
+  const viewport=rebase.text(fixture.viewport);
   const invoke=(screen=viewport,ctx=context,seen=new Set<string>())=>permission.publishedAutoplanArtifactPermissionInput(screen,ctx,seen);
   return {root,hook,hookFile,config,file,nativePlan,context,viewport,invoke,dispose:()=>fs.rmSync(root,{recursive:true,force:true})};
 }

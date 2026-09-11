@@ -7,7 +7,7 @@ import {E2E_TOUCHFILES} from './helpers/touchfiles-data';
 const cleanup:Array<()=>void>=[];afterEach(()=>{for(const f of cleanup.splice(0))f()});
 function replay(before=fixture.before,removed=fixture.request.old_string,added=fixture.request.new_string){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ap-suffix-')),cwd=path.join(root,path.basename(fixture.cwd)),config=path.join(root,'config'),stateRoot=path.join(root,'home/.gstack');
- const file=fixture.hook.pending.file.replace(fixture.stateRoot,stateRoot),native=path.join(config,'projects/owned',fixture.hook.sessionId+'.jsonl');
+ const file=path.normalize(fixture.hook.pending.file.replace(fixture.stateRoot,stateRoot)),native=path.join(config,'projects/owned',fixture.hook.sessionId+'.jsonl');
  fs.mkdirSync(cwd,{recursive:true});fs.mkdirSync(path.dirname(file),{recursive:true});fs.mkdirSync(path.dirname(native),{recursive:true});fs.writeFileSync(native,'');fs.writeFileSync(file,before);fs.utimesSync(file,new Date(0),new Date(0));
  const recorder=createAutoplanArtifactRecorder(cwd,config,stateRoot);cleanup.push(()=>{recorder.dispose();fs.rmSync(root,{recursive:true,force:true})});
  const event={hook_event_name:'PreToolUse',tool_name:'Edit',session_id:fixture.hook.sessionId,tool_use_id:fixture.hook.pending.toolUseId,cwd,transcript_path:native,tool_input:{file_path:file,old_string:removed,new_string:added}};
