@@ -23,7 +23,7 @@ import { canonicalStartPlan, canonicalTestPlan, DockerVerificationExecutor, make
 import { readBoundedStable } from './bounded-file';
 import { assertionWitnessReplayHash, runAssertionWitnessChild } from './witness';
 import { historyForPath } from './history';
-import { CATALOG_IMAGE_PROVISIONING_BUDGET_MS, inspectCatalogImages, openLocalCatalogImageSession, provisionCatalogImages, qualifiedCatalogImages, type CatalogImageSessionFactory } from './image-provisioning';
+import { catalogImageProvisioningPolicy, inspectCatalogImages, openLocalCatalogImageSession, provisionCatalogImages, qualifiedCatalogImages, type CatalogImageSessionFactory } from './image-provisioning';
 
 const VERSION = '3.0.0';
 const productionCatalogImageSession:CatalogImageSessionFactory=deadline=>openLocalCatalogImageSession(process.env,deadline);
@@ -53,7 +53,7 @@ const HELP = `gstack-cso ${VERSION} (helper ABI ${ABI})
 Usage:
   gstack-cso start --repo PATH [--comprehensive] [--diff] [--base REF] [--budget SECONDS] [--offline] [--infra|--code|--skills|--supply-chain|--owasp|--scope DOMAIN]
   gstack-cso doctor --repo PATH
-  gstack-cso provision-images [--setup-summary]
+  gstack-cso provision-images [--setup-summary] [--per-image-seconds 5..300]
   gstack-cso resume RUN
   gstack-cso inspect RUN
   gstack-cso read RUN PATH_OR_HANDLE
@@ -195,13 +195,14 @@ async function doctor(args:string[],dependencies:CsoCliDependencies){
   return{schemaVersion:3,downloads:false,elapsedMs:Date.now()-started,checks};
 }
 async function provisionImages(args:string[],dependencies:CsoCliDependencies):Promise<unknown>{
-  const setupSummary=take(args,'--setup-summary');if(args.length)throw new CsoError('INVALID_ARGUMENT',`Unknown argument: ${args[0]}`);
+  const setupSummary=take(args,'--setup-summary'),requestedSeconds=args.includes('--per-image-seconds')?need(args,'--per-image-seconds'):undefined;if(args.length)throw new CsoError('INVALID_ARGUMENT',`Unknown argument: ${args[0]}`);
+  if(requestedSeconds!==undefined)catalogImageProvisioningPolicy(0,requestedSeconds);
   let targetPlatform:'linux/amd64'|'linux/arm64';
   try{targetPlatform=platform();}catch(error){
     const reason=error instanceof CsoError?error.message:'Qualified image provisioning requires an amd64/arm64 Linux Docker platform',result={schemaVersion:1,status:'not_available',downloads:true,platform:'unsupported',requested:0,inspected:0,alreadyPresent:0,downloaded:0,deadlineReached:false,unavailable:[],summary:`Qualified CSO images were not preloaded: ${reason}. Static audits remain available.`};
     return setupSummary?result.summary:result;
   }
-  const scannerCatalog=dependencies.scannerCatalog??SCANNER_CATALOG,entries=qualifiedCatalogImages(dependencies.runtimeCatalog,scannerCatalog,targetPlatform),deadline=Date.now()+CATALOG_IMAGE_PROVISIONING_BUDGET_MS,result=await provisionCatalogImages(entries,targetPlatform,dependencies.catalogImageSession??productionCatalogImageSession,deadline);
+  const scannerCatalog=dependencies.scannerCatalog??SCANNER_CATALOG,entries=qualifiedCatalogImages(dependencies.runtimeCatalog,scannerCatalog,targetPlatform),policy=catalogImageProvisioningPolicy(entries.length,requestedSeconds),deadline=Date.now()+policy.aggregateMs,result=await provisionCatalogImages(entries,targetPlatform,dependencies.catalogImageSession??productionCatalogImageSession,deadline,policy.perImageMs);
   return setupSummary?result.summary:result;
 }
 function run(args:string[]){if(!args.length)throw new CsoError('INVALID_ARGUMENT','Run ID is required');return {dir:runDirectory(args.shift()!),report:null as any};}

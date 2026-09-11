@@ -49,6 +49,28 @@ function readShipUnion(): string {
   return readSkillUnion('ship');
 }
 
+describe('CSO host permission boundary', () => {
+  test('grants no raw source, mutation, search, question, or Agent tools', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const fmEnd = content.indexOf('\n---', 4);
+    const frontmatter = Bun.YAML.parse(content.slice(4, fmEnd)) as Record<string, unknown>;
+    const allowed = frontmatter['allowed-tools'];
+    expect(allowed).toEqual([
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher *)',
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher.exe *)',
+    ]);
+    for (const broad of ['Bash', 'Read', 'Grep', 'Glob', 'Write', 'Agent', 'WebSearch', 'AskUserQuestion']) expect(allowed).not.toContain(broad);
+  });
+
+  test('retains helper-only source access, sequential challenge, and honest host containment', () => {
+    const content = readSkillUnion('cso');
+    expect(content).toContain('Never use host `Read`/`Glob`/`Grep`');
+    expect(content).toContain('sequential challenge; independent agent unavailable');
+    expect(content).toContain('Do not request broader tool access solely to obtain an independent reviewer.');
+    expect(content).toContain('Containment does not sandbox the host agent or kernel.');
+  });
+});
+
 describe('SKILL.md command validation', () => {
   // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
   // skill. The browse body lives only in browse/SKILL.md now. This regression

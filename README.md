@@ -44,7 +44,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only). **Recommended on macOS:** the [Aside](https://aside.com) browser (macOS 15+) — browser skills, `/make-pdf`, and `/diagram` drive it first, with your real logged-in sessions. Without it, `./setup` builds gstack's own bundled browser and the same skills use that. `/cso` additionally needs a Bun release with all four `--no-compile-autoload-*` build flags plus a native toolchain: a static-capable C compiler on Linux, Xcode command-line tools on macOS, or Visual Studio 2022 Build Tools with Desktop development with C++ on Windows. If those are absent, setup installs everything else, removes stale CSO helpers, and `/cso` reports `not assessed` with the prerequisite.
 
-When qualified CSO runtime images are published, setup gives their automatic preload one 30-second aggregate budget. It reports partial progress and continues installing static audits; a later setup resumes from exact digests already present in local Docker.
+When qualified CSO runtime images are published, setup gives each automatic preload a 30-second window plus a bounded setup allowance for the declared catalog. For slower registries, set an integer such as `GSTACK_CSO_IMAGE_PULL_TIMEOUT_SECONDS=120` (accepted range: 5–300 seconds). One image timing out does not consume the remaining images' windows; setup reports partial progress and a later run resumes from exact digests already present in local Docker. The complete preload is capped at one hour.
 
 ### Step 1: Install on your machine
 

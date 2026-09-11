@@ -6,7 +6,7 @@ import { canonical, sha256 } from '../lib/cso/contracts';
 import { dockerEndpoint, ISOLATION_POLICY_HASH } from '../lib/cso/docker';
 import { createDockerScannerRunner, ScannerRunInput } from '../lib/cso/scanner-executor';
 import { QualifiedRuntime } from '../lib/cso/runtime-catalog';
-import { QualifiedScanner, scannerVersionHash } from '../lib/cso/scanner-catalog';
+import { assertScannerVersionOutput, QualifiedScanner, scannerVersionHash } from '../lib/cso/scanner-catalog';
 import { ScannerId, parseScannerOutput, scannerPlans } from '../lib/cso/scanners';
 import { secureDirectory } from '../lib/cso/state';
 
@@ -14,6 +14,30 @@ const requested = process.env.GSTACK_CSO_SCANNER_DOCKER_TESTS === '1';
 const suite = requested ? describe : describe.skip;
 const HASH = 'a'.repeat(64), DIGEST = `sha256:${HASH}`;
 let root = '', source = '', watchdog = '', staged: any;
+
+describe('scanner qualification version evidence',()=>{
+  test.each([
+    ['gitleaks','gitleaks version 8.30.1','8.30.1'],
+    ['osv','osv-scanner version: 2.4.0','2.4.0'],
+    ['semgrep','1.136.0','1.136.0'],
+    ['zizmor','zizmor 1.11.2','1.11.2'],
+    ['trivy','Version: 0.67.2','0.67.2'],
+    ['schemathesis','schemathesis, version 4.5.2','4.5.2'],
+  ] as const)('accepts a supported real version layout: %s %s',(scanner,output,version)=>{
+    expect(()=>assertScannerVersionOutput(scanner,version,`${output}\n`)).not.toThrow();
+  });
+  test.each(['11.2.3','1.2.30','1.2.3-dev','prefix1.2.3','1.2.3suffix'])('rejects a substring version match: %s',output=>{
+    expect(()=>assertScannerVersionOutput('gitleaks','1.2.3',output)).toThrow('exact catalog version');
+  });
+  test('rejects an expected version that appears only in secondary metadata',()=>{
+    expect(()=>assertScannerVersionOutput('gitleaks','1.2.3','gitleaks version 9.9.9\nruntime 1.2.3\n')).toThrow('primary version');
+  });
+  test('uses the same 8192-byte output boundary as production execution',()=>{
+    const prefix='gitleaks version 1.2.3\n',within=prefix+'x'.repeat(8192-Buffer.byteLength(prefix));
+    expect(()=>assertScannerVersionOutput('gitleaks','1.2.3',within)).not.toThrow();
+    expect(()=>assertScannerVersionOutput('gitleaks','1.2.3',within+'x')).toThrow('bounded output');
+  });
+});
 
 function write(name: string, body: string): void {
   const target = path.join(source, name); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, body, { mode: 0o600 });
@@ -88,7 +112,7 @@ suite('qualified CSO scanner image', () => {
     try {
       const version = await runner.version();
       expect(version.exitCode).toBe(0); expect(version.timedOut).not.toBe(true); expect(version.truncated).not.toBe(true);
-      expect(`${version.stdout}\n${version.stderr ?? ''}`).toContain(staged.version);
+      assertScannerVersionOutput(id,staged.version,version.stdout,version.stderr);
       profile.versionOutputSha256 = scannerVersionHash(version.stdout, version.stderr);
       const execution = await runner.scan(), outcome = parseScannerOutput(plan, { ...execution, version: staged.version, databaseUpdatedAt: staged.assets?.advisoryDatabase?.updatedAt });
       expect(outcome.status).toBe('complete'); expect(outcome.gaps).toEqual([]); expect(outcome.version).toBe(staged.version);

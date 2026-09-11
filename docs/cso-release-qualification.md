@@ -34,12 +34,15 @@ contexts, and uses a new empty Docker configuration so pulls are anonymous.
 Only fully qualified `registry/repository@sha256:...` catalog entries are
 requested. Missing Docker or public registry access is a visible, nonfatal
 prerequisite: static audits remain available and a later `./setup` retries.
-The preload stage has one 30-second aggregate deadline across endpoint checks,
-local image inspection, downloads, and post-download admission. When a registry
-prerequisite stops further downloads, setup still checks later catalog entries
-locally and reports every already-present digest. Reaching the aggregate
-deadline stops all remaining work, reports the uninspected entries explicitly,
-and leaves them for the next setup run.
+The preload stage reserves 30 seconds for endpoint admission and gives each
+declared image a separate 30-second inspection/download window. Set
+`GSTACK_CSO_IMAGE_PULL_TIMEOUT_SECONDS=120` when registry speed requires a
+longer per-image window (accepted range: 5–300 seconds). The helper derives an aggregate deadline from the
+catalog size and caps the complete stage at one hour. A per-image timeout leaves
+that digest unavailable and continues with the next entry; reaching the hard
+aggregate deadline stops all remaining work. When a registry prerequisite stops
+further downloads, setup still checks later catalog entries locally and reports
+every already-present digest. A later setup resumes from exact local digests.
 Application, verifier, and scanner execution still use `--pull=never` with no
 egress. `gstack-cso doctor --repo PATH` never downloads; it reports a qualified
 profile unavailable until that exact digest and platform are already present

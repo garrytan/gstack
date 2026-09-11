@@ -1094,11 +1094,12 @@ if [ "$CSO_BUILD_AVAILABLE" -eq 1 ]; then
   # Runtime/scanner execution never pulls. Setup is the sole automatic
   # acquisition path: the trusted launcher validates committed catalogs,
   # rejects remote Docker contexts, and uses an empty Docker config for
-  # anonymous exact-digest pulls. The whole preload stage has one 30-second
-  # deadline; Docker or network gaps remain nonfatal so static /cso stays
-  # available and a later setup can continue from already-present images.
+  # anonymous exact-digest pulls. Each image gets a bounded pull window and the
+  # whole catalog remains under a hard aggregate deadline; Docker or network
+  # gaps stay nonfatal so a later setup can continue from local exact digests.
   _CSO_IMAGE_SUMMARY=""
-  if _CSO_IMAGE_SUMMARY="$("$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" provision-images --setup-summary 2>/dev/null)"; then
+  _CSO_IMAGE_PULL_TIMEOUT_SECONDS="${GSTACK_CSO_IMAGE_PULL_TIMEOUT_SECONDS:-30}"
+  if _CSO_IMAGE_SUMMARY="$("$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" provision-images --setup-summary --per-image-seconds "$_CSO_IMAGE_PULL_TIMEOUT_SECONDS" 2>/dev/null)"; then
     [ -n "$_CSO_IMAGE_SUMMARY" ] && log "$_CSO_IMAGE_SUMMARY"
   else
     log "warning: qualified CSO images could not be checked or preloaded; static audits remain available. Re-run setup after local Docker and public registry access are available."

@@ -63,6 +63,21 @@ function sameStrings(left: string[], right: string[]): boolean {
 export function scannerVersionHash(stdout: string, stderr = ''): string {
   return sha256(canonical({ stdout: stdout.trim(), stderr: stderr.trim() }));
 }
+/**
+ * Accept the common scanner `--version` layouts while requiring the catalog
+ * version to be one complete version token. A substring such as `1.2.3` in
+ * `11.2.3`, `1.2.30`, or `1.2.3-dev` is not qualification evidence.
+ */
+export function assertScannerVersionOutput(scanner:ScannerId,version:string,stdout:string,stderr=''):void{
+  if(!/^[0-9][A-Za-z0-9.+_-]{0,100}$/.test(version))invalid('Scanner version evidence has an invalid expected version');
+  const output=`${stdout}\n${stderr}`;
+  if(Buffer.byteLength(stdout)+Buffer.byteLength(stderr)>8192)invalid('Scanner version evidence exceeds the bounded output limit');
+  const escaped=version.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const labels:Record<ScannerId,string>={gitleaks:'gitleaks',osv:'(?:osv|osv-scanner)',semgrep:'semgrep',zizmor:'zizmor',trivy:'trivy',schemathesis:'schemathesis'};
+  const primary=output.split(/\r?\n/).map(line=>line.trim()).find(Boolean)??'';
+  const exact=new RegExp(`^(?:v?${escaped}|${labels[scanner]},?\\s+(?:version\\s*:?\\s*)?v?${escaped}|version\\s*:\\s*v?${escaped})$`,'i');
+  if(!exact.test(primary))invalid('Scanner primary version output does not match the exact catalog version');
+}
 export function validateQualifiedScanner(s: QualifiedScanner): void {
     if (!SCANNER_IDS.includes(s.scanner) || !['linux/amd64', 'linux/arm64'].includes(s.platform)) invalid('Unsupported scanner or platform');
     const arch = s.platform === 'linux/amd64' ? 'amd64' : 'arm64';

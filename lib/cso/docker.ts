@@ -82,8 +82,8 @@ export async function dockerExactImagePresent(endpoint:DockerEndpoint,home:strin
     cwd:home,env:dockerEnvironment(endpoint,config),raw:true,timeoutMs:dockerTimeout(deadline,5_000),maxBytes:128*1024,
   });
   assertEndpoint(endpoint);
-  if(deadlineExpired(deadline))throw new CsoError('DEADLINE','Exact image inspection reached the aggregate image-provisioning deadline');
-  if(result.code||result.timedOut||result.truncated)return false;
+  if(deadlineExpired(deadline)||result.timedOut)throw new CsoError('DEADLINE','Exact image inspection reached its bounded image-provisioning deadline');
+  if(result.code||result.truncated)return false;
   let inspected:any;try{inspected=JSON.parse(result.stdout);}catch{return false;}
   const expectedArch=platform==='linux/arm64'?'arm64':'amd64';
   return inspected?.Os==='linux'&&inspected?.Architecture===expectedArch&&
@@ -100,8 +100,8 @@ export async function dockerPullExactCatalogImage(endpoint:DockerEndpoint,home:s
     cwd:home,env:dockerEnvironment(endpoint,config),timeoutMs:dockerTimeout(deadline,300_000),maxBytes:128*1024,
   });
   assertEndpoint(endpoint);
-  if(deadlineExpired(deadline))throw new CsoError('DEADLINE','Qualified image pull reached the 30-second aggregate preload deadline');
-  if(result.code||result.timedOut||result.truncated)throw new CsoError('PREREQUISITE','Anonymous pull of a qualified CSO image failed; allow public registry access and rerun setup');
+  if(deadlineExpired(deadline)||result.timedOut)throw new CsoError('DEADLINE','Qualified image pull reached its bounded preload deadline');
+  if(result.code||result.truncated)throw new CsoError('PREREQUISITE','Anonymous pull of a qualified CSO image failed; allow public registry access and rerun setup');
   if(!await dockerExactImagePresent(endpoint,home,image,platform,deadline))throw new CsoError('INCOMPATIBLE_INPUT','Docker did not retain the exact qualified image digest and platform after acquisition');
 }
 export interface ContainerSpec {

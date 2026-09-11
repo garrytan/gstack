@@ -21,8 +21,10 @@ isolation-policy hash. The helper validates that catalog when it starts and has
 no executable fallback.
 Setup preloads the current platform's qualified scanner digests through the
 trusted installation helper using anonymous public-registry access. A failed
-preload or the setup-wide 30-second image deadline is a nonfatal prerequisite
-and never causes an audit to pull. Doctor is
+preload or a bounded per-image/setup deadline is a nonfatal prerequisite and
+never causes an audit to pull. The default is 30 seconds per declared image;
+`GSTACK_CSO_IMAGE_PULL_TIMEOUT_SECONDS=120` selects a longer allowance (accepted
+range: 5–300 seconds) while the complete preload remains capped at one hour. Doctor is
 read-only and reports each scanner unavailable unless its exact catalog digest
 is already present locally.
 
@@ -78,12 +80,12 @@ freshness, and ecosystem coverage. Publishing those asset-bearing base images
 and reviewing their evidence are external prerequisites; the release workflow
 does not invent or silently replace them.
 
-[`cso-scanner-images.yml`](../.github/workflows/cso-scanner-images.yml) can build
-and qualify reviewed inputs from any dispatched branch without a protected
-environment. It builds natively on amd64 and arm64, verifies branch-bound
-attestations, recomputes embedded asset hashes, runs common containment and the
-real adapter, and emits twelve immutable profile fragments plus a complete
-catalog proposal. Before enabling promotion, configure the repository's
+[`cso-scanner-images.yml`](../.github/workflows/cso-scanner-images.yml) lets a
+dispatched branch run read-only input and contract validation. Image publishing,
+native amd64/arm64 qualification, attestation verification, embedded-asset hash
+checks, containment, real-adapter execution, and catalog-proposal generation run
+only from protected `main` through the `cso-scanner-release` environment. Before
+enabling qualification or promotion, configure the repository's
 `cso-scanner-release` GitHub environment with required maintainer reviewers and
 deployments restricted to protected `main`. GitHub otherwise creates a referenced
 missing environment without protection rules. Promotion requires an explicit

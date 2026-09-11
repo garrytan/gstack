@@ -381,6 +381,8 @@ describe('CSO runtime staging gates', () => {
     expect(raw).toContain('cmp runtime-catalog.candidate.json committed-runtime-catalog.json');
     expect(raw).toContain('git push');
     expect(raw).toContain('gh pr create --base main');
+    expect(raw).toContain('branch="cso-runtime-catalog-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"');
+    expect(raw).not.toContain('branch="cso-runtime-catalog-$GITHUB_RUN_ID"');
     const attested = raw.indexOf('subject-path: runtime-catalog.candidate.json');
     const publicPull = raw.indexOf('scripts/cso-public-ghcr.ts verify');
     const verified = raw.indexOf('gh attestation verify runtime-catalog.candidate.json');

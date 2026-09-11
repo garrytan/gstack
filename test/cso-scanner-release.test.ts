@@ -97,10 +97,15 @@ describe('CSO scanner catalog promotion', () => {
 });
 
 describe('CSO scanner qualification workflow', () => {
-  test('is branch-testable while catalog promotion is protected-main and review gated', () => {
+  test('keeps branch validation read-only while qualification and promotion are protected-main and review gated', () => {
     const raw = fs.readFileSync(path.join(ROOT, '.github/workflows/cso-scanner-images.yml'), 'utf8'), workflow = Bun.YAML.parse(raw) as any;
-    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']); expect(workflow.jobs['reviewed-inputs'].if).toBeUndefined(); expect(workflow.jobs['stage-and-qualify'].if).toBeUndefined();
-    expect(workflow.jobs['stage-and-qualify'].environment).toBeUndefined();
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']); expect(workflow.permissions).toEqual({ contents: 'read' }); expect(workflow.jobs['reviewed-inputs'].if).toBeUndefined();
+    const stage = workflow.jobs['stage-and-qualify'];
+    expect(stage.if).toContain("github.ref == 'refs/heads/main'"); expect(stage.if).toContain("github.event_name == 'workflow_dispatch'"); expect(stage.environment).toBe('cso-scanner-release');
+    expect(stage.permissions).toMatchObject({ contents: 'read', packages: 'write', 'id-token': 'write', attestations: 'write', 'artifact-metadata': 'write' });
+    const privileged = Object.entries(workflow.jobs).filter(([, job]: any) => ['packages', 'id-token', 'attestations', 'artifact-metadata'].some(permission => job.permissions?.[permission] === 'write'));
+    expect(privileged.map(([name]) => name)).toEqual(['stage-and-qualify']);
+    for (const permission of ['packages', 'id-token', 'attestations', 'artifact-metadata']) expect(workflow.jobs['reviewed-inputs'].permissions?.[permission]).toBeUndefined();
     expect(workflow.jobs['promote-catalog'].if).toContain("github.ref == 'refs/heads/main'"); expect(workflow.jobs['promote-catalog'].if).toContain('inputs.promote_catalog == true'); expect(workflow.jobs['promote-catalog'].environment).toBe('cso-scanner-release');
     expect(workflow.jobs['promote-catalog'].permissions.packages).toBe('read');
     expect(raw).toContain('test/cso-scanners.test.ts test/cso-scanner-executor.test.ts test/cso-scanner-release.test.ts');
@@ -117,6 +122,7 @@ describe('CSO scanner qualification workflow', () => {
     for (const flag of ["'--pull=never'", "'--read-only'", "'--cap-drop','ALL'", "'no-new-privileges:true'", "'seccomp=builtin'", "'--log-driver=none'", "'--network'"]) expect(docker).toContain(flag);
     expect(docker).toContain("['rm','--force','--volumes',id]"); expect(docker).toContain('Pinned runtime image declares writable volumes');
     expect(raw).toContain('cso-scanner-catalog.ts assemble'); expect(raw).toContain('cso-scanner-catalog.ts validate-transition lib/cso/scanner-images/catalog.json promotion/catalog-proposal.json'); expect(raw).toContain('gh pr create --base main');
+    expect(raw).toContain('branch="cso-scanner-catalog-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"'); expect(raw).not.toContain('branch="cso-scanner-catalog-$GITHUB_RUN_ID"');
     const publicPromotion = raw.indexOf('Recheck public visibility and anonymous pulls before promotion');
     const sourcePromotion = raw.indexOf('Revalidate and open the reviewable source catalog PR');
     expect(publicPromotion).toBeGreaterThanOrEqual(0); expect(sourcePromotion).toBeGreaterThan(publicPromotion);

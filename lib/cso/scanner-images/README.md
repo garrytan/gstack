@@ -28,14 +28,15 @@ namespace, disabled daemon logging, and watchdog cleanup.
 Images that declare `VOLUME` are rejected; exact cleanup also removes anonymous
 volumes defensively.
 
-`.github/workflows/cso-scanner-images.yml` may stage and qualify any dispatched
-branch so a pull request can prove the lane before merge. The workflow emits a
-complete `catalog.json` proposal with image, version-output, asset, SBOM,
-provenance, source-commit, and workflow identities. Only a dispatch from
-protected `main`, with the `cso-scanner-release` environment approved and the
-promotion input selected, may open a catalog update pull request. Review that
-PR like code. The helper validates the committed catalog at startup and has no
-fallback when a profile is absent or incompatible.
+`.github/workflows/cso-scanner-images.yml` lets a dispatched branch run only its
+read-only input and contract checks. Publishing and native qualification require
+a dispatch from protected `main` plus approval through the
+`cso-scanner-release` environment. That protected lane emits a complete
+`catalog.json` proposal with image, version-output, asset, SBOM, provenance,
+source-commit, and workflow identities. Selecting the promotion input may then
+open a catalog update pull request. Review that PR like code. The helper
+validates the committed catalog at startup and has no fallback when a profile is
+absent or incompatible.
 Promotion also requires the proposal's `previousRevision` to equal the catalog
 currently on `main`, so a stale qualification run cannot overwrite a newer one.
 

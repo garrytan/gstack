@@ -151,7 +151,7 @@ jobs:
             validateRuntimeCatalog(candidate);
           '
           bun run build:cso
-          branch="cso-runtime-catalog-$GITHUB_RUN_ID"
+          branch="cso-runtime-catalog-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git switch -c "$branch"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com

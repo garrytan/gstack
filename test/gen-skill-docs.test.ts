@@ -3673,6 +3673,29 @@ describe('voice-triggers processing', () => {
     expect(frontmatter).not.toContain('voice-triggers:');
   });
 
+  test('generated Claude CSO skill preauthorizes only the trusted launcher', () => {
+    const expected = [
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher *)',
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher.exe *)',
+    ];
+    for (const file of ['cso/SKILL.md.tmpl', 'cso/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, file), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = Bun.YAML.parse(content.slice(4, fmEnd)) as Record<string, unknown>;
+      expect(frontmatter['allowed-tools'], file).toEqual(expected);
+    }
+  });
+
+  test('generated CSO host variants retain challenge fallback and host-containment disclosure', () => {
+    const claude = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const codex = fs.readFileSync(path.join(EXTERNAL_OUT, '.agents', 'skills', 'gstack-cso', 'SKILL.md'), 'utf-8');
+    for (const content of [claude, codex]) {
+      expect(content).toContain('sequential challenge; independent agent unavailable');
+      expect(content).toContain('Containment does not sandbox the host agent or kernel.');
+      expect(content).toContain('Do not request broader tool access solely to obtain an independent reviewer.');
+    }
+  });
+
   // Gen-time-only keys: interactive + benefits-from are read from the .tmpl by
   // buildContext; the generated copy has no reader (the host reads name/
   // description/allowed-tools/hooks; gbrain: is runtime-read and NOT stripped).

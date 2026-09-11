@@ -7,6 +7,7 @@ import { dispatchCsoCommand, type CsoCliDependencies } from '../lib/cso/cli';
 import { canonical, CsoError, sha256 } from '../lib/cso/contracts';
 import { ISOLATION_POLICY_HASH } from '../lib/cso/docker';
 import {
+  catalogImageProvisioningPolicy,
   inspectCatalogImages,
   openLocalCatalogImageSession,
   provisionCatalogImages,
@@ -64,6 +65,14 @@ function railsPostgresRepo():string{
 }
 
 describe('trusted CSO image provisioning',()=>{
+  test('setup derives a bounded allowance per declared catalog image',()=>{
+    expect(catalogImageProvisioningPolicy(11)).toEqual({perImageMs:30_000,aggregateMs:360_000});
+    expect(catalogImageProvisioningPolicy(11,'300')).toEqual({perImageMs:300_000,aggregateMs:3_330_000});
+    expect(()=>catalogImageProvisioningPolicy(11,'4')).toThrow('5..300');
+    expect(()=>catalogImageProvisioningPolicy(11,'301')).toThrow('5..300');
+    expect(()=>catalogImageProvisioningPolicy(12,'300')).toThrow('bounded setup preload capacity');
+  });
+
   test('plans only qualified exact-digest images for the native platform',()=>{
     const runtimes=completeRuntimeCatalogFixture('image-provisioning-fixture'),entries=qualifiedCatalogImages(runtimes,scannerCatalog(),target);
     expect(entries).toHaveLength(11);
@@ -96,15 +105,28 @@ describe('trusted CSO image provisioning',()=>{
     expect(result.summary).toContain('Rerun setup');
   });
 
-  test('one aggregate deadline bounds provisioning instead of multiplying a timeout per image',async()=>{
+  test('the aggregate deadline still bounds the complete provisioning pass',async()=>{
     const entries=qualifiedCatalogImages(completeRuntimeCatalogFixture('setup-deadline-fixture'),scannerCatalog(),target).slice(0,4),started=Date.now(),deadline=started+100;
     let receivedDeadline=0,presentCalls=0,pullCalls=0,closed=false;
     const result=await provisionCatalogImages(entries,target,async value=>{receivedDeadline=value;return{docker:{endpoint:'unix:///trusted/docker.sock',version:'27.0.0',security:['seccomp']},
-      present:async()=>{presentCalls++;return false;},pull:async()=>{pullCalls++;while(Date.now()<value)await Bun.sleep(2);throw new CsoError('DEADLINE','Qualified image pull reached the 30-second aggregate preload deadline');},close:()=>{closed=true;}};},deadline);
+      present:async()=>{presentCalls++;return false;},pull:async()=>{pullCalls++;while(Date.now()<value)await Bun.sleep(2);throw new CsoError('DEADLINE','Qualified image pull reached the aggregate preload deadline');},close:()=>{closed=true;}};},deadline);
     expect(receivedDeadline).toBe(deadline);expect(Date.now()-started).toBeLessThan(1000);
     expect(result).toMatchObject({status:'partial',requested:4,inspected:1,alreadyPresent:0,downloaded:0,deadlineReached:true});
-    expect(result.unavailable).toHaveLength(4);expect(result.summary).toContain('30-second aggregate deadline');
+    expect(result.unavailable).toHaveLength(4);expect(result.summary).toContain('bounded aggregate deadline');
     expect(presentCalls).toBe(1);expect(pullCalls).toBe(1);expect(closed).toBe(true);
+  });
+
+  test('one per-image timeout does not consume the remaining images allowance',async()=>{
+    const entries=qualifiedCatalogImages(completeRuntimeCatalogFixture('setup-per-image-fixture'),scannerCatalog(),target).slice(0,2),pulls:string[]=[];
+    const result=await provisionCatalogImages(entries,target,async deadline=>({docker:{endpoint:'unix:///trusted/docker.sock',version:'27.0.0',security:['seccomp']},
+      present:async()=>false,
+      pull:async(entry,imageDeadline=deadline)=>{pulls.push(entry.id);if(entry===entries[0]){while(Date.now()<imageDeadline)await Bun.sleep(1);throw new CsoError('DEADLINE','Per-image pull deadline reached');}},
+      close:()=>{},
+    }),Date.now()+1000,25);
+    expect(pulls).toEqual(entries.map(entry=>entry.id));
+    expect(result).toMatchObject({status:'partial',requested:2,inspected:2,downloaded:1,deadlineReached:false});
+    expect(result.unavailable).toEqual([expect.objectContaining({id:entries[0].id,reason:expect.stringContaining('per-image')})]);
+    expect(result.summary).toContain('GSTACK_CSO_IMAGE_PULL_TIMEOUT_SECONDS');
   });
 
   test('a local image check completing after the aggregate deadline cannot be counted',async()=>{
@@ -133,11 +155,12 @@ describe('trusted CSO image provisioning',()=>{
     for(const scanner of SCANNER_IDS)expect(doctor.checks.find((item:any)=>item.capability===`scanner:${scanner}`)).toMatchObject({status:'missing',detail:{availability:'unavailable'}});
     expect(fake.calls.pull).toEqual([]);
 
-    const setupFake=session({present:()=>true}),summary=await dispatchCsoCommand('provision-images',['--setup-summary'],{
+    const setupFake=session({present:()=>true}),summary=await dispatchCsoCommand('provision-images',['--setup-summary','--per-image-seconds','5'],{
       ...dependencies,catalogImageSession:async()=>setupFake.value,
     });
     expect(summary).toBe('Qualified CSO images ready: 11 available (0 downloaded, 11 already local).');
     expect(setupFake.calls.pull).toEqual([]);
+    await expect(dispatchCsoCommand('provision-images',['--per-image-seconds','301'],dependencies)).rejects.toThrow('5..300');
   });
 
   test('doctor includes the required PostgreSQL sidecar in Rails readiness without pulling',async()=>{

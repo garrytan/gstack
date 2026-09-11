@@ -123,6 +123,12 @@ describe('all six helper-owned scanner execution paths', () => {
     const out = await executeScanner(input('gitleaks'), { catalog: catalog('gitleaks'), runnerFactory: async () => ({ version: async () => ({ stdout: 'different version', exitCode: 0 }), scan: async () => { calls.push('scan'); return result('gitleaks'); }, cleanup: async () => { calls.push('cleanup'); } }) });
     expect(calls).toEqual(['cleanup']); expect(out.outcome.status).toBe('not_assessed'); expect(out.outcome.version).toBeNull(); expect(out.outcome.gaps[0].message).toContain('version output');
   });
+  test('an exact output hash cannot launder a substring version mismatch',async()=>{
+    const c=catalog('gitleaks'),p=scannerProfile(c,'gitleaks'),reported='gitleaks version 14.0.0\n',calls:string[]=[];
+    p.versionOutputSha256=scannerVersionHash(reported);c.promotion!.evidenceDigest=`sha256:${sha256(canonical(c.scanners))}`;
+    const out=await executeScanner(input('gitleaks'),{catalog:c,runnerFactory:async()=>({version:async()=>({stdout:reported,exitCode:0}),scan:async()=>{calls.push('scan');return result('gitleaks');},cleanup:async()=>{calls.push('cleanup');}})});
+    expect(calls).toEqual(['cleanup']);expect(out.outcome.status).toBe('not_assessed');expect(out.outcome.gaps[0].message).toContain('exact catalog version');
+  });
   test.each([['timeout', 'TIMEOUT'], ['redaction', 'REDACTION_FAILED'], ['invalid-output', 'INVALID_OUTPUT'], ['tool', 'TOOL_FAILED'], ['cleanup', 'ISOLATION_FAILED']] as const)('%s preserves truthful scanner coverage', async (failure, code) => {
     let cleaned = false;
     const out = await executeScanner(input('gitleaks'), { catalog: catalog('gitleaks'), runnerFactory: async () => ({ version: async () => ({ stdout: version('gitleaks'), exitCode: 0 }), scan: async () => { if (failure === 'timeout') throw new CsoError('DEADLINE', 'Scanner timed out'); if (failure === 'redaction') throw new CsoError('REDACTION_FAILED', 'Scanner output withheld'); if (failure === 'tool') throw new CsoError('TOOL_FAILED', 'Scanner process failed'); return failure === 'invalid-output' ? { stdout: '{', exitCode: 0 } : result('gitleaks'); }, cleanup: async () => { cleaned = true; if (failure === 'cleanup') throw new CsoError('ISOLATION_FAILED', 'Exact cleanup failed'); } }) });

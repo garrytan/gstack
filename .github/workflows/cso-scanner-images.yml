@@ -1,7 +1,8 @@
 name: Qualify CSO Scanner Images
 
-# Branch dispatches may build and test evidence. Only protected main, an explicit
-# promotion input, and the cso-scanner-release environment may propose a catalog.
+# Branch dispatches may validate reviewed inputs. Only protected main and the
+# cso-scanner-release environment may publish or qualify scanner images. An
+# explicit promotion input may then propose a catalog.
 on:
   workflow_dispatch:
     inputs:
@@ -44,6 +45,8 @@ jobs:
 
   stage-and-qualify:
     needs: reviewed-inputs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cso-scanner-release
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.reviewed-inputs.outputs.matrix) }}
@@ -355,7 +358,7 @@ jobs:
           bun install --frozen-lockfile --ignore-scripts
           bun test test/cso-scanners.test.ts test/cso-scanner-executor.test.ts test/cso-scanner-release.test.ts
           bun run build:cso
-          branch="cso-scanner-catalog-$GITHUB_RUN_ID"
+          branch="cso-scanner-catalog-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git switch -c "$branch"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com

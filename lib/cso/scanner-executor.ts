@@ -7,7 +7,7 @@ import { DockerEndpoint, DockerGroup, dockerEndpoint } from './docker';
 import { inspectPreparation, type CsoStack } from './preparation';
 import { redact } from './process';
 import { QualifiedRuntime, RUNTIME_CATALOG, RuntimeCatalog, RuntimePlatform, assertRuntimeCompatible, selectRuntime } from './runtime-catalog';
-import { QualifiedScanner, SCANNER_CATALOG, ScannerCatalog, scannerVersionHash, selectScanner } from './scanner-catalog';
+import { QualifiedScanner, SCANNER_CATALOG, ScannerCatalog, assertScannerVersionOutput, scannerVersionHash, selectScanner } from './scanner-catalog';
 import { ScannerExecution, ScannerGap, ScannerId, ScannerOutcome, ScannerPlan, parseScannerOutput, scannerPlans } from './scanners';
 import { assertSnapshot } from './snapshot';
 import { hasPendingWatchdogCleanup, secureDirectory } from './state';
@@ -251,6 +251,7 @@ export async function executeScanner(input: ScannerRunInput, dependencies: Scann
     runner = await (dependencies.runnerFactory ?? createDockerScannerRunner)({ input: { ...input, request }, plan, profile, runtime, application, deadline: Math.min(input.executionDeadline, Date.now() + timeout * 1000) });
     const version = await runner.version();
     if (version.exitCode !== 0 || version.timedOut || version.truncated || version.unavailable || Buffer.byteLength(version.stdout) + Buffer.byteLength(version.stderr ?? '') > 8192) throw new CsoError('TOOL_UNAVAILABLE', 'Scanner version probe did not complete within the qualified sandbox');
+    assertScannerVersionOutput(profile.scanner,profile.version,version.stdout,version.stderr);
     versionHash = scannerVersionHash(version.stdout, version.stderr);
     if (versionHash !== profile.versionOutputSha256) throw new CsoError('INCOMPATIBLE_INPUT', 'Scanner version output does not match its reviewed image profile');
     observedVersion = profile.version;
