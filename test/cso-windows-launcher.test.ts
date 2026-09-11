@@ -91,6 +91,22 @@ function expectSuccessfulProcess(result: ReturnType<typeof spawnSync>, label: st
   })}`);
 }
 
+function filesNamed(root: string, name: string): string[] {
+  const found: string[] = [];
+  const walk = (directory: string) => {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) walk(candidate);
+      else if (entry.isFile() && entry.name === name) found.push(candidate);
+    }
+  };
+  walk(root);
+  return found;
+}
+
 describe('CSO native Windows build contract', () => {
   test('Windows builds use MSVC with a static CRT and no Bun-hosted public launcher', () => {
     const build = fs.readFileSync(path.join(ROOT, 'scripts/build-cso.sh'), 'utf8');
@@ -285,4 +301,45 @@ describe('CSO native Windows build contract', () => {
     const doctor=spawnSync(actual,['doctor','--repo',repository],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(doctor.status).toBe(0);expect(JSON.parse(doctor.stdout).downloads).toBe(false);
     const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
   });
+
+  test('the actual helper rejects source mutation during snapshot capture without certifying a report', async () => {
+    const repository=path.join(temporary,'racing repository'),profile=path.join(temporary,'race profile'),padding=path.join(repository,'padding'),target=path.join(repository,'zzzz-race-target.js');
+    fs.mkdirSync(repository);fs.mkdirSync(profile);fs.mkdirSync(padding);
+    const git='C:\\Program Files\\Git\\cmd\\git.exe',gitEnv={...process.env,HOME:profile};
+    for(const args of [['init','-q'],['config','user.email','fixture@example.test'],['config','user.name','Fixture']] as string[][]){const result=spawnSync(git,args,{cwd:repository,encoding:'utf8',env:gitEnv,timeout:10_000});expect(result.status).toBe(0);}
+    const sourceBytes=128*1024,stable=Buffer.alloc(sourceBytes,0x61),changed=Buffer.alloc(sourceBytes,0x62);
+    fs.writeFileSync(target,stable);
+    for(let index=0;index<192;index++)fs.writeFileSync(path.join(padding,`${String(index).padStart(4,'0')}.js`),stable);
+    for(const args of [['add',path.basename(target)],['commit','-qm','fixture']] as string[][]){const result=spawnSync(git,args,{cwd:repository,encoding:'utf8',env:gitEnv,timeout:30_000});expect(result.status).toBe(0);}
+
+    const actual=path.join(ROOT,'bin','gstack-cso-launcher.exe'),env={...process.env,HOME:'',GSTACK_HOME:'',CLAUDE_PLUGIN_ROOT:'',CLAUDE_PLUGIN_DATA:'',USERPROFILE:profile,PATH:temporary},state=path.join(profile,'.gstack','security','cso');
+    const child=spawn(actual,['start','--repo',repository,'--offline'],{cwd:repository,env,stdio:['ignore','pipe','pipe']});
+    let stdout='',stderr='',closed=false;
+    child.stdout.on('data',chunk=>{stdout=(stdout+String(chunk)).slice(-8192);});
+    child.stderr.on('data',chunk=>{stderr=(stderr+String(chunk)).slice(-8192);});
+    const terminal=new Promise<{code:number|null;error?:string}>(resolve=>{
+      child.once('error',error=>{closed=true;resolve({code:null,error:error.message});});
+      child.once('close',code=>{closed=true;resolve({code});});
+    });
+    const markerDeadline=Date.now()+30_000;let mutations=0,outcome:{code:number|null;error?:string}|undefined;
+    try{
+      while(!closed&&!filesNamed(state,'history-status.json').length&&Date.now()<markerDeadline)await Bun.sleep(2);
+      if(!filesNamed(state,'history-status.json').length)throw new Error('gstack-cso exited or timed out before reaching the bounded snapshot mutation point');
+      while(!closed&&Date.now()<markerDeadline+15_000){
+        try{fs.writeFileSync(target,changed);mutations++;}catch(error:any){if(!['EBUSY','EACCES','EPERM'].includes(error?.code))throw error;}
+        await Bun.sleep(1);
+      }
+      if(!closed)throw new Error('gstack-cso did not finish after the injected snapshot mutation');
+      outcome=await terminal;
+    }finally{
+      if(!closed){spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{encoding:'utf8',timeout:10_000});await Promise.race([terminal,Bun.sleep(10_000)]);}
+    }
+    expect(mutations).toBeGreaterThan(0);
+    expect(outcome?.error).toBeUndefined();
+    expect(outcome?.code).not.toBe(0);
+    expect(stderr).toContain('SNAPSHOT_RACE');
+    expect(stdout).toBe('');
+    expect(filesNamed(state,'snapshot.json')).toEqual([]);
+    expect(filesNamed(state,'report.json')).toEqual([]);
+  }, 90_000);
 });

@@ -85,6 +85,7 @@ gstack-cso record-review <run> <request.json> --producer <identity>
 gstack-cso verify <run> <request.json>
 gstack-cso finish <run>
 gstack-cso import-v2 <report.json>
+gstack-cso inspect-v2 <import-id>
 ```
 
 **Private control files.** Use `umask 077`, a mode-`0700` directory outside the audited repository, and mode-`0600` JSON. Pass absolute paths; remove each control file immediately after ingestion.
@@ -156,6 +157,6 @@ The private state namespace is `security/cso/<repo>/<run>` under the existing st
 
 Give the run ID and the useful next operation. `resume` uses the retained snapshot and original policy; it never substitutes current HEAD or silently replenishes an exhausted budget. `replay` requires matching recorded source/runtime/dependency inputs. After snapshot expiry, missing matching supplied source returns **MISSING_INPUT**. A fresh audit is an explicit new run.
 
-`recheck` creates a fresh current-source snapshot linked to the old finding. Establish closure only from new evidence covering the same root cause and security boundary. A resolved claim must identify fresh caller evidence and the original boundary by snapshot path/handle and line; the helper records the current source hash or proves that the original boundary path is absent. A partial or incompatible audit, changed title, absent warning, or proposed bundle cannot resolve an old finding. Stable v3 identity uses root cause/location and advisory identities rather than generated titles. Import v2 reports read-only: legacy `VERIFIED` means **legacy review evidence**, never reproduced, runtime-tested, or tested.
+`recheck` creates a fresh current-source snapshot linked to the old finding. Establish closure only from new evidence covering the same root cause and security boundary. A resolved claim must identify fresh caller evidence and the original boundary by snapshot path/handle and line; the helper records the current source hash or proves that the original boundary path is absent. A partial or incompatible audit, changed title, absent warning, or proposed bundle cannot resolve an old finding. Stable v3 identity uses root cause/location and advisory identities rather than generated titles. Import v2 reports read-only, retain the returned import ID, and use `inspect-v2` to read the preserved redacted report later. Legacy `VERIFIED` means **legacy review evidence**, never reproduced, runtime-tested, or tested.
 
 For cancellation, deadline, or agent loss, let the helper's independent watchdog clean exact run-owned resources and preserve recoverable partial state. Never issue global Docker prune or remove resources identified only by a broad name. End with the actual completion status, supported results, exact prerequisites, and saved artifact paths returned by the helper.

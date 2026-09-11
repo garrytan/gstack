@@ -39,7 +39,7 @@ export function redact(value: string): string {
 const HASH_KEYS=new Set(['planSha256','planHash','originalHash','executionHash','snapshotHash','sourceHash','beforeSha256','afterSha256','patchHash','reviewedPatchHash','harnessHash','fixturesHash','policyHash','auditPolicyHash','originalSourceHash','transformationsHash','archivesHash','inputHash','beforeSourceHash','afterSourceHash','beforeDependencies','afterDependencies','beforeConfiguration','afterConfiguration','requestHash','startPlanHash','testPlanHash','preparationHash','preparedManifestHash','preparedDependencyHash','sourceProjectionHash','executionEnvironmentHash','databaseHash','receiptHash','dependencyClosureHash','closureHash','acquisitionReceiptHash','registryResponseSha256','sha256','versionOutputSha256','isolationPolicyHash','contentSha256','sbomDigest','provenanceDigest','dependencyHash','configurationHash','assertionHash','commandsHash','minimumPassingTestsHash','commandHash','outputHash','observationHash','witnessHash','keyId']);
 function safeMetadata(value:string,key:string):boolean{
   if(HASH_KEYS.has(key)&&/^[a-f0-9]{64}$/.test(value))return true;
-  if(['id','fingerprint','findingId','verificationId','reproductionAttemptId','artifactId','bundleId','pathId'].includes(key)&&/^[a-f0-9]{32}$/.test(value))return true;
+  if(['id','fingerprint','findingId','verificationId','reproductionAttemptId','artifactId','reviewArtifactId','bundleId','pathId'].includes(key)&&/^[a-f0-9]{32}$/.test(value))return true;
   if(key==='path'&&/^@cso-path\/\/[a-f0-9]{32}$/.test(value))return true;
   if(key==='repoId'&&/^[a-f0-9]{24}$/.test(value))return true;
   if(key==='runId'&&/^\d{13}-[a-f0-9]{16}$/.test(value))return true;

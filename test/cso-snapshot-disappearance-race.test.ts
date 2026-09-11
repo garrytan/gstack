@@ -41,8 +41,9 @@ function fixture(){
 
 describe('CSO snapshot source-disappearance races',()=>{
   // Bun on Windows does not patch the node:fs binding imported by snapshot.ts,
-  // so these syscall-choreography fixtures cannot activate there. Production
-  // snapshot and helper behavior remains covered by the native Windows suites.
+  // so these syscall-choreography fixtures cannot activate there. The native
+  // Windows launcher suite instead mutates real source after capture history is
+  // recorded and requires start to fail closed without a snapshot or report.
   test.skipIf(process.platform==='win32')('rejects a tracked path that disappears at its capture lstat and is restored before final membership validation',async()=>{
     const {repo,runDir,tracked,trackedIdentity,parked}=fixture(),lstat=fs.lstatSync;
     let trackedLstats=0,injected=false,failure:unknown;

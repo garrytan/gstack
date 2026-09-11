@@ -25,7 +25,7 @@ describe('CSO v3 always-loaded policy', () => {
       expect(text).toContain(flag);
     }
     expect(text).toContain('mutually exclusive');
-    for (const command of ['start', 'doctor', 'resume', 'replay', 'recheck', 'inspect', 'read', 'history', 'scan', 'import-sarif', 'submit', 'verify', 'finish', 'import-v2', 'schema']) {
+    for (const command of ['start', 'doctor', 'resume', 'replay', 'recheck', 'inspect', 'read', 'history', 'scan', 'import-sarif', 'submit', 'verify', 'finish', 'import-v2', 'inspect-v2', 'schema']) {
       expect(text).toContain(`gstack-cso ${command}`);
     }
   });

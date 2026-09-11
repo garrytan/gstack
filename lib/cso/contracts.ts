@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 
 export const ABI = 3;
 export const MAX_OUTPUT = 1024 * 1024;
+const UNSAFE_STRING_CONTROLS=/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;
+const UNSAFE_PROPERTY_CONTROLS=/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u;
 export type Completeness = 'complete' | 'partial' | 'not assessed';
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'informational';
 export type ErrorCode = 'INVALID_ARGUMENT' | 'INVALID_SCHEMA' | 'MISSING_INPUT' | 'SNAPSHOT_RACE' |
@@ -150,7 +152,7 @@ function boolean(value:unknown,name:string):boolean{
   if(typeof value!=='boolean')throw new CsoError('INVALID_SCHEMA',`${name} must be a boolean`);return value;
 }
 export function string(value: unknown, name: string, max = 8192): string {
-  if (typeof value !== 'string' || !value.trim() || value.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)) throw new CsoError('INVALID_SCHEMA', `${name} must be a nonempty string without unsafe control characters (maximum ${max})`);
+  if (typeof value !== 'string' || !value.trim() || value.length > max || UNSAFE_STRING_CONTROLS.test(value)) throw new CsoError('INVALID_SCHEMA', `${name} must be a nonempty string without unsafe control characters (maximum ${max})`);
   return value;
 }
 export function strings(value: unknown, name: string): string[] {
@@ -343,6 +345,28 @@ export function renderReport(report: RunReportV3): string {
     ]), '',
   ].join('\n');
 }
+type LegacyJson = null | boolean | number | string | LegacyJson[] | { [key:string]: LegacyJson };
+function legacyJson(value:unknown,depth=0,seen=new WeakSet<object>()):LegacyJson{
+  if(depth>32)throw new CsoError('INVALID_SCHEMA','Legacy report nesting is too deep');
+  if(value===null||typeof value==='boolean')return value;
+  if(typeof value==='number'){if(!Number.isFinite(value))throw new CsoError('INVALID_SCHEMA','Legacy report numbers must be finite');return value;}
+  if(typeof value==='string'){
+    if(value.length>MAX_OUTPUT||UNSAFE_STRING_CONTROLS.test(value))throw new CsoError('INVALID_SCHEMA','Legacy report strings must be bounded and free of unsafe control characters');
+    return value;
+  }
+  if(!value||typeof value!=='object')throw new CsoError('INVALID_SCHEMA','Legacy report contains a non-JSON value');
+  if(seen.has(value))throw new CsoError('INVALID_SCHEMA','Legacy report cannot be cyclic');seen.add(value);
+  try{
+    if(Array.isArray(value)){
+      if(value.length>10_000)throw new CsoError('INVALID_SCHEMA','Legacy report array is too large');
+      return value.map(item=>legacyJson(item,depth+1,seen));
+    }
+    const entries=Object.entries(value as Record<string,unknown>);if(entries.length>10_000)throw new CsoError('INVALID_SCHEMA','Legacy report object is too large');
+    const out:Record<string,LegacyJson>=Object.create(null);
+    for(const [key,item] of entries){if(key.length>1024||['__proto__','prototype','constructor'].includes(key)||UNSAFE_PROPERTY_CONTROLS.test(key))throw new CsoError('INVALID_SCHEMA','Legacy report contains an unsafe property');out[key]=legacyJson(item,depth+1,seen);}
+    return out;
+  }finally{seen.delete(value);}
+}
 export function importLegacy(input: unknown): { schemaVersion: 2; readOnly: true; findings: any[]; warning: string } {
   const v = object(input,'legacy report');
   if (!Array.isArray(v.findings) || ![2,'2','2.0','2.0.0'].includes(v.schemaVersion ?? v.schema_version ?? v.version)) throw new CsoError('INVALID_SCHEMA','Expected a v2 report with findings');
@@ -352,5 +376,6 @@ export function importLegacy(input: unknown): { schemaVersion: 2; readOnly: true
       status:typeof f.status==='string'?string(f.status,'legacy status'): 'unknown',
       ...(typeof f.severity==='string'?{severity:string(f.severity,'legacy severity')}:{ }),
       ...(typeof f.description==='string'?{description:string(f.description,'legacy description')}:{ }),
+      legacy:legacyJson(f),
       evidence:'legacy_review', reproduction:'not_attempted', repair:'not_attempted', closure:'unknown'};}) };
 }
