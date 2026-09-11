@@ -30,7 +30,10 @@ writeFileSync(process.env.CAPTURE!, JSON.stringify({args:process.argv.slice(2),p
 const mode = process.env.FAKE_MODE;
 if (mode === 'timeout' || mode === 'descendant' || mode === 'escaped') {
   rmSync(process.env.PID_FILE!, { force: true });
-  const child = spawn(process.execPath, [process.env.DESCENDANT!], {stdio:['ignore','inherit','inherit'], detached:mode === 'escaped'});
+  // libuv on Windows kills non-detached children when this fake exits. The
+  // drain fixture must survive that exit so its inherited pipes remain open.
+  const child = spawn(process.execPath, [process.env.DESCENDANT!], {stdio:['ignore','inherit','inherit'],
+    detached:mode === 'escaped' || (process.platform === 'win32' && mode === 'descendant')});
   const readyBy = Date.now() + 2000;
   while (!existsSync(process.env.PID_FILE!)) {
     if (child.exitCode !== null || Date.now() >= readyBy) throw new Error('Descendant did not initialize its inherited pipes');

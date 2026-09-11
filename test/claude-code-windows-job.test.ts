@@ -38,6 +38,10 @@ await Bun.stdin.text();
 rmSync(process.env.PID_FILE!, { force: true });
 const child = spawn(process.execPath, [process.env.DESCENDANT!], {
   stdio: ['ignore', 'inherit', 'inherit'],
+  // Bypass this fake's libuv auto-kill job so the pipe holder survives it.
+  // DETACHED does not request CREATE_BREAKAWAY_FROM_JOB: gstack's enclosing
+  // job still owns the descendant, which the assertions below require dead.
+  detached: process.platform === 'win32' && process.env.FAKE_MODE === 'descendant',
 });
 const readyBy = Date.now() + 2000;
 while (!existsSync(process.env.PID_FILE!)) {
