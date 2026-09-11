@@ -78,7 +78,8 @@ describe("#1539 confidence resolver — pre-emit verification gate present", () 
 describe("#1539 generated SKILL.md files — gate propagated to all consumers", () => {
   const consumers = [
     "review/SKILL.md",
-    "cso/SKILL.md",
+    // CSO's private startup uses its dedicated evidence rubric rather than
+    // the shared numerical confidence resolver guarded by this regression.
     "plan-eng-review/SKILL.md",
     "ship/SKILL.md",
   ];

@@ -2,9 +2,9 @@
  * AUQ behavioral matrix — drive each AUQ-heavy skill to its first
  * AskUserQuestion and grade it to plan-ceo's bar (periodic, paid, SDK capture).
  *
- * Layer 0 (auq-format-always-loaded.test.ts) deterministically guarantees every
- * skill SHIPS the format spec in its always-loaded skeleton. This test proves
- * each skill's model OBEYS it: that the first real AUQ each skill fires is a
+ * Layer 0 (auq-format-always-loaded.test.ts) deterministically guarantees each
+ * listed skill SHIPS the format spec in its always-loaded skeleton. This test
+ * proves each skill's model OBEYS it: that the first real AUQ it fires is a
  * compliant decision brief (all 7 format elements) with a substantive
  * recommendation (>= 4). One parametrized case per skill so a single weak skill
  * is an isolated failure, not a blocker for the rest.
@@ -20,7 +20,9 @@
  * choices) are intentionally OUT of this matrix; Layer 0 covers their format
  * spec, and a fixture can't fairly trigger their AUQ.
  *
- * Run a subset in the foreground with AUQ_MATRIX_ONLY="plan-eng-review,cso".
+ * CSO is intentionally absent: its private startup omits the shared AUQ block,
+ * and its dedicated E2E grades evidence, reporting, and proof behavior.
+ * Run a subset in the foreground with AUQ_MATRIX_ONLY="plan-eng-review,spec".
  */
 import { test } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
@@ -53,17 +55,6 @@ pricing page, a Postgres entitlements table, and a Redis cache — no tests
 mentioned, no rollout plan, no auth check on the upgrade endpoint.
 `;
 
-const VULN_CODE = `export function login(req, res) {
-  // builds SQL by string concat; sets a session cookie with no flags
-  const user = db.query("SELECT * FROM users WHERE name = '" + req.body.name + "'");
-  if (user && user.password === req.body.password) {
-    res.cookie('session', user.id); // no HttpOnly, Secure, SameSite, or expiry
-    return res.json({ ok: true });
-  }
-  return res.status(401).json({ ok: false });
-}
-`;
-
 interface MatrixSkill {
   skill: string;
   fixtures: Record<string, string>;
@@ -92,11 +83,6 @@ const MATRIX: MatrixSkill[] = [
     skill: 'office-hours',
     fixtures: {},
     scenario: 'The founder says: "I am building an AI tool that auto-writes unit tests for any repo. I think it is a great idea but I have zero users. Should I build it, and how do I get my first users?" Run the office-hours diagnostic until the first AskUserQuestion.',
-  },
-  {
-    skill: 'cso',
-    fixtures: { 'server/auth.js': VULN_CODE },
-    scenario: 'Audit the code in this repo (server/auth.js) for security issues. Walk the audit until the first AskUserQuestion (scope/stack confirmation or first finding).',
   },
   {
     skill: 'spec',

@@ -21,6 +21,10 @@ afterEach(() => {
 });
 
 describe('atomicWriteSync', () => {
+  test('publishes a no-replace artifact once', () => {
+    const target=path.join(dir,'immutable.json');atomicWriteSync(target,'first',{mode:0o600,noReplace:true});
+    expect(()=>atomicWriteSync(target,'second',{mode:0o600,noReplace:true})).toThrow();expect(fs.readFileSync(target,'utf8')).toBe('first');
+  });
   test('writes the content and leaves no tmp file behind', () => {
     const target = path.join(dir, 'out.json');
     atomicWriteSync(target, '{"a":1}');

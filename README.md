@@ -42,7 +42,9 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only). **Recommended on macOS:** the [Aside](https://aside.com) browser (macOS 15+) — browser skills, `/make-pdf`, and `/diagram` drive it first, with your real logged-in sessions. Without it, `./setup` builds gstack's own bundled browser and the same skills use that.
+**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only). **Recommended on macOS:** the [Aside](https://aside.com) browser (macOS 15+) — browser skills, `/make-pdf`, and `/diagram` drive it first, with your real logged-in sessions. Without it, `./setup` builds gstack's own bundled browser and the same skills use that. `/cso` additionally needs a Bun release with all four `--no-compile-autoload-*` build flags plus a native toolchain: a static-capable C compiler on Linux, Xcode command-line tools on macOS, or Visual Studio 2022 Build Tools with Desktop development with C++ on Windows. If those are absent, setup installs everything else, removes stale CSO helpers, and `/cso` reports `not assessed` with the prerequisite.
+
+When qualified CSO runtime images are published, setup gives their automatic preload one 30-second aggregate budget. It reports partial progress and continues installing static audits; a later setup resumes from exact digests already present in local Docker.
 
 ### Step 1: Install on your machine
 
@@ -222,7 +224,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/qa` | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | `/qa-only` | **QA Reporter** | Same methodology as /qa but report only. Pure bug report without code changes. |
 | `/pair-agent` | **Multi-Agent Coordinator** | Share gstack's own browser with any AI agent. One command, one paste, connected. Works with OpenClaw, Hermes, Codex, Cursor, or anything that can curl. Each agent gets its own tab. Auto-launches headed mode so you watch everything. Auto-starts ngrok tunnel for remote agents. Scoped tokens, tab isolation, rate limiting, activity attribution. (Runs on the bundled browser — the fallback engine; agents driving Aside just open their own tabs.) |
-| `/cso` | **Chief Security Officer** | OWASP Top 10 + STRIDE threat model. Zero-noise: 17 false positive exclusions, 8/10+ confidence gate, independent finding verification. Each finding includes a concrete exploit scenario. |
+| `/cso` | **Chief Security Officer** | Security audit with an application model, supported findings, independent challenge, and explicit coverage. Static assessment remains available without catalog profiles. With matching qualified profiles, comprehensive mode adds contained runtime/scanner execution and reviewable repair candidates for Node/Bun, Python, and Rails. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
 | `/ship` | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. |
 | `/land-and-deploy` | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
@@ -284,6 +286,22 @@ Beyond the slash-command skills, gstack ships standalone CLIs for workflows that
 | `gstack-ios-qa-daemon` | **iOS QA daemon** — Mac-side broker between an agent and a connected iPhone over USB CoreDevice. Loopback by default; `--tailnet` opens a Tailscale-facing listener with identity-gated capability tiers. Single-instance via flock on `~/.gstack/ios-qa-daemon.pid`. See [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md). |
 | `gstack-ios-qa-mint` | **iOS allowlist manager** — owner-grant CLI for the tailnet allowlist. `grant`/`revoke`/`list` against `~/.gstack/ios-qa-allowlist.json` (mode 0600). Remote agents never auto-allowlist; this is the explicit-intent path. |
 | `gstack-ios-qa-regen` | **iOS bridge regenerator** — deterministically installs the canonical DebugBridge package, generates typed state accessors, and records the installed gstack version. Safe to rerun after source changes or upgrades. |
+
+The private paid CSO evaluation producer is a packaging contract, not an ordinary `bun run build` artifact. On macOS or Linux, a release operator compiles `cso-eval-producer` with the documented hardened Bun flags in the same clean build session as `bun run build:cso`, then installs it beside `gstack-cso-launcher`, `gstack-cso-core`, `gstack-cso-watchdog`, and the hidden `.gstack-cso-generation` manifest as one root-owned, nonwritable five-artifact unit. The producer rejects root execution, writable/symlinked/incomplete installations, and unreviewed provider CLI versions; each receipt binds all five artifact hashes, and collection rejects receipts from different unit identities. See the [clean producer procedure](test/fixtures/cso-eval/README.md#trusted-five-artifact-producer-unit). Paid producer evaluation remains unavailable on Windows because the detached watchdog has no Windows build.
+
+Each producer gets a curated one-cell source copy with directories sealed to `0555` and files to `0444`, plus pre/post content, Git, and mode checks. Claude receives that exact copy as a restricted read-only add-directory so its constrained launcher command can reach it. Gemini receives no source working directory or include-directory. Codex technically receives read-only filesystem access to the exact curated source root because the trusted helper inherits the Codex permission profile; its private provider work directory and exact `cso-home` artifact directory are the only write roots, every other root path remains denied, and the producer prompt requires source access through the helper. This is evaluation containment for an immutable public fixture, not a claim that Codex cannot directly read that fixture.
+
+Copy each completed cell's receipt together with `state/cso-home/security/cso/` to the trusted adjudication host. Receipt entries are sorted paths relative to that directory and bind every retained file's size and SHA-256 plus an aggregate inventory hash. Provider homes, settings, sessions, and credentials live under separate disposable directories and are removed after the cell; they are never part of the retained artifact tree. The adjudicator must re-hash the transported tree against the receipt before trusting reports or repair bundles.
+
+Paid producer qualification uses this explicit host matrix:
+
+| Producer host | Daily/static cells | Comprehensive target execution |
+|---|---|---|
+| Codex CLI 0.153.4 | Supported under the custom permission profile | Fails closed because Docker/socket access is not granted to the model command sandbox; report the setup gap as partial |
+| Claude Code 2.1.263 | Supported under restricted safe mode | Fails closed when the restricted launcher child cannot reach Docker; report the setup gap as partial |
+| Gemini CLI 0.59.0 | Supported with isolated home/settings | Private release qualification host: the exact `run_shell_command(<launcher>)` policy can run the trusted helper without exposing a general shell |
+
+Every setup-blocked comprehensive cell remains a miss in release-gate denominators. The evaluator does not silently count a host or workflow as supported when its containment policy prevents required setup.
 
 `./setup` also registers one default-on Stop hook in `~/.claude/settings.json`:
 `gstack-timeline-stop` (closes dangling session-timeline entries when a session
@@ -560,7 +578,7 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd "${CODEX_HOME:-$HOME/.codex}/skills/gstack" && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
+**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Native `/cso` additionally requires Windows PowerShell and Visual Studio 2022 Build Tools with the Desktop development with C++ workload; setup leaves that skill explicitly unavailable when they are absent.
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 

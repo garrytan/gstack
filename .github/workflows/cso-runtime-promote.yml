@@ -1,0 +1,181 @@
+name: Propose CSO Runtime Catalog Promotion
+
+# This workflow never deploys a catalog. It converts authenticated
+# same-repository qualification artifacts into an attested candidate, verifies
+# those exact bytes, and opens a normal source-review PR from a protected job.
+on:
+  workflow_dispatch:
+    inputs:
+      qualification_run_id:
+        description: Successful protected-main run containing cso-qualified-runtime-statements
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cso-runtime-catalog-promotion
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: cso-runtime-release
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      packages: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.13
+      - name: Authenticate the completed qualification run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_QUALIFICATION_RUN: ${{ inputs.qualification_run_id }}
+        run: |
+          set -euo pipefail
+          case "$CSO_QUALIFICATION_RUN" in
+            ''|*[!0-9]*) echo 'qualification_run_id must be numeric' >&2; exit 1 ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CSO_QUALIFICATION_RUN" > qualification-run.json
+          jq -e '
+            .status == "completed" and .conclusion == "success" and
+            .head_branch == "main" and .event == "repository_dispatch" and
+            .path == ".github/workflows/cso-runtime-qualification.yml" and
+            (.head_sha | test("^[a-f0-9]{40}$"))
+          ' qualification-run.json
+          mkdir qualification-evidence
+          gh run download "$CSO_QUALIFICATION_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name cso-qualified-runtime-statements --dir qualification-evidence
+      - name: Generate a fail-closed catalog candidate
+        env:
+          CSO_QUALIFICATION_RUN: ${{ inputs.qualification_run_id }}
+        run: |
+          set -euo pipefail
+          bun run scripts/cso-runtime-promotion.ts \
+            --evidence-root qualification-evidence \
+            --output runtime-catalog.candidate.json
+          source_commit="$(jq -er '.promotion.sourceCommit' runtime-catalog.candidate.json)"
+          workflow="$(jq -er '.promotion.workflow' runtime-catalog.candidate.json)"
+          test "$workflow" = "https://github.com/$GITHUB_REPOSITORY/actions/runs/$CSO_QUALIFICATION_RUN"
+          qualification_head="$(jq -er '.head_sha' qualification-run.json)"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$source_commit...$qualification_head" > source-ancestry.json
+          jq -e '.status == "ahead" or .status == "identical"' source-ancestry.json
+          bun -e '
+            import candidate from "./runtime-catalog.candidate.json";
+            import {validateRuntimeCatalog} from "./lib/cso/runtime-catalog";
+            validateRuntimeCatalog(candidate);
+          '
+          bun run scripts/cso-runtime-promotion.ts validate-transition \
+            lib/cso/runtime-catalog.json runtime-catalog.candidate.json
+      - name: Prove the promotion and catalog contracts before signing
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          bun test --max-concurrency 1 test/cso-runtime-promotion.test.ts test/cso-distribution.test.ts
+      - name: Recheck public visibility and anonymous pulls before promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir public-image-evidence
+          jq -c '.runtimes[]' runtime-catalog.candidate.json | while IFS= read -r runtime; do
+            runtime_id="$(printf '%s' "$runtime" | jq -er '.id | select(test("^[a-z0-9][a-z0-9._-]{0,100}$"))')"
+            image="$(printf '%s' "$runtime" | jq -er '.image')"
+            platform="$(printf '%s' "$runtime" | jq -er '.platform | select(. == "linux/amd64" or . == "linux/arm64")')"
+            bun run scripts/cso-public-ghcr.ts verify \
+              --image "$image" --platform "$platform" --repository "$GITHUB_REPOSITORY" \
+              --output "public-image-evidence/$runtime_id.json" --remove-after
+          done
+      - name: Attest the exact review candidate
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-path: runtime-catalog.candidate.json
+      - name: Verify and record the exact candidate attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_QUALIFICATION_RUN: ${{ inputs.qualification_run_id }}
+        run: |
+          set -euo pipefail
+          candidate_sha256="sha256:$(sha256sum runtime-catalog.candidate.json | cut -d ' ' -f 1)"
+          subject_sha256="${candidate_sha256#sha256:}"
+          signer="https://github.com/$GITHUB_REPOSITORY/.github/workflows/cso-runtime-promote.yml@refs/heads/main"
+          verified=0
+          for attempt in 1 2 3; do
+            if gh attestation verify runtime-catalog.candidate.json --repo "$GITHUB_REPOSITORY" \
+              --cert-identity "$signer" --source-ref refs/heads/main --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 \
+              --format json > candidate-attestation-verification.tmp; then
+              mv candidate-attestation-verification.tmp candidate-attestation-verification.json
+              verified=1
+              break
+            fi
+            rm -f candidate-attestation-verification.tmp
+            if test "$attempt" -lt 3; then sleep "$((attempt * 5))"; fi
+          done
+          test "$verified" -eq 1
+          statement_set_digest="$(bun run scripts/cso-attestation-evidence.ts digest \
+            candidate-attestation-verification.json https://slsa.dev/provenance/v1 "$subject_sha256")"
+          test "$candidate_sha256" = "sha256:$(sha256sum runtime-catalog.candidate.json | cut -d ' ' -f 1)"
+          jq -n --arg candidateSha256 "$candidate_sha256" \
+            --arg statementSetDigest "$statement_set_digest" --arg signer "$signer" \
+            --arg sourceCommit "$GITHUB_SHA" --arg qualificationRun "$CSO_QUALIFICATION_RUN" \
+            '{schemaVersion:1,candidateSha256:$candidateSha256,verifiedStatementSetDigest:$statementSetDigest,signer:$signer,sourceCommit:$sourceCommit,qualificationRun:$qualificationRun}' \
+            > candidate-attestation-evidence.json
+      - name: Commit the exact verified candidate and open its review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_QUALIFICATION_RUN: ${{ inputs.qualification_run_id }}
+        run: |
+          set -euo pipefail
+          expected_candidate_sha256="$(jq -er '.candidateSha256 | select(test("^sha256:[a-f0-9]{64}$"))' candidate-attestation-evidence.json)"
+          test "$expected_candidate_sha256" = "sha256:$(sha256sum runtime-catalog.candidate.json | cut -d ' ' -f 1)"
+          bun run scripts/cso-runtime-promotion.ts validate-transition \
+            lib/cso/runtime-catalog.json runtime-catalog.candidate.json
+          cp runtime-catalog.candidate.json lib/cso/runtime-catalog.json
+          cmp runtime-catalog.candidate.json lib/cso/runtime-catalog.json
+          bun -e '
+            import candidate from "./lib/cso/runtime-catalog.json";
+            import {validateRuntimeCatalog} from "./lib/cso/runtime-catalog";
+            validateRuntimeCatalog(candidate);
+          '
+          bun run build:cso
+          branch="cso-runtime-catalog-$GITHUB_RUN_ID"
+          git switch -c "$branch"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/cso/runtime-catalog.json
+          git commit -m "Promote qualified CSO runtime catalog"
+          git show HEAD:lib/cso/runtime-catalog.json > committed-runtime-catalog.json
+          cmp runtime-catalog.candidate.json committed-runtime-catalog.json
+          test "$expected_candidate_sha256" = "sha256:$(sha256sum committed-runtime-catalog.json | cut -d ' ' -f 1)"
+          git push --set-upstream origin "$branch"
+          cat > pr-body.md <<EOF
+          Promotes the complete CSO runtime catalog from authenticated qualification run $CSO_QUALIFICATION_RUN. The protected promotion workflow verified the exact candidate attestation and committed those same bytes after a previous-revision compare-and-swap.
+
+          Validation: runtime promotion contracts, distribution contracts, compiled CSO helper build, candidate attestation verification, and exact committed-byte comparison.
+          EOF
+          gh pr create --base main --head "$branch" --title "Promote qualified CSO runtime catalog" --body-file pr-body.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cso-runtime-catalog-candidate
+          path: |
+            runtime-catalog.candidate.json
+            candidate-attestation-verification.json
+            candidate-attestation-evidence.json
+            committed-runtime-catalog.json
+            qualification-run.json
+            source-ancestry.json
+          if-no-files-found: error
+          retention-days: 30

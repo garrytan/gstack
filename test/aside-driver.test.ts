@@ -296,7 +296,10 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
   });
 
   test('every template carrying {{ASIDE_RESEARCH}} renders the section exactly once', () => {
-    expect(carriers).toEqual(expect.arrayContaining(['cso', 'design-consultation', 'investigate', 'office-hours', 'plan-ceo-review', 'plan-devex-review', 'plan-eng-review', 'review']));
+    // CSO's private startup keeps advisory queries inside its stricter public-ID
+    // policy and intentionally does not import the generic Aside research block.
+    expect(carriers).not.toContain('cso');
+    expect(carriers).toEqual(expect.arrayContaining(['design-consultation', 'investigate', 'office-hours', 'plan-ceo-review', 'plan-devex-review', 'plan-eng-review', 'review']));
     for (const skill of carriers) {
       const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect({ skill, count: md.split('## Web research runs in Aside').length - 1 }).toEqual({ skill, count: 1 });

@@ -8,6 +8,19 @@ make-pdf/dist/
 !lib/diagram-render/dist/
 !lib/diagram-render/dist/**
 bin/gstack-global-discover*
+# Compiled CSO launcher, helper, and watchdog.
+bin/gstack-cso-launcher
+bin/gstack-cso-launcher.exe
+bin/gstack-cso-core
+bin/gstack-cso-core.exe
+bin/gstack-cso-watchdog
+bin/gstack-cso-watchdog.exe
+bin/.gstack-cso-stage.*
+bin/.gstack-cso-build.lock/
+bin/.gstack-cso-generation.lock
+bin/.gstack-cso-generation
+lib/cso/images/gstack-cso-verifier
+lib/cso/images/gstack-cso-preparation
 .gstack/
 .claude/skills/
 .claude/gstack-rendered/

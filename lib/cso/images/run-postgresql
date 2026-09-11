@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+umask 077
+test "$PWD" = /work
+test "$#" -eq 1
+policy="$1"
+case "$policy" in /policy/*) ;; *) exit 64 ;; esac
+test -f "$policy"
+count=0
+while IFS= read -r database || test -n "$database"; do
+  case "$database" in cso_[A-Za-z_]*) ;; *) exit 64 ;; esac
+  case "$database" in *[!A-Za-z0-9_]*) exit 64 ;; esac
+  test "${#database}" -le 52
+  count=$((count + 1)); test "$count" -le 64
+done < "$policy"
+test "$count" -gt 0
+
+data=/work/postgresql-data
+socket=/work/postgresql-socket
+password=/work/postgresql-password
+mkdir -m 700 "$socket"
+printf '%s\n' 'cso-disposable-test' > "$password"
+/opt/cso/bin/initdb -D "$data" --username=cso --pwfile="$password" --auth-local=scram-sha-256 --auth-host=scram-sha-256 >/dev/null
+rm -f "$password"
+cat >> "$data/postgresql.conf" <<'EOF'
+listen_addresses = '127.0.0.1'
+port = 5432
+unix_socket_directories = '/work/postgresql-socket'
+ssl = off
+max_connections = 32
+password_encryption = 'scram-sha-256'
+fsync = off
+synchronous_commit = off
+full_page_writes = off
+EOF
+
+cleanup() {
+  if test -n "${postgres_pid:-}" && kill -0 "$postgres_pid" 2>/dev/null; then
+    kill -TERM "$postgres_pid" 2>/dev/null || true
+    wait "$postgres_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+/opt/cso/bin/postgres -D "$data" >/dev/null 2>&1 &
+postgres_pid=$!
+export PGPASSWORD=cso-disposable-test
+attempt=0
+until /opt/cso/bin/pg_isready -h 127.0.0.1 -p 5432 -U cso -d postgres >/dev/null 2>&1; do
+  attempt=$((attempt + 1)); test "$attempt" -lt 100; sleep 0.05
+done
+while IFS= read -r database || test -n "$database"; do
+  /opt/cso/bin/createdb -h 127.0.0.1 -p 5432 -U cso "$database" >/dev/null
+done < "$policy"
+printf 'ready\n' > /work/postgresql.ready
+wait "$postgres_pid"

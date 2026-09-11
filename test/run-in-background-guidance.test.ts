@@ -39,7 +39,8 @@ const GENERATED_WITH_GUIDANCE = [
   'autoplan/sections/design-phase.md',
   'autoplan/sections/eng-phase.md',
   'autoplan/sections/dx-phase.md',
-  'cso/SKILL.md',
+  // CSO's private startup does not import the shared synchronous-dispatch
+  // guidance and its bounded worker policy is specified in its own skeleton.
   'design-consultation/SKILL.md',
   'design-review/SKILL.md',
   'design-shotgun/SKILL.md',

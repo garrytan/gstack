@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "helperAbi": 3,
+  "state": "reviewed",
+  "revision": "cso-runtime-inputs-2026-09-10",
+  "reviewedAt": "2026-09-10T00:00:00.000Z",
+  "reviewMethod": "Native OCI manifest inspection plus upstream runtime version metadata; CI rechecks architecture and executable versions before every build.",
+  "sbomGenerator": {
+    "source": "docker.io/docker/scout-sbom-indexer:1",
+    "indexImage": "docker.io/docker/scout-sbom-indexer@sha256:4b67f29eb0d1244ab0f62de867ac5dafd7262fcd7ebbdefa6ec8aacd6b15252d",
+    "images": {
+      "linux/amd64": "docker.io/docker/scout-sbom-indexer@sha256:dc9450ee50d985e1f5cc60069c91b5f45b4a8a7e9dbcdd33aaab259032a9cab9",
+      "linux/arm64": "docker.io/docker/scout-sbom-indexer@sha256:f11b16a96cdf4d6df23994e6c424bc6717959373679e9a0dde36b92a8b03e386"
+    }
+  },
+  "profiles": [
+    {
+      "id": "node-24.4.0",
+      "stack": "node",
+      "source": "docker.io/library/node:24.4.0-bookworm-slim",
+      "indexImage": "docker.io/library/node@sha256:1b044a60874f1b57ac8c4e708ddb3a00e55b34586ebbacce09a48796dafcc799",
+      "baseImages": {
+        "linux/amd64": "docker.io/library/node@sha256:f2beab5c8aa1c35bfec1e7ddcdc8e78fd82a56f96fc514baf2ce86d7dc1b100f",
+        "linux/arm64": "docker.io/library/node@sha256:821c8ce03d9778dbdbbb94919b3bf281837c1a31517e7dee528bd4b274991218"
+      },
+      "versions": {
+        "node": "24.4.0",
+        "npm": "11.4.2",
+        "cso-preparation": "1.0.0"
+      }
+    },
+    {
+      "id": "bun-1.3.10",
+      "stack": "bun",
+      "source": "docker.io/oven/bun:1.3.10-debian",
+      "indexImage": "docker.io/oven/bun@sha256:367842b35abbdf23f39e23c71f3a08eee940ff2679a14e08a5afcf4a1436cd89",
+      "baseImages": {
+        "linux/amd64": "docker.io/oven/bun@sha256:5ee6c5be4575d5ba079b5a9afb24d4600f75ccb1a92602f079ee99560b9dcee9",
+        "linux/arm64": "docker.io/oven/bun@sha256:b0bdc79f333b728119c6527be6bd52cca09352b7fce46613d2fe3d24c6e395e7"
+      },
+      "versions": {
+        "bun": "1.3.10",
+        "cso-preparation": "1.0.0"
+      }
+    },
+    {
+      "id": "python-3.13.4-uv-0.8.0",
+      "stack": "python",
+      "source": "docker.io/library/python:3.13.4-slim-bookworm",
+      "indexImage": "docker.io/library/python@sha256:9ed09f78253eb4f029f3d99e07c064f138a6f1394932c3807b3d0738a674d33b",
+      "baseImages": {
+        "linux/amd64": "docker.io/library/python@sha256:25fab3d7d1d7b2e955f8b39ad49b70e5ddfdc32c202069bd52e34e151eb8704c",
+        "linux/arm64": "docker.io/library/python@sha256:d27f102f1850c0886b0d1df3718a0a31d8e88aae343506e61ef2966ae468abea"
+      },
+      "uvSource": "ghcr.io/astral-sh/uv:0.8.0",
+      "uvIndexImage": "ghcr.io/astral-sh/uv@sha256:5778d479c0fd7995fedd44614570f38a9d849256851f2786c451c220d7bd8ccd",
+      "uvImages": {
+        "linux/amd64": "ghcr.io/astral-sh/uv@sha256:50fbd66ab876ddb7a725f4d2014a59aa31da0b69933f787b8cfba7291ea5494f",
+        "linux/arm64": "ghcr.io/astral-sh/uv@sha256:24d469099a90d1348137db1ec9bf06dac5426ae9de4d669b8a4b811559058c60"
+      },
+      "versions": {
+        "python": "3.13.4",
+        "uv": "0.8.0",
+        "cso-preparation": "1.0.0"
+      }
+    },
+    {
+      "id": "rails-ruby-3.4.4",
+      "stack": "rails",
+      "source": "docker.io/library/ruby:3.4.4-bookworm",
+      "indexImage": "docker.io/library/ruby@sha256:f7ab76e2c36ab406ebc36aeba20624b26a8fae7c2998acabbe9662e2a73f00f3",
+      "baseImages": {
+        "linux/amd64": "docker.io/library/ruby@sha256:edfda7d45b762e5ef89d7e94f0d4405132e129928440b8c8af100bd1d07c37b1",
+        "linux/arm64": "docker.io/library/ruby@sha256:9a4b3512d9fa4f1cc3b8193e141eb5f775ef5cbd8d99c8dd2a1d829c9c835541"
+      },
+      "versions": {
+        "ruby": "3.4.4",
+        "bundler": "2.6.7",
+        "cso-preparation": "1.0.0"
+      }
+    },
+    {
+      "id": "postgresql-17.2",
+      "stack": "postgresql",
+      "source": "docker.io/library/postgres:17.2-bookworm",
+      "indexImage": "docker.io/library/postgres@sha256:3267c505060a0052e5aa6e5175a7b41ab6b04da2f8c4540fc6e98a37210aa2d3",
+      "baseImages": {
+        "linux/amd64": "docker.io/library/postgres@sha256:0e3fd61dc630bf506330e3f2061cb6120cf4cc04cb7bd0f17683b35cc422342d",
+        "linux/arm64": "docker.io/library/postgres@sha256:b1eff56c2661dadeb2a455f9197c5f4e97582e439191790d8b778e47409d10e7"
+      },
+      "versions": {
+        "postgresql": "17.2"
+      }
+    }
+  ]
+}

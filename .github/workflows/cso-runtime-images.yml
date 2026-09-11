@@ -1,0 +1,374 @@
+name: Stage CSO Runtime Images
+
+# Pull requests build every reviewed input on its native architecture without
+# publishing. The cso-runtime-release environment must require a maintainer
+# reviewer and permit deployments from protected main only. Staging digests
+# never enter the execution catalog automatically.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cso-runtime-images.yml'
+      - 'lib/cso/**'
+      - 'scripts/cso-image-matrix.ts'
+      - 'scripts/cso-verify-runtime-base.ts'
+      - 'scripts/cso-runtime-promotion.ts'
+      - 'scripts/cso-public-ghcr.ts'
+      - 'test/cso-*.test.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cso-runtime-images-${{ github.event.pull_request.number || 'release' }}
+  cancel-in-progress: false
+
+jobs:
+  reviewed-inputs:
+    if: github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.inputs.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Validate committed image digests and complete platform matrix
+        id: inputs
+        run: |
+          set -eu
+          matrix="$(bun run scripts/cso-image-matrix.ts)"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  validate-native:
+    needs: reviewed-inputs
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reviewed-inputs.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.13
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
+      - name: Require native Docker and verify reviewed source manifests
+        env:
+          CSO_ARCH: ${{ matrix.arch }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+          CSO_STACK: ${{ matrix.stack }}
+        run: |
+          set -eu
+          case "$CSO_ARCH:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'Native architecture mismatch; emulation cannot validate a runtime.' >&2; exit 1 ;;
+          esac
+          bun run scripts/cso-verify-runtime-base.ts
+      - name: Compile native trusted image helpers
+        run: |
+          bun build --compile \
+            --no-compile-autoload-dotenv \
+            --no-compile-autoload-bunfig \
+            --no-compile-autoload-tsconfig \
+            --no-compile-autoload-package-json \
+            lib/cso/verifier.ts --outfile lib/cso/images/gstack-cso-verifier
+          bun build --compile \
+            --no-compile-autoload-dotenv \
+            --no-compile-autoload-bunfig \
+            --no-compile-autoload-tsconfig \
+            --no-compile-autoload-package-json \
+            lib/cso/preparation-container.ts --outfile lib/cso/images/gstack-cso-preparation
+      - name: Build the reviewed runtime without publishing
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: lib/cso/images
+          file: lib/cso/images/${{ matrix.stack }}.Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.baseImage }}
+            UV_IMAGE=${{ matrix.uvImage }}
+          tags: localhost/gstack-cso-pr-${{ matrix.stack }}:${{ github.sha }}-${{ matrix.arch }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+      - name: Check the built image identity and fail-closed entrypoint
+        env:
+          CSO_IMAGE: localhost/gstack-cso-pr-${{ matrix.stack }}:${{ github.sha }}-${{ matrix.arch }}
+        run: |
+          set -eu
+          test "$(docker image inspect "$CSO_IMAGE" --format '{{.Config.User}}')" = "10001:10001"
+          test "$(docker image inspect "$CSO_IMAGE" --format '{{json .Config.Entrypoint}}')" = '["/opt/cso/entrypoint"]'
+          docker run --rm --pull never --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --entrypoint /opt/cso/entrypoint \
+            "$CSO_IMAGE" /bin/true
+          docker image rm "$CSO_IMAGE"
+
+  stage:
+    needs: reviewed-inputs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cso-runtime-release
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reviewed-inputs.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Require the declared native architecture and Docker daemon
+        env:
+          CSO_ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          case "$CSO_ARCH:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'Native architecture mismatch; emulation cannot qualify a runtime.' >&2; exit 1 ;;
+          esac
+          docker --host unix:///var/run/docker.sock info
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify reviewed source manifests and exact base versions
+        env:
+          CSO_PLATFORM: ${{ matrix.platform }}
+          CSO_STACK: ${{ matrix.stack }}
+        run: bun run scripts/cso-verify-runtime-base.ts
+      - name: Compile native trusted HTTP verifier for the runtime image
+        run: |
+          bun build --compile \
+            --no-compile-autoload-dotenv \
+            --no-compile-autoload-bunfig \
+            --no-compile-autoload-tsconfig \
+            --no-compile-autoload-package-json \
+            lib/cso/verifier.ts --outfile lib/cso/images/gstack-cso-verifier
+          bun build --compile \
+            --no-compile-autoload-dotenv \
+            --no-compile-autoload-bunfig \
+            --no-compile-autoload-tsconfig \
+            --no-compile-autoload-package-json \
+            lib/cso/preparation-container.ts --outfile lib/cso/images/gstack-cso-preparation
+      - name: Prepare immutable staging tag
+        id: image
+        env:
+          CSO_STACK: ${{ matrix.stack }}
+          CSO_ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/cso-staging/$CSO_STACK-$CSO_ARCH"
+          printf 'name=%s\n' "$image" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s:%s-%s\n' "$image" "$GITHUB_SHA" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - name: Build native staging image with SBOM and provenance
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: lib/cso/images
+          file: lib/cso/images/${{ matrix.stack }}.Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.baseImage }}
+            UV_IMAGE=${{ matrix.uvImage }}
+          tags: ${{ steps.image.outputs.tag }}
+          push: true
+          provenance: mode=max
+          attests: type=sbom,generator=${{ matrix.sbomGeneratorImage }}
+      - name: Extract the immutable image SBOM
+        env:
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -eu
+          docker buildx imagetools inspect "$CSO_IMAGE" --format '{{ json .SBOM.SPDX }}' > sbom.spdx.json
+          jq -e '.spdxVersion == "SPDX-2.3" and (.packages | type == "array")' sbom.spdx.json
+      - name: Sign build provenance
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Sign the image SBOM
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+      - name: Verify provenance and SBOM signer identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -eu
+          signer="https://github.com/$GITHUB_REPOSITORY/.github/workflows/cso-runtime-images.yml@refs/heads/main"
+          gh attestation verify "oci://$CSO_IMAGE" --repo "$GITHUB_REPOSITORY" --cert-identity "$signer" --source-ref refs/heads/main --source-digest "$GITHUB_SHA" --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 --format json > provenance-verification.json
+          gh attestation verify "oci://$CSO_IMAGE" --repo "$GITHUB_REPOSITORY" --cert-identity "$signer" --source-ref refs/heads/main --source-digest "$GITHUB_SHA" --deny-self-hosted-runners --predicate-type https://spdx.dev/Document/v2.3 --format json > sbom-verification.json
+      - name: Require a public package and anonymously load the exact staged digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          bun run scripts/cso-public-ghcr.ts verify \
+            --image "$CSO_IMAGE" --platform "$CSO_PLATFORM" \
+            --repository "$GITHUB_REPOSITORY" --output public-image.json
+      - name: Install helper dependencies and compile trusted tools
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build:cso
+      - name: Exercise containment against the staged digest
+        env:
+          GSTACK_CSO_DOCKER_TESTS: "1"
+          GSTACK_CSO_TEST_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          GSTACK_CSO_TEST_PLATFORM: ${{ matrix.platform }}
+          GSTACK_CSO_TEST_STACK: ${{ matrix.stack }}
+          GSTACK_CSO_EXPECTED_VERSIONS: ${{ toJSON(matrix.versions) }}
+          DOCKER_HOST: unix:///var/run/docker.sock
+        run: bun test --max-concurrency 1 test/cso-docker-integration.test.ts
+      - name: Record staging evidence without promoting the catalog
+        env:
+          CSO_BUILD_REVISION: ${{ matrix.inputRevision }}
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+          CSO_RUNTIME_ID: ${{ matrix.runtimeId }}
+          CSO_STACK: ${{ matrix.stack }}
+          CSO_VERSIONS: ${{ toJSON(matrix.versions) }}
+        run: |
+          set -eu
+          sha256sum public-image.json sbom.spdx.json provenance-verification.json sbom-verification.json > evidence.sha256
+          sbom_digest="sha256:$(sha256sum sbom.spdx.json | cut -d ' ' -f 1)"
+          provenance_digest="sha256:$(sha256sum provenance-verification.json | cut -d ' ' -f 1)"
+          workflow="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n --arg buildRevision "$CSO_BUILD_REVISION" --arg runtimeId "$CSO_RUNTIME_ID" \
+            --arg image "$CSO_IMAGE" --arg platform "$CSO_PLATFORM" --arg stack "$CSO_STACK" \
+            --arg commit "$GITHUB_SHA" --arg workflow "$workflow" --arg sbom "$sbom_digest" \
+            --arg provenance "$provenance_digest" --argjson versions "$CSO_VERSIONS" \
+            '{schemaVersion:1,helperAbi:3,state:"staged",buildRevision:$buildRevision,runtimeId:$runtimeId,image:$image,platform:$platform,stack:$stack,versions:$versions,sourceCommit:$commit,workflow:$workflow,sbomDigest:$sbom,provenanceDigest:$provenance,verifiedProvenance:true,qualification:"pending native and private release gates; no automatic promotion"}' > staged-image.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cso-staged-${{ matrix.stack }}-${{ matrix.arch }}
+          path: |
+            staged-image.json
+            public-image.json
+            sbom.spdx.json
+            provenance-verification.json
+            sbom-verification.json
+            evidence.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  qualify-native:
+    needs: [reviewed-inputs, stage]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cso-runtime-release
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reviewed-inputs.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cso-staged-${{ matrix.stack }}-${{ matrix.arch }}
+          path: staged-application
+      - if: matrix.stack == 'rails'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cso-staged-postgresql-${{ matrix.arch }}
+          path: staged-postgresql
+      - name: Require native Docker and anonymously load the signed staged inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_ARCH: ${{ matrix.arch }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+          CSO_STACK: ${{ matrix.stack }}
+        run: |
+          set -eu
+          case "$CSO_ARCH:$(uname -m)" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          docker --host unix:///var/run/docker.sock info
+          (cd staged-application && sha256sum --check evidence.sha256)
+          if test "$CSO_STACK" = rails; then
+            (cd staged-postgresql && sha256sum --check evidence.sha256)
+          fi
+          app="$(jq -er --arg platform "$CSO_PLATFORM" --arg stack "$CSO_STACK" 'select(.state == "staged" and .platform == $platform and .stack == $stack) | .image' staged-application/staged-image.json)"
+          bun run scripts/cso-public-ghcr.ts verify \
+            --image "$app" --platform "$CSO_PLATFORM" \
+            --repository "$GITHUB_REPOSITORY" --output application-public-image.json
+          printf 'GSTACK_CSO_TEST_IMAGE=%s\n' "$app" >> "$GITHUB_ENV"
+          printf 'GSTACK_CSO_EXPECTED_VERSIONS=%s\n' "$(jq -c '.versions' staged-application/staged-image.json)" >> "$GITHUB_ENV"
+          if test "$CSO_STACK" = rails; then
+            pg="$(jq -er --arg platform "$CSO_PLATFORM" 'select(.state == "staged" and .platform == $platform and .stack == "postgresql") | .image' staged-postgresql/staged-image.json)"
+            bun run scripts/cso-public-ghcr.ts verify \
+              --image "$pg" --platform "$CSO_PLATFORM" \
+              --repository "$GITHUB_REPOSITORY" --output postgresql-public-image.json
+            printf 'GSTACK_CSO_TEST_POSTGRES_IMAGE=%s\n' "$pg" >> "$GITHUB_ENV"
+            printf 'GSTACK_CSO_TEST_POSTGRES_VERSION=%s\n' "$(jq -er '.versions.postgresql' staged-postgresql/staged-image.json)" >> "$GITHUB_ENV"
+          fi
+      - name: Compile trusted helpers and run the matching staged cold-start journey
+        env:
+          GSTACK_CSO_DOCKER_TESTS: "1"
+          GSTACK_CSO_TEST_PLATFORM: ${{ matrix.platform }}
+          GSTACK_CSO_TEST_STACK: ${{ matrix.stack }}
+          DOCKER_HOST: unix:///var/run/docker.sock
+        run: |
+          set -eu
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build:cso
+          bun run test:cso:docker
+      - name: Record native gate evidence without claiming runtime qualification
+        env:
+          CSO_STACK: ${{ matrix.stack }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -eu
+          jq --arg stack "$CSO_STACK" --arg platform "$CSO_PLATFORM" '
+            . + {
+              state:"native-gates-passed",
+              nativeChecks:(if $stack == "postgresql" then {
+                containmentPassed:true,coldStartPassed:true,multiDatabasePassed:true,readinessPassed:true
+              } else {
+                containmentPassed:true,coldStartPassed:true,positiveNegativeAssertionsPassed:true,
+                acquisitionPublicOnlyPassed:true,offlineLifecyclePassed:true
+              } + (if $stack == "rails" then {
+                railsSqlitePassed:true,railsPostgresqlPassed:true,nativeExtensionsPassed:true
+              } else {} end) end),
+              privateChecks:{heldOutRepairPassed:"pending",accuracyGatesPassed:"pending",secretCanaryPassed:"pending",watchdogCleanupPassed:"pending"},
+              qualified:false,
+              promotion:"prohibited until authenticated private qualification evidence completes every release gate"
+            }' staged-application/staged-image.json > qualification-evidence.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cso-qualification-gates-${{ matrix.stack }}-${{ matrix.arch }}
+          path: qualification-evidence.json
+          if-no-files-found: error
+          retention-days: 30

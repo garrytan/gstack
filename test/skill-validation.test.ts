@@ -323,7 +323,8 @@ describe('Update check preamble', () => {
     'benchmark/SKILL.md',
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
-    'cso/SKILL.md',
+    // CSO intentionally uses a private startup instead of the shared update,
+    // session, learning, checkpoint, and telemetry PREAMBLE.
   ];
 
   for (const skill of skillsWithUpdateCheck) {
@@ -688,7 +689,8 @@ describe('v0.4.1 preamble features', () => {
     'canary/SKILL.md',
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
-    'cso/SKILL.md',
+    // CSO's private startup intentionally omits the generic AUQ/session/
+    // escalation PREAMBLE; its helper owns readiness and terminal state.
   ];
 
   const skillsWithPreamble = [...tier1Skills, ...tier2PlusSkills];
@@ -954,7 +956,9 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-    'cso/SKILL.md',  ];
+    // CSO reports complete/partial/not-assessed from its own evidence contract
+    // and must not inherit the shared numerical completeness rubric.
+  ];
 
   for (const skill of skillsWithPreamble) {
     test(`${skill} contains Completeness Principle section`, () => {
@@ -965,7 +969,8 @@ describe('Completeness Principle in generated SKILL.md files', () => {
   }
 
   test('Completeness Principle keeps compact scoring guidance in tier 2+ skills', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    // CSO is intentionally exempt; use a regular tier 2+ PREAMBLE consumer.
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Completeness: X/10');
     expect(content).toContain('10 = all edge cases');
     expect(content).toContain('Note: options differ in kind, not coverage');
