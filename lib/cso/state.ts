@@ -654,32 +654,40 @@ function acquireRunLease(dir:string):HeldRunLease{
 function releaseRunLease(lease:HeldRunLease,path=lease.path):void{const directory=dirname(path);releaseKnownLease(path,join(directory,basename(lease.decision)),join(directory,basename(lease.active)),lease.token,lease.identity,lease.decisionIdentity,true);}
 export function withLock<T>(dir: string, fn: () => T): T | Promise<Awaited<T>> {
   const lease=acquireRunLease(dir),unlock=()=>releaseRunLease(lease);
+  let value:T;
   try {
-    const value=fn();
-    if(value&&typeof (value as any).then==='function')return Promise.resolve(value).finally(unlock) as Promise<Awaited<T>>;
-    unlock();return value as any;
+    value=fn();
   } catch(error){
     try{unlock();}catch(releaseError){throw releaseError;}
     throw error;
   }
+  if(value&&typeof (value as any).then==='function')return Promise.resolve(value).finally(unlock) as Promise<Awaited<T>>;
+  // Keep release errors outside the callback catch path. Retrying an exact
+  // release after it partially succeeds can only obscure which lease phase
+  // changed and attempts the same fail-closed cleanup twice.
+  unlock();return value as any;
 }
 
-function boundedMarker(path:string):string{
+function boundedMarker(path:string,admit:()=>void=()=>{}):string{
+  admit();
   try{const stat=fs.lstatSync(path);if(stat.isSymbolicLink()||!stat.isFile()||stat.size>8192)return'';return fs.readFileSync(path,'utf8');}catch{return'';}
 }
 /** A detached watchdog owns these paths until it records exact cleanup or an acknowledgement. */
-export function hasPendingWatchdogCleanup(dir:string):boolean{
+export function hasPendingWatchdogCleanup(dir:string,admit:()=>void=()=>{}):boolean{
   let visited=0,pending=false;
   const walk=(at:string,depth:number)=>{
     if(pending||depth>6||visited++>4000)return;
-    let entries:fs.Dirent[];try{entries=fs.readdirSync(at,{withFileTypes:true});}catch{return;}
+    const entries:fs.Dirent[]=[];let directory:fs.Dir;
+    admit();try{directory=fs.opendirSync(at);}catch{return;}
+    try{for(;;){admit();const entry=directory.readSync();if(!entry)break;entries.push(entry);}}finally{directory.closeSync();}
     const names=new Set(entries.map(entry=>entry.name));
-    if(names.has('attempt.ready')&&!names.has('attempt.stopped')&&!boundedMarker(join(at,'attempt.event')).includes('execution-copy cleanup complete')){pending=true;return;}
-    if(names.has('watchdog.ready')&&!names.has('watchdog.stopped')&&!boundedMarker(join(at,'watchdog.event')).includes('cleanup complete')){pending=true;return;}
+    if(names.has('attempt.ready')&&!names.has('attempt.stopped')&&!boundedMarker(join(at,'attempt.event'),admit).includes('execution-copy cleanup complete')){pending=true;return;}
+    if(names.has('watchdog.ready')&&!names.has('watchdog.stopped')&&!boundedMarker(join(at,'watchdog.event'),admit).includes('cleanup complete')){pending=true;return;}
     for(const entry of entries){if(!/^[A-Za-z0-9._-]{1,120}$/.test(entry.name)||!entry.isDirectory())continue;walk(join(at,entry.name),depth+1);if(pending)return;}
   };
   for(const name of ['supervision','preparation-execution']){
-    const root=join(dir,name);if(!fs.existsSync(root))continue;
+    admit();const root=join(dir,name);if(!fs.existsSync(root))continue;
+    admit();
     const rootStat=fs.lstatSync(root);if(rootStat.isSymbolicLink()||!rootStat.isDirectory())throw new CsoError('UNSAFE_PATH','Watchdog supervision state is not a private directory');
     walk(root,0);if(pending)return true;
   }
@@ -693,64 +701,109 @@ export function finalizeReplayTemporary(dir:string):void{
   fs.rmSync(dir,{recursive:true,force:true});
 }
 
-function repairBundleExpiry(dir:string,run:string,now:number,runExpired:boolean):boolean{
-  const bundles=join(dir,'bundles');if(!fs.existsSync(bundles))return false;
+/** Remove one private tree cooperatively without following links or holding directory handles across checks. */
+function boundedRemoveTree(root:string,admit:()=>void,preserveRootName?:string):void{
+  type Frame={path:string;root:boolean;names?:string[];index:number};
+  const stack:Frame[]=[{path:root,root:true,index:0}];
+  while(stack.length){
+    const frame=stack[stack.length-1];
+    if(!frame.names){
+      admit();let stat:fs.Stats;try{stat=fs.lstatSync(frame.path);}catch(error:any){if(error?.code==='ENOENT'){stack.pop();continue;}throw error;}
+      if(stat.isSymbolicLink()||!stat.isDirectory()){admit();fs.unlinkSync(frame.path);stack.pop();continue;}
+      const names:string[]=[];admit();const directory=fs.opendirSync(frame.path);
+      try{for(;;){admit();const entry=directory.readSync();if(!entry)break;if(!(frame.root&&entry.name===preserveRootName))names.push(entry.name);}}finally{directory.closeSync();}
+      frame.names=names;frame.index=0;
+    }
+    if(frame.index<frame.names.length){const name=frame.names[frame.index++];stack.push({path:join(frame.path,name),root:false,index:0});continue;}
+    if(frame.root&&preserveRootName)return;
+    admit();fs.rmdirSync(frame.path);stack.pop();
+  }
+}
+function consumeLeasedTree(root:string,admit:()=>void):void{
+  boundedRemoveTree(root,admit,'.mutation-lock-leases');
+  admit();const directory=fs.opendirSync(root);try{for(;;){admit();const entry=directory.readSync();if(!entry)break;if(entry.name!=='.mutation-lock-leases')throw new CsoError('SNAPSHOT_RACE','Private retention tree changed during bounded cleanup');}}finally{directory.closeSync();}
+  // Only the helper's fixed-size lease protocol remains. Consuming it with the
+  // directory preserves the exact-release invariant without an unbounded walk.
+  admit();fs.rmSync(root,{recursive:true,force:true});
+}
+
+function repairBundleExpiry(dir:string,run:string,now:number,runExpired:boolean,admit:()=>void):boolean{
+  admit();const bundles=join(dir,'bundles');if(!fs.existsSync(bundles))return false;
+  admit();
   const stat=fs.lstatSync(bundles);if(stat.isSymbolicLink()||!stat.isDirectory())throw new CsoError('UNSAFE_PATH','Repair bundle archive is not a private directory');
-  let retained=false;
-  for(const name of fs.readdirSync(bundles)){
-    const match=name.match(/^([a-f0-9]{32})\.json$/);if(!match){if(runExpired)fs.rmSync(join(bundles,name),{recursive:true,force:true});continue;}
+  let retained=false,remaining=0;admit();const directory=fs.opendirSync(bundles);
+  try{for(;;){
+    admit();const entry=directory.readSync();if(!entry)break;const name=entry.name;
+    const match=name.match(/^([a-f0-9]{32})\.json$/);if(!match){if(runExpired)boundedRemoveTree(join(bundles,name),admit);else remaining++;continue;}
+    admit();
     const value=readJson(join(bundles,name)) as Record<string,any>,id=match[1],created=Date.parse(value?.createdAt),expires=Date.parse(value?.expiresAt);
     if(value?.schemaVersion!==3||value?.id!==id||value?.runId!==run||value?.verification?.id!==id||value?.verification?.runId!==run||value?.verification?.createdAt!==value.createdAt||
       !Number.isFinite(created)||new Date(created).toISOString()!==value.createdAt||!Number.isFinite(expires)||value.expiresAt!==new Date(created+30*86400_000).toISOString())
       throw new CsoError('INCOMPATIBLE_INPUT','Repair bundle retention identity is invalid');
-    if(expires<=now)fs.unlinkSync(join(bundles,name));else retained=true;
-  }
-  if(!fs.readdirSync(bundles).length)fs.rmdirSync(bundles);
+    if(expires<=now){admit();fs.unlinkSync(join(bundles,name));}else{retained=true;remaining++;}
+  }}finally{directory.closeSync();}
+  if(!remaining){admit();fs.rmdirSync(bundles);}
   return retained;
 }
 
-function cleanupRun(dir:string,run:string,now:number,pinned:boolean):void{
+function cleanupRun(dir:string,run:string,now:number,pinned:boolean,admit:()=>void):void{
+  admit();
   let lease:HeldRunLease;
   try{lease=acquireRunLease(dir);}catch(error){if(error instanceof CsoError&&error.code==='INSUFFICIENT_CAPACITY')return;throw error;}
   let releasePath=lease.path,consumed=false;
   try{
-    if(hasPendingWatchdogCleanup(dir))return;
-    const created=Number(run.split('-')[0]),runExpired=now-created>30*86400_000,retainedBundle=repairBundleExpiry(dir,run,now,runExpired);
-    const ephemeral=fs.existsSync(join(dir,EPHEMERAL_REPLAY));
+    if(hasPendingWatchdogCleanup(dir,admit))return;
+    const created=Number(run.split('-')[0]),runExpired=now-created>30*86400_000,retainedBundle=repairBundleExpiry(dir,run,now,runExpired,admit);
+    admit();const ephemeral=fs.existsSync(join(dir,EPHEMERAL_REPLAY));
     if(ephemeral||(runExpired&&!pinned&&!retainedBundle)){
-      const before=fs.lstatSync(dir),tomb=join(dirname(dir),`.retired-${run}-${randomBytes(16).toString('hex')}`);fs.renameSync(dir,tomb);releasePath=join(tomb,'.mutation-lock-leases',basename(lease.path));const after=fs.lstatSync(tomb);
+      admit();const before=fs.lstatSync(dir),tomb=join(dirname(dir),`.retired-${run}-${randomBytes(16).toString('hex')}`);fs.renameSync(dir,tomb);releasePath=join(tomb,'.mutation-lock-leases',basename(lease.path));admit();const after=fs.lstatSync(tomb);
       if(before.dev!==after.dev||before.ino!==after.ino)throw new CsoError('SNAPSHOT_RACE','Expired run changed while it was retired');
       // The retired name is outside the public run namespace. Consume the
       // exclusive lease with the tree so no release/delete gap can admit a
       // second helper against the same directory.
-      fs.rmSync(tomb,{recursive:true,force:true});consumed=true;return;
+      consumeLeasedTree(tomb,admit);consumed=true;return;
     }
-    if(now-created>7*86400_000)for(const p of ['snapshot','readable'])fs.rmSync(join(dir,p),{recursive:true,force:true});
-    if(runExpired)for(const p of ['reviews','replays','dependency-closures','scanner-outcomes','verification-attempts'])fs.rmSync(join(dir,p),{recursive:true,force:true});
+    if(now-created>7*86400_000)for(const p of ['snapshot','readable'])boundedRemoveTree(join(dir,p),admit);
+    if(runExpired)for(const p of ['reviews','replays','dependency-closures','scanner-outcomes','verification-attempts'])boundedRemoveTree(join(dir,p),admit);
   }finally{if(!consumed)releaseRunLease(lease,releasePath);}
 }
-function cleanupRetiredRun(dir:string):void{
+function cleanupRetiredRun(dir:string,admit:()=>void):void{
+  admit();
   let lease:HeldRunLease;try{lease=acquireRunLease(dir);}catch(error){if(error instanceof CsoError&&error.code==='INSUFFICIENT_CAPACITY')return;throw error;}
-  let consumed=false;try{if(hasPendingWatchdogCleanup(dir))return;fs.rmSync(dir,{recursive:true,force:true});consumed=true;}finally{if(!consumed)releaseRunLease(lease);}
+  let consumed=false;try{if(hasPendingWatchdogCleanup(dir,admit))return;consumeLeasedTree(dir,admit);consumed=true;}finally{if(!consumed)releaseRunLease(lease);}
 }
-export function retention(now = Date.now()): void {
+export interface RetentionOptions { deadlineMs?:number; maxEntries?:number }
+export interface RetentionResult { complete:boolean; visited:number }
+class RetentionBudgetExhausted extends Error {}
+export function retention(now = Date.now(),options:RetentionOptions={}): RetentionResult {
+  const deadlineMs=options.deadlineMs??Number.MAX_SAFE_INTEGER,maxEntries=options.maxEntries??Number.MAX_SAFE_INTEGER;
+  if(!Number.isSafeInteger(deadlineMs)||deadlineMs<0||!Number.isSafeInteger(maxEntries)||maxEntries<1)throw new CsoError('INVALID_ARGUMENT','Invalid retention maintenance budget');
+  let visited=0;const admit=()=>{if(Date.now()>=deadlineMs||visited>=maxEntries)throw new RetentionBudgetExhausted();visited++;};
+  const names=(dir:string,pattern:RegExp):string[]=>{const found:string[]=[];admit();const directory=fs.opendirSync(dir);try{for(;;){admit();const entry=directory.readSync();if(!entry)break;if(pattern.test(entry.name))found.push(entry.name);}}finally{directory.closeSync();}return found;};
   const root = privateRoot();
-  const retainedParents=new Set<string>();
+  const retainedParents=new Set<string>(),repositories:{repo:string;repoDir:string;runs:string[];retired:string[]}[]=[];
   const retainedReport=(repoDir:string,repo:string,run:string):RunReportV3|undefined=>{
     const file=join(repoDir,run,'report.json');
     try{
+      admit();
       const stat=fs.lstatSync(file);
       if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||stat.size<=0||stat.size>MAX_STATE_FILE||
         (process.getuid&&stat.uid!==process.getuid())||(process.platform!=='win32'&&(stat.mode&0o077)!==0))return;
+      admit();
       const report=JSON.parse(fs.readFileSync(file,'utf8'));
       if(report?.schemaVersion!==3||report.runId!==run||report.repoId!==repo||!Array.isArray(report.coverage)||!Array.isArray(report.findings)||
         !['running','finished','interrupted'].includes(report.status))return;
       return report as RunReportV3;
-    }catch{return;}
+    }catch(error){if(error instanceof RetentionBudgetExhausted)throw error;return;}
   };
-  for(const repo of fs.readdirSync(root).filter(x=>/^[a-f0-9]{24}$/.test(x))){
-    const repoDir=secureDirectory(join(root,repo));
-    for(const run of fs.readdirSync(repoDir).filter(x=>/^\d{13}-[a-f0-9]{16}$/.test(x))){
+  try{
+    for(const repo of names(root,/^[a-f0-9]{24}$/)){
+      admit();const repoDir=secureDirectory(join(root,repo)),entries=names(repoDir,/^(?:\d{13}-[a-f0-9]{16}|\.retired-\d{13}-[a-f0-9]{16}-[a-f0-9]{32})$/),runs=entries.filter(x=>/^\d{13}-/.test(x)),retired=entries.filter(x=>x.startsWith('.retired-'));
+      repositories.push({repo,repoDir,runs,retired});
+    }
+    // Discover every live recheck pin before destructive cleanup. An exhausted
+    // discovery pass returns without deleting a parent that may still be in use.
+    for(const {repo,repoDir,runs} of repositories)for(const run of runs){
       if(now-Number(run.split('-')[0])>30*86400_000)continue;
       const report=retainedReport(repoDir,repo,run),parent=report?.parent as Record<string,unknown>|undefined;
       if(!report||!['running','interrupted'].includes(report.status)||!Number.isFinite(Date.parse(report.deadline))||Date.parse(report.deadline)<=now||
@@ -759,23 +812,27 @@ export function retention(now = Date.now()): void {
       const original=retainedReport(repoDir,repo,parent.runId);
       if(original?.status==='finished'&&original.findings.some(f=>f.id===parent.findingId))retainedParents.add(`${repo}/${parent.runId}`);
     }
-  }
-  for (const repo of fs.readdirSync(root).filter(x => /^[a-f0-9]{24}$/.test(x))) {
-    const repoDir = secureDirectory(join(root,repo));
-    for(const retired of fs.readdirSync(repoDir).filter(x=>/^\.retired-\d{13}-[a-f0-9]{16}-[a-f0-9]{32}$/.test(x)))cleanupRetiredRun(join(repoDir,retired));
-    for (const run of fs.readdirSync(repoDir).filter(x => /^\d{13}-[a-f0-9]{16}$/.test(x))) {
-      const dir = secureDirectory(join(repoDir,run));
-      // Every destructive retention decision owns the same exclusive lease as
-      // writers and replay. Whole runs are atomically retired before release.
-      cleanupRun(dir,run,now,retainedParents.has(`${repo}/${run}`));
+    for (const {repo,repoDir,runs,retired} of repositories) {
+      for(const name of retired)cleanupRetiredRun(join(repoDir,name),admit);
+      for (const run of runs) {
+        admit();const dir = secureDirectory(join(repoDir,run));
+        // Every destructive retention decision owns the same exclusive lease as
+        // writers and replay. Whole runs are atomically retired before release.
+        cleanupRun(dir,run,now,retainedParents.has(`${repo}/${run}`),admit);
+      }
     }
-  }
-  const legacy=join(root,'legacy-imports');
-  if(fs.existsSync(legacy)){
-    const directory=fs.lstatSync(legacy);if(directory.isSymbolicLink()||!directory.isDirectory())throw new CsoError('UNSAFE_PATH','Legacy report archive is not a private directory');
-    for(const name of fs.readdirSync(legacy).filter(value=>/^[a-f0-9]{64}\.json$/.test(value))){
-      const file=join(legacy,name),stat=fs.lstatSync(file);if(stat.isSymbolicLink()||!stat.isFile()||(process.getuid&&stat.uid!==process.getuid()))throw new CsoError('UNSAFE_PATH','Legacy report archive contains an unsafe artifact');
-      if(now-stat.mtimeMs>30*86400_000)fs.unlinkSync(file);
+    admit();const legacy=join(root,'legacy-imports');
+    if(fs.existsSync(legacy)){
+      admit();const directory=fs.lstatSync(legacy);if(directory.isSymbolicLink()||!directory.isDirectory())throw new CsoError('UNSAFE_PATH','Legacy report archive is not a private directory');
+      for(const name of names(legacy,/^[a-f0-9]{64}\.json$/)){
+        admit();const file=join(legacy,name),stat=fs.lstatSync(file);if(stat.isSymbolicLink()||!stat.isFile()||(process.getuid&&stat.uid!==process.getuid()))throw new CsoError('UNSAFE_PATH','Legacy report archive contains an unsafe artifact');
+        admit();
+        if(now-stat.mtimeMs>30*86400_000)fs.unlinkSync(file);
+      }
     }
+    return{complete:true,visited};
+  }catch(error){
+    if(error instanceof RetentionBudgetExhausted)return{complete:false,visited};
+    throw error;
   }
 }

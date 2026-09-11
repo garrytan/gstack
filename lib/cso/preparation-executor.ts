@@ -22,6 +22,7 @@ import {
 const SHA256 = /^[a-f0-9]{64}$/;
 const HOST = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const RELATIVE_ARCHIVE = /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))(?!.*\\)[A-Za-z0-9@._+\/-]{1,1024}$/;
+const MAX_ARCHIVES = 25_000;
 const MAX_TREE_FILES = 200_000;
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
 // The smallest automatic execution role is the tests container: 768 MiB at
@@ -46,7 +47,8 @@ function deepFreeze<T>(value: T): T {
   }
   return value;
 }
-function checkDeadline(deadline: number): void {
+function checkDeadline(deadline: number, signal?: AbortSignal): void {
+  if (signal?.aborted) fail('CANCELLED', 'Preparation was cancelled before the operation completed');
   if (!Number.isSafeInteger(deadline) || deadline <= 0) fail('INVALID_ARGUMENT', 'Preparation deadline must be an absolute millisecond timestamp');
   if (Date.now() >= deadline) fail('DEADLINE', 'Preparation deadline was reached before the operation completed');
 }
@@ -376,10 +378,13 @@ function relativeArchivePath(value: string, label: string): string {
   return value;
 }
 
-function stagedFileHashes(root: string, relativePath: string, expectedBytes: number): { sha256: string; sha512: string } {
+function stagedFileHashes(root: string, relativePath: string, expectedBytes: number, deadline: number,
+  signal?: AbortSignal): { sha256: string; sha512: string } {
+  checkDeadline(deadline, signal);
   const parts = relativeArchivePath(relativePath, 'Staged archive').split('/');
   let cursor = root;
   for (const part of parts.slice(0, -1)) {
+    checkDeadline(deadline, signal);
     cursor = join(cursor, part);
     let stat: fs.Stats;
     try { stat = fs.lstatSync(cursor); } catch { fail('MISSING_INPUT', 'Acquisition staging directory is missing'); }
@@ -399,12 +404,15 @@ function stagedFileHashes(root: string, relativePath: string, expectedBytes: num
     const h256 = createHash('sha256'), h512 = createHash('sha512'), buffer = Buffer.allocUnsafe(64 * 1024);
     let bytes = 0;
     for (;;) {
+      checkDeadline(deadline, signal);
       const count = fs.readSync(fd!, buffer, 0, buffer.length, null);
       if (!count) break;
       bytes += count;
       if (bytes > expectedBytes) fail('SNAPSHOT_RACE', 'Staged archive grew while it was verified');
       h256.update(buffer.subarray(0, count)); h512.update(buffer.subarray(0, count));
+      checkDeadline(deadline, signal);
     }
+    checkDeadline(deadline, signal);
     const after = fs.fstatSync(fd!);
     if (bytes !== expectedBytes || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size ||
       before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.mode !== after.mode || before.nlink !== after.nlink)
@@ -423,18 +431,23 @@ function closureIdentity(closure: Omit<DependencyClosure, 'closureHash'>): strin
 function logicalInput(input: PreparationInput): string { return `${input.name}\0${input.version}`; }
 
 function validateClosure(plan: PreparationPlan, admission: PreparationRuntimeAdmission, closure: DependencyClosure,
-  cache: PublicArchiveCache, materializationBase?: string): { mounts: CachedArchiveMount[]; materializedRoot?: string } {
+  cache: PublicArchiveCache, deadline: number, signal?: AbortSignal,
+  materializationBase?: string): { mounts: CachedArchiveMount[]; materializedRoot?: string } {
+  checkDeadline(deadline, signal);
   const runtime = admission.runtime, expectedPlanHash = planHash(plan);
   const { closureHash, ...closureBody } = closure ?? ({} as DependencyClosure);
   if (!closure || closure.schemaVersion !== 1 || closure.stack !== plan.stack || closure.planHash !== expectedPlanHash ||
     closure.catalogRevision !== admission.catalogRevision || closure.runtimeId !== runtime.id || closure.runtimeImage !== runtime.image ||
-    closure.platform !== runtime.platform || !Array.isArray(closure.archives) || !SHA256.test(closureHash) ||
+    closure.platform !== runtime.platform || !Array.isArray(closure.archives) || closure.archives.length > MAX_ARCHIVES || !SHA256.test(closureHash) ||
     closureHash !== closureIdentity(closureBody))
     fail('INCOMPATIBLE_INPUT', 'Dependency closure does not match the admitted plan and runtime');
   const publicInputs = plan.inputs.map((input, index) => ({ input, index })).filter(item => item.input.kind === 'public');
+  if (publicInputs.length > MAX_ARCHIVES) fail('INSUFFICIENT_CAPACITY', 'Dependency closure exceeds the archive-count limit');
+  const publicInputsByIndex = new Map(publicInputs.map(item => [item.index, item]));
   const covered = new Set<string>(), paths = new Set<string>(), pending: Array<{ archive: DependencyArchive; input: PreparationInput }> = [];
   for (const archive of closure.archives) {
-    const selected = publicInputs.find(item => item.index === archive.inputIndex);
+    checkDeadline(deadline, signal);
+    const selected = publicInputsByIndex.get(archive.inputIndex);
     if (!selected || archive.name !== selected.input.name || archive.version !== selected.input.version ||
       archive.declaredIntegrity !== (selected.input.integrity ?? 'registry-on-acquisition') || !SHA256.test(archive.sha256) ||
       !Number.isSafeInteger(archive.bytes) || archive.bytes < 0 || !plan.registryHosts.includes(archive.requestedHost))
@@ -446,8 +459,11 @@ function validateClosure(plan: PreparationPlan, admission: PreparationRuntimeAdm
     paths.add(archive.installPath); covered.add(logicalInput(selected.input));
     pending.push({ archive, input: selected.input });
   }
-  for (const { input } of publicInputs) if (!covered.has(logicalInput(input)))
-    fail('MISSING_INPUT', `Dependency closure does not contain a compatible public archive for ${input.name}@${input.version}`);
+  for (const { input } of publicInputs) {
+    checkDeadline(deadline, signal);
+    if (!covered.has(logicalInput(input)))
+      fail('MISSING_INPUT', `Dependency closure does not contain a compatible public archive for ${input.name}@${input.version}`);
+  }
   if (!pending.length) return { mounts: [] };
   let base: string;
   if (materializationBase) {
@@ -459,8 +475,11 @@ function validateClosure(plan: PreparationPlan, admission: PreparationRuntimeAdm
   const materializedRoot = fs.mkdtempSync(join(base, 'gstack-cso-archives-'));
   fs.chmodSync(materializedRoot, 0o700);
   try {
-    const copies = cache.materialize(pending.map(item => item.archive.sha256), materializedRoot), byDigest = new Map(copies.map(copy => [copy.sha256, copy]));
+    checkDeadline(deadline, signal);
+    const copies = cache.materialize(pending.map(item => item.archive.sha256), materializedRoot, { deadline, signal }),
+      byDigest = new Map(copies.map(copy => [copy.sha256, copy]));
     const mounts = pending.map(({ archive }) => {
+      checkDeadline(deadline, signal);
       const copy = byDigest.get(archive.sha256);
       if (!copy || copy.bytes !== archive.bytes) fail('MISSING_INPUT', `Verified public archive is missing from the offline cache: ${archive.name}@${archive.version}`);
       return { inputIndex: archive.inputIndex, name: archive.name, version: archive.version,
@@ -475,7 +494,26 @@ function validateClosure(plan: PreparationPlan, admission: PreparationRuntimeAdm
 }
 
 type TreeEntry = { path: string; kind: 'file' | 'symlink'; mode: number; bytes: number; sha256: string };
-function treeManifest(rootPath: string, maxBytes: number, deadline: number, allowContainedSymlinks = false): TreeEntry[] {
+function boundedTreeNames(directory: string, deadline: number, signal?: AbortSignal): string[] {
+  checkDeadline(deadline, signal);
+  const handle = fs.opendirSync(directory), names: string[] = [];
+  try {
+    for (;;) {
+      checkDeadline(deadline, signal);
+      const entry = handle.readSync();
+      if (!entry) break;
+      if (names.length >= MAX_TREE_FILES) fail('INSUFFICIENT_CAPACITY', 'Preparation directory exceeds its bounded manifest limit');
+      names.push(entry.name);
+    }
+  } finally { handle.closeSync(); }
+  checkDeadline(deadline, signal);
+  names.sort();
+  checkDeadline(deadline, signal);
+  return names;
+}
+function treeManifest(rootPath: string, maxBytes: number, deadline: number, allowContainedSymlinks = false,
+  signal?: AbortSignal): TreeEntry[] {
+  checkDeadline(deadline, signal);
   const root = resolve(rootPath);
   let rootStat: fs.Stats, canonicalRoot: string;
   try { rootStat = fs.lstatSync(root); canonicalRoot = fs.realpathSync(root); }
@@ -486,9 +524,10 @@ function treeManifest(rootPath: string, maxBytes: number, deadline: number, allo
   const entries: TreeEntry[] = [];
   let total = 0, nodes = 0;
   const walk = (directory: string, prefix = ''): void => {
-    checkDeadline(deadline);
-    const before = fs.readdirSync(directory).sort();
+    checkDeadline(deadline, signal);
+    const before = boundedTreeNames(directory, deadline, signal);
     for (const name of before) {
+      checkDeadline(deadline, signal);
       const path = join(directory, name), relativePath = prefix ? `${prefix}/${name}` : name;
       nodes++;
       if (nodes > MAX_TREE_FILES || Buffer.byteLength(name) > 255 || Buffer.byteLength(relativePath) > 4096)
@@ -525,7 +564,8 @@ function treeManifest(rootPath: string, maxBytes: number, deadline: number, allo
       try {
         const initial = fs.fstatSync(fd!), hash = createHash('sha256'), buffer = Buffer.allocUnsafe(64 * 1024);
         let readBytes = 0;
-        for (;;) { const count = fs.readSync(fd!, buffer, 0, buffer.length, null); if (!count) break; readBytes += count; hash.update(buffer.subarray(0, count)); checkDeadline(deadline); }
+        for (;;) { checkDeadline(deadline, signal); const count = fs.readSync(fd!, buffer, 0, buffer.length, null); if (!count) break; readBytes += count; hash.update(buffer.subarray(0, count)); checkDeadline(deadline, signal); }
+        checkDeadline(deadline, signal);
         const final = fs.fstatSync(fd!);
         if (readBytes !== initial.size || initial.dev !== final.dev || initial.ino !== final.ino || initial.size !== final.size ||
           initial.mode !== final.mode || initial.mtimeMs !== final.mtimeMs || initial.ctimeMs !== final.ctimeMs)
@@ -533,13 +573,15 @@ function treeManifest(rootPath: string, maxBytes: number, deadline: number, allo
         entries.push({ path: relativePath, kind: 'file', mode: initial.mode & 0o777, bytes: initial.size, sha256: hash.digest('hex') });
       } finally { fs.closeSync(fd!); }
     }
-    if (canonical(before) !== canonical(fs.readdirSync(directory).sort())) fail('SNAPSHOT_RACE', 'Preparation tree membership changed while hashing');
+    checkDeadline(deadline, signal);
+    if (canonical(before) !== canonical(boundedTreeNames(directory, deadline, signal))) fail('SNAPSHOT_RACE', 'Preparation tree membership changed while hashing');
   };
   walk(root);
   return entries;
 }
-function treeHash(rootPath: string, maxBytes: number, deadline: number, allowContainedSymlinks = false): string {
-  return sha256(canonical(treeManifest(rootPath, maxBytes, deadline, allowContainedSymlinks)));
+function treeHash(rootPath: string, maxBytes: number, deadline: number, allowContainedSymlinks = false,
+  signal?: AbortSignal): string {
+  return sha256(canonical(treeManifest(rootPath, maxBytes, deadline, allowContainedSymlinks, signal)));
 }
 function dependencyOutput(stack: CsoStack, path: string): boolean {
   const first = path.split('/')[0];
@@ -567,13 +609,14 @@ function preparedEnvironment(plan: PreparationPlan): Record<string, string> {
   return environment;
 }
 function provePreparedProjection(snapshot: string, preparedRoot: string, stack: CsoStack,
-  transformations: OfflinePreparationRequest['transformations'], deadline: number): { hash: string; transformations: PreparedApplication['transformations']; manifestHash: string; dependencyHash:string } {
-  const source = treeManifest(snapshot, MAX_SOURCE_BYTES, deadline), prepared = treeManifest(preparedRoot, MAX_PREPARED_BYTES, deadline, true),
+  transformations: OfflinePreparationRequest['transformations'], deadline: number, signal?: AbortSignal): { hash: string; transformations: PreparedApplication['transformations']; manifestHash: string; dependencyHash:string } {
+  const source = treeManifest(snapshot, MAX_SOURCE_BYTES, deadline, false, signal), prepared = treeManifest(preparedRoot, MAX_PREPARED_BYTES, deadline, true, signal),
     sourceByPath = new Map(source.map(entry => [entry.path, entry])), preparedByPath = new Map(prepared.map(entry => [entry.path, entry])),
     synthetic = new Map(transformations.map(item => [item.path, item]));
   if (synthetic.size !== transformations.length) fail('INVALID_SCHEMA', 'Offline preparation transformations contain duplicate paths');
   const actualTransformations: PreparedApplication['transformations'] = [];
   for (const entry of source) {
+    checkDeadline(deadline, signal);
     const actual = preparedByPath.get(entry.path), transformed = synthetic.get(entry.path);
     if (!actual || actual.kind !== 'file') fail('ISOLATION_FAILED', `Offline lifecycle execution removed or replaced captured source: ${entry.path}`);
     if (transformed) {
@@ -581,12 +624,14 @@ function provePreparedProjection(snapshot: string, preparedRoot: string, stack: 
     } else if (canonical(actual) !== canonical(entry)) fail('ISOLATION_FAILED', `Offline lifecycle execution changed captured source bytes or mode: ${entry.path}`);
   }
   for (const transformed of transformations) {
+    checkDeadline(deadline, signal);
     const actual = preparedByPath.get(transformed.path);
     if (!actual || actual.kind !== 'file' || actual.sha256 !== transformed.sha256)
       fail('ISOLATION_FAILED', `Offline preparation did not preserve its declared transformation: ${transformed.path}`);
     actualTransformations.push({ path: transformed.path, sha256: transformed.sha256, mode: actual.mode, reason: transformed.reason });
   }
   for (const entry of prepared) {
+    checkDeadline(deadline, signal);
     if (sourceByPath.has(entry.path) || synthetic.has(entry.path) || dependencyOutput(stack, entry.path)) continue;
     fail('ISOLATION_FAILED', `Offline lifecycle execution wrote outside its dependency roots: ${entry.path}`);
   }
@@ -639,18 +684,23 @@ export class PreparationExecutor {
     admission: PreparationRuntimeAdmission;
     snapshot: string;
     deadline: number;
+    signal?: AbortSignal;
     offline?: boolean;
     existingClosure?: DependencyClosure;
   }): Promise<DependencyClosure> {
-    checkDeadline(options.deadline);
+    checkDeadline(options.deadline, options.signal);
     const hash = validatePlan(options.plan, options.snapshot), runtime = runtimeFromAdmission(options.plan, options.admission);
+    checkDeadline(options.deadline, options.signal);
     validateRunner(this.options.runner, options.plan.stack);
     if (options.existingClosure) {
-      const verified = validateClosure(options.plan, options.admission, options.existingClosure, this.options.cache, this.options.materializationRoot);
+      const verified = validateClosure(options.plan, options.admission, options.existingClosure, this.options.cache,
+        options.deadline, options.signal, this.options.materializationRoot);
       if (verified.materializedRoot) fs.rmSync(verified.materializedRoot, { recursive: true, force: true });
       return options.existingClosure;
     }
     const publicInputs = options.plan.inputs.map((input, index) => ({ input, index })).filter(item => item.input.kind === 'public');
+    if (publicInputs.length > MAX_ARCHIVES) fail('INSUFFICIENT_CAPACITY', 'Preparation plan exceeds the archive-count limit');
+    const publicInputsByIndex = new Map(publicInputs.map(item => [item.index, item]));
     if (options.offline && publicInputs.length) fail('MISSING_INPUT', 'Offline preparation requires a matching retained dependency closure and verified cache entries');
     if (!publicInputs.length) {
       const body: Omit<DependencyClosure, 'closureHash'> = { schemaVersion: 1, stack: options.plan.stack, planHash: hash,
@@ -665,14 +715,14 @@ export class PreparationExecutor {
       schemaVersion: 1, planHash: hash, stack: options.plan.stack,
       runtime: { id: runtime.id, image: runtime.image, platform: runtime.platform }, metadata: structuredClone(options.plan.metadata),
       inputs: structuredClone(publicInputs), commands: structuredClone(options.plan.acquisition), stagingRoot: acquisitionStaging,
-      deadline: options.deadline, limits: { maxArchives: 25_000,
+      deadline: options.deadline, limits: { maxArchives: MAX_ARCHIVES,
         maxArchiveBytes: Math.min(this.options.cache.maxEntryBytes, MAX_ACQUISITION_ARCHIVE_BYTES),
         maxTotalArchiveBytes: Math.min(this.options.cache.maxBytes, MAX_ACQUISITION_ARCHIVE_BYTES), maxOutputBytes: MAX_OUTPUT },
       network: { mode: 'registry-restricted', allowedHosts: [...options.plan.registryHosts] }, sourceMounted: false,
     };
     try {
     const receipt = await this.options.runner.acquire(deepFreeze(request));
-    checkDeadline(options.deadline);
+    checkDeadline(options.deadline, options.signal);
     validateAcquisitionReceipt(receipt, request, options.plan);
     if (!Array.isArray(receipt.artifacts) || receipt.artifacts.length > request.limits.maxArchives)
       fail('TOOL_FAILED', 'Acquisition receipt contains an invalid number of archives');
@@ -680,7 +730,8 @@ export class PreparationExecutor {
       uniqueBytes = new Map<string, number>(), validated: Array<{ artifact: AcquisitionArtifactReceipt; selected: typeof publicInputs[number] }> = [];
     let totalUniqueBytes = 0;
     for (const artifact of receipt.artifacts) {
-      const selected = publicInputs.find(item => item.index === artifact.inputIndex);
+      checkDeadline(options.deadline, options.signal);
+      const selected = publicInputsByIndex.get(artifact.inputIndex);
       if (!selected || seenInputs.has(artifact.inputIndex) || !SHA256.test(artifact.sha256) || artifact.registryResponseSha256 !== artifact.sha256 ||
         !Number.isSafeInteger(artifact.bytes) || artifact.bytes < 0 || artifact.bytes > this.options.cache.maxEntryBytes ||
         !options.plan.registryHosts.includes(artifact.requestedHost) || !receipt.network.contactedHosts.includes(artifact.requestedHost))
@@ -696,7 +747,7 @@ export class PreparationExecutor {
         if (!receipt.network.contactedHosts.includes(resolvedHost)) fail('TOOL_FAILED', 'Direct archive response host was not contacted through the registry broker');
       }
       if (selected.input.url && artifact.requestedUrl !== selected.input.url) fail('TOOL_FAILED', 'Acquired archive request URL does not match its lockfile URL');
-      const hashes = stagedFileHashes(request.stagingRoot, artifact.stagingPath, artifact.bytes);
+      const hashes = stagedFileHashes(request.stagingRoot, artifact.stagingPath, artifact.bytes, options.deadline, options.signal);
       if (hashes.sha256 !== artifact.sha256 || (selected.input.integritySource === 'lock' && !integrityMatches(selected.input.integrity, hashes)) ||
         (selected.input.integritySource !== 'lock' && selected.input.integritySource !== 'registry-on-acquisition'))
         fail('INCOMPATIBLE_INPUT', `Acquired archive failed lock/registry integrity verification: ${selected.input.name}@${selected.input.version}`);
@@ -711,9 +762,10 @@ export class PreparationExecutor {
     // and the aggregate unique-byte ceiling have been validated.
     try {
       for (const { artifact, selected } of validated) {
+        checkDeadline(options.deadline, options.signal);
         const absoluteStaged = resolve(request.stagingRoot, ...artifact.stagingPath.split('/'));
         const cacheRelative = relative(this.options.cache.stagingRoot, absoluteStaged).split(sep).join('/');
-        const cached = this.options.cache.promote(cacheRelative, artifact.sha256);
+        const cached = this.options.cache.promote(cacheRelative, artifact.sha256, { deadline: options.deadline, signal: options.signal });
         archives.push({ inputIndex: artifact.inputIndex, name: selected.input.name, version: selected.input.version,
           installPath: artifact.installPath, sha256: cached.sha256, bytes: cached.bytes, requestedHost: artifact.requestedHost,
           requestedUrl: artifact.requestedUrl, resolvedUrl: artifact.resolvedUrl,
@@ -726,8 +778,11 @@ export class PreparationExecutor {
       }
     }
     const covered = new Set(archives.map(archive => logicalInput(options.plan.inputs[archive.inputIndex])));
-    for (const { input } of publicInputs) if (!covered.has(logicalInput(input)))
-      fail('MISSING_INPUT', `Acquisition did not produce a compatible archive for ${input.name}@${input.version}`);
+    for (const { input } of publicInputs) {
+      checkDeadline(options.deadline, options.signal);
+      if (!covered.has(logicalInput(input))) fail('MISSING_INPUT', `Acquisition did not produce a compatible archive for ${input.name}@${input.version}`);
+    }
+    checkDeadline(options.deadline, options.signal);
     archives.sort((a, b) => a.installPath.localeCompare(b.installPath));
     const body: Omit<DependencyClosure, 'closureHash'> = { schemaVersion: 1, stack: options.plan.stack, planHash: hash,
       catalogRevision: options.admission.catalogRevision, runtimeId: runtime.id, runtimeImage: runtime.image, platform: runtime.platform,
@@ -748,12 +803,15 @@ export class PreparationExecutor {
     snapshot: string;
     closure: DependencyClosure;
     deadline: number;
+    signal?: AbortSignal;
     database?: RailsDatabaseSelection;
   }): Promise<PreparedApplication> {
-    checkDeadline(options.deadline);
+    checkDeadline(options.deadline, options.signal);
     const hash = validatePlan(options.plan, options.snapshot), runtime = runtimeFromAdmission(options.plan, options.admission);
+    checkDeadline(options.deadline, options.signal);
     validateRunner(this.options.runner, options.plan.stack);
-    const materialized = validateClosure(options.plan, options.admission, options.closure, this.options.cache, this.options.materializationRoot),
+    const materialized = validateClosure(options.plan, options.admission, options.closure, this.options.cache,
+      options.deadline, options.signal, this.options.materializationRoot),
       archives = materialized.mounts;
     let database: OfflinePreparationRequest['database'];
     let synthetic: Array<{ path: string; content: string }> = [];
@@ -772,7 +830,7 @@ export class PreparationExecutor {
     } else if (options.database) fail('INVALID_ARGUMENT', 'Database preparation is only valid for Rails');
     const transformations = synthetic.map(file => ({ ...file, sha256: sha256(file.content), reason: 'Synthetic isolated Rails test configuration' }));
     const configurationHash = sha256(canonical(transformations)), databaseHash = sha256(canonical(database ?? null));
-    const sourceHash = treeHash(options.snapshot, MAX_SOURCE_BYTES, options.deadline);
+    const sourceHash = treeHash(options.snapshot, MAX_SOURCE_BYTES, options.deadline, false, options.signal);
     const request: OfflinePreparationRequest = {
       schemaVersion: 1, planHash: hash, stack: options.plan.stack,
       runtime: { id: runtime.id, image: runtime.image, platform: runtime.platform }, sourceRoot: resolve(options.snapshot), sourceHash,
@@ -786,16 +844,16 @@ export class PreparationExecutor {
     try {
       const result = await this.options.runner.prepareOffline(deepFreeze(request));
       returnedPreparedRoot = typeof result?.preparedRoot === 'string' ? result.preparedRoot : undefined;
-      checkDeadline(options.deadline);
+      checkDeadline(options.deadline, options.signal);
       validateOfflineReceipt(result?.receipt, request);
       const preparedRoot = resolve(result.preparedRoot);
       const sourceRoot = resolve(options.snapshot);
       if (preparedRoot === sourceRoot || preparedRoot.startsWith(`${sourceRoot}${sep}`) || sourceRoot.startsWith(`${preparedRoot}${sep}`) ||
         preparedRoot === this.options.cache.root || preparedRoot.startsWith(`${this.options.cache.root}${sep}`))
         fail('UNSAFE_PATH', 'Prepared application must be a separate disposable copy outside cache and source roots');
-      const projection = provePreparedProjection(options.snapshot, preparedRoot, options.plan.stack, request.transformations, options.deadline),
+      const projection = provePreparedProjection(options.snapshot, preparedRoot, options.plan.stack, request.transformations, options.deadline, options.signal),
         preparedManifestHash = projection.manifestHash,preparedDependencyHash=projection.dependencyHash;
-      if (treeHash(options.snapshot, MAX_SOURCE_BYTES, options.deadline) !== sourceHash)
+      if (treeHash(options.snapshot, MAX_SOURCE_BYTES, options.deadline, false, options.signal) !== sourceHash)
         fail('SNAPSHOT_RACE', 'Offline preparation changed its read-only input source');
       completed = true;
       return Object.freeze({ schemaVersion: 1 as const, stack: options.plan.stack, preparedRoot, sourceHash, preparedManifestHash,preparedDependencyHash,

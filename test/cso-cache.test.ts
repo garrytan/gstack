@@ -106,6 +106,56 @@ describe('CSO immutable public archive cache', () => {
     expect(copies.map(item => createHash('sha256').update(fs.readFileSync(item.path)).digest('hex')).sort()).toEqual([first.digest, second.digest].sort());
   });
 
+  test('bounds every public operation by an optional absolute deadline', () => {
+    const { root, staging, cache } = fixture(1024);
+    const archive = stage(staging, 'deadline', 'bounded');
+    const expired = Date.now() - 1;
+    expect(code(() => cache.promote(archive.path, archive.digest, expired))).toBe('DEADLINE');
+    const entry = cache.promote(archive.path, archive.digest);
+    expect(code(() => cache.get(entry.sha256, { deadline: expired }))).toBe('DEADLINE');
+    expect(code(() => cache.stats({ deadline: expired }))).toBe('DEADLINE');
+    const destination = path.join(root, 'deadline-materialization'); fs.mkdirSync(destination, { mode: 0o700 });
+    expect(code(() => cache.materialize([entry.sha256], destination, { deadline: expired }))).toBe('DEADLINE');
+    expect(fs.readdirSync(destination)).toEqual([]);
+  });
+
+  test('cancels between archive-copy chunks and removes the partial incoming object', () => {
+    const { staging, cacheRoot, cache } = fixture(512 * 1024);
+    const archive = stage(staging, 'cancel-copy', Buffer.alloc(192 * 1024, 0x61));
+    const controller = new AbortController(), original = fs.writeSync.bind(fs); let archiveWrites = 0;
+    const writer = spyOn(fs, 'writeSync').mockImplementation(((fd: number, buffer: string | NodeJS.ArrayBufferView,
+      offsetOrPosition?: number | null, lengthOrEncoding?: number | BufferEncoding, position?: number | null) => {
+      const written = (original as any)(fd, buffer, offsetOrPosition, lengthOrEncoding, position);
+      if (Buffer.isBuffer(buffer) && lengthOrEncoding === 64 * 1024 && written > 0) { archiveWrites++; controller.abort(); }
+      return written;
+    }) as typeof fs.writeSync);
+    try {
+      expect(code(() => cache.promote(archive.path, archive.digest, { deadline: Date.now() + 60_000, signal: controller.signal }))).toBe('CANCELLED');
+    } finally { writer.mockRestore(); }
+    expect(archiveWrites).toBe(1);
+    expect(fs.readdirSync(path.join(cacheRoot, 'incoming'))).toEqual([]);
+    expect(fs.readdirSync(path.join(cacheRoot, 'entries'))).toEqual([]);
+    expect(fs.readdirSync(path.join(cacheRoot, 'metadata'))).toEqual([]);
+  });
+
+  test('cancels between cache-hit read chunks without damaging the immutable entry', () => {
+    const { staging, cacheRoot, cache } = fixture(512 * 1024);
+    const archive = stage(staging, 'cancel-read', Buffer.alloc(192 * 1024, 0x62)), entry = cache.promote(archive.path, archive.digest);
+    const controller = new AbortController(), original = fs.readSync.bind(fs); let archiveReads = 0;
+    const reader = spyOn(fs, 'readSync').mockImplementation(((fd: number, buffer: NodeJS.ArrayBufferView,
+      offset: number, length: number, position: number | null) => {
+      const read = original(fd, buffer, offset, length, position);
+      if (length === 64 * 1024 && read > 0) { archiveReads++; controller.abort(); }
+      return read;
+    }) as typeof fs.readSync);
+    try {
+      expect(code(() => cache.get(entry.sha256, { signal: controller.signal }))).toBe('CANCELLED');
+    } finally { reader.mockRestore(); }
+    expect(archiveReads).toBe(1);
+    expect(fs.existsSync(entry.path)).toBe(true);
+    expect(fs.readdirSync(path.join(cacheRoot, 'metadata'))).toEqual([`${entry.sha256}.json`]);
+  });
+
   test('never overwrites an immutable entry and recovers interrupted entry publication', () => {
     const { staging, cacheRoot, cache } = fixture();
     const archive = stage(staging, 'one', 'same bytes');

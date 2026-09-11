@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -216,6 +216,43 @@ describe('CSO constrained dependency preparation executor', () => {
     try { await executor.acquire({ plan, admission, snapshot: source, deadline, offline: true, existingClosure: closure }); }
     catch (error) { expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT'); return; }
     throw new Error('expected poisoned cache reuse to fail');
+  });
+
+  test('threads cancellation into retained-closure cache verification', async () => {
+    const source = snapshot('node'), plan = inspectPreparation(source, 'node'), admission = admitPreparationRuntime({ plan, platform: 'linux/amd64', catalog: catalog('node') });
+    const runner = new FakeRunner(), cache = cacheFixture(), executor = new PreparationExecutor({ cache, runner }), deadline = Date.now() + 60_000;
+    const closure = await executor.acquire({ plan, admission, snapshot: source, deadline });
+    const controller = new AbortController(), original = fs.readSync.bind(fs); let cacheReads = 0;
+    const reader = spyOn(fs, 'readSync').mockImplementation(((fd: number, buffer: NodeJS.ArrayBufferView,
+      offset: number, length: number, position: number | null) => {
+      const read = original(fd, buffer, offset, length, position);
+      if (length === 64 * 1024 && read > 0) { cacheReads++; controller.abort(); }
+      return read;
+    }) as typeof fs.readSync);
+    try {
+      await executor.acquire({ plan, admission, snapshot: source, deadline, signal: controller.signal, offline: true, existingClosure: closure });
+      throw new Error('expected retained closure verification to be cancelled');
+    } catch (error) { expect(errorCode(error)).toBe('CANCELLED'); }
+    finally { reader.mockRestore(); }
+    expect(cacheReads).toBe(1); expect(runner.acquireCalls).toBe(1);
+  });
+
+  test('cancels acquisition while independently hashing staged archive bytes', async () => {
+    const source = snapshot('node'), plan = inspectPreparation(source, 'node'), admission = admitPreparationRuntime({ plan, platform: 'linux/amd64', catalog: catalog('node') });
+    const runner = new FakeRunner(), cache = cacheFixture(), executor = new PreparationExecutor({ cache, runner });
+    const controller = new AbortController(), original = fs.readSync.bind(fs); let stagedReads = 0;
+    const reader = spyOn(fs, 'readSync').mockImplementation(((fd: number, buffer: NodeJS.ArrayBufferView,
+      offset: number, length: number, position: number | null) => {
+      const read = original(fd, buffer, offset, length, position);
+      if (length === 64 * 1024 && read > 0) { stagedReads++; controller.abort(); }
+      return read;
+    }) as typeof fs.readSync);
+    try {
+      await executor.acquire({ plan, admission, snapshot: source, deadline: Date.now() + 60_000, signal: controller.signal });
+      throw new Error('expected staged archive verification to be cancelled');
+    } catch (error) { expect(errorCode(error)).toBe('CANCELLED'); }
+    finally { reader.mockRestore(); }
+    expect(stagedReads).toBe(1); expect(runner.acquireCalls).toBe(1); expect(cache.stats().entries).toBe(0);
   });
 
   test('run-owned archive copies survive a cache eviction between validation and runner start', async () => {

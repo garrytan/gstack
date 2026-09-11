@@ -9,6 +9,7 @@ export const DEFAULT_PUBLIC_ARCHIVE_CACHE_BYTES = 10 * 1024 * 1024 * 1024;
 const METADATA_VERSION = 1;
 const METADATA_LIMIT = 4096;
 const COPY_BUFFER_BYTES = 64 * 1024;
+const MAX_CACHE_DIRECTORY_ENTRIES = 100_000;
 const CACHE_LOCK_PROTOCOL = 'immutable-cache-lease-set-v3';
 const SHA256 = /^[a-f0-9]{64}$/;
 const RELATIVE_STAGE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))(?!.*\\)[^\0-\x1f\x7f]+$/;
@@ -25,6 +26,17 @@ export interface PublicArchiveCacheOptions {
   /** Deterministic clock for tests. */
   now?: () => number;
 }
+
+/** Optional cooperative bounds for synchronous cache work. */
+export interface CacheOperationControl {
+  /** Absolute Unix timestamp in milliseconds. */
+  deadline?: number;
+  /** Checked between bounded filesystem operations. */
+  signal?: AbortSignal;
+}
+
+export type CacheOperationInput = CacheOperationControl | number | undefined;
+type NormalizedCacheOperationControl = Readonly<{ deadline?: number; signal?: AbortSignal }>;
 
 export interface PublicArchiveCacheEntry {
   sha256: string;
@@ -67,6 +79,49 @@ interface StableStat {
 
 function fail(code: ConstructorParameters<typeof CsoError>[0], message: string): never {
   throw new CsoError(code, message);
+}
+
+function operationControl(input?: CacheOperationInput): NormalizedCacheOperationControl {
+  const value = typeof input === 'number' ? { deadline: input } : input ?? {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_ARGUMENT', 'Cache operation control must be an object or absolute deadline');
+  if (value.deadline !== undefined && (!Number.isSafeInteger(value.deadline) || value.deadline <= 0))
+    fail('INVALID_ARGUMENT', 'Cache deadline must be an absolute millisecond timestamp');
+  if (value.signal !== undefined && typeof value.signal.aborted !== 'boolean')
+    fail('INVALID_ARGUMENT', 'Cache cancellation signal is invalid');
+  const control = Object.freeze({ ...(value.deadline === undefined ? {} : { deadline: value.deadline }),
+    ...(value.signal === undefined ? {} : { signal: value.signal }) });
+  checkOperation(control);
+  return control;
+}
+
+function checkOperation(control: NormalizedCacheOperationControl): void {
+  if (control.signal?.aborted) fail('CANCELLED', 'Archive-cache operation was cancelled');
+  if (control.deadline !== undefined && Date.now() >= control.deadline)
+    fail('DEADLINE', 'Archive-cache operation reached its deadline');
+}
+
+function boundedDirectoryNames(path: string, label: string, control: NormalizedCacheOperationControl): string[] {
+  checkOperation(control);
+  const directory = fs.opendirSync(path), names: string[] = [];
+  try {
+    for (;;) {
+      checkOperation(control);
+      const entry = directory.readSync();
+      if (!entry) break;
+      if (names.length >= MAX_CACHE_DIRECTORY_ENTRIES) fail('INSUFFICIENT_CAPACITY', `${label} exceeds the cache entry limit`);
+      names.push(entry.name);
+    }
+  } finally { directory.closeSync(); }
+  checkOperation(control);
+  return names;
+}
+
+function assertEmptyDirectory(path: string, control: NormalizedCacheOperationControl): void {
+  checkOperation(control);
+  const directory = fs.opendirSync(path);
+  try { if (directory.readSync()) fail('UNSAFE_PATH', 'Archive materialization directory must be empty'); }
+  finally { directory.closeSync(); }
+  checkOperation(control);
 }
 
 function boundedPositiveInteger(value: number, name: string): number {
@@ -130,10 +185,11 @@ function assertExistingDirectory(path: string, label: string): string {
   return canonical!;
 }
 
-function assertContainedAncestors(root: string, relativePath: string): string {
+function assertContainedAncestors(root: string, relativePath: string, control: NormalizedCacheOperationControl): string {
   const parts = relativePath.split('/');
   let cursor = root;
   for (const part of parts.slice(0, -1)) {
+    checkOperation(control);
     cursor = join(cursor, part);
     let stat: fs.Stats;
     try { stat = fs.lstatSync(cursor); }
@@ -154,15 +210,19 @@ function openNoFollow(path: string, flags: number, mode?: number): number {
   catch { fail('UNSAFE_PATH', 'Archive file could not be opened without following links'); }
 }
 
-function readMetadata(path: string, digest: string): Metadata {
+function readMetadata(path: string, digest: string, control: NormalizedCacheOperationControl): Metadata {
+  checkOperation(control);
   let stat: fs.Stats;
   try { stat = fs.lstatSync(path); }
   catch { fail('INCOMPATIBLE_INPUT', `Cache metadata is missing for ${digest}`); }
   assertOwnedRegular(stat!, 'Cache metadata', METADATA_LIMIT);
   if ((stat!.mode & 0o077) !== 0) fail('INCOMPATIBLE_INPUT', 'Cache metadata permissions are not private');
   let value: unknown;
-  try { value = JSON.parse(fs.readFileSync(path, 'utf8')); }
-  catch { fail('INCOMPATIBLE_INPUT', `Cache metadata is invalid for ${digest}`); }
+  try { checkOperation(control); value = JSON.parse(fs.readFileSync(path, 'utf8')); checkOperation(control); }
+  catch (error) {
+    if (error instanceof CsoError) throw error;
+    fail('INCOMPATIBLE_INPUT', `Cache metadata is invalid for ${digest}`);
+  }
   const record = value as Partial<Metadata>;
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'bytes,createdAt,lastAccessedAt,sha256,version' ||
     record.version !== METADATA_VERSION || record.sha256 !== digest || !Number.isSafeInteger(record.bytes) || Number(record.bytes) < 0 ||
@@ -226,12 +286,14 @@ export class PublicArchiveCache {
   }
 
   /** Promote a verified staging file. The staging file is never deleted. */
-  promote(stagedPath: string, sha256: string): PublicArchiveCacheEntry {
+  promote(stagedPath: string, sha256: string, operation?: CacheOperationInput): PublicArchiveCacheEntry {
+    const control = operationControl(operation);
     const digest = expectedDigest(sha256), relativePath = stagedRelativePath(stagedPath);
-    const source = assertContainedAncestors(this.stagingRoot, relativePath);
+    const source = assertContainedAncestors(this.stagingRoot, relativePath, control);
     return this.withLock(() => {
-      this.cleanIncoming();
-      this.recoverInterruptedOperations();
+      checkOperation(control);
+      this.cleanIncoming(control);
+      this.recoverInterruptedOperations(control);
       let initial: fs.Stats;
       try { initial = fs.lstatSync(source); }
       catch { fail('MISSING_INPUT', 'Staged archive is missing'); }
@@ -243,24 +305,25 @@ export class PublicArchiveCache {
       if (targetExists !== metadataExists) fail('INCOMPATIBLE_INPUT', `Cache entry is incomplete for ${digest}`);
 
       if (targetExists) {
-        const staged = this.hashFile(source, this.maxEntryBytes, false, stableStat(initial!));
+        const staged = this.hashFile(source, this.maxEntryBytes, false, stableStat(initial!), control);
         if (staged.digest !== digest) fail('INCOMPATIBLE_INPUT', 'Staged archive does not match its caller-provided SHA-256');
-        const metadata = this.verifiedEntry(digest);
-        return this.touch(metadata);
+        const metadata = this.verifiedEntry(digest, control);
+        return this.touch(metadata, control);
       }
 
       // Authenticate the complete staged object before it is allowed to
       // displace any already-verified cache entry. Copying below hashes it a
       // second time so a staging race still fails closed.
-      const authenticated = this.hashFile(source, this.maxEntryBytes, false, stableStat(initial!));
+      const authenticated = this.hashFile(source, this.maxEntryBytes, false, stableStat(initial!), control);
       if (authenticated.digest !== digest) fail('INCOMPATIBLE_INPUT', 'Staged archive does not match its caller-provided SHA-256');
-      this.evictToFit(initial!.size);
+      this.evictToFit(initial!.size, control);
       const incoming = join(this.incomingDir, `.incoming-${process.pid}-${randomBytes(12).toString('hex')}`);
       let promoted = false;
       try {
-        const staged = this.copyAndHash(source, incoming, this.maxEntryBytes, stableStat(initial!));
+        const staged = this.copyAndHash(source, incoming, this.maxEntryBytes, stableStat(initial!), control);
         if (staged.digest !== digest) fail('INCOMPATIBLE_INPUT', 'Staged archive does not match its caller-provided SHA-256');
         if (staged.bytes !== initial!.size) fail('SNAPSHOT_RACE', 'Staged archive changed during promotion');
+        checkOperation(control);
         fs.chmodSync(incoming, 0o400);
         // A hard-link followed by unlink is an atomic no-replace publication on
         // the cache filesystem. rename(2) would silently replace a raced target.
@@ -269,7 +332,7 @@ export class PublicArchiveCache {
         promoted = true;
         const now = this.timestamp();
         const metadata: Metadata = { version: 1, sha256: digest, bytes: staged.bytes, createdAt: now, lastAccessedAt: now };
-        try { writeMetadata(metadataPath, metadata, true); }
+        try { checkOperation(control); writeMetadata(metadataPath, metadata, true); }
         catch (error) {
           try { this.discardObject(target, 'entry', digest); } catch {}
           throw error;
@@ -281,30 +344,36 @@ export class PublicArchiveCache {
           if (stat.isFile() && !stat.isSymbolicLink()) fs.unlinkSync(incoming);
         }
       }
-    });
+    }, control);
   }
 
   /** Return a cache hit only after hashing every byte and validating metadata. */
-  get(sha256: string): PublicArchiveCacheEntry | undefined {
+  get(sha256: string, operation?: CacheOperationInput): PublicArchiveCacheEntry | undefined {
+    const control = operationControl(operation);
     const digest = expectedDigest(sha256);
     return this.withLock(() => {
-      this.cleanIncoming();
-      this.recoverInterruptedOperations();
+      checkOperation(control);
+      this.cleanIncoming(control);
+      this.recoverInterruptedOperations(control);
       const targetExists = existsNoFollow(this.entryPath(digest)), metadataExists = existsNoFollow(this.metadataPath(digest));
       if (!targetExists && !metadataExists) return undefined;
       if (targetExists !== metadataExists) fail('INCOMPATIBLE_INPUT', `Cache entry is incomplete for ${digest}`);
-      return this.touch(this.verifiedEntry(digest));
-    });
+      return this.touch(this.verifiedEntry(digest, control), control);
+    }, control);
   }
 
   /** Inspect capacity without treating entries as execution-ready cache hits. */
-  stats(): PublicArchiveCacheStats {
+  stats(operation?: CacheOperationInput): PublicArchiveCacheStats {
+    const control = operationControl(operation);
     return this.withLock(() => {
-      this.cleanIncoming();
-      this.recoverInterruptedOperations();
-      const entries = this.inventory();
-      return { entries: entries.length, bytes: entries.reduce((sum, item) => sum + item.bytes, 0), maxBytes: this.maxBytes };
-    });
+      checkOperation(control);
+      this.cleanIncoming(control);
+      this.recoverInterruptedOperations(control);
+      const entries = this.inventory(control);
+      let bytes = 0;
+      for (const entry of entries) { checkOperation(control); bytes += entry.bytes; }
+      return { entries: entries.length, bytes, maxBytes: this.maxBytes };
+    }, control);
   }
 
   /**
@@ -313,35 +382,49 @@ export class PublicArchiveCache {
    * cache paths.  Every source and every copy is fully hashed in the same
    * critical section.
    */
-  materialize(digests: string[], destinationRoot: string): MaterializedArchive[] {
-    if (!Array.isArray(digests) || !digests.length || digests.some(value => typeof value !== 'string'))
+  materialize(digests: string[], destinationRoot: string, operation?: CacheOperationInput): MaterializedArchive[] {
+    const control = operationControl(operation);
+    if (!Array.isArray(digests) || !digests.length)
       fail('INVALID_ARGUMENT', 'Archive materialization requires at least one SHA-256 digest');
-    const selected = [...new Set(digests.map(expectedDigest))].sort(), destination = assertExistingDirectory(destinationRoot, 'Archive materialization directory');
-    if (fs.readdirSync(destination).length) fail('UNSAFE_PATH', 'Archive materialization directory must be empty');
+    if (digests.length > MAX_CACHE_DIRECTORY_ENTRIES)
+      fail('INSUFFICIENT_CAPACITY', 'Archive materialization exceeds the cache entry limit');
+    const selectedSet=new Set<string>();for(const digest of digests){checkOperation(control);if(typeof digest!=='string')fail('INVALID_ARGUMENT', 'Archive materialization requires SHA-256 digest strings');selectedSet.add(expectedDigest(digest));}
+    checkOperation(control);const selected=[...selectedSet].sort();checkOperation(control);
+    const destination = assertExistingDirectory(destinationRoot, 'Archive materialization directory');
+    assertEmptyDirectory(destination, control);
     if (destination === this.root || destination.startsWith(`${this.root}${sep}`) || this.root.startsWith(`${destination}${sep}`) ||
       destination === this.stagingRoot || destination.startsWith(`${this.stagingRoot}${sep}`) || this.stagingRoot.startsWith(`${destination}${sep}`))
       fail('UNSAFE_PATH', 'Archive materialization directory must be separate from cache and staging roots');
     return this.withLock(() => {
-      this.cleanIncoming();
-      this.recoverInterruptedOperations();
+      checkOperation(control);
+      this.cleanIncoming(control);
+      this.recoverInterruptedOperations(control);
       const created: string[] = [], result: MaterializedArchive[] = [];
       try {
         for (const digest of selected) {
-          const metadata = this.verifiedEntry(digest), source = this.entryPath(digest), initial = fs.lstatSync(source);
+          checkOperation(control);
+          const metadata = this.verifiedEntry(digest, control), source = this.entryPath(digest), initial = fs.lstatSync(source);
           assertOwnedRegular(initial, 'Cached archive', this.maxEntryBytes, true);
-          const target = join(destination, digest), copied = this.copyAndHash(source, target, this.maxEntryBytes, stableStat(initial));
+          const target = join(destination, digest);
+          let copied: { digest: string; bytes: number };
+          try { copied = this.copyAndHash(source, target, this.maxEntryBytes, stableStat(initial), control); }
+          catch (error) {
+            if (existsNoFollow(target)) try { removeRegular(target, 'Incomplete run-owned archive copy'); } catch {}
+            throw error;
+          }
+          created.push(target);
           if (copied.digest !== digest || copied.bytes !== metadata.bytes) fail('SNAPSHOT_RACE', 'Cached archive changed while its run-owned copy was materialized');
           fs.chmodSync(target, 0o400);
-          const verified = this.hashFile(target, this.maxEntryBytes, true);
+          const verified = this.hashFile(target, this.maxEntryBytes, true, undefined, control);
           if (verified.digest !== digest || verified.bytes !== metadata.bytes) fail('SNAPSHOT_RACE', 'Run-owned archive copy failed verification');
-          created.push(target); result.push(Object.freeze({ sha256: digest, path: target, bytes: verified.bytes }));
+          result.push(Object.freeze({ sha256: digest, path: target, bytes: verified.bytes }));
         }
         return result;
       } catch (error) {
         for (const path of created.reverse()) { try { removeRegular(path, 'Incomplete run-owned archive copy'); } catch {} }
         throw error;
       }
-    });
+    }, control);
   }
 
   private timestamp(): number {
@@ -358,20 +441,25 @@ export class PublicArchiveCache {
       createdAt: metadata.createdAt, lastAccessedAt: metadata.lastAccessedAt });
   }
 
-  private touch(metadata: Metadata): PublicArchiveCacheEntry {
+  private touch(metadata: Metadata, control: NormalizedCacheOperationControl): PublicArchiveCacheEntry {
+    checkOperation(control);
     const updated: Metadata = { ...metadata, lastAccessedAt: Math.max(metadata.lastAccessedAt, this.timestamp()) };
+    checkOperation(control);
     writeMetadata(this.metadataPath(metadata.sha256), updated);
     return this.entry(updated);
   }
 
-  private verifiedEntry(digest: string): Metadata {
-    const metadata = readMetadata(this.metadataPath(digest), digest);
-    const result = this.hashFile(this.entryPath(digest), this.maxEntryBytes, true);
+  private verifiedEntry(digest: string, control: NormalizedCacheOperationControl): Metadata {
+    checkOperation(control);
+    const metadata = readMetadata(this.metadataPath(digest), digest, control);
+    const result = this.hashFile(this.entryPath(digest), this.maxEntryBytes, true, undefined, control);
     if (result.digest !== digest || result.bytes !== metadata.bytes) fail('INCOMPATIBLE_INPUT', `Cached archive failed SHA-256 verification: ${digest}`);
     return metadata;
   }
 
-  private hashFile(path: string, maxBytes: number, immutable: boolean, expected?: StableStat): { digest: string; bytes: number } {
+  private hashFile(path: string, maxBytes: number, immutable: boolean, expected: StableStat | undefined,
+    control: NormalizedCacheOperationControl): { digest: string; bytes: number } {
+    checkOperation(control);
     const fd = openNoFollow(path, fs.constants.O_RDONLY);
     try {
       const beforeStat = fs.fstatSync(fd);
@@ -380,19 +468,24 @@ export class PublicArchiveCache {
       if (expected && !sameStat(expected, before)) fail('SNAPSHOT_RACE', 'Archive changed before it could be verified');
       let bytes = 0;
       for (;;) {
+        checkOperation(control);
         const read = fs.readSync(fd, buffer, 0, buffer.length, null);
         if (!read) break;
         bytes += read;
         if (bytes > maxBytes) fail('INSUFFICIENT_CAPACITY', 'Archive exceeded its byte limit while being read');
         hash.update(buffer.subarray(0, read));
+        checkOperation(control);
       }
+      checkOperation(control);
       const after = stableStat(fs.fstatSync(fd));
       if (!sameStat(before, after) || bytes !== before.size) fail('SNAPSHOT_RACE', 'Archive changed while it was being verified');
       return { digest: hash.digest('hex'), bytes };
     } finally { fs.closeSync(fd); }
   }
 
-  private copyAndHash(source: string, destination: string, maxBytes: number, expected: StableStat): { digest: string; bytes: number } {
+  private copyAndHash(source: string, destination: string, maxBytes: number, expected: StableStat,
+    control: NormalizedCacheOperationControl): { digest: string; bytes: number } {
+    checkOperation(control);
     const sourceFd = openNoFollow(source, fs.constants.O_RDONLY);
     let destinationFd: number | undefined;
     try {
@@ -403,6 +496,7 @@ export class PublicArchiveCache {
       destinationFd = openNoFollow(destination, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
       let bytes = 0;
       for (;;) {
+        checkOperation(control);
         const read = fs.readSync(sourceFd, buffer, 0, buffer.length, null);
         if (!read) break;
         bytes += read;
@@ -410,9 +504,17 @@ export class PublicArchiveCache {
         if (bytes > maxBytes) fail('INSUFFICIENT_CAPACITY', 'Archive exceeded its byte limit during promotion');
         hash.update(buffer.subarray(0, read));
         let offset = 0;
-        while (offset < read) offset += fs.writeSync(destinationFd, buffer, offset, read - offset);
+        while (offset < read) {
+          checkOperation(control);
+          const written = fs.writeSync(destinationFd, buffer, offset, read - offset);
+          if (written <= 0) fail('PERSISTENCE_FAILED', 'Archive copy stopped before the current chunk was written');
+          offset += written;
+          checkOperation(control);
+        }
       }
+      checkOperation(control);
       fs.fsyncSync(destinationFd);
+      checkOperation(control);
       const after = stableStat(fs.fstatSync(sourceFd));
       if (!sameStat(before, after) || bytes !== before.size) fail('SNAPSHOT_RACE', 'Staged archive changed during promotion');
       return { digest: hash.digest('hex'), bytes };
@@ -422,28 +524,39 @@ export class PublicArchiveCache {
     }
   }
 
-  private inventory(): Metadata[] {
-    const entryNames = fs.readdirSync(this.entriesDir), metadataNames = fs.readdirSync(this.metadataDir);
-    for (const name of entryNames) if (!SHA256.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache entries directory contains an unexpected object');
-    for (const name of metadataNames) if (!/^[a-f0-9]{64}\.json$/.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache metadata directory contains an unexpected object');
-    const entrySet = new Set(entryNames), metadataSet = new Set(metadataNames.map(name => name.slice(0, -5)));
-    if (entrySet.size !== metadataSet.size || [...entrySet].some(name => !metadataSet.has(name)))
+  private inventory(control: NormalizedCacheOperationControl): Metadata[] {
+    checkOperation(control);
+    const entryNames = boundedDirectoryNames(this.entriesDir, 'Cache entries directory', control),
+      metadataNames = boundedDirectoryNames(this.metadataDir, 'Cache metadata directory', control);
+    const entrySet=new Set<string>(),metadataSet=new Set<string>();
+    for (const name of entryNames) {checkOperation(control);if (!SHA256.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache entries directory contains an unexpected object');entrySet.add(name);}
+    for (const name of metadataNames) {checkOperation(control);if (!/^[a-f0-9]{64}\.json$/.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache metadata directory contains an unexpected object');metadataSet.add(name.slice(0,-5));}
+    if (entrySet.size !== metadataSet.size) fail('INCOMPATIBLE_INPUT', 'Cache entries and metadata are inconsistent');
+    for(const name of entrySet){checkOperation(control);if(!metadataSet.has(name))
       fail('INCOMPATIBLE_INPUT', 'Cache entries and metadata are inconsistent');
-    return entryNames.map(digest => {
+    }
+    const inventory = entryNames.map(digest => {
+      checkOperation(control);
       const stat = fs.lstatSync(this.entryPath(digest));
       assertOwnedRegular(stat, 'Cached archive', this.maxEntryBytes, true);
-      const metadata = readMetadata(this.metadataPath(digest), digest);
+      const metadata = readMetadata(this.metadataPath(digest), digest, control);
       if (metadata.bytes !== stat.size) fail('INCOMPATIBLE_INPUT', `Cache size metadata is inconsistent for ${digest}`);
       return metadata;
     });
+    checkOperation(control);
+    return inventory;
   }
 
-  private evictToFit(incomingBytes: number): void {
+  private evictToFit(incomingBytes: number, control: NormalizedCacheOperationControl): void {
     if (!Number.isSafeInteger(incomingBytes) || incomingBytes < 0 || incomingBytes > this.maxBytes)
       fail('INSUFFICIENT_CAPACITY', 'Archive cannot fit within the public-cache limit');
-    const entries = this.inventory().sort((a, b) => a.lastAccessedAt - b.lastAccessedAt || a.createdAt - b.createdAt || a.sha256.localeCompare(b.sha256));
-    let total = entries.reduce((sum, item) => sum + item.bytes, 0);
+    checkOperation(control);
+    const entries = this.inventory(control);checkOperation(control);entries.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt || a.createdAt - b.createdAt || a.sha256.localeCompare(b.sha256));
+    checkOperation(control);
+    let total = 0;
+    for (const item of entries) { checkOperation(control); total += item.bytes; }
     for (const item of entries) {
+      checkOperation(control);
       if (total + incomingBytes <= this.maxBytes) break;
       const archive = this.moveToRecovery(this.entryPath(item.sha256), 'entry', item.sha256);
       const metadata = this.moveToRecovery(this.metadataPath(item.sha256), 'metadata', item.sha256);
@@ -454,18 +567,26 @@ export class PublicArchiveCache {
     if (total + incomingBytes > this.maxBytes) fail('INSUFFICIENT_CAPACITY', 'Archive cache could not free enough verified capacity');
   }
 
-  private cleanIncoming(): void {
-    for (const name of fs.readdirSync(this.incomingDir)) {
+  private cleanIncoming(control: NormalizedCacheOperationControl): void {
+    const incomingNames = boundedDirectoryNames(this.incomingDir, 'Cache incoming directory', control);
+    let publishedByInode:Map<string,string[]>|undefined;
+    for (const name of incomingNames) {
+      checkOperation(control);
       if (!/^\.incoming-\d+-[a-f0-9]{24}$/.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache incoming directory contains an unexpected object');
       const incoming = join(this.incomingDir, name), stat = fs.lstatSync(incoming);
       if (!stat.isFile() || stat.isSymbolicLink() || ![1, 2].includes(stat.nlink) || stat.size > this.maxEntryBytes ||
         (process.getuid && stat.uid !== process.getuid())) fail('UNSAFE_PATH', 'Incomplete cache archive is not a bounded regular file');
       if (stat.nlink === 2) {
-        const matches = fs.readdirSync(this.entriesDir).filter(entry => {
-          if (!SHA256.test(entry)) fail('INCOMPATIBLE_INPUT', 'Cache entries directory contains an unexpected object');
-          const candidate = fs.lstatSync(this.entryPath(entry));
-          return candidate.dev === stat.dev && candidate.ino === stat.ino;
-        });
+        if(!publishedByInode){
+          publishedByInode=new Map();
+          for(const entry of boundedDirectoryNames(this.entriesDir, 'Cache entries directory', control)){
+            checkOperation(control);
+            if (!SHA256.test(entry)) fail('INCOMPATIBLE_INPUT', 'Cache entries directory contains an unexpected object');
+            const candidate=fs.lstatSync(this.entryPath(entry)),key=`${candidate.dev}:${candidate.ino}`,matches=publishedByInode.get(key)??[];
+            matches.push(entry);publishedByInode.set(key,matches);
+          }
+        }
+        const matches=publishedByInode.get(`${stat.dev}:${stat.ino}`)??[];
         if (matches.length !== 1) fail('UNSAFE_PATH', 'Incoming archive hard link does not match one published cache entry');
         const target = fs.lstatSync(this.entryPath(matches[0]));
         if (!target.isFile() || target.isSymbolicLink() || target.nlink !== 2 || target.size > this.maxEntryBytes ||
@@ -480,23 +601,29 @@ export class PublicArchiveCache {
    * Recover only artifacts whose names and inode types prove they belong to an
    * interrupted cache transaction. Unknown objects remain a hard failure.
    */
-  private recoverInterruptedOperations(): void {
-    for (const name of fs.readdirSync(this.recoveryDir)) {
+  private recoverInterruptedOperations(control: NormalizedCacheOperationControl): void {
+    for (const name of boundedDirectoryNames(this.recoveryDir, 'Cache recovery directory', control)) {
+      checkOperation(control);
       if (!/^\.recovery-(?:entry|metadata)-[a-f0-9]{64}-\d+-[a-f0-9]{24}$/.test(name))
         fail('INCOMPATIBLE_INPUT', 'Cache recovery directory contains an unexpected object');
       removeRegular(join(this.recoveryDir, name), 'Interrupted cache transaction');
     }
 
-    const entries = fs.readdirSync(this.entriesDir), metadataObjects = fs.readdirSync(this.metadataDir);
+    const entries = boundedDirectoryNames(this.entriesDir, 'Cache entries directory', control),
+      metadataObjects = boundedDirectoryNames(this.metadataDir, 'Cache metadata directory', control);
     for (const name of metadataObjects) {
-      if (/^[a-f0-9]{64}\.json\.tmp\.\d+\.[a-f0-9]{8}$/.test(name)) this.recoverMetadataTemp(name);
+      checkOperation(control);
+      if (/^[a-f0-9]{64}\.json\.tmp\.\d+\.[a-f0-9]{8}$/.test(name)) this.recoverMetadataTemp(name, control);
       else if (!/^[a-f0-9]{64}\.json$/.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache metadata directory contains an unexpected object');
     }
-    const metadata = fs.readdirSync(this.metadataDir);
+    const metadata = boundedDirectoryNames(this.metadataDir, 'Cache metadata directory', control);
     for (const name of entries) if (!SHA256.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache entries directory contains an unexpected object');
     for (const name of metadata) if (!/^[a-f0-9]{64}\.json$/.test(name)) fail('INCOMPATIBLE_INPUT', 'Cache metadata directory contains an unexpected object');
-    const entrySet = new Set(entries), metadataSet = new Set(metadata.map(name => name.slice(0, -5)));
-    for (const digest of new Set([...entrySet, ...metadataSet])) {
+    const entrySet=new Set<string>(),metadataSet=new Set<string>(),digests=new Set<string>();
+    for(const name of entries){checkOperation(control);entrySet.add(name);digests.add(name);}
+    for(const name of metadata){checkOperation(control);const digest=name.slice(0,-5);metadataSet.add(digest);digests.add(digest);}
+    for (const digest of digests) {
+      checkOperation(control);
       if (entrySet.has(digest) === metadataSet.has(digest)) continue;
       if (entrySet.has(digest)) this.discardObject(this.entryPath(digest), 'entry', digest);
       else this.discardObject(this.metadataPath(digest), 'metadata', digest);
@@ -526,7 +653,8 @@ export class PublicArchiveCache {
     removeRegular(quarantined, 'Interrupted cache transaction');
   }
 
-  private recoverMetadataTemp(name: string): void {
+  private recoverMetadataTemp(name: string, control: NormalizedCacheOperationControl): void {
+    checkOperation(control);
     const path = join(this.metadataDir, name), stat = fs.lstatSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || ![1, 2].includes(stat.nlink) || stat.size > METADATA_LIMIT ||
       (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o077) !== 0)
@@ -541,14 +669,16 @@ export class PublicArchiveCache {
     try { fs.unlinkSync(path); } catch { fail('PERSISTENCE_FAILED', 'Interrupted cache metadata write could not be removed'); }
   }
 
-  private withLock<T>(callback: () => T): T {
+  private withLock<T>(callback: () => T, control: NormalizedCacheOperationControl): T {
+    checkOperation(control);
     const marker = `${JSON.stringify({ protocol: CACHE_LOCK_PROTOCOL })}\n`;
     const options={label:'Cache lock protocol',maxBytes:METADATA_LIMIT,validate:(value:unknown)=>{
       if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).join(',')!=='protocol'||(value as any).protocol!==CACHE_LOCK_PROTOCOL)
         fail('INCOMPATIBLE_INPUT','Archive-cache lock protocol is invalid');
     }};
     const tempPattern=/^\.lock\.tmp\.(\d{1,10})\.[a-f0-9]{8}$/;
-    for(const name of fs.readdirSync(this.root)){
+    for(const name of boundedDirectoryNames(this.root, 'Cache root directory', control)){
+      checkOperation(control);
       const match=name.match(tempPattern);if(!match)continue;
       const temporary=join(this.root,name),publisherPid=Number(match[1]);
       if(existsNoFollow(this.lockDir))recoverAtomicNoReplaceJson(this.lockDir,options);
@@ -566,7 +696,7 @@ export class PublicArchiveCache {
       let protocol:unknown;try{protocol=JSON.parse(fs.readFileSync(this.lockDir,'utf8')).protocol;}catch{}
       if(protocol!==CACHE_LOCK_PROTOCOL)fail('INCOMPATIBLE_INPUT','Archive-cache lock protocol is invalid');
     }
-    const result=withStateLock(this.root,callback);
+    const result=withStateLock(this.root,()=>{checkOperation(control);return callback();});
     if(result&&typeof (result as any).then==='function')fail('PERSISTENCE_FAILED','Archive-cache operation unexpectedly became asynchronous');
     return result as T;
   }

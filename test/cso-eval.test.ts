@@ -43,11 +43,13 @@ function portableSkill(version: 'v2' | 'v3', sectionMarker: string): string {
 function syntheticResult(cell: EvalCell): EvalResult {
   const runtime = cell.mode === 'comprehensive';
   const positive = cell.variant === 'vulnerable';
+  const repairEvidenceHash = 'c'.repeat(64), recheckEvidenceHash = 'd'.repeat(64);
   return { cellId: cell.id, sourceHash: cell.sourceHash, skillHash: cell.skillHash, model: cell.model, host: cell.host, budgetSeconds: cell.budgetSeconds,
     reportPresent: true, reportComplete: true,
-    findings: positive ? [{ id: 'finding-1', evidence: cell.version === 'v2' ? 'legacy_review' : 'supported', claimedTested: runtime && cell.version === 'v3', judgment: 'correct', matchedCaseId: cell.caseId }] : [],
+    findings: positive ? [{ id: 'finding-1', evidence: cell.version === 'v2' ? 'legacy_review' : 'supported', claimedTested: runtime && cell.version === 'v3', judgment: 'correct', matchedCaseId: cell.caseId,
+      ...(runtime && cell.version === 'v3' ? { trustedVerification: { repair: 'passed' as const, repairEvidenceHash, recheck: 'passed' as const, recheckEvidenceHash } } : {}) }] : [],
     setup: runtime ? 'passed' : 'not_attempted', reproduction: runtime && positive ? 'passed' : 'not_attempted', repair: runtime && positive ? 'passed' : 'not_attempted', recheck: runtime && positive ? 'passed' : 'not_attempted',
-    ...(runtime && positive ? { oracleEvidenceHash: 'c'.repeat(64), oracleVersion: CORPUS_VERSION, currentSourceHash: corpus.cases.find(fixture => fixture.id === cell.caseId)!.filesHash.fixed, recheckEvidenceHash: 'd'.repeat(64) } : {}),
+    ...(runtime && positive ? { oracleEvidenceHash: repairEvidenceHash, oracleVersion: CORPUS_VERSION, currentSourceHash: corpus.cases.find(fixture => fixture.id === cell.caseId)!.filesHash.fixed, recheckEvidenceHash } : {}),
     heldOutAssertionsPassed: runtime && positive, freshRecheck: runtime && positive, latencyMs: 1500, firstUsefulResultMs: positive ? 500 : null,
   };
 }
@@ -247,6 +249,14 @@ describe('CSO matched evaluation accounting', () => {
     const result = syntheticResult(cell); delete result.oracleEvidenceHash;
     const score = scoreEval(matrix, [result]); expect(group(score, 'v3', 'comprehensive').falseTested).toBe(1); expect(group(score, 'v3', 'comprehensive').repair.numerator).toBe(0);
   });
+  test('one trusted cell repair cannot certify another claimed-tested finding', () => {
+    const results = matrix.cells.map(syntheticResult), cell = matrix.cells.find(item => item.version === 'v3' && item.mode === 'comprehensive' && item.variant === 'vulnerable')!, result = results.find(item => item.cellId === cell.id)!;
+    result.findings.push({ id: 'unbound-tested-claim', evidence: 'supported', claimedTested: true, judgment: 'correct', matchedCaseId: cell.caseId });
+    const score = scoreEval(matrix, results, qualification);
+    expect(group(score, 'v3', 'comprehensive').falseTested).toBe(1); expect(score.gates.zeroFalselyTestedRepairs).toBe('fail'); expect(score.status).toBe('partial');
+    result.findings[1].trustedVerification = structuredClone(result.findings[0].trustedVerification);
+    expect(() => scoreEval(matrix, results, qualification)).toThrow('DUPLICATE_TRUSTED_REPAIR_BINDING');
+  });
   test('per-stack held-out repair requires the matching supported discovery', () => {
     const results = matrix.cells.map(syntheticResult);
     for (let index = 0; index < matrix.cells.length; index++) {
@@ -280,6 +290,9 @@ describe('CSO matched evaluation accounting', () => {
     expect(() => scoreEval(matrix, [result, result])).toThrow('UNKNOWN_OR_DUPLICATE');
     expect(() => scoreEval(matrix, [{ ...result, model: 'other-model' }])).toThrow('UNMATCHED_EVAL_RESULT');
     expect(() => scoreEval(matrix, [{ ...result, setup: 'passed' }])).toThrow('DAILY_EVAL_EXECUTED');
+    const comprehensive = syntheticResult(matrix.cells.find(cell => cell.version === 'v3' && cell.mode === 'comprehensive' && cell.variant === 'vulnerable')!);
+    comprehensive.findings[0].trustedVerification = { repair: 'failed', repairEvidenceHash: 'not-a-hash', recheck: 'not_attempted' };
+    expect(() => scoreEval(matrix, [comprehensive])).toThrow('INVALID_TRUSTED_FINDING_VERIFICATION');
   });
   test('missing containment tests remain unmeasured and a failed canary fails qualification', () => {
     const results = matrix.cells.map(syntheticResult);

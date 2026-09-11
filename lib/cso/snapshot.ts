@@ -272,7 +272,11 @@ export function assertSnapshot(runDir: string, manifest: SnapshotManifest): void
   const presentPaths=new Set(entries.map(e=>e.path)),presentIds=new Set(entries.map(e=>e.pathId)),deletedPaths=new Set(deleted.map(item=>item.path)),deletedIds=new Set(deleted.map(item=>item.pathId));
   if(presentPaths.size!==entries.length||presentIds.size!==entries.length||deletedPaths.size!==deleted.length||deletedIds.size!==deleted.length||deleted.some(item=>presentPaths.has(item.path)||presentIds.has(item.pathId))||canonical(deleted.map(item=>item.path))!==canonical([...deletedPaths].sort())||!/^([a-f0-9]{64})$/.test(manifest.originalHash)||snapshotOriginalIdentity(entries,deleted)!==manifest.originalHash)throw new CsoError('INCOMPATIBLE_INPUT','Snapshot original identity is inconsistent');
   if(manifest.changedPaths!==undefined){if(!Array.isArray(manifest.changedPaths))throw new CsoError('INCOMPATIBLE_INPUT','Snapshot changed paths are invalid');const changed=manifest.changedPaths.map(relativePath);if(new Set(changed).size!==changed.length||canonical(changed)!==canonical([...changed].sort()))throw new CsoError('INCOMPATIBLE_INPUT','Snapshot changed paths are invalid');}
-  const expected=entries.filter(e=>e.executionHash).sort((a,b)=>a.path.localeCompare(b.path));
+  // Capture already records entries in Git's deterministic code-unit path
+  // order. Preserve that manifest order here: localeCompare can reorder an
+  // uppercase path such as README.md after lowercase source files, producing
+  // a different execution identity from the one written at capture time.
+  const expected=entries.filter(e=>e.executionHash);
   if(!/^([a-f0-9]{64})$/.test(manifest.executionHash)||sha256(canonical(expected.map(e=>[e.path,e.executionHash,e.mode])))!==manifest.executionHash)throw new CsoError('INCOMPATIBLE_INPUT','Snapshot execution identity is inconsistent');
   const before=listed();if(canonical(before)!==canonical(expected.map(e=>e.path)))throw new CsoError('INCOMPATIBLE_INPUT','Retained snapshot membership changed');
   for (const e of expected) {

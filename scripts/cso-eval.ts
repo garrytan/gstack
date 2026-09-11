@@ -55,6 +55,17 @@ export interface EvalFinding {
   id: string; evidence: 'supported' | 'hypothesis' | 'legacy_review'; claimedTested: boolean;
   /** Written only by the independent evaluator after reviewing the reported trace. */
   judgment: 'correct' | 'incorrect' | 'unadjudicated'; matchedCaseId?: string;
+  /**
+   * Written only by the independent evaluator.  A producer's tested claim is
+   * valid only when this finding, rather than merely another finding in the
+   * same corpus cell, owns the trusted repair and recheck observations.
+   */
+  trustedVerification?: {
+    repair: Outcome;
+    repairEvidenceHash?: string;
+    recheck: Outcome;
+    recheckEvidenceHash?: string;
+  };
 }
 export interface EvalResult {
   cellId: string; sourceHash: string; skillHash: string; model: string; host: string; budgetSeconds: number;
@@ -445,11 +456,33 @@ function validateResult(result: EvalResult, cell: EvalCell, corpus: CorpusManife
   if (result.recheckEvidenceHash !== undefined && !HEX.test(result.recheckEvidenceHash)) throw new Error('INVALID_RECHECK_EVIDENCE');
   if (result.usage && (result.usage.source !== 'host' || (result.usage.tokens !== undefined && !validNumber(result.usage.tokens)) || (result.usage.costUSD !== undefined && !validNumber(result.usage.costUSD)))) throw new Error('INVALID_EVAL_USAGE');
   if (result.producerReceiptHash !== undefined && !HEX.test(result.producerReceiptHash)) throw new Error('INVALID_PRODUCER_RECEIPT_PROVENANCE');
-  const ids = new Set<string>();
+  const ids = new Set<string>(), repairEvidence = new Set<string>(), recheckEvidence = new Set<string>();
   for (const finding of result.findings) {
     if (!finding.id || ids.has(finding.id) || !['supported', 'hypothesis', 'legacy_review'].includes(finding.evidence) || !['correct', 'incorrect', 'unadjudicated'].includes(finding.judgment) || typeof finding.claimedTested !== 'boolean') throw new Error('INVALID_FINDING_JUDGMENT');
     ids.add(finding.id);
     if (finding.judgment === 'correct' && (cell.variant !== 'vulnerable' || finding.matchedCaseId !== cell.caseId)) throw new Error('INVALID_ORACLE_MATCH');
+    if (finding.trustedVerification !== undefined) {
+      const verification = finding.trustedVerification as Record<string, unknown>, allowed = new Set(['repair', 'repairEvidenceHash', 'recheck', 'recheckEvidenceHash']);
+      if (!verification || typeof verification !== 'object' || Array.isArray(verification) || Object.keys(verification).some(key => !allowed.has(key)) ||
+        !['passed', 'failed', 'blocked', 'not_attempted'].includes(String(verification.repair)) ||
+        !['passed', 'failed', 'blocked', 'not_attempted'].includes(String(verification.recheck)) || !finding.claimedTested || cell.version !== 'v3' || cell.mode !== 'comprehensive')
+        throw new Error('INVALID_TRUSTED_FINDING_VERIFICATION');
+      const repairHash = verification.repairEvidenceHash, recheckHash = verification.recheckEvidenceHash;
+      if (!(repairHash === undefined || (typeof repairHash === 'string' && HEX.test(repairHash))) ||
+        !(recheckHash === undefined || (typeof recheckHash === 'string' && HEX.test(recheckHash))) ||
+        (verification.repair === 'passed') !== (repairHash !== undefined) ||
+        (verification.recheck === 'passed') !== (recheckHash !== undefined) ||
+        (verification.recheck === 'passed' && verification.repair !== 'passed'))
+        throw new Error('INVALID_TRUSTED_FINDING_VERIFICATION');
+      if (typeof repairHash === 'string') {
+        if (repairEvidence.has(repairHash)) throw new Error('DUPLICATE_TRUSTED_REPAIR_BINDING');
+        repairEvidence.add(repairHash);
+      }
+      if (typeof recheckHash === 'string') {
+        if (recheckEvidence.has(recheckHash)) throw new Error('DUPLICATE_TRUSTED_RECHECK_BINDING');
+        recheckEvidence.add(recheckHash);
+      }
+    }
   }
   if (cell.mode === 'daily' && [result.setup, result.reproduction, result.repair, result.recheck].some(value => value !== 'not_attempted')) throw new Error('DAILY_EVAL_EXECUTED_APPLICATION');
 }
@@ -465,12 +498,27 @@ function measuredRate(cells: EvalCell[], results: Map<string, EvalResult>, field
     if (!result.oracleEvidenceHash || result.oracleVersion !== corpus.version || result.setup !== 'passed') return false;
     if (field === 'reproduction') return true;
     if (result.reproduction !== 'passed' || result.repair !== 'passed' || !result.heldOutAssertionsPassed) return false;
+    if (cell.version === 'v3' && !result.findings.some(finding => trustedFindingVerification(cell, result, finding, 'repair', corpus))) return false;
     if (field === 'repair') return true;
     // Correct alternative patches need not match the reference fix byte-for-byte.
     // Closure needs a fresh source and a separate trusted current-source observation.
-    return result.freshRecheck && !!result.currentSourceHash && result.currentSourceHash !== cell.sourceHash
-      && !!result.recheckEvidenceHash && result.recheckEvidenceHash !== result.oracleEvidenceHash;
+    return result.freshRecheck && !!result.currentSourceHash && result.currentSourceHash !== cell.sourceHash &&
+      !!result.recheckEvidenceHash && result.recheckEvidenceHash !== result.oracleEvidenceHash &&
+      (cell.version !== 'v3' || result.findings.some(finding => trustedFindingVerification(cell, result, finding, 'recheck', corpus)));
   }).length, cells.length);
+}
+
+function trustedFindingVerification(cell: EvalCell, result: EvalResult, finding: EvalFinding, stage: 'repair' | 'recheck', corpus: CorpusManifest): boolean {
+  const verification = finding.trustedVerification;
+  if (cell.version !== 'v3' || cell.mode !== 'comprehensive' || cell.variant !== 'vulnerable' || finding.evidence !== 'supported' ||
+    finding.judgment !== 'correct' || finding.matchedCaseId !== cell.caseId || !finding.claimedTested || !verification ||
+    result.setup !== 'passed' || result.reproduction !== 'passed' || result.repair !== 'passed' || !result.heldOutAssertionsPassed ||
+    verification.repair !== 'passed' || verification.repairEvidenceHash !== result.oracleEvidenceHash || result.oracleVersion !== corpus.version)
+    return false;
+  if (stage === 'repair') return true;
+  return result.recheck === 'passed' && verification.recheck === 'passed' && verification.recheckEvidenceHash === result.recheckEvidenceHash &&
+    result.freshRecheck && !!result.currentSourceHash && result.currentSourceHash !== cell.sourceHash &&
+    !!result.recheckEvidenceHash && result.recheckEvidenceHash !== result.oracleEvidenceHash;
 }
 
 export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualification: ReleaseQualification = { containment: {} }, corpus: CorpusManifest = loadCorpusManifest()) {
@@ -503,8 +551,7 @@ export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualif
     const tokens = completed.flatMap(result => result.usage?.tokens === undefined ? [] : [result.usage.tokens]);
     const falseTested = selected.reduce((count, cell) => {
       const result = results.get(cell.id); if (!result) return count;
-      const valid = cell.version === 'v3' && cell.variant === 'vulnerable' && measuredRate([cell], results, 'repair', corpus).numerator === 1;
-      return count + result.findings.filter(finding => finding.claimedTested && !(valid && finding.evidence === 'supported' && finding.judgment === 'correct')).length;
+      return count + result.findings.filter(finding => finding.claimedTested && !trustedFindingVerification(cell, result, finding, 'repair', corpus)).length;
     }, 0);
     groups.push({ version, mode, cells: selected.length, submitted: completed.length, missing: selected.length - completed.length,
       reports: rate(completed.filter(result => result.reportPresent).length, selected.length), precision: rate(correct, reported), recall: rate(expected.filter(found).length, expected.length), highCriticalRecall: rate(highCritical.filter(found).length, highCritical.length),
@@ -526,7 +573,10 @@ export function scoreEval(matrix: EvalMatrix, observations: EvalResult[], qualif
     const eligible = matrix.cells.filter(cell => cell.version === 'v3' && cell.mode === 'comprehensive' && cell.variant === 'vulnerable' && cell.stack === stack);
     // A repaired oracle case demonstrates the full find-to-repair workflow only
     // when the producer also reported the matching supported finding.
-    const successful = new Set(eligible.filter(cell => found(cell) && measuredRate([cell], results, 'repair', corpus).numerator === 1).map(cell => cell.caseId));
+    const successful = new Set(eligible.filter(cell => {
+      const result = results.get(cell.id);
+      return result?.findings.some(finding => trustedFindingVerification(cell, result, finding, 'repair', corpus));
+    }).map(cell => cell.caseId));
     return [stack, { correctHeldOutRepairs: successful.size, denominator: new Set(eligible.map(cell => cell.caseId)).size }];
   }));
   const assessedAll = observations.length === matrix.cells.length && groups.every(group => !group.unadjudicated);
