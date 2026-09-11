@@ -91,6 +91,46 @@ function expectSuccessfulProcess(result: ReturnType<typeof spawnSync>, label: st
   })}`);
 }
 
+function gitProbeMatrix(git: string, repository: string, profile: string): Record<string, number | string> {
+  const asciiRoot=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'gstack-cso-git-probe-')),
+    asciiHome=path.join(asciiRoot,'home'),unicodeHome=path.join(profile,'.gstack','security','cso','000000000000000000000000','0000000000000-0000000000000000','home');
+  fs.mkdirSync(asciiHome);fs.mkdirSync(unicodeHome,{recursive:true});
+  const repo=fs.realpathSync(repository),windowsRoot=process.env.SystemRoot||'C:\\Windows',system=path.join(windowsRoot,'System32'),trustedPath=[path.dirname(git),system].join(path.delimiter),nul='NUL';
+  const configs:Record<string,string>={
+    fsmonitor:'core.fsmonitor=false',hooks:`core.hooksPath=${nul}`,attributes:`core.attributesFile=${nul}`,excludes:`core.excludesFile=${nul}`,
+    ignoreCase:'core.ignoreCase=false',precompose:'core.precomposeUnicode=false',untracked:'core.untrackedCache=false',include:`include.path=${nul}`,pager:'core.pager=cat',
+  };
+  const environment=(home:string,extra:Record<string,string|undefined>={})=>{
+    const env:Record<string,string>={PATH:trustedPath,HOME:home,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'NUL',GIT_TERMINAL_PROMPT:'0',GIT_OPTIONAL_LOCKS:'0',GIT_ATTR_NOSYSTEM:'1'};
+    for(const [key,value] of Object.entries(extra)){if(value===undefined)delete env[key];else env[key]=value;}return env;
+  };
+  const args=(omit=new Set<string>(),replace:Record<string,string>={})=>[
+    '--no-optional-locks',...(!omit.has('replaceObjects')?['--no-replace-objects']:[]),
+    ...Object.entries(configs).flatMap(([key,value])=>omit.has(key)?[]:['-c',replace[key]??value]),
+    '-C',repo,...(!omit.has('workTree')?[`--work-tree=${repo}`]:[]),'rev-parse','--show-object-format',
+  ];
+  const result:Record<string,number|string>={};
+  const probe=(label:string,command:string[],home=unicodeHome,cwd=unicodeHome,extra:Record<string,string|undefined>={})=>{
+    const child=spawnSync(git,command,{cwd,env:environment(home,extra),encoding:'utf8',timeout:10_000});
+    result[label]=child.status??(child.error?'spawn-error':child.signal??'no-status');
+  };
+  try{
+    probe('baseline',['--no-optional-locks','-C',repo,'rev-parse','--show-object-format']);
+    probe('exact',args());
+    probe('ascii-home-cwd',args(),asciiHome,asciiHome);
+    probe('ascii-home',args(),asciiHome,unicodeHome);
+    probe('ascii-cwd',args(),unicodeHome,asciiHome);
+    probe('with-systemroot',args(),unicodeHome,unicodeHome,{SystemRoot:windowsRoot});
+    probe('with-temp',args(),unicodeHome,unicodeHome,{TEMP:asciiRoot,TMP:asciiRoot});
+    probe('without-global-config-env',args(),unicodeHome,unicodeHome,{GIT_CONFIG_GLOBAL:undefined});
+    probe('global-dev-null',args(),unicodeHome,unicodeHome,{GIT_CONFIG_GLOBAL:'/dev/null'});
+    for(const key of ['replaceObjects','fsmonitor','hooks','attributes','excludes','ignoreCase','precompose','untracked','include','pager','workTree'])probe(`without-${key}`,args(new Set([key])));
+    for(const key of ['hooks','attributes','excludes','include'])probe(`${key}-dev-null`,args(new Set(),{[key]:configs[key].replace('NUL','/dev/null')}));
+    probe('without-attr-nosystem',args(),unicodeHome,unicodeHome,{GIT_ATTR_NOSYSTEM:undefined});
+    return result;
+  }finally{fs.rmSync(asciiRoot,{recursive:true,force:true});}
+}
+
 describe('CSO native Windows build contract', () => {
   test('Windows builds use MSVC with a static CRT and no Bun-hosted public launcher', () => {
     const build = fs.readFileSync(path.join(ROOT, 'scripts/build-cso.sh'), 'utf8');
@@ -280,7 +320,9 @@ describe('CSO native Windows build contract', () => {
     fs.writeFileSync(path.join(repository,'app.js'),'console.log("safe")\n');
     for(const args of [['add','app.js'],['commit','-qm','fixture']] as string[][]){const result=spawnSync(git,args,{cwd:repository,encoding:'utf8',env:gitEnv,timeout:10_000});expect(result.status).toBe(0);}
     const actual=path.join(ROOT,'bin','gstack-cso-launcher.exe'),env={...process.env,HOME:'',GSTACK_HOME:'',CLAUDE_PLUGIN_ROOT:'',CLAUDE_PLUGIN_DATA:'',USERPROFILE:profile,PATH:temporary,NODE_OPTIONS:'--require=hostile'};
-    const doctor=spawnSync(actual,['doctor','--repo',repository],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(doctor.status).toBe(0);expect(JSON.parse(doctor.stdout).downloads).toBe(false);
-    const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
+    const doctor=spawnSync(actual,['doctor','--repo',repository],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(doctor.status).toBe(0);const diagnosis=JSON.parse(doctor.stdout);expect(diagnosis.downloads).toBe(false);
+    const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});
+    if(started.status!==0){const trustedGit=diagnosis.checks.find((check:any)=>check.capability==='static-snapshot')?.detail;if(typeof trustedGit!=='string')throw new Error('gstack-cso start failed and the fixed Git probe was unavailable');throw new Error(`gstack-cso start failed; fixed Git probe statuses: ${JSON.stringify(gitProbeMatrix(trustedGit,repository,profile))}`);}
+    expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
   });
 });
