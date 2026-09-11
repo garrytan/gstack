@@ -147,13 +147,17 @@ function hardenGit(file:string,args:string[]):{args:string[];configs?:GitConfigI
   if(!isAbsolute(requested))throw new CsoError('INVALID_ARGUMENT','CSO Git operations require an absolute audited working directory');
   const repo=realpathSync(requested),stat=statSync(repo);
   if(!stat.isDirectory())throw new CsoError('MISSING_INPUT','Audited Git working directory is not a directory');
-  const configs=gitConfigIdentities(repo),nullPath=process.platform==='win32'?'NUL':'/dev/null';
+  const configs=gitConfigIdentities(repo),nullPath=process.platform==='win32'?'NUL':'/dev/null',
+    // Git for Windows accepts NUL for ordinary file-valued settings, but its
+    // config include machinery treats NUL as a failing include. Its MSYS path
+    // layer maps /dev/null correctly for this one directive.
+    includeNullPath=process.platform==='win32'?'/dev/null':nullPath;
   const prefix=args.slice(0,position),command=args.slice(position+2);
   return{configs,args:[...prefix,
     '--no-replace-objects',
     '-c','core.fsmonitor=false','-c',`core.hooksPath=${nullPath}`,'-c',`core.attributesFile=${nullPath}`,
     '-c',`core.excludesFile=${nullPath}`,'-c','core.ignoreCase=false','-c','core.precomposeUnicode=false',
-    '-c','core.untrackedCache=false','-c',`include.path=${nullPath}`,'-c','core.pager=cat',
+    '-c','core.untrackedCache=false','-c',`include.path=${includeNullPath}`,'-c','core.pager=cat',
     '-C',repo,`--work-tree=${repo}`,...command]};
 }
 export async function runProcess(file: string, args: string[], opts: {
