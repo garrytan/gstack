@@ -349,9 +349,10 @@ describe('CSO constrained dependency preparation executor', () => {
   });
 
   test('registry broker bounds DNS resolution by the connection deadline', async () => {
-    const base = root('cso-broker-deadline-'), socketPath = path.join(base, 'registry.sock'); let cancellations = 0;
+    const base = root('cso-broker-deadline-'), socketPath = path.join(base, 'registry.sock'); let cancellations = 0, markCancelled!: () => void;
+    const cancelled = new Promise<void>(resolve => { markCancelled = resolve; });
     const broker = new RegistryEgressBroker(socketPath, ['registry.npmjs.org'], Date.now() + 250, 1024 * 1024,
-      () => ({ promise: new Promise(() => {}), cancel: () => { cancellations++; } }));
+      () => ({ promise: new Promise(() => {}), cancel: () => { cancellations++; markCancelled(); } }));
     await broker.start();
     try {
       const reply = await new Promise<string>((resolveReply, reject) => {
@@ -359,7 +360,9 @@ describe('CSO constrained dependency preparation executor', () => {
         socket.once('connect', () => socket.write('CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n'));
         socket.on('data', chunk => { output += chunk.toString(); }); socket.once('end', () => resolveReply(output)); socket.once('error', reject);
       });
-      expect(reply).toContain('403 Forbidden'); expect(cancellations).toBe(1); expect(() => broker.assertClean()).toThrow();
+      expect(reply).toContain('403 Forbidden');
+      await Promise.race([cancelled, Bun.sleep(500).then(() => { throw new Error('registry DNS cancellation did not settle after the deadline response'); })]);
+      expect(cancellations).toBe(1); expect(() => broker.assertClean()).toThrow();
     } finally { await broker.close(); }
   });
 
