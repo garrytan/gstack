@@ -225,6 +225,10 @@ After displaying the Review Readiness Dashboard, check if additional reviews wou
 
 **If no additional reviews are needed** (or `skip_eng_review` is `true` in the dashboard config, meaning this eng review was optional): state "All relevant reviews complete. Run /ship when ready."
 
+**Navigation only.** Match task prerequisites, dependencies and execution order to the written plan; do not add or strengthen them in this question or its option descriptions. A test required before editing one function does not make every independent lane wait for it.
+
+If a substantive late change is needed, return to the individual issue-approval loop. After the answer, update the plan's tasks and dependency/parallelization sections, refresh the review report and log, then Read the updated plan and rerun the exit gate before ExitPlanMode. A next-step answer alone approves no implementation change.
+
 Use AskUserQuestion with only the applicable options:
 - **A)** Run /plan-design-review (only if UI scope detected and no design review exists)
 - **B)** Run /plan-ceo-review (only if significant product change and no CEO review exists)
