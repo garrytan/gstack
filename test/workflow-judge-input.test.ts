@@ -212,6 +212,28 @@ describe('workflow judge file bundle', () => {
     }
   });
 
+  test('generated design consultation includes the prechecks its proposal and preview reference', () => {
+    const skillPath = 'design-consultation/SKILL.md';
+    const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
+    const markers = caller.match(/skillPath: 'design-consultation\/SKILL\.md',\s+startMarker: '([^']+)',\s+endMarker: '([^']+)'/);
+    expect(markers).not.toBeNull();
+    const [, startMarker, endMarker] = markers!;
+    const input = readWorkflowJudgeInput({ root: ROOT, skillPath, startMarker, endMarker });
+    const entrypoint = input.files.find(file => file.kind === 'entrypoint')!;
+    for (const prerequisite of ['## Phase 0: Pre-checks', 'DESIGN_MD_FORMAT:', 'DESIGN_READY', 'DESIGN_NOT_AVAILABLE']) {
+      expect(entrypoint.content).toContain(prerequisite);
+    }
+    expect(entrypoint.content.indexOf('## Phase 0:')).toBeLessThan(entrypoint.content.indexOf('## Phase 1:'));
+    expect(occurrences(input.text, '## Phase 0: Pre-checks')).toBe(1);
+    const sections = input.files.filter(file => file.kind === 'section');
+    expect(sections.map(file => file.path)).toEqual(sectionPaths('design-consultation'));
+    for (const file of sections) {
+      const source = readFileSync(join(ROOT, file.path), 'utf8');
+      expect(file.content).toBe(source);
+      expect(occurrences(input.text, source)).toBe(1);
+    }
+  });
+
   test('generated plan-design passes retain their full section without duplicating Pass 1', () => {
     const input = readWorkflowJudgeInput({
       root: ROOT, skillPath: 'plan-design-review/SKILL.md', startMarker: '## Review Sections', endMarker: '## CRITICAL RULE',

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as path from 'node:path';
 import fixture from './fixtures/coverage-audit-ae.json';
+import ciDiagrams from './fixtures/coverage-audit-ci-diagrams.json';
 import { coverageAuditVerdict } from './helpers/coverage-audit-evidence';
 import { recordE2E } from './helpers/e2e-helpers';
 import { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
@@ -34,6 +35,50 @@ describe('coverage audit native evidence',()=>{
         tests:{path:path.join(row.cwd,'test/billing.test.ts'),content:fixture.files.tests}};
       expect(coverageAuditVerdict(row.result as any,files)).toEqual({sourceRead:true,testsRead:true,diagram:true,passed:true,failures:[]});
     }
+  });
+  test('both exact CI diagrams retain covered payment and missing refund paths', () => {
+    expect(ciDiagrams.provenance.recordedAttemptOutcomes).toEqual(['failed', 'failed']);
+    expect(ciDiagrams.provenance.paidOutcomesReclassified).toBe(false);
+    for (const row of ciDiagrams.diagrams) {
+      const s = synthetic(); s.result.output = row.text;
+      expect(verdict(s)).toEqual({ sourceRead: true, testsRead: true, diagram: true, passed: true, failures: [] });
+    }
+  });
+  test('CI symbol legends remain current, unambiguous and owned by their diagram', () => {
+    for (const row of ciDiagrams.diagrams) {
+      const text = row.text, key = text.split('\n').find(line => line.startsWith('Legend:'))!;
+      for (const replacement of ['', '> ' + key, 'Source: ' + key, key + ' except refunds',
+        key.replace(/covered(?: by a test)?/, 'untested'),
+        key + '\nLegend: [✓] GAP [✗] covered', key + '\n  [✓] GAP [✗] covered',
+        ...['Sample:', 'Example legend:', 'Illustration:'].map(label => label + '\n' + key)]) {
+        const s = synthetic(); s.result.output = text.replace(key, replacement);
+        expect(verdict(s).diagram, replacement).toBe(false);
+      }
+      for (const status of ['This legend is withdrawn.', 'Assessment complete; This legend is `no longer current`.',
+        '**This legend** is “rejected”.', 'This legend applies only if approved.']) {
+        const s = synthetic(); s.result.output = text.replace(/\n```$/, '\n' + status + '\n```');
+        expect(verdict(s).diagram, status).toBe(false);
+      }
+      for (const output of ['Example:\n' + text, '````markdown\n' + text + '\n````',
+        text.replace(/^```[^\n]*/, '```json'), '```\n' + key + '\n```\n' + text.replace(key, '')]) {
+        const s = synthetic(); s.result.output = output; expect(verdict(s).diagram, output).toBe(false);
+      }
+      const s = synthetic(); s.result.output = text.replace(/\n```$/, '\nEarlier reviewer said "This legend is withdrawn."\n```');
+      expect(verdict(s).diagram).toBe(true);
+    }
+  });
+  test('six-column annotations cannot borrow sibling, prose or parallel-column markers', () => {
+    const text = '```\nLegend: [✓] covered by a test [✗] GAP — no test exercises this path\n'
+      + 'processPayment(amount, currency)\n└── happy return success\n      [✓] covered\n'
+      + 'refundPayment(paymentId, reason)\n└── return refunded\n      [✗] GAP\n```';
+    for (const output of [text.replace('      [✓]', 'unrelatedPayment()\n      [✓]'),
+      text.replace('      [✓]', '      Earlier example:\n      [✓]'),
+      text.replace('      [✓]', '                                                              [✓]'),
+      text.replace('      [✓]', '      [✗]'), text.replace('      [✗]', '      [✓]'),
+      text.replace('└── happy return success\n      [✓]', '└── happy return success     ├── [✓]')]) {
+      const s = synthetic(); s.result.output = output; expect(verdict(s).diagram).toBe(false);
+    }
+    const s = synthetic(); s.result.output = text; expect(verdict(s).passed).toBe(true);
   });
   test.each([
     '```text\nsrc/billing.ts\n├── refundPayment [UNTESTED]\n└── processPayment: happy path [TESTED]\n```',
@@ -132,7 +177,7 @@ describe('coverage audit native evidence',()=>{
     }
   });
   test('coverage evidence files select their exact registered consumers',()=>{
-    for(const file of ['test/helpers/coverage-audit-evidence.ts','test/coverage-audit-evidence.test.ts','test/fixtures/coverage-audit-ae.json']){
+    for(const file of ['test/helpers/coverage-audit-evidence.ts','test/coverage-audit-evidence.test.ts','test/fixtures/coverage-audit-ae.json','test/fixtures/coverage-audit-ci-diagrams.json']){
       expect(selectTests([file],E2E_TOUCHFILES,GLOBAL_TOUCHFILES).selected.sort()).toEqual(file === 'test/helpers/coverage-audit-evidence.ts' ? ['plan-eng-coverage-audit','review-coverage-audit','ship-coverage-audit'] : ['plan-eng-coverage-audit','review-coverage-audit']);
       expect(selectTests([file],LLM_JUDGE_TOUCHFILES,GLOBAL_TOUCHFILES).selected).toEqual([]);
     }

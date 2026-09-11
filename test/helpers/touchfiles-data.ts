@@ -645,6 +645,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     "test/coverage-shell-display-aq.test.ts", "test/fixtures/coverage-shell-display-aq.json",
   ],
   'review-coverage-audit': [
+    'test/fixtures/coverage-audit-ci-diagrams.json',
     "test/coverage-audit-aw.test.ts",
     "test/fixtures/coverage-audit-aw.json",
 
@@ -655,6 +656,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     "test/coverage-diagram-legend-as.test.ts", "test/fixtures/coverage-diagram-legend-as.json",
   ],
   'plan-eng-coverage-audit': [
+    'test/fixtures/coverage-audit-ci-diagrams.json',
     "test/coverage-audit-aw.test.ts",
     "test/fixtures/coverage-audit-aw.json",
 

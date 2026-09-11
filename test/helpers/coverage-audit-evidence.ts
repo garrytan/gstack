@@ -215,11 +215,11 @@ export function coverageAuditReadEvidence(transcript: unknown[], files: Coverage
   }
   return found;
 }
+const exampleDiagram = (line: string) => /^(?:example|sample|illustration)\b/i.test(line.trim().replace(/^[#*]+\s*/, ''));
 /** Top-level ASCII, optionally fenced; an outer source/example fence owns its body. */
 function diagramBlocks(output: string): string[][] {
   const blocks: string[][] = [];
   let outside: string[] = [];
-  const example = (line: string) => /^(?:example|sample|illustration)\b/i.test(line.trim().replace(/^[#*]+\s*/, ''));
   let fence: { char: string; length: number; allowed: boolean; lines: string[] } | undefined;
   for (const line of output.split('\n')) {
     const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
@@ -231,14 +231,14 @@ function diagramBlocks(output: string): string[][] {
     } else if (marker) {
       if (outside.length) blocks.push(outside);
       fence = { char: marker[1]![0]!, length: marker[1]!.length,
-        allowed: /^(?:text|ascii|plaintext)?$/.test(marker[2]!.trim()) && !outside.some(example), lines: [] };
+        allowed: /^(?:text|ascii|plaintext)?$/.test(marker[2]!.trim()) && !outside.some(exampleDiagram), lines: [] };
       outside = [];
     } else outside.push(line);
   }
   if (outside.length) blocks.push(outside);
   return blocks.filter(lines => {
     const firstRow = lines.findIndex(line => treeRow(line) !== undefined);
-    return firstRow >= 0 && !lines.slice(0, firstRow).some(example);
+    return firstRow >= 0 && !lines.slice(0, firstRow).some(exampleDiagram);
   });
 }
 
@@ -258,11 +258,17 @@ function diagramLegend(lines: string[], firstRow: number): Map<string, boolean> 
   const meanings = new Map<string, boolean>();
   const pair = String.raw`\[([✓✔✗✘])\][\t ]+(TESTED|COVERED|GAP|UNTESTED)`;
   const legend = new RegExp(String.raw`^${pair}[\t |,;]+${pair}$`, 'i');
-  for (const original of lines.slice(0, firstRow)) {
+  const bareKey = new RegExp(String.raw`${pair}.*\[[✓✔✗✘]\]`, 'i');
+  for (const [index, original] of lines.entries()) {
+    // Footer keys govern this same block too; tree and annotation markers
+    // describe paths. A bare pair remains a declaration even when indented.
+    if (index >= firstRow && (treeRow(original) || (!/\bLegend\b/i.test(original) && !bareKey.test(original)))) continue;
     // Decorative branch keys and an explicit GAP explanation do not change
     // the two coverage meanings. All other qualifiers keep the closed grammar.
     const line = original.replace(/[\t ]+[─-]+►[\t ]+branch$/i, '')
-      .replace(/(\[[✓✔✗✘]\][\t ]+(?:GAP|UNTESTED))[\t ]+\((?:no test|GAP)\)$/i, '$1');
+      .replace(/(\[[✓✔✗✘]\][\t ]+(?:GAP|UNTESTED))[\t ]+\((?:no test|GAP)\)$/i, '$1')
+      .replace(/(\[[✓✔✗✘]\][\t ]+COVERED)[\t ]+by a test\b/gi, '$1')
+      .replace(/(\[[✓✔✗✘]\][\t ]+(?:GAP|UNTESTED))[\t ]+[—–-][\t ]+no test exercises this path$/i, '$1');
     const start = line.search(/\[[✓✔✗✘]\]/);
     if (start < 0) continue;
     if (/^\s*>|["“”]|\b(?:not|no|never|example|sample|false|incorrect|hypothetical)\b/i.test(line)) return new Map();
@@ -280,7 +286,7 @@ function diagramLegend(lines: string[], firstRow: number): Map<string, boolean> 
       meanings.set(symbol, covered);
     }
   }
-  return meanings;
+  return currentDiagramLegend(lines) ? meanings : new Map();
 }
 
 /** Text markers need an explicit, current legend in this same diagram block. */
@@ -303,6 +309,20 @@ function diagramWordLegend(lines: string[]): Map<string, boolean> | undefined {
   return meanings;
 }
 
+function currentDiagramLegend(lines: string[]): boolean {
+  const status = '(?:withdrawn|superseded|cancelled|canceled|rejected|retracted|incorrect|hypothetical|proposed|optional|not current|no longer current)';
+  for (const line of lines) {
+    if (/^\s*>/.test(line)) continue;
+    const owner = '(?:this|the|that) legend (?:is|has been) ';
+    const scalar = new RegExp(`((?:^|[.!?;]\\s+)[\\t ]*(?:Correction:\\s*)?${owner})["“'‘\x60](${status})["”'’\x60]`, 'gi');
+    const current = line.replace(/\*\*/g, '').replace(scalar, '$1$2').replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’|`[^`\n]*`/g, '');
+    if (exampleDiagram(current) || /^\s*(?:Source|Quoted(?: source)?|Historical(?: note| assessment)?|Hypothetical|Example|If approved)\s*:/i.test(current) ||
+        new RegExp(`(?:^|[.!?;]\\s+)[\\t ]*(?:Correction:\\s*)?${owner}${status}\\b`, 'i').test(current) ||
+        /(?:^|[.!?;]\s+)[\t ]*(?:this|the|that) legend (?:applies|will apply) (?:only )?(?:if|once|when) approved\b/i.test(current)) return false;
+  }
+  return true;
+}
+
 /** Checkbox states are meaningful only under a current key in this block. */
 function diagramCheckboxLegend(lines: string[]): Map<string, boolean> | undefined {
   const declarations = lines.filter(line => /^\s*Legend\b/i.test(line) && /\[[x ]\]/i.test(line));
@@ -320,17 +340,7 @@ function diagramCheckboxLegend(lines: string[]): Map<string, boolean> | undefine
       meanings.set(key, covered);
     }
   }
-  const status = '(?:withdrawn|superseded|cancelled|canceled|rejected|retracted|incorrect|hypothetical|proposed|optional|not current|no longer current)';
-  for (const line of lines) {
-    if (/^\s*>/.test(line)) continue;
-    const owner = '(?:this|the|that) legend (?:is|has been) ';
-    const scalar = new RegExp(`((?:^|[.!?;]\\s+)[\\t ]*(?:Correction:\\s*)?${owner})["“'‘\x60](${status})["”'’\x60]`, 'gi');
-    const current = line.replace(/\*\*/g, '').replace(scalar, '$1$2').replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’|`[^`\n]*`/g, '');
-    if (/^\s*(?:Source|Quoted(?: source)?|Historical(?: note| assessment)?|Hypothetical|Example|If approved)\s*:/i.test(current) ||
-        new RegExp(`(?:^|[.!?;]\\s+)[\\t ]*(?:Correction:\\s*)?${owner}${status}\\b`, 'i').test(current) ||
-        /(?:^|[.!?;]\s+)[\t ]*(?:this|the|that) legend (?:applies|will apply) (?:only )?(?:if|once|when) approved\b/i.test(current)) return new Map();
-  }
-  return meanings;
+  return currentDiagramLegend(lines) ? meanings : new Map();
 }
 
 function seededDiagram(output: string): boolean {
@@ -342,7 +352,7 @@ function seededDiagram(output: string): boolean {
     for (let i = 0; i < lines.length; i++) {
       if (rows[i]) { owner = i; continue; }
       const continuation = /^([ |│]+)(\[[✓✔✗✘xX ]\].*)$/.exec(lines[i]!);
-      if (owner >= 0 && continuation && [4, 8].includes(continuation[1]!.length - rows[owner]!.depth))
+      if (owner >= 0 && continuation && [4, 6, 8].includes(continuation[1]!.length - rows[owner]!.depth))
         rows[owner]!.text += ' ' + continuation[2]!;
       else if (!/^[ |│]*$/.test(lines[i]!)) owner = -1;
     }

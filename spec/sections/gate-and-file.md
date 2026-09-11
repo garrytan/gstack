@@ -144,7 +144,7 @@ Write the prompt with the exact redaction-approved spec bytes using the Write to
 <exact redaction-approved spec bytes>
 <<<END_USER_SPEC>>>"
 
-Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request exactly SCORE: N (integer 0-10) and AMBIGUITIES: ... (or NONE), as two distinct nonempty lines. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content. Request exactly SCORE: N (integer 0-10) and AMBIGUITIES: ... (or NONE), as two distinct nonempty lines. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.

@@ -852,8 +852,8 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**SERVER FALLBACK:** Nonzero exit or no readiness marker: use the fallback below. Exit 0 with `BOARD_URL` means the daemon is serving.
-In that case, show each variant inline using the Read tool (so the user can see them),
+Exit 0 with `BOARD_URL` means the daemon is serving; use the board feedback flow above.
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
 Which do you prefer? Any feedback?"

@@ -934,8 +934,8 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**SERVER FALLBACK:** Nonzero exit or no readiness marker: use the fallback below. Exit 0 with `BOARD_URL` means the daemon is serving.
-In that case, show each variant inline using the Read tool (so the user can see them),
+Exit 0 with `BOARD_URL` means the daemon is serving; use the board feedback flow above.
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
 Which do you prefer? Any feedback?"
@@ -1036,7 +1036,7 @@ HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, the
 
 For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging."
 
-Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.

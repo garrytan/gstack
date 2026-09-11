@@ -249,8 +249,8 @@ the approved variant.
 AskUserQuestion response instead of using the board. Use their text response
 as the feedback.
 
-**SERVER FALLBACK:** Nonzero exit or no readiness marker: use the fallback below. Exit 0 with `BOARD_URL` means the daemon is serving.
-In that case, show each variant inline using the Read tool (so the user can see them),
+Exit 0 with `BOARD_URL` means the daemon is serving; use the board feedback flow above.
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline using the Read tool (so the user can see them),
 then use AskUserQuestion:
 "The comparison board server failed to start. I've shown the variants above.
 Which do you prefer? Any feedback?"
@@ -278,7 +278,7 @@ After the user picks a direction:
 - `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"`: Phase 6 color/type/spacing tokens come from the approved visual, not text alone.
 - Further iteration: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
 
-**Plan mode:** Save the full approved mockup path/tokens under "## Approved Design Direction" in the plan; defer DESIGN.md to implementation. Otherwise Phase 6 writes it.
+**Plan mode:** Carry the approved mockup paths/tokens into Phase 6's "## Proposed DESIGN.md" plan section. Its Q-final approval governs saving that content; defer the actual DESIGN.md to implementation.
 
 ### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
 

@@ -831,7 +831,7 @@ Then add the context block and mode-appropriate instructions:
 
 3. Run Codex with the assembled prompt:
 
-Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -1140,7 +1140,7 @@ If user chooses A, run both independent voices below and wait for both results b
 1. **Codex** (via Bash, `model_reasoning_effort="medium"`):
 Prompt: "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." Include the approved product approach and wireframe source in the prepared prompt.
 
-Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. A refusal is never completion.
+Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>. A refusal is never completion.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.

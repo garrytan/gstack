@@ -165,7 +165,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, opts: OutsideComman
         : 'Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.';
   const preparation = nativeStructured
     ? 'Run Codex’s built-in structured review with the selected base. It supplies its own prompt and accepts no custom prompt file with --base. Require severity-tagged findings (including native P1:/P2: labels) or an explicit no-findings conclusion; arbitrary prose or a refusal is missing coverage.'
-    : `Use Write to save the **complete prompt and context** in a private file. Replace \`<prepared-prompt-file>\` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. ${completion} A refusal is never completion.`;
+    : `Use Write to save the **complete prompt and context** in a private file. Replace \`<prepared-prompt-file>\` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content${outsideVoiceFor(ctx).id === 'claude-code' ? ': Claude Code review/challenge has no tools, git, or path access' : ''}. ${completion} A refusal is never completion.`;
   return `${preparation}
 
 \`\`\`bash

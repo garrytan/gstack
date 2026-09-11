@@ -719,7 +719,7 @@ describeIfSelected('Design skill evals', ['design-review/SKILL.md fix loop', 'de
       testName: 'design-consultation/SKILL.md research',
       suite: 'Design skill evals',
       skillPath: 'design-consultation/SKILL.md',
-      startMarker: '## Phase 1:',
+      startMarker: '## Phase 0:',
       endMarker: '## Phase 4:',
       judgeContext: 'a design consultation research and proposal workflow',
       judgeGoal: 'how to gather product context, research the competitive landscape, and produce a complete design system proposal with typography, color, spacing, and motion specifications',
