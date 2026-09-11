@@ -9,6 +9,46 @@ const reports: string[] = [
 ];
 const regression = (plan: string) => evaluateEngSeedCoverage({ status: 'ready', calls: [], assistantMessages: [] }, plan, 0, 1).regression;
 
+const inlineRequired = `# Current reviewed plan
+## Required tests
+- **CRITICAL regression (T4)** \`auth/legacy-parity.test.ts\`:
+  Record legacyAuthFlow() outputs before any change. Run the same fixtures
+  against the new path; assert identical session shape and identical rejection class.
+- **Other test** unrelated.test.ts: tests another feature.
+## Implementation Tasks
+- [ ] **T4 (P1)** — auth/tests — Regression: pin legacyAuthFlow() behavior
+  - Files: auth/legacy-parity.test.ts
+  - Verify: suite green on legacy before any refactor commit; green on both paths before rollout
+## Verification
+1. Run T4 against the untouched legacy path and commit the fixtures first.
+2. Land the replacement and run T4 on both paths.
+`;
+test('inline required regression binds its own task, baseline and same-fixture parity', () => {
+  expect(regression(inlineRequired)).toBe('plan');
+  expect(regression(inlineRequired.replaceAll('T4', 'T17').replaceAll('auth/legacy-parity.test.ts', 'spec/old-path.test.ts'))).toBe('plan');
+  expect(regression(inlineRequired.replace('CRITICAL regression', 'MANDATORY characterization').replace('Record', 'Capture')
+    .replace('Run the same', 'Replay the same').replace('identical session shape', 'matching outputs')
+    .replace('suite green on legacy', 'tests pass on the legacy path').replace('untouched', 'unmodified'))).toBe('plan');
+  for (const change of [
+    (s: string) => s.replace('CRITICAL regression', 'Optional regression'),
+    (s: string) => s.replace('CRITICAL regression', 'CRITICAL regression withdrawn'),
+    (s: string) => s.replace('## Required tests', '## Historical required tests'),
+    (s: string) => s.replace('  Record', '  If approved, record'),
+    (s: string) => s.replace('outputs before', 'behavior after'),
+    (s: string) => s.replace('same fixtures', 'different fixtures'),
+    (s: string) => s.replace('new path', 'unrelated path'),
+    (s: string) => s.replace('identical rejection class', 'unspecified behavior'),
+    (s: string) => s.replace('  - Files: auth/legacy-parity.test.ts', '  - Files: auth/other.test.ts'),
+    (s: string) => s.replace('green on legacy before', 'red on legacy before'),
+    (s: string) => s.replace('green on both paths', 'green on new path'),
+    (s: string) => s.replace('untouched legacy', 'rewritten legacy'),
+    (s: string) => s.replace('1. Run T4', '1. Run T9'),
+    (s: string) => s + '\n## Current status\nT4 is "withdrawn".\n',
+    (s: string) => s + '\n## Current status\nChange T4 assertions to match the new behavior.\n',
+    (s: string) => s.split('\n').map(line => '> ' + line).join('\n'),
+  ]) expect(regression(change(inlineRequired))).toBeUndefined();
+});
+
 test('mandatory named regression suites bind the task to an untouched baseline', () => {
   for (const report of reports) {
     expect(regression(report)).toBe('plan');

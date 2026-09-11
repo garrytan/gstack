@@ -120,6 +120,21 @@ describe('generated outside-review dispatch', () => {
       expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
     });
 
+    test(`${host} reports mixed explicit/native conflicts without guessing a repair host`, () => {
+      for (const markers of [
+        {CLAUDECODE:'1', CODEX_THREAD_ID:'', CODEX_SANDBOX:'', GSTACK_ACTIVE_HOST:'codex'},
+        {CLAUDECODE:'', CODEX_THREAD_ID:'codex-fixture', CODEX_SANDBOX:'', GSTACK_ACTIVE_HOST:'claude'},
+      ]) {
+        const result = invoke(host, {}, markers);
+        expect(result.status).toBe(78);
+        expect(fs.existsSync(CAPTURE)).toBe(false);
+        expect(result.stderr).toContain('markers conflict');
+        expect(result.stderr).toContain('setup --host <actual-harness>');
+        expect(result.stderr).not.toContain('Repair installed skills: run setup --host');
+        expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
+      }
+    });
+
     test(`${host} detects explicit stale active-host identity without environment marker guesses`, () => {
       const result = invoke(host,{},host === 'codex'
         ? {CLAUDECODE:'',CODEX_THREAD_ID:'',GSTACK_ACTIVE_HOST:'claude'}

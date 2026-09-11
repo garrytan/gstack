@@ -114,6 +114,8 @@ export interface ClaudePtyOptions {
   observeFilePermissions?: readonly string[];
   /** Opt-in metadata only, limited to launcher-owned Autoplan review artifacts. */
   observeAutoplanArtifacts?: boolean;
+  /** AP-only exact artifact Edit approvals; inactive until the owner starts its command. */
+  approveAutoplanArtifactEdits?: boolean;
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -176,6 +178,7 @@ export interface ClaudePtySession {
   pendingPlanReadyFile?: string;
   pendingQuestionFile?: string;
   pendingAutoplanArtifactFile?: string;
+  startAutoplanArtifactEditApproval?: (commandStartedAt: number) => void;
   pendingFilePermissionFiles?: Array<{ expected: string; file: string }>;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
@@ -3731,7 +3734,8 @@ export async function launchClaudePty(
       pendingQuestion = createPendingQuestionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
     }
     if (opts.observeAutoplanArtifacts && hermetic && childEnv.CLAUDE_CONFIG_DIR && hermeticSkillStateRoot) {
-      pendingArtifact = createAutoplanArtifactRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, hermeticSkillStateRoot);
+      pendingArtifact = createAutoplanArtifactRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, hermeticSkillStateRoot,
+        opts.approveAutoplanArtifactEdits === true);
     }
     if (opts.observeFilePermissions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       for (const expected of new Set(opts.observeFilePermissions)) {
@@ -3935,6 +3939,7 @@ export async function launchClaudePty(
     pendingPlanReadyFile: pendingExit?.file,
     pendingQuestionFile: pendingQuestion?.file,
     pendingAutoplanArtifactFile: pendingArtifact?.file,
+    startAutoplanArtifactEditApproval: pendingArtifact?.startEditApproval,
     pendingFilePermissionFiles: pendingFiles.map(({ expected, recorder }) => ({ expected, file: recorder.file })),
     close,
   };

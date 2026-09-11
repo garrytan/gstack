@@ -99,10 +99,10 @@ Outside prompt (supply repository context from the parent):
 Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content: Claude Code review/challenge has no tools, git, or path access. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
 
 ```bash
-# GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+# GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
-  if [ -n "${CLAUDECODE:-}" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
     echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
   else
     echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
@@ -158,10 +158,10 @@ Prepare a structured review prompt requesting severity-tagged findings ([P1], [P
 Run Codex’s built-in structured review with the selected base. It supplies its own prompt and accepts no custom prompt file with --base. Require severity-tagged findings (including native P1:/P2: labels) or an explicit no-findings conclusion; arbitrary prose or a refusal is missing coverage.
 
 ```bash
-# GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+# GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
-  if [ -n "${CLAUDECODE:-}" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
     echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
   else
     echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2

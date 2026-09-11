@@ -12,6 +12,56 @@ import { E2E_TOUCHFILES, matchGlob } from './helpers/touchfiles';
 const call = () => structuredClone(actual.fingerprint.nativeCall) as NativePlanQuestionCall;
 const fp = (c = call()) => nativePlanCallFingerprint(c, 0, false);
 const accepts = (c = call(), plan = actual.plan) => isEngCompletionHandoff(fp(c), plan);
+
+function maintenanceRecap() {
+  const make = (id: string, header: string, text: string, selected: string, description: string): NativePlanQuestionCall => ({
+    sessionId:'maintenance-session', toolUseId:id, questions:[{header,question:text,multiSelect:false,
+      options:[{label:selected,description},{label:'Skip',description:'Do not approve this action.'}]}],
+    answered:true, failed:false, answers:{[text]:selected}, unansweredQuestionIndices:[], answeredAt:'2026-09-11T00:00:01Z',
+  });
+  const routing = make('routing','Routing',"Add gstack skill routing rules to CLAUDE.md?",'Add routing rules to CLAUDE.md (recommended)','Append the routing rules after review.');
+  const policy = make('policy','TODO 1','D7 — TODO 1: RetryPolicy needs a follow-up.','7A) Add to TODOS.md (recommended)',"Captured in the plan's TODOS section now; write it after exit.");
+  const cleanup = make('cleanup','TODO 2','D8 — TODO 2: Remove LegacyBridge after rollout.','8A) Add to TODOS.md (recommended)',"Captured in the plan's TODOS section now; write it after exit.");
+  const next = make('next','Next step','D9 — Next steps. Eng review is CLEARED. There is no UI scope. CEO review is optional. What next?',
+    'Ready to implement — run /ship when done (recommended)','Exit plan mode with the reviewed plan. Post-exit: append routing rules to CLAUDE.md and create TODOS.md with the two accepted items.');
+  next.answeredAt='2026-09-11T00:00:02Z'; next.questions[0]!.options[1]={label:'Run /plan-ceo-review',description:'Optional strategy review.'};
+  return {next, prior:[routing,policy,cleanup], plan:'## TODOS\n### Revisit RetryPolicy\nAn approved follow-up.\n### Remove LegacyBridge\nAfter rollout.\n## Implementation Tasks\n'};
+}
+test('completed navigation can recap earlier approved routing and published TODOs', () => {
+  const a=maintenanceRecap(), check=(x= a)=>isEngCompletionHandoff(fp(x.next),x.plan,x.prior);
+  expect(check()).toBe(true);
+  const renamed=structuredClone(a); renamed.plan=renamed.plan.replaceAll('RetryPolicy','TenantPolicy');
+  question(renamed.prior[1]!,s=>s.replaceAll('RetryPolicy','TenantPolicy')); expect(check(renamed)).toBe(true);
+  const reworded=structuredClone(a);question(reworded.next,s=>s.replace('D9 — Next steps. Eng review is CLEARED','D14: Next step: Engineering review is complete'));
+  reworded.next.questions[0]!.header='Next steps';reworded.next.questions[0]!.options[0]!.description='Exit plan mode with the reviewed plan. After exiting: write TODOS.md with 2 accepted items; add gstack routing rules to CLAUDE.md.';
+  expect(check(reworded)).toBe(true);
+  const batched=structuredClone(a);batched.prior[1]!.questions.push(...batched.prior[2]!.questions);
+  Object.assign(batched.prior[1]!.answers,batched.prior[2]!.answers);batched.prior.pop();expect(check(batched)).toBe(true);
+  for(const mutate of [
+    (x:typeof a)=>{x.prior.shift();},
+    (x:typeof a)=>{x.prior[0]!.sessionId='foreign';},
+    (x:typeof a)=>{x.prior[0]!.failed=true;},
+    (x:typeof a)=>{x.prior[0]!.answeredAt=x.next.answeredAt;},
+    (x:typeof a)=>{x.prior[0]!.unansweredQuestionIndices=[0];},
+    (x:typeof a)=>{x.prior.push(structuredClone(x.prior[0]!));},
+    (x:typeof a)=>{x.prior[0]!.questions[0]!.options[1]=structuredClone(x.prior[0]!.questions[0]!.options[0]!);},
+    (x:typeof a)=>{const revoked=structuredClone(x.prior[0]!);revoked.toolUseId='revoked';revoked.answers![revoked.questions[0]!.question]='Skip';x.prior.push(revoked);},
+    (x:typeof a)=>{x.prior[1]!.answers![x.prior[1]!.questions[0]!.question]='Skip';},
+    (x:typeof a)=>{x.prior[1]!.questions[0]!.options[0]!.description='A new proposed TODO.';},
+    (x:typeof a)=>{question(x.prior[1]!,s=>s+' This approval is withdrawn.');},
+    (x:typeof a)=>{question(x.next,s=>'Example: '+s);},
+    (x:typeof a)=>{question(x.next,s=>s+' This review is cancelled.');},
+    (x:typeof a)=>{question(x.next,s=>s.replace('is CLEARED','will be CLEARED'));},
+    (x:typeof a)=>{question(x.next,s=>s+' Only if more tests pass.');},
+    (x:typeof a)=>{x.next.questions[0]!.options[0]!.description+=' Add another requirement.';},
+    (x:typeof a)=>{x.next.questions[0]!.options[0]!.description=x.next.questions[0]!.options[0]!.description!.replace('two','three');},
+    (x:typeof a)=>{x.plan=x.plan.replace('## TODOS','## Historical TODOs');},
+    (x:typeof a)=>{x.plan=x.plan.replace('RetryPolicy','OtherPolicy');},
+    (x:typeof a)=>{x.plan=x.plan.replace('An approved follow-up.','This TODO is withdrawn.');},
+    (x:typeof a)=>{x.plan='```md\n'+x.plan+'\n```';},
+  ]){const x=structuredClone(a);mutate(x);expect(check(x)).toBe(false);}
+  expect(isEngCompletionHandoff(fp(a.next),a.plan)).toBe(false);
+});
 function question(c: NativePlanQuestionCall, f: (s: string) => string) {
   const q = c.questions[0]!, answer = c.answers![q.question];
   q.question = f(q.question); c.answers = { [q.question]: answer! }; return c;

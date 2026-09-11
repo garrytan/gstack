@@ -137,6 +137,8 @@ function validQuestions(value: unknown): value is NativePlanQuestion[] {
  */
 export function readPlanCountTranscript(configDir: string, cwd: string,
   onPublicToolEvent?: (event: NativePublicToolEvent) => void,
+  /** Optional exact parent journal, already validated by the owning native hook. */
+  ownedParentTranscript?: string,
 ): PlanCountTranscript {
   const calls = new Map<string, NativePlanQuestionCall>();
   const assistantMessages: PlanCountTranscript['assistantMessages'] = [];
@@ -155,6 +157,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
         if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
         if (++files > MAX_FILES) throw new Error('too many transcript files');
         const file = path.join(project, entry.name);
+        if (ownedParentTranscript !== undefined && file !== ownedParentTranscript) continue;
         bytes += fs.statSync(file).size;
         if (bytes > MAX_BYTES) throw new Error('transcript exceeds 32 MiB read limit');
         const text = fs.readFileSync(file, 'utf8');
@@ -171,7 +174,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
           if (!line.trim()) continue;
           const record = JSON.parse(line);
           if (!object(record) || typeof record.sessionId !== 'string' ||
-              entry.name !== `${record.sessionId}.jsonl`) continue;
+              entry.name !== `${record.sessionId}.jsonl` ||
+              (ownedParentTranscript !== undefined && record.agentId != null)) continue;
           const parentMetadata = record.isSidechain === false && record.agentId == null &&
             typeof record.cwd === 'string' && path.isAbsolute(record.cwd) &&
             nativeUuid(record.uuid) && validTimestamp(record.timestamp);

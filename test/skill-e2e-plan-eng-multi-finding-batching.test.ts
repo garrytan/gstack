@@ -36,6 +36,7 @@ import {
   engFirstReviewAUQ,
 } from './helpers/claude-pty-runner';
 import { FORCING_BATCHING_ENG } from './fixtures/forcing-finding-seeds';
+import { isEngBatchingIssueAUQ } from './helpers/eng-seeded-coverage';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -69,6 +70,7 @@ describeE2E('/plan-eng-review multi-finding batching regression (periodic)', () 
           isLastStep0AUQ: engStep0Boundary,
           isSetupAUQ: engSetupAUQ,
           isFirstReviewAUQ: engFirstReviewAUQ,
+          isReviewAUQ: isEngBatchingIssueAUQ,
           reviewCountCeiling: N + 3, // hard cap above floor + tolerance
           timeoutMs: 1_500_000, // 25 min
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

@@ -191,6 +191,14 @@ calibration or statistical upper bound. The historical 900-second failures
 remain failures. Models, fixtures, phase assertions and production review
 caller timeouts are unchanged; this explicitly changes eval latency/cost policy.
 
+The Autoplan chain explicitly enables native `PreToolUse` approval for edits to
+its owned temporary review artifacts. Approval starts with the `/autoplan`
+command and requires the exact parent session, prior successful file history,
+and a current request digest. Other recorder callers remain observational.
+A rejected artifact edit fails the test instead of falling through to terminal
+permission input. Approval itself supplies no edit success or phase credit:
+the native tool result and all four completed review phases are still required.
+
 `resolvePaidShardBudget(files, overrideMs?)` is the canonical per-job resolver.
 Only the exact Autoplan file gets the exception, in its own shard. An explicit
 CLI `--timeout`, `EVALS_SHARD_TIMEOUT_MS`, or API `timeoutMs` still wins, including

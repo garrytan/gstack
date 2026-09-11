@@ -1,4 +1,5 @@
 import type { NativePlanQuestionCall, PlanCountTranscript } from './plan-count-transcript';
+import type { AskUserQuestionFingerprint } from './claude-pty-runner';
 import { hasRetainedLegacyCorpus } from './eng-retained-corpus';
 
 /** Evidence for this fixture's four decision seeds; regression coverage is auto-added by the skill. */
@@ -254,6 +255,38 @@ function completedDecision(call: NativePlanQuestionCall, startedAt: number, fini
     call.questions.every(q => q.question.trim() && !q.multiSelect && q.options.length >= 2 && q.options.length <= 4 &&
     q.options.every(o => o.label.trim()) && new Set(q.options.map(o => o.label)).size === q.options.length &&
     q.options.some(o => call.answers?.[q.question] === o.label));
+}
+
+/** Structural eligibility for this distinct-issue counter, not seed quality. */
+function batchingIssueNumber(call: NativePlanQuestionCall): string | undefined {
+  if (!completedDecision(call, 0, Date.now()) || call.questions.length !== 1) return;
+  const q = call.questions[0]!;
+  const issue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)\s*:\s*\S[^\n]*$/i.exec(q.question.split('\n')[0]!)?.[1];
+  if (!issue || !new RegExp(`^(?:Arch(?:itecture)?|Code quality|Tests?|Testing|Performance|Security)(?: ${issue})?$`, 'i').test(q.header.trim())) return;
+  const optionIds = q.options.map(o => /^([1-9]\d*)([A-D])[.):]\s+\S/i.exec(o.label));
+  if (optionIds.some(id => id?.[1] !== issue) || new Set(optionIds.map(id => id![2]!.toUpperCase())).size !== q.options.length) return;
+  // Owned scalar statuses remain current prose; a whole code example does not.
+  const owner = `(?:(?:this|the|that) (?:issue|finding|decision)|Issue ${issue})`;
+  const statusPrefix = `(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?${owner} (?:is|was|has been) `;
+  const scalarOwner = new RegExp(`${statusPrefix}$`, 'i');
+  const text = q.question.replace(/`([^`\n]+)`/g, (span, body: string, at: number, source: string) =>
+    scalarOwner.test(source.slice(0, at)) ? body : span);
+  const inactive = new RegExp(`${statusPrefix}["“'‘]?(?:withdrawn|cancelled|canceled|rejected|superseded|resolved|closed|hypothetical|not current|no longer current)\\b`, 'i');
+  return inactive.test(prose(text, true)) ? undefined : issue;
+}
+
+/** Batching measures separate native issue decisions; seed quality is checked separately. */
+export function isEngBatchingIssueAUQ(fp: AskUserQuestionFingerprint, priorCalls: readonly NativePlanQuestionCall[] = []): boolean {
+  const call = fp.nativeCall;
+  if (!call || fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0) ||
+      priorCalls.some(prior => prior.sessionId !== call.sessionId || prior.toolUseId === call.toolUseId)) return false;
+  const issue = batchingIssueNumber(call);
+  if (!issue) return false;
+  const q = call.questions[0]!;
+  if (fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label)) return false;
+  // Re-asking an eligible issue cannot inflate the floor; setup and batches do not suppress later separate decisions.
+  return !priorCalls.some(prior => batchingIssueNumber(prior) === issue);
 }
 
 /** A named required test can specify characterization without an "Add" prefix. */
@@ -1060,7 +1093,18 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
       preceding: text.slice(0, text.indexOf(body)).trim().split('\n').at(-1) ?? '',
       match: /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–:-] (.+)(?:\n|$)/.exec(body) }));
   });
-  for (const declaration of current) {
+  // Required test lists may give each suite its own inline label instead of
+  // a heading. Keep that bullet's body separate from adjacent test requirements.
+  const declarations: Array<{ title: string; body: string[]; inlineRequired?: boolean }> = [...current];
+  for (const section of current.filter(s => /\b(?:required|mandatory) tests?\b/i.test(s.title))) {
+    const blocks = section.body.join('\n').split(/\n(?=- )/);
+    for (const block of blocks) {
+      const match = /^- ((?:CRITICAL|MANDATORY|REQUIRED)\b[^\n]*\b(?:regression|characterization)\b[^\n]*)\n([\s\S]+)$/i.exec(block.trim());
+      if (match && !framed(section.title) && owned(block) && !new RegExp(`\\b${inactive}\\b`, 'i').test(unquoted(match[1]!)))
+        declarations.push({ title: match[1]!, body: [match[1]!, match[2]!], inlineRequired: true });
+    }
+  }
+  for (const declaration of declarations) {
     const requiredRule = /\b(?:mandatory|critical|required)\b/i.test(unquoted(declaration.title));
     if (!/\b(?:regression|characterization)\b/i.test(declaration.title) || !requiredRule
         || /\b(?:not|never|no longer) (?:mandatory|critical|required)\b/i.test(declaration.title) || approval.test(unquoted(declaration.title)) || /\b(?:if|when|once|unless) accepted\b/i.test(unquoted(declaration.title))) continue;
@@ -1135,7 +1179,23 @@ function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; bo
                 && green(statement) && /\bunchanged\b/i.test(statement);
             });
         });
-      const scopedBaseline = linkedBaseline || committedBaseline || orderedBaseline;
+      const inlineBaseline = declaration.inlineRequired && scheduled && taskFiles[0]![1] === files[0]
+        && tasks.filter(t => new RegExp(`^  - Files: ${files[0]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(t.body)).length === 1
+        && [...text.matchAll(/\bT[1-9]\d*\b/g)].every(m => m[0] === id)
+        && new RegExp(`\\b${id}\\b`).test(text)
+        && /\b(?:run|execute|replay) (?:the )?same fixtures\b/i.test(text)
+        && /\bagainst (?:the )?new path\b/i.test(text)
+        && /\bassert (?:identical|matching)\b[^.;]*\b(?:outputs?|outcomes?|session shape)\b/i.test(text)
+        && /\b(?:rejection|error) (?:class|kind|code)\b/i.test(text)
+        && runs.some(run => green(run) && /\bon (?:the )?legacy(?: path)? before (?:any|the) (?:refactor|rewrite|change)(?: commit)?\b/i.test(run))
+        && runs.some(run => green(run) && /\bon both paths\b/i.test(run))
+        && current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {
+          const first = unquoted(s.body.join('\n').trim().split(/\n(?=\d+[.)] )/)[0] ?? '');
+          return owned(first) && /^1[.)] (?:run|execute|test|verify)\b/i.test(first)
+            && new RegExp(`\\b${id}\\b`).test(first) && /\b(?:untouched|unmodified) legacy path\b/i.test(first)
+            && /\bfirst\b/i.test(first);
+        });
+      const scopedBaseline = linkedBaseline || committedBaseline || orderedBaseline || inlineBaseline;
       if (!scopedBaseline && !scheduledVerification) continue;
       // An explicit ordered step provides the old-code oracle; matching a task label alone cannot.
       const baseline = scopedBaseline || current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {

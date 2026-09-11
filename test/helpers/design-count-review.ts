@@ -150,7 +150,12 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
     !sourceAssessment.test(prefix.join(' ')) && !sourceAssessment.test(assessments[0]![1]!)
     ? assessments[0]![1]! : '';
   const headerPeers = primary && headerActionIssue && new RegExp(`^${primary[1]}, ([A-Za-z][A-Za-z0-9 _-]{0,39}(?:, [A-Za-z][A-Za-z0-9 _-]{0,39})*(?:,? and [A-Za-z][A-Za-z0-9 _-]{0,39})?) currently look (?:the same|identical)\\.`, 'i').exec(assessment);
-  const countedHeader = distinguishedPrimaryIssue && /^(?:Right now|Today) (?:all|the) (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons look (?:the same|identical)\./i.exec(assessment) ||
+  // Equal visual properties can establish the same current lack of hierarchy.
+  // Shared geometry alone is not a claim that the actions look equally primary.
+  const properties = '(?:size|weight|colou?r|fill|emphasis)(?:(?:, ?|,? and )(?:size|weight|colou?r|fill|emphasis))*';
+  const equalProperties = distinguishedPrimaryIssue && new RegExp('^(?:Right now|Today) (?:all|the) (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) header buttons (?:are|have|share) the same (' + properties + ')\\.', 'i').exec(assessment);
+  const countedHeader = equalProperties && /\b(?:weight|colou?r|fill|emphasis)\b/i.test(equalProperties[2]!) && equalProperties ||
+    distinguishedPrimaryIssue && /^(?:Right now|Today) (?:all|the) (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons look (?:the same|identical)\./i.exec(assessment) ||
     declaredPrimaryIssue && /^(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons currently (?:share one style|look identical)\./i.exec(assessment);
   const primaryAssessment = distinguishedPrimaryIssue || declaredPrimaryIssue ? countedHeader?.[0] : headerActionIssue ? headerPeers?.[0] :
     primary && new RegExp(`^(?:Right now|Today) ${primary[1]}(?:, [A-Za-z][A-Za-z0-9 _-]{0,39})+(?:,? and [A-Za-z][A-Za-z0-9 _-]{0,39})? (?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) )?identical buttons)\\b`, 'i').exec(assessment)?.[0];
@@ -174,7 +179,7 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const invalidContract = new RegExp(`(?:^|${statusBoundary}\\s+|\\n)(?:Correction:\\s*)?(?:this|that|the) (?:(?:DESIGN\\.md|token) )?(?:requirement|contract) (?:is|was|has been) (?:withdrawn|superseded|rejected|cancelled|canceled|not current|no longer current)\\b`, 'i');
   const namedContract = primary && new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md already says ${primary[1]} is the only filled primary button and the other (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.`, 'i').exec(assessment);
   const headerContract = primary && headerActionIssue && new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md already answers it: ${primary[1]} is the only filled primary button, the other (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.`, 'i').exec(assessment);
-  const conditionalHeader = (text: string) => /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:If|When|Unless|Assuming|Provided)\b/i.test(text);
+  const conditionalHeader = (text: string) => /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:If|When|Unless|Assuming|Provided)\b/i.test(text) || /\b(?:only if|unless|pending approval|subject to approval)\b/i.test(text);
   // Approval conditions suspend this offered decision; explanatory conditions
   // about user behavior do not make an otherwise current amendment optional.
   const pendingPrimaryApproval = (text: string) => primaryEmphasisIssue && (
@@ -204,6 +209,15 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
     q.options.some(amendment => {
       const body = currentText(amendment.description ?? '');
       if (pendingPrimaryApproval(body)) return false;
+      // Roles and their concrete tokens belong to one native option; a familiar
+      // label alone cannot supply the style or borrow DESIGN.md from a peer.
+      const roleLabel = currentText(amendment.label);
+      const propertyStyle = primary && distinguishedPrimaryIssue && new RegExp(`^(?:✅\\s*)?${primary[1]} (?:is|becomes) the (?:only|single) filled(?: primary)? #[0-9a-f]{6}(?: button)? with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) (?:are|become) neutral ghost(?: buttons)?\\.`, 'i').exec(body);
+      const roleAuthority = new RegExp(`^${issue[1]}[A-Z][).:]?\\s+(?:(?:Apply|Use|Reuse) )?DESIGN\\.md\\b`, 'i').test(roleLabel) ||
+        /(?:^|[.;]\s+)(?:Matches DESIGN\.md exactly|Per DESIGN\.md)\b/i.test(body);
+      const roleStyle = propertyStyle && roleAuthority && !conditionalHeader(roleLabel) &&
+        !/\b(?:not|never|no|if|historical|hypothetical|source|quoted|withdrawn|superseded|cancelled|canceled)\b/i.test(roleLabel) &&
+        !headerControls.some(peer => new RegExp(`\\b(?:primary(?: button| action)? ${peer}|${peer} (?:as )?(?:the )?(?:filled )?primary)\\b`, 'i').test(roleLabel)) ? propertyStyle : null;
       const declaredStyle = primary && declaredPrimaryIssue &&
         new RegExp(`^(?:✅\\s*)?${primary[1]} filled #[0-9a-f]{6}(?: with)? (?:white|black)(?: text)?; ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) neutral ghost(?: buttons)?\\.`, 'i').exec(body);
       if (declaredPrimaryIssue) {
@@ -215,16 +229,16 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
       }
       const headerStyle = primary && headerActionIssue && new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the only filled #[0-9a-f]{6} button with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,_-]{0,119}) become neutral ghost buttons, exactly as DESIGN\\.md states\\.`, 'i').exec(body);
       // A descriptive header still owns a concrete primary and every peer.
-      // The native label supplies the filled role; its own body supplies tokens.
+      // Its native option supplies the primary/secondary roles and tokens.
       const distinguishedStyle = primary && distinguishedPrimaryIssue && (
         new RegExp(`^(?:✅\\s*)?${primary[1]} is #[0-9a-f]{6} with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,_-]{0,119}) are neutral ghost buttons per DESIGN\\.md\\.`, 'i').exec(body) ??
         new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the only filled button \\(#[0-9a-f]{6}, (?:white|black) text\\); ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) use the existing neutral ghost variant` +
-          '(?: \\(human: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min) / CC: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min)\\))?\\. (?:✅\\s*)?Matches DESIGN\\.md exactly\\b', 'i').exec(body));
+          '(?: \\(human: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min) / CC: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min)\\))?\\. (?:✅\\s*)?Matches DESIGN\\.md exactly\\b', 'i').exec(body) ?? roleStyle);
       const style = declaredPrimaryIssue ? declaredStyle?.[0] : distinguishedPrimaryIssue ? distinguishedStyle?.[0] : headerActionIssue ? headerStyle?.[0] : amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
       if ((declaredPrimaryIssue || distinguishedPrimaryIssue) &&
           /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:the|this) (?:current )?(?:amendment|fix) keeps (?:all )?(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical\b/i.test(body)) return false;
       if (distinguishedPrimaryIssue && (!distinguishedStyle || conditionalHeader(body) || invalidContract.test(body) ||
-          !new RegExp(`^[1-9]\\d*[A-Z][).:]?\\s+Filled primary (?:(?:\\+|and|with) ghosts|${primary![1]})(?: \\(recommended\\))?$`, 'i').test(amendment.label) ||
+          !(roleStyle || new RegExp(`^[1-9]\\d*[A-Z][).:]?\\s+Filled primary (?:(?:\\+|and|with) ghosts|${primary![1]})(?: \\(recommended\\))?$`, 'i').test(amendment.label)) ||
           JSON.stringify(controlNames(distinguishedStyle[1]!.replaceAll('/', ','))) !== JSON.stringify(headerControls))) return false;
       if (headerActionIssue && (!headerStyle || conditionalHeader(body) || invalidContract.test(body) ||
           JSON.stringify(controlNames(headerStyle[1]!)) !== JSON.stringify(headerControls))) return false;
@@ -263,7 +277,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
         const remaining = pros && !sourceAssessment.test(pros[0]) ? deferralBody.slice(pros[0].length) : deferralBody;
         const retainedEmphasis = distinguishedPrimaryIssue && new RegExp(`^(?:Keep|Leave) identical (?:header )?buttons, bold (?:the )?${primary![1]} (?:text|label)\\. (?:Weak(?: visual)? signal, )?off-token\\.`, 'i').test(remaining);
         const retainedHierarchyGap = distinguishedPrimaryIssue && /^(?:❌\s*)?Ships a (?:known|documented) DESIGN\.md violation and the plan['’]s own Visual Hierarchy gap (?:stays|remains) open\./i.test(remaining);
-        if (distinguishedPrimaryIssue) return defer !== amendment && !!(retainedEmphasis || retainedHierarchyGap) &&
+        const retainedRoleGap = roleStyle && /^(?:No change[.;]\s*)?(?:the |this )?(?:finding|issue|gap) (?:stays|remains) (?:open|unresolved)\b/i.test(remaining);
+        if (distinguishedPrimaryIssue) return defer !== amendment && !!(retainedEmphasis || retainedHierarchyGap || retainedRoleGap) &&
           !conditionalHeader(declined) && !sourceAssessment.test(declined) && !withdrawn.test(declined) &&
           !/(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) identical (?:header )?buttons\b/i.test(declined) &&
           !closedGap.test(declined) && !invalidContract.test(declined) && !cancelledStyle.test(declined) && !withdrawnStyles.test(declined);

@@ -412,6 +412,39 @@ function pendingCommandDisplayViewport(viewport: string, file: string, ownedStat
   return text.slice(panels[0]!.index);
 }
 
+/** Same native-history gate for an unpublished pending Edit, independent of its display. */
+export function hasPendingAutoplanArtifactHistory(
+  context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact },
+): boolean {
+  const p = context.pending, now = context.now ?? Date.now();
+  if (!p || p.source !== 'pre_tool_use' || p.tool !== 'Edit' || context.transcriptStatus !== 'ready' ||
+      !Number.isFinite(now) || !Number.isFinite(context.commandStartedAt) ||
+      !/^[A-Za-z0-9_-]{1,160}$/.test(p.sessionId) || !/^[A-Za-z0-9_-]{1,160}$/.test(p.toolUseId) ||
+      !ownedAutoplanArtifact(p.file, context) || context.publicTools.length > 10_000) return false;
+  const pendingTime = Date.parse(p.timestamp);
+  if (!Number.isFinite(pendingTime) || pendingTime < context.commandStartedAt || pendingTime > now) return false;
+  const events = context.publicTools.filter(e => Date.parse(e.timestamp) >= context.commandStartedAt);
+  if (!events.length || context.publicTools.some(e => !Number.isFinite(Date.parse(e.timestamp)))) return false;
+  const uses = new Map<string, NativePublicToolEvent>(), results = new Map<string, NativePublicToolEvent>();
+  let last = context.commandStartedAt;
+  for (const event of events) {
+    const time = Date.parse(event.timestamp);
+    if (event.sessionId !== p.sessionId || !event.toolUseId || event.toolUseId === p.toolUseId || time < last || time > now) return false;
+    last = time;
+    const map = event.kind === 'use' ? uses : results;
+    if (map.has(event.toolUseId) || (event.kind === 'result' && !uses.has(event.toolUseId))) return false;
+    map.set(event.toolUseId, event);
+  }
+  const mutations = [...uses.values()].filter(e => e.name === 'Write' || e.name === 'Edit');
+  // Hook metadata cannot replace a published request/result or an unresolved
+  // mutation. Public successful same-file history remains mandatory.
+  if (mutations.some(e => !results.has(e.toolUseId) || Date.parse(e.timestamp) > pendingTime ||
+      Date.parse(results.get(e.toolUseId)!.timestamp) > pendingTime) ||
+      !mutations.some(e => e.input?.file_path === p.file && results.get(e.toolUseId)?.isError === false &&
+        Date.parse(results.get(e.toolUseId)!.timestamp) <= pendingTime)) return false;
+  return true;
+}
+
 /** Metadata-only fallback. Added rows are display evidence, never request content. */
 export function pendingAutoplanArtifactPermissionInput(viewport: string,
   context: ArtifactPermissionContext & { pending?: PendingAutoplanArtifact; viewportCapturedAt: number },
@@ -428,25 +461,7 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
   const pendingTime = Date.parse(p.timestamp), signature = `${p.sessionId}:${p.toolUseId}`;
   if (!Number.isFinite(pendingTime) || pendingTime < context.commandStartedAt || pendingTime > context.viewportCapturedAt ||
       seen.has(signature) || seen.has(autoplanArtifactMenuKey(viewport)) || context.publicTools.length > 10_000) return null;
-  const events = context.publicTools.filter(e => Date.parse(e.timestamp) >= context.commandStartedAt);
-  if (!events.length || context.publicTools.some(e => !Number.isFinite(Date.parse(e.timestamp)))) return null;
-  const uses = new Map<string, NativePublicToolEvent>(), results = new Map<string, NativePublicToolEvent>();
-  let last = context.commandStartedAt;
-  for (const event of events) {
-    const time = Date.parse(event.timestamp);
-    if (event.sessionId !== p.sessionId || !event.toolUseId || event.toolUseId === p.toolUseId || time < last || time > now) return null;
-    last = time;
-    const map = event.kind === 'use' ? uses : results;
-    if (map.has(event.toolUseId) || (event.kind === 'result' && !uses.has(event.toolUseId))) return null;
-    map.set(event.toolUseId, event);
-  }
-  const mutations = [...uses.values()].filter(e => e.name === 'Write' || e.name === 'Edit');
-  // Hook metadata cannot replace a published request/result or an unresolved
-  // mutation. Public successful same-file history remains mandatory.
-  if (mutations.some(e => !results.has(e.toolUseId) || Date.parse(e.timestamp) > pendingTime ||
-      Date.parse(results.get(e.toolUseId)!.timestamp) > pendingTime) ||
-      !mutations.some(e => e.input?.file_path === p.file && results.get(e.toolUseId)?.isError === false &&
-        Date.parse(results.get(e.toolUseId)!.timestamp) <= pendingTime)) return null;
+  if (!hasPendingAutoplanArtifactHistory(context)) return null;
   try {
     const currentViewport = p.editDigest ? pendingCommandDisplayViewport(viewport, p.file, context.ownedStateRoot) : viewport;
     const text = currentViewport.replace(/\r\n?/g, '\n');

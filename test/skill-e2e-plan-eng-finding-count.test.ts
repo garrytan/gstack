@@ -23,6 +23,7 @@ import {
 } from './helpers/claude-pty-runner';
 
 import { isEngCompletionHandoff } from './helpers/eng-completion-handoff';
+import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import { evaluateEngSeedCoverage } from './helpers/eng-seeded-coverage';
 
 const describeE2E = describeE2ETier('periodic');
@@ -81,6 +82,7 @@ describeE2E('/plan-eng-review seeded issue coverage (periodic)', () => {
 
       try {
         const startedAt = Date.now();
+        const completedCalls = new Map<string, NativePlanQuestionCall>();
         const obs = await runPlanSkillCounting({
           skillName: 'plan-eng-review',
           slashCommand: '/plan-eng-review',
@@ -90,8 +92,9 @@ describeE2E('/plan-eng-review seeded issue coverage (periodic)', () => {
           isSetupAUQ: engSetupAUQ,
           isFirstReviewAUQ: engFirstReviewAUQ,
           isCompletionHandoffAUQ: fp => {
-            try { return isEngCompletionHandoff(fp, fs.readFileSync(planPath, 'utf8')); }
+            try { return isEngCompletionHandoff(fp, fs.readFileSync(planPath, 'utf8'), [...completedCalls.values()]); }
             catch { return false; } // Unpublished work cannot establish a closed handoff.
+            finally { if (fp.nativeCall && !completedCalls.has(fp.signature)) completedCalls.set(fp.signature, fp.nativeCall); }
           },
           // Extra legitimate decisions are not a failure. The unchanged wall limit
           // bounds runaway reviews; coverage below uses scoped completed native calls.

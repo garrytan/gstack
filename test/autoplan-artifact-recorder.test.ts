@@ -4,13 +4,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createAutoplanArtifactRecorder, recordAutoplanArtifact, readPendingAutoplanArtifact,
-  autoplanArtifactRecorderStatus } from './helpers/autoplan-artifact-recorder';
+  autoplanArtifactRecorderStatus, autoplanArtifactApprovalBoundary } from './helpers/autoplan-artifact-recorder';
 import type { NativePublicToolEvent } from './helpers/plan-count-transcript';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
 
 // Synthetic hook envelopes and owned temp paths. The live pending hook envelope
 // was unpublished; these controls do not reconstruct it or provide paid coverage.
-function fixture() {
+function fixture(approveEdits=false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-' quote $()-"));
   const cwd = path.join(root, 'repo with spaces'), config = path.join(root, 'config');
   const stateRoot = path.join(root, 'home', '.gstack');
@@ -22,7 +22,7 @@ function fixture() {
   const artifact = path.join(plans, '2026-09-09-reviewed-plan.md');
   fs.writeFileSync(artifact, 'Prior retained behavior.\n');
   const startedAt = Date.now()-10;
-  const recorder = createAutoplanArtifactRecorder(cwd,config,stateRoot);
+  const recorder = createAutoplanArtifactRecorder(cwd,config,stateRoot,approveEdits);
   const event = (kind='PreToolUse',toolUseId='toolu_pending') => ({hook_event_name:kind,tool_name:'Edit',
     session_id:session,tool_use_id:toolUseId,cwd,transcript_path:transcript,
     tool_input:{file_path:artifact,old_string:'BODY_OLD_SENTINEL',new_string:'BODY_NEW_SENTINEL'}});
@@ -168,5 +168,132 @@ describe('owned Autoplan pending artifact metadata recorder',()=>{
     const f=fixture();f.write(f.event());f.dispose();expect(fs.existsSync(f.recorder.file)).toBe(false);
     for(const file of ['test/helpers/autoplan-artifact-recorder.ts','test/autoplan-artifact-recorder.test.ts','test/autoplan-pending-artifact.test.ts','test/fixtures/autoplan-pending-artifact-ae.json'])
       expect(selectTests([file],E2E_TOUCHFILES,[]).selected).toEqual(['autoplan-chain-pty']);
+  });
+});
+
+// Real hook subprocesses and the public JSONL reader; no synthetic phase success
+// and no reconstruction of the unpublished paid request.
+function approvalFixture(approve=true, activate=true) {
+  const f=fixture(approve), startedAt=Date.now();
+  if (approve && activate) f.recorder.startEditApproval!(startedAt);
+  const event=f.event();event.tool_input.old_string='Prior retained behavior.';event.tool_input.new_string='Reviewed retained behavior.';
+  const records:any[]=[
+    {message:{role:'assistant',id:'msg_prior',content:[{type:'tool_use',id:'toolu_prior',name:'Write',input:{file_path:f.artifact}}]}},
+    {message:{role:'user',content:[{type:'tool_result',tool_use_id:'toolu_prior',is_error:false,content:'Written'}]}},
+  ].map(record=>({cwd:f.cwd,sessionId:f.session,isSidechain:false,timestamp:new Date(startedAt).toISOString(),...record}));
+  const publish=()=>fs.writeFileSync(f.transcript,records.map(record=>JSON.stringify(record)+'\n').join(''));
+  const current=()=>({cwd:f.cwd,sessionId:f.session,isSidechain:false,timestamp:new Date(startedAt).toISOString(),requestId:'req_current',
+    message:{role:'assistant',id:'msg_current',content:[{type:'tool_use',id:event.tool_use_id,name:'Edit',input:{...event.tool_input}}]}});
+  const invoke=(input:unknown=event)=>{
+    const child=spawnSync('bash',['-c',f.recorder.hooks.PreToolUse[0]!.hooks[0]!.command],
+      {cwd:f.cwd,input:JSON.stringify(input),encoding:'utf8',timeout:6000});
+    expect(child.error).toBeUndefined();expect(child.status).toBe(0);expect(child.stderr).toBe('');
+    return child.stdout ? JSON.parse(child.stdout) : undefined;
+  };
+  publish();return {...f,startedAt,event,records,publish,current,invoke};
+}
+
+describe('explicit native approval for owned Autoplan artifact Edits',()=>{
+  test.each(['unpublished','published','eng-artifact'])('%s approves once without changing bytes, JSONL or phase evidence',kind=>{
+    const f=approvalFixture();try{
+      if(kind==='eng-artifact'){
+        f.event.tool_input.file_path=path.join(path.dirname(path.dirname(f.artifact)),'branch-test-plan-20260911-055000.md');
+        fs.writeFileSync(f.event.tool_input.file_path,fs.readFileSync(f.artifact));
+        f.records[0].message.content[0].input.file_path=f.event.tool_input.file_path;
+      }
+      if(kind==='published')f.records.push(f.current());
+      f.publish();const journal=fs.readFileSync(f.transcript,'utf8'),before=fs.readFileSync(f.event.tool_input.file_path,'utf8');
+      expect(f.invoke()).toEqual({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'allow'}});
+      const state=fs.readFileSync(f.recorder.file,'utf8');
+      expect(JSON.parse(state).pending.editDigest).toBeDefined();expect(JSON.parse(state).seenIds).toEqual([f.event.tool_use_id]);
+      for(const body of [f.event.tool_input.old_string,f.event.tool_input.new_string,'tool_response'])expect(state).not.toContain(body);
+      expect(f.invoke()).toBeUndefined();expect(fs.readFileSync(f.recorder.file,'utf8')).toBe(state);
+      expect(f.invoke({...f.event,hook_event_name:'PostToolUse',tool_response:'Not native history'})).toBeUndefined();
+      expect(f.status().status).toBe('idle');expect(f.invoke()).toBeUndefined();
+      expect(fs.readFileSync(f.event.tool_input.file_path,'utf8')).toBe(before);expect(fs.readFileSync(f.transcript,'utf8')).toBe(journal);
+    }finally{f.dispose()}
+  });
+  test.each(['passive','not-started'])('%s remains silent even for a valid owned Edit',kind=>{
+    const f=approvalFixture(kind!=='passive',false);try{expect(f.invoke()).toBeUndefined()}finally{f.dispose()}
+  });
+  test.each(['no-history','old-history','failed-write','unresolved-write','concurrent-edit','foreign-mutation','duplicate-use',
+    'completed-current','conflicting-current','foreign-session','subagent-history','agent-id-history','other-journal-history','future-history','wrong-cwd','subagent',
+    'wrong-session','foreign-transcript','missing-old','duplicate-old','future-mtime','replace-all','Write','Bash',
+    'snapshot','config','native-plan','foreign-file','symlink','locked'])('%s cannot grant a native decision',kind=>{
+    const f=approvalFixture();try{
+      const e=f.event as Record<string,any>;
+      if(kind==='no-history')f.records.length=0;
+      if(kind==='old-history')f.records.forEach(r=>r.timestamp=new Date(f.startedAt-1).toISOString());
+      if(kind==='failed-write')f.records[1].message.content[0].is_error=true;
+      if(kind==='unresolved-write')f.records.pop();
+      if(kind==='concurrent-edit'||kind==='foreign-mutation'){
+        const other=f.current();other.message.content[0].id='toolu_conflict';
+        if(kind==='foreign-mutation')other.message.content[0].input.file_path=path.join(f.stateRoot,'config');
+        f.records.push(other);
+      }
+      if(kind==='duplicate-use')f.records.splice(1,0,f.records[0]);
+      if(kind==='completed-current')f.records.push(f.current(),{...f.records[1],message:{role:'user',content:[{type:'tool_result',tool_use_id:e.tool_use_id,is_error:false}]}});
+      if(kind==='conflicting-current'){const current=f.current();current.message.content[0].input.new_string='Different request';f.records.push(current)}
+      if(kind==='foreign-session')f.records.forEach(r=>r.sessionId='another-parent');
+      if(kind==='subagent-history')f.records.forEach(r=>r.isSidechain=true);
+      if(kind==='agent-id-history')f.records.forEach(r=>r.agentId='child-agent');
+      if(kind==='other-journal-history'){const other=path.join(f.config,'projects','other',f.session+'.jsonl');fs.mkdirSync(path.dirname(other));fs.writeFileSync(other,fs.readFileSync(f.transcript));f.records.length=0;}
+      if(kind==='future-history')f.records.forEach(r=>r.timestamp=new Date(Date.now()+10000).toISOString());
+      if(kind==='wrong-cwd')e.cwd=path.join(f.root,'other');
+      if(kind==='subagent')e.agent_id='child';
+      if(kind==='wrong-session'){e.session_id='another-parent';e.transcript_path=path.join(f.project,e.session_id+'.jsonl');fs.writeFileSync(e.transcript_path,'')}
+      if(kind==='foreign-transcript'){e.transcript_path=path.join(f.root,f.session+'.jsonl');fs.writeFileSync(e.transcript_path,'')}
+      if(kind==='missing-old')e.tool_input.old_string='Absent text';
+      if(kind==='duplicate-old')fs.writeFileSync(f.artifact,'Prior retained behavior. Prior retained behavior.');
+      if(kind==='future-mtime')fs.utimesSync(f.artifact,new Date(),new Date(Date.now()+10000));
+      if(kind==='replace-all')e.tool_input.replace_all=true;
+      if(kind==='Write'||kind==='Bash')e.tool_name=kind;
+      if(['snapshot','config','native-plan','foreign-file'].includes(kind)){
+        e.tool_input.file_path=kind==='snapshot'?path.join(path.dirname(f.artifact),'snapshot.md'):
+          kind==='config'?path.join(f.stateRoot,'config'):kind==='native-plan'?path.join(f.config,'plans','owned-plan.md'):path.join(f.root,'foreign.md');
+        fs.mkdirSync(path.dirname(e.tool_input.file_path),{recursive:true});fs.writeFileSync(e.tool_input.file_path,'Prior retained behavior.');
+        f.records[0].message.content[0].input.file_path=e.tool_input.file_path;
+      }
+      if(kind==='symlink'){fs.renameSync(f.artifact,f.artifact+'.original');fs.symlinkSync(f.artifact+'.original',f.artifact)}
+      if(kind==='locked')fs.writeFileSync(f.recorder.file+'.lock','');
+      f.publish();expect(f.invoke()).toBeUndefined();
+    }finally{f.dispose()}
+  });
+  test('rejected owned Edit stops before UI fallback; initial Write leaves unrelated navigation available',()=>{
+    const f=approvalFixture();try{
+      expect(f.invoke({...f.event,tool_name:'Write'})).toBeUndefined();
+      expect(autoplanArtifactApprovalBoundary(f.status())).toBe('clear');
+      f.records[1].message.content[0].is_error=true;f.publish();
+      expect(f.invoke()).toBeUndefined();
+      expect(f.status()).toEqual({status:'invalid',reason:'approval_withheld'});
+      expect(autoplanArtifactApprovalBoundary(f.status())).toBe('failed');
+      // The failed route is sticky across repeated hooks and cannot send UI input.
+      expect(f.invoke()).toBeUndefined();expect(autoplanArtifactApprovalBoundary(f.status())).toBe('failed');
+      const retained=JSON.parse(fs.readFileSync(f.recorder.file,'utf8'));
+      expect(retained.pending.toolUseId).toBe(f.event.tool_use_id);
+    }finally{f.dispose()}
+    const g=approvalFixture();try{
+      expect(g.invoke()?.hookSpecificOutput.permissionDecision).toBe('allow');
+      expect(autoplanArtifactApprovalBoundary(g.status())).toBe('pending');
+      expect(g.invoke({...g.event,hook_event_name:'PostToolUse'})).toBeUndefined();
+      expect(autoplanArtifactApprovalBoundary(g.status())).toBe('clear');
+    }finally{g.dispose()}
+  });
+  test('changed replay cannot refresh approval; completion hooks cannot fabricate required history',()=>{
+    const f=approvalFixture();try{
+      expect(f.invoke()?.hookSpecificOutput.permissionDecision).toBe('allow');
+      fs.writeFileSync(f.artifact,'Changed bytes.');expect(f.invoke()).toBeUndefined();expect(f.status().status).toBe('invalid');
+    }finally{f.dispose()}
+    const g=approvalFixture();try{
+      g.records.length=0;g.publish();expect(g.invoke()).toBeUndefined();
+      expect(g.invoke({...g.event,hook_event_name:'PostToolUse',tool_response:{success:true}})).toBeUndefined();
+      g.event.tool_use_id='toolu_next';expect(g.invoke()).toBeUndefined();
+    }finally{g.dispose()}
+  });
+  test.each(['repeat','future','before-recorder'])('invalid %s activation fails closed',kind=>{
+    const f=approvalFixture(true,kind==='repeat');try{
+      const started=kind==='future'?Date.now()+10000:kind==='before-recorder'?f.startedAt-10000:f.startedAt;
+      expect(()=>f.recorder.startEditApproval!(started)).toThrow();expect(f.invoke()).toBeUndefined();
+    }finally{f.dispose()}
   });
 });

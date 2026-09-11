@@ -30,8 +30,8 @@ import {
   isNumberedOptionListVisible,
   selectPtyNumberedOption,
 } from './helpers/claude-pty-runner';
-import { autoplanArtifactPermissionInput, pendingAutoplanArtifactPermissionInput, publishedAutoplanArtifactPermissionInput, autoplanArtifactMenuKey, autoplanPermissionProgressKey } from './helpers/autoplan-artifact-permission';
-import { readPendingAutoplanArtifact, autoplanArtifactRecorderStatus } from './helpers/autoplan-artifact-recorder';
+import { autoplanPermissionProgressKey } from './helpers/autoplan-artifact-permission';
+import { readPendingAutoplanArtifact, autoplanArtifactRecorderStatus, autoplanArtifactApprovalBoundary } from './helpers/autoplan-artifact-recorder';
 import { autoplanSetupDecision, autoplanBlockingQuestionBoundary, type AutoplanSetupDecision } from './helpers/autoplan-setup-question';
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
@@ -87,6 +87,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           observeScreen: true,
           observeSetupQuestions: true,
           observeAutoplanArtifacts: true,
+          approveAutoplanArtifactEdits: true,
         });
 
         let hits: AutoplanPhaseHit[] = [];
@@ -95,7 +96,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         let pendingArtifact: ReturnType<typeof readPendingAutoplanArtifact>;
         let viewportCapturedAt = Date.now();
         let methodologyAudit: AutoplanMethodReadAudit[] = [];
-        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' | 'blocked_on_question' = 'timeout';
+        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' | 'blocked_on_question' | 'artifact_permission_failed' = 'timeout';
         let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
         let blockedQuestion: ReturnType<typeof autoplanBlockingQuestionBoundary> = null;
         let evidence = '';
@@ -135,13 +136,14 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           await Bun.sleep(8000);
           session.mark();
           commandStartedAt = Date.now();
+          if (!session.startAutoplanArtifactEditApproval) throw new Error('Owned artifact approval hook unavailable');
+          session.startAutoplanArtifactEditApproval(commandStartedAt);
           session.send('/autoplan\r');
 
           const budgetMs = AUTOPLAN_CHAIN_BUDGET.workMs;
           const start = Date.now();
           let lastPermSig = '';
           let lastPermissionProgress = '';
-          const seenArtifactPermissions = new Set<string>();
           let lastCheckpointAt = start;
           const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
@@ -160,27 +162,17 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             }
             const visible = viewport;
 
-            // Cropped artifact edits require current native identity and owned
-            // file/diff binding. Option 1 grants only this request, once per ID.
-            const artifactPermission = autoplanArtifactPermissionInput(visible, {
-              cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot,
-              commandStartedAt, transcriptStatus: transcript.status, publicTools,
-            }, seenArtifactPermissions) ?? publishedAutoplanArtifactPermissionInput(visible, {
-              cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,
-              ownedNativePlansRoot: session.hermeticConfigDir ? path.join(session.hermeticConfigDir, 'plans') : undefined,
-              transcriptStatus: transcript.status, publicTools, pending: pendingArtifact, viewportCapturedAt,
-            }, seenArtifactPermissions) ?? pendingAutoplanArtifactPermissionInput(visible, {
-              cwd: tempDir, ownedStateRoot: session.hermeticSkillStateRoot, commandStartedAt,
-              transcriptStatus: transcript.status, publicTools, pending: pendingArtifact, viewportCapturedAt,
-            }, seenArtifactPermissions);
-            if (artifactPermission) {
-              seenArtifactPermissions.add(artifactPermission.signature);
-              seenArtifactPermissions.add(autoplanArtifactMenuKey(visible));
-              capture('artifact_permission'); // Retain the exact pending metadata before input/cleanup.
-              session.send(artifactPermission.input);
-              await Bun.sleep(2000);
-              continue;
+            // Native hooks exclusively approve owned artifact Edits. Rejection
+            // is a failure, and pending hooks cannot fall through to UI input.
+            const artifactStatus = autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, tempDir,
+              session.hermeticConfigDir, session.hermeticSkillStateRoot);
+            const artifactBoundary = autoplanArtifactApprovalBoundary(artifactStatus);
+            if (artifactBoundary === 'failed') {
+              outcome = 'artifact_permission_failed';
+              evidence = JSON.stringify(artifactStatus);
+              break;
             }
+            if (artifactBoundary === 'pending') continue;
 
             // Auto-grant any permission dialog so autoplan can keep moving
             // through its phases. The autoplan template auto-decides review
@@ -265,7 +257,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             fullSessionEvidence = diagnosticTail(session.visibleText());
             observe();
             // Final retained records can include a dispatch published after the loop break.
-            if (methodologyAudit.some(audit => !audit.passed)) {
+            if (methodologyAudit.some(audit => !audit.passed) && outcome !== 'artifact_permission_failed') {
               outcome = 'incomplete_methodology';
               evidence = JSON.stringify(methodologyAudit);
             }
@@ -283,7 +275,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           );
         }
 
-        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup' || outcome === 'incomplete_methodology') {
+        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup' || outcome === 'incomplete_methodology' || outcome === 'artifact_permission_failed') {
           throw new Error(
             `autoplan chain test FAILED: outcome=${outcome}, exitCode=${exitCode}, hits=${JSON.stringify(hits)}\n` +
               `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +

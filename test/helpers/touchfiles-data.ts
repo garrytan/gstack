@@ -439,6 +439,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // confirm" plan write. runPlanSkillFloorCheck cannot detect that shape
   // (it exits on first AUQ); runPlanSkillCounting can.
   'plan-eng-multi-finding-batching': [
+    'test/helpers/eng-seeded-coverage.ts', 'test/eng-seeded-coverage.test.ts',
     "test/plan-count-session-cwd.test.ts",
 
     "test/plan-scope-recovery-av.test.ts",

@@ -54,10 +54,10 @@ export function outsideVoiceGuard(ctx: TemplateContext): string {
     ? '[ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]'
     : '[ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]';
   const repair = v.id === 'codex' ? 'codex' : 'claude';
-  return `# GSTACK_ACTIVE_HOST, when supplied, must identify the actual harness, never a model overlay.
+  return `# GSTACK_ACTIVE_HOST names the harness, never the model.
 if { ${own}; }; then
   echo '${v.label} outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
-  if [ -n "\${CLAUDECODE:-}" ] && { [ -n "\${CODEX_THREAD_ID:-}" ] || [ -n "\${CODEX_SANDBOX:-}" ]; }; then
+  if { [ -n "\${CLAUDECODE:-}" ] || [ "\${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "\${CODEX_THREAD_ID:-}" ] || [ -n "\${CODEX_SANDBOX:-}" ] || [ "\${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
     echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
   else
     echo 'Repair installed skills: run setup --host ${repair} from your gstack checkout.' >&2

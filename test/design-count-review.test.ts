@@ -184,6 +184,19 @@ describe('A descriptive hierarchy header owns its primary and peer controls', ()
     c.answers = {[q.question]: q.options[0]!.label};
     return c;
   };
+  // A current property assessment and primary/secondary roles do not depend
+  // on one captured label, palette, or control name.
+  const properties = (): NativePlanQuestionCall => {
+    const c = first(), q = c.questions[0]!;
+    q.header = 'Issue 1';
+    q.question = q.question.replace('all four header buttons look identical', 'the four header buttons are the same size, weight and color');
+    q.options = [
+      {label: '1A Apply DESIGN.md styles (recommended)', description: 'Save is the only filled #1d4ed8 button with white text; Reset, Cancel, Export are neutral ghost buttons. Geometry and states unchanged.'},
+      {label: '1B Leave unchanged', description: 'No change; finding stays open and lowers the score.'},
+    ];
+    c.answers = {[q.question]: q.options[0]!.label};
+    return c;
+  };
   const edit = (change: (c: NativePlanQuestionCall) => void, source = first) => {
     const c = source(); change(c);
     if (c.answers && Object.keys(c.answers).length) c.answers = {[c.questions[0]!.question]: c.questions[0]!.options[0]!.label};
@@ -207,6 +220,63 @@ describe('A descriptive hierarchy header owns its primary and peer controls', ()
         .replace('#1d4ed8 with white', '#ffee22 with black').replace('Reset, Cancel, Export are', 'Export, Reset, Cancel are')}));
       q.options.reverse();
     }))).toBe(true);
+  });
+  test('equal visual properties bind concrete primary and secondary roles for any offered answer', () => {
+    const c = properties(), q = c.questions[0]!;
+    for (const o of q.options) {
+      c.answers = {[q.question]: o.label};
+      expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);
+    }
+    for (const propertyList of ['fill and emphasis', 'colour, weight', 'weight']) {
+      expect(isDesignCountFirstReview(edit(c => {
+        c.questions[0]!.question = c.questions[0]!.question.replace('size, weight and color', propertyList);
+      }, properties))).toBe(true);
+    }
+    expect(isDesignCountFirstReview(edit(c => {
+      const q = c.questions[0]!;
+      q.question = q.question.replaceAll('Save', 'Publish').replace('the four', 'the 4');
+      q.options[0] = {label: '1A Reuse existing component roles', description: 'Publish becomes the single filled primary #ffee22 button with black text; Export/Reset/Cancel become neutral ghost buttons. Matches DESIGN.md exactly.'};
+      q.options[1]!.description = 'This issue remains unresolved.';
+    }, properties))).toBe(true);
+    expect(isDesignCountFirstReview(edit(c => {
+      c.questions[0]!.question += ' "This finding is historical."';
+      c.questions[0]!.options[0]!.description += ' "This amendment applies only to another project."';
+    }, properties))).toBe(true);
+  });
+  test('property evidence preserves currentness, authority and ownership within each native option', () => {
+    const mutations: Array<(q: NativePlanQuestionCall['questions'][number]) => void> = [
+      q => {q.question = q.question.replace('size, weight and color', 'size');},
+      q => {q.question = q.question.replace('are the same', 'are not the same');},
+      q => {q.question = q.question.replace('the four', 'the three');},
+      q => {q.question = q.question.replace('ELI10:', '> ELI10:');},
+      q => {q.question += '\nELI10: Right now the four header buttons are the same color.';},
+      q => {q.question += ' This finding is historical.';},
+      q => {q.question += ' This finding applies only to another project.';},
+      q => {q.options[0]!.description = q.options[0]!.description!.replace('Save is', 'Reset is');},
+      q => {q.options[0]!.description = q.options[0]!.description!.replace('Export are', 'Archive are');},
+      q => {q.options[0]!.description = q.options[0]!.description!.replace('Reset, Cancel, Export', 'Save, Cancel, Export');},
+      q => {q.options[0]!.description = q.options[0]!.description!.replace('Reset, Cancel, Export', 'Reset, Cancel, Cancel');},
+      q => {q.options[0]!.description = q.options[0]!.description!.replace('#1d4ed8', 'blue');},
+      q => {q.options[0]!.description = q.options[0]!.description!.replace('neutral ghost', 'filled primary');},
+      q => {q.options[0]!.label = '1A DESIGN.md primary Reset';},
+      q => {q.options[0]!.label = '1A Apply styles';},
+      q => {q.options[0]!.label = '1A Apply styles'; q.options[1]!.label = '1B Leave DESIGN.md styles unchanged';},
+      q => {q.options[0]!.label += ' only if approval is granted';},
+      q => {q.options[0]!.description += ' This amendment is withdrawn.';},
+      q => {q.options[0]!.description += ' This amendment keeps all four header buttons identical.';},
+      q => {q.options[1]!.description = 'No change; finding is closed.';},
+      q => {q.options[1]!.description += ' This option is historical.';},
+      q => {q.options[1]!.description += ' This amendment applies only to another project.';},
+      q => {q.options[1]!.description += ' This finding stays open only if approved.';},
+    ];
+    for (const mutate of mutations) {
+      expect(isDesignCountFirstReview(edit(c => mutate(c.questions[0]!), properties)), mutate.toString()).toBe(false);
+    }
+    for (const mutate of [
+      (c: NativePlanQuestionCall) => {c.answered = false;},
+      (c: NativePlanQuestionCall) => {c.failed = true;},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [0];},
+    ]) expect(isDesignCountFirstReview(edit(mutate, properties))).toBe(false);
   });
   test('retry stand-out wording binds existing variants and an owned open hierarchy gap', () => {
     const c = retry(), q = c.questions[0]!;
